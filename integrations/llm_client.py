@@ -16,9 +16,18 @@ GEMINI_MODELS = (
     "gemini-3-pro-preview",
     "gemini-3-flash-preview"
 )
-GEMINI_MAX_OUTPUT_TOKENS_DEFAULT = 16384
+GEMINI_MAX_OUTPUT_TOKENS_DEFAULT = 32768
 GEMINI_MAX_RETRIES = 3
 GEMINI_RETRY_DELAY = 2.0
+
+# Gemini finish_reason 在不同 SDK/模型下可能是字符串或数字枚举，这里统一兜底识别“输出被截断”。
+_GEMINI_TRUNCATION_REASONS = {
+    "MAX_TOKENS",
+    "MAX_OUTPUT_TOKENS",
+    "TOKEN_LIMIT",
+    "LENGTH",
+    "2",  # 兼容部分枚举输出
+}
 
 
 def call_llm(
@@ -138,6 +147,7 @@ def _call_gemini(
             prompt_tokens = getattr(usage, "prompt_token_count", None) if usage else None
             completion_tokens = getattr(usage, "candidates_token_count", None) if usage else None
             total_tokens = getattr(usage, "total_token_count", None) if usage else None
+            finish_reason_norm = finish_reason.strip().upper()
             print(
                 "[llm] gemini model={} finish_reason={} prompt_tokens={} completion_tokens={} total_tokens={} max_output_tokens={}".format(
                     model,
@@ -148,6 +158,10 @@ def _call_gemini(
                     generation_config["max_output_tokens"],
                 )
             )
+            if finish_reason_norm in _GEMINI_TRUNCATION_REASONS:
+                raise RuntimeError(
+                    f"Gemini 输出被截断(finish_reason={finish_reason or 'unknown'})，请缩短输入或提升输出上限后重试"
+                )
             return text
         except Exception as e:
             last_err = e

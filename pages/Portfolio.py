@@ -292,7 +292,6 @@ with content_col:
     )
 
     st.title("💼 持仓管理")
-    st.caption("管理 Step4 的 USER_LIVE 账本。删除行即清仓；Step4 将优先读取这里。")
 
     loading = show_page_loading(title="加载持仓中...", subtitle="正在读取 USER_LIVE")
     try:
@@ -334,74 +333,77 @@ with content_col:
         unsafe_allow_html=True,
     )
 
-    auto_equity = total_equity_raw is None
+    auto_equity_initial = total_equity_raw is None
     input_default_equity = (
         manual_total_equity if manual_total_equity is not None else display_total_equity
     )
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        free_cash_input = st.text_input(
-            "现金",
-            value=f"{free_cash_initial:.2f}",
-            help="用于 Step4 的可用现金",
-        )
-    with c2:
-        total_equity_input = st.text_input(
-            "总市值",
-            value=f"{input_default_equity:.2f}",
-            disabled=auto_equity,
-            help="关闭自动推导后可手动指定",
-        )
-    with c3:
-        auto_equity = st.toggle(
-            "总资产自动推导（推荐）",
-            value=auto_equity,
-            help="开启后 total_equity 保存为 NULL，Step4 自动按 现金+最新持仓市值推导。",
+
+    st.caption("编辑过程中不会自动刷新；点击“保存 USER_LIVE”后才会提交并重载。")
+
+    with st.form("portfolio_edit_form", clear_on_submit=False):
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c1:
+            free_cash_input = st.text_input(
+                "现金",
+                value=f"{free_cash_initial:.2f}",
+                help="用于 Step4 的可用现金",
+            )
+        with c2:
+            total_equity_input = st.text_input(
+                "总市值",
+                value=f"{input_default_equity:.2f}",
+                disabled=auto_equity_initial,
+                help="关闭自动推导后可手动指定",
+            )
+        with c3:
+            auto_equity = st.toggle(
+                "总资产自动推导（推荐）",
+                value=auto_equity_initial,
+                help="开启后 total_equity 保存为 NULL，Step4 自动按 现金+最新持仓市值推导。",
+            )
+
+        st.markdown("### 持仓股")
+        st.caption("每行一只股票。勾选“删除”或把数量改为 0，保存后会清仓。可直接新增行。")
+
+        editor_df = st.data_editor(
+            _to_editor_df(positions),
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            column_config={
+                "代码": st.column_config.TextColumn(
+                    "代码",
+                    help="A股6位代码，如 002273",
+                    max_chars=6,
+                    required=True,
+                ),
+                "名称": st.column_config.TextColumn("名称", max_chars=20),
+                "成本": st.column_config.NumberColumn(
+                    "成本",
+                    min_value=0.0,
+                    step=0.001,
+                    format="%.3f",
+                    required=True,
+                ),
+                "数量": st.column_config.NumberColumn(
+                    "数量",
+                    min_value=0,
+                    step=100,
+                    format="%d",
+                    required=True,
+                ),
+                "建仓时间": st.column_config.DateColumn(
+                    "建仓时间",
+                    format="YYYY-MM-DD",
+                ),
+                "策略": st.column_config.TextColumn("策略", max_chars=50),
+                "删除": st.column_config.CheckboxColumn("删除", default=False),
+            },
+            key="portfolio_editor",
         )
 
-    st.markdown("### 持仓股")
-    st.caption("每行一只股票。勾选“删除”或把数量改为 0，保存后会清仓。可直接新增行。")
-
-    editor_df = st.data_editor(
-        _to_editor_df(positions),
-        use_container_width=True,
-        hide_index=True,
-        num_rows="dynamic",
-        column_config={
-            "代码": st.column_config.TextColumn(
-                "代码",
-                help="A股6位代码，如 002273",
-                max_chars=6,
-                required=True,
-            ),
-            "名称": st.column_config.TextColumn("名称", max_chars=20),
-            "成本": st.column_config.NumberColumn(
-                "成本",
-                min_value=0.0,
-                step=0.001,
-                format="%.3f",
-                required=True,
-            ),
-            "数量": st.column_config.NumberColumn(
-                "数量",
-                min_value=0,
-                step=100,
-                format="%d",
-                required=True,
-            ),
-            "建仓时间": st.column_config.DateColumn(
-                "建仓时间",
-                format="YYYY-MM-DD",
-            ),
-            "策略": st.column_config.TextColumn("策略", max_chars=50),
-            "删除": st.column_config.CheckboxColumn("删除", default=False),
-        },
-        key="portfolio_editor",
-    )
-
-    col_save, col_reload = st.columns([1, 1])
-    with col_save:
-        if st.button("💾 保存 USER_LIVE", use_container_width=True):
+        submitted = st.form_submit_button("💾 保存 USER_LIVE", use_container_width=True)
+        if submitted:
             try:
                 free_cash_value = _parse_money_input(free_cash_input, "现金")
                 total_equity_value = (
@@ -428,10 +430,6 @@ with content_col:
                 st.rerun()
             else:
                 st.error(msg)
-    with col_reload:
-        if st.button("🔄 重新加载", use_container_width=True):
-            st.rerun()
 
-    st.info(
-        "说明：这个页面管理 Supabase 的 USER_LIVE 主账本；GitHub Secret 里的 MY_PORTFOLIO_STATE 仅兜底使用。"
-    )
+    if st.button("🔄 重新加载", use_container_width=True):
+        st.rerun()

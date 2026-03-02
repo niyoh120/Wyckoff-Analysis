@@ -647,33 +647,26 @@ def _append_spot_bar_if_needed(
 
 
 def _fetch_latest_real_close(code: str, window) -> float | None:
-    try:
-        raw = _fetch_hist(code, window, "")
-        df = normalize_hist_from_fetch(raw).sort_values("date").reset_index(drop=True)
-        if ENFORCE_TARGET_TRADE_DATE:
-            df, patched = _append_spot_bar_if_needed(code, df, window.end_trade_date)
-            if patched:
-                print(f"[step4] {code} 实时快照补偿成功（不复权）")
-        if ENFORCE_TARGET_TRADE_DATE:
-            latest_trade_date = _latest_trade_date_from_hist(df)
-            if latest_trade_date != window.end_trade_date:
-                return None
-        return float(df.iloc[-1]["close"])
-    except Exception:
+    # 优先不复权；若交易日未对齐或拉取异常，再回退到前复权，避免误判“无最新价”。
+    for adjust, label in [("", "不复权"), ("qfq", "前复权")]:
         try:
-            raw = _fetch_hist(code, window, "qfq")
+            raw = _fetch_hist(code, window, adjust)
             df = normalize_hist_from_fetch(raw).sort_values("date").reset_index(drop=True)
             if ENFORCE_TARGET_TRADE_DATE:
                 df, patched = _append_spot_bar_if_needed(code, df, window.end_trade_date)
                 if patched:
-                    print(f"[step4] {code} 实时快照补偿成功（前复权）")
-            if ENFORCE_TARGET_TRADE_DATE:
+                    print(f"[step4] {code} 实时快照补偿成功（{label}）")
                 latest_trade_date = _latest_trade_date_from_hist(df)
                 if latest_trade_date != window.end_trade_date:
-                    return None
+                    print(
+                        f"[step4] {code} {label}交易日未对齐: "
+                        f"latest_trade_date={latest_trade_date}, target_trade_date={window.end_trade_date}"
+                    )
+                    continue
             return float(df.iloc[-1]["close"])
         except Exception:
-            return None
+            continue
+    return None
 
 
 def _calc_atr(df: pd.DataFrame, period: int = STEP4_ATR_PERIOD) -> float | None:
@@ -974,32 +967,27 @@ def _split_telegram_message(content: str, max_len: int = TELEGRAM_MAX_LEN) -> li
         return [content]
     chunks: list[str] = []
     cur = ""
-    for part in content.split("\n\n"):
-        candidate = part if not cur else f"{cur}\n\n{part}"
-        if len(candidate) <= max_len:
-            cur = candidate
+    for line in content.splitlines(keepends=True):
+        # 极长单行兜底分段
+        if len(line) > max_len:
+            if cur:
+                chunks.append(cur.rstrip("\n"))
+                cur = ""
+            start = 0
+            while start < len(line):
+                chunks.append(line[start:start + max_len].rstrip("\n"))
+                start += max_len
             continue
-        if cur:
-            chunks.append(cur)
-        cur = ""
-        if len(part) <= max_len:
-            cur = part
-            continue
-        start = 0
-        while start < len(part):
-            chunks.append(part[start:start + max_len])
-            start += max_len
+
+        if len(cur) + len(line) <= max_len:
+            cur += line
+        else:
+            if cur:
+                chunks.append(cur.rstrip("\n"))
+            cur = line
     if cur:
-        chunks.append(cur)
+        chunks.append(cur.rstrip("\n"))
     return chunks
-
-
-_TG_MDV2_SPECIAL = re.compile(r"([_*\[\]()~`>#+\-=|{}.!\\])")
-
-
-def _escape_markdownv2(text: str) -> str:
-    """转义 Telegram MarkdownV2 所有保留字符，使原文字面量安全显示。"""
-    return _TG_MDV2_SPECIAL.sub(r"\\\1", text or "")
 
 
 def send_to_telegram(message_text: str) -> bool:
@@ -1014,13 +1002,11 @@ def send_to_telegram(message_text: str) -> bool:
     proxy_url = os.getenv("PROXY_URL", "").strip()
     proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    escaped = _escape_markdownv2(message_text)
-    chunks = _split_telegram_message(escaped)
+    chunks = _split_telegram_message(message_text)
     for idx, chunk in enumerate(chunks, start=1):
         payload = {
             "chat_id": chat_id,
-            "text": chunk if len(chunks) == 1 else f"\\[{idx}/{len(chunks)}\\]\n{chunk}",
-            "parse_mode": "MarkdownV2",
+            "text": chunk if len(chunks) == 1 else f"[{idx}/{len(chunks)}]\n{chunk}",
             "disable_web_page_preview": True,
         }
         try:
@@ -1059,7 +1045,7 @@ def _render_trade_ticket(
         return "-" if v is None else f"{v:.2f}"
 
     lines = [
-        "🚨 **Alpha-OMS 交易执行工单**",
+        "🚨 Alpha-OMS 交易执行工单",
         f"📅 日期：{now_str} | 净权益：{total_equity:.2f} | 当前可用现金：{free_cash_before:.2f}",
         f"🤖 模型：{model}",
     ]
@@ -1067,68 +1053,68 @@ def _render_trade_ticket(
         lines.append(f"📌 市场视图：{market_view}")
     lines.append("")
 
-    lines.append(f"🟥 **[卖出动作 SELL]** ({len(sells)})")
+    lines.append(f"🟥 [卖出动作 SELL] ({len(sells)})")
     if not sells:
-        lines.append("* 无")
+        lines.append("- 无")
     else:
         for t in sells:
-            lines.append(f"* **🟥 {t.action}** | `{t.code} {t.name}`")
-            lines.append(f"* 执行：{t.shares} 股 | 回笼：{t.amount:.2f} 元 | 止损：{_fmt_stop(t.stop_loss)}")
+            lines.append(f"- 🟥 {t.action} | {t.code} {t.name}")
+            lines.append(f"  执行：{t.shares} 股 | 回笼：{t.amount:.2f} 元 | 止损：{_fmt_stop(t.stop_loss)}")
             if t.atr14 is not None:
-                lines.append(f"* 风控：ATR{STEP4_ATR_PERIOD}={t.atr14:.3f} | 滑点={t.slippage_bps * 100:.2f}%")
-            lines.append(f"* 触发：{_first_sentence(t.tape_condition)}")
-            lines.append(f"* 失效：{_first_sentence(t.invalidate_condition)}")
-            lines.append(f"* 理由：{_first_sentence(t.reason)}")
+                lines.append(f"  风控：ATR{STEP4_ATR_PERIOD}={t.atr14:.3f} | 滑点={t.slippage_bps * 100:.2f}%")
+            lines.append(f"  触发：{_first_sentence(t.tape_condition)}")
+            lines.append(f"  失效：{_first_sentence(t.invalidate_condition)}")
+            lines.append(f"  理由：{_first_sentence(t.reason)}")
             lines.append("")
 
-    lines.append(f"🟨 **[持有动作 HOLD]** ({len(holds)})")
+    lines.append(f"🟨 [持有动作 HOLD] ({len(holds)})")
     if not holds:
-        lines.append("* 无")
+        lines.append("- 无")
     else:
         for t in holds:
-            lines.append(f"* **🟨 HOLD** | `{t.code} {t.name}` | 止损：{_fmt_stop(t.stop_loss)}")
+            lines.append(f"- 🟨 HOLD | {t.code} {t.name} | 止损：{_fmt_stop(t.stop_loss)}")
             if t.atr14 is not None:
-                lines.append(f"* 风控：ATR{STEP4_ATR_PERIOD}={t.atr14:.3f} | 动态止损={_fmt_stop(t.effective_stop_loss)}")
-            lines.append(f"* 观察：{_first_sentence(t.reason)}")
-            lines.append(f"* 触发：{_first_sentence(t.tape_condition)}")
-            lines.append(f"* 失效：{_first_sentence(t.invalidate_condition)}")
+                lines.append(f"  风控：ATR{STEP4_ATR_PERIOD}={t.atr14:.3f} | 动态止损={_fmt_stop(t.effective_stop_loss)}")
+            lines.append(f"  观察：{_first_sentence(t.reason)}")
+            lines.append(f"  触发：{_first_sentence(t.tape_condition)}")
+            lines.append(f"  失效：{_first_sentence(t.invalidate_condition)}")
             lines.append("")
     lines.append("")
 
-    lines.append(f"🟩 **[买入动作 BUY - APPROVED]** ({len(approved_buy)})")
+    lines.append(f"🟩 [买入动作 BUY - APPROVED] ({len(approved_buy)})")
     if not approved_buy:
-        lines.append("* 无")
+        lines.append("- 无")
     else:
         for t in approved_buy:
-            lines.append(f"* **🟩 {t.action}** | `{t.code} {t.name}`")
+            lines.append(f"- 🟩 {t.action} | {t.code} {t.name}")
             lines.append(
-                f"* 下单：{t.shares} 股 | 占用：{t.amount:.2f} 元 | 参考价："
+                f"  下单：{t.shares} 股 | 占用：{t.amount:.2f} 元 | 参考价："
                 f"{('-' if t.price_hint is None else f'{t.price_hint:.2f}')}"
             )
             lines.append(
-                f"* 风险：止损 {_fmt_stop(t.stop_loss)} | 最大回撤 {t.max_loss:.2f} 元 ({t.drawdown_ratio * 100:.2f}%)"
+                f"  风险：止损 {_fmt_stop(t.stop_loss)} | 最大回撤 {t.max_loss:.2f} 元 ({t.drawdown_ratio * 100:.2f}%)"
                 f" | 滑点={t.slippage_bps * 100:.2f}%"
             )
             if t.atr14 is not None:
-                lines.append(f"* ATR：ATR{STEP4_ATR_PERIOD}={t.atr14:.3f}")
+                lines.append(f"  ATR：ATR{STEP4_ATR_PERIOD}={t.atr14:.3f}")
             if t.tape_condition:
-                lines.append(f"* 确认：{_first_sentence(t.tape_condition)}")
+                lines.append(f"  确认：{_first_sentence(t.tape_condition)}")
             if t.invalidate_condition:
-                lines.append(f"* 熔断：{_first_sentence(t.invalidate_condition)}")
+                lines.append(f"  熔断：{_first_sentence(t.invalidate_condition)}")
             if t.reason:
-                lines.append(f"* 理由：{_first_sentence(t.reason)}")
+                lines.append(f"  理由：{_first_sentence(t.reason)}")
             lines.append("")
     lines.append("")
 
-    lines.append(f"⬛ **[风控拒单 NO_TRADE]** ({len(blocked)})")
+    lines.append(f"⬛ [风控拒单 NO_TRADE] ({len(blocked)})")
     if not blocked:
-        lines.append("* 无")
+        lines.append("- 无")
     else:
         for t in blocked:
-            lines.append(f"* **⬛ NO_TRADE** | `{t.code} {t.name}` | 原动作：{t.action}")
-            lines.append(f"* 原因：{_first_sentence(t.reason)}")
+            lines.append(f"- ⬛ NO_TRADE | {t.code} {t.name} | 原动作：{t.action}")
+            lines.append(f"  原因：{_first_sentence(t.reason)}")
             if t.audit:
-                lines.append(f"* 审计：{_first_sentence(t.audit)}")
+                lines.append(f"  审计：{_first_sentence(t.audit)}")
             lines.append("")
     lines.append("")
     lines.append(f"💰 执行后可用现金：{free_cash_after:.2f}")
@@ -1166,7 +1152,16 @@ def run(
         portfolio.positions,
         window,
     )
-    total_equity = portfolio.total_equity if portfolio.total_equity is not None else (portfolio.free_cash + live_value)
+    # 风控基数统一按“最新价格口径”重算，避免沿用旧 total_equity 导致仓位偏差。
+    computed_total_equity = float(portfolio.free_cash + live_value)
+    if portfolio.total_equity is not None:
+        drift = abs(float(portfolio.total_equity) - computed_total_equity)
+        if drift >= 1e-6:
+            print(
+                f"[step4] total_equity 已按实时口径重算: "
+                f"input={float(portfolio.total_equity):.2f}, computed={computed_total_equity:.2f}, drift={drift:.2f}"
+            )
+    total_equity = computed_total_equity
 
     position_codes = [p.code for p in portfolio.positions]
     external_codes = _extract_stock_codes(external_report)
@@ -1371,4 +1366,3 @@ def run(
 
     print(f"[step4] 交易工单发送成功: decisions={len(decisions)}, tickets={len(tickets)}, model={model}")
     return (True, "ok")
-

@@ -28,9 +28,9 @@ from core.wyckoff_engine import normalize_hist_from_fetch
 TRADING_DAYS = 500
 GEMINI_MODEL_FALLBACK = "gemini-2.0-flash-lite"
 OPERATION_TARGET = 6
-STEP3_MAX_AI_INPUT = int(os.getenv("STEP3_MAX_AI_INPUT", "25"))
+STEP3_MAX_AI_INPUT = int(os.getenv("STEP3_MAX_AI_INPUT", "0"))
 STEP3_MAX_PER_INDUSTRY = int(os.getenv("STEP3_MAX_PER_INDUSTRY", "5"))
-STEP3_MAX_OUTPUT_TOKENS = 16384
+STEP3_MAX_OUTPUT_TOKENS = 32768
 DYNAMIC_MAINLINE_BONUS_RATE = 0.15
 DYNAMIC_MAINLINE_TOP_N = 3
 DYNAMIC_MAINLINE_MIN_CLUSTER = 2
@@ -423,6 +423,8 @@ def ultimate_compressor(
         return pd.DataFrame()
 
     df = candidates_df.copy()
+    if max_total <= 0:
+        max_total = len(df)
     df["code"] = df.get("code", "").astype(str).str.strip()
     df["bias_200"] = pd.to_numeric(df.get("bias_200"), errors="coerce")
     df["rs_10"] = pd.to_numeric(df.get("rs_10"), errors="coerce")
@@ -710,7 +712,7 @@ def run(
     else:
         print(f"[step3] 候选压缩未启用: selected=全量{len(selected_df)}")
 
-    if len(selected_df) > STEP3_MAX_AI_INPUT:
+    if STEP3_MAX_AI_INPUT > 0 and len(selected_df) > STEP3_MAX_AI_INPUT:
         before_n = len(selected_df)
         selected_df = selected_df.head(STEP3_MAX_AI_INPUT).reset_index(drop=True)
         print(
