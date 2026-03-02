@@ -176,7 +176,6 @@ def _save_user_live(
     *,
     portfolio_id: str,
     free_cash: float,
-    total_equity: float | None,
     editor_df: pd.DataFrame,
     existing_codes: set[str],
 ) -> tuple[bool, str]:
@@ -229,6 +228,11 @@ def _save_user_live(
 
     keep_codes = set(payload_by_code.keys())
     delete_codes = (existing_codes - keep_codes) | deleted_codes
+    positions_cost_value = sum(
+        float(v.get("cost_price", 0.0) or 0.0) * int(v.get("shares", 0) or 0)
+        for v in payload_by_code.values()
+    )
+    computed_total_equity = float(free_cash) + float(positions_cost_value)
 
     try:
         supabase.table(TABLE_PORTFOLIOS).upsert(
@@ -236,7 +240,7 @@ def _save_user_live(
                 "portfolio_id": portfolio_id,
                 "name": "Real Portfolio",
                 "free_cash": float(free_cash),
-                "total_equity": (None if total_equity is None else float(total_equity)),
+                "total_equity": computed_total_equity,
                 "updated_at": datetime.utcnow().isoformat(),
             },
             on_conflict="portfolio_id",
@@ -256,7 +260,10 @@ def _save_user_live(
                 list(payload_by_code.values()),
                 on_conflict="portfolio_id,code",
             ).execute()
-        return True, f"保存成功：持仓 {len(payload_by_code)} 只，删除 {len(delete_codes)} 只"
+        return (
+            True,
+            f"保存成功：持仓 {len(payload_by_code)} 只，删除 {len(delete_codes)} 只，总资产={computed_total_equity:.2f}",
+        )
     except APIError as e:
         return False, f"Supabase API 异常: {e.code} - {e.message}"
     except Exception as e:
@@ -319,16 +326,8 @@ with content_col:
 
     existing_codes = {str(x.get("code", "")).strip() for x in positions}
     free_cash_initial = _to_float(portfolio.get("free_cash", 0.0), 0.0)
-    total_equity_raw = portfolio.get("total_equity")
-    manual_total_equity = (
-        _to_float(total_equity_raw, 0.0) if total_equity_raw is not None else None
-    )
     positions_value_est = _estimate_positions_value(positions)
-    display_total_equity = (
-        manual_total_equity
-        if manual_total_equity is not None
-        else (free_cash_initial + positions_value_est)
-    )
+    display_total_equity = free_cash_initial + positions_value_est
     holding_count = len([p for p in positions if int(_to_float(p.get("shares", 0), 0)) > 0])
 
     st.markdown(
@@ -351,15 +350,10 @@ with content_col:
         unsafe_allow_html=True,
     )
 
-    auto_equity_initial = total_equity_raw is None
-    input_default_equity = (
-        manual_total_equity if manual_total_equity is not None else display_total_equity
-    )
-
     st.caption("当前页仅显示当前登录账号持仓。编辑过程中不会自动刷新，点击保存后才会提交并重载。")
 
     with st.form("portfolio_edit_form", clear_on_submit=False):
-        c1, c2, c3 = st.columns([1, 1, 1])
+        c1, c2 = st.columns([1, 2])
         with c1:
             free_cash_input = st.text_input(
                 "现金",
@@ -367,18 +361,7 @@ with content_col:
                 help="用于 Step4 的可用现金",
             )
         with c2:
-            total_equity_input = st.text_input(
-                "总市值",
-                value=f"{input_default_equity:.2f}",
-                disabled=auto_equity_initial,
-                help="关闭自动推导后可手动指定",
-            )
-        with c3:
-            auto_equity = st.toggle(
-                "总资产自动推导（推荐）",
-                value=auto_equity_initial,
-                help="开启后 total_equity 保存为 NULL，Step4 自动按 现金+最新持仓市值推导。",
-            )
+            st.info("总资产按“现金 + 持仓成本市值”自动计算并保存。")
 
         st.markdown("### 持仓股")
         st.caption("每行一只股票。勾选“删除”或把数量改为 0，保存后会清仓。可直接新增行。")
@@ -424,11 +407,6 @@ with content_col:
         if submitted:
             try:
                 free_cash_value = _parse_money_input(free_cash_input, "现金")
-                total_equity_value = (
-                    None
-                    if auto_equity
-                    else _parse_money_input(total_equity_input, "总市值")
-                )
             except ValueError as e:
                 st.error(str(e))
                 st.stop()
@@ -438,7 +416,6 @@ with content_col:
                 ok, msg = _save_user_live(
                     portfolio_id=portfolio_id,
                     free_cash=free_cash_value,
-                    total_equity=total_equity_value,
                     editor_df=editor_df,
                     existing_codes=existing_codes,
                 )
