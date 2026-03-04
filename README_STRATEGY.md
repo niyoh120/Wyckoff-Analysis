@@ -19,6 +19,7 @@
 ### 1.2 Snapshot 快照与本地回测器
 - 每轮日线全量拉取后，会将 4000+ 股票行情快照序列化到本地 `data/funnel_snapshots` 目录。
 - **意义：** 从根本上分离了“网络取数”与“量化算子”，系统支持秒级重播（Replay），大幅提升了因子调优、正则参数改进以及回测的工程效率。
+- **当前默认回测口径（2026-03）**：`hold_days=5`、`exit_mode=sltp`、`stop_loss=-7%`、`take_profit=0`（只做止损，不预设止盈），并在 summary 中强制输出 `最大回撤 / VaR95 / CVaR95 / 最长连亏` 四项风险指标。
 
 ### 1.3 盘前风控预警 (Premarket Risk)
 - **大盘情绪温度计**：在每日实际开盘前（08:30），独立调度风控任务（`scripts/premarket_risk_job.py`）。
