@@ -1,0 +1,51 @@
+name: Premarket Risk
+
+on:
+  schedule:
+    # 北京时间 08:30（UTC+8），周一到周五
+    - cron: "30 0 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: premarket-risk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: "1"
+      FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Prepare logs dir
+        run: mkdir -p logs
+
+      - name: Run premarket risk job
+        run: |
+          python -u scripts/premarket_risk_job.py --logs ${{ github.workspace }}/logs/premarket_risk.log \
+            2>&1 | tee -a ${{ github.workspace }}/logs/premarket_risk.console.log
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: premarket-risk-logs-${{ github.run_number }}
+          path: logs/premarket_risk*.log
+          retention-days: 7
+          if-no-files-found: warn
+
