@@ -109,7 +109,7 @@ class FunnelConfig:
     ambush_ret20_max: float = -3.0
 
     # Layer 2 低位吸筹通道（Wyckoff Accumulation Channel）
-    # 不依赖 RPS 强势排名，专门捕捉"已止跌横盘蓄势"的 Phase A/B/C 股票。
+    # 不依赖 RPS 强势排名，专门捕捉”已止跌横盘蓄势”的 Phase A/B/C 股票。
     # 触发条件：低位区间 + 横盘振幅小 + 量能萎缩 + 均线胶着（尚未多头排列）。
     # 这类股票应与 L4 Spring/LPS 配合使用，单独出现时仅进观察池。
     enable_accumulation_channel: bool = True
@@ -123,7 +123,7 @@ class FunnelConfig:
     accum_ma_gap_max: float = 0.06          # |MA50 - MA200| / MA200 < 此值（均线胶着）
 
     # Layer 3
-    # 行业共振过滤：按“行业样本数分位阈值 + 最小样本数”动态过滤，避免固定 TopN 误杀。
+    # 行业共振过滤：按”行业样本数分位阈值 + 最小样本数”动态过滤，避免固定 TopN 误杀。
     top_n_sectors: int = 3
     sector_min_count: int = 3
     sector_count_quantile: float = 0.70
@@ -152,6 +152,27 @@ class FunnelConfig:
     evr_confirm_days: int = 1
     evr_confirm_allow_break_pct: float = 0.0
 
+    # Markup 阶段识别（Layer 2.5）
+    enable_markup_detection: bool = True
+    markup_ma_crossover_confirm_days: int = 5  # MA50 穿过 MA200 后，需要连续 N 日在上方
+    markup_ma_angle_min: float = 2.0  # MA50 的角度（% per 5 days），用于确认上升趋势强度
+    markup_rs_positive_min: float = 0.5  # RS_short 需要保持正值且持续增强
+
+    # Accumulation ABC 细化（Layer 2 增强）
+    enable_accum_abc_detail: bool = True
+    accum_b_test_count: int = 3  # B 阶段需要测试底部至少 N 次
+    accum_c_max_drop_ratio: float = 0.03  # C 阶段下跌不超过 A 低的 3%
+
+    # Exit 策略（Layer 5）
+    enable_exit_signals: bool = True
+    # 获利目标：从 Accumulation 低点计算
+    exit_profit_target_pct: float = 50.0  # 目标涨幅（%）
+    exit_stop_loss_pct: float = -8.0  # 风险控制止损幅度（%）
+    # Distribution 识别：高位缩量警告
+    dist_high_threshold_pct: float = 30.0  # 相对 MA200 的高度（%）
+    dist_vol_dry_ratio: float = 0.5  # 高位缩量比
+    dist_confirm_days: int = 3  # 需要连续确认 N 日
+
 
 class FunnelResult(NamedTuple):
     layer1_symbols: list[str]
@@ -159,6 +180,10 @@ class FunnelResult(NamedTuple):
     layer3_symbols: list[str]
     top_sectors: list[str]
     triggers: dict[str, list[tuple[str, float]]]
+    # 新增：威科夫阶段细节
+    stage_map: dict[str, str]  # code -> stage_name（如 "Accumulation A"、"Markup"、"Distribution"）
+    markup_symbols: list[str]  # 已进入 Markup 的股票
+    exit_signals: dict[str, dict]  # code -> {"signal": "profit_target|stop_loss", "price": xxx, "reason": xxx}
 
 
 
@@ -798,6 +823,333 @@ def layer4_triggers(
 
 
 
+# Layer 2.5: Markup 阶段识别
+
+
+def _detect_markup_entry(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
+    """
+    Markup 阶段：MA50 从下穿上 MA200，且在上方保持 N 日，确认进入上升趋势。
+    返回 score（确认天数占比）或 None。
+    """
+    if len(df) < max(cfg.ma_long, cfg.markup_ma_crossover_confirm_days) + 5:
+        return None
+
+    df_s = _sorted_if_needed(df)
+    close = df_s["close"].astype(float)
+    ma_short = close.rolling(cfg.ma_short).mean()
+    ma_long = close.rolling(cfg.ma_long).mean()
+
+    if (
+        ma_short.isna().any() or ma_long.isna().any()
+        or ma_short.iloc[-1] <= ma_long.iloc[-1]
+    ):
+        return None
+
+    # 检查过去 N 日内 MA50 是否从下穿上 MA200
+    lookback = max(int(cfg.markup_ma_crossover_confirm_days * 2), 10)
+    if len(ma_short) < lookback:
+        return None
+
+    recent_ma_short = ma_short.tail(lookback).values
+    recent_ma_long = ma_long.tail(lookback).values
+
+    # 寻找穿过点
+    crossover_found = False
+    for i in range(1, len(recent_ma_short)):
+        if (
+            recent_ma_short[i - 1] <= recent_ma_long[i - 1]
+            and recent_ma_short[i] > recent_ma_long[i]
+        ):
+            crossover_found = True
+            break
+
+    if not crossover_found:
+        return None
+
+    # 确认最近 N 日持续在 MA200 上方
+    confirm_days = max(int(cfg.markup_ma_crossover_confirm_days), 1)
+    recent_above = sum(
+        1 for j in range(-confirm_days, 0)
+        if ma_short.iloc[j] > ma_long.iloc[j]
+    )
+
+    if recent_above < confirm_days:
+        return None
+
+    # 计算 MA50 的角度（过去 5 日的变化率）
+    ma_short_recent = ma_short.tail(6).values
+    if len(ma_short_recent) < 2:
+        return None
+
+    angle = (ma_short_recent[-1] - ma_short_recent[0]) / ma_short_recent[0] * 100.0
+    if angle < cfg.markup_ma_angle_min:
+        return None
+
+    return float(recent_above / confirm_days)
+
+
+def detect_markup_stage(
+    symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    cfg: FunnelConfig,
+) -> list[str]:
+    """
+    返回已进入 Markup 阶段的股票。
+    """
+    if not cfg.enable_markup_detection:
+        return []
+
+    markup: list[str] = []
+    for sym in symbols:
+        df = df_map.get(sym)
+        if df is None or df.empty:
+            continue
+        score = _detect_markup_entry(df, cfg)
+        if score is not None:
+            markup.append(sym)
+
+    return markup
+
+
+
+
+# Layer 2 增强: Accumulation ABC 细化
+
+
+def _analyze_accum_stage(df: pd.DataFrame, cfg: FunnelConfig) -> str | None:
+    """
+    分析 Accumulation 内部的三个子阶段：
+    - A: 下跌停止，量能萎缩
+    - B: 底部区间反复测试
+    - C: 小幅下跌不破 A 低，量能再度萎缩
+
+    返回 "Accum_A"、"Accum_B"、"Accum_C" 或 None。
+    """
+    if len(df) < max(
+        cfg.accum_lookback_days, cfg.accum_vol_dry_ref_window, cfg.accum_range_window
+    ):
+        return None
+
+    df_s = _sorted_if_needed(df)
+    close = pd.to_numeric(df_s["close"], errors="coerce")
+    low = pd.to_numeric(df_s["low"], errors="coerce")
+    high = pd.to_numeric(df_s["high"], errors="coerce")
+    volume = pd.to_numeric(df_s["volume"], errors="coerce")
+
+    last_close = close.iloc[-1]
+
+    # 条件 1: 低位区——现价在年内低点 +35% 以内
+    lookback_w = max(int(cfg.accum_lookback_days), 2)
+    period_low = float(low.tail(lookback_w).min())
+    if period_low <= 0 or last_close > period_low * (1.0 + cfg.accum_price_from_low_max):
+        return None
+
+    accum_base_low = period_low
+
+    # 条件 2: 均线胶着（尚未多头排列）
+    ma_short = close.rolling(cfg.ma_short).mean()
+    ma_long = close.rolling(cfg.ma_long).mean()
+    last_ma_short = ma_short.iloc[-1]
+    last_ma_long = ma_long.iloc[-1]
+
+    if (
+        pd.isna(last_ma_short)
+        or pd.isna(last_ma_long)
+        or float(last_ma_long) <= 0
+    ):
+        return None
+
+    ma_gap = abs(float(last_ma_short) - float(last_ma_long)) / float(last_ma_long)
+    if ma_gap > cfg.accum_ma_gap_max:
+        return None
+
+    # 条件 3: 量能萎缩
+    dw = max(int(cfg.accum_vol_dry_window), 2)
+    rfw = max(int(cfg.accum_vol_dry_ref_window), dw + 1)
+    recent_vol_mean = float(volume.tail(dw).mean()) if len(volume) >= dw else 0.0
+    ref_vol_mean = float(volume.tail(rfw).iloc[:-dw].mean()) if len(volume) >= rfw else 0.0
+
+    if ref_vol_mean <= 0 or recent_vol_mean / ref_vol_mean >= cfg.accum_vol_dry_ratio:
+        return None
+
+    # 现在确定是 A、B 还是 C
+    # B 阶段特征：近期有多次测试底部（高低点逐渐走高）
+    rw = max(int(cfg.accum_range_window), 5)
+    zone = df_s.tail(rw)
+    zone_high = pd.to_numeric(zone.get("high"), errors="coerce")
+    zone_low = pd.to_numeric(zone.get("low"), errors="coerce")
+
+    if zone_high.empty or zone_low.empty:
+        return "Accum_A"
+
+    # 分割测试：最近 N 日内，有多少天的低点接近底部（±5%）
+    test_count = sum(
+        1
+        for l in zone_low.dropna()
+        if abs(l - accum_base_low) / accum_base_low <= 0.05
+    )
+
+    if test_count >= cfg.accum_b_test_count:
+        return "Accum_B"
+
+    # C 阶段：最近有小幅下跌但不破底，且量能再度萎缩
+    recent_lookback = min(20, len(df_s))
+    recent = df_s.tail(recent_lookback)
+    recent_low = pd.to_numeric(recent.get("low"), errors="coerce").min()
+
+    c_stage_ok = (
+        recent_low >= accum_base_low * (1.0 - cfg.accum_c_max_drop_ratio)
+    )
+
+    if c_stage_ok and recent_vol_mean < ref_vol_mean * cfg.accum_vol_dry_ratio:
+        return "Accum_C"
+
+    return "Accum_A"
+
+
+def detect_accum_stage(
+    symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    cfg: FunnelConfig,
+) -> dict[str, str]:
+    """
+    返回 symbol -> stage 的映射。
+    """
+    if not cfg.enable_accum_abc_detail:
+        return {}
+
+    result: dict[str, str] = {}
+    for sym in symbols:
+        df = df_map.get(sym)
+        if df is None or df.empty:
+            continue
+        stage = _analyze_accum_stage(df, cfg)
+        if stage is not None:
+            result[sym] = stage
+
+    return result
+
+
+
+
+# Layer 5: Exit 策略
+
+
+def _detect_profit_target(
+    df: pd.DataFrame, accum_base_low: float, cfg: FunnelConfig
+) -> float | None:
+    """
+    从 Accumulation 底部向上计算目标位。
+    返回建议止盈价格或 None。
+    """
+    target_pct = cfg.exit_profit_target_pct / 100.0
+    return accum_base_low * (1.0 + target_pct)
+
+
+def _detect_distribution_start(df: pd.DataFrame, cfg: FunnelConfig) -> bool:
+    """
+    Distribution 阶段识别：高位缩量警告。
+    触发条件：
+    1. 价格相对 MA200 处于高位（>30%）
+    2. 连续 N 日的成交量 < 参考均量的 50%
+    """
+    if len(df) < max(cfg.ma_long, cfg.dist_confirm_days) + 20:
+        return False
+
+    df_s = _sorted_if_needed(df)
+    close = df_s["close"].astype(float)
+    volume = df_s["volume"].astype(float)
+
+    ma_long = close.rolling(cfg.ma_long).mean()
+    last_ma_long = ma_long.iloc[-1]
+    last_close = close.iloc[-1]
+
+    if pd.isna(last_ma_long) or pd.isna(last_close) or last_ma_long <= 0:
+        return False
+
+    bias = (last_close - last_ma_long) / last_ma_long * 100.0
+    if bias < cfg.dist_high_threshold_pct:
+        return False
+
+    # 检查近 N 日的缩量
+    ref_vol = volume.tail(60).mean()
+    recent_vol = volume.tail(cfg.dist_confirm_days).mean()
+
+    if ref_vol <= 0:
+        return False
+
+    if recent_vol / ref_vol > cfg.dist_vol_dry_ratio:
+        return False
+
+    return True
+
+
+def layer5_exit_signals(
+    symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    accum_stage_map: dict[str, str],
+    cfg: FunnelConfig,
+) -> dict[str, dict]:
+    """
+    为已持仓的 Accumulation 和 Markup 阶段股票生成 Exit 信号。
+    返回 {symbol: {signal: ..., price: ..., reason: ...}}
+    """
+    if not cfg.enable_exit_signals:
+        return {}
+
+    signals: dict[str, dict] = {}
+
+    for sym in symbols:
+        df = df_map.get(sym)
+        if df is None or df.empty:
+            continue
+
+        df_s = _sorted_if_needed(df)
+        close = pd.to_numeric(df_s["close"], errors="coerce")
+        low = pd.to_numeric(df_s["low"], errors="coerce")
+
+        if close.empty or low.empty:
+            continue
+
+        # 查找 Accumulation 底部（用于计算止盈目标）
+        lookback_w = max(int(cfg.accum_lookback_days), 2)
+        accum_low = float(low.tail(lookback_w).min())
+        last_close = float(close.iloc[-1])
+
+        # 止盈目标
+        profit_target = _detect_profit_target(df_s, accum_low, cfg)
+        if profit_target is not None and last_close >= profit_target:
+            signals[sym] = {
+                "signal": "profit_target",
+                "price": profit_target,
+                "current": last_close,
+                "reason": f"已达利润目标（+{cfg.exit_profit_target_pct:.0f}%）",
+            }
+            continue
+
+        # 止损
+        stop_loss_price = accum_low * (1.0 + cfg.exit_stop_loss_pct / 100.0)
+        if last_close <= stop_loss_price:
+            signals[sym] = {
+                "signal": "stop_loss",
+                "price": stop_loss_price,
+                "current": last_close,
+                "reason": f"触发风险控制止损（{cfg.exit_stop_loss_pct:.1f}%）",
+            }
+            continue
+
+        # Distribution 警告
+        if _detect_distribution_start(df_s, cfg):
+            signals[sym] = {
+                "signal": "distribution_warning",
+                "reason": "检测到 Distribution 阶段迹象（高位缩量）",
+            }
+
+    return signals
+
+
+
+
 # run_funnel: 串联 4 层
 
 
@@ -831,10 +1183,27 @@ def run_funnel(
     )
     triggers = layer4_triggers(l3, prepared_df_map, cfg)
 
+    # 新增：阶段识别和退出信号
+    markup_symbols = detect_markup_stage(l3, prepared_df_map, cfg)
+    accum_stage_map = detect_accum_stage(l2, prepared_df_map, cfg)  # 对 L2 做细化分析
+
+    # 构建完整的 stage_map（包括 Markup）
+    stage_map: dict[str, str] = accum_stage_map.copy()
+    for sym in markup_symbols:
+        stage_map[sym] = "Markup"
+
+    # 退出信号针对 L2 和 Markup 股票
+    exit_signals = layer5_exit_signals(
+        l2 + markup_symbols, prepared_df_map, accum_stage_map, cfg
+    )
+
     return FunnelResult(
         layer1_symbols=l1,
         layer2_symbols=l2,
         layer3_symbols=l3,
         top_sectors=top_sectors,
         triggers=triggers,
+        stage_map=stage_map,
+        markup_symbols=markup_symbols,
+        exit_signals=exit_signals,
     )

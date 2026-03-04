@@ -41,6 +41,9 @@ from core.wyckoff_engine import (
     layer3_sector_resonance,
     layer4_triggers,
     normalize_hist_from_fetch,
+    detect_markup_stage,
+    detect_accum_stage,
+    layer5_exit_signals,
 )
 from integrations.data_source import (
     fetch_index_hist,
@@ -1370,6 +1373,11 @@ def run_funnel_job() -> tuple[dict[str, list[tuple[str, float]]], dict]:
     # L4 需要 l2_df_map，这里直接用 all_df_map 即可，因为 key 都在里面
     triggers = layer4_triggers(l3_passed, all_df_map, cfg)
 
+    # 新增：Markup 阶段、Accumulation ABC 细化、Exit 信号
+    markup_symbols = detect_markup_stage(l3_passed, all_df_map, cfg)
+    accum_stage_map = detect_accum_stage(l2_passed, all_df_map, cfg)
+    exit_signals = layer5_exit_signals(l2_passed + markup_symbols, all_df_map, accum_stage_map, cfg)
+
     total_hits = sum(len(v) for v in triggers.values())
     ranked_l3_symbols, watchlist_top15, l3_score_map, l3_ranked_rows = _rank_l3_watchlist(
         l3_symbols=l3_passed,
@@ -1407,6 +1415,10 @@ def run_funnel_job() -> tuple[dict[str, list[tuple[str, float]]], dict]:
         "total_hits": total_hits,
         "by_trigger": {k: len(v) for k, v in triggers.items()},
         "benchmark_context": benchmark_context,
+        # 新增：阶段识别和退出信号
+        "markup_symbols": markup_symbols,
+        "accum_stage_map": accum_stage_map,
+        "exit_signals": exit_signals,
     }
     print(
         f"[funnel] L1={metrics['layer1']}, L2={metrics['layer2']}, "
