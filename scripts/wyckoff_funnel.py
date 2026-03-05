@@ -1217,47 +1217,111 @@ def run(webhook_url: str) -> tuple[bool, list[dict], dict]:
         if str(c).strip()
     ]
     l2_channel_map = metrics.get("layer2_channel_map", {}) or {}
-    selected_for_ai: list[str] = []
-    seen_ai: set[str] = set()
-    channel_counts = {"主升通道": 0, "潜伏通道": 0, "吸筹通道": 0, "地量蓄势": 0, "暗中护盘": 0, "点火破局": 0}
-    per_channel_cap = 10
-    total_cap = 30
+    trend_quota = max(int(os.getenv("FUNNEL_AI_TREND_QUOTA", "10")), 0)
+    accum_quota = max(int(os.getenv("FUNNEL_AI_ACCUM_QUOTA", "10")), 0)
+    total_cap = max(int(os.getenv("FUNNEL_AI_TOTAL_CAP", "30")), 0)
+    trend_channel_tags = {"主升通道", "点火破局"}
+    accum_channel_tags = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护盘"}
 
-    def _channel_key(code: str) -> str:
+    def _channel_tags(code: str) -> set[str]:
         raw = str(l2_channel_map.get(code, "")).strip()
-        if "主升通道" in raw:
-            return "主升通道"
-        if "潜伏通道" in raw:
-            return "潜伏通道"
-        if "吸筹通道" in raw:
-            return "吸筹通道"
-        if "地量蓄势" in raw:
-            return "地量蓄势"
-        if "暗中护盘" in raw:
-            return "暗中护盘"
-        if "点火破局" in raw:
-            return "点火破局"
-        return ""
+        if not raw:
+            return set()
+        return {x.strip() for x in raw.split("+") if x.strip()}
 
-    # AI 输入：L4 命中优先，其次 L3，按通道配额筛选
-    for code in sorted_codes + l3_ranked_symbols:
-        c = str(code).strip()
-        if not c or c in seen_ai:
-            continue
-        ch = _channel_key(c)
-        if not ch:
-            continue
-        if channel_counts[ch] >= per_channel_cap:
-            continue
-        selected_for_ai.append(c)
-        seen_ai.add(c)
-        channel_counts[ch] += 1
-        if len(selected_for_ai) >= total_cap:
+    def _is_trend_track(code: str) -> bool:
+        tags = _channel_tags(code)
+        return bool(tags & trend_channel_tags)
+
+    def _is_accum_track(code: str) -> bool:
+        tags = _channel_tags(code)
+        return bool(tags & accum_channel_tags)
+
+    def _dedup_order(codes: list[str]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for code in codes:
+            c = str(code).strip()
+            if not c or c in seen:
+                continue
+            seen.add(c)
+            out.append(c)
+        return out
+
+    sos_hit_codes = [
+        str(code).strip()
+        for code, _ in sorted(
+            triggers.get("sos", []), key=lambda x: -float(x[1] if x[1] is not None else 0.0)
+        )
+        if str(code).strip()
+    ]
+    accum_hit_candidates = triggers.get("spring", []) + triggers.get("lps", [])
+    accum_hit_codes = [
+        str(code).strip()
+        for code, _ in sorted(
+            accum_hit_candidates, key=lambda x: -float(x[1] if x[1] is not None else 0.0)
+        )
+        if str(code).strip()
+    ]
+
+    trend_candidates = _dedup_order(
+        sos_hit_codes
+        + [c for c in sorted_codes if _is_trend_track(c)]
+        + [c for c in l3_ranked_symbols if _is_trend_track(c)]
+    )
+    accum_candidates = _dedup_order(
+        accum_hit_codes
+        + [c for c in sorted_codes if _is_accum_track(c)]
+        + [c for c in l3_ranked_symbols if _is_accum_track(c)]
+    )
+
+    selected_seen: set[str] = set()
+    trend_selected: list[str] = []
+    accum_selected: list[str] = []
+
+    for code in trend_candidates:
+        if total_cap > 0 and len(selected_seen) >= total_cap:
             break
+        if len(trend_selected) >= trend_quota:
+            break
+        if code in selected_seen:
+            continue
+        trend_selected.append(code)
+        selected_seen.add(code)
+
+    for code in accum_candidates:
+        if total_cap > 0 and len(selected_seen) >= total_cap:
+            break
+        if len(accum_selected) >= accum_quota:
+            break
+        if code in selected_seen:
+            continue
+        accum_selected.append(code)
+        selected_seen.add(code)
+
+    selected_for_ai = trend_selected + accum_selected
 
     hit_set = set(sorted_codes)
     hit_selected_count = sum(1 for c in selected_for_ai if c in hit_set)
     l3_only_count = len(selected_for_ai) - hit_selected_count
+    trend_hit_selected = sum(1 for c in trend_selected if c in hit_set)
+    trend_l3_only = len(trend_selected) - trend_hit_selected
+    accum_hit_selected = sum(1 for c in accum_selected if c in hit_set)
+    accum_l3_only = len(accum_selected) - accum_hit_selected
+
+    channel_counts = {
+        "主升通道": 0,
+        "潜伏通道": 0,
+        "吸筹通道": 0,
+        "地量蓄势": 0,
+        "暗中护盘": 0,
+        "点火破局": 0,
+    }
+    for code in selected_for_ai:
+        tags = _channel_tags(code)
+        for key in channel_counts.keys():
+            if key in tags:
+                channel_counts[key] += 1
     l3_score_map = metrics.get("layer3_score_map", {}) or {}
     by_trigger = metrics.get("by_trigger", {}) or {}
     l2_momentum = int(metrics.get("layer2_momentum", 0) or 0)
@@ -1285,9 +1349,10 @@ def run(webhook_url: str) -> tuple[bool, list[dict], dict]:
 
     print(
         f"[funnel] 候选分层: 命中事件={metrics['total_hits']}, 命中股票={unique_hit_count}, "
-        f"AI输入=命中{hit_selected_count}+L3补充{l3_only_count}=>{len(selected_for_ai)} "
-        f"(主升{channel_counts['主升通道']}, 潜伏{channel_counts['潜伏通道']}, 吸筹{channel_counts['吸筹通道']}, "
-        f"地量{channel_counts['地量蓄势']}, 护盘{channel_counts['暗中护盘']}, 点火{channel_counts['点火破局']}), "
+        f"Trend轨=命中{trend_hit_selected}+L3补充{trend_l3_only}=>{len(trend_selected)}, "
+        f"Accum轨=命中{accum_hit_selected}+L3补充{accum_l3_only}=>{len(accum_selected)}, "
+        f"AI输入总计=命中{hit_selected_count}+L3补充{l3_only_count}=>{len(selected_for_ai)} "
+        f"(Trend配额{trend_quota}, Accum配额{accum_quota}, 总上限{total_cap}), "
         f"AI分析={len(selected_for_ai)}"
     )
 
@@ -1339,41 +1404,64 @@ def run(webhook_url: str) -> tuple[bool, list[dict], dict]:
         f"**大盘水温**: {bench_line}",
         (
             f"**候选分层**: L3股票{metrics['layer3']} "
-            f"-> AI配额输入(L4命中{hit_selected_count}+L3补充{max(l3_only_count, 0)})={len(selected_for_ai)} "
-            f"(主升{channel_counts['主升通道']} | 潜伏{channel_counts['潜伏通道']} | 吸筹{channel_counts['吸筹通道']} | "
-            f"地量{channel_counts['地量蓄势']} | 护盘{channel_counts['暗中护盘']} | 点火{channel_counts['点火破局']})"
+            f"-> AI双轨输入={len(selected_for_ai)} "
+            f"(Trend={len(trend_selected)}/{trend_quota}, Accum={len(accum_selected)}/{accum_quota}, 总上限{total_cap}) "
+            f"[L4命中{hit_selected_count}+L3补充{max(l3_only_count, 0)}]"
         ),
         f"**Top 行业**: {', '.join(metrics['top_sectors']) if metrics['top_sectors'] else '无'}",
         "",
-        "**AI分析输入列表（单通道≤10，总计≤30）代码 名称 | 阶段 | 来源标签 | Exit信号**",
-        "",
+        f"**AI输入通道标签分布**: 主升{channel_counts['主升通道']} | 潜伏{channel_counts['潜伏通道']} | 吸筹{channel_counts['吸筹通道']} | 地量{channel_counts['地量蓄势']} | 护盘{channel_counts['暗中护盘']} | 点火{channel_counts['点火破局']}",
     ]
-    for code in selected_for_ai:
-        name = name_map.get(code, code)
-        trigger_reason = "、".join(code_to_reasons.get(code, []))
-        channel = str(l2_channel_map.get(code, "")).strip()
-        stage = accum_stage_map.get(code, "")
-        if not stage and code in markup_symbols:
-            stage = "Markup"
-        stage_str = f"[{stage}]" if stage else ""
-        base_reason = trigger_reason or "威科夫候选"
-        reasons = f"{channel} | {base_reason}" if channel else base_reason
 
-        # Exit 信号
-        exit_sig = exit_signals.get(code, {})
-        exit_str = ""
-        if exit_sig.get("signal") == "profit_target":
-            exit_str = f"| ✓止盈{exit_sig.get('price', 0):.2f}"
-        elif exit_sig.get("signal") == "stop_loss":
-            exit_str = f"| ✗止损{exit_sig.get('price', 0):.2f}"
-        elif exit_sig.get("signal") == "distribution_warning":
-            exit_str = "| ⚠Distribution警告"
+    def _append_ai_section(lines_obj: list[str], section_title: str, codes: list[str]) -> None:
+        lines_obj.extend(
+            [
+                "",
+                section_title,
+                "**代码 名称 | 阶段 | 来源标签 | Exit信号 | 分值**",
+                "",
+            ]
+        )
+        if not codes:
+            lines_obj.append("无")
+            return
+        for code in codes:
+            name = name_map.get(code, code)
+            trigger_reason = "、".join(code_to_reasons.get(code, []))
+            channel = str(l2_channel_map.get(code, "")).strip()
+            stage = accum_stage_map.get(code, "")
+            if not stage and code in markup_symbols:
+                stage = "Markup"
+            stage_str = f"[{stage}]" if stage else ""
+            base_reason = trigger_reason or "威科夫候选"
+            reasons = f"{channel} | {base_reason}" if channel else base_reason
 
-        score = float(l3_score_map.get(code, 0.0))
-        lines.append(f"• {code} {name} {stage_str} | {reasons} {exit_str} | score={score:.2f}")
+            exit_sig = exit_signals.get(code, {})
+            exit_str = ""
+            if exit_sig.get("signal") == "profit_target":
+                exit_str = f"| ✓止盈{exit_sig.get('price', 0):.2f}"
+            elif exit_sig.get("signal") == "stop_loss":
+                exit_str = f"| ✗止损{exit_sig.get('price', 0):.2f}"
+            elif exit_sig.get("signal") == "distribution_warning":
+                exit_str = "| ⚠Distribution警告"
+
+            score = float(l3_score_map.get(code, 0.0))
+            lines_obj.append(
+                f"• {code} {name} {stage_str} | {reasons} {exit_str} | score={score:.2f}"
+            )
+
+    _append_ai_section(
+        lines,
+        f"**AI输入·Trend轨（右侧主升，优先 SOS，配额 {trend_quota}）**",
+        trend_selected,
+    )
+    _append_ai_section(
+        lines,
+        f"**AI输入·Accum轨（左侧潜伏，优先 Spring/LPS，配额 {accum_quota}）**",
+        accum_selected,
+    )
 
     if not selected_for_ai:
-        lines.append("无")
         lines.extend(
             [
                 "",
@@ -1383,7 +1471,7 @@ def run(webhook_url: str) -> tuple[bool, list[dict], dict]:
                 f"LPS={int(by_trigger.get('lps', 0))}, "
                 f"EVR={int(by_trigger.get('evr', 0))}",
                 "• 当前候选停留在威科夫初期（或通道内），尚未出现日线级别的 SOS/Spring/LPS/EVR 扳机信号。",
-                "• AI 输入集合按“通道配额制”构建；本轮未产生可入选标的，因此 AI 输入为 0。",
+                "• AI 输入采用双轨制：Trend 右侧进攻 + Accum 左侧潜伏；本轮两轨均无可入选标的。",
             ]
         )
 
