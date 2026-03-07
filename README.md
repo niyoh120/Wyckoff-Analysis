@@ -28,6 +28,16 @@
 
 ---
 
+## 🧠 Wyckoff 量价分析 Skills
+
+如果你只想把这套 **Wyckoff 量价分析思路** 以轻量方式复用到 OpenClaw / AI Agent，可以直接使用这个简易 Skills 仓库：
+
+- **仓库地址**：[`YoungCan-Wang/wyckoff_skill`](https://github.com/YoungCan-Wang/wyckoff_skill.git)
+- **定位**：将威科夫量价分析的核心提示词、判断框架、输出口径拆成可复用的简易 Skill
+- **适合场景**：单股复盘、持仓诊断、候选股结构判断、给 AI 助手快速挂载一套“威科夫视角”
+
+---
+
 ## 🚀 快速开始
 
 ### 1. 环境

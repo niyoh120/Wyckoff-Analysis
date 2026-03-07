@@ -20,7 +20,12 @@ from integrations.ai_prompts import WYCKOFF_FUNNEL_SYSTEM_PROMPT
 from integrations.fetch_a_share_csv import _resolve_trading_window, _fetch_hist
 from integrations.llm_client import call_llm
 from integrations.rag_veto import is_rag_veto_enabled, run_negative_news_veto
-from integrations.data_source import fetch_index_hist, fetch_sector_map, fetch_stock_spot_snapshot
+from integrations.data_source import (
+    fetch_index_hist,
+    fetch_market_cap_map,
+    fetch_sector_map,
+    fetch_stock_spot_snapshot,
+)
 from utils.feishu import send_feishu_notification
 from utils.trading_clock import CN_TZ, resolve_end_calendar_day
 from core.wyckoff_engine import normalize_hist_from_fetch
@@ -58,6 +63,14 @@ STEP3_ENABLE_SPOT_PATCH = os.getenv("STEP3_ENABLE_SPOT_PATCH", "1").strip().lowe
 }
 STEP3_SPOT_PATCH_RETRIES = int(os.getenv("STEP3_SPOT_PATCH_RETRIES", "2"))
 STEP3_SPOT_PATCH_SLEEP = float(os.getenv("STEP3_SPOT_PATCH_SLEEP", "0.2"))
+SUPPLY_HEAVY_VOL_RATIO = 1.5
+SUPPLY_DRY_VOL_RATIO = 0.8
+SUPPLY_TEST_MAX_ABS_PCT = 1.0
+KEY_LEVEL_WINDOW = 20
+TRACK_LABELS = {
+    "Trend": "Trend轨（右侧主升 / 放量点火）",
+    "Accum": "Accum轨（左侧潜伏 / Spring / LPS）",
+}
 
 
 def _dump_model_input(
@@ -65,13 +78,20 @@ def _dump_model_input(
     model: str,
     system_prompt: str,
     user_message: str,
+    *,
+    name_hint: str = "",
 ) -> str:
     if not DEBUG_MODEL_IO:
         return ""
 
     logs_dir = os.getenv("LOGS_DIR", "logs")
     os.makedirs(logs_dir, exist_ok=True)
-    path = os.path.join(logs_dir, f"step3_model_input_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+    hint = re.sub(r"[^A-Za-z0-9_-]+", "_", str(name_hint or "").strip())[:32]
+    suffix = f"_{hint}" if hint else ""
+    path = os.path.join(
+        logs_dir,
+        f"step3_model_input_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}{suffix}.txt",
+    )
     symbols_line = ", ".join(f"{x.get('code', '')}" for x in items)
     body = (
         f"[step3] model={model}\n"
@@ -97,32 +117,49 @@ def _send_input_preview(
     webhook_url: str,
     model: str,
     system_prompt: str,
-    user_message: str,
-    selected_count: int,
+    previews: list[dict],
 ) -> tuple[bool, str]:
     """
     预演模式：不调用模型，仅展示将发送给模型的输入内容。
     """
+    total_selected = sum(int(x.get("selected_count", 0) or 0) for x in previews)
+    blocks: list[str] = [
+        "# 🧪 Step3 模型输入预演（未调用大模型）",
+        "",
+        f"- 目标模型: `{model}`",
+        f"- 输入股票数: `{total_selected}`",
+        "- 模式: `STEP3_SKIP_LLM=1`",
+        "",
+        "## SYSTEM PROMPT",
+        "",
+        "```text",
+        system_prompt,
+        "```",
+        "",
+    ]
+    for idx, item in enumerate(previews, start=1):
+        blocks.extend(
+            [
+                f"## USER MESSAGE {idx} / {len(previews)}",
+                "",
+                f"- 轨道: `{item.get('track', '')}`",
+                f"- 股票数: `{item.get('selected_count', 0)}`",
+                "",
+                "```text",
+                str(item.get("user_message", "") or ""),
+                "```",
+                "",
+            ]
+        )
     report = (
-        "# 🧪 Step3 模型输入预演（未调用大模型）\n\n"
-        f"- 目标模型: `{model}`\n"
-        f"- 输入股票数: `{selected_count}`\n"
-        "- 模式: `STEP3_SKIP_LLM=1`\n\n"
-        "## SYSTEM PROMPT\n\n"
-        "```text\n"
-        f"{system_prompt}\n"
-        "```\n\n"
-        "## USER MESSAGE\n\n"
-        "```text\n"
-        f"{user_message}\n"
-        "```\n"
+        "\n".join(blocks).rstrip() + "\n"
     )
     title = f"🧪 模型输入预演 {date.today().strftime('%Y-%m-%d')}"
     sent = send_feishu_notification(webhook_url, title, report)
     if not sent:
         print("[step3] 预演报告飞书推送失败")
         return (False, report)
-    print(f"[step3] 预演报告发送成功，股票数={selected_count}")
+    print(f"[step3] 预演报告发送成功，股票数={total_selected}")
     return (True, report)
 
 
@@ -146,15 +183,16 @@ def _repair_report_structure(
     selected_codes: list[str],
 ) -> str:
     """
-    当模型未给出“继续观察/立刻建仓”双层结构时，做一次结构修复重写。
+    当模型未给出可识别的分层结构时，做一次结构修复重写。
     """
     if not report.strip():
         return report
 
     repair_system = (
         "你是格式修复器。请将输入研报重排为标准 Markdown，"
-        "必须包含两个章节：1) 继续观察（数量不限，含观察条件）"
-        " 2) 立刻建仓（数量不限，按优先级排序）。"
+        "优先修复为三阵营结构：1) 逻辑破产 2) 储备营地 3) 处于起跳板。"
+        "如果输入原本是旧口径的继续观察/立刻建仓，也要将其重排到上述三阵营中。"
+        "明显假突破、派发、放量失守归入逻辑破产；其余未到起跳点的非操作标的归入储备营地。"
         "不可新增未在输入中出现的股票代码。"
     )
     repair_user = (
@@ -181,17 +219,20 @@ def _repair_report_structure(
 
 def _build_fallback_sections(selected_df: pd.DataFrame) -> str:
     """
-    最后兜底：确保飞书一定出现“继续观察/立刻建仓”结果块。
+    最后兜底：确保飞书一定出现标准三阵营结果块。
     """
     if selected_df is None or selected_df.empty:
         return (
-            "## 👀 继续观察（系统兜底）\n"
-            "- 本轮无可用候选。\n\n"
-            "## 🚀 立刻建仓（系统兜底）\n"
-            "- 本轮无可建仓标的。"
+            "## 💀 逻辑破产（系统兜底）\n"
+            "- 无（本轮无明确失效标的可判定）。\n\n"
+            "## ⏳ 储备营地（系统兜底）\n"
+            "- 无（本轮无可用候选）。\n\n"
+            "## 🏹 处于起跳板（系统兜底）\n"
+            "- 无（本轮无可操作标的）。"
         )
 
-    lines = ["## 👀 继续观察（系统兜底）"]
+    lines = ["## 💀 逻辑破产（系统兜底）", "- 无（系统未判定明确逻辑破产标的）。", ""]
+    lines.append("## ⏳ 储备营地（系统兜底）")
     for _, row in selected_df.iterrows():
         code = str(row.get("code", ""))
         name = str(row.get("name", code))
@@ -199,12 +240,12 @@ def _build_fallback_sections(selected_df: pd.DataFrame) -> str:
         score = row.get("wyckoff_score")
         score_text = f"{float(score):.3f}" if pd.notna(score) else "-"
         lines.append(
-            f"- `{code} {name}` | 标签: {tag or '-'} | 量化分: {score_text} | 观察条件: 回踩结构战区时需缩量确认。"
+            f"- `{code} {name}` | 标签: {tag or '-'} | 量化分: {score_text} | 仍需条件: 回踩结构战区时需缩量确认。"
         )
 
     lines.append("")
-    lines.append("## 🚀 立刻建仓（系统兜底）")
-    lines.append("- 无（模型未输出可建仓标的，保持观察）")
+    lines.append("## 🏹 处于起跳板（系统兜底）")
+    lines.append("- 无（模型未输出可操作标的，保持耐心观察）")
     return "\n".join(lines)
 
 
@@ -225,25 +266,46 @@ def _normalize_structured_pool(
     allowed_codes: set[str],
     code_name: dict[str, str],
 ) -> dict[str, list[dict[str, str]]]:
-    watch_raw = (
-        payload.get("continue_watch")
-        or payload.get("observe_pool")
-        or payload.get("watch_pool")
-        or payload.get("observation_pool")
-        or payload.get("watchlist")
-        or payload.get("继续观察")
-        or payload.get("观察池")
-        or []
+    def _collect_items(keys: tuple[str, ...]) -> list[dict]:
+        out: list[dict] = []
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, list):
+                out.extend(v for v in value if isinstance(v, dict))
+            elif isinstance(value, dict):
+                out.append(value)
+        return out
+
+    watch_raw = _collect_items(
+        (
+            "continue_watch",
+            "observe_pool",
+            "watch_pool",
+            "observation_pool",
+            "watchlist",
+            "继续观察",
+            "观察池",
+            "逻辑破产",
+            "储备营地",
+            "invalidated",
+            "building_cause",
+            "building_camp",
+        )
     )
-    ops_raw = (
-        payload.get("build_now")
-        or payload.get("immediate_build")
-        or payload.get("operation_pool")
-        or payload.get("tradable_pool")
-        or payload.get("立刻建仓")
-        or payload.get("操作池")
-        or payload.get("可操作池")
-        or []
+    ops_raw = _collect_items(
+        (
+            "build_now",
+            "immediate_build",
+            "operation_pool",
+            "tradable_pool",
+            "actionable_pool",
+            "立刻建仓",
+            "操作池",
+            "可操作池",
+            "处于起跳板",
+            "on_the_springboard",
+            "springboard_pool",
+        )
     )
 
     watch_items: list[dict[str, str]] = []
@@ -553,6 +615,166 @@ def ultimate_compressor(
     return df
 
 
+def _format_slice_date(value: object) -> str:
+    s = str(value or "")
+    return s[5:10] if len(s) >= 10 else s
+
+
+def _build_supply_demand_summary(df: pd.DataFrame) -> str:
+    df_s = df.copy().sort_values("date").reset_index(drop=True)
+    if df_s.empty:
+        return ""
+
+    recent = df_s.tail(RECENT_DAYS).copy()
+    close = pd.to_numeric(df_s.get("close"), errors="coerce")
+    high = pd.to_numeric(df_s.get("high"), errors="coerce")
+    low = pd.to_numeric(df_s.get("low"), errors="coerce")
+    volume = pd.to_numeric(df_s.get("volume"), errors="coerce")
+    vol_ma20 = volume.rolling(20).mean()
+    recent["pct_chg_calc"] = close.pct_change() * 100
+    recent["vol_ratio"] = volume / vol_ma20.replace(0, pd.NA)
+    recent = recent.tail(RECENT_DAYS).copy()
+
+    pct = pd.to_numeric(recent.get("pct_chg_calc"), errors="coerce")
+    vol_ratio = pd.to_numeric(recent.get("vol_ratio"), errors="coerce")
+    down_heavy = recent[(pct < 0) & (vol_ratio >= SUPPLY_HEAVY_VOL_RATIO)]
+    dry_pullback = recent[(pct < 0) & (vol_ratio <= SUPPLY_DRY_VOL_RATIO)]
+    quiet_tests = recent[(pct.abs() <= SUPPLY_TEST_MAX_ABS_PCT) & (vol_ratio <= SUPPLY_DRY_VOL_RATIO)]
+    breakout_days = recent[(pct >= HIGHLIGHT_PCT_THRESHOLD) & (vol_ratio >= HIGHLIGHT_VOL_RATIO)]
+
+    key_window = min(max(KEY_LEVEL_WINDOW, 5), len(df_s))
+    key_zone = df_s.tail(key_window)
+    key_high = pd.to_numeric(key_zone.get("high"), errors="coerce").dropna()
+    key_low = pd.to_numeric(key_zone.get("low"), errors="coerce").dropna()
+    zone_text = ""
+    if not key_high.empty and not key_low.empty:
+        zone_text = f"，近{key_window}日区间=[{float(key_low.min()):.2f}, {float(key_high.max()):.2f}]"
+
+    extra_tags: list[str] = []
+    if not breakout_days.empty:
+        extra_tags.append(f"最近爆量上攻={_format_slice_date(breakout_days.iloc[-1].get('date'))}")
+    if not down_heavy.empty:
+        extra_tags.append(f"最近供应放大={_format_slice_date(down_heavy.iloc[-1].get('date'))}")
+    if not quiet_tests.empty:
+        extra_tags.append(f"最近低量测试={_format_slice_date(quiet_tests.iloc[-1].get('date'))}")
+
+    summary = (
+        f"  [供求摘要] 近{RECENT_DAYS}日下跌放量{len(down_heavy)}次，"
+        f"缩量回踩{len(dry_pullback)}次，低量测试{len(quiet_tests)}次"
+        f"{zone_text}"
+    )
+    if extra_tags:
+        summary += "，" + "，".join(extra_tags)
+    return summary + "\n"
+
+
+def _build_track_user_message(
+    track: str,
+    benchmark_lines: list[str],
+    payloads: list[str],
+    *,
+    compressed: bool,
+    raw_count: int,
+    selected_count: int,
+) -> str:
+    track_key = "Accum" if str(track).strip() == "Accum" else "Trend"
+    if track_key == "Trend":
+        scope = (
+            "[本轮分析范围]\n"
+            "本轮仅分析 Trend轨（右侧主升 / 放量点火 / 突破组）。\n"
+            "请重点审查是否存在高潮诱多、深水区反抽、爆量次日承接不足，以及看似突破实为派发等问题。"
+        )
+    else:
+        scope = (
+            "[本轮分析范围]\n"
+            "本轮仅分析 Accum轨（左侧潜伏 / Spring / LPS / Accum_C 组）。\n"
+            "请重点审查供应是否真正枯竭；若下跌放量或支撑反复失守，应归入逻辑破产或储备营地。若出现长下影、高收位、放量拉回，不得机械判死刑，必须分辨是真Spring还是失败反抽。"
+        )
+
+    message = (
+        ("{}\n\n".format("\n".join(benchmark_lines)) if benchmark_lines else "")
+        + f"{scope}\n\n"
+        + (
+            (
+                f"[候选说明] 本轮候选已从 {raw_count} 只压缩到 {selected_count} 只。\n\n"
+            )
+            if compressed and raw_count > selected_count
+            else ""
+        )
+        + "以下是本轮候选名单。\n"
+        + "请做三阵营分流：1) 逻辑破产 2) 储备营地 3) 处于起跳板。\n"
+        + "其中前两类属于非操作区，第三类才是可执行区。\n"
+        + "输出必须包含这三个部分，且只能使用输入列表中的股票代码，不得遗漏或新增。\n\n"
+        + "交易执行硬约束：\n"
+        + "1) 禁止单点价格指令，必须给“结构战区(Action Zone) + 盘面确认条件(Tape Condition)”。\n"
+        + "2) 战区需围绕每只股票的“价格锚点（最新收盘价）”描述，但不得刻舟求剑。\n"
+        + "3) 买入触发必须包含量价确认条件（如缩量回踩/拒绝下破）；若放量下破，必须取消买入。\n"
+        + "4) 强势突破标的必须给“防踏空策略”：开盘强势确认后可先用计划仓位1/3试单，其余等待二次确认。\n"
+        + "5) 输入中的“量化初筛假设/阶段假设”只是程序的一阶假设，不是结论；若15日切片证据冲突，你必须直接推翻它。\n"
+        + "6) 盘面解剖必须结合振幅、收位与量比，明确说明盘中洗盘、承接、冲高回落或拒绝下跌的博弈痕迹。\n"
+        + "7) 次日计划优先用 Plan A / Plan B 条件树表达，不要写机械目标价。\n\n"
+        + "\n".join(payloads)
+    )
+    return message
+
+
+def _strip_report_title(text: str) -> str:
+    lines = str(text or "").strip().splitlines()
+    if lines and lines[0].lstrip().startswith("# "):
+        lines = lines[1:]
+        while lines and not lines[0].strip():
+            lines.pop(0)
+    return "\n".join(lines).strip()
+
+
+def _call_track_report(
+    *,
+    track: str,
+    system_prompt: str,
+    user_message: str,
+    model: str,
+    api_key: str,
+    selected_codes: list[str],
+    selected_df: pd.DataFrame,
+) -> tuple[bool, str, str]:
+    report = ""
+    used_model = ""
+    models_to_try = [model]
+    if GEMINI_MODEL_FALLBACK and GEMINI_MODEL_FALLBACK != model:
+        models_to_try.append(GEMINI_MODEL_FALLBACK)
+
+    for m in models_to_try:
+        try:
+            report = call_llm(
+                provider="gemini",
+                model=m,
+                api_key=api_key,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                timeout=300,
+                max_output_tokens=STEP3_MAX_OUTPUT_TOKENS,
+            )
+            used_model = m
+            break
+        except Exception as e:
+            print(f"[step3] {track} 轨模型 {m} 失败: {e}")
+            if m == models_to_try[-1]:
+                return (False, "", "")
+
+    if not _has_required_sections(report):
+        print(f"[step3] {track} 轨首版研报缺少可识别分层章节，执行一次结构修复")
+        report = _repair_report_structure(
+            report=report,
+            model=used_model or model,
+            api_key=api_key,
+            selected_codes=selected_codes,
+        )
+    if not _has_required_sections(report):
+        print(f"[step3] {track} 轨结构修复后仍缺少关键章节，追加系统兜底分层")
+        report = report.rstrip() + "\n\n" + _build_fallback_sections(selected_df)
+    return (True, report, used_model or model)
+
+
 def generate_stock_payload(
     stock_code: str,
     stock_name: str,
@@ -560,28 +782,56 @@ def generate_stock_payload(
     df: pd.DataFrame,
     *,
     industry: str | None = None,
+    market_cap_yi: float | None = None,
+    avg_amount_20_yi: float | None = None,
     quant_score: float | None = None,
     industry_rank: int | None = None,
     policy_tag: str | None = None,
+    track: str | None = None,
+    stage: str | None = None,
+    funnel_score: float | None = None,
+    exit_signal: str | None = None,
+    exit_price: float | None = None,
+    exit_reason: str | None = None,
 ) -> str:
     """
     第五步：将 500 天 OHLCV 浓缩为发给 AI 的高密度文本。
-    1. 大背景（MA50 / MA200 / 乖离率）
-    2. 近 15 日量价切片（放量比 + 涨跌幅）
+    1. 大背景（MA50 / MA200 / 乖离率 / 市值 / 成交额）
+    2. 近 15 日量价切片（放量比 + 涨跌幅 + 振幅 + 收盘位置）
     3. 近 60 日异动高光时刻
     """
     df = df.copy().sort_values("date").reset_index(drop=True)
     close = df["close"].astype(float)
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
     volume = df["volume"].astype(float)
+    amount = (
+        pd.to_numeric(df["amount"], errors="coerce")
+        if "amount" in df.columns
+        else pd.Series(close * volume, index=df.index, dtype=float)
+    )
+    if amount.isna().all():
+        amount = pd.Series(close * volume, index=df.index, dtype=float)
     df["ma50"] = close.rolling(50).mean()
     df["ma200"] = close.rolling(200).mean()
     df["vol_ma20"] = volume.rolling(20).mean()
+    df["amount_ma20"] = amount.rolling(20).mean()
     df["pct_chg_calc"] = close.pct_change() * 100
+    prev_close = close.shift(1)
+    amplitude_base = prev_close.where(prev_close > 0, close.where(close > 0, pd.NA))
+    df["amplitude_pct"] = ((high - low) / amplitude_base.replace(0, pd.NA) * 100).astype(float)
+    span = (high - low).replace(0, pd.NA)
+    df["close_pos_pct"] = ((close - low) / span * 100).clip(lower=0, upper=100).fillna(50.0)
 
     latest = df.iloc[-1]
     ma50_val = latest["ma50"]
     ma200_val = latest["ma200"]
     close_val = latest["close"]
+    amount_ma20_val = latest.get("amount_ma20", pd.NA)
+    market_cap_val = pd.to_numeric(market_cap_yi, errors="coerce")
+    avg_amount_val = pd.to_numeric(avg_amount_20_yi, errors="coerce")
+    if pd.isna(avg_amount_val):
+        avg_amount_val = amount_ma20_val / 1e8 if pd.notna(amount_ma20_val) else pd.NA
 
     if pd.notna(ma50_val) and pd.notna(ma200_val) and ma200_val > 0:
         if ma50_val > ma200_val:
@@ -589,24 +839,50 @@ def generate_stock_payload(
         else:
             trend = "长期空头或震荡 (MA50 <= MA200)"
         bias_200 = (close_val - ma200_val) / ma200_val * 100
+        extra_parts: list[str] = []
+        if pd.notna(market_cap_val):
+            extra_parts.append(f"总市值:{float(market_cap_val):.0f}亿")
+        if pd.notna(avg_amount_val):
+            extra_parts.append(f"20日均成交额:{float(avg_amount_val):.2f}亿")
+        extra_text = f"，{'，'.join(extra_parts)}" if extra_parts else ""
         background = (
             f"  [结构背景] 现价:{close_val:.2f}, MA50:{ma50_val:.2f}, MA200:{ma200_val:.2f}。"
-            f"{trend}，年线乖离率:{bias_200:.1f}%"
+            f"{trend}，年线乖离率:{bias_200:.1f}%{extra_text}"
         )
     else:
-        background = f"  [结构背景] 现价:{close_val:.2f}（数据不足以计算 MA200）"
+        extra_parts = []
+        if pd.notna(market_cap_val):
+            extra_parts.append(f"总市值:{float(market_cap_val):.0f}亿")
+        if pd.notna(avg_amount_val):
+            extra_parts.append(f"20日均成交额:{float(avg_amount_val):.2f}亿")
+        extra_text = f"，{'，'.join(extra_parts)}" if extra_parts else ""
+        background = f"  [结构背景] 现价:{close_val:.2f}（数据不足以计算 MA200）{extra_text}"
 
     policy_prefix = f" {policy_tag}" if policy_tag else ""
+    tag_text = ""
+    raw_tag = str(wyckoff_tag or "").strip()
+    if raw_tag:
+        # Convert internal trigger tags to neutral fact-based labels
+        facts = []
+        for t in ["sos", "spring", "lps", "evr"]:
+            if t.lower() in raw_tag.lower():
+                facts.append(t.upper())
+        if facts:
+            tag_text = f" | 量化初筛假设：{'/'.join(facts)}"
+        else:
+            tag_text = f" | 量化初筛假设：{raw_tag}"
+            
     header = (
-        f"• {stock_code} {stock_name}{policy_prefix} | 机器标签：{wyckoff_tag}\n"
+        f"• {stock_code} {stock_name}{policy_prefix}{tag_text}\n"
         f"  [价格锚点] 最新实际收盘价={close_val:.2f}（执行建议需围绕该锚点给出结构战区，不得给单点预测价）。\n"
         f"{background}\n"
     )
+    if stage:
+        header += f"  [阶段假设] {stage}\n"
     if industry:
-        header += f"  [行业] {industry}\n"
-    if quant_score is not None:
-        rank_text = f"，行业内排名 Top {industry_rank}" if industry_rank is not None else ""
-        header += f"  [量化评分] 综合人因子得分: {quant_score:.3f}{rank_text}\n"
+        header += f"  [行业/主营] {industry}\n"
+
+    supply_summary = _build_supply_demand_summary(df)
 
     # 近 15 日量价切片
     recent = df.tail(RECENT_DAYS)
@@ -614,8 +890,14 @@ def generate_stock_payload(
     for _, row in recent.iterrows():
         vol_ratio = row["volume"] / row["vol_ma20"] if pd.notna(row["vol_ma20"]) and row["vol_ma20"] > 0 else 0
         pct = row["pct_chg_calc"] if pd.notna(row["pct_chg_calc"]) else 0
+        amplitude_pct = row.get("amplitude_pct", pd.NA)
+        close_pos_pct = row.get("close_pos_pct", pd.NA)
         date_str = str(row["date"])[5:10]
-        recent_lines.append(f"    {date_str}: 收{row['close']:.2f} ({pct:+.1f}%), 量比:{vol_ratio:.1f}x")
+        amp_text = f"{float(amplitude_pct):.1f}%" if pd.notna(amplitude_pct) else "NA"
+        close_pos_text = f"{float(close_pos_pct):.0f}%" if pd.notna(close_pos_pct) else "NA"
+        recent_lines.append(
+            f"    {date_str}: 收{row['close']:.2f} ({pct:+.1f}%), 振幅:{amp_text}, 收位:{close_pos_text}, 量比:{vol_ratio:.1f}x"
+        )
 
     # 近 60 日异动高光
     tail60 = df.tail(HIGHLIGHT_DAYS)
@@ -636,7 +918,7 @@ def generate_stock_payload(
     if highlights:
         highlight_section = "\n  [近60日异动高光]:\n" + "\n".join(highlights) + "\n"
 
-    return header + "\n".join(recent_lines) + "\n" + highlight_section + "\n"
+    return header + supply_summary + "\n".join(recent_lines) + "\n" + highlight_section + "\n"
 
 
 def run(
@@ -669,6 +951,7 @@ def run(
 
     regime = (benchmark_context or {}).get("regime", "NEUTRAL")
     sector_map = fetch_sector_map()
+    market_cap_map = fetch_market_cap_map()
     benchmark_ret_10: float | None = None
     try:
         bench_df = fetch_index_hist("000001", window.start_trade_date, window.end_trade_date)
@@ -676,7 +959,6 @@ def run(
     except Exception:
         benchmark_ret_10 = None
 
-    parts: list[str] = []
     failed: list[tuple[str, str]] = []
     candidate_rows: list[dict] = []
     code_to_df: dict[str, pd.DataFrame] = {}
@@ -710,6 +992,13 @@ def run(
 
             close = pd.to_numeric(df["close"], errors="coerce")
             volume = pd.to_numeric(df["volume"], errors="coerce")
+            amount = (
+                pd.to_numeric(df["amount"], errors="coerce")
+                if "amount" in df.columns
+                else pd.Series(close * volume, index=df.index, dtype=float)
+            )
+            if amount.isna().all():
+                amount = pd.Series(close * volume, index=df.index, dtype=float)
             ma200 = close.rolling(200).mean()
             latest_close = close.iloc[-1] if len(close) else pd.NA
             latest_ma200 = ma200.iloc[-1] if len(ma200) else pd.NA
@@ -723,15 +1012,29 @@ def run(
                 rs_10 = stock_ret_10 - benchmark_ret_10
 
             vol_ma20 = volume.rolling(20).mean()
+            amount_ma20 = amount.rolling(20).mean()
             vol_ratio = volume / vol_ma20.replace(0, pd.NA)
             min_vol_ratio_5d = pd.to_numeric(vol_ratio.tail(5), errors="coerce").min()
+            avg_amount_20_yi = (
+                float(amount_ma20.iloc[-1]) / 1e8
+                if len(amount_ma20) and pd.notna(amount_ma20.iloc[-1])
+                else pd.NA
+            )
 
             candidate_rows.append(
                 {
                     "code": code,
                     "name": name,
                     "tag": tag,
+                    "track": str(item.get("track", "")).strip(),
+                    "stage": str(item.get("stage", "")).strip(),
+                    "funnel_score": pd.to_numeric(item.get("score"), errors="coerce"),
+                    "exit_signal": str(item.get("exit_signal", "")).strip(),
+                    "exit_price": pd.to_numeric(item.get("exit_price"), errors="coerce"),
+                    "exit_reason": str(item.get("exit_reason", "")).strip(),
                     "industry": sector_map.get(code, "未知行业"),
+                    "market_cap_yi": pd.to_numeric(market_cap_map.get(code), errors="coerce"),
+                    "avg_amount_20_yi": avg_amount_20_yi,
                     "bias_200": bias_200,
                     "rs_10": rs_10,
                     "min_vol_ratio_5d": min_vol_ratio_5d,
@@ -749,9 +1052,14 @@ def run(
 
     candidates_df = pd.DataFrame(candidate_rows)
     candidates_df["code"] = candidates_df["code"].astype(str).str.strip()
+    candidates_df["track"] = candidates_df.get("track", "").astype(str).str.strip()
+    candidates_df.loc[~candidates_df["track"].isin(["Trend", "Accum"]), "track"] = "Trend"
     candidates_df["policy_tag"] = ""
     selected_df = candidates_df.copy()
-    selected_df["wyckoff_score"] = pd.NA
+    selected_df["wyckoff_score"] = pd.to_numeric(
+        selected_df.get("funnel_score"),
+        errors="coerce",
+    )
     selected_df["industry_rank"] = pd.NA
 
     if STEP3_ENABLE_COMPRESSION:
@@ -820,11 +1128,13 @@ def run(
     selected_codes = [str(x) for x in selected_df["code"].tolist()]
     if not selected_codes:
         report = (
-            "# 🏛️ Alpha 投委会机密电报：今日最终决断\n\n"
-            "## 👀 继续观察\n"
+            "# 🏛️ Alpha 投委会机密电报：威科夫盘面审判\n\n"
+            "## 💀 逻辑破产\n"
+            "- 无（本轮无明确失效标的可判定）\n\n"
+            "## ⏳ 储备营地\n"
             "- 无（候选均被 RAG 防雷 veto 或数据不足）\n\n"
-            "## 🚀 立刻建仓\n"
-            "- 无（风险过高，今日观望）"
+            "## 🏹 处于起跳板\n"
+            "- 无（风险过高，今日保持观望）"
         )
         if rag_veto_lines:
             report += "\n\n## 🛑 RAG 防雷剔除清单\n" + "\n".join(rag_veto_lines)
@@ -836,11 +1146,22 @@ def run(
             return (False, "feishu_failed", report)
         return (True, "ok", report)
 
+    payloads_by_track: dict[str, list[str]] = {"Trend": [], "Accum": []}
+    df_by_track: dict[str, pd.DataFrame] = {
+        "Trend": selected_df.iloc[0:0].copy(),
+        "Accum": selected_df.iloc[0:0].copy(),
+    }
+    selected_codes_by_track: dict[str, list[str]] = {"Trend": [], "Accum": []}
+    items_by_track: dict[str, list[dict]] = {"Trend": [], "Accum": []}
+
     for _, row in selected_df.iterrows():
         code = str(row["code"])
         df = code_to_df.get(code)
         if df is None:
             continue
+        track_key = str(row.get("track", "")).strip()
+        if track_key not in {"Trend", "Accum"}:
+            track_key = "Trend"
         policy_val = row.get("policy_tag")
         policy_text = (
             str(policy_val).strip()
@@ -853,11 +1174,20 @@ def run(
             wyckoff_tag=str(row.get("tag", "")),
             df=df,
             industry=str(row.get("industry", "")),
-            quant_score=float(row["wyckoff_score"]) if pd.notna(row.get("wyckoff_score")) else None,
-            industry_rank=int(row["industry_rank"]) if pd.notna(row.get("industry_rank")) else None,
+            market_cap_yi=pd.to_numeric(row.get("market_cap_yi"), errors="coerce"),
+            avg_amount_20_yi=pd.to_numeric(row.get("avg_amount_20_yi"), errors="coerce"),
             policy_tag=policy_text,
+            stage=str(row.get("stage", "")).strip() or None,
         )
-        parts.append(payload)
+        payloads_by_track.setdefault(track_key, []).append(payload)
+        df_by_track[track_key] = pd.concat(
+            [df_by_track[track_key], row.to_frame().T],
+            ignore_index=True,
+        )
+        selected_codes_by_track[track_key].append(code)
+        item = next((x for x in items if str(x.get("code")) == code), None)
+        if item:
+            items_by_track[track_key].append(item)
 
     benchmark_lines = []
     if benchmark_context:
@@ -871,105 +1201,96 @@ def run(
             f"ma50_slope_5d={benchmark_context.get('ma50_slope_5d')}"
         )
         benchmark_lines.append(
-            f"recent3_pct={benchmark_context.get('recent3_pct')}, "
-            f"recent3_cum_pct={benchmark_context.get('recent3_cum_pct')}, "
-            f"tuned={benchmark_context.get('tuned')}"
+            f"recent3_cum_pct={benchmark_context.get('recent3_cum_pct')}"
         )
         if breadth_ctx:
             benchmark_lines.append(
                 f"breadth_pct={breadth_ctx.get('ratio_pct')}, "
-                f"breadth_prev_pct={breadth_ctx.get('prev_ratio_pct')}, "
-                f"breadth_delta_pct={breadth_ctx.get('delta_pct')}, "
-                f"breadth_sample={breadth_ctx.get('sample_size')}, "
-                f"breadth_ma_window={breadth_ctx.get('ma_window')}"
+                f"breadth_delta_pct={breadth_ctx.get('delta_pct')}"
             )
 
-    user_message = (
-        ("{}\n\n".format("\n".join(benchmark_lines)) if benchmark_lines else "")
-        + (
-            (
-                f"[量化压缩] 候选已从 {len(candidates_df)} 只压缩到 {len(parts)} 只，"
-                f"regime={regime}, max_total={STEP3_MAX_AI_INPUT}, "
-                f"max_per_industry={STEP3_MAX_PER_INDUSTRY}。\n\n"
-            )
-            if STEP3_ENABLE_COMPRESSION and len(candidates_df) > len(parts)
-            else ""
-        )
-        + (
-            "以下是通过 Wyckoff Funnel 命中并经量化压缩后的候选名单。\n"
-            if STEP3_ENABLE_COMPRESSION
-            else "以下是通过 Wyckoff Funnel 命中的全量候选名单（未压缩）。\n"
-        )
-        + "请仅做二分类："
-        + "1) 继续观察 2) 立刻建仓。\n"
-        + "输出必须包含这两个部分，且只能使用输入列表中的股票代码，不得遗漏或新增。\n\n"
-        + "交易执行硬约束：\n"
-        + "1) 禁止单点价格指令，必须给“结构战区(Action Zone) + 盘面确认条件(Tape Condition)”。\n"
-        + "2) 战区需围绕每只股票的“价格锚点（最新收盘价）”描述，但不得刻舟求剑。\n"
-        + "3) 买入触发必须包含量价确认条件（如缩量回踩/拒绝下破）；若放量下破，必须取消买入。\n"
-        + "4) 强势突破标的必须给“防踏空策略”：开盘强势确认后可先用计划仓位1/3试单，其余等待二次确认。\n\n"
-        + (
-            "[RAG防雷剔除清单]\n"
-            + "\n".join(rag_veto_lines)
-            + "\n\n"
-            if rag_veto_lines
-            else ""
-        )
-        + "\n".join(parts)
+    active_tracks = [
+        track for track in ["Trend", "Accum"] if payloads_by_track.get(track)
+    ]
+    if not active_tracks:
+        detail = ", ".join(f"{s}({e})" for s, e in failed) if failed else "无可用 payload"
+        print(f"[step3] 候选存在，但未能生成可用模型输入: {detail}")
+        return (False, "payload_build_failed", "")
+    candidate_track_counts = (
+        candidates_df["track"].value_counts().to_dict()
+        if "track" in candidates_df.columns
+        else {}
     )
-    selected_set = set(selected_codes)
-    selected_items = [x for x in items if str(x.get("code")) in selected_set]
-    _dump_model_input(items=selected_items, model=model, system_prompt=WYCKOFF_FUNNEL_SYSTEM_PROMPT, user_message=user_message)
+    track_requests: list[dict] = []
+    for track in active_tracks:
+        user_message = _build_track_user_message(
+            track=track,
+            benchmark_lines=benchmark_lines,
+            payloads=payloads_by_track.get(track, []),
+            compressed=STEP3_ENABLE_COMPRESSION,
+            raw_count=int(candidate_track_counts.get(track, len(payloads_by_track.get(track, [])))),
+            selected_count=len(payloads_by_track.get(track, [])),
+        )
+        track_requests.append(
+            {
+                "track": track,
+                "user_message": user_message,
+                "selected_count": len(payloads_by_track.get(track, [])),
+            }
+        )
+        _dump_model_input(
+            items=items_by_track.get(track, []),
+            model=model,
+            system_prompt=WYCKOFF_FUNNEL_SYSTEM_PROMPT,
+            user_message=user_message,
+            name_hint=track.lower(),
+        )
 
     if STEP3_SKIP_LLM:
         ok, preview_report = _send_input_preview(
             webhook_url=webhook_url,
             model=model,
             system_prompt=WYCKOFF_FUNNEL_SYSTEM_PROMPT,
-            user_message=user_message,
-            selected_count=len(parts),
+            previews=track_requests,
         )
         if not ok:
             return (False, "feishu_failed", preview_report)
         return (True, "ok_preview", preview_report)
 
-    report = ""
-    used_model = ""
-    models_to_try = [model]
-    if GEMINI_MODEL_FALLBACK and GEMINI_MODEL_FALLBACK != model:
-        models_to_try.append(GEMINI_MODEL_FALLBACK)
-
-    for m in models_to_try:
-        try:
-            report = call_llm(
-                provider="gemini",
-                model=m,
-                api_key=api_key,
-                system_prompt=WYCKOFF_FUNNEL_SYSTEM_PROMPT,
-                user_message=user_message,
-                timeout=300,
-                max_output_tokens=STEP3_MAX_OUTPUT_TOKENS,
-            )
-            used_model = m
-            break
-        except Exception as e:
-            print(f"[step3] 模型 {m} 失败: {e}")
-            if m == models_to_try[-1]:
-                return (False, "llm_failed", "")
-
-    if not _has_required_sections(report):
-        print("[step3] 首版研报缺少继续观察/立刻建仓，执行一次结构修复")
-        report = _repair_report_structure(
-            report=report,
-            model=used_model or model,
+    track_reports: list[tuple[str, str]] = []
+    used_models: dict[str, str] = {}
+    for request in track_requests:
+        track = str(request.get("track", "Trend"))
+        ok, track_report, used_model = _call_track_report(
+            track=track,
+            system_prompt=WYCKOFF_FUNNEL_SYSTEM_PROMPT,
+            user_message=str(request.get("user_message", "")),
+            model=model,
             api_key=api_key,
-            selected_codes=selected_codes,
+            selected_codes=selected_codes_by_track.get(track, []),
+            selected_df=df_by_track.get(track, selected_df.iloc[0:0].copy()),
         )
-    if not _has_required_sections(report):
-        print("[step3] 结构修复后仍缺少关键章节，追加系统兜底分层")
-        report = report.rstrip() + "\n\n" + _build_fallback_sections(selected_df)
+        if not ok:
+            return (False, "llm_failed", "")
+        used_models[track] = used_model
+        track_title = TRACK_LABELS.get(track, track)
+        track_reports.append(
+            (
+                track,
+                f"## {track_title}\n\n{_strip_report_title(track_report)}".strip(),
+            )
+        )
 
-    model_banner = f"🤖 模型: {used_model or model}"
+    report = "\n\n---\n\n".join(section for _, section in track_reports).strip()
+
+    unique_used_models = list(dict.fromkeys(used_models.values()))
+    if len(unique_used_models) == 1:
+        model_banner = f"🤖 模型: {unique_used_models[0]}（分轨调用）"
+    else:
+        model_banner = "🤖 模型: " + " | ".join(
+            f"{TRACK_LABELS.get(track, track)}={used_models.get(track, model)}"
+            for track in active_tracks
+        )
     code_name = {
         str(row.get("code")): str(row.get("name", row.get("code")))
         for _, row in selected_df.iterrows()
@@ -989,7 +1310,7 @@ def run(
                 ops_codes.append(code)
     ops_lines = [f"- {c} {code_name.get(c, c)}" for c in ops_codes]
     ops_preview = (
-        "## 🚀 立刻建仓速览（前置）\n"
+        "## 🏹 处于起跳板速览（前置）\n"
         + ("\n".join(ops_lines) if ops_lines else "- 无")
         + "\n\n---\n"
     )
@@ -998,7 +1319,10 @@ def run(
     if rag_veto_lines:
         content += "\n\n## 🛑 RAG 防雷剔除清单\n" + "\n".join(rag_veto_lines)
     print(f"[step3] 飞书发送原文长度={len(content)}（不压缩，交由飞书分片）")
-    print(f"[step3] 研报实际使用模型={used_model or model}")
+    print(
+        "[step3] 研报实际使用模型="
+        + " | ".join(f"{track}:{used_models.get(track, model)}" for track in active_tracks)
+    )
     if failed:
         content += f"\n\n**获取失败**: {', '.join(f'{s}({e})' for s, e in failed)}"
 
@@ -1007,5 +1331,8 @@ def run(
     if not sent:
         print("[step3] 飞书推送失败")
         return (False, "feishu_failed", report)
-    print(f"[step3] 研报发送成功，股票数={len(parts)}，拉取失败数={len(failed)}")
+    print(
+        f"[step3] 研报发送成功，股票数={sum(len(payloads_by_track.get(t, [])) for t in active_tracks)}，"
+        f"拉取失败数={len(failed)}"
+    )
     return (True, "ok", report)
