@@ -21,7 +21,10 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from integrations.fetch_a_share_csv import _resolve_trading_window
+from integrations.supabase_market_signal import upsert_market_signal_daily
 from utils.feishu import send_feishu_notification
+from utils.trading_clock import resolve_end_calendar_day
 
 TZ = ZoneInfo("Asia/Shanghai")
 RISK_A50_CRASH_PCT = float(os.getenv("PREMARKET_A50_CRASH_PCT", "-2.0"))
@@ -89,6 +92,14 @@ def _safe_float(v) -> float | None:
         return float(s)
     except Exception:
         return None
+
+
+def _latest_trade_date_str() -> str:
+    window = _resolve_trading_window(
+        end_calendar_day=resolve_end_calendar_day(),
+        trading_days=30,
+    )
+    return window.end_trade_date.isoformat()
 
 
 def _fetch_a50() -> dict:
@@ -384,6 +395,30 @@ def main() -> int:
     if args.dry_run:
         _log("--dry-run: 不发送飞书", logs_path)
         return 0
+
+    trade_date = _latest_trade_date_str()
+    db_ok = upsert_market_signal_daily(
+        trade_date,
+        {
+            "a50_value_date": a50.get("date"),
+            "a50_source": a50.get("source"),
+            "a50_close": a50.get("close"),
+            "a50_pct_chg": a50.get("pct_chg"),
+            "vix_value_date": vix.get("date"),
+            "vix_source": vix.get("source"),
+            "vix_close": vix.get("close"),
+            "vix_pct_chg": vix.get("pct_chg"),
+            "premarket_regime": regime,
+            "premarket_reasons": reasons,
+            "source_jobs": {
+                "premarket_risk_job": {
+                    "updated_at": datetime.now(TZ).isoformat(),
+                    "writer": "a50_vix_risk",
+                }
+            },
+        },
+    )
+    _log(f"市场信号写库(premarket): ok={db_ok}, trade_date={trade_date}, regime={regime}", logs_path)
 
     if not webhook:
         _log("FEISHU_WEBHOOK_URL 未配置，跳过飞书发送", logs_path)
