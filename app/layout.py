@@ -7,6 +7,10 @@ from core.token_storage import restore_tokens_from_storage
 from integrations.supabase_market_signal import load_latest_market_signal_daily
 
 
+def _log_layout(message: str) -> None:
+    print(f"[layout] {message}", flush=True)
+
+
 def _set_default(key: str, value) -> None:
     if key not in st.session_state or st.session_state.get(key) is None:
         st.session_state[key] = value
@@ -245,8 +249,10 @@ def _tone_slug(tone: str) -> str:
 
 
 def _render_market_signal_banner() -> None:
+    _log_layout("market signal banner: render start")
     row = load_latest_market_signal_daily()
     if not isinstance(row, dict):
+        _log_layout("market signal banner: no row returned")
         return
 
     tone = str(row.get("banner_tone", "谨慎") or "谨慎").strip()
@@ -269,6 +275,11 @@ def _render_market_signal_banner() -> None:
         ("A50", _fmt_pct(a50_pct)),
         ("VIX", _fmt_pct(vix_pct)),
     ]
+    _log_layout(
+        "market signal banner: row loaded "
+        f"trade_date={row.get('trade_date')} tone={tone} regime={regime} "
+        f"title_len={len(title)} body_len={len(body)}"
+    )
     chips_html = "".join(
         (
             '<span class="ms-chip">'
@@ -293,6 +304,7 @@ def _render_market_signal_banner() -> None:
         """,
         unsafe_allow_html=True,
     )
+    _log_layout("market signal banner: markdown emitted")
 
 
 def require_auth() -> None:
@@ -311,11 +323,18 @@ def setup_page(
     layout: str = "wide",
     require_login: bool = True,
 ) -> None:
+    _log_layout(
+        f"setup_page start title={page_title} require_login={require_login} "
+        f"user_present={bool(st.session_state.get('user'))}"
+    )
     st.set_page_config(page_title=page_title, page_icon=page_icon, layout=layout)
     init_session_state()
     _inject_base_ui_css()
     if require_login:
         require_auth()
+        user = st.session_state.get("user")
+        user_id = user.get("id") if isinstance(user, dict) else None
+        _log_layout(f"setup_page authenticated user_id={user_id}")
         _render_market_signal_banner()
 
 
