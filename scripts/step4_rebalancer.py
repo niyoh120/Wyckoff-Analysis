@@ -83,6 +83,10 @@ STEP4_CHASE_ATR_MULT_MAX = max(float(os.getenv("STEP4_CHASE_ATR_MULT_MAX", "2.4"
 # --- 新增：OMS 防追高与滑点保护配置 ---
 STEP4_MAX_GAP_UP_PCT = float(os.getenv("STEP4_MAX_GAP_UP_PCT", "3.0"))          # 最大允许跳空/追高幅度(%)
 STEP4_MAX_GAP_UP_ATR_MULT = float(os.getenv("STEP4_MAX_GAP_UP_ATR_MULT", "1.5")) # 最大允许追高 ATR 倍数
+STEP4_MAX_NEW_BUYS_RISK_ON = max(int(os.getenv("STEP4_MAX_NEW_BUYS_RISK_ON", "2")), 0)
+STEP4_MAX_NEW_BUYS_CAUTION = max(int(os.getenv("STEP4_MAX_NEW_BUYS_CAUTION", "1")), 0)
+STEP4_MAX_NEW_BUYS_NEUTRAL = max(int(os.getenv("STEP4_MAX_NEW_BUYS_NEUTRAL", "1")), 0)
+STEP4_MAX_NEW_BUYS_RISK_OFF = max(int(os.getenv("STEP4_MAX_NEW_BUYS_RISK_OFF", "0")), 0)
 
 BENCHMARK_REGIME_SEVERITY = {
     "RISK_ON": 0,
@@ -139,6 +143,7 @@ class DecisionItem:
     is_add_on: bool
     reason: str
     confidence: float | None
+    funnel_score: float | None = None
     wyckoff_track: str = ""
     wyckoff_stage: str = ""
     wyckoff_tag: str = ""
@@ -178,11 +183,31 @@ class CandidateMeta:
     tag: str = ""
     track: str = ""
     stage: str = ""
+    industry: str = ""
+    sector_state: str = ""
+    sector_state_code: str = ""
+    sector_note: str = ""
+    funnel_score: float | None = None
+    exit_signal: str = ""
+    exit_price: float | None = None
+    exit_reason: str = ""
     source_type: str = ""
 
 
 def _clean_text(raw: object) -> str:
     return str(raw or "").strip()
+
+
+def _parse_float_like(raw: object) -> float | None:
+    try:
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        if not text:
+            return None
+        return float(text)
+    except Exception:
+        return None
 
 
 def _normalize_benchmark_regime(raw: object) -> str:
@@ -354,6 +379,14 @@ def _build_candidate_meta_map(
             tag=_clean_text(item.get("tag")),
             track=_normalize_track(item.get("track")),
             stage=_normalize_stage(item.get("stage")),
+            industry=_clean_text(item.get("industry")),
+            sector_state=_clean_text(item.get("sector_state")),
+            sector_state_code=_clean_text(item.get("sector_state_code")),
+            sector_note=_clean_text(item.get("sector_note")),
+            funnel_score=_parse_float_like(item.get("score")),
+            exit_signal=_clean_text(item.get("exit_signal")),
+            exit_price=_parse_float_like(item.get("exit_price")),
+            exit_reason=_clean_text(item.get("exit_reason")),
             source_type="external",
         )
 
@@ -388,6 +421,7 @@ def _attach_candidate_meta(
                 wyckoff_track=meta.track or dec.wyckoff_track,
                 wyckoff_stage=meta.stage or dec.wyckoff_stage,
                 wyckoff_tag=meta.tag or dec.wyckoff_tag,
+                funnel_score=meta.funnel_score if dec.funnel_score is None else dec.funnel_score,
                 source_type=meta.source_type or dec.source_type,
             )
         )
@@ -1254,6 +1288,89 @@ def _format_position_payload(
     return ("\n\n".join(blocks), failures, live_value_sum, latest_close_map, atr_map)
 
 
+def _process_one_candidate(
+    item: dict,
+    window,
+) -> tuple[str, str, float | None, float | None]:
+    code = _clean_text(item.get("code"))
+    name = _clean_text(item.get("name")) or code
+    try:
+        raw_qfq = _fetch_hist(code, window, "qfq")
+        df_qfq = normalize_hist_from_fetch(raw_qfq).sort_values("date").reset_index(drop=True)
+        if ENFORCE_TARGET_TRADE_DATE:
+            df_qfq, patched = _append_spot_bar_if_needed(
+                code,
+                df_qfq,
+                window.end_trade_date,
+            )
+            if patched:
+                print(f"[step4] {code} 候选切片已用实时快照补偿")
+            latest_trade_date = _latest_trade_date_from_hist(df_qfq)
+            if latest_trade_date != window.end_trade_date:
+                raise RuntimeError(
+                    f"qfq_latest_trade_date={latest_trade_date}, target_trade_date={window.end_trade_date}"
+                )
+
+        atr14 = _calc_atr(df_qfq, STEP4_ATR_PERIOD)
+        latest_close = _fetch_latest_real_close(code, window)
+        if latest_close is None:
+            latest_close = float(df_qfq.iloc[-1]["close"])
+
+        payload = generate_stock_payload(
+            stock_code=code,
+            stock_name=name,
+            wyckoff_tag=_clean_text(item.get("tag")) or "漏斗候选",
+            df=df_qfq,
+            industry=_clean_text(item.get("industry")) or None,
+            track=_clean_text(item.get("track")) or None,
+            stage=_clean_text(item.get("stage")) or None,
+            funnel_score=_parse_float_like(item.get("score")),
+            sector_state=_clean_text(item.get("sector_state")) or None,
+            sector_state_code=_clean_text(item.get("sector_state_code")) or None,
+            sector_note=_clean_text(item.get("sector_note")) or None,
+            exit_signal=_clean_text(item.get("exit_signal")) or None,
+            exit_price=_parse_float_like(item.get("exit_price")),
+            exit_reason=_clean_text(item.get("exit_reason")) or None,
+        )
+        return (payload, "", latest_close, atr14)
+    except Exception as e:
+        return ("", f"{code}:{e}", None, None)
+
+
+def _format_candidate_payload(
+    candidate_items: list[dict],
+    window,
+) -> tuple[str, list[str], dict[str, float], dict[str, float]]:
+    if not candidate_items:
+        return ("", [], {}, {})
+
+    blocks_by_index: dict[int, str] = {}
+    failures: list[str] = []
+    latest_close_map: dict[str, float] = {}
+    atr_map: dict[str, float] = {}
+
+    with ThreadPoolExecutor(max_workers=STEP4_MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(_process_one_candidate, item, window): (idx, item)
+            for idx, item in enumerate(candidate_items)
+        }
+        for future in as_completed(futures):
+            idx, item = futures[future]
+            block, fail_msg, latest_close, atr14 = future.result()
+            if fail_msg:
+                failures.append(fail_msg)
+            if block:
+                blocks_by_index[idx] = block
+            code = _clean_text(item.get("code"))
+            if latest_close is not None:
+                latest_close_map[code] = latest_close
+            if atr14 is not None:
+                atr_map[code] = atr14
+
+    ordered_blocks = [blocks_by_index[idx] for idx in sorted(blocks_by_index)]
+    return ("\n\n".join(ordered_blocks), failures, latest_close_map, atr_map)
+
+
 def _extract_json_block(text: str) -> str:
     raw = (text or "").strip()
     if raw.startswith("```"):
@@ -1379,6 +1496,57 @@ def _parse_decisions(
             )
         )
     return (market_view, out, None)
+
+
+def _max_new_buy_names(market_regime: str) -> int:
+    regime = _clean_text(market_regime).upper() or "NEUTRAL"
+    if regime == "RISK_ON":
+        return STEP4_MAX_NEW_BUYS_RISK_ON
+    if regime == "CAUTION":
+        return STEP4_MAX_NEW_BUYS_CAUTION
+    if regime == "RISK_OFF":
+        return STEP4_MAX_NEW_BUYS_RISK_OFF
+    if regime in {"CRASH", "BLACK_SWAN"}:
+        return 0
+    return STEP4_MAX_NEW_BUYS_NEUTRAL
+
+
+def _trim_new_buy_decisions(
+    decisions: list[DecisionItem],
+    held_codes: set[str],
+    market_regime: str,
+) -> list[DecisionItem]:
+    max_new_names = _max_new_buy_names(market_regime)
+    if max_new_names < 0:
+        return decisions
+
+    new_buys = [
+        dec for dec in decisions
+        if dec.action in {"PROBE", "ATTACK"} and dec.code not in held_codes
+    ]
+    if len(new_buys) <= max_new_names:
+        return decisions
+
+    def _rank_key(dec: DecisionItem) -> tuple[float, float, int]:
+        confidence = dec.confidence if dec.confidence is not None else -1.0
+        funnel_score = dec.funnel_score if dec.funnel_score is not None else float("-inf")
+        action_rank = 1 if dec.action == "ATTACK" else 0
+        return (confidence, funnel_score, action_rank)
+
+    keep_codes = {
+        dec.code
+        for dec in sorted(new_buys, key=_rank_key, reverse=True)[:max_new_names]
+    }
+    dropped = [dec.code for dec in new_buys if dec.code not in keep_codes]
+    if dropped:
+        print(
+            f"[step4] 组合级限购生效: regime={market_regime}, "
+            f"max_new_buy_names={max_new_names}, dropped={','.join(dropped)}"
+        )
+    return [
+        dec for dec in decisions
+        if not (dec.action in {"PROBE", "ATTACK"} and dec.code not in held_codes and dec.code not in keep_codes)
+    ]
 
 
 def _dump_model_input(model: str, system_prompt: str, user_message: str, symbols: list[str]) -> None:
@@ -1639,14 +1807,41 @@ def run(
     total_equity = computed_total_equity
 
     position_codes = [p.code for p in portfolio.positions]
-    external_codes = _extract_stock_codes(external_report)
-    candidate_codes = [c for c in external_codes if c not in set(position_codes)]
+    position_code_set = set(position_codes)
+    candidate_codes: list[str] = []
+    seen_candidate_codes: set[str] = set()
+    candidate_items: list[dict] = []
+    for item in candidate_meta or []:
+        if not isinstance(item, dict):
+            continue
+        code = _clean_text(item.get("code"))
+        if not re.fullmatch(r"\d{6}", code):
+            continue
+        if code in position_code_set or code in seen_candidate_codes:
+            continue
+        seen_candidate_codes.add(code)
+        candidate_codes.append(code)
+        candidate_items.append(dict(item))
+    for code in _extract_stock_codes(external_report):
+        if code in position_code_set or code in seen_candidate_codes:
+            continue
+        seen_candidate_codes.add(code)
+        candidate_codes.append(code)
     allowed_codes = set(position_codes + candidate_codes)
     candidate_meta_map = _build_candidate_meta_map(candidate_meta, portfolio.positions)
     name_map = {p.code: p.name for p in portfolio.positions}
     for code, meta in candidate_meta_map.items():
         if code in allowed_codes and code not in name_map:
             name_map[code] = meta.name or code
+
+    candidate_payload, candidate_failures, candidate_latest_price_map, candidate_atr_map = _format_candidate_payload(
+        candidate_items,
+        window,
+    )
+    if candidate_latest_price_map:
+        latest_price_map.update(candidate_latest_price_map)
+    if candidate_atr_map:
+        atr_map.update(candidate_atr_map)
 
     market_signal_row = _load_market_signal_for_trade_date(trade_date)
     if market_signal_row:
@@ -1663,23 +1858,36 @@ def run(
         market_signal_row=market_signal_row,
     )
 
+    max_new_buy_names = _max_new_buy_names(market_regime)
     user_message = (
         benchmark_text
         + "[账户状态]\n"
         + f"free_cash={portfolio.free_cash:.2f}\n"
         + f"total_equity={float(total_equity):.2f}\n"
         + f"position_count={len(portfolio.positions)}\n"
+        + f"candidate_count={len(candidate_codes)}\n"
         + f"allowed_codes={','.join(sorted(allowed_codes))}\n\n"
+        + "[组合决策约束]\n"
+        + f"max_new_buy_names={max_new_buy_names}\n"
+        + "external_candidates_are_optional=true\n"
+        + "omit_rejected_candidates_from_decisions=true\n"
+        + "prefer_cash_over_marginal_candidates=true\n"
+        + "all_existing_positions_must_have_action=true\n\n"
         + "[系统硬规则]\n"
         + f"buy_stop_mode={STEP4_BUY_STOP_MODE}, buy_stop_pct={STEP4_BUY_HARD_STOP_PCT:.1f}\n"
         + "仅允许依据结构止损、Distribution 信号与量价破坏做减仓/清仓，不得因为持有天数到期而机械离场。\n\n"
         + "[内部持仓量价切片]\n"
         + (positions_payload if positions_payload else "当前无持仓，仅现金。")
-        + "\n\n[外部候选摘要]\n"
-        + (external_report.strip() if external_report and external_report.strip() else "无")
+        + "\n\n[漏斗候选量价切片]\n"
+        + (candidate_payload if candidate_payload else "无")
     )
-    if position_failures:
-        user_message += "\n\n[数据注意]\n" + "\n".join(f"- {x}" for x in position_failures)
+    data_notes: list[str] = []
+    data_notes.extend(position_failures)
+    data_notes.extend(candidate_failures)
+    if data_notes:
+        user_message += "\n\n[数据注意]\n" + "\n".join(f"- {x}" for x in data_notes)
+    if (not candidate_payload) and external_report and external_report.strip():
+        user_message += "\n\n[Step3参考摘要-仅在候选切片缺失时启用]\n" + external_report.strip()
 
     _dump_model_input(
         model=model,
@@ -1739,6 +1947,11 @@ def run(
         )
 
     decisions = _attach_candidate_meta(decisions, candidate_meta_map)
+    decisions = _trim_new_buy_decisions(
+        decisions,
+        held_codes=position_code_set,
+        market_regime=market_regime,
+    )
 
     # 补齐候选最新价
     def _fetch_candidate_data(d_code):
