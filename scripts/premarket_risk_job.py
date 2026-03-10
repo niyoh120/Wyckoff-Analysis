@@ -13,7 +13,7 @@ import csv
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from io import StringIO
 from zoneinfo import ZoneInfo
 
@@ -25,11 +25,13 @@ from integrations.supabase_market_signal import upsert_market_signal_daily
 from utils.feishu import send_feishu_notification
 
 TZ = ZoneInfo("Asia/Shanghai")
+US_TZ = ZoneInfo("America/New_York")
 RISK_A50_CRASH_PCT = float(os.getenv("PREMARKET_A50_CRASH_PCT", "-2.0"))
 RISK_A50_OFF_PCT = float(os.getenv("PREMARKET_A50_RISK_OFF_PCT", "-1.0"))
 RISK_VIX_CRASH_PCT = float(os.getenv("PREMARKET_VIX_CRASH_PCT", "15.0"))
 RISK_VIX_CRASH_CLOSE = float(os.getenv("PREMARKET_VIX_CRASH_CLOSE", "25.0"))
 RISK_VIX_OFF_PCT = float(os.getenv("PREMARKET_VIX_RISK_OFF_PCT", "8.0"))
+PREMARKET_VIX_READY_HOUR_ET = int(os.getenv("PREMARKET_VIX_READY_HOUR_ET", "17"))
 
 
 def _build_action_matrix(regime: str) -> list[str]:
@@ -110,6 +112,41 @@ def _premarket_session_trade_date_str() -> str:
     否则晚间 OMS 无法按自然日读取到同一天的盘前红灯。
     """
     return datetime.now(TZ).date().isoformat()
+
+
+def _parse_trade_date(raw: object) -> date | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except Exception:
+            continue
+    return None
+
+
+def _latest_expected_us_trade_date(now: datetime | None = None) -> date:
+    dt_us = now.astimezone(US_TZ) if now else datetime.now(US_TZ)
+    candidate = dt_us.date()
+    if dt_us.weekday() < 5 and dt_us.hour >= PREMARKET_VIX_READY_HOUR_ET:
+        return candidate
+    candidate -= timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+def _ensure_vix_fresh(raw_date: object, source: str, now: datetime | None = None) -> date:
+    trade_date = _parse_trade_date(raw_date)
+    if trade_date is None:
+        raise RuntimeError(f"{source} date invalid: {raw_date}")
+    expected_date = _latest_expected_us_trade_date(now=now)
+    if trade_date < expected_date:
+        raise RuntimeError(
+            f"{source} stale: latest={trade_date.isoformat()} < expected={expected_date.isoformat()}"
+        )
+    return trade_date
 
 
 def _fetch_a50() -> dict:
@@ -195,11 +232,12 @@ def _fetch_vix_stooq() -> dict:
         c0 = _safe_float(prev.get("Close"))
         if c1 is None or c0 is None or c0 == 0:
             raise RuntimeError("stooq close invalid")
+        trade_date = _ensure_vix_fresh(last.get("Date"), out["source"])
         pct = (c1 - c0) / c0 * 100.0
         out.update(
             {
                 "ok": True,
-                "date": str(last.get("Date", "")),
+                "date": trade_date.isoformat(),
                 "close": c1,
                 "pct_chg": pct,
             }
@@ -242,11 +280,12 @@ def _fetch_vix_cboe() -> dict:
         _, c0 = valid[1]
         if c0 == 0:
             raise RuntimeError("cboe prev close zero")
+        trade_date = _ensure_vix_fresh(d1, out["source"])
         pct = (c1 - c0) / c0 * 100.0
         out.update(
             {
                 "ok": True,
-                "date": d1,
+                "date": trade_date.isoformat(),
                 "close": c1,
                 "pct_chg": pct,
             }
@@ -293,11 +332,12 @@ def _fetch_vix_yahoo() -> dict:
         if c0 == 0:
             raise RuntimeError("yahoo prev close zero")
         pct = (c1 - c0) / c0 * 100.0
-        dt = datetime.fromtimestamp(ts1, TZ).strftime("%Y-%m-%d")
+        dt = datetime.fromtimestamp(ts1, US_TZ).date()
+        trade_date = _ensure_vix_fresh(dt.isoformat(), out["source"])
         out.update(
             {
                 "ok": True,
-                "date": dt,
+                "date": trade_date.isoformat(),
                 "close": c1,
                 "pct_chg": pct,
             }
@@ -422,6 +462,12 @@ def main() -> int:
         f"date={vix.get('date')}, close={vix.get('close')}, pct={vix.get('pct_chg')}",
         "",
     ]
+    if not a50.get("ok") and a50.get("error"):
+        content_parts.append(f"**A50注意**: {a50.get('error')}")
+    if not vix.get("ok") and vix.get("error"):
+        content_parts.append(f"**VIX注意**: {vix.get('error')}")
+    if (not a50.get("ok") and a50.get("error")) or (not vix.get("ok") and vix.get("error")):
+        content_parts.append("")
     content_parts.extend(action_lines)
     content_parts.extend(
         [
