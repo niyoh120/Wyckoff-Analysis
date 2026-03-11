@@ -22,9 +22,13 @@ def init_session_state() -> None:
     _set_default("last_home_batch_key", "")
     _set_default("last_home_single_key", "")
     _set_default("last_custom_export_query", "")
-    _set_default("custom_export_df", None)
+    _set_default("custom_export_payload", None)
     _set_default("custom_export_source_id", "")
+    _set_default("custom_export_selected_signature", "")
+    _set_default("custom_export_selected_path", "")
     _set_default("wyckoff_payload", None)
+    if "custom_export_df" in st.session_state:
+        del st.session_state["custom_export_df"]
 
     # 用户敏感配置不从环境变量兜底，避免跨账号污染
     _set_default("feishu_webhook", "")

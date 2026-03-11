@@ -8,7 +8,9 @@ import streamlit as st
 from datetime import date, timedelta
 import time
 import akshare as ak
+import pandas as pd
 from core.download_history import add_download_history
+from core.export_artifacts import cleanup_export_artifacts, file_loader, write_dataframe_csv
 from integrations.fetch_a_share_csv import get_all_stocks
 from integrations.data_source import fetch_stock_hist
 from app.layout import is_data_source_failure_message, setup_page, show_user_error
@@ -21,6 +23,15 @@ setup_page(page_title="自定义导出", page_icon="🧰")
 
 content_col = show_right_nav()
 with content_col:
+    PREVIEW_ROWS = 300
+    EXPORT_CLEANUP_INTERVAL_SECONDS = 3 * 60 * 60
+
+    now_ts = time.time()
+    last_cleanup_ts = float(st.session_state.get("custom_export_cleanup_last_ts", 0))
+    if now_ts - last_cleanup_ts >= EXPORT_CLEANUP_INTERVAL_SECONDS:
+        cleanup_export_artifacts()
+        st.session_state.custom_export_cleanup_last_ts = now_ts
+
     # 首次进入页面时复用现有 Loading 组件（与页面其他操作保持一致）
     if not st.session_state.get("_custom_export_entered", False):
         loading = show_page_loading(title="加载中...", subtitle="正在准备页面内容")
@@ -77,8 +88,10 @@ with content_col:
     st.caption(source["help"])
 
     if prev_selected_label and prev_selected_label != selected_label:
-        st.session_state.custom_export_df = None
+        st.session_state.custom_export_payload = None
         st.session_state.custom_export_source_id = ""
+        st.session_state.custom_export_selected_signature = ""
+        st.session_state.custom_export_selected_path = ""
 
 
     today = date.today()
@@ -88,13 +101,13 @@ with content_col:
     end_date = today
     start_date = end_date - timedelta(days=365)
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @st.cache_data(ttl=3600, show_spinner=False, max_entries=1)
     def _stock_name_map() -> dict[str, str]:
         items = get_all_stocks()
         return {x.get("code", ""): x.get("name", "") for x in items if isinstance(x, dict)}
 
 
-    @st.cache_data(ttl=300, show_spinner=False)
+    @st.cache_data(ttl=300, show_spinner=False, max_entries=1)
     def _etf_name_map() -> dict[str, str]:
         try:
             df = ak.fund_etf_spot_em()
@@ -197,8 +210,22 @@ with content_col:
                         )
             finally:
                 loading.empty()
-            st.session_state.custom_export_df = df
+            csv_path = write_dataframe_csv(
+                df,
+                prefix=f"{source['id']}_{symbol or 'dataset'}_all",
+            )
+            preview_df = df.head(PREVIEW_ROWS).copy()
+            st.session_state.custom_export_payload = {
+                "csv_path": str(csv_path),
+                "shape": [int(len(df)), int(len(df.columns))],
+                "columns": [str(c) for c in df.columns],
+                "preview_rows": preview_df.to_dict(orient="records"),
+                "preview_count": int(len(preview_df)),
+                "symbol": symbol,
+            }
             st.session_state.custom_export_source_id = source["id"]
+            st.session_state.custom_export_selected_signature = ""
+            st.session_state.custom_export_selected_path = ""
 
             # === 自动记录查询历史 ===
             # 生成一个唯一的 query_key 来防止重复记录
@@ -224,22 +251,36 @@ with content_col:
                 show_user_error("获取失败，请稍后重试。", e)
             st.stop()
 
-
-    df = st.session_state.custom_export_df
-    if df is None:
+    payload = st.session_state.get("custom_export_payload")
+    if payload is None:
         st.info("请选择数据源并点击“获取数据”。")
         st.stop()
 
+    total_rows = int((payload.get("shape") or [0, 0])[0])
+    total_cols = int((payload.get("shape") or [0, 0])[1])
+    preview_rows = payload.get("preview_rows") or []
+    preview_df = (
+        None if not preview_rows else pd.DataFrame(preview_rows, columns=payload.get("columns") or None)
+    )
+    all_columns = [str(c) for c in (payload.get("columns") or [])]
+    csv_path = str(payload.get("csv_path") or "")
+    if not csv_path or not os.path.exists(csv_path):
+        st.session_state.custom_export_payload = None
+        st.warning("导出缓存已失效，请重新获取数据。")
+        st.stop()
 
     st.subheader("📊 数据预览")
-    st.caption(f"行数：{len(df)} | 列数：{len(df.columns)}")
-    st.dataframe(df, width="stretch", height=420)
+    st.caption(
+        f"行数：{total_rows} | 列数：{total_cols} | 当前仅预览前 {min(total_rows, PREVIEW_ROWS)} 行，完整数据用于导出。"
+    )
+    if preview_df is not None:
+        st.dataframe(preview_df, width="stretch", height=420)
 
 
     st.subheader("✅ 可选内容")
     filter_text = st.text_input("字段筛选", value="", placeholder="输入字段名关键词过滤")
 
-    columns = [c for c in df.columns if filter_text.strip() in str(c)]
+    columns = [c for c in all_columns if filter_text.strip() in str(c)]
     source_key = st.session_state.custom_export_source_id or source["id"]
     state_key_prefix = f"custom_export_cols::{source_key}::"
 
@@ -270,19 +311,31 @@ with content_col:
         st.warning("请至少选择 1 个字段。")
         st.stop()
 
-    csv_selected = (
-        df[selected_cols].to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-    )
-    csv_all = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+    selected_signature = "|".join(selected_cols)
+    selected_path = st.session_state.get("custom_export_selected_path") or ""
+    if (
+        selected_signature != st.session_state.get("custom_export_selected_signature")
+        or not selected_path
+        or not os.path.exists(selected_path)
+    ):
+        selected_df = pd.read_csv(csv_path, usecols=selected_cols)
+        selected_path = str(
+            write_dataframe_csv(
+                selected_df,
+                prefix=f"{source_key}_{payload.get('symbol') or 'dataset'}_selected",
+            )
+        )
+        st.session_state.custom_export_selected_signature = selected_signature
+        st.session_state.custom_export_selected_path = selected_path
 
     file_prefix = source_key
     if source["id"] != "macro_china_cpi_monthly":
-        file_prefix = f"{source_key}_{symbol}"
+        file_prefix = f"{source_key}_{payload.get('symbol') or symbol}"
 
     st.markdown("### 📥 导出")
     st.download_button(
         label="下载所选字段 CSV",
-        data=csv_selected,
+        data=file_loader(selected_path),
         file_name=f"{file_prefix}_selected.csv",
         mime="text/csv",
         type="primary",
@@ -290,7 +343,7 @@ with content_col:
     )
     st.download_button(
         label="下载全部字段 CSV",
-        data=csv_all,
+        data=file_loader(csv_path),
         file_name=f"{file_prefix}_all.csv",
         mime="text/csv",
         width="stretch",

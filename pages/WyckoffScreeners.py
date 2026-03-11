@@ -51,7 +51,7 @@ with content_col:
 
     # ---- helpers ----
 
-    @st.cache_data(ttl=3600, show_spinner=False)
+    @st.cache_data(ttl=3600, show_spinner=False, max_entries=1)
     def _stock_name_map() -> dict[str, str]:
         items = get_all_stocks()
         return {x.get("code", ""): x.get("name", "") for x in items if isinstance(x, dict)}

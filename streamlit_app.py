@@ -4,8 +4,6 @@
 
 import streamlit as st
 from datetime import date, timedelta, datetime
-import zipfile
-import io
 import requests
 import random
 import time
@@ -33,6 +31,12 @@ from app.auth_component import logout
 from app.layout import is_data_source_failure_message, setup_page, show_user_error
 from app.ui_helpers import show_page_loading, inject_custom_css
 from app.navigation import show_right_nav
+from core.export_artifacts import (
+    cleanup_export_artifacts,
+    file_loader,
+    write_dataframe_csv,
+    write_zip_from_files,
+)
 from core.stock_cache import (
     cleanup_cache,
     denormalize_hist_df,
@@ -60,12 +64,13 @@ with st.sidebar:
     st.divider()
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=1)
 def load_stock_list():
     return get_all_stocks()
 
 
 CACHE_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
+EXPORT_CLEANUP_INTERVAL_SECONDS = 3 * 60 * 60
 
 
 def _maybe_cleanup_cache() -> None:
@@ -75,6 +80,15 @@ def _maybe_cleanup_cache() -> None:
         return
     cleanup_cache(ttl_days=30)
     st.session_state.cache_cleanup_last_ts = now_ts
+
+
+def _maybe_cleanup_export_artifacts() -> None:
+    now_ts = time.time()
+    last_ts = float(st.session_state.get("export_cleanup_last_ts", 0))
+    if now_ts - last_ts < EXPORT_CLEANUP_INTERVAL_SECONDS:
+        return
+    cleanup_export_artifacts()
+    st.session_state.export_cleanup_last_ts = now_ts
 
 
 # 增加网络请求重试机制，应对 RemoteDisconnected 等反爬限制
@@ -161,7 +175,7 @@ def _parse_batch_symbols(text: str) -> list[str]:
     return _normalize_symbols(candidates)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=1)
 def _stock_name_map():
     stocks = load_stock_list()
     return {s.get("code"): s.get("name") for s in stocks if s.get("code")}
@@ -181,6 +195,7 @@ def _friendly_error_message(e: Exception, symbol: str, trading_days: int) -> str
 
 content_col = show_right_nav()
 with content_col:
+    _maybe_cleanup_export_artifacts()
     st.title("📈 A股历史行情导出工具")
     st.markdown(
         "基于 **akshare**，支持导出 **威科夫分析** 所需的增强版 CSV（包含量价、换手率、振幅、均价、板块等）。"
@@ -420,70 +435,79 @@ with content_col:
                     end_calendar = date.today() - timedelta(days=int(end_offset))
                     window = _resolve_trading_window(end_calendar, 60)
 
-                    zip_buffer = io.BytesIO()
                     results: list[dict[str, str]] = []
                     name_map = _stock_name_map()
+                    zip_members: list[tuple[str, str]] = []
+                    for idx, symbol in enumerate(symbols, start=1):
+                        status_ph.caption(
+                            f"({idx}/{len(symbols)}) 正在处理：{symbol}"
+                        )
+                        try:
+                            name = name_map.get(symbol) or "Unknown"
 
-                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                        for idx, symbol in enumerate(symbols, start=1):
-                            status_ph.caption(
-                                f"({idx}/{len(symbols)}) 正在处理：{symbol}"
+                            # 使用带重试的函数获取数据
+                            df_hist = _fetch_hist_with_retry(symbol, window, adjust)
+
+                            sector = stock_sector_em(symbol, timeout=60)
+                            df_export = _build_export(df_hist, sector)
+
+                            safe_symbol = safe_filename_part(symbol)
+                            safe_name = safe_filename_part(name)
+                            file_name_export = (
+                                f"{safe_symbol}_{safe_name}_ohlcv.csv"
                             )
-                            try:
-                                name = name_map.get(symbol) or "Unknown"
+                            file_name_hist = (
+                                f"{safe_symbol}_{safe_name}_hist_data.csv"
+                            )
 
-                                # 使用带重试的函数获取数据
-                                df_hist = _fetch_hist_with_retry(symbol, window, adjust)
+                            export_path = write_dataframe_csv(
+                                df_export,
+                                prefix=file_name_export.replace(".csv", ""),
+                            )
+                            hist_path = write_dataframe_csv(
+                                df_hist,
+                                prefix=file_name_hist.replace(".csv", ""),
+                            )
+                            zip_members.extend(
+                                [
+                                    (file_name_export, str(export_path)),
+                                    (file_name_hist, str(hist_path)),
+                                ]
+                            )
 
-                                sector = stock_sector_em(symbol, timeout=60)
-                                df_export = _build_export(df_hist, sector)
+                            add_to_history(symbol, name)
+                            results.append(
+                                {
+                                    "symbol": symbol,
+                                    "name": name,
+                                    "status": "ok",
+                                    "error": "",
+                                }
+                            )
+                        except Exception as e:
+                            msg = _friendly_error_message(e, symbol, 60)
+                            results.append(
+                                {
+                                    "symbol": symbol,
+                                    "name": "",
+                                    "status": "failed",
+                                    "error": msg,
+                                }
+                            )
 
-                                safe_symbol = safe_filename_part(symbol)
-                                safe_name = safe_filename_part(name)
-                                file_name_export = (
-                                    f"{safe_symbol}_{safe_name}_ohlcv.csv"
-                                )
-                                file_name_hist = (
-                                    f"{safe_symbol}_{safe_name}_hist_data.csv"
-                                )
+                        # 延长请求间隔到 2.0 ~ 4.0 秒，降低被封禁概率
+                        time.sleep(random.uniform(2.0, 4.0))
+                        progress_bar.progress(idx / len(symbols))
+                        results_ph.dataframe(results, width="stretch", height=260)
 
-                                csv_export = df_export.to_csv(
-                                    index=False, encoding="utf-8-sig"
-                                ).encode("utf-8-sig")
-                                csv_hist = df_hist.to_csv(
-                                    index=False, encoding="utf-8-sig"
-                                ).encode("utf-8-sig")
-
-                                zf.writestr(file_name_export, csv_export)
-                                zf.writestr(file_name_hist, csv_hist)
-
-                                add_to_history(symbol, name)
-                                results.append(
-                                    {
-                                        "symbol": symbol,
-                                        "name": name,
-                                        "status": "ok",
-                                        "error": "",
-                                    }
-                                )
-                            except Exception as e:
-                                msg = _friendly_error_message(e, symbol, 60)
-                                results.append(
-                                    {
-                                        "symbol": symbol,
-                                        "name": "",
-                                        "status": "failed",
-                                        "error": msg,
-                                    }
-                                )
-
-                            # 延长请求间隔到 2.0 ~ 4.0 秒，降低被封禁概率
-                            time.sleep(random.uniform(2.0, 4.0))
-                            progress_bar.progress(idx / len(symbols))
-                            results_ph.dataframe(results, width="stretch", height=260)
-
-                    zip_data = zip_buffer.getvalue()
-                    file_name_zip = f"batch_{safe_filename_part(str(window.start_trade_date))}_{safe_filename_part(str(window.end_trade_date))}.zip"
+                    file_name_zip = (
+                        f"batch_{safe_filename_part(str(window.start_trade_date))}_"
+                        f"{safe_filename_part(str(window.end_trade_date))}.zip"
+                    )
+                    zip_path = write_zip_from_files(
+                        zip_members,
+                        prefix=file_name_zip.replace(".zip", ""),
+                    )
 
                     # === 自动记录批量下载历史 ===
                     # 只要任务完成，就记录一次
@@ -542,9 +566,9 @@ with content_col:
 
                 st.subheader("📦 批量生成结果")
                 st.dataframe(results, width="stretch")
-                clicked = st.download_button(
+                st.download_button(
                     label="📦 下载全部 (.zip)",
-                    data=zip_data,
+                    data=file_loader(zip_path),
                     file_name=file_name_zip,
                     mime="application/zip",
                     type="primary",
@@ -580,7 +604,9 @@ with content_col:
                 add_to_history(st.session_state.current_symbol, name)
 
                 st.info(
-                    f"股票: **{st.session_state.current_symbol} {name}** | 时间窗口: **{window.start_trade_date}** 至 **{window.end_trade_date}** ({trading_days} 个交易日)"
+                    f"股票: **{st.session_state.current_symbol} {name}** | "
+                    f"时间窗口: **{window.start_trade_date}** 至 "
+                    f"**{window.end_trade_date}** ({trading_days} 个交易日)"
                 )
 
                 df_hist = _fetch_hist_with_retry(
@@ -604,24 +630,26 @@ with content_col:
                     else:
                         st.dataframe(df_hist, width="stretch")
 
-                csv_export = df_export.to_csv(index=False, encoding="utf-8-sig").encode(
-                    "utf-8-sig"
-                )
                 file_name_export = f"{st.session_state.current_symbol}_{name}_ohlcv.csv"
-
-                csv_hist = df_hist.to_csv(index=False, encoding="utf-8-sig").encode(
-                    "utf-8-sig"
-                )
                 file_name_hist = (
                     f"{st.session_state.current_symbol}_{name}_hist_data.csv"
                 )
-
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                    zf.writestr(file_name_export, csv_export)
-                    zf.writestr(file_name_hist, csv_hist)
-                zip_data = zip_buffer.getvalue()
                 file_name_zip = f"{st.session_state.current_symbol}_{name}_all.zip"
+                export_path = write_dataframe_csv(
+                    df_export,
+                    prefix=file_name_export.replace(".csv", ""),
+                )
+                hist_path = write_dataframe_csv(
+                    df_hist,
+                    prefix=file_name_hist.replace(".csv", ""),
+                )
+                zip_path = write_zip_from_files(
+                    [
+                        (file_name_export, str(export_path)),
+                        (file_name_hist, str(hist_path)),
+                    ],
+                    prefix=file_name_zip.replace(".zip", ""),
+                )
 
                 # === 自动记录单只下载历史 ===
                 current_single_key = f"single_{st.session_state.current_symbol}_{datetime.now().strftime('%H%M')}"
@@ -642,7 +670,7 @@ with content_col:
                 if is_mobile:
                     st.download_button(
                         label="📦 全部下载 (.zip)",
-                        data=zip_data,
+                        data=file_loader(zip_path),
                         file_name=file_name_zip,
                         mime="application/zip",
                         type="primary",
@@ -650,14 +678,14 @@ with content_col:
                     )
                     st.download_button(
                         label="下载 OHLCV (增强版)",
-                        data=csv_export,
+                        data=file_loader(export_path),
                         file_name=file_name_export,
                         mime="text/csv",
                         width="stretch",
                     )
                     st.download_button(
                         label="下载原始数据 (Hist Data)",
-                        data=csv_hist,
+                        data=file_loader(hist_path),
                         file_name=file_name_hist,
                         mime="text/csv",
                         width="stretch",
@@ -667,7 +695,7 @@ with content_col:
                     with col1:
                         st.download_button(
                             label="下载 OHLCV (增强版)",
-                            data=csv_export,
+                            data=file_loader(export_path),
                             file_name=file_name_export,
                             mime="text/csv",
                             type="primary",
@@ -677,7 +705,7 @@ with content_col:
                     with col2:
                         st.download_button(
                             label="下载原始数据 (Hist Data)",
-                            data=csv_hist,
+                            data=file_loader(hist_path),
                             file_name=file_name_hist,
                             mime="text/csv",
                             width="stretch",
@@ -686,7 +714,7 @@ with content_col:
                     with col3:
                         st.download_button(
                             label="📦 全部下载 (.zip)",
-                            data=zip_data,
+                            data=file_loader(zip_path),
                             file_name=file_name_zip,
                             mime="application/zip",
                             type="primary",
