@@ -1452,12 +1452,15 @@ def run(
     # 注意：RAG 永远在压缩/硬上限之后执行，确保筛查集合已被有效上下文 cap 收口。
     rag_veto_lines: list[str] = []
     rag_veto_preview = ""
+    rag_skip_reason = ""
     if STEP3_ENABLE_RAG_VETO and not selected_df.empty:
         rag_status = get_rag_veto_runtime_status()
         if not bool(rag_status.get("enabled")):
             print("[step3][rag] 已关闭（RAG_VETO_ENABLED=0）")
+            rag_skip_reason = "RAG_VETO_ENABLED=0"
         elif not bool(rag_status.get("has_provider")):
             print("[step3][rag] 跳过：未配置 TAVILY_API_KEY/SERPAPI_API_KEY")
+            rag_skip_reason = "未配置 TAVILY_API_KEY/SERPAPI_API_KEY"
         else:
             rag_inputs = [
                 {"code": str(r.get("code", "")).strip(), "name": str(r.get("name", ""))}
@@ -1567,10 +1570,19 @@ def run(
         if STEP3_ENABLE_RAG_VETO:
             if selected_df.empty:
                 print("[step3][rag] 跳过：候选为空")
+                rag_skip_reason = "候选为空"
             elif not is_rag_veto_enabled():
                 print("[step3][rag] 跳过：RAG_VETO_ENABLED=0")
+                rag_skip_reason = "RAG_VETO_ENABLED=0"
             else:
                 print("[step3][rag] 跳过：未满足运行条件")
+                rag_skip_reason = "未满足运行条件"
+    if STEP3_ENABLE_RAG_VETO and not rag_veto_preview and rag_skip_reason:
+        rag_veto_preview = (
+            "## 🛡️ RAG 防雷执行摘要（前置）\n"
+            "- 执行状态: 跳过\n"
+            f"- 原因: {rag_skip_reason}\n\n---\n"
+        )
 
     selected_codes = [str(x) for x in selected_df["code"].tolist()]
     if not selected_codes:
