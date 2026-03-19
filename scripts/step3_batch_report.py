@@ -19,7 +19,11 @@ import pandas as pd
 from integrations.ai_prompts import WYCKOFF_FUNNEL_SYSTEM_PROMPT
 from integrations.fetch_a_share_csv import _resolve_trading_window, _fetch_hist
 from integrations.llm_client import call_llm
-from integrations.rag_veto import is_rag_veto_enabled, run_negative_news_veto
+from integrations.rag_veto import (
+    get_rag_veto_runtime_status,
+    is_rag_veto_enabled,
+    run_negative_news_veto,
+)
 from integrations.data_source import (
     fetch_index_hist,
     fetch_market_cap_map,
@@ -229,6 +233,7 @@ def _repair_report_structure(
     selected_codes: list[str],
     *,
     provider: str = "gemini",
+    llm_base_url: str = "",
 ) -> str:
     """
     当模型未给出可识别的分层结构时，做一次结构修复重写。
@@ -264,6 +269,7 @@ def _repair_report_structure(
             api_key=api_key,
             system_prompt=repair_system,
             user_message=repair_user,
+            base_url=llm_base_url or None,
             timeout=180,
             max_output_tokens=STEP3_MAX_OUTPUT_TOKENS,
         )
@@ -1012,6 +1018,7 @@ def _call_track_report(
     selected_codes: list[str],
     selected_df: pd.DataFrame,
     provider: str = "gemini",
+    llm_base_url: str = "",
 ) -> tuple[bool, str, str]:
     report = ""
     used_model = ""
@@ -1027,6 +1034,7 @@ def _call_track_report(
                 api_key=api_key,
                 system_prompt=system_prompt,
                 user_message=user_message,
+                base_url=llm_base_url or None,
                 timeout=300,
                 max_output_tokens=STEP3_MAX_OUTPUT_TOKENS,
             )
@@ -1045,6 +1053,7 @@ def _call_track_report(
             api_key=api_key,
             selected_codes=selected_codes,
             provider=provider,
+            llm_base_url=llm_base_url,
         )
     if not _has_required_sections(report):
         print(f"[step3] {track} 轨结构修复后仍缺少关键章节，追加系统兜底分层")
@@ -1219,6 +1228,7 @@ def run(
     *,
     notify: bool = True,
     provider: str = "gemini",
+    llm_base_url: str = "",
     wecom_webhook: str = "",
     dingtalk_webhook: str = "",
 ) -> tuple[bool, str, str]:
@@ -1448,43 +1458,137 @@ def run(
     # 注意：RAG 永远在压缩/硬上限之后执行，确保筛查集合已被有效上下文 cap 收口。
     rag_veto_lines: list[str] = []
     rag_veto_preview = ""
-    if STEP3_ENABLE_RAG_VETO and is_rag_veto_enabled() and not selected_df.empty:
-        rag_inputs = [
-            {"code": str(r.get("code", "")).strip(), "name": str(r.get("name", ""))}
-            for _, r in selected_df.iterrows()
-        ]
-        veto_map = run_negative_news_veto(rag_inputs)
-        vetoed_codes: list[str] = []
-        for code, result in veto_map.items():
-            if result.error:
-                print(f"[step3][rag] {code} 检索异常: {result.error}")
-            if result.veto:
-                vetoed_codes.append(code)
-                hit_text = "、".join(result.hits[:5]) if result.hits else "负面关键词"
-                ev_text = f" | 证据: {result.evidence[0]}" if result.evidence else ""
-                semantic_text = ""
-                if result.semantic_checked:
-                    semantic_text = (
-                        f" | 语义判定: 极端负面={result.semantic_negative}"
-                        + (f"({result.semantic_reason})" if result.semantic_reason else "")
-                    )
-                rag_veto_lines.append(
-                    f"- {code} {result.name}: 命中 {hit_text}{semantic_text}{ev_text}"
-                )
-        if vetoed_codes:
-            before_n = len(selected_df)
-            selected_df = selected_df[~selected_df["code"].astype(str).isin(set(vetoed_codes))].reset_index(drop=True)
-            print(f"[step3][rag] 负面新闻 veto: {before_n} -> {len(selected_df)}（剔除{len(vetoed_codes)}）")
-            rag_veto_preview = (
-                "## 🛑 RAG 防雷已剔除（前置）\n"
-                + "\n".join(rag_veto_lines)
-                + "\n\n---\n"
-            )
+    rag_skip_reason = ""
+    if STEP3_ENABLE_RAG_VETO and not selected_df.empty:
+        rag_status = get_rag_veto_runtime_status()
+        if not bool(rag_status.get("enabled")):
+            print("[step3][rag] 已关闭（RAG_VETO_ENABLED=0）")
+            rag_skip_reason = "RAG_VETO_ENABLED=0"
+        elif not bool(rag_status.get("has_provider")):
+            print("[step3][rag] 跳过：未配置 TAVILY_API_KEY/SERPAPI_API_KEY")
+            rag_skip_reason = "未配置 TAVILY_API_KEY/SERPAPI_API_KEY"
         else:
-            print("[step3][rag] 未命中负面关键词，保持候选不变")
+            rag_inputs = [
+                {"code": str(r.get("code", "")).strip(), "name": str(r.get("name", ""))}
+                for _, r in selected_df.iterrows()
+            ]
+            provider_text = (
+                f"tavily={bool(rag_status.get('tavily_configured'))}, "
+                f"serpapi={bool(rag_status.get('serpapi_configured'))}"
+            )
+            print(
+                "[step3][rag] 启动："
+                f"candidates={len(rag_inputs)}, providers=({provider_text}), "
+                f"lookback_days={rag_status.get('lookback_days')}, "
+                f"max_results={rag_status.get('max_results')}, "
+                f"workers={rag_status.get('max_workers')}"
+            )
+
+            veto_map = run_negative_news_veto(rag_inputs)
+            vetoed_codes: list[str] = []
+            scanned_n = len(veto_map)
+            external_ok_n = 0
+            relevant_n = 0
+            semantic_checked_n = 0
+            error_n = 0
+            source_counts = {"tavily": 0, "serpapi": 0, "none": 0}
+
+            for code, result in veto_map.items():
+                src = str(result.search_source or "").strip().lower()
+                if src == "tavily":
+                    source_counts["tavily"] += 1
+                elif src == "serpapi":
+                    source_counts["serpapi"] += 1
+                else:
+                    source_counts["none"] += 1
+
+                if int(result.raw_result_count or 0) > 0:
+                    external_ok_n += 1
+                if int(result.relevant_result_count or 0) > 0:
+                    relevant_n += 1
+                if bool(result.semantic_checked):
+                    semantic_checked_n += 1
+                if result.error:
+                    error_n += 1
+
+                hit_text = "、".join(result.hits[:5]) if result.hits else "-"
+                print(
+                    "[step3][rag] "
+                    f"{code} source={result.search_source or '-'} "
+                    f"raw={int(result.raw_result_count or 0)} "
+                    f"relevant={int(result.relevant_result_count or 0)} "
+                    f"hits={hit_text} "
+                    f"veto={bool(result.veto)} "
+                    f"semantic_checked={bool(result.semantic_checked)} "
+                    f"elapsed_ms={int(result.elapsed_ms or 0)}"
+                    + (f" err={result.error}" if result.error else "")
+                )
+
+                if result.veto:
+                    vetoed_codes.append(code)
+                    ev_text = f" | 证据: {result.evidence[0]}" if result.evidence else ""
+                    semantic_text = ""
+                    if result.semantic_checked:
+                        semantic_text = (
+                            f" | 语义判定: 极端负面={result.semantic_negative}"
+                            + (f"({result.semantic_reason})" if result.semantic_reason else "")
+                        )
+                    rag_veto_lines.append(
+                        f"- {code} {result.name}: 命中 {hit_text if hit_text != '-' else '负面关键词'}{semantic_text}{ev_text}"
+                    )
+
+            rag_summary_lines = [
+                f"- 扫描股票: {scanned_n}",
+                f"- 外部检索成功: {external_ok_n}/{scanned_n}" if scanned_n else "- 外部检索成功: 0/0",
+                f"- 有效相关新闻: {relevant_n}/{scanned_n}" if scanned_n else "- 有效相关新闻: 0/0",
+                (
+                    f"- 来源分布: tavily={source_counts['tavily']}, "
+                    f"serpapi={source_counts['serpapi']}, none={source_counts['none']}"
+                ),
+                f"- 语义二判执行: {semantic_checked_n}",
+                f"- 检索异常: {error_n}",
+                f"- veto 剔除: {len(vetoed_codes)}",
+            ]
+
+            if vetoed_codes:
+                before_n = len(selected_df)
+                selected_df = selected_df[
+                    ~selected_df["code"].astype(str).isin(set(vetoed_codes))
+                ].reset_index(drop=True)
+                print(
+                    f"[step3][rag] 负面新闻 veto: {before_n} -> {len(selected_df)}（剔除{len(vetoed_codes)}）"
+                )
+                rag_veto_preview = (
+                    "## 🛡️ RAG 防雷执行摘要（前置）\n"
+                    + "\n".join(rag_summary_lines)
+                    + "\n\n## 🛑 RAG 防雷已剔除（前置）\n"
+                    + "\n".join(rag_veto_lines)
+                    + "\n\n---\n"
+                )
+            else:
+                print("[step3][rag] 未命中负面关键词，保持候选不变")
+                rag_veto_preview = (
+                    "## 🛡️ RAG 防雷执行摘要（前置）\n"
+                    + "\n".join(rag_summary_lines)
+                    + "\n\n---\n"
+                )
     else:
         if STEP3_ENABLE_RAG_VETO:
-            print("[step3][rag] 未启用（缺少 TAVILY_API_KEY/SERPAPI_API_KEY 或候选为空）")
+            if selected_df.empty:
+                print("[step3][rag] 跳过：候选为空")
+                rag_skip_reason = "候选为空"
+            elif not is_rag_veto_enabled():
+                print("[step3][rag] 跳过：RAG_VETO_ENABLED=0")
+                rag_skip_reason = "RAG_VETO_ENABLED=0"
+            else:
+                print("[step3][rag] 跳过：未满足运行条件")
+                rag_skip_reason = "未满足运行条件"
+    if STEP3_ENABLE_RAG_VETO and not rag_veto_preview and rag_skip_reason:
+        rag_veto_preview = (
+            "## 🛡️ RAG 防雷执行摘要（前置）\n"
+            "- 执行状态: 跳过\n"
+            f"- 原因: {rag_skip_reason}\n\n---\n"
+        )
 
     selected_codes = [str(x) for x in selected_df["code"].tolist()]
     if not selected_codes:
@@ -1658,6 +1762,7 @@ def run(
             selected_codes=selected_codes,
             selected_df=selected_df,
             provider=provider,
+            llm_base_url=llm_base_url,
         )
         if not ok:
             return (False, "llm_failed", "")
@@ -1795,6 +1900,7 @@ def run(
             selected_codes=selected_codes_by_track.get(track, []),
             selected_df=df_by_track.get(track, selected_df.iloc[0:0].copy()),
             provider=provider,
+            llm_base_url=llm_base_url,
         )
         if not ok:
             return (False, "llm_failed", "")

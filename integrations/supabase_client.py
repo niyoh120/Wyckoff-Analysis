@@ -3,6 +3,7 @@ import streamlit as st
 from supabase import create_client, Client
 from postgrest.exceptions import APIError
 from core.constants import TABLE_USER_SETTINGS
+from integrations.llm_client import OPENAI_COMPATIBLE_BASE_URLS
 
 
 def reset_user_settings_state() -> None:
@@ -21,14 +22,19 @@ def reset_user_settings_state() -> None:
     # 多厂商大模型配置（按需使用）
     st.session_state.openai_api_key = ""
     st.session_state.openai_model = ""
+    st.session_state.openai_base_url = OPENAI_COMPATIBLE_BASE_URLS.get("openai", "")
     st.session_state.zhipu_api_key = ""
     st.session_state.zhipu_model = ""
+    st.session_state.zhipu_base_url = OPENAI_COMPATIBLE_BASE_URLS.get("zhipu", "")
     st.session_state.minimax_api_key = ""
     st.session_state.minimax_model = ""
+    st.session_state.minimax_base_url = OPENAI_COMPATIBLE_BASE_URLS.get("minimax", "")
     st.session_state.deepseek_api_key = ""
     st.session_state.deepseek_model = ""
+    st.session_state.deepseek_base_url = OPENAI_COMPATIBLE_BASE_URLS.get("deepseek", "")
     st.session_state.qwen_api_key = ""
     st.session_state.qwen_model = ""
+    st.session_state.qwen_base_url = OPENAI_COMPATIBLE_BASE_URLS.get("qwen", "")
 
 
 def _get_supabase_client_base() -> Client:
@@ -112,14 +118,34 @@ def load_user_settings(user_id: str):
             )
             st.session_state.openai_api_key = settings.get("openai_api_key") or ""
             st.session_state.openai_model = settings.get("openai_model") or ""
+            st.session_state.openai_base_url = (
+                settings.get("openai_base_url")
+                or OPENAI_COMPATIBLE_BASE_URLS.get("openai", "")
+            )
             st.session_state.zhipu_api_key = settings.get("zhipu_api_key") or ""
             st.session_state.zhipu_model = settings.get("zhipu_model") or ""
+            st.session_state.zhipu_base_url = (
+                settings.get("zhipu_base_url")
+                or OPENAI_COMPATIBLE_BASE_URLS.get("zhipu", "")
+            )
             st.session_state.minimax_api_key = settings.get("minimax_api_key") or ""
             st.session_state.minimax_model = settings.get("minimax_model") or ""
+            st.session_state.minimax_base_url = (
+                settings.get("minimax_base_url")
+                or OPENAI_COMPATIBLE_BASE_URLS.get("minimax", "")
+            )
             st.session_state.deepseek_api_key = settings.get("deepseek_api_key") or ""
             st.session_state.deepseek_model = settings.get("deepseek_model") or ""
+            st.session_state.deepseek_base_url = (
+                settings.get("deepseek_base_url")
+                or OPENAI_COMPATIBLE_BASE_URLS.get("deepseek", "")
+            )
             st.session_state.qwen_api_key = settings.get("qwen_api_key") or ""
             st.session_state.qwen_model = settings.get("qwen_model") or ""
+            st.session_state.qwen_base_url = (
+                settings.get("qwen_base_url")
+                or OPENAI_COMPATIBLE_BASE_URLS.get("qwen", "")
+            )
 
             # 其它
             st.session_state.tushare_token = settings.get("tushare_token") or ""

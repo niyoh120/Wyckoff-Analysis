@@ -5,7 +5,7 @@
 配置来源：仅读取环境变量（GitHub Secrets），与 Streamlit 用户配置（Supabase）完全独立。
 环境变量：FEISHU_WEBHOOK_URL, WECOM_WEBHOOK_URL(可选), DINGTALK_WEBHOOK_URL(可选),
 DEFAULT_LLM_PROVIDER(可选，默认 gemini), GEMINI_API_KEY, GEMINI_MODEL,
-OPENAI_API_KEY, OPENAI_MODEL(可选), 以及其它厂商 *_API_KEY/*_MODEL,
+OPENAI_API_KEY, OPENAI_MODEL(可选), 以及其它厂商 *_API_KEY/*_MODEL/*_BASE_URL,
 SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY(可选), SUPABASE_USER_ID,
 TG_BOT_TOKEN, TG_CHAT_ID, MY_PORTFOLIO_STATE(可选兜底)
 """
@@ -14,12 +14,14 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from integrations.fetch_a_share_csv import _resolve_trading_window
+from integrations.llm_client import OPENAI_COMPATIBLE_BASE_URLS
 from integrations.supabase_market_signal import upsert_market_signal_daily
 from integrations.supabase_recommendation import (
     mark_ai_recommendations,
@@ -60,6 +62,34 @@ def _log(msg: str, logs_path: str | None = None) -> None:
         os.makedirs(os.path.dirname(logs_path) or ".", exist_ok=True)
         with open(logs_path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
+
+
+class _TeeStream:
+    """将 print 输出同时写到终端和日志文件。"""
+
+    def __init__(self, console_stream, file_stream):
+        self.console_stream = console_stream
+        self.file_stream = file_stream
+
+    def write(self, data: str) -> int:
+        self.console_stream.write(data)
+        self.file_stream.write(data)
+        return len(data)
+
+    def flush(self) -> None:
+        self.console_stream.flush()
+        self.file_stream.flush()
+
+
+def _run_with_stdout_tee(logs_path: str | None, fn, *args, **kwargs):
+    """运行子步骤时，将其 stdout/stderr 透传到 daily_job 日志文件。"""
+    if not logs_path:
+        return fn(*args, **kwargs)
+    os.makedirs(os.path.dirname(logs_path) or ".", exist_ok=True)
+    with open(logs_path, "a", encoding="utf-8") as log_file:
+        tee = _TeeStream(sys.stdout, log_file)
+        with redirect_stdout(tee), redirect_stderr(tee):
+            return fn(*args, **kwargs)
 
 
 def _latest_trade_date_str() -> str:
@@ -135,6 +165,12 @@ def main() -> int:
     api_key = (os.getenv(f"{provider.upper()}_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
     model_env_key = f"{provider.upper()}_MODEL"
     model = (os.getenv(model_env_key) or os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")).strip() or "gemini-3.1-flash-lite-preview"
+    base_url_env_key = f"{provider.upper()}_BASE_URL"
+    llm_base_url = (
+        os.getenv(base_url_env_key)
+        or OPENAI_COMPATIBLE_BASE_URLS.get(provider, "")
+        or ""
+    ).strip()
     step3_skip_llm = os.getenv("STEP3_SKIP_LLM", "").strip().lower() in {"1", "true", "yes", "on"}
     skip_step4 = os.getenv("DAILY_JOB_SKIP_STEP4", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -158,6 +194,9 @@ def main() -> int:
     if args.dry_run:
         _log("--dry-run: 配置校验通过，退出", logs_path)
         return 0
+
+    if provider in OPENAI_COMPATIBLE_BASE_URLS:
+        _log(f"LLM base_url: {llm_base_url or '(empty)'} (env={base_url_env_key})", logs_path)
 
     # 数据源口径在 integrations/data_source.py 中固定为：
     # tushare 优先（前复权 qfq），失败再回退到其它可用源。
@@ -221,10 +260,16 @@ def main() -> int:
     if symbols_info:
         t0 = datetime.now(TZ)
         try:
-            step3_ok, step3_reason, step3_report_text = run_step3(
-                symbols_info, webhook, api_key, model,
+            step3_ok, step3_reason, step3_report_text = _run_with_stdout_tee(
+                logs_path,
+                run_step3,
+                symbols_info,
+                webhook,
+                api_key,
+                model,
                 benchmark_context=benchmark_context,
                 provider=provider,
+                llm_base_url=llm_base_url,
                 wecom_webhook=wecom_webhook,
                 dingtalk_webhook=dingtalk_webhook,
             )
@@ -276,15 +321,6 @@ def main() -> int:
     else:
         summary.append({"step": "批量研报", "ok": True, "err": None, "elapsed_s": 0, "output": "skipped (no symbols)"})
         _log("阶段 2 批量研报: 跳过（无筛选结果）", logs_path)
-
-    # 在完成推荐与 AI 标记后，刷新推荐表中的实时价格与涨跌幅（复用 Step2 日线最后一笔收盘，不再拉行情）
-    if recommend_trade_date_int is not None:
-        try:
-            from integrations.supabase_recommendation import sync_all_tracking_prices
-            updated_rows = sync_all_tracking_prices(price_map=price_map_from_funnel)
-            _log(f"推荐记录价格同步: updated_rows={updated_rows}", logs_path)
-        except Exception as e:
-            _log(f"推荐记录价格同步失败: {e}", logs_path)
 
     # 阶段 3：私人账户再平衡（按 SUPABASE_USER_ID 唯一执行）
     if skip_step4:
@@ -375,20 +411,35 @@ def main() -> int:
                 logs_path,
             )
 
-    _log("开始同步所有推荐记录的实时价格...", logs_path)
+    _log(
+        "开始同步所有推荐记录的实时价格..."
+        f"（price_map_size={len(price_map_from_funnel) if isinstance(price_map_from_funnel, dict) else 0}）",
+        logs_path,
+    )
     try:
         updated_n = sync_all_tracking_prices(price_map=price_map_from_funnel)
         _log(f"实时价格同步完成，共更新 {updated_n} 条记录", logs_path)
     except Exception as e:
         _log(f"实时价格同步失败: {e}", logs_path)
 
-    _log("开始推荐表纠错流程（按推荐日历史收盘回填加入价并重算涨跌幅）...", logs_path)
-    try:
-        from integrations.supabase_recommendation import correct_tracking_initial_prices
-        corrected_n = correct_tracking_initial_prices()
-        _log(f"推荐表纠错完成，共修正 {corrected_n} 条记录", logs_path)
-    except Exception as e:
-        _log(f"推荐表纠错失败: {e}", logs_path)
+    enable_daily_correction = os.getenv(
+        "RECOMMENDATION_ENABLE_DAILY_CORRECTION",
+        "",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if enable_daily_correction:
+        _log("开始推荐表纠错流程（按推荐日历史收盘回填加入价并重算涨跌幅）...", logs_path)
+        try:
+            from integrations.supabase_recommendation import correct_tracking_initial_prices
+
+            corrected_n = correct_tracking_initial_prices()
+            _log(f"推荐表纠错完成，共修正 {corrected_n} 条记录", logs_path)
+        except Exception as e:
+            _log(f"推荐表纠错失败: {e}", logs_path)
+    else:
+        _log(
+            "推荐表纠错流程已跳过（RECOMMENDATION_ENABLE_DAILY_CORRECTION 未开启）",
+            logs_path,
+        )
 
     # 汇总
     total_elapsed = sum(s.get("elapsed_s", 0) for s in summary)

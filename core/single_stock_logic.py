@@ -212,7 +212,7 @@ def _run_plot_code_safely(code_block: str, df_hist: pd.DataFrame):
         raise ValueError("create_plot(df) 未返回有效图表对象")
     return fig
 
-def render_single_stock_page(provider, model, api_key):
+def render_single_stock_page(provider, model, api_key, *, base_url: str = ""):
     """渲染单股分析页面"""
     st.markdown("### 🔍 威科夫单股分析 (大师模式)")
     st.caption("上传 K 线/分时图（可选），配合 500 天历史数据，生成大师级威科夫分析与标注图表。")
@@ -243,9 +243,9 @@ def render_single_stock_page(provider, model, api_key):
     run_btn = st.button("开始大师分析", type="primary", disabled=not symbol, key="run_single_stock")
 
     if run_btn and symbol:
-        _run_analysis(symbol, uploaded_file, provider, model, api_key)
+        _run_analysis(symbol, uploaded_file, provider, model, api_key, base_url=base_url)
 
-def _run_analysis(symbol, image_file, provider, model, api_key):
+def _run_analysis(symbol, image_file, provider, model, api_key, *, base_url: str = ""):
     """执行分析流程"""
     end_calendar = date.today() - timedelta(days=1)
     try:
@@ -341,6 +341,7 @@ def _run_analysis(symbol, image_file, provider, model, api_key):
             system_prompt=final_system_prompt,
             user_message=user_msg,
             images=images,
+            base_url=base_url or None,
             timeout=180,
         )
         loading.empty()

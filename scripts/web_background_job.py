@@ -135,24 +135,49 @@ def _run_funnel_screen(request_id: str, payload: dict[str, Any]) -> dict[str, An
     }
 
 
-def _resolve_model_credentials(payload: dict[str, Any]) -> tuple[str, str]:
+def _resolve_model_credentials(payload: dict[str, Any]) -> tuple[str, str, str, str]:
+    from integrations.llm_client import OPENAI_COMPATIBLE_BASE_URLS, SUPPORTED_PROVIDERS
+
     user_id = str(payload.get("user_id", "") or "").strip()
+    provider = str(payload.get("provider", "") or "gemini").strip().lower()
+    if provider not in SUPPORTED_PROVIDERS:
+        provider = "gemini"
     api_key = ""
     model = str(payload.get("model", "") or "").strip()
+    base_url = str(payload.get("base_url", "") or "").strip()
+
+    key_field = f"{provider}_api_key"
+    model_field = f"{provider}_model"
+    base_url_field = f"{provider}_base_url"
+    env_api_key = f"{provider.upper()}_API_KEY"
+    env_model = f"{provider.upper()}_MODEL"
+    env_base_url = f"{provider.upper()}_BASE_URL"
     if user_id:
         from integrations.supabase_portfolio import load_user_settings_admin
 
         settings = load_user_settings_admin(user_id) or {}
-        api_key = str(settings.get("gemini_api_key", "") or "").strip()
+        api_key = str(settings.get(key_field, "") or "").strip()
         if not model:
-            model = str(settings.get("gemini_model", "") or "").strip()
+            model = str(settings.get(model_field, "") or "").strip()
+        if not base_url:
+            base_url = str(settings.get(base_url_field, "") or "").strip()
     if not api_key:
+        api_key = str(os.getenv(env_api_key, "") or "").strip()
+    if not api_key and provider == "gemini":
         api_key = str(os.getenv("GEMINI_API_KEY", "") or "").strip()
     if not model:
+        model = str(os.getenv(env_model, "") or "").strip()
+    if not model and provider == "gemini":
         model = str(os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview") or "").strip()
+    if not base_url:
+        base_url = str(os.getenv(env_base_url, "") or "").strip()
+    if not base_url:
+        base_url = str(OPENAI_COMPATIBLE_BASE_URLS.get(provider, "") or "").strip()
     if not api_key:
-        raise ValueError("未找到可用的 Gemini API Key（用户配置与环境变量均为空）")
-    return api_key, model
+        raise ValueError(f"未找到可用的 {provider} API Key（用户配置与环境变量均为空）")
+    if not model:
+        raise ValueError(f"未找到可用的 {provider} 模型名（payload / 用户配置 / 环境变量均为空）")
+    return provider, api_key, model, base_url
 
 
 def _run_batch_ai_report(request_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -164,7 +189,7 @@ def _run_batch_ai_report(request_id: str, payload: dict[str, Any]) -> dict[str, 
     if preview_only:
         os.environ["STEP3_SKIP_LLM"] = "1"
 
-    api_key, model = _resolve_model_credentials(payload)
+    provider, api_key, model, base_url = _resolve_model_credentials(payload)
     benchmark_context = payload.get("benchmark_context", {}) or {}
 
     from scripts.step3_batch_report import run as run_step3
@@ -176,13 +201,17 @@ def _run_batch_ai_report(request_id: str, payload: dict[str, Any]) -> dict[str, 
         model=model,
         benchmark_context=benchmark_context,
         notify=False,
+        provider=provider,
+        llm_base_url=base_url,
     )
     return {
         "request_id": request_id,
         "job_kind": "batch_ai_report",
         "ok": bool(ok),
         "reason": str(reason or ""),
+        "provider": provider,
         "model": model,
+        "base_url": base_url,
         "preview_only": preview_only,
         "symbol_count": len(symbols_info),
         "symbols_info": symbols_info,

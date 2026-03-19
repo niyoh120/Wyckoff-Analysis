@@ -43,7 +43,11 @@ def _parse_recommend_date(raw_value: Any) -> date | None:
 
 
 def _parse_write_date(record: dict[str, Any]) -> date | None:
-    """优先用写入日 created_at 的日期，没有则用 recommend_date，用于纠错时查该日收盘价。"""
+    """优先用 recommend_date，没有则回退 created_at。"""
+    rec_date = _parse_recommend_date(record.get("recommend_date"))
+    if rec_date is not None:
+        return rec_date
+
     created = record.get("created_at")
     if created is not None and str(created).strip():
         try:
@@ -55,7 +59,7 @@ def _parse_write_date(record: dict[str, Any]) -> date | None:
             return datetime.fromisoformat(s).date()
         except Exception:
             pass
-    return _parse_recommend_date(record.get("recommend_date"))
+    return None
 
 
 def _resolve_initial_price_from_history(code_str: str, rec_date: date) -> float:
@@ -106,12 +110,14 @@ def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any
     try:
         client = _get_supabase_admin_client()
 
-        # 预读已有记录的 recommend_count（按 code 聚合），后续在此基础上自增
+        # 预读已有记录（按 code 聚合），用于维护 recommend_count。
+        # 规则：仅当 recommend_date 变化时才 +1，同日重跑不重复累计。
         existing_counts: dict[int, int] = {}
+        existing_dates: dict[int, int] = {}
         try:
             resp = (
                 client.table(TABLE_RECOMMENDATION_TRACKING)
-                .select("code,recommend_count")
+                .select("code,recommend_count,recommend_date")
                 .execute()
             )
             for row in resp.data or []:
@@ -120,8 +126,13 @@ def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any
                 except Exception:
                     continue
                 existing_counts[code_int] = int(row.get("recommend_count") or 1)
+                try:
+                    existing_dates[code_int] = int(row.get("recommend_date"))
+                except Exception:
+                    pass
         except Exception:
             existing_counts = {}
+            existing_dates = {}
 
         payload = []
         for s in symbols_info:
@@ -158,7 +169,13 @@ def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any
             
             code_int = int(code_str)
             old_cnt = existing_counts.get(code_int, 0)
-            new_cnt = max(old_cnt + 1, 1)
+            old_date = existing_dates.get(code_int)
+            if old_cnt <= 0:
+                new_cnt = 1
+            elif old_date == recommend_date:
+                new_cnt = old_cnt
+            else:
+                new_cnt = old_cnt + 1
 
             payload.append({
                 "code": code_int,  # 存为 INT，首位0会消失
@@ -249,7 +266,8 @@ def sync_all_tracking_prices(
 ) -> int:
     """
     遍历表中所有股票，用最新价刷新 current_price 与 change_pct。
-    price_map: 可选，code_str -> 最新收盘价。非空时直接使用；未传或为空时拉取全市场快照后更新。
+    price_map: 可选，code_str -> 最新收盘价。非空时优先使用；
+    对缺失代码优先回退到历史日线收盘（qfq），最后才按开关尝试实时快照。
     返回成功更新的数量。
     """
     if not is_supabase_configured():
@@ -258,6 +276,10 @@ def sync_all_tracking_prices(
 
     try:
         client = _get_supabase_admin_client()
+        allow_spot_fallback = (
+            os.getenv("RECOMMENDATION_PRICE_ALLOW_SPOT_FALLBACK", "").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
 
         # 获取需要跟踪的股票代码（去重）
         resp = client.table(TABLE_RECOMMENDATION_TRACKING).select("code").execute()
@@ -267,26 +289,88 @@ def sync_all_tracking_prices(
 
         unique_codes = sorted(list(set(int(r["code"]) for r in resp.data)))
 
-        # 优先使用 price_map，否则拉取行情
-        use_provided_map = bool(price_map)
-        if not use_provided_map:
-            from integrations.data_source import fetch_stock_spot_snapshot
-            first_code = f"{unique_codes[0]:06d}"
-            fetch_stock_spot_snapshot(first_code, force_refresh=True)
+        # 统一日线窗口（与 step2 同口径），避免实时快照不稳定导致脏数据。
+        hist_start_s: str | None = None
+        hist_end_s: str | None = None
+        hist_close_cache: dict[str, float] = {}
+        try:
+            from integrations.fetch_a_share_csv import _resolve_trading_window
+            from utils.trading_clock import resolve_end_calendar_day
+
+            window = _resolve_trading_window(
+                end_calendar_day=resolve_end_calendar_day(),
+                trading_days=20,
+            )
+            hist_start_s = window.start_trade_date.strftime("%Y-%m-%d")
+            hist_end_s = window.end_trade_date.strftime("%Y-%m-%d")
+        except Exception:
+            hist_start_s = None
+            hist_end_s = None
+
+        def _price_from_history(code_str: str) -> float | None:
+            if code_str in hist_close_cache:
+                cached = hist_close_cache[code_str]
+                return cached if cached > 0 else None
+            if not hist_start_s or not hist_end_s:
+                hist_close_cache[code_str] = 0.0
+                return None
+            try:
+                from integrations.data_source import fetch_stock_hist
+
+                hist = fetch_stock_hist(
+                    code_str,
+                    hist_start_s,
+                    hist_end_s,
+                    adjust="qfq",
+                )
+                if hist is None or hist.empty or "收盘" not in hist.columns:
+                    hist_close_cache[code_str] = 0.0
+                    return None
+                close_s = pd.to_numeric(hist.get("收盘"), errors="coerce").dropna()
+                if close_s.empty:
+                    hist_close_cache[code_str] = 0.0
+                    return None
+                px = float(close_s.iloc[-1])
+                hist_close_cache[code_str] = px if px > 0 else 0.0
+                return px if px > 0 else None
+            except Exception:
+                hist_close_cache[code_str] = 0.0
+                return None
+
+        def _price_from_spot(code_str: str) -> float | None:
+            if not allow_spot_fallback:
+                return None
+            try:
+                from integrations.data_source import fetch_stock_spot_snapshot
+
+                snap = fetch_stock_spot_snapshot(code_str, force_refresh=False)
+                if not snap or snap.get("close") is None:
+                    return None
+                px = float(snap["close"])
+                return px if px > 0 else None
+            except Exception:
+                return None
 
         updated_count = 0
         for code_int in unique_codes:
             code_str = f"{code_int:06d}"
-            if use_provided_map:
-                new_current_price = price_map.get(code_str)
-                if new_current_price is None or new_current_price <= 0:
-                    continue
-                new_current_price = float(new_current_price)
-            else:
-                snap = fetch_stock_spot_snapshot(code_str, force_refresh=False)
-                if not snap or snap.get("close") is None:
-                    continue
-                new_current_price = float(snap["close"])
+            new_current_price: float | None = None
+
+            if price_map:
+                raw_px = price_map.get(code_str)
+                try:
+                    parsed_px = float(raw_px) if raw_px is not None else 0.0
+                except Exception:
+                    parsed_px = 0.0
+                if parsed_px > 0:
+                    new_current_price = parsed_px
+
+            if new_current_price is None:
+                new_current_price = _price_from_history(code_str)
+            if new_current_price is None:
+                new_current_price = _price_from_spot(code_str)
+            if new_current_price is None:
+                continue
             
             # 该股票可能有多条推荐记录（不同日期），逐条更新价格与涨跌幅
             rec_resp = client.table(TABLE_RECOMMENDATION_TRACKING).select("*").eq("code", code_int).execute()
@@ -323,7 +407,7 @@ def sync_all_tracking_prices(
         if unique_codes and updated_count == 0:
             print(
                 "[supabase_recommendation] sync_all_tracking_prices: 推荐表有 {} 只股票但 0 条更新，"
-                "可能全市场行情拉取失败或非交易时段".format(len(unique_codes))
+                "可能是 price_map 为空且历史/实时行情均不可用".format(len(unique_codes))
             )
         return updated_count
     except Exception as e:
@@ -333,8 +417,8 @@ def sync_all_tracking_prices(
 
 def correct_tracking_initial_prices() -> int:
     """
-    纠错流程：遍历推荐表每条记录，用「写入日」当天收盘价（前复权）回填 initial_price，
-    并用当前 current_price 重算 change_pct。写入日优先取 created_at，没有则用 recommend_date。
+    纠错流程：遍历推荐表每条记录，用「推荐日」当天收盘价（前复权）回填 initial_price，
+    并用当前 current_price 重算 change_pct。
     每日执行可让历史数据逐步修正。
     返回被更新的记录数。
     """

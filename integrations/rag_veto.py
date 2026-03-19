@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -67,6 +68,10 @@ class VetoResult:
     veto: bool
     hits: list[str]
     evidence: list[str]
+    search_source: str = ""
+    raw_result_count: int = 0
+    relevant_result_count: int = 0
+    elapsed_ms: int = 0
     semantic_checked: bool = False
     semantic_negative: bool | None = None
     semantic_reason: str | None = None
@@ -76,6 +81,24 @@ class VetoResult:
 def is_rag_veto_enabled() -> bool:
     flag = os.getenv("RAG_VETO_ENABLED", "1").strip().lower()
     return flag in {"1", "true", "yes", "on"}
+
+
+def get_rag_veto_runtime_status() -> dict[str, Any]:
+    """
+    返回 RAG 运行时状态，供上层日志观测。
+    """
+    tavily_key = (os.getenv("TAVILY_API_KEY") or "").strip()
+    serpapi_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
+    enabled = is_rag_veto_enabled()
+    return {
+        "enabled": enabled,
+        "tavily_configured": bool(tavily_key),
+        "serpapi_configured": bool(serpapi_key),
+        "has_provider": bool(tavily_key or serpapi_key),
+        "lookback_days": int(max(RAG_NEWS_LOOKBACK_DAYS, 1)),
+        "max_results": int(max(RAG_MAX_RESULTS, 1)),
+        "max_workers": int(max(RAG_MAX_WORKERS, 1)),
+    }
 
 
 def _normalize_keywords() -> list[str]:
@@ -269,29 +292,50 @@ def _serpapi_search(query: str, max_results: int = RAG_MAX_RESULTS) -> list[dict
 
 
 def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
+    started = time.perf_counter()
     query = f"{code} {name} A股 公告 风险"
     results = []
+    search_source = ""
     error_msg = None
+    tavily_key = (os.getenv("TAVILY_API_KEY") or "").strip()
+    serpapi_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
 
     # 1) 优先 Tavily；失败或空结果时，再尝试 SerpApi
-    try:
-        results = _tavily_search(query, max_results=RAG_MAX_RESULTS)
-    except Exception as e:
-        error_msg = f"tavily_err:{e}"
+    if tavily_key:
+        try:
+            results = _tavily_search(query, max_results=RAG_MAX_RESULTS)
+            if results:
+                search_source = "tavily"
+        except Exception as e:
+            error_msg = f"tavily_err:{e}"
 
     if not results:
-        try:
-            results = _serpapi_search(query, max_results=RAG_MAX_RESULTS)
-            if results:
-                error_msg = None
-        except Exception as e2:
-            if error_msg:
-                error_msg = f"{error_msg}; serpapi_err:{e2}"
-            else:
-                error_msg = f"serpapi_err:{e2}"
+        if serpapi_key:
+            try:
+                results = _serpapi_search(query, max_results=RAG_MAX_RESULTS)
+                if results:
+                    search_source = "serpapi"
+                    error_msg = None
+            except Exception as e2:
+                if error_msg:
+                    error_msg = f"{error_msg}; serpapi_err:{e2}"
+                else:
+                    error_msg = f"serpapi_err:{e2}"
 
     if not results and error_msg:
-        return VetoResult(code=code, name=name, veto=False, hits=[], evidence=[], error=error_msg)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return VetoResult(
+            code=code,
+            name=name,
+            veto=False,
+            hits=[],
+            evidence=[],
+            search_source=search_source,
+            raw_result_count=0,
+            relevant_result_count=0,
+            elapsed_ms=elapsed_ms,
+            error=error_msg,
+        )
 
     text_parts: list[str] = []
     evidence: list[str] = []
@@ -309,11 +353,24 @@ def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
         if title:
             evidence.append(f"{title} | {url}" if url else title)
     combined = "\n".join(text_parts)
+    relevant_count = len(semantic_snippets)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
 
     hits = _extract_hits(combined, keywords)
     keyword_veto = len(hits) > 0
     if not keyword_veto:
-        return VetoResult(code=code, name=name, veto=False, hits=[], evidence=evidence[:3], error=None)
+        return VetoResult(
+            code=code,
+            name=name,
+            veto=False,
+            hits=[],
+            evidence=evidence[:3],
+            search_source=search_source,
+            raw_result_count=len(results),
+            relevant_result_count=relevant_count,
+            elapsed_ms=elapsed_ms,
+            error=None,
+        )
 
     semantic_checked = False
     semantic_negative: bool | None = None
@@ -340,6 +397,10 @@ def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
         veto=veto,
         hits=hits,
         evidence=evidence[:3],
+        search_source=search_source,
+        raw_result_count=len(results),
+        relevant_result_count=relevant_count,
+        elapsed_ms=elapsed_ms,
         semantic_checked=semantic_checked,
         semantic_negative=semantic_negative,
         semantic_reason=semantic_reason,
@@ -352,12 +413,11 @@ def run_negative_news_veto(candidates: list[dict[str, str]]) -> dict[str, VetoRe
     candidates: [{"code":"000001","name":"平安银行"}, ...]
     """
     out: dict[str, VetoResult] = {}
-    if not is_rag_veto_enabled():
+    status = get_rag_veto_runtime_status()
+    if not bool(status.get("enabled")):
         return out
 
-    tavily_key = (os.getenv("TAVILY_API_KEY") or "").strip()
-    serpapi_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
-    if not tavily_key and not serpapi_key:
+    if not bool(status.get("has_provider")):
         return out
 
     keywords = _normalize_keywords()

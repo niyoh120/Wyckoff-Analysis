@@ -18,7 +18,11 @@ from app.background_jobs import (
 from app.layout import setup_page
 from app.navigation import show_right_nav
 from core.single_stock_logic import render_single_stock_page
-from integrations.llm_client import SUPPORTED_PROVIDERS, GEMINI_MODELS
+from integrations.llm_client import (
+    GEMINI_MODELS,
+    OPENAI_COMPATIBLE_BASE_URLS,
+    SUPPORTED_PROVIDERS,
+)
 from utils import extract_symbols_from_text
 
 # 供应商展示名与 session_state 中的 key 后缀对应
@@ -32,14 +36,21 @@ PROVIDER_LABELS = {
 }
 
 
-def _get_provider_api_key_and_model(provider: str) -> tuple[str, str]:
-    """根据当前选中的 provider 从 session_state 取 api_key 与 model。"""
+def _get_provider_credentials(provider: str) -> tuple[str, str, str]:
+    """根据 provider 从 session_state 取 api_key、model、base_url（OpenAI 兼容）。"""
     key_suffix = provider.lower()
     api_key = (st.session_state.get(f"{key_suffix}_api_key") or "").strip()
     model = (st.session_state.get(f"{key_suffix}_model") or "").strip()
+    base_url = ""
+    if provider in OPENAI_COMPATIBLE_BASE_URLS:
+        base_url = (
+            st.session_state.get(f"{key_suffix}_base_url")
+            or OPENAI_COMPATIBLE_BASE_URLS.get(provider, "")
+            or ""
+        ).strip()
     if not model and provider == "gemini":
         model = st.session_state.get("gemini_model") or "gemini-3.1-flash-lite-preview"
-    return (api_key, model or "")
+    return (api_key, model or "", base_url)
 
 setup_page(page_title="AI 分析", page_icon="🤖")
 
@@ -124,7 +135,7 @@ with content_col:
             format_func=lambda x: PROVIDER_LABELS.get(x, x),
             key="ai_provider_single",
         )
-        api_key, default_model = _get_provider_api_key_and_model(provider)
+        api_key, default_model, base_url = _get_provider_credentials(provider)
         model = st.text_input(
             "模型",
             value=default_model or (GEMINI_MODELS[0] if provider == "gemini" else ""),
@@ -137,7 +148,12 @@ with content_col:
             st.stop()
         if provider == "gemini":
             st.caption("常用模型示例：" + "、".join(GEMINI_MODELS[:6]))
-        render_single_stock_page(provider, model or default_model or (GEMINI_MODELS[0] if provider == "gemini" else ""), api_key)
+        render_single_stock_page(
+            provider,
+            model or default_model or (GEMINI_MODELS[0] if provider == "gemini" else ""),
+            api_key,
+            base_url=base_url,
+        )
         st.stop()
 
     ready, ready_msg = background_jobs_ready_for_current_user()
@@ -148,11 +164,23 @@ with content_col:
     st.info(
         "批量模式已改成后台任务。页面只提交参数并读取结果，不再在 Streamlit 进程里拉全量 OHLCV 或等待长时间模型调用。"
     )
+    batch_provider = st.selectbox(
+        "后台 API 供应商",
+        options=list(SUPPORTED_PROVIDERS),
+        format_func=lambda x: PROVIDER_LABELS.get(x, x),
+        key="ai_provider_batch",
+    )
+    batch_api_key, batch_default_model, batch_base_url = _get_provider_credentials(batch_provider)
     model_override = st.text_input(
         "后台模型覆盖（可留空）",
-        value=str(st.session_state.get("gemini_model") or "gemini-3.1-flash-lite-preview"),
-        help="留空则优先使用你在设置页保存的 Gemini 模型。",
+        value=batch_default_model or (GEMINI_MODELS[0] if batch_provider == "gemini" else ""),
+        key=f"ai_model_batch_{batch_provider}",
+        help="留空则优先使用你在设置页保存的对应供应商模型。",
     ).strip()
+    if batch_provider in OPENAI_COMPATIBLE_BASE_URLS:
+        st.caption(f"当前后台 Base URL：`{batch_base_url or '(empty)'}`（可在设置页修改）")
+    if not batch_api_key:
+        st.warning(f"后台批量模式需要 {PROVIDER_LABELS.get(batch_provider, batch_provider)} API Key，请先在设置页录入。")
     preview_only = st.checkbox("仅生成输入预演，不真正调用模型", value=False)
 
     selected_symbols_info: list[dict] = []
@@ -213,13 +241,18 @@ with content_col:
                     hide_index=True,
                 )
 
-    run_btn = st.button("提交后台 AI 研报", type="primary", disabled=not bool(selected_symbols_info))
+    run_btn = st.button(
+        "提交后台 AI 研报",
+        type="primary",
+        disabled=(not bool(selected_symbols_info)) or (not bool(batch_api_key)),
+    )
     refresh_btn = st.button("刷新后台状态")
 
     if run_btn and selected_symbols_info:
         payload = {
             "symbols_info": selected_symbols_info,
             "benchmark_context": benchmark_context,
+            "provider": batch_provider,
             "model": model_override,
             "preview_only": preview_only,
         }

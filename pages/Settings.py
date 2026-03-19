@@ -48,14 +48,19 @@ with content_col:
             "gemini_model": st.session_state.gemini_model,
             "openai_api_key": st.session_state.openai_api_key,
             "openai_model": st.session_state.openai_model,
+            "openai_base_url": st.session_state.openai_base_url,
             "zhipu_api_key": st.session_state.zhipu_api_key,
             "zhipu_model": st.session_state.zhipu_model,
+            "zhipu_base_url": st.session_state.zhipu_base_url,
             "minimax_api_key": st.session_state.minimax_api_key,
             "minimax_model": st.session_state.minimax_model,
+            "minimax_base_url": st.session_state.minimax_base_url,
             "deepseek_api_key": st.session_state.deepseek_api_key,
             "deepseek_model": st.session_state.deepseek_model,
+            "deepseek_base_url": st.session_state.deepseek_base_url,
             "qwen_api_key": st.session_state.qwen_api_key,
             "qwen_model": st.session_state.qwen_model,
+            "qwen_base_url": st.session_state.qwen_base_url,
             # 其它
             "tushare_token": st.session_state.tushare_token,
             "tg_bot_token": st.session_state.tg_bot_token,
@@ -147,6 +152,12 @@ with content_col:
                 value=st.session_state.openai_model,
                 placeholder="gpt-4.1-mini",
             )
+            new_openai_base_url = st.text_input(
+                "OpenAI Base URL",
+                value=st.session_state.openai_base_url,
+                placeholder="https://api.openai.com/v1",
+                help="支持自定义网关地址；当前值会作为优先地址，未配置时回退到系统默认值。",
+            )
 
             st.markdown("---")
             st.markdown("**智谱 AI (GLM)**")
@@ -160,6 +171,11 @@ with content_col:
                 "智谱默认模型",
                 value=st.session_state.zhipu_model,
                 placeholder="glm-4-air",
+            )
+            new_zhipu_base_url = st.text_input(
+                "智谱 Base URL",
+                value=st.session_state.zhipu_base_url,
+                placeholder="https://open.bigmodel.cn/api/paas/v4",
             )
 
             st.markdown("---")
@@ -175,6 +191,11 @@ with content_col:
                 value=st.session_state.minimax_model,
                 placeholder="abab6.5-chat",
             )
+            new_minimax_base_url = st.text_input(
+                "Minimax Base URL",
+                value=st.session_state.minimax_base_url,
+                placeholder="https://api.minimax.chat/v1",
+            )
 
             st.markdown("---")
             st.markdown("**DeepSeek**")
@@ -188,6 +209,11 @@ with content_col:
                 "DeepSeek 默认模型",
                 value=st.session_state.deepseek_model,
                 placeholder="deepseek-chat",
+            )
+            new_deepseek_base_url = st.text_input(
+                "DeepSeek Base URL",
+                value=st.session_state.deepseek_base_url,
+                placeholder="https://api.deepseek.com/v1",
             )
 
             st.markdown("---")
@@ -203,20 +229,30 @@ with content_col:
                 value=st.session_state.qwen_model,
                 placeholder="qwen-max",
             )
+            new_qwen_base_url = st.text_input(
+                "Qwen Base URL",
+                value=st.session_state.qwen_base_url,
+                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            )
 
             if st.button("💾 保存 AI 配置", key="save_ai"):
                 st.session_state.gemini_api_key = new_gemini_key
                 st.session_state.gemini_model = new_gemini_model
                 st.session_state.openai_api_key = new_openai_key
                 st.session_state.openai_model = new_openai_model
+                st.session_state.openai_base_url = new_openai_base_url
                 st.session_state.zhipu_api_key = new_zhipu_key
                 st.session_state.zhipu_model = new_zhipu_model
+                st.session_state.zhipu_base_url = new_zhipu_base_url
                 st.session_state.minimax_api_key = new_minimax_key
                 st.session_state.minimax_model = new_minimax_model
+                st.session_state.minimax_base_url = new_minimax_base_url
                 st.session_state.deepseek_api_key = new_deepseek_key
                 st.session_state.deepseek_model = new_deepseek_model
+                st.session_state.deepseek_base_url = new_deepseek_base_url
                 st.session_state.qwen_api_key = new_qwen_key
                 st.session_state.qwen_model = new_qwen_model
+                st.session_state.qwen_base_url = new_qwen_base_url
                 on_save_settings()
 
         st.divider()
