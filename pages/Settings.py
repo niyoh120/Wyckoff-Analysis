@@ -8,6 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.layout import setup_page
 from app.navigation import show_right_nav
 from integrations.supabase_client import save_user_settings
+from integrations.llm_client import OPENAI_COMPATIBLE_BASE_URLS
 from app.ui_helpers import show_page_loading
 
 setup_page(page_title="设置", page_icon="⚙️")
@@ -25,6 +26,13 @@ with content_col:
     if not user_id:
         st.error("无法识别当前用户，设置页已拒绝展示。请重新登录。")
         st.stop()
+
+    # 兼容旧会话：新增字段可能尚未初始化，先补默认值，避免 AttributeError。
+    st.session_state.setdefault("openai_base_url", OPENAI_COMPATIBLE_BASE_URLS.get("openai", ""))
+    st.session_state.setdefault("zhipu_base_url", OPENAI_COMPATIBLE_BASE_URLS.get("zhipu", ""))
+    st.session_state.setdefault("minimax_base_url", OPENAI_COMPATIBLE_BASE_URLS.get("minimax", ""))
+    st.session_state.setdefault("deepseek_base_url", OPENAI_COMPATIBLE_BASE_URLS.get("deepseek", ""))
+    st.session_state.setdefault("qwen_base_url", OPENAI_COMPATIBLE_BASE_URLS.get("qwen", ""))
 
     # 顶部展示 user_id，方便复制
     with st.expander("🔑 账户信息", expanded=True):

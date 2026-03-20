@@ -52,6 +52,29 @@ def _get_provider_credentials(provider: str) -> tuple[str, str, str]:
         model = st.session_state.get("gemini_model") or "gemini-3.1-flash-lite-preview"
     return (api_key, model or "", base_url)
 
+
+def _render_single_stock_page_compat(
+    provider: str,
+    model: str,
+    api_key: str,
+    base_url: str,
+) -> None:
+    """
+    兼容旧版本 single_stock_logic.render_single_stock_page(provider, model, api_key)
+    与新版本 render_single_stock_page(..., base_url=...)。
+    """
+    try:
+        render_single_stock_page(
+            provider,
+            model,
+            api_key,
+            base_url=base_url,
+        )
+    except TypeError as e:
+        if "unexpected keyword argument 'base_url'" not in str(e):
+            raise
+        render_single_stock_page(provider, model, api_key)
+
 setup_page(page_title="AI 分析", page_icon="🤖")
 
 STATE_KEY = "batch_ai_background_job"
@@ -148,11 +171,11 @@ with content_col:
             st.stop()
         if provider == "gemini":
             st.caption("常用模型示例：" + "、".join(GEMINI_MODELS[:6]))
-        render_single_stock_page(
+        _render_single_stock_page_compat(
             provider,
             model or default_model or (GEMINI_MODELS[0] if provider == "gemini" else ""),
             api_key,
-            base_url=base_url,
+            base_url,
         )
         st.stop()
 

@@ -113,7 +113,7 @@ def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any
         # 预读已有记录（按 code 聚合），用于维护 recommend_count。
         # 规则：仅当 recommend_date 变化时才 +1，同日重跑不重复累计。
         existing_counts: dict[int, int] = {}
-        existing_dates: dict[int, int] = {}
+        existing_code_dates: dict[int, set[int]] = {}
         try:
             resp = (
                 client.table(TABLE_RECOMMENDATION_TRACKING)
@@ -125,14 +125,19 @@ def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any
                     code_int = int(row.get("code"))
                 except Exception:
                     continue
-                existing_counts[code_int] = int(row.get("recommend_count") or 1)
                 try:
-                    existing_dates[code_int] = int(row.get("recommend_date"))
+                    cnt = int(row.get("recommend_count") or 1)
+                except Exception:
+                    cnt = 1
+                existing_counts[code_int] = max(existing_counts.get(code_int, 0), cnt)
+                try:
+                    d = int(row.get("recommend_date"))
+                    existing_code_dates.setdefault(code_int, set()).add(d)
                 except Exception:
                     pass
         except Exception:
             existing_counts = {}
-            existing_dates = {}
+            existing_code_dates = {}
 
         payload = []
         for s in symbols_info:
@@ -169,10 +174,10 @@ def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any
             
             code_int = int(code_str)
             old_cnt = existing_counts.get(code_int, 0)
-            old_date = existing_dates.get(code_int)
+            seen_dates = existing_code_dates.get(code_int, set())
             if old_cnt <= 0:
                 new_cnt = 1
-            elif old_date == recommend_date:
+            elif recommend_date in seen_dates:
                 new_cnt = old_cnt
             else:
                 new_cnt = old_cnt + 1
@@ -192,13 +197,13 @@ def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any
             })
         
         if payload:
-            # 使用 upsert，基于 code 唯一约束：
-            # - recommendation_tracking 中每只股票(code)仅保留一条记录；
-            # - recommend_date / initial_price / current_price 等字段以“最近一次推荐”为准覆盖；
-            # - recommend_count 为该股票被推荐的累计次数。
+            # 使用 upsert，基于 (code, recommend_date) 唯一约束：
+            # - 同一只股票在同一天重跑会覆盖更新；
+            # - 跨天会新增一条记录；
+            # - recommend_count 按 code 维度累计。
             try:
                 client.table(TABLE_RECOMMENDATION_TRACKING).upsert(
-                    payload, on_conflict="code"
+                    payload, on_conflict="code,recommend_date"
                 ).execute()
             except Exception as e:
                 msg = str(e).lower()
