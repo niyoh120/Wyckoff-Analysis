@@ -28,21 +28,38 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.wyckoff_engine import FunnelConfig, normalize_hist_from_fetch, run_funnel, allocate_ai_candidates
+from core.wyckoff_engine import (
+    FunnelConfig,
+    normalize_hist_from_fetch,
+    run_funnel,
+    allocate_ai_candidates,
+    FunnelResult,
+)
+from core.sector_rotation import analyze_sector_rotation
 from integrations.data_source import fetch_index_hist, fetch_market_cap_map, fetch_sector_map, fetch_stock_hist
 from integrations.fetch_a_share_csv import get_stocks_by_board, _normalize_symbols
 from scripts.wyckoff_funnel import (
     _analyze_benchmark_and_tune_cfg as _tune_cfg_by_regime,
     _calc_market_breadth as _calc_market_breadth_for_regime,
+    _rank_l3_candidates,
 )
 
 DEFAULT_HOLD_DAYS = 15
-DEFAULT_EXIT_MODE = "sltp"
+DEFAULT_EXIT_MODE = "close_only"
 DEFAULT_STOP_LOSS_PCT = -9.0
 DEFAULT_TAKE_PROFIT_PCT = 0.0
 DEFAULT_USE_CURRENT_META = False
 DEFAULT_BUY_FRICTION_PCT = float(os.getenv("BACKTEST_BUY_FRICTION_PCT", "0.2"))
 DEFAULT_SELL_FRICTION_PCT = float(os.getenv("BACKTEST_SELL_FRICTION_PCT", "0.2"))
+FUNNEL_AI_SELECTION_MODE = (
+    os.getenv("FUNNEL_AI_SELECTION_MODE", "legacy_full_hits").strip().lower()
+)
+_LEGACY_SELECTION_MODES = {
+    "legacy_full_hits",
+    "legacy_hits",
+    "all_hits",
+    "classic",
+}
 
 
 @dataclass
@@ -65,6 +82,22 @@ def _parse_date(v: str) -> date:
     if "-" in s:
         return datetime.strptime(s, "%Y-%m-%d").date()
     return datetime.strptime(s, "%Y%m%d").date()
+
+
+def _parse_hold_days_list(raw: str) -> list[int]:
+    vals: list[int] = []
+    for token in str(raw or "").replace("，", ",").replace(" ", ",").split(","):
+        t = str(token).strip()
+        if not t:
+            continue
+        n = int(t)
+        if n <= 0:
+            raise ValueError(f"hold_days_list 中存在非法值: {n}")
+        vals.append(n)
+    dedup = sorted(set(vals))
+    if not dedup:
+        raise ValueError("hold_days_list 为空")
+    return dedup
 
 
 def _build_universe(board: str, sample_size: int) -> tuple[list[str], dict[str, str]]:
@@ -224,6 +257,86 @@ def _combine_trigger_scores(triggers: dict[str, list[tuple[str, float]]]) -> dic
     for code, reasons in reason_map.items():
         out[code] = (score_map.get(code, 0.0), "、".join(reasons))
     return out
+
+
+def _dedup_order(codes: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in codes:
+        code = str(raw).strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        out.append(code)
+    return out
+
+
+def _select_ai_input_codes(
+    *,
+    result: FunnelResult,
+    day_df_map: dict[str, pd.DataFrame],
+    sector_map: dict[str, str],
+    regime: str,
+    selection_mode: str,
+) -> tuple[list[str], dict[str, float], dict[str, str]]:
+    """
+    按线上漏斗口径选出“送给 AI 的候选池”：
+    - legacy_full_hits：全量 L4 命中，按触发分值排序
+    - modern quotas：L3 排序 + allocate_ai_candidates 动态配额
+    返回 (selected_codes, priority_score_map, track_map)
+    """
+    merged_trigger_map = _combine_trigger_scores(result.triggers)
+    hit_score_map = {
+        code: float(v[0]) for code, v in merged_trigger_map.items()
+    }
+    sorted_hit_codes = sorted(
+        merged_trigger_map.keys(),
+        key=lambda c: -hit_score_map.get(c, 0.0),
+    )
+
+    sos_hit_set = set(str(c).strip() for c, _ in result.triggers.get("sos", []))
+    evr_hit_set = set(str(c).strip() for c, _ in result.triggers.get("evr", []))
+    spring_hit_set = set(str(c).strip() for c, _ in result.triggers.get("spring", []))
+    lps_hit_set = set(str(c).strip() for c, _ in result.triggers.get("lps", []))
+
+    if selection_mode in _LEGACY_SELECTION_MODES:
+        track_map = {}
+        for code in sorted_hit_codes:
+            if code in sos_hit_set or code in evr_hit_set:
+                track_map[code] = "Trend"
+            elif code in spring_hit_set or code in lps_hit_set:
+                track_map[code] = "Accum"
+            else:
+                track_map[code] = "Trend"
+        return sorted_hit_codes, hit_score_map, track_map
+
+    sector_rotation = analyze_sector_rotation(
+        day_df_map,
+        sector_map,
+        universe_symbols=list(day_df_map.keys()),
+        focus_sectors=result.top_sectors,
+    )
+    sector_rotation_map = (sector_rotation or {}).get("state_map", {}) or {}
+    l3_ranked_symbols, _ = _rank_l3_candidates(
+        l3_symbols=result.layer3_symbols,
+        df_map=day_df_map,
+        sector_map=sector_map,
+        triggers=result.triggers,
+        top_sectors=result.top_sectors,
+        l2_channel_map=result.channel_map,
+        sector_rotation_map=sector_rotation_map,
+    )
+    trend_sel, accum_sel, priority_score_map = allocate_ai_candidates(
+        result,
+        l3_ranked_symbols or result.layer3_symbols,
+        regime,
+        sector_map=sector_map,
+        max_per_sector=2,
+    )
+    selected_codes = _dedup_order(trend_sel + accum_sel)
+    track_map = {c: "Trend" for c in trend_sel}
+    track_map.update({c: "Accum" for c in accum_sel})
+    return selected_codes, priority_score_map, track_map
 
 
 def _close_on_date(df: pd.DataFrame, d: date) -> float | None:
@@ -470,39 +583,18 @@ def run_backtest(
         )
         
         regime = day_breadth.get("regime", "NEUTRAL")
-        trend_sel, accum_sel, p_score_map = allocate_ai_candidates(result, result.layer3_symbols, regime)
-        merged_candidates = trend_sel + accum_sel
-        track_map: dict[str, str] = {}
-        for c in trend_sel:
-            track_map[c] = "Trend"
-        for c in accum_sel:
-            track_map[c] = "Accum"
-        
-        if not merged_candidates:
+        selected_for_ai, p_score_map, track_map = _select_ai_input_codes(
+            result=result,
+            day_df_map=day_df_map,
+            sector_map=sector_map,
+            regime=regime,
+            selection_mode=FUNNEL_AI_SELECTION_MODE,
+        )
+        if not selected_for_ai:
             continue
-            
-        # Optional tie_breaker_map just to strictly order same priority scores
-        tie_breaker_map = {}
-        for c in merged_candidates:
-            cdf = day_df_map.get(c)
-            if cdf is not None and len(cdf) >= 21:
-                try:
-                    tb = float(cdf["close"].iloc[-1]) / float(cdf["close"].iloc[-21])
-                except Exception:
-                    tb = 0.0
-            else:
-                tb = 0.0
-            tie_breaker_map[c] = tb
 
-        ranked_codes = sorted(
-            merged_candidates,
-            key=lambda c: (
-                -p_score_map.get(c, 0.0),
-                -tie_breaker_map.get(c, 0.0),
-                c,
-            ),
-        )[:top_n]
-        
+        ranked_codes = selected_for_ai if int(top_n) <= 0 else selected_for_ai[:top_n]
+
         # Only needed for string names
         name_score_map = _combine_trigger_scores(result.triggers)
 
@@ -611,6 +703,8 @@ def run_backtest(
         "end": end_dt.isoformat(),
         "hold_days": hold_days,
         "top_n": top_n,
+        "ai_selection_mode": FUNNEL_AI_SELECTION_MODE,
+        "ai_top_n_cap": None if int(top_n) <= 0 else int(top_n),
         "board": board,
         "sample_size": sample_size,
         "trading_days": trading_days,
@@ -863,7 +957,12 @@ def _build_summary_md(summary: dict) -> str:
             "",
             f"- 区间: {summary.get('start')} ~ {summary.get('end')}",
             f"- 持有周期: {summary.get('hold_days')} 交易日",
-            f"- 每日选股: Top {summary.get('top_n')}",
+            (
+                f"- 每日候选上限: Top {summary.get('top_n')}"
+                if summary.get("ai_top_n_cap") is not None
+                else "- 每日候选上限: 不限（回测全量 AI 输入）"
+            ),
+            f"- AI 候选模式: {summary.get('ai_selection_mode')}",
             f"- 股票池: {summary.get('board')} (sample={summary.get('sample_size')})",
             f"- 评估交易日: {summary.get('eval_days')}",
             f"- 触发交易日: {summary.get('signal_days')}",
@@ -945,9 +1044,24 @@ def main() -> int:
         default=DEFAULT_HOLD_DAYS,
         help=f"持有交易日数 (default: {DEFAULT_HOLD_DAYS})",
     )
-    parser.add_argument("--top-n", type=int, default=3, help="每日最多纳入交易样本的股票数 (default: 3)")
+    parser.add_argument(
+        "--hold-days-list",
+        default="",
+        help="逗号分隔的持有周期列表，例如 10,15,20,30。设置后会依次回测并输出汇总。",
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=0,
+        help="每日候选上限；0 表示不截断（回测全量 AI 输入，默认 0）",
+    )
     parser.add_argument("--board", choices=["all", "main", "chinext"], default="all")
-    parser.add_argument("--sample-size", type=int, default=300, help="股票池采样数量，0 表示不采样")
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=0,
+        help="股票池采样数量；0 表示不采样（默认全量，贴近线上）",
+    )
     parser.add_argument("--trading-days", type=int, default=320, help="单次筛选回看交易日数")
     parser.add_argument("--workers", type=int, default=8, help="历史拉取并发数")
     parser.add_argument(
@@ -986,8 +1100,16 @@ def main() -> int:
     )
     parser.add_argument(
         "--use-current-meta",
+        dest="use_current_meta",
         action="store_true",
-        help="使用当前截面市值/行业映射过滤（会引入 look-ahead bias，默认关闭）",
+        default=True,
+        help="使用当前截面市值/行业映射过滤（默认开启，贴近线上）",
+    )
+    parser.add_argument(
+        "--no-use-current-meta",
+        dest="use_current_meta",
+        action="store_false",
+        help="关闭当前截面市值/行业映射过滤（降低 look-ahead bias）",
     )
     parser.add_argument(
         "--buy-friction-pct",
@@ -1005,39 +1127,121 @@ def main() -> int:
 
     start_dt = _parse_date(args.start)
     end_dt = _parse_date(args.end)
-    trades_df, summary = run_backtest(
-        start_dt=start_dt,
-        end_dt=end_dt,
-        hold_days=args.hold_days,
-        top_n=args.top_n,
-        board=args.board,
-        sample_size=args.sample_size,
-        trading_days=args.trading_days,
-        max_workers=args.workers,
-        snapshot_dir=Path(args.snapshot_dir).resolve() if str(args.snapshot_dir).strip() else None,
-        exit_mode=args.exit_mode,
-        stop_loss_pct=args.stop_loss,
-        take_profit_pct=args.take_profit,
-        sltp_priority=args.sltp_priority,
-        use_current_meta=args.use_current_meta,
-        buy_friction_pct=args.buy_friction_pct,
-        sell_friction_pct=args.sell_friction_pct,
-    )
-
     out_dir = Path(args.output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = f"{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}_h{args.hold_days}_n{args.top_n}"
-    summary_path = out_dir / f"summary_{stamp}.md"
-    trades_path = out_dir / f"trades_{stamp}.csv"
 
-    summary_md = _build_summary_md(summary)
-    summary_path.write_text(summary_md + "\n", encoding="utf-8")
-    trades_df.to_csv(trades_path, index=False, encoding="utf-8-sig")
+    hold_days_list = (
+        _parse_hold_days_list(args.hold_days_list)
+        if str(args.hold_days_list).strip()
+        else [int(args.hold_days)]
+    )
 
-    print(summary_md)
-    print("")
-    print(f"[backtest] summary -> {summary_path}")
-    print(f"[backtest] trades  -> {trades_path}")
+    suite_rows: list[dict] = []
+    success_count = 0
+    last_error: Exception | None = None
+    for hold_days in hold_days_list:
+        try:
+            trades_df, summary = run_backtest(
+                start_dt=start_dt,
+                end_dt=end_dt,
+                hold_days=hold_days,
+                top_n=args.top_n,
+                board=args.board,
+                sample_size=args.sample_size,
+                trading_days=args.trading_days,
+                max_workers=args.workers,
+                snapshot_dir=Path(args.snapshot_dir).resolve() if str(args.snapshot_dir).strip() else None,
+                exit_mode=args.exit_mode,
+                stop_loss_pct=args.stop_loss,
+                take_profit_pct=args.take_profit,
+                sltp_priority=args.sltp_priority,
+                use_current_meta=args.use_current_meta,
+                buy_friction_pct=args.buy_friction_pct,
+                sell_friction_pct=args.sell_friction_pct,
+            )
+        except Exception as exc:
+            last_error = exc
+            err_msg = str(exc)
+            print(f"[backtest] hold_days={hold_days} 失败: {err_msg}")
+            suite_rows.append(
+                {
+                    "hold_days": hold_days,
+                    "trades": None,
+                    "win_rate_pct": None,
+                    "avg_ret_pct": None,
+                    "median_ret_pct": None,
+                    "max_drawdown_pct": None,
+                    "sharpe_ratio": None,
+                    "error": err_msg,
+                }
+            )
+            continue
+
+        stamp = f"{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}_h{hold_days}_n{args.top_n}"
+        summary_path = out_dir / f"summary_{stamp}.md"
+        trades_path = out_dir / f"trades_{stamp}.csv"
+
+        summary_md = _build_summary_md(summary)
+        summary_path.write_text(summary_md + "\n", encoding="utf-8")
+        trades_df.to_csv(trades_path, index=False, encoding="utf-8-sig")
+
+        print(summary_md)
+        print("")
+        print(f"[backtest] summary -> {summary_path}")
+        print(f"[backtest] trades  -> {trades_path}")
+        success_count += 1
+
+        suite_rows.append(
+            {
+                "hold_days": hold_days,
+                "trades": summary.get("trades"),
+                "win_rate_pct": summary.get("win_rate_pct"),
+                "avg_ret_pct": summary.get("avg_ret_pct"),
+                "median_ret_pct": summary.get("median_ret_pct"),
+                "max_drawdown_pct": summary.get("max_drawdown_pct"),
+                "sharpe_ratio": summary.get("sharpe_ratio"),
+                "error": "",
+            }
+        )
+
+    if success_count == 0:
+        raise RuntimeError(
+            "多周期回测全部失败，请检查日期区间、快照覆盖范围或 TUSHARE_TOKEN。"
+        ) from last_error
+
+    if len(suite_rows) > 1:
+        suite_df = pd.DataFrame(suite_rows).sort_values("hold_days").reset_index(drop=True)
+        suite_stamp = f"{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}"
+        suite_csv = out_dir / f"suite_{suite_stamp}.csv"
+        suite_md = out_dir / f"suite_{suite_stamp}.md"
+        suite_df.to_csv(suite_csv, index=False, encoding="utf-8-sig")
+
+        md_lines = [
+            "# AI 输入候选多周期回测汇总",
+            "",
+            f"- 区间: {start_dt.isoformat()} ~ {end_dt.isoformat()}",
+            f"- 候选池: 送给 AI 的股票（mode={FUNNEL_AI_SELECTION_MODE}）",
+            f"- 持有周期: {', '.join(str(x['hold_days']) for x in suite_rows)}",
+            f"- 成功周期数: {success_count}/{len(suite_rows)}",
+            "",
+            "| 持有天数 | 成交笔数 | 胜率(%) | 平均收益(%) | 中位收益(%) | 最大回撤(%) | 夏普比 | 备注 |",
+            "|---:|---:|---:|---:|---:|---:|---:|---|",
+        ]
+        for row in suite_df.to_dict(orient="records"):
+            md_lines.append(
+                f"| {int(row.get('hold_days', 0))} | "
+                f"{_fmt_metric(row.get('trades'), 0)} | "
+                f"{_fmt_metric(row.get('win_rate_pct'), 2)} | "
+                f"{_fmt_metric(row.get('avg_ret_pct'), 3)} | "
+                f"{_fmt_metric(row.get('median_ret_pct'), 3)} | "
+                f"{_fmt_metric(row.get('max_drawdown_pct'), 3)} | "
+                f"{_fmt_metric(row.get('sharpe_ratio'), 3)} | "
+                f"{str(row.get('error', '') or '').replace('|', '/')} |"
+            )
+        suite_md.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
+        print(f"[backtest] suite summary -> {suite_md}")
+        print(f"[backtest] suite csv     -> {suite_csv}")
+
     return 0
 
 
