@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-盘前风控任务（周一到周五 07:55, Asia/Shanghai）：
+盘前风控任务（周一到周五 07:00, Asia/Shanghai）：
 - 富时 A50（akshare）
 - VIX（优先 Stooq，失败回退 Yahoo）
 
