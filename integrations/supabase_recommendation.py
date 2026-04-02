@@ -507,7 +507,7 @@ def refresh_tracking_prices_with_tushare_unadjusted() -> dict[str, Any]:
     - current_price: 当前系统时间对应最近交易日收盘价
     - change_pct: (current - initial) / initial * 100
     """
-    from utils.tushare_client import get_pro
+    from integrations.tushare_client import get_pro
 
     if not is_supabase_configured():
         raise ValueError("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 未配置")

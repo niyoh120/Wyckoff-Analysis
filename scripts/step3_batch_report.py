@@ -14,7 +14,7 @@ from datetime import date, datetime
 
 import pandas as pd
 
-from integrations.ai_prompts import WYCKOFF_FUNNEL_SYSTEM_PROMPT
+from core.prompts import WYCKOFF_FUNNEL_SYSTEM_PROMPT
 from integrations.fetch_a_share_csv import _resolve_trading_window, _fetch_hist
 from integrations.llm_client import call_llm
 from integrations.rag_veto import (

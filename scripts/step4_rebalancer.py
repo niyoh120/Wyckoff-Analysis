@@ -21,7 +21,7 @@ import pandas as pd
 
 from core.wyckoff_engine import normalize_hist_from_fetch, FunnelConfig
 from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_for_llm
-from integrations.ai_prompts import PRIVATE_PM_DECISION_JSON_PROMPT
+from core.prompts import PRIVATE_PM_DECISION_JSON_PROMPT
 from integrations.fetch_a_share_csv import _fetch_hist, _resolve_trading_window
 from integrations.llm_client import call_llm
 from integrations.data_source import fetch_stock_spot_snapshot
