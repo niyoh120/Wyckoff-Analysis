@@ -91,7 +91,7 @@ jobs:
           import pandas as pd
 
           from integrations.data_source import fetch_index_hist, fetch_stock_hist
-          from integrations.fetch_a_share_csv import get_stocks_by_board
+          from integrations.fetch_a_share_csv import get_stocks_by_board, _normalize_symbols
           from core.wyckoff_engine import normalize_hist_from_fetch
 
           start_s = '${BT_START}'.replace('-', '')
@@ -107,10 +107,10 @@ jobs:
 
           raw_pool = get_stocks_by_board(board)
           if raw_pool and isinstance(raw_pool[0], dict):
-              symbols = [str(item.get('code', '')).strip() for item in raw_pool]
+              raw_codes = [str(item.get('code', '')).strip() for item in raw_pool]
           else:
-              symbols = [str(item).strip() for item in raw_pool]
-          symbols = sorted({s.zfill(6) for s in symbols if s and s.isdigit()})
+              raw_codes = [str(item).strip() for item in raw_pool]
+          symbols = sorted(set(_normalize_symbols(raw_codes)))
           if not symbols:
               print('[snapshot] 严重错误: 股票池为空，请检查 board 参数或行情源可用性')
               sys.exit(1)
@@ -177,10 +177,10 @@ jobs:
 
           # 第一轮
           round1_fails, round1_ok, round1_fail, round1_fail_samples = batch_fetch(symbols, ' round1')
-          ok += round1_ok
-          fail += round1_fail
-          fail_samples.extend(round1_fail_samples)
-          print(f'[snapshot] 第一轮完成: ok={ok}, fail={fail}')
+          ok = round1_ok
+          fail = round1_fail
+          fail_samples = list(round1_fail_samples)
+          print(f'[snapshot] 第一轮完成: ok={ok}, fail={fail}, total={ok + fail}/{len(symbols)}')
 
           # 重试失败的（等 30 秒让限流窗口过去）
           if round1_fails:
@@ -188,9 +188,9 @@ jobs:
               time.sleep(30)
               retry_fails, retry_ok, retry_fail, retry_fail_samples = batch_fetch(round1_fails, ' retry')
               ok += retry_ok
-              fail = retry_fail
-              fail_samples.extend(retry_fail_samples)
-              print(f'[snapshot] 重试完成: ok={ok}, fail={fail}')
+              fail = retry_fail  # 最终仍失败数 = 重试后仍失败的数量
+              fail_samples = list(retry_fail_samples)  # 只保留最终失败样本，避免与第一轮重复
+              print(f'[snapshot] 重试完成: ok={ok}, fail={fail}, total={ok + fail}/{len(symbols)}')
               if retry_fails:
                   print(f'[snapshot] 仍失败股票数: {len(retry_fails)}')
 

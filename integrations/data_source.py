@@ -805,9 +805,39 @@ def _fetch_index_tushare(code: str, start: str, end: str) -> pd.DataFrame:
     return df[["date", "open", "high", "low", "close", "volume", "pct_chg"]].copy()
 
 
+def _fetch_index_akshare(code: str, start: str, end: str) -> pd.DataFrame:
+    """akshare 大盘指数日线 fallback（tushare 不可用时自动降级）。"""
+    import akshare as ak
+
+    df = ak.index_zh_a_hist(
+        symbol=code,
+        period="daily",
+        start_date=start,
+        end_date=end,
+    )
+    if df is None or df.empty:
+        raise RuntimeError("akshare 大盘指数返回空数据")
+    df = df.rename(
+        columns={
+            "日期": "date",
+            "开盘": "open",
+            "最高": "high",
+            "最低": "low",
+            "收盘": "close",
+            "成交量": "volume",
+            "涨跌幅": "pct_chg",
+        }
+    )
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    for c in ["open", "high", "low", "close", "volume", "pct_chg"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df[["date", "open", "high", "low", "close", "volume", "pct_chg"]].copy()
+
+
 def fetch_index_hist(code: str, start: str | date, end: str | date) -> pd.DataFrame:
     """
-    大盘指数日线：直接使用 tushare（免费源大盘 100% 失败，故不试）。
+    大盘指数日线：tushare 优先，失败时 fallback 到 akshare。
     返回列：date, open, high, low, close, volume, pct_chg（小写，供 step2 使用）
     """
     start_s = (
@@ -818,7 +848,22 @@ def fetch_index_hist(code: str, start: str | date, end: str | date) -> pd.DataFr
     end_s = (
         end.strftime("%Y%m%d") if isinstance(end, date) else str(end).replace("-", "")
     )
-    return _fetch_index_tushare(code, start_s, end_s)
+
+    # 1) tushare 优先
+    try:
+        return _fetch_index_tushare(code, start_s, end_s)
+    except Exception as e:
+        _debug_source_fail("tushare(index)", e)
+
+    # 2) akshare fallback
+    try:
+        return _fetch_index_akshare(code, start_s, end_s)
+    except Exception as e2:
+        _debug_source_fail("akshare(index)", e2)
+
+    raise RuntimeError(
+        f"大盘指数 {code} 拉取全部失败（tushare + akshare），请检查 TUSHARE_TOKEN 或网络连通性。"
+    )
 
 
 # --- 行业 & 市值批量获取（tushare） ---
