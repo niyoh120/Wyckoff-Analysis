@@ -59,6 +59,9 @@ jobs:
     env:
       PYTHONUNBUFFERED: "1"
       TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TZ: Asia/Shanghai
       FUNNEL_EXPORT_FULL_FETCH: "1"
     steps:
@@ -96,6 +99,7 @@ jobs:
           import pandas as pd
 
           from integrations.data_source import fetch_index_hist, fetch_stock_hist
+          from integrations.stock_hist_repository import get_stock_hist as get_stock_hist_cached
           from integrations.fetch_a_share_csv import get_stocks_by_board, _normalize_symbols
           from core.wyckoff_engine import normalize_hist_from_fetch
 
@@ -142,7 +146,10 @@ jobs:
                   time.sleep(max(0.05, sleep_for))
 
               try:
-                  raw = fetch_stock_hist(sym, prefetch_start, end_s, adjust='qfq')
+                  try:
+                      raw = get_stock_hist_cached(sym, prefetch_start, end_s, adjust='qfq', context='background')
+                  except Exception:
+                      raw = fetch_stock_hist(sym, prefetch_start, end_s, adjust='qfq')
                   if raw is not None and not raw.empty:
                       df = normalize_hist_from_fetch(raw)
                       df['symbol'] = sym

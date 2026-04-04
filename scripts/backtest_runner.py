@@ -284,7 +284,19 @@ def _fetch_hist_norm(
     end_dt: date,
 ) -> tuple[str, pd.DataFrame | None, str | None]:
     try:
-        raw = fetch_stock_hist(symbol, start_dt, end_dt, adjust="qfq")
+        # 优先走 Supabase 缓存（只补拉缺失区间），fallback 到直连数据源
+        try:
+            from integrations.stock_hist_repository import get_stock_hist as _cached
+            raw = _cached(
+                symbol=symbol,
+                start_date=start_dt,
+                end_date=end_dt,
+                adjust="qfq",
+                context="background",
+            )
+        except Exception:
+            # Supabase 不可用（未配置/网络异常）时 fallback 到直连数据源
+            raw = fetch_stock_hist(symbol, start_dt, end_dt, adjust="qfq")
         df = normalize_hist_from_fetch(raw)
         if df is None or df.empty:
             return symbol, None, "empty"
