@@ -95,7 +95,7 @@ HIGHLIGHT_PCT_THRESHOLD = 5.0
 HIGHLIGHT_VOL_RATIO = 2.0
 DEBUG_MODEL_IO = os.getenv("DEBUG_MODEL_IO", "").strip().lower() in {"1", "true", "yes", "on"}
 DEBUG_MODEL_IO_FULL = os.getenv("DEBUG_MODEL_IO_FULL", "").strip().lower() in {"1", "true", "yes", "on"}
-# 已按策略要求关闭“目标交易日强校验”，避免数据源时差导致候选被整批跳过。
+# 已按策略要求关闭"目标交易日强校验"，避免数据源时差导致候选被整批跳过。
 ENFORCE_TARGET_TRADE_DATE = False
 STEP3_ENABLE_SPOT_PATCH = os.getenv("STEP3_ENABLE_SPOT_PATCH", "1").strip().lower() in {
     "1",
@@ -419,7 +419,7 @@ def _extract_ops_codes_from_markdown(
     report: str,
     allowed_codes: set[str],
 ) -> list[str]:
-    """从纯 Markdown 文本中提取“处于起跳板”章节里的股票代码。"""
+    """从纯 Markdown 文本中提取"处于起跳板"章节里的股票代码。"""
     lines = str(report or "").splitlines()
     in_ops_section = False
     ops_codes: list[str] = []
@@ -448,7 +448,7 @@ def extract_operation_pool_codes(
     allowed_codes: list[str] | set[str] | tuple[str, ...],
 ) -> list[str]:
     """
-    对外暴露：从 Step3 报告中提取“处于起跳板”代码。
+    对外暴露：从 Step3 报告中提取"处于起跳板"代码。
     优先解析 Markdown 章节，若无则回退结构化 JSON 解析。
     """
     ordered_allowed = [str(c).strip() for c in allowed_codes if re.fullmatch(r"\d{6}", str(c).strip())]
@@ -645,7 +645,7 @@ def ultimate_compressor(
     )
     df["base_wyckoff_score"] = 0.6 * df["rs_score"] + 0.4 * df["dry_score"]
 
-    # 动态主线识别：候选池内“有集群且相对强度高”的行业
+    # 动态主线识别：候选池内"有集群且相对强度高"的行业
     industry_stats = (
         df.groupby("industry", as_index=False)
         .agg(stock_count=("code", "count"), avg_rs=("rs_score", "mean"))
@@ -861,23 +861,55 @@ def _build_track_user_message(
     compressed: bool,
     raw_count: int,
     selected_count: int,
+    regime: str = "",
 ) -> str:
     track_key = "Accum" if str(track).strip() == "Accum" else "Trend"
+    regime_upper = str(regime or "").strip().upper() or "NEUTRAL"
+
     if track_key == "Trend":
         scope = (
             "[本轮分析范围]\n"
             "本轮仅分析 Trend轨（右侧主升 / 放量点火 / 突破组）。\n"
             "请重点审查是否存在高潮诱多、深水区反抽、爆量次日承接不足，以及看似突破实为派发等问题。"
         )
+        # 弱市下 Trend 轨追加约束
+        if regime_upper == "CRASH":
+            scope += (
+                "\n⚠️ 当前 CRASH 环境，右侧突破全部视为诱多。\n"
+                "Trend 轨所有标的一律归入逻辑破产或储备营地，不得放入起跳板。"
+            )
+        elif regime_upper == "RISK_OFF":
+            scope += (
+                "\n⚠️ 当前大盘处于弱势环境，右侧假突破概率极高。\n"
+                "Trend 信号必须有突破日量比 >= 1.5x 且次日承接不回落，否则视为诱多归入逻辑破产。"
+            )
     else:
         scope = (
             "[本轮分析范围]\n"
             "本轮仅分析 Accum轨（左侧潜伏 / Spring / LPS / Accum_C 组）。\n"
-            "请重点审查供应是否真正枯竭；若下跌放量或支撑反复失守，应归入逻辑破产或储备营地。若出现长下影、高收位、放量拉回，不得机械判死刑，必须分辨是真Spring还是失败反抽。"
+            "请重点审查供应是否真正枯竭；若下跌放量或支撑反复失守，应归入逻辑破产或储备营地。\n"
+            "若出现长下影、高收位、放量拉回，不得机械判死刑，必须分辨是真Spring还是失败反抽。"
         )
+        # 弱市下 Accum 轨追加严格约束
+        if regime_upper in ("RISK_OFF", "CRASH"):
+            scope += (
+                "\n⚠️ 当前大盘处于弱势环境，左侧抄底风险极高。\n"
+                "Accum 信号必须同时满足：1) 缩量测试量比 < 0.6x 2) 支撑位至少 2 次测试未破。\n"
+                "不满足的一律归入储备营地，不得放入起跳板。"
+            )
+
+    # regime 仓位提示
+    regime_hint = ""
+    if regime_upper == "CRASH":
+        regime_hint = "[仓位约束] 当前 CRASH 环境，禁止推荐起跳板，全部归入储备营地或逻辑破产。\n\n"
+    elif regime_upper == "RISK_OFF":
+        regime_hint = "[仓位约束] 当前 RISK_OFF 弱势环境，起跳板最多 1-2 只，必须有极强的量价确认。\n\n"
+    elif regime_upper == "RISK_ON":
+        regime_hint = "[仓位约束] 当前 RISK_ON 追涨期，反转率高，起跳板最多 2 只，必须有缩量回踩确认。\n\n"
 
     message = (
         ("{}\n\n".format("\n".join(benchmark_lines)) if benchmark_lines else "")
+        + regime_hint
         + f"{scope}\n\n"
         + (
             (
@@ -891,14 +923,13 @@ def _build_track_user_message(
         + "其中前两类属于非操作区，第三类才是可执行区。\n"
         + "输出必须包含这三个部分，且只能使用输入列表中的股票代码，不得遗漏或新增。\n\n"
         + "交易执行硬约束：\n"
-        + "1) 禁止单点价格指令，必须给“结构战区(Action Zone) + 盘面确认条件(Tape Condition)”。\n"
-        + "2) 战区需围绕每只股票的“价格锚点（最新收盘价）”描述，但不得刻舟求剑。\n"
-        + "3) 买入触发必须包含量价确认条件（如缩量回踩/拒绝下破）；若放量下破，必须取消买入。\n"
-        + "4) 强势突破标的必须给“防踏空策略”：开盘强势确认后可先用计划仓位1/3试单，其余等待二次确认。\n"
-        + "5) 输入中的“量化初筛假设/阶段假设”只是程序的一阶假设，不是结论；若15日切片证据冲突，你必须直接推翻它。\n"
-        + "6) 盘面解剖必须结合振幅、收位与量比，明确说明盘中洗盘、承接、冲高回落或拒绝下跌的博弈痕迹。\n"
-        + "7) 次日计划优先用 Plan A / Plan B 条件树表达，不要写机械目标价。\n"
-        + "8) 若输入中出现【板块状态】与【板块证据】，请将其视为行业层风向与资金节奏的参考，不要机械套用结论，最终仍以个股量价结构定生死。\n\n"
+        + "1) 禁止单点价格指令，必须给【结构战区 + 盘面确认条件】。\n"
+        + "2) 买入触发必须包含量价确认条件（缩量回踩/拒绝下破）；放量下破必须取消买入。\n"
+        + "3) 强势突破标的必须给【防踏空策略】：开盘确认后 1/3 试单，禁止追高。\n"
+        + "4) 量化初筛假设只是一阶嫌疑，15 日切片证据冲突时必须推翻。\n"
+        + "5) 盘面解剖须结合振幅、收位与量比，说明洗盘/承接/冲高回落的博弈痕迹。\n"
+        + "6) 次日计划用 Plan A / Plan B 条件树表达，不写目标价。\n"
+        + "7) 【板块状态/证据】仅作行业参考，最终以个股量价结构定生死。\n\n"
         + "\n".join(payloads)
     )
     return message
@@ -1634,6 +1665,7 @@ def run(
         if "track" in candidates_df.columns
         else {}
     )
+    current_regime = str(benchmark_context.get("regime", "")) if benchmark_context else ""
     track_requests: list[dict] = []
     for track in active_tracks:
         user_message = _build_track_user_message(
@@ -1643,6 +1675,7 @@ def run(
             compressed=STEP3_ENABLE_COMPRESSION,
             raw_count=int(candidate_track_counts.get(track, len(payloads_by_track.get(track, [])))),
             selected_count=len(payloads_by_track.get(track, [])),
+            regime=current_regime,
         )
         track_requests.append(
             {
