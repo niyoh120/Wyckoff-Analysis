@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Pipeline 阶段进度渲染器 — 供 pages/Pipeline.py 使用。
+Pipeline 阶段进度渲染器 — 供 pages/AIAnalysis.py 的完整管线模式使用。
 
 将 OrchestratorAgent 的 stages checkpoint 数据渲染为
 st.status 阶段面板，提供实时进度可视化。

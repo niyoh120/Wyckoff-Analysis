@@ -23,7 +23,7 @@
 
 | 功能 | 说明 |
 |------|------|
-| 🚀 **智能管线** | 一键运行完整 5 阶段流水线（漏斗筛选 → 大盘环境 → AI 研报 → 持仓策略 → 通知汇总），实时展示每阶段进度，无需手动刷新 |
+| 🚀 **完整管线** | AI 分析页内置完整 5 阶段流水线（漏斗筛选 → 大盘环境 → AI 研报 → 持仓策略 → 通知汇总），`AGENT_MODE=1` 时可用，实时展示每阶段进度 |
 | 📊 **每日选股** | 配置 GitHub Actions 后，北京时间周日到周四 18:25 自动跑 Wyckoff Funnel，从主板+创业板筛选候选并推送飞书 |
 | 📘 **策略手册** | 见 `README_STRATEGY.md`（含核心量化金融术语、风控公式及各层筛选指标执行口径） |
 | 🔬 **Wyckoff Funnel** | Web 前台提交参数，GitHub Actions 在后台执行多层漏斗筛选：剥离垃圾 → 六通道强弱甄别 → Markup 识别 → 威科夫狙击 → AI 双轨候选 |
@@ -390,8 +390,7 @@ Step4 完全由 GitHub Actions Secrets 驱动：读取 `SUPABASE_USER_ID` 定位
 │   ├── rag_veto.py         # RAG 防雷模块
 │   └── github_actions.py   # GitHub Actions 触发与结果查询
 ├── pages/                  # Streamlit 页面
-│   ├── Pipeline.py         # 🚀 智能管线（一键 5 阶段 + 实时进度）
-│   ├── AIAnalysis.py       # AI 分析（单股本地，批量后台）
+│   ├── AIAnalysis.py       # AI 分析（单股本地 + 批量后台 + 完整管线）
 │   ├── WyckoffScreeners.py # Wyckoff Funnel 后台筛选页
 │   ├── Portfolio.py        # 持仓管理
 │   ├── RecommendationTracking.py # 推荐跟踪

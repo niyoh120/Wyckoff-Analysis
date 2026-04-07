@@ -9,7 +9,6 @@ def show_right_nav():
     with st.sidebar:
         st.markdown("### 导航")
         st.page_link("streamlit_app.py", label="首页", icon="🏠")
-        st.page_link("pages/Pipeline.py", label="智能管线", icon="🚀")
         st.page_link("pages/CustomExport.py", label="自定义导出", icon="🧰")
         st.page_link("pages/DownloadHistory.py", label="下载历史", icon="🕘")
         st.page_link("pages/WyckoffScreeners.py", label="沙里淘金", icon="🧭")

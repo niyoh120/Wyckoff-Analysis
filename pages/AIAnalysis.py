@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-"""AI 分析页：单股本地，批量后台。"""
+"""AI 分析页：单股本地，批量后台，完整管线（AGENT_MODE）。"""
 import os
+import time
 
 import pandas as pd
 import streamlit as st
 
+from app.agent_jobs import agent_mode_enabled
 from app.background_jobs import (
     background_jobs_ready_for_current_user,
     load_latest_job_result,
@@ -15,6 +17,7 @@ from app.background_jobs import (
 )
 from app.layout import setup_page
 from app.navigation import show_right_nav
+from app.pipeline_renderers import render_pipeline_progress, render_pipeline_summary
 from app.single_stock_logic import render_single_stock_page
 from integrations.llm_client import (
     DEFAULT_GEMINI_MODEL,
@@ -87,6 +90,7 @@ def _render_single_stock_page_compat(
 setup_page(page_title="AI 分析", page_icon="🤖")
 
 STATE_KEY = "batch_ai_background_job"
+PIPELINE_STATE_KEY = "full_pipeline_job"
 
 
 def _parse_manual_codes(text: str) -> list[dict]:
@@ -115,6 +119,24 @@ def _load_find_gold_source() -> tuple[list[dict], dict]:
     return ([], {})
 
 
+def _pipeline_is_running(state: dict | None) -> bool:
+    if not isinstance(state, dict):
+        return False
+    run = state.get("run")
+    if run is None:
+        return bool(state.get("request_id", ""))
+    return getattr(run, "status", "") in ("queued", "in_progress")
+
+
+def _pipeline_is_completed(state: dict | None) -> bool:
+    if not isinstance(state, dict):
+        return False
+    run = state.get("run")
+    if run is None:
+        return False
+    return getattr(run, "status", "") == "completed"
+
+
 def _render_ai_status(state: dict | None) -> dict | None:
     return render_background_job_status(state, noun="AI 任务")
 
@@ -122,21 +144,23 @@ def _render_ai_status(state: dict | None) -> dict | None:
 content_col = show_right_nav()
 with content_col:
     st.title("🤖 AI 分析")
-    st.markdown("单股维持本地分析；批量研报和漏斗联动已经迁到 GitHub Actions 后台。")
-    st.page_link(
-        "pages/Pipeline.py",
-        label="一键运行完整管线（筛选 → 研报 → 策略 → 通知）",
-        icon="🚀",
-    )
+    st.markdown("单股本地分析 · 批量后台研报 · 完整管线一键运行")
+
+    _type_options = ["single_stock", "stock_list", "find_gold"]
+    _type_labels = {
+        "single_stock": "单股分析 (本地)",
+        "stock_list": "指定股票代码 (后台批量研报)",
+        "find_gold": "使用后台漏斗候选 (后台批量研报)",
+    }
+    # AGENT_MODE 启用时才展示完整管线选项
+    if agent_mode_enabled():
+        _type_options.append("full_pipeline")
+        _type_labels["full_pipeline"] = "🚀 完整管线 (本地)"
 
     analysis_type = st.radio(
         "分析类型",
-        options=["single_stock", "stock_list", "find_gold"],
-        format_func=lambda x: {
-            "single_stock": "单股分析 (本地)",
-            "stock_list": "指定股票代码 (后台批量研报)",
-            "find_gold": "使用后台漏斗候选 (后台批量研报)",
-        }.get(x, x),
+        options=_type_options,
+        format_func=lambda x: _type_labels.get(x, x),
         horizontal=True,
         key="ai_analysis_type",
     )
@@ -182,6 +206,135 @@ with content_col:
         )
         st.stop()
 
+    # ── 完整管线 (AGENT_MODE 本地执行) ──
+    if analysis_type == "full_pipeline":
+        if not agent_mode_enabled():
+            st.info(
+                "完整管线仅在本地 `AGENT_MODE=1` 环境下可用。"
+                "在 Streamlit Cloud 上请分别使用「沙里淘金」和批量研报模式。"
+            )
+            st.stop()
+
+        ready_p, ready_p_msg = background_jobs_ready_for_current_user()
+        if not ready_p:
+            st.error(ready_p_msg)
+            st.stop()
+
+        st.info("完整管线将在进程内依次执行：**漏斗筛选 → 大盘环境 → AI 研报 → 持仓策略 → 通知汇总**。")
+
+        # 模型配置
+        with st.expander("模型配置", expanded=False):
+            col_prov, col_mdl = st.columns(2)
+            with col_prov:
+                p_provider = st.selectbox(
+                    "API 供应商",
+                    options=list(SUPPORTED_PROVIDERS),
+                    format_func=lambda x: PROVIDER_LABELS.get(x, x),
+                    key="pipeline_provider",
+                )
+            with col_mdl:
+                if p_provider == "gemini":
+                    p_model = st.selectbox(
+                        "Gemini 模型",
+                        options=GEMINI_MODELS,
+                        index=GEMINI_MODELS.index(DEFAULT_GEMINI_MODEL) if DEFAULT_GEMINI_MODEL in GEMINI_MODELS else 0,
+                        key="pipeline_model_gemini",
+                    )
+                else:
+                    p_model = st.text_input(
+                        "模型名称",
+                        value=get_provider_credentials(p_provider)[1],
+                        key="pipeline_model_other",
+                    )
+            p_api_key, p_default_model, p_base_url = get_provider_credentials(p_provider)
+            if not p_model:
+                p_model = p_default_model
+            p_api_key_input = st.text_input(
+                f"{PROVIDER_LABELS.get(p_provider, p_provider)} API Key",
+                value=p_api_key,
+                type="password",
+                key="pipeline_api_key",
+            )
+            if p_api_key_input:
+                p_api_key = p_api_key_input
+
+        # 高级配置
+        with st.expander("高级配置"):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                p_webhook = st.text_input(
+                    "飞书 Webhook (可选)",
+                    value=st.session_state.get("feishu_webhook", "") or "",
+                    key="pipeline_feishu_webhook",
+                )
+            with col_b:
+                p_skip_step4 = st.checkbox(
+                    "跳过持仓策略 (Step4)",
+                    value=False,
+                    key="pipeline_skip_step4",
+                )
+
+        # 提交 / 状态
+        p_state = st.session_state.get(PIPELINE_STATE_KEY)
+        p_running = _pipeline_is_running(p_state)
+
+        if p_running:
+            st.button("🔄 管线运行中...", disabled=True, use_container_width=True)
+        else:
+            if not p_api_key:
+                st.warning(f"请配置 {PROVIDER_LABELS.get(p_provider, p_provider)} API Key。")
+            if st.button("🚀 一键运行完整管线", type="primary", disabled=not p_api_key, use_container_width=True):
+                user = st.session_state.get("user") or {}
+                uid = str(user.get("id", "") or "").strip() if isinstance(user, dict) else ""
+                payload = {
+                    "user_id": uid,
+                    "provider": p_provider,
+                    "model": p_model,
+                    "api_key": p_api_key,
+                    "base_url": p_base_url,
+                    "webhook_url": (p_webhook or "").strip(),
+                    "skip_step4": p_skip_step4,
+                }
+                submit_background_job("full_pipeline", payload, state_key=PIPELINE_STATE_KEY)
+                st.rerun()
+
+        p_state = sync_background_job_state(state_key=PIPELINE_STATE_KEY)
+        if isinstance(p_state, dict) and p_state.get("request_id"):
+            st.divider()
+            st.subheader("管线进度")
+            st.caption(f"任务 ID: `{p_state.get('request_id', '')}`")
+
+            render_pipeline_progress(
+                stages=p_state.get("stages", []),
+                current_stage=p_state.get("current_stage", ""),
+                current_stage_status=p_state.get("current_stage_status", ""),
+                is_running=p_running,
+            )
+
+            if _pipeline_is_completed(p_state):
+                result = p_state.get("result")
+                if isinstance(result, dict):
+                    conclusion = getattr(p_state.get("run"), "conclusion", "")
+                    if conclusion == "success" and result.get("ok"):
+                        st.success("管线运行完成!")
+                    elif conclusion == "success":
+                        st.warning("管线部分完成，部分阶段失败。")
+                    else:
+                        st.error("管线运行失败。")
+                        if result.get("error"):
+                            st.error(result["error"])
+
+                    st.divider()
+                    st.subheader("运行结果")
+                    render_pipeline_summary(result)
+
+            if p_running:
+                time.sleep(2)
+                st.rerun()
+
+        st.stop()
+
+    # ── 批量模式 (stock_list / find_gold) ──
     ready, ready_msg = background_jobs_ready_for_current_user()
     if not ready:
         st.error(ready_msg)
