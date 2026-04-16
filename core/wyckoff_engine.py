@@ -143,7 +143,7 @@ class FunnelConfig:
 
     # Layer 4 - Spring
     spring_support_window: int = 60
-    spring_vol_ratio: float = 1.3  # 弹簧信号要求成交量 >= 均量 1.3 倍（原 1.0 太松）
+    spring_vol_ratio: float = 1.1  # 放宽以激活 Accum 轨（原 1.3 导致 Spring 几乎不触发）
     spring_tr_max_range_pct: float = 30.0
     spring_tr_max_drift_pct: float = 12.0
     # Spring 动态振幅
@@ -155,7 +155,7 @@ class FunnelConfig:
     lps_lookback: int = 3
     lps_ma: int = 20
     lps_ma_tolerance: float = 0.02
-    lps_vol_dry_ratio: float = 0.48  # A/B 验证：0.48 夏普 2.325 >> 0.55 夏普 0.831 ⚠️ 样内优化，需 OOS 验证
+    lps_vol_dry_ratio: float = 0.65  # 放宽缩量阈值激活 Accum 轨（原 0.48 样内过拟合，几乎无 LPS 触发）
     lps_vol_ref_window: int = 60
 
     # Layer 4 - Effort vs Result
@@ -170,8 +170,8 @@ class FunnelConfig:
     evr_confirm_allow_break_pct: float = 0.0
 
     # Layer 4 - SOS / JAC (Sign of Strength / Jump Across the Creek)
-    sos_pct_min: float = 4.5  # 点火当日最小涨幅（%）
-    sos_vol_ratio: float = 2.0  # 点火当日相比近期均量的最小倍数（爆量）
+    sos_pct_min: float = 6.0  # 提高门槛过滤弱突破（原 4.5 追高触发止损率极高）
+    sos_vol_ratio: float = 2.5  # 要求更强量能确认（原 2.0 噪音太多）
     sos_vol_window: int = 20  # 计算点火爆量时的参考窗口
     sos_breakout_window: int = 20  # 要求突破或接近近 N 日的高点
     sos_breakout_tolerance: float = 0.01  # 改为 0.01：突破容差 1%（从 2% 改为 1%）

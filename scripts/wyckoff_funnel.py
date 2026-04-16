@@ -767,6 +767,7 @@ def run(
                 "priority_score_map": score_map,
                 "name_map": name_map,
                 "sector_map": sector_map,
+                "all_df_map": all_df_map,
             }
             return (ok, symbols_for_report, benchmark_context, details)
         return (ok, symbols_for_report, benchmark_context)
@@ -1094,6 +1095,7 @@ def run(
             "priority_score_map": score_map,
             "name_map": name_map,
             "sector_map": sector_map,
+            "all_df_map": all_df_map,
         }
         return (ok, symbols_for_report, benchmark_context, details)
     return (ok, symbols_for_report, benchmark_context)

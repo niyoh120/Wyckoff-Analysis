@@ -224,8 +224,10 @@ def main() -> int:
     t0 = datetime.now(TZ)
     step2_ok = False
     step2_err = None
+    step2_details: dict = {}
     try:
-        step2_ok, symbols_info, benchmark_context = run_step2(webhook)
+        result = run_step2(webhook, return_details=True)
+        step2_ok, symbols_info, benchmark_context, step2_details = result
         step2_err = None if step2_ok else "飞书发送失败"
     except Exception as e:
         step2_err = str(e)
@@ -254,6 +256,28 @@ def main() -> int:
             )
         except Exception as e:
             _log(f"推荐记录入库失败: {e}", logs_path)
+
+    # Step2.5: 信号确认（pending → confirmed/expired）
+    if step2_ok and step2_details:
+        try:
+            from integrations.supabase_signal_pending import run_step2_5
+            triggers_raw = step2_details.get("triggers", {})
+            all_df_map = step2_details.get("all_df_map", {})
+            if triggers_raw and all_df_map:
+                confirmed_extra = run_step2_5(
+                    signal_date=_latest_trade_date_str(),
+                    triggers=triggers_raw, df_map=all_df_map,
+                    regime=(benchmark_context.get("regime") or "NEUTRAL").strip().upper(),
+                    name_map=step2_details.get("name_map", {}),
+                    sector_map=step2_details.get("sector_map", {}),
+                )
+                _log(f"Step2.5 信号确认: confirmed={len(confirmed_extra)}", logs_path)
+                existing_codes = {str(s.get("code", "")).strip() for s in symbols_info}
+                for cs in confirmed_extra:
+                    if str(cs.get("code", "")).strip() not in existing_codes:
+                        symbols_info.append(cs)
+        except Exception as e:
+            _log(f"Step2.5 信号确认失败（已降级）: {e}", logs_path)
 
     # Step3: 批量研报（可降级：失败不影响 Funnel 成功）
     step3_ok = True

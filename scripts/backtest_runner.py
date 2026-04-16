@@ -45,6 +45,7 @@ from core.funnel_pipeline import (
     calc_market_breadth as _calc_market_breadth_for_regime,
     rank_l3_candidates,
 )
+from core.signal_confirmation import PendingPool
 
 DEFAULT_HOLD_DAYS = 30  # 网格优化：30天夏普2.493 > 25天1.967 > 20天1.413
 DEFAULT_EXIT_MODE = "sltp"
@@ -527,7 +528,10 @@ def run_backtest(
     buy_friction_pct: float = DEFAULT_BUY_FRICTION_PCT,
     sell_friction_pct: float = DEFAULT_SELL_FRICTION_PCT,
     regime_filter: bool = False,
+    pending_mode: str = "off",
 ) -> tuple[pd.DataFrame, dict]:
+    if pending_mode not in {"off", "only", "both"}:
+        raise ValueError("pending_mode 必须是 off / only / both")
     if end_dt <= start_dt:
         raise ValueError("end 必须晚于 start")
     if hold_days < 1:
@@ -660,6 +664,9 @@ def run_backtest(
     eval_days = 0
     ohlc_lookup_cache: dict[str, dict[date, tuple[float, float, float, float]]] = {}
 
+    pending_pool = PendingPool() if pending_mode != "off" else None
+    pending_confirmed_total = 0
+
     max_idx = len(trade_dates) - hold_days - 1  # -1: 信号次日才能入场，需多预留一天
     for idx in range(max_idx):
         signal_date = trade_dates[idx]
@@ -705,23 +712,50 @@ def run_backtest(
         )
 
         regime = bench_context.get("regime", "NEUTRAL") if bench_context else "NEUTRAL"
+        signal_date_str = signal_date.isoformat()
+
+        confirmed_codes: list[str] = []
+        confirmed_score_map: dict[str, float] = {}
+        confirmed_track_map: dict[str, str] = {}
+        if pending_pool is not None:
+            pending_pool.write(signal_date_str, result.triggers, day_df_map,
+                               regime, name_map, sector_map, day_cfg)
+            for cs in pending_pool.tick(day_df_map, signal_date_str):
+                c = str(cs.get("code", "")).strip()
+                if c:
+                    confirmed_codes.append(c)
+                    confirmed_score_map[c] = float(cs.get("score", 0))
+                    confirmed_track_map[c] = str(cs.get("track", "Trend"))
+            pending_confirmed_total += len(confirmed_codes)
+
         selected_for_ai, p_score_map, track_map = _select_ai_input_codes(
-            result=result,
-            day_df_map=day_df_map,
-            sector_map=sector_map,
-            regime=regime,
-            selection_mode=FUNNEL_AI_SELECTION_MODE,
+            result=result, day_df_map=day_df_map, sector_map=sector_map,
+            regime=regime, selection_mode=FUNNEL_AI_SELECTION_MODE,
         )
-        if not selected_for_ai:
-            continue
 
-        ranked_codes = selected_for_ai if int(top_n) <= 0 else selected_for_ai[:top_n]
+        if pending_mode == "only":
+            if not confirmed_codes:
+                continue
+            ranked_codes = confirmed_codes
+            p_score_map.update(confirmed_score_map)
+            track_map.update(confirmed_track_map)
+        elif pending_mode == "both":
+            seen = set(confirmed_codes)
+            merged = list(confirmed_codes) + [c for c in selected_for_ai if c not in seen]
+            if not merged:
+                continue
+            ranked_codes = merged if int(top_n) <= 0 else merged[:top_n]
+            p_score_map.update(confirmed_score_map)
+            track_map.update(confirmed_track_map)
+        else:
+            if not selected_for_ai:
+                continue
+            ranked_codes = selected_for_ai if int(top_n) <= 0 else selected_for_ai[:top_n]
 
-        # ── 大盘水温仓位控制 ──
         if regime_filter and ranked_codes:
             ratio = REGIME_POSITION_RATIO.get(regime, 1.0)
             if ratio <= 0:
-                continue  # CRASH → 完全不开仓
+                continue
             if ratio < 1.0:
                 keep_n = max(1, int(len(ranked_codes) * ratio + 0.5))
                 ranked_codes = ranked_codes[:keep_n]
@@ -889,6 +923,8 @@ def run_backtest(
         "buy_friction_pct": float(buy_friction_pct),
         "sell_friction_pct": float(sell_friction_pct),
         "regime_filter": bool(regime_filter),
+        "pending_mode": pending_mode,
+        "pending_confirmed_total": pending_confirmed_total,
     }
     if not trades_df.empty:
         ret = pd.to_numeric(trades_df["ret_pct"], errors="coerce").dropna()
@@ -1312,6 +1348,12 @@ def main() -> int:
         default=False,
         help="启用大盘水温仓位控制: CRASH 不开仓, RISK_ON/PANIC_REPAIR 半仓, NEUTRAL 全仓",
     )
+    parser.add_argument(
+        "--pending-mode",
+        choices=["off", "only", "both"],
+        default="off",
+        help="信号确认模式: off=直接用L4信号(默认), only=仅用确认后信号, both=两者合并",
+    )
     args = parser.parse_args()
 
     start_dt = _parse_date(args.start)
@@ -1349,6 +1391,7 @@ def main() -> int:
                 buy_friction_pct=args.buy_friction_pct,
                 sell_friction_pct=args.sell_friction_pct,
                 regime_filter=args.regime_filter,
+                pending_mode=args.pending_mode,
             )
         except Exception as exc:
             last_error = exc
