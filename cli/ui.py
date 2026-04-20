@@ -329,12 +329,20 @@ def print_info(message: str) -> None:
     console.print(f"  [dim]{message}[/dim]")
 
 
+_ctrl_c_count = 0
+
 def get_input() -> str:
+    global _ctrl_c_count
     try:
-        return _get_session().prompt(HTML('<b><style fg="ansiblue">❯ </style></b>')).strip()
+        result = _get_session().prompt(HTML('<b><style fg="ansiblue">❯ </style></b>')).strip()
+        _ctrl_c_count = 0
+        return result
     except KeyboardInterrupt:
-        # Ctrl+C 在输入时只清空当前行，不退出
+        _ctrl_c_count += 1
         console.print()
+        if _ctrl_c_count >= 2:
+            return "/quit"
+        console.print("  [dim]再按一次 Ctrl+C 退出，或继续输入[/dim]")
         return ""
     except EOFError:
         # Ctrl+D 退出
