@@ -221,7 +221,6 @@ class WyckoffTUI(App):
 
         if self._busy:
             self._queue.append(text)
-            log.write(Text.from_markup(f"  [dim]⏳ 已排队 ({len(self._queue)})[/dim] {text}"))
             return
 
         # 用户消息

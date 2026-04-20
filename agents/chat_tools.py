@@ -999,8 +999,17 @@ def update_portfolio(
         if action in ("add", "update"):
             if not code:
                 return {"error": "add/update 操作需要提供股票代码 code"}
+            code = code.strip()
+            # 校验 code-name 匹配
+            real_name = _code_to_name(code)
+            if real_name and name and real_name != name:
+                return {"error": f"代码 {code} 对应的股票是「{real_name}」，而非「{name}」，请确认代码或名称是否正确"}
+            if real_name and not name:
+                name = real_name
+            if not real_name and not name:
+                return {"error": f"代码 {code} 在股票列表中未找到，请确认代码是否正确"}
             ok, msg = upsert_position(portfolio_id, {
-                "code": code.strip(),
+                "code": code,
                 "name": name,
                 "shares": shares,
                 "cost_price": cost_price,
