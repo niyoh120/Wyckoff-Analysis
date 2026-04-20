@@ -77,6 +77,9 @@ def create_user_client(access_token: str, refresh_token: str = "") -> "Client":
 
     CLI 登录后拿到的 access_token 用于身份验证，等同于 Web 端
     supabase_client._apply_user_session 的逻辑。
+
+    set_session 会消耗 refresh_token 并返回新 token pair，
+    调用者应通过 get_session_tokens() 获取刷新后的 token 并回写。
     """
     from supabase import create_client
 
@@ -85,9 +88,24 @@ def create_user_client(access_token: str, refresh_token: str = "") -> "Client":
         raise ValueError("SUPABASE_URL / SUPABASE_KEY 未配置")
     client = create_client(url, key)
     if refresh_token:
-        client.auth.set_session(access_token, refresh_token)
+        resp = client.auth.set_session(access_token, refresh_token)
+        # set_session 返回新 token pair，用新的 access_token 做 postgrest auth
+        new_at = getattr(resp, "access_token", None) or (resp.session.access_token if hasattr(resp, "session") and resp.session else None)
+        if new_at:
+            access_token = new_at
     client.postgrest.auth(access_token)
     return client
+
+
+def get_session_tokens(client: "Client") -> tuple[str, str]:
+    """从 client 中提取当前有效的 access_token 和 refresh_token。"""
+    try:
+        session = client.auth.get_session()
+        if session:
+            return session.access_token or "", session.refresh_token or ""
+    except Exception:
+        pass
+    return "", ""
 
 
 def is_admin_configured() -> bool:
