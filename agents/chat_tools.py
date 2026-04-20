@@ -175,18 +175,17 @@ def diagnose_stock(code: str, cost: float = 0.0, tool_context: ToolContext = Non
     """
     try:
         _ensure_tushare_token(tool_context)
-        from integrations.data_source import fetch_stock_hist
+        from integrations.stock_hist_repository import get_stock_hist
         from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_text
 
-        # 拉取 320 个交易日数据
+        # 拉取 320 个交易日数据（Supabase 缓存优先）
         end_date = date.today()
-        start_date = end_date - timedelta(days=500)  # 多拉以确保 320 根 K 线
-        df = fetch_stock_hist(code, start_date, end_date)
+        start_date = end_date - timedelta(days=500)
+        df = get_stock_hist(code, start_date, end_date)
 
         if df is None or df.empty:
             return {"error": f"无法获取 {code} 的行情数据"}
 
-        # 标准化列名
         from core.stock_cache import _COL_MAP
         df = df.rename(columns=_COL_MAP)
 
@@ -235,7 +234,7 @@ def diagnose_portfolio(tool_context: ToolContext) -> dict:
     """
     try:
         _ensure_tushare_token(tool_context)
-        from integrations.data_source import fetch_stock_hist
+        from integrations.stock_hist_repository import get_stock_hist
         from integrations.supabase_portfolio import (
             load_portfolio_state,
             build_user_live_portfolio_id,
@@ -279,7 +278,7 @@ def diagnose_portfolio(tool_context: ToolContext) -> dict:
             name = pos.get("name", code)
             cost = float(pos.get("cost", 0))
             try:
-                df = fetch_stock_hist(code, start_date, end_date)
+                df = get_stock_hist(code, start_date, end_date)
                 if df is None or df.empty:
                     results.append({"code": code, "name": name, "error": "无行情数据"})
                     continue
@@ -327,12 +326,12 @@ def get_stock_price(code: str, days: int = 30, tool_context: ToolContext = None)
     """
     try:
         _ensure_tushare_token(tool_context)
-        from integrations.data_source import fetch_stock_hist
+        from integrations.stock_hist_repository import get_stock_hist
 
         days = min(max(days, 1), 250)
         end_date = date.today()
-        start_date = end_date - timedelta(days=int(days * 1.6))  # 多拉以覆盖交易日
-        df = fetch_stock_hist(code, start_date, end_date)
+        start_date = end_date - timedelta(days=int(days * 1.6))
+        df = get_stock_hist(code, start_date, end_date)
 
         if df is None or df.empty:
             return {"error": f"无法获取 {code} 的行情数据"}
