@@ -109,23 +109,57 @@ def logout() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 模型配置持久化
+# 统一配置文件 ~/.wyckoff/wyckoff.json
 # ---------------------------------------------------------------------------
 
-CONFIG_FILE = SESSION_DIR / "config.json"
+CONFIG_FILE = SESSION_DIR / "wyckoff.json"
+_OLD_CONFIG_FILE = SESSION_DIR / "config.json"
 
 
-def save_model_config(config: dict[str, Any]) -> None:
-    """保存模型配置到 ~/.wyckoff/config.json。"""
-    SESSION_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
-
-
-def load_model_config() -> dict[str, Any] | None:
-    """加载模型配置。"""
+def _load_config() -> dict[str, Any]:
+    """加载配置文件，首次运行自动迁移旧 config.json。"""
+    if not CONFIG_FILE.exists() and _OLD_CONFIG_FILE.exists():
+        try:
+            _OLD_CONFIG_FILE.rename(CONFIG_FILE)
+        except OSError:
+            pass
     if not CONFIG_FILE.exists():
-        return None
+        return {}
     try:
         return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return None
+        return {}
+
+
+def _save_config(data: dict[str, Any]) -> None:
+    SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+
+
+def save_model_config(config: dict[str, Any]) -> None:
+    """将模型配置合并写入 wyckoff.json。"""
+    data = _load_config()
+    data.update(config)
+    _save_config(data)
+
+
+def load_model_config() -> dict[str, Any] | None:
+    """加载模型配置部分。"""
+    data = _load_config()
+    if data.get("provider_name") and data.get("api_key"):
+        return data
+    return None
+
+
+def load_config() -> dict[str, Any]:
+    """加载完整配置。"""
+    return _load_config()
+
+
+def save_config_key(key: str, value: Any) -> None:
+    """写入单个配置项。"""
+    data = _load_config()
+    data[key] = value
+    _save_config(data)
