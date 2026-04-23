@@ -847,15 +847,29 @@ def get_recommendation_tracking(limit: int = 20) -> dict:
         推荐跟踪记录列表。
     """
     try:
-        from integrations.supabase_recommendation import load_recommendation_tracking
-
         limit = min(max(limit, 1), 50)
-        records = load_recommendation_tracking(limit=limit)
+        records = []
+
+        # local-first
+        try:
+            from integrations.local_db import load_recommendations
+            records = load_recommendations(limit=limit)
+        except Exception:
+            pass
+
+        if not records:
+            from integrations.supabase_recommendation import load_recommendation_tracking
+            records = load_recommendation_tracking(limit=limit)
+            if records:
+                try:
+                    from integrations.local_db import save_recommendations
+                    save_recommendations(records)
+                except Exception:
+                    pass
 
         if not records:
             return {"message": "暂无推荐跟踪记录", "records": []}
 
-        # 简化返回格式
         simplified = [
             {
                 "code": str(r.get("code", "")),
@@ -898,20 +912,33 @@ def get_signal_pending(status: str = "all", limit: int = 30) -> dict:
         信号确认池记录列表。
     """
     try:
-        from integrations.supabase_base import create_admin_client, is_admin_configured
-        from core.constants import TABLE_SIGNAL_PENDING
-
-        if not is_admin_configured():
-            return {"error": "Supabase 未配置，无法查询信号确认池"}
-
         limit = min(max(limit, 1), 100)
-        client = create_admin_client()
-        query = client.table(TABLE_SIGNAL_PENDING).select("*")
+        rows: list[dict] = []
 
-        if status in ("pending", "confirmed", "expired"):
-            query = query.eq("status", status)
+        # local-first
+        try:
+            from integrations.local_db import load_signals
+            st = status if status in ("pending", "confirmed", "expired") else None
+            rows = load_signals(status=st, limit=limit)
+        except Exception:
+            pass
 
-        rows = query.order("updated_at", desc=True).limit(limit).execute().data or []
+        if not rows:
+            from integrations.supabase_base import create_admin_client, is_admin_configured
+            from core.constants import TABLE_SIGNAL_PENDING
+            if not is_admin_configured():
+                return {"error": "本地无缓存且 Supabase 未配置"}
+            client = create_admin_client()
+            query = client.table(TABLE_SIGNAL_PENDING).select("*")
+            if status in ("pending", "confirmed", "expired"):
+                query = query.eq("status", status)
+            rows = query.order("updated_at", desc=True).limit(limit).execute().data or []
+            if rows:
+                try:
+                    from integrations.local_db import save_signals
+                    save_signals(rows)
+                except Exception:
+                    pass
 
         if not rows:
             status_label = {"pending": "待确认", "confirmed": "已确认", "expired": "已过期"}.get(status, "")
@@ -937,8 +964,7 @@ def get_signal_pending(status: str = "all", limit: int = 30) -> dict:
             for r in rows
         ]
 
-        # 统计摘要
-        status_counts = {}
+        status_counts: dict[str, int] = {}
         for rec in records:
             s = rec["status"]
             status_counts[s] = status_counts.get(s, 0) + 1
@@ -1007,28 +1033,56 @@ def get_portfolio(tool_context: ToolContext) -> dict:
         持仓列表和可用资金。
     """
     try:
-        from integrations.supabase_portfolio import (
-            build_user_live_portfolio_id,
-            load_portfolio_state,
-        )
+        from integrations.supabase_portfolio import build_user_live_portfolio_id
 
         user_id = _get_user_id(tool_context)
         if not user_id:
             return {"error": "未登录，请先执行 /login"}
 
-        _client = _get_user_client(tool_context)
         portfolio_id = build_user_live_portfolio_id(user_id)
-        state = load_portfolio_state(portfolio_id, client=_client)
+        state = None
+
+        # local-first
+        try:
+            from integrations.local_db import load_portfolio
+            state = load_portfolio(portfolio_id)
+        except Exception:
+            pass
+
+        if state is None:
+            from integrations.supabase_portfolio import load_portfolio_state
+            _client = _get_user_client(tool_context)
+            state = load_portfolio_state(portfolio_id, client=_client)
+            if state:
+                try:
+                    from integrations.local_db import save_portfolio
+                    save_portfolio(
+                        portfolio_id,
+                        float(state.get("free_cash", 0) or 0),
+                        [
+                            {
+                                "code": p.get("code", ""),
+                                "name": p.get("name", ""),
+                                "shares": p.get("shares", 0),
+                                "cost_price": p.get("cost", p.get("cost_price", 0)),
+                                "stop_loss": p.get("stop_loss"),
+                            }
+                            for p in state.get("positions", [])
+                        ],
+                    )
+                except Exception:
+                    pass
+
         if state is None:
             return {"message": "未找到持仓记录", "positions": [], "free_cash": 0}
 
         positions = []
         for p in state.get("positions", []):
             positions.append({
-                "code": p["code"],
+                "code": p.get("code", ""),
                 "name": p.get("name", ""),
                 "shares": p.get("shares", 0),
-                "cost_price": p.get("cost", 0),
+                "cost_price": p.get("cost", p.get("cost_price", 0)),
                 "buy_dt": p.get("buy_dt", ""),
             })
 
@@ -1131,6 +1185,27 @@ def update_portfolio(
         state = load_portfolio_state(portfolio_id, client=client)
         if not state:
             return {"success": True, "message": msg, "positions": []}
+
+        # write-through to local SQLite
+        try:
+            from integrations.local_db import save_portfolio
+            save_portfolio(
+                portfolio_id,
+                float(state.get("free_cash", 0) or 0),
+                [
+                    {
+                        "code": p.get("code", ""),
+                        "name": p.get("name", ""),
+                        "shares": p.get("shares", 0),
+                        "cost_price": p.get("cost", p.get("cost_price", 0)),
+                        "stop_loss": p.get("stop_loss"),
+                    }
+                    for p in state.get("positions", [])
+                ],
+            )
+        except Exception:
+            pass
+
         summary = []
         for p in state.get("positions", []):
             summary.append(f"{p['code']} {p.get('name','')} {p.get('shares',0)}股 成本{p.get('cost',0)}")

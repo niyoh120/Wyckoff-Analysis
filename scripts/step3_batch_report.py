@@ -765,11 +765,17 @@ def run(
             from integrations.tickflow_client import TickFlowClient
             _tf = TickFlowClient(api_key=tickflow_api_key)
             codes = [str(i["code"]) for i in items if i.get("code")]
+            print(f"[step3] TickFlow 财务指标请求: symbols={len(codes)}")
             raw_fin = _tf.get_financial_metrics(codes, latest=True)
             for sym, records in raw_fin.items():
                 if records:
                     financial_map[sym] = records[0]
-            print(f"[step3] TickFlow 财务指标: {len(financial_map)}/{len(codes)}")
+            missing = max(len(codes) - len(financial_map), 0)
+            sample_missing = ",".join(sorted([s for s in codes if s not in financial_map])[:8])
+            print(
+                f"[step3] TickFlow 财务指标: {len(financial_map)}/{len(codes)}, "
+                f"missing={missing}, sample_missing={sample_missing or '-'}"
+            )
         except Exception as e:
             print(f"[step3] TickFlow 财务指标加载失败: {e}")
     benchmark_ret_10: float | None = None

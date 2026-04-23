@@ -5,6 +5,7 @@
 用法:
     wyckoff                         # 启动 TUI
     wyckoff update                  # 升级到最新版
+    wyckoff dashboard               # 启动本地可视化面板
     wyckoff auth <email> <password> # 登录
     wyckoff auth logout             # 退出登录
     wyckoff auth status             # 查看登录状态
@@ -451,6 +452,35 @@ def _cmd_recommend(args):
 
 
 # ---------------------------------------------------------------------------
+# wyckoff sync — 手动同步 Supabase → SQLite
+# ---------------------------------------------------------------------------
+
+def _cmd_sync(_args=None):
+    from integrations.local_db import init_db, get_sync_meta
+    init_db()
+
+    if _args and getattr(_args, "sync_cmd", "") == "status":
+        for tbl in ("recommendation_tracking", "signal_pending", "market_signal_daily", "portfolio"):
+            meta = get_sync_meta(tbl)
+            if meta:
+                print(f"  {tbl}: {meta['row_count']} rows, last_synced={meta['last_synced_at']}")
+            else:
+                print(f"  {tbl}: 未同步")
+        return
+
+    from integrations.sync import sync_all
+    print("正在同步 Supabase → 本地...")
+    result = sync_all()
+    if not result:
+        print("无需同步（数据未过期或 Supabase 未配置）")
+        return
+    for tbl, count in result.items():
+        status = f"{count} rows" if count >= 0 else "failed"
+        print(f"  {tbl}: {status}")
+    print("同步完成")
+
+
+# ---------------------------------------------------------------------------
 # TUI 启动
 # ---------------------------------------------------------------------------
 
@@ -474,6 +504,15 @@ def _cmd_tui(_args=None):
             set_cli_tokens(session.get("access_token", ""), session.get("refresh_token", ""))
         elif had_session:
             session_expired = True
+    except Exception:
+        pass
+
+    # 初始化本地 SQLite + 后台同步
+    try:
+        from integrations.local_db import init_db
+        init_db()
+        from integrations.sync import sync_all_background
+        sync_all_background()
     except Exception:
         pass
 
@@ -605,6 +644,14 @@ def main():
     p_rec = sub.add_parser("recommend", help="AI 推荐跟踪", aliases=["rec"])
     p_rec.add_argument("-n", "--limit", type=int, default=20, help="返回条数")
 
+    # wyckoff dashboard / dash
+    p_dash = sub.add_parser("dashboard", help="启动本地可视化面板", aliases=["dash"])
+    p_dash.add_argument("--port", type=int, default=8765, help="HTTP 端口 (默认 8765)")
+
+    # wyckoff sync
+    p_sync = sub.add_parser("sync", help="同步 Supabase → 本地 SQLite")
+    p_sync.add_argument("sync_cmd", nargs="?", default="", help="status: 查看同步状态")
+
     args = parser.parse_args()
 
     if args.cmd == "update":
@@ -621,6 +668,11 @@ def main():
         _cmd_signal(args)
     elif args.cmd in ("recommend", "rec"):
         _cmd_recommend(args)
+    elif args.cmd in ("dashboard", "dash"):
+        from cli.dashboard import start_dashboard
+        start_dashboard(port=args.port)
+    elif args.cmd == "sync":
+        _cmd_sync(args)
     else:
         _cmd_tui(args)
 

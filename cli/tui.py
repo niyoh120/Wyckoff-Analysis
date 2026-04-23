@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
+import uuid
 from collections import deque
 from typing import Any
 
@@ -180,6 +182,21 @@ class WyckoffTUI(App):
         self._session_tokens = {"input": 0, "output": 0, "rounds": 0}
         self._busy = False
         self._queue: deque[str] = deque()
+        self._session_id = uuid.uuid4().hex[:12]
+        # 文件日志（记录流式断开等异常）
+        self._agent_log = logging.getLogger("wyckoff.agent")
+        self._agent_log.setLevel(logging.DEBUG)
+        if not self._agent_log.handlers:
+            try:
+                from core.constants import LOCAL_DB_PATH
+                log_path = LOCAL_DB_PATH.parent / "agent.log"
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                fh = logging.FileHandler(str(log_path), encoding="utf-8")
+                fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+                self._agent_log.addHandler(fh)
+                self._agent_log.propagate = False
+            except Exception:
+                pass
         # 后台任务管理
         from cli.background import BackgroundTaskManager
         self._bg_manager = BackgroundTaskManager()
@@ -345,6 +362,14 @@ class WyckoffTUI(App):
         log = self.query_one("#chat-log", ChatLog)
         log.write(Text(""))
         log.write(Text.from_markup(f"[bold cyan]❯[/bold cyan] {text}"))
+        # 注入记忆上下文
+        try:
+            from cli.memory import build_memory_context
+            mem_ctx = build_memory_context(text)
+            if mem_ctx and mem_ctx not in self._system_prompt:
+                self._system_prompt = self._system_prompt.rstrip() + "\n" + mem_ctx
+        except Exception:
+            pass
         self._messages.append({"role": "user", "content": text})
         self._start_spinner("thinking")
         self._run_agent()
@@ -757,6 +782,14 @@ class WyckoffTUI(App):
         except Exception as e:
             log.write(Text.from_markup(f"  [red]配置失败: {e}[/red]"))
 
+    def _chatlog_save(self, role: str, content: str, **kwargs):
+        """保存一条对话记录到 SQLite（静默失败）。"""
+        try:
+            from integrations.local_db import save_chat_log
+            save_chat_log(self._session_id, role, content, **kwargs)
+        except Exception:
+            pass
+
     # ----- Agent 执行（后台 Worker）-----
 
     @work(thread=True, exclusive=True)
@@ -780,6 +813,13 @@ class WyckoffTUI(App):
         total_output = 0
         t_start = time.monotonic()
         _recent_calls: list[tuple[str, str]] = []  # doom-loop: (name, args_hash)
+
+        # 记录用户输入
+        _user_text = self._messages[-1]["content"] if self._messages else ""
+        _model_name = getattr(self._provider, "name", "") if self._provider else ""
+        _provider_name = self._state.get("provider_name", "") if self._state else ""
+        self._agent_log.info("session=%s user: %s", self._session_id, _user_text[:200])
+        _chatlog_save = self._chatlog_save  # bound method ref
 
         try:
             from cli.agent import MAX_TOOL_ROUNDS
@@ -835,6 +875,10 @@ class WyckoffTUI(App):
                         )
                         break
                     except Exception as _stream_err:
+                        self._agent_log.warning(
+                            "session=%s stream_connect_fail retry=%d err=%s",
+                            self._session_id, _retry, _stream_err,
+                        )
                         from cli.providers.fallback import _is_retriable
                         if not _is_retriable(_stream_err) or _retry == _MAX_STREAM_RETRIES - 1:
                             raise
@@ -988,6 +1032,27 @@ class WyckoffTUI(App):
                 _write(Text.from_markup(f"  [dim]{' · '.join(usage_parts)}[/dim]"))
                 _scroll()
                 self.call_from_thread(self._update_status)
+
+                # 保存对话记录
+                _chatlog_save("user", _user_text, model=_model_name, provider=_provider_name)
+                _tc_json = ""
+                if self._messages:
+                    last_asst = [m for m in self._messages if m.get("role") == "assistant"]
+                    if last_asst and last_asst[-1].get("tool_calls"):
+                        _tc_json = json.dumps(
+                            [{"name": tc["name"], "args_brief": str(tc.get("args", {}))[:100]} for tc in last_asst[-1]["tool_calls"]],
+                            ensure_ascii=False,
+                        )
+                _chatlog_save(
+                    "assistant", text_buf,
+                    model=_model_name, provider=_provider_name,
+                    tokens_in=total_input, tokens_out=total_output,
+                    elapsed_s=round(elapsed, 2), tool_calls_json=_tc_json,
+                )
+                self._agent_log.info(
+                    "session=%s done in=%.1fs tokens=%d/%d",
+                    self._session_id, elapsed, total_input, total_output,
+                )
                 break
             else:
                 _write(Text.from_markup("[yellow](工具调用轮次超限)[/yellow]"))
@@ -1003,6 +1068,18 @@ class WyckoffTUI(App):
             if len(err) > 200:
                 err = err[:200] + "..."
             _write(Text.from_markup(f"[red]错误: {err}[/red]"))
+            # 记录错误到日志和 SQLite
+            _elapsed = time.monotonic() - t_start
+            self._agent_log.error(
+                "session=%s error after=%.1fs type=%s msg=%s",
+                self._session_id, _elapsed, type(e).__name__, str(e)[:500],
+            )
+            _chatlog_save("user", _user_text, model=_model_name, provider=_provider_name)
+            _chatlog_save(
+                "error", "", model=_model_name, provider=_provider_name,
+                elapsed_s=round(_elapsed, 2),
+                error=f"{type(e).__name__}: {str(e)[:500]}",
+            )
             while self._messages and self._messages[-1].get("role") != "user":
                 self._messages.pop()
             if self._messages:
@@ -1048,9 +1125,23 @@ class WyckoffTUI(App):
         self.query_one("#chat-log", ChatLog).clear()
 
     def action_new_chat(self) -> None:
+        # 保存会话记忆
+        if self._messages and self._provider:
+            try:
+                from cli.memory import save_session_summary
+                import threading
+                msgs_copy = list(self._messages)
+                threading.Thread(
+                    target=save_session_summary,
+                    args=(msgs_copy, self._provider),
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass
         self._messages.clear()
         self._queue.clear()
         self._session_tokens = {"input": 0, "output": 0, "rounds": 0}
+        self._session_id = uuid.uuid4().hex[:12]
         log = self.query_one("#chat-log", ChatLog)
         log.clear()
         log.write(Text.from_markup("[green]新对话已开始[/green]\n"))

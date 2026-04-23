@@ -315,11 +315,17 @@ def run_funnel_job(
         try:
             from integrations.tickflow_client import TickFlowClient, normalize_cn_symbol
             _tf = TickFlowClient(api_key=tickflow_api_key)
+            print(f"[funnel] TickFlow 财务指标请求: symbols={len(all_symbols)}")
             raw_fin = _tf.get_financial_metrics(all_symbols, latest=True)
             for sym, records in raw_fin.items():
                 if records:
                     financial_map[sym] = records[0]
-            print(f"[funnel] TickFlow 财务指标加载成功: {len(financial_map)}/{len(all_symbols)}")
+            missing = max(len(all_symbols) - len(financial_map), 0)
+            sample_missing = ",".join(sorted([s for s in all_symbols if s not in financial_map])[:8])
+            print(
+                f"[funnel] TickFlow 财务指标加载成功: {len(financial_map)}/{len(all_symbols)}, "
+                f"missing={missing}, sample_missing={sample_missing or '-'}"
+            )
         except Exception as e:
             print(f"[funnel] TickFlow 财务指标加载失败，跳过财务过滤: {e}")
     print(f"[funnel] 加载股票名称...")

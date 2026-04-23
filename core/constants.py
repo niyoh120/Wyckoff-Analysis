@@ -17,3 +17,7 @@ TABLE_PORTFOLIOS = "portfolios"
 TABLE_PORTFOLIO_POSITIONS = "portfolio_positions"
 TABLE_TRADE_ORDERS = "trade_orders"
 TABLE_DAILY_NAV = "daily_nav"
+
+# Local SQLite DB path
+from pathlib import Path as _Path
+LOCAL_DB_PATH = _Path.home() / ".wyckoff" / "wyckoff.db"
