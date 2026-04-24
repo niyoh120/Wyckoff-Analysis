@@ -183,6 +183,27 @@ def _send_notifications(
     return feishu_ok, tg_ok
 
 
+def _send_success_update(
+    *,
+    feishu_webhook: str,
+    tg_bot_token: str,
+    tg_chat_id: str,
+    title: str,
+    report: str,
+    logs_path: str | None = None,
+    send_tg: bool = False,
+) -> tuple[bool, bool]:
+    """成功执行后的状态播报：飞书必发，Telegram 按需。"""
+    return _send_notifications(
+        feishu_webhook=feishu_webhook,
+        tg_bot_token=tg_bot_token if send_tg else "",
+        tg_chat_id=tg_chat_id if send_tg else "",
+        title=title,
+        report=report,
+        logs_path=logs_path,
+    )
+
+
 # ── 主函数 ────────────────────────────────────────────────
 
 def main() -> int:
@@ -230,6 +251,16 @@ def main() -> int:
     state = load_portfolio_state(args.portfolio_id)
     if not state or not state.get("positions"):
         _log("无持仓数据，任务结束", logs_path)
+        elapsed = (_now() - started_at).total_seconds()
+        time_hm = _now().strftime("%H:%M")
+        _send_success_update(
+            feishu_webhook=feishu_webhook,
+            tg_bot_token=tg_bot_token,
+            tg_chat_id=tg_chat_id,
+            title=f"\u2705 盘中持仓监控 {time_hm}",
+            report=f"组合 `{args.portfolio_id}` 无持仓数据，任务正常结束\n耗时 {elapsed:.1f}s",
+            logs_path=logs_path,
+        )
         return 0
 
     positions = state["positions"]
@@ -248,6 +279,16 @@ def main() -> int:
 
     if not quotes:
         _log("行情返回为空（可能非交易时段），任务结束", logs_path)
+        elapsed = (_now() - started_at).total_seconds()
+        time_hm = _now().strftime("%H:%M")
+        _send_success_update(
+            feishu_webhook=feishu_webhook,
+            tg_bot_token=tg_bot_token,
+            tg_chat_id=tg_chat_id,
+            title=f"\u2705 盘中持仓监控 {time_hm}",
+            report=f"持仓 {len(positions)} 只，但行情返回为空（可能非交易时段），任务正常结束\n耗时 {elapsed:.1f}s",
+            logs_path=logs_path,
+        )
         return 0
 
     # 构建 PositionSnapshot
@@ -271,6 +312,16 @@ def main() -> int:
 
     if not snapshots:
         _log("所有持仓均无行情数据，任务结束", logs_path)
+        elapsed = (_now() - started_at).total_seconds()
+        time_hm = _now().strftime("%H:%M")
+        _send_success_update(
+            feishu_webhook=feishu_webhook,
+            tg_bot_token=tg_bot_token,
+            tg_chat_id=tg_chat_id,
+            title=f"\u2705 盘中持仓监控 {time_hm}",
+            report=f"持仓 {len(positions)} 只，但所有持仓均无可用行情，任务正常结束\n耗时 {elapsed:.1f}s",
+            logs_path=logs_path,
+        )
         return 0
 
     # 跳空低开只在上午 11:30 前检查
@@ -322,18 +373,30 @@ def main() -> int:
 
     # 无信号时根据配置决定是否推送
     if not all_signals:
+        time_hm = _now().strftime("%H:%M")
         if push_all_clear:
-            time_hm = _now().strftime("%H:%M")
             title = f"\u2705 持仓监控 {time_hm} 正常"
             report = f"持仓 {len(snapshots)} 只均正常\n耗时 {elapsed:.1f}s"
             if tickflow_limit_hit:
                 report += f"\n⚠️ {TICKFLOW_LIMIT_HINT}"
-            _send_notifications(
+            _send_success_update(
                 feishu_webhook=feishu_webhook, tg_bot_token=tg_bot_token,
                 tg_chat_id=tg_chat_id, title=title, report=report, logs_path=logs_path,
+                send_tg=True,
             )
         else:
             _log("无信号，不推送", logs_path)
+            report = f"持仓 {len(snapshots)} 只，本轮未触发风险信号\n耗时 {elapsed:.1f}s"
+            if tickflow_limit_hit:
+                report += f"\n⚠️ {TICKFLOW_LIMIT_HINT}"
+            _send_success_update(
+                feishu_webhook=feishu_webhook,
+                tg_bot_token=tg_bot_token,
+                tg_chat_id=tg_chat_id,
+                title=f"\u2705 盘中持仓监控 {time_hm}",
+                report=report,
+                logs_path=logs_path,
+            )
         return 0
 
     # 构建并推送报告
