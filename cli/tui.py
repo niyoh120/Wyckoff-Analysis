@@ -69,6 +69,13 @@ def _pop_lines(log_widget, n: int) -> None:
         log_widget.refresh()
 
 
+def _write_counted(log_widget, renderable) -> int:
+    """写入 RichLog，并返回实际新增的 visual strips 数。"""
+    before = len(log_widget.lines)
+    log_widget.write(renderable)
+    return max(0, len(log_widget.lines) - before)
+
+
 class ChatLog(RichLog):
     DEFAULT_CSS = """
     ChatLog {
@@ -809,6 +816,9 @@ class WyckoffTUI(App):
         def _write(renderable):
             self.call_from_thread(log.write, renderable)
 
+        def _write_stream(renderable) -> int:
+            return self.call_from_thread(_write_counted, log, renderable)
+
         def _scroll():
             self.call_from_thread(log.scroll_end, animate=False)
 
@@ -870,9 +880,23 @@ class WyckoffTUI(App):
                 thinking_buf = ""
                 tool_calls = None
                 round_usage = {}
-                _stream_write_count = 0
+                _stream_separator_strips = 0
+                _stream_text_strips = 0
                 _streaming_started = False
                 _stream_line_buf = ""
+
+                def _clear_streamed_block(*, include_separator: bool) -> None:
+                    nonlocal _stream_separator_strips
+                    nonlocal _stream_text_strips, _streaming_started
+                    strip_count = _stream_text_strips
+                    if include_separator:
+                        strip_count += _stream_separator_strips
+                    if _streaming_started and strip_count > 0:
+                        self.call_from_thread(_pop_lines, log, strip_count)
+                    _stream_text_strips = 0
+                    if include_separator:
+                        _stream_separator_strips = 0
+                        _streaming_started = False
 
                 if round_idx > 0:
                     _spinner_start()
@@ -910,12 +934,13 @@ class WyckoffTUI(App):
                         _stream_line_buf += chunk["text"]
                         if not _streaming_started:
                             _spinner_stop()
-                            _write(Text.from_markup("  [dim]───[/dim]"))
+                            _stream_separator_strips += _write_stream(
+                                Text.from_markup("  [dim]───[/dim]")
+                            )
                             _streaming_started = True
                         while "\n" in _stream_line_buf:
                             line, _stream_line_buf = _stream_line_buf.split("\n", 1)
-                            _write(Text(line))
-                            _stream_write_count += 1
+                            _stream_text_strips += _write_stream(Text(line))
                             _scroll()
 
                     elif chunk["type"] == "tool_calls":
@@ -931,13 +956,21 @@ class WyckoffTUI(App):
 
                 # 刷出流式行缓冲剩余
                 if _stream_line_buf:
-                    _write(Text(_stream_line_buf))
-                    _stream_write_count += 1
+                    _stream_text_strips += _write_stream(Text(_stream_line_buf))
                     _stream_line_buf = ""
                     _scroll()
 
                 total_input += round_usage.get("input_tokens", 0)
                 total_output += round_usage.get("output_tokens", 0)
+
+                will_retry_missing_tool = (
+                    missing_required_tool(expectation, used_tools_this_turn)
+                    and incomplete_tool_retries < _MAX_INCOMPLETE_TOOL_RETRIES
+                )
+                if tool_calls or will_retry_missing_tool:
+                    _clear_streamed_block(include_separator=True)
+                elif _streaming_started:
+                    _clear_streamed_block(include_separator=False)
 
                 # ── Fallback 通知 ──
                 fb_msg = getattr(self._provider, "last_fallback_msg", None)
@@ -956,12 +989,6 @@ class WyckoffTUI(App):
 
                 # ── 工具调用 ──
                 if tool_calls:
-                    # 清掉流式阶段的部分文本（LLM 先输出文字后又调工具的情况）
-                    if _streaming_started and _stream_write_count > 0:
-                        self.call_from_thread(_pop_lines, log, _stream_write_count + 1)  # +1 for separator
-                        _stream_write_count = 0
-                        _streaming_started = False
-
                     assistant_msg: dict[str, Any] = {"role": "assistant", "tool_calls": tool_calls}
                     if text_buf:
                         assistant_msg["content"] = text_buf
@@ -1035,10 +1062,6 @@ class WyckoffTUI(App):
                         expectation.required_tool if expectation else "",
                         expectation.reason if expectation else "",
                     )
-                    if _streaming_started and _stream_write_count > 0:
-                        self.call_from_thread(_pop_lines, log, _stream_write_count + 1)
-                        _stream_write_count = 0
-                        _streaming_started = False
                     _write(Text.from_markup(
                         "  [yellow]⚠ 模型未执行必需工具，已自动要求继续执行[/yellow]"
                     ))
@@ -1054,10 +1077,7 @@ class WyckoffTUI(App):
                     text_buf = f"{warning}\n\n{text_buf}".strip()
                 self._messages.append({"role": "assistant", "content": text_buf})
                 if text_buf:
-                    if _streaming_started and _stream_write_count > 0:
-                        # pop 流式纯文本，替换为 Markdown 格式
-                        self.call_from_thread(_pop_lines, log, _stream_write_count)
-                    else:
+                    if not _streaming_started:
                         _write(Text.from_markup("  [dim]───[/dim]"))
                     _write(Markdown(text_buf))
                     _scroll()
