@@ -73,6 +73,14 @@ Once inside:
 
 Upgrade: `wyckoff update`
 
+### Backtest Grid
+
+18 parameter combos run in parallel, outputs optimal parameters, Sharpe matrix, and strategy health check:
+
+| Optimal Params & Ranking | Parameter Matrix |
+|:---:|:---:|
+| <img src="../attach/backtest-grid-1.png" width="450" /> | <img src="../attach/backtest-grid-2.png" width="450" /> |
+
 ### Web
 
 ```bash

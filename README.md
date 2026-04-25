@@ -117,6 +117,14 @@ wyckoff dashboard
 |:---:|:---:|
 | <img src="attach/dashboard-overview.png" width="450" /> | <img src="attach/dashboard-chatlog.png" width="450" /> |
 
+### 回测网格
+
+18 组参数并行回测，自动输出最优参数组合、夏普矩阵和策略体检：
+
+| 最优参数 & 梯队表 | 参数矩阵 |
+|:---:|:---:|
+| <img src="attach/backtest-grid-1.png" width="450" /> | <img src="attach/backtest-grid-2.png" width="450" /> |
+
 ### Web
 
 ```bash
