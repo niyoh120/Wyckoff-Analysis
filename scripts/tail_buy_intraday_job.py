@@ -1169,7 +1169,7 @@ def main() -> int:
     tickflow_task_retries = max(int(os.getenv("TAIL_BUY_TICKFLOW_MAX_RETRIES", "1")), 1)
     use_batch_intraday = _env_flag("TAIL_BUY_USE_BATCH_INTRADAY", True)
     intraday_batch_size = max(min(int(os.getenv("TAIL_BUY_INTRADAY_BATCH_SIZE", "200")), 200), 1)
-    holding_hard_stop_pct = max(_safe_float(os.getenv("TAIL_BUY_HOLDING_HARD_STOP_PCT", "7"), 7.0), 0.0)
+    holding_hard_stop_pct = max(_safe_float(os.getenv("TAIL_BUY_HOLDING_HARD_STOP_PCT", "6"), 6.0), 0.0)
     portfolio_id = str(args.portfolio_id or "USER_LIVE").strip() or "USER_LIVE"
 
     _log("开始 Tail Buy 任务", logs_path)

@@ -39,7 +39,7 @@ jobs:
       TAIL_BUY_USE_BATCH_INTRADAY: "1"
       TAIL_BUY_INTRADAY_BATCH_SIZE: "200"
       TAIL_BUY_PORTFOLIO_ID: ${{ secrets.TAIL_BUY_PORTFOLIO_ID }}
-      TAIL_BUY_HOLDING_HARD_STOP_PCT: "7"
+      TAIL_BUY_HOLDING_HARD_STOP_PCT: "6"
 
     steps:
       - uses: actions/checkout@v4
