@@ -210,6 +210,18 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "delete_tracking_records",
+        "description": "删除推荐跟踪或信号确认池中指定股票的记录。用户说'删掉XX的推荐''移除XX信号'时调用。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "table": {"type": "string", "description": "目标表：'recommendation' 或 'signal'"},
+                "codes": {"type": "array", "items": {"type": "string"}, "description": "股票代码列表"},
+            },
+            "required": ["table", "codes"],
+        },
+    },
     # ── Agent 标准工具 ──
     {
         "name": "exec_command",
@@ -279,6 +291,7 @@ TOOL_DISPLAY_NAMES: dict[str, str] = {
     "get_portfolio": "查看持仓",
     "update_portfolio": "调仓操作",
     "get_tail_buy_history": "尾盘记录",
+    "delete_tracking_records": "删除记录",
     "run_backtest": "回测",
     "check_background_tasks": "任务状态",
     "exec_command": "执行命令",
@@ -331,6 +344,7 @@ class ToolRegistry:
             get_signal_pending,
             update_portfolio,
             get_tail_buy_history,
+            delete_tracking_records,
             run_backtest,
             exec_command,
             read_file,
@@ -351,6 +365,7 @@ class ToolRegistry:
             "get_signal_pending": get_signal_pending,
             "update_portfolio": update_portfolio,
             "get_tail_buy_history": get_tail_buy_history,
+            "delete_tracking_records": delete_tracking_records,
             "run_backtest": run_backtest,
             "exec_command": exec_command,
             "read_file": read_file,

@@ -236,6 +236,19 @@ def save_signals(rows: list[dict]) -> int:
     return len(rows)
 
 
+def delete_recommendations(codes: list[str]) -> int:
+    if not codes:
+        return 0
+    conn = get_db()
+    placeholders = ",".join("?" for _ in codes)
+    with conn:
+        cur = conn.execute(
+            f"DELETE FROM recommendation_tracking WHERE code IN ({placeholders})",
+            codes,
+        )
+    return cur.rowcount
+
+
 def load_signals(*, status: str | None = None, limit: int = 200) -> list[dict]:
     conn = get_db()
     if status:
@@ -249,6 +262,19 @@ def load_signals(*, status: str | None = None, limit: int = 200) -> list[dict]:
             (limit,),
         )
     return [dict(r) for r in cur.fetchall()]
+
+
+def delete_signals(codes: list[str]) -> int:
+    if not codes:
+        return 0
+    conn = get_db()
+    placeholders = ",".join("?" for _ in codes)
+    with conn:
+        cur = conn.execute(
+            f"DELETE FROM signal_pending WHERE code IN ({placeholders})",
+            codes,
+        )
+    return cur.rowcount
 
 
 # ---------------------------------------------------------------------------

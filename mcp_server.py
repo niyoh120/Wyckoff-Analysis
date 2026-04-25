@@ -33,6 +33,7 @@ from agents.chat_tools import (
     get_recommendation_tracking as _get_recommendation_tracking,
     get_signal_pending as _get_signal_pending,
     get_tail_buy_history as _get_tail_buy_history,
+    delete_tracking_records as _delete_tracking_records,
 )
 
 
@@ -52,6 +53,12 @@ def get_signal_pending(status: str = "all", limit: int = 30) -> dict:
 def get_tail_buy_history(run_date: str = "", decision: str = "", limit: int = 20) -> dict:
     """查询尾盘买入策略的历史执行结果。"""
     return _get_tail_buy_history(run_date=run_date, decision=decision, limit=limit)
+
+
+@mcp.tool()
+def delete_tracking_records(table: str, codes: list[str]) -> dict:
+    """删除推荐跟踪或信号确认池中指定股票的记录。"""
+    return _delete_tracking_records(table=table, codes=codes)
 
 
 # ---------------------------------------------------------------------------

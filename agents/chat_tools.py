@@ -1206,7 +1206,42 @@ def get_tail_buy_history(run_date: str = "", decision: str = "", limit: int = 20
 
 
 # ---------------------------------------------------------------------------
-# Tool 14: 回测
+# Tool 14: 删除推荐/信号记录
+# ---------------------------------------------------------------------------
+
+def delete_tracking_records(table: str, codes: list[str]) -> dict:
+    """删除推荐跟踪或信号确认池中指定股票的记录。
+
+    用户说"删掉平安银行的推荐记录""移除 600036 的信号"时调用。
+
+    Args:
+        table: 目标表，'recommendation' 或 'signal'
+        codes: 要删除的股票代码列表，如 ['000001', '600036']
+
+    Returns:
+        删除结果。
+    """
+    try:
+        if not codes:
+            return {"error": "请指定要删除的股票代码"}
+        codes = [str(c).strip() for c in codes if str(c).strip()]
+        if table == "recommendation":
+            from integrations.local_db import delete_recommendations
+            n = delete_recommendations(codes)
+            return {"deleted": n, "table": "recommendation_tracking", "codes": codes}
+        elif table == "signal":
+            from integrations.local_db import delete_signals
+            n = delete_signals(codes)
+            return {"deleted": n, "table": "signal_pending", "codes": codes}
+        else:
+            return {"error": f"不支持的表：{table}，请用 'recommendation' 或 'signal'"}
+    except Exception as e:
+        logger.exception("delete_tracking_records error")
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Tool 15: 回测
 # ---------------------------------------------------------------------------
 
 def run_backtest(
@@ -1447,5 +1482,6 @@ WYCKOFF_TOOLS = [
     get_signal_pending,
     update_portfolio,
     get_tail_buy_history,
+    delete_tracking_records,
     run_backtest,
 ]
