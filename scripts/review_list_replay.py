@@ -177,8 +177,52 @@ def main() -> int:
         print("[review] FEISHU_WEBHOOK_URL 未配置")
         return 2
 
-    print("[review] 运行漏斗获取调试上下文 ...")
-    triggers, metrics = run_funnel_job(include_debug_context=True)
+    # 1. 先获取今日涨幅 ≥ 8% 的股票（使用今日数据）
+    print("[review] 获取今日涨幅 ≥ 8% 股票...")
+    from utils.data_loader import load_daily_data
+    from utils.trading_clock import resolve_end_calendar_day
+    from datetime import timedelta
+    
+    today = resolve_end_calendar_day()
+    yesterday = today - timedelta(days=1)
+    
+    # 获取今日数据找涨停股
+    print(f"[review] 今日: {today}, 前一日: {yesterday}")
+    from utils.data_loader import get_all_stock_codes
+    all_codes = get_all_stock_codes()
+    
+    today_df_map = {}
+    for code in all_codes:
+        try:
+            df = load_daily_data(code, start_date=today.strftime("%Y%m%d"), end_date=today.strftime("%Y%m%d"))
+            if df is not None and not df.empty:
+                today_df_map[code] = df
+        except Exception:
+            pass
+    
+    from utils.data_loader import get_stock_name_map
+    name_map_today = get_stock_name_map()
+    review_codes = _find_big_gainers(today_df_map, name_map_today, threshold=8.0)
+    
+    if not review_codes:
+        print("[review] 今日无涨幅 ≥ 8% 的股票，跳过")
+        send_feishu_notification(webhook, "🔍 涨停复盘", f"交易日 {today}：今日无涨幅 ≥ 8% 的主板/创业板股票")
+        return 0
+    print(f"[review] 今日发现涨幅 ≥ 8% 股票 {len(review_codes)} 只: {', '.join(review_codes)}")
+
+    # 2. 回放前一日漏斗（使用前一日数据）
+    print(f"[review] 回放前一日 ({yesterday}) 漏斗...")
+    import os
+    original_end_day = os.getenv("END_CALENDAR_DAY", "")
+    os.environ["END_CALENDAR_DAY"] = yesterday.strftime("%Y-%m-%d")
+    
+    try:
+        triggers, metrics = run_funnel_job(include_debug_context=True)
+    finally:
+        if original_end_day:
+            os.environ["END_CALENDAR_DAY"] = original_end_day
+        else:
+            os.environ.pop("END_CALENDAR_DAY", None)
 
     debug = metrics.get("_debug", {}) or {}
     if not debug:
@@ -196,13 +240,6 @@ def main() -> int:
     l2_symbols = [str(x) for x in (debug.get("layer2_symbols", []) or [])]
     l3_symbols = [str(x) for x in (debug.get("layer3_symbols_raw", []) or [])]
     end_trade_date = str(debug.get("end_trade_date", "未知"))
-
-    review_codes = _find_big_gainers(df_map, name_map, threshold=8.0)
-    if not review_codes:
-        print("[review] 当日无涨幅 ≥ 8% 的股票，跳过")
-        send_feishu_notification(webhook, "🔍 涨停复盘", f"交易日 {end_trade_date}：当日无涨幅 ≥ 8% 的主板/创业板股票")
-        return 0
-    print(f"[review] 发现涨幅 ≥ 8% 股票 {len(review_codes)} 只: {', '.join(review_codes)}")
 
     l1_set = set(l1_symbols)
     l2_set = set(l2_symbols)
@@ -274,11 +311,12 @@ def main() -> int:
 
     summary = " | ".join([f"{k}{v}" for k, v in stage_counter.items()]) or "无"
     lines = [
-        f"**交易日**: {end_trade_date}",
-        f"**涨幅 ≥ 8% 股票数**: {len(review_codes)}",
+        f"**今日**: {today}",
+        f"**前一日漏斗**: {end_trade_date}",
+        f"**今日涨幅 ≥ 8% 股票数**: {len(review_codes)}",
         f"**结果汇总**: {summary}",
         "",
-        "**逐票复盘（止步层级与原因）**",
+        "**逐票复盘（在前一日漏斗中止步层级与原因）**",
         "",
     ]
 
@@ -287,7 +325,7 @@ def main() -> int:
             f"• {row['code']} {row['name']} | {row['stage']} | {row['reason']}"
         )
 
-    title = "🔍 涨停复盘：漏斗未捕获分析"
+    title = "🔍 涨停复盘：今日涨停为何未在前一日漏斗捕获"
     content = "\n".join(lines)
     ok = send_feishu_notification(webhook, title, content)
     print(f"[review] feishu_sent={ok}")
