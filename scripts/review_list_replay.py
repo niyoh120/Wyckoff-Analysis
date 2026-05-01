@@ -215,10 +215,11 @@ def main() -> int:
     end_calendar_day = resolve_end_calendar_day()
     today_window = _resolve_trading_window(end_calendar_day=end_calendar_day, trading_days=1)
     today = today_window.end_trade_date
-    yesterday = today - timedelta(days=1)
+    previous_window = _resolve_trading_window(end_calendar_day=today - timedelta(days=1), trading_days=1)
+    previous_trade_date = previous_window.end_trade_date
     
     # 获取今日数据找涨停股
-    print(f"[review] 今日: {today}, 前一日: {yesterday}")
+    print(f"[review] 今日: {today}, 前一交易日: {previous_trade_date}")
     stock_items = get_stocks_by_board("main_chinext")
     name_map_today = {
         str(item.get("code", "")).strip(): str(item.get("name", "")).strip()
@@ -269,9 +270,9 @@ def main() -> int:
     print(f"[review] 今日发现涨幅 ≥ 8% 股票 {len(review_codes)} 只: {', '.join(review_codes)}")
 
     # 2. 回放前一日漏斗（使用前一日数据）
-    print(f"[review] 回放前一日 ({yesterday}) 漏斗...")
+    print(f"[review] 回放前一交易日 ({previous_trade_date}) 漏斗...")
     original_end_day = os.getenv("END_CALENDAR_DAY", "")
-    os.environ["END_CALENDAR_DAY"] = yesterday.strftime("%Y-%m-%d")
+    os.environ["END_CALENDAR_DAY"] = previous_trade_date.strftime("%Y-%m-%d")
     
     try:
         triggers, metrics = run_funnel_job(include_debug_context=True)

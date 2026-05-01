@@ -121,6 +121,17 @@ FUNNEL_CARD_STYLE = os.getenv("FUNNEL_CARD_STYLE", "legacy_compact").strip().low
 FUNNEL_EVR_POLICY = os.getenv("FUNNEL_EVR_POLICY", "all_regimes").strip().lower()
 
 
+def _resolve_funnel_end_calendar_day() -> date:
+    """Resolve the funnel end date, allowing replay jobs to pin a historical day."""
+    raw = os.getenv("END_CALENDAR_DAY", "").strip()
+    if raw:
+        try:
+            return pd.to_datetime(raw).date()
+        except Exception as e:
+            print(f"[funnel] END_CALENDAR_DAY={raw!r} 解析失败，回退自动日期: {e}")
+    return resolve_end_calendar_day()
+
+
 from tools.funnel_config import (    apply_funnel_cfg_overrides as _apply_funnel_cfg_overrides,
 )
 
@@ -270,7 +281,7 @@ def run_funnel_job(
     cfg = FunnelConfig(trading_days=TRADING_DAYS)
     _apply_funnel_cfg_overrides(cfg)
     window = _resolve_trading_window(
-        end_calendar_day=resolve_end_calendar_day(),
+        end_calendar_day=_resolve_funnel_end_calendar_day(),
         trading_days=TRADING_DAYS,
     )
     start_s = window.start_trade_date.strftime("%Y%m%d")
