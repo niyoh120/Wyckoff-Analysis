@@ -814,7 +814,7 @@ class WyckoffTUI(App):
         self._rebuild_provider()
 
     def _rebuild_provider(self) -> None:
-        from cli.auth import load_model_configs, load_default_model_id
+        from cli.auth import load_model_configs, load_default_model_id, load_fallback_model_id
         configs = load_model_configs()
         default_id = load_default_model_id()
         if not configs:
@@ -831,7 +831,7 @@ class WyckoffTUI(App):
                 self._provider = provider
         else:
             from cli.providers.fallback import FallbackProvider
-            self._provider = FallbackProvider(configs, default_id)
+            self._provider = FallbackProvider(configs, default_id, fallback_id=load_fallback_model_id())
         self._state.update(default_cfg)
         if self._tools and self._provider:
             self._tools.set_provider(self._provider)

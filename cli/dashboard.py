@@ -21,10 +21,11 @@ from urllib.parse import urlparse, parse_qs
 
 def _get_config() -> dict:
     try:
-        from cli.auth import load_config, load_model_configs, load_default_model_id
+        from cli.auth import load_config, load_model_configs, load_default_model_id, load_fallback_model_id
         cfg = load_config()
         models = load_model_configs()
         default_id = load_default_model_id()
+        fallback_id = load_fallback_model_id()
         # mask sensitive keys
         safe = {}
         for k, v in cfg.items():
@@ -39,7 +40,7 @@ def _get_config() -> dict:
             ak = str(mc.get("api_key", "") or "")
             mc["api_key"] = (ak[:4] + "****" + ak[-4:]) if len(ak) > 8 else ("****" if ak else "")
             safe_models.append(mc)
-        return {"config": safe, "models": safe_models, "default_model": default_id}
+        return {"config": safe, "models": safe_models, "default_model": default_id, "fallback_model": fallback_id}
     except Exception as e:
         return {"config": {}, "models": [], "default_model": "", "error": str(e)}
 
@@ -285,6 +286,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 400)
+        elif path.startswith("/api/models/") and path.endswith("/fallback"):
+            model_id = path.split("/")[-2]
+            try:
+                from cli.auth import set_fallback_model
+                set_fallback_model(model_id)
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 400)
         elif path.startswith("/api/models/"):
             model_id = path.split("/")[-1]
             try:
@@ -448,6 +457,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:
 .pill-green{background:rgba(16,185,129,.12);color:var(--green);border:1px solid rgba(16,185,129,.2)}
 .pill-red{background:rgba(255,71,87,.12);color:var(--red);border:1px solid rgba(255,71,87,.2)}
 .pill-amber{background:rgba(245,158,11,.12);color:var(--amber);border:1px solid rgba(245,158,11,.2)}
+.pill-yellow{background:rgba(234,179,8,.12);color:#eab308;border:1px solid rgba(234,179,8,.25)}
 .pill-blue{background:rgba(59,130,246,.12);color:var(--blue);border:1px solid rgba(59,130,246,.2)}
 .pill-dim{background:var(--bg3);color:var(--text-dim);border:1px solid var(--border)}
 
@@ -726,7 +736,7 @@ function _modelForm(m,isNew){
     </div></div>`}
 
 async function renderConfig(c){
-  const data=await API('/api/config');const cfg=data.config||{};const models=data.models||[];const defId=data.default_model||'';
+  const data=await API('/api/config');const cfg=data.config||{};const models=data.models||[];const defId=data.default_model||'';const fbId=data.fallback_model||'';
   // --- data source config ---
   const editableKeys=['tushare_token','tickflow_api_key'];
   let html=`<div class="card fade-in"><div class="card-title">${t('ds_config')}</div>`;
@@ -743,10 +753,11 @@ async function renderConfig(c){
   html+=`<div class="card fade-in" style="margin-top:16px;animation-delay:.1s"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div class="card-title" style="margin-bottom:0">${t('model_config')}</div><button class="btn-accent" onclick="_addModel()">${t('add_model')}</button></div>`;
   if(models.length){
     html+=`<table class="tbl"><thead><tr><th>${t('th_id')}</th><th>${t('th_provider')}</th><th>${t('th_model')}</th><th>${t('th_apikey')}</th><th>${t('th_baseurl')}</th><th>${t('th_actions')}</th></tr></thead><tbody>`;
-    models.forEach(m=>{const isDef=m.id===defId;
-      html+=`<tr><td>${escHtml(m.id)}${isDef?' <span class="pill pill-green">DEFAULT</span>':''}</td><td>${escHtml(m.provider_name||'')}</td><td>${escHtml(m.model||'')}</td><td class="cfg-val masked">${m.api_key||''}</td><td>${escHtml(m.base_url||'(default)')}</td><td style="white-space:nowrap">`;
+    models.forEach(m=>{const isDef=m.id===defId;const isFb=m.id===fbId;
+      html+=`<tr><td>${escHtml(m.id)}${isDef?' <span class="pill pill-green">DEFAULT</span>':''}${isFb?' <span class="pill pill-yellow">FALLBACK</span>':''}</td><td>${escHtml(m.provider_name||'')}</td><td>${escHtml(m.model||'')}</td><td class="cfg-val masked">${m.api_key||''}</td><td>${escHtml(m.base_url||'(default)')}</td><td style="white-space:nowrap">`;
       html+=`<button class="btn-edit" onclick="_editModel('${escHtml(m.id)}')">${t('edit')}</button>`;
       if(!isDef)html+=`<button class="btn-default" onclick="_setDefault('${escHtml(m.id)}')">${t('set_default')}</button>`;
+      if(!isFb&&!isDef)html+=`<button class="btn-default" onclick="_setFallback('${escHtml(m.id)}')">⚡Fallback</button>`;
       html+=`<button class="btn-del" onclick="_delModel('${escHtml(m.id)}')">${t('del')}</button></td></tr>`});
     html+='</tbody></table>'}else{html+=`<div class="empty">${t('no_models')}</div>`}
   html+=`<div id="model-form-slot"></div></div>`;
@@ -772,6 +783,7 @@ window._saveModel=async function(isNew){
 };
 window._delModel=async function(id){if(!confirm(t('confirm_del_model')+id+'?'))return;await fetch('/api/models/'+encodeURIComponent(id),{method:'DELETE'});loadPage('config')};
 window._setDefault=async function(id){await fetch('/api/models/'+encodeURIComponent(id)+'/default',{method:'PUT'});loadPage('config')};
+window._setFallback=async function(id){await fetch('/api/models/'+encodeURIComponent(id)+'/fallback',{method:'PUT'});loadPage('config')};
 window._editDsKey=function(key){
   const valEl=$('#ds-val-'+key);if(!valEl)return;
   const cur=valEl.textContent.includes('****')?'':valEl.textContent;

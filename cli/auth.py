@@ -243,6 +243,27 @@ def set_default_model(model_id: str) -> None:
         _save_config(data)
 
 
+def load_fallback_model_id() -> str:
+    """返回 fallback 模型 id（空字符串表示未设置）。"""
+    data = _ensure_models_format(_load_config())
+    fb = data.get("fallback", "")
+    models = data.get("models", [])
+    if fb and any(m["id"] == fb for m in models):
+        return fb
+    return ""
+
+
+def set_fallback_model(model_id: str) -> None:
+    """设置 fallback 模型。空字符串清除设置。"""
+    data = _ensure_models_format(_load_config())
+    if model_id:
+        models = data.get("models", [])
+        if not any(m["id"] == model_id for m in models):
+            return
+    data["fallback"] = model_id
+    _save_config(data)
+
+
 # --- 向后兼容 ---
 
 def save_model_config(config: dict[str, Any]) -> None:

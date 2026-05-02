@@ -216,12 +216,20 @@ def _cmd_model(args):
     if sub == "list":
         configs = load_model_configs()
         default_id = load_default_model_id()
+        from cli.auth import load_fallback_model_id
+        fallback_id = load_fallback_model_id()
         if not configs:
             print("尚无模型配置，使用 wyckoff model add 添加")
             return
         for c in configs:
-            mark = " *" if c["id"] == default_id else ""
-            print(f"  {c['id']}{mark}  provider={c.get('provider_name','')}  model={c.get('model','')}  base_url={c.get('base_url','') or '(default)'}")
+            marks = ""
+            if c["id"] == default_id:
+                marks += " *"
+            if c["id"] == fallback_id:
+                marks += " ⚡"
+            print(f"  {c['id']}{marks}  provider={c.get('provider_name','')}  model={c.get('model','')}  base_url={c.get('base_url','') or '(default)'}")
+        if fallback_id:
+            print(f"\n  * = 默认  ⚡ = fallback")
         return
 
     if sub == "add":
@@ -298,8 +306,27 @@ def _cmd_model(args):
         print(f"✓ 默认模型已切换为 {model_id}")
         return
 
+    if sub == "fallback":
+        from cli.auth import load_fallback_model_id, set_fallback_model
+        model_id = args.model_id
+        if not model_id:
+            current = load_fallback_model_id()
+            print(f"当前 fallback: {current or '未设置（降级到所有模型）'}")
+            return
+        if model_id == "none":
+            set_fallback_model("")
+            print("✓ 已清除 fallback 设置（将降级到所有模型）")
+            return
+        configs = load_model_configs()
+        if not any(c["id"] == model_id for c in configs):
+            print(f"✗ 模型 {model_id} 不存在")
+            sys.exit(1)
+        set_fallback_model(model_id)
+        print(f"✓ Fallback 模型已设为 {model_id}")
+        return
+
     print(f"未知子命令: {sub}")
-    print("用法: wyckoff model [list|add|set|rm|default]")
+    print("用法: wyckoff model [list|add|set|rm|default|fallback]")
     sys.exit(1)
 
 
@@ -557,7 +584,7 @@ def _cmd_report(args):
     from integrations.local_db import init_db
     init_db()
     # 需要 LLM
-    from cli.auth import load_model_configs, load_default_model_id
+    from cli.auth import load_model_configs, load_default_model_id, load_fallback_model_id
     configs = load_model_configs()
     default_id = load_default_model_id()
     if not configs:
@@ -565,9 +592,10 @@ def _cmd_report(args):
         sys.exit(1)
     cfg = next((c for c in configs if c["id"] == default_id), configs[0])
     env_map = {"gemini": "GEMINI_API_KEY", "claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
-    ek = env_map.get(cfg.get("provider_name", ""))
-    if ek and cfg.get("api_key"):
-        os.environ.setdefault(ek, cfg["api_key"])
+    for mc in configs:
+        ek = env_map.get(mc.get("provider_name", ""))
+        if ek and mc.get("api_key"):
+            os.environ.setdefault(ek, mc["api_key"])
 
     symbols_info = [{"code": c, "name": "", "tag": ""} for c in codes]
     print(f"正在生成 AI 研报 ({len(codes)} 只) ...")
@@ -815,8 +843,9 @@ def _cmd_tui(_args=None):
                     state["provider"] = provider
             else:
                 from cli.providers.fallback import FallbackProvider
+                from cli.auth import load_fallback_model_id
                 state.update(default_cfg)
-                state["provider"] = FallbackProvider(configs, default_id)
+                state["provider"] = FallbackProvider(configs, default_id, fallback_id=load_fallback_model_id())
     except Exception:
         pass
 

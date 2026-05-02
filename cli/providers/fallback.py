@@ -48,9 +48,13 @@ def _is_retriable(exc: Exception) -> bool:
 class FallbackProvider(LLMProvider):
     """按优先级依次尝试多个 provider，可恢复错误自动 fallback。"""
 
-    def __init__(self, configs: list[dict[str, Any]], default_id: str):
-        # default 排第一，其余保持原序
-        self._configs = sorted(configs, key=lambda c: c["id"] != default_id)
+    def __init__(self, configs: list[dict[str, Any]], default_id: str, fallback_id: str = ""):
+        if fallback_id:
+            ids = [default_id, fallback_id]
+            self._configs = [c for c in configs if c["id"] in ids]
+            self._configs.sort(key=lambda c: ids.index(c["id"]))
+        else:
+            self._configs = sorted(configs, key=lambda c: c["id"] != default_id)
         self._providers: dict[str, LLMProvider] = {}
         self._active_id = self._configs[0]["id"]
         self.last_fallback_msg: str | None = None
