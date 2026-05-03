@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
+import { WyckoffLoading } from '@/components/loading'
 
 interface Position {
   code: string
@@ -76,7 +77,7 @@ export function PortfolioPage() {
   }
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground">加载中...</div>
+    return <WyckoffLoading />
   }
 
   const totalCost = portfolio?.positions.reduce((s, p) => s + p.shares * p.cost_price, 0) || 0

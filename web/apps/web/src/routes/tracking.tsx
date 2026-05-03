@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { WyckoffLoading } from '@/components/loading'
 
 interface Recommendation {
   code: number
@@ -65,7 +66,7 @@ export function TrackingPage() {
   }, [data])
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground">加载中...</div>
+    return <WyckoffLoading />
   }
 
   return (

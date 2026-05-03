@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-const CHANGELOG_URL = 'https://raw.githubusercontent.com/YoungCan-Wang/Wyckoff-Analysis/main/CHANGELOG.md'
+const CHANGELOG_URL = 'https://raw.githubusercontent.com/YoungCan-Wang/Wyckoff-Analysis/main/web/CHANGELOG.md'
 
 export function ChangelogPage() {
   const [content, setContent] = useState('')
@@ -15,12 +15,17 @@ export function ChangelogPage() {
   }, [])
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground">加载中...</div>
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+        <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <span className="text-xs italic">市场从不说谎，但它经常保持沉默。</span>
+      </div>
+    )
   }
 
   return (
     <div className="h-full overflow-auto p-6">
-      <h1 className="mb-6 text-xl font-semibold">版本更新日志</h1>
+      <h1 className="mb-6 text-xl font-semibold">更新日志</h1>
       {content ? (
         <article className="prose prose-sm max-w-none text-foreground">
           <ChangelogMarkdown content={content} />

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { WyckoffLoading } from '@/components/loading'
 
 interface TailBuyRecord {
   code: string
@@ -33,7 +34,7 @@ export function TailBuyPage() {
   }
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground">加载中...</div>
+    return <WyckoffLoading />
   }
 
   return (

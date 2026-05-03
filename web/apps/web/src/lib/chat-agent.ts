@@ -46,6 +46,14 @@ export interface LLMConfig {
   base_url: string
 }
 
+export interface ModelOption {
+  provider: string
+  label: string
+  model: string
+  api_key: string
+  base_url: string
+}
+
 export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
   const { data } = await supabase
     .from('user_settings')
@@ -82,6 +90,60 @@ export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
 
   if (!api_key) return null
   return { api_key, model, base_url }
+}
+
+export async function loadAllModels(userId: string): Promise<ModelOption[]> {
+  const { data } = await supabase
+    .from('user_settings')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+
+  if (!data) return []
+
+  const LABELS: Record<string, string> = {
+    '1route': '1Route', gemini: 'Gemini', openai: 'OpenAI',
+    zhipu: '智谱', minimax: 'MiniMax', deepseek: 'DeepSeek',
+    qwen: '通义千问', volcengine: '火山引擎',
+  }
+  const BASE_URLS: Record<string, string> = {
+    '1route': 'https://www.1route.dev/v1',
+    openai: 'https://api.openai.com/v1',
+    deepseek: 'https://api.deepseek.com/v1',
+    zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+    minimax: 'https://api.minimax.chat/v1',
+    qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
+  }
+
+  const models: ModelOption[] = []
+  const known = ['gemini', 'openai', 'deepseek'] as const
+  for (const p of known) {
+    const key = data[`${p}_api_key`]
+    const m = data[`${p}_model`]
+    if (key && m) {
+      models.push({
+        provider: p, label: LABELS[p] || p, model: m,
+        api_key: key, base_url: data[`${p}_base_url`] || BASE_URLS[p] || '',
+      })
+    }
+  }
+
+  const custom = typeof data.custom_providers === 'string'
+    ? JSON.parse(data.custom_providers || '{}')
+    : (data.custom_providers || {})
+  for (const [p, info] of Object.entries(custom) as [string, Record<string, string>][]) {
+    const key = info.apikey || info.api_key
+    const m = info.model
+    if (key && m) {
+      models.push({
+        provider: p, label: LABELS[p] || p, model: m,
+        api_key: key, base_url: info.baseurl || info.base_url || BASE_URLS[p] || '',
+      })
+    }
+  }
+
+  return models
 }
 
 async function fetchTickFlowKey(userId: string): Promise<string | null> {

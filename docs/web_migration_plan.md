@@ -1,14 +1,30 @@
 # Wyckoff Web 基建迭代计划
 
-> 更新于 2026-05-03 | 当前状态：Phase 1 已完成（前端部署上线）
+> 更新于 2026-05-03 | 当前状态：Phase 1.5 — 读盘室 Agent + 边缘代理已上线
 
 ## 当前架构
 
 ```
-React SPA (Cloudflare Pages)          wyckoff-analysis.pages.dev
-  │ Supabase JS SDK (Auth + DB)
+React SPA (Cloudflare Pages)              wyckoff-analysis.pages.dev
+  ├─ Vercel AI SDK (generateText + tools)
+  ├─ Supabase JS SDK (Auth + DB)
+  │
+  │  POST /api/llm-proxy/chat/completions
+  │  Headers: { X-Target-URL: "https://provider.api/v1" }
   ↓
-Supabase (Auth + PostgreSQL + RLS)    yfyivczvmorpqdyehfmn.supabase.co
+Pages Functions (边缘计算)                 同域 /api/*
+  └─ [[path]].ts                          透明代理，转发到 LLM 供应商
+      ├─ 读取 X-Target-URL → 目标地址
+      ├─ 清洗 CF 内部 headers
+      ├─ 转发 request body (streaming)
+      └─ 回传 response (含 SSE stream)
+  ↓
+LLM Providers (外部)
+  ├─ 1Route (https://www.1route.dev/v1)
+  ├─ DeepSeek (https://api.deepseek.com/v1)
+  ├─ OpenAI / Gemini / 智谱 / 通义千问 / 火山引擎
+  ↓
+Supabase (Auth + PostgreSQL + RLS)        yfyivczvmorpqdyehfmn.supabase.co
 ```
 
 已完成：
@@ -16,6 +32,11 @@ Supabase (Auth + PostgreSQL + RLS)    yfyivczvmorpqdyehfmn.supabase.co
 - Supabase Auth 登录/注册
 - MarketBar 大盘水温组件（读 market_signal_daily）
 - Git push 自动触发构建部署
+- **Pages Functions /api/llm-proxy** — 解决 LLM 跨域 + 密钥不暴露
+- **读盘室 AI Agent** — Vercel AI SDK + 10 个工具（搜索/持仓/大盘/诊断/选股/研报/策略）
+- **compatibility 模式** — 兼容 1Route/DeepSeek/通义千问等第三方 OpenAI 接口
+- **reasoning_content 回传** — 支持 DeepSeek R1 thinking 模式多步调用
+- **读盘室模型快捷切换** — 无需跳转设置页
 
 ## 目标架构
 

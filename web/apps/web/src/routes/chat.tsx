@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, RotateCcw } from 'lucide-react'
+import { Send, RotateCcw, ChevronDown } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
-import { loadLLMConfig, runChatAgentStream, type LLMConfig } from '@/lib/chat-agent'
+import { loadLLMConfig, loadAllModels, runChatAgentStream, type LLMConfig, type ModelOption } from '@/lib/chat-agent'
 import { MarkdownContent } from '@/components/markdown'
+import { WyckoffLoading } from '@/components/loading'
 
 const TOOL_LABELS: Record<string, string> = {
   search_stock: '搜索股票',
@@ -29,16 +30,30 @@ export function ChatPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [llmConfig, setLlmConfig] = useState<LLMConfig | null>(null)
+  const [models, setModels] = useState<ModelOption[]>([])
+  const [showModelPicker, setShowModelPicker] = useState(false)
   const [streamingText, setStreamingText] = useState('')
   const [toolStatus, setToolStatus] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef(false)
+  const pickerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (user) {
       loadLLMConfig(user.id).then(setLlmConfig)
+      loadAllModels(user.id).then(setModels)
     }
   }, [user])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowModelPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -134,9 +149,34 @@ export function ChatPage() {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">读盘室</h1>
           {llmConfig && (
-            <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] text-green-700">
-              {llmConfig.model}
-            </span>
+            <div className="relative" ref={pickerRef}>
+              <button
+                onClick={() => setShowModelPicker(!showModelPicker)}
+                className="flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-0.5 text-[11px] text-green-700 hover:bg-green-100 transition-colors"
+              >
+                {llmConfig.model}
+                <ChevronDown size={10} />
+              </button>
+              {showModelPicker && models.length > 0 && (
+                <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-background shadow-lg">
+                  {models.map((m) => (
+                    <button
+                      key={`${m.provider}-${m.model}`}
+                      onClick={() => {
+                        setLlmConfig({ api_key: m.api_key, model: m.model, base_url: m.base_url })
+                        setShowModelPicker(false)
+                      }}
+                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-muted/50 ${
+                        m.model === llmConfig.model ? 'bg-muted/30 font-medium' : ''
+                      }`}
+                    >
+                      <span>{m.model}</span>
+                      <span className="text-muted-foreground">{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           {!llmConfig && user && (
             <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
@@ -203,7 +243,7 @@ export function ChatPage() {
                       {toolStatus}
                     </span>
                   ) : (
-                    <span className="animate-pulse text-muted-foreground">威科夫正在读盘...</span>
+                    <WyckoffLoading size="sm" />
                   )}
                 </div>
               </div>
@@ -239,3 +279,4 @@ export function ChatPage() {
     </div>
   )
 }
+
