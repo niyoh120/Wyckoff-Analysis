@@ -40,3 +40,4 @@ logs/
 analysis/backtest/
 analysis/
 .openclaw/
+test-results/

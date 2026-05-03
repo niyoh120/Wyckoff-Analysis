@@ -403,8 +403,9 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
   --bg:#0a0e17;--bg2:#0f1420;--bg3:#151b2b;
   --border:#1e2740;--border2:#2a3452;
   --text:#c8d1e0;--text2:#8892a8;--text-dim:#505a70;
-  --accent:#00d4aa;--accent2:#00b894;
+  --accent:#00d4aa;--accent2:#00b894;--accent-dim:rgba(0,212,170,.08);
   --red:#ff4757;--amber:#f59e0b;--blue:#3b82f6;--green:#10b981;
+  --card:#0f1420;
   --hover-bg:rgba(255,255,255,.02);--hover-td:rgba(255,255,255,.015);
   --scan-a:rgba(0,0,0,.03);
   --font:'SF Mono','Cascadia Code','Fira Code','JetBrains Mono',Consolas,'Courier New',monospace;
@@ -413,8 +414,9 @@ html.light{
   --bg:#f4f5f7;--bg2:#ffffff;--bg3:#ebedf0;
   --border:#dce0e6;--border2:#c8cdd5;
   --text:#1a1d24;--text2:#5a6270;--text-dim:#9aa0ab;
-  --accent:#0a9b7a;--accent2:#088a6b;
+  --accent:#0a9b7a;--accent2:#088a6b;--accent-dim:rgba(10,155,122,.08);
   --red:#d63031;--amber:#d4880f;--blue:#2563eb;--green:#059669;
+  --card:#ffffff;
   --hover-bg:rgba(0,0,0,.02);--hover-td:rgba(0,0,0,.02);
   --scan-a:rgba(255,255,255,.04);
 }
@@ -832,31 +834,108 @@ async function renderBgTaskDetail(c,taskId){
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">${t('bg_session')}: ${escHtml(row.session_id||'')}</div>
     <pre style="font-size:11px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:calc(100vh - 210px);overflow-y:auto">${escHtml(payload)}</pre></div>`}
 
-// ═══ Chat Log ═══
+// ═══ Chat Log (Opik-style Tracing UI) ═══
 let _chatSessionId=null;
+let _chatSelectedIdx=0;
 async function renderChatLog(c){
   if(_chatSessionId)return renderChatSession(c,_chatSessionId);
   const sessions=await API('/api/chat-sessions');
   if(!Array.isArray(sessions)||!sessions.length){c.innerHTML=`<div class="empty">${t('no_sessions')}</div>`;return}
-  c.innerHTML=`<div class="tbl-wrap fade-in"><table class="tbl"><thead><tr><th>${t('th_session')}</th><th>${t('th_started')}</th><th>${t('th_ended')}</th><th>${t('th_messages')}</th><th>${t('th_tokens_in')}</th><th>${t('th_tokens_out')}</th><th>${t('th_error')}</th><th></th></tr></thead><tbody>${sessions.map(s=>{
+  const total=sessions.length;
+  const totalTokens=sessions.reduce((a,s)=>(a+(s.total_tokens_in||0)+(s.total_tokens_out||0)),0);
+  const errCount=sessions.filter(s=>s.last_error).length;
+  const errRate=total?(errCount/total*100).toFixed(1):'0';
+  c.innerHTML=`<div class="fade-in">
+    <div style="display:flex;gap:24px;margin-bottom:16px;padding:12px 16px;background:var(--card);border-radius:8px;border:1px solid var(--border)">
+      <div><span style="font-size:11px;color:var(--text-dim)">Threads</span><div style="font-size:18px;font-weight:600">${total}</div></div>
+      <div><span style="font-size:11px;color:var(--text-dim)">Error Rate</span><div style="font-size:18px;font-weight:600">${errRate}%</div></div>
+      <div><span style="font-size:11px;color:var(--text-dim)">Total Tokens</span><div style="font-size:18px;font-weight:600">${totalTokens.toLocaleString()}</div></div>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Start time</th><th>First message</th><th>#</th><th>Tokens</th><th>Model</th><th>Status</th><th></th></tr></thead><tbody>${sessions.map(s=>{
     const hasErr=s.last_error?'<span class="pill pill-red">ERR</span>':'<span class="pill pill-green">OK</span>';
-    return `<tr><td style="color:var(--accent);cursor:pointer" onclick="viewSession('${s.session_id}')">${s.session_id}</td><td>${localTime(s.started_at)}</td><td>${localTime(s.ended_at)}</td><td>${s.msg_count||0}</td><td>${(s.total_tokens_in||0).toLocaleString()}</td><td>${(s.total_tokens_out||0).toLocaleString()}</td><td>${hasErr}</td><td><span style="cursor:pointer;color:var(--accent);margin-right:8px" onclick="viewSession('${s.session_id}')">${t('view')}</span><button class="btn-del" onclick="delSession('${s.session_id}')">${t('del')}</button></td></tr>`}).join('')}</tbody></table></div>`}
-window.viewSession=function(sid){_chatSessionId=sid;loadPage('chatlog')};
+    const firstMsg=(s.first_user_msg||'').slice(0,60)+(s.first_user_msg&&s.first_user_msg.length>60?'...':'');
+    const tokens=((s.total_tokens_in||0)+(s.total_tokens_out||0)).toLocaleString();
+    return `<tr style="cursor:pointer" onclick="viewSession('${s.session_id}')"><td style="white-space:nowrap">${localTime(s.started_at)}</td><td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">${escHtml(firstMsg)||'<span style="color:var(--text-dim)">—</span>'}</td><td>${s.msg_count||0}</td><td>${tokens}</td><td style="font-size:11px;color:var(--text-dim)">${s.model||'—'}</td><td>${hasErr}</td><td><button class="btn-del" onclick="event.stopPropagation();delSession('${s.session_id}')">${t('del')}</button></td></tr>`}).join('')}</tbody></table></div></div>`}
+window.viewSession=function(sid){_chatSessionId=sid;_chatSelectedIdx=0;loadPage('chatlog')};
 window.backToSessions=function(){_chatSessionId=null;loadPage('chatlog')};
 window.delSession=async function(sid){if(!confirm(t('confirm_del_session')+sid+'?'))return;await fetch('/api/chat-sessions/'+sid,{method:'DELETE'});_chatSessionId=null;loadPage('chatlog')};
+window.selectTrace=function(idx){_chatSelectedIdx=idx;loadPage('chatlog')};
 async function renderChatSession(c,sid){
   const logs=await API('/api/chat-log/'+sid);
   if(!Array.isArray(logs)||!logs.length){c.innerHTML=`<div class="empty">${t('no_messages')}</div>`;return}
-  const rolePill=r=>{const m={user:'pill-blue',assistant:'pill-green',error:'pill-red',tool:'pill-dim'};return `<span class="pill ${m[r]||'pill-dim'}">${r}</span>`};
-  c.innerHTML=`<div style="margin-bottom:12px"><span style="cursor:pointer;color:var(--accent)" onclick="backToSessions()">&larr; ${t('back')}</span><span style="margin-left:12px;color:var(--text-dim)">${t('session')}: ${sid}</span></div>
-    <div class="tbl-wrap fade-in">${logs.map(l=>`<div class="mem-item"><div style="flex:1">
-      <div style="margin-bottom:4px">${rolePill(l.role)} <span style="color:var(--text-dim);font-size:10px;margin-left:8px">${localTime(l.created_at)}</span>
-        ${l.model?`<span style="color:var(--text-dim);font-size:10px;margin-left:8px">${l.model}</span>`:''}
-        ${l.tokens_in||l.tokens_out?`<span style="color:var(--text-dim);font-size:10px;margin-left:8px">↑${l.tokens_in||0} ↓${l.tokens_out||0}</span>`:''}
-        ${l.elapsed_s?`<span style="color:var(--text-dim);font-size:10px;margin-left:8px">${l.elapsed_s}s</span>`:''}</div>
-      ${l.error?`<div style="color:var(--red);font-size:12px;margin-bottom:4px">${escHtml(l.error)}</div>`:''}
-      <div class="mem-content">${escHtml(l.content)}</div>
-      ${l.tool_calls?`<div style="color:var(--text-dim);font-size:10px;margin-top:4px">tools: ${escHtml(l.tool_calls)}</div>`:''}</div></div>`).join('')}</div>`}
+  // Group into traces: each user msg + following assistant msg = one trace
+  const traces=[];let cur=null;
+  for(const l of logs){
+    if(l.role==='user'){if(cur)traces.push(cur);cur={user:l,assistant:null,spans:[]};}
+    else if(l.role==='assistant'&&cur){cur.assistant=l;traces.push(cur);cur=null;}
+    else if(cur){cur.spans.push(l);}
+    else{traces.push({user:null,assistant:l.role==='assistant'?l:null,spans:[l]});}
+  }
+  if(cur)traces.push(cur);
+  const sel=Math.min(_chatSelectedIdx,traces.length-1);
+  const selTrace=traces[sel];
+  const selLog=selTrace?.assistant||selTrace?.user;
+  // Parse tool_calls JSON
+  let toolSpans=[];
+  if(selTrace?.assistant?.tool_calls){try{const tc=JSON.parse(selTrace.assistant.tool_calls);if(Array.isArray(tc))toolSpans=tc;else if(typeof tc==='string')toolSpans=[{name:tc}];}catch(e){toolSpans=[{name:selTrace.assistant.tool_calls}];}}
+  c.innerHTML=`<div class="fade-in" style="display:flex;height:calc(100vh - 120px);gap:0">
+    <!-- Left: Spans Tree -->
+    <div style="width:380px;min-width:320px;border-right:1px solid var(--border);overflow-y:auto;padding:12px">
+      <div style="margin-bottom:12px"><span style="cursor:pointer;color:var(--accent)" onclick="backToSessions()">&larr; ${t('back')}</span></div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Traces ${traces.length}</div>
+      ${traces.map((tr,i)=>{
+        const isActive=i===sel;
+        const bg=isActive?'background:var(--accent-dim);border-left:3px solid var(--accent)':'border-left:3px solid transparent';
+        const uContent=(tr.user?.content||'').slice(0,50);
+        const aContent=(tr.assistant?.content||'').slice(0,40);
+        const time=localTime(tr.user?.created_at||tr.assistant?.created_at);
+        const dur=tr.assistant?.elapsed_s?tr.assistant.elapsed_s+'s':'';
+        const tIn=tr.assistant?.tokens_in||0;const tOut=tr.assistant?.tokens_out||0;
+        const hasTools=tr.assistant?.tool_calls?true:false;
+        return `<div onclick="selectTrace(${i})" style="padding:8px 10px;margin-bottom:4px;border-radius:6px;cursor:pointer;${bg}">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+            <span style="font-size:10px;color:var(--text-dim)">${time}</span>
+            ${dur?`<span style="font-size:10px;color:var(--text-dim)">⏱ ${dur}</span>`:''}
+            ${hasTools?'<span class="pill pill-dim" style="font-size:9px">tools</span>':''}
+          </div>
+          <div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(uContent)}</div>
+          ${aContent?`<div style="font-size:11px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">→ ${escHtml(aContent)}</div>`:''}
+          ${tIn||tOut?`<div style="font-size:10px;color:var(--text-dim);margin-top:2px">⇄ ${tIn}/${tOut}</div>`:''}
+        </div>`}).join('')}
+    </div>
+    <!-- Right: Detail Panel -->
+    <div style="flex:1;overflow-y:auto;padding:16px 20px">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+        <span style="font-size:12px;color:var(--text-dim)">📅 ${localTime(selLog?.created_at)}</span>
+        ${selLog?.elapsed_s?`<span style="font-size:12px;color:var(--text-dim)">⏱ ${selLog.elapsed_s}s</span>`:''}
+        ${selLog?.model?`<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--accent-dim);color:var(--accent)">${selLog.model}</span>`:''}
+        ${selLog?.tokens_in||selLog?.tokens_out?`<span style="font-size:12px;color:var(--text-dim)"># ${(selLog.tokens_in||0)+(selLog.tokens_out||0)}</span>`:''}
+      </div>
+      ${selLog?.error?`<div style="background:var(--red-bg,rgba(255,0,0,0.1));border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--red)">${escHtml(selLog.error)}</div>`:''}
+      <!-- Input Section -->
+      <details open style="margin-bottom:12px"><summary style="font-size:13px;font-weight:600;cursor:pointer;padding:8px 0;border-bottom:1px solid var(--border)">Input</summary>
+        <pre style="font-size:12px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-all;padding:12px 0;max-height:200px;overflow-y:auto">${escHtml(selTrace?.user?.content||'—')}</pre>
+      </details>
+      <!-- Output Section -->
+      <details open style="margin-bottom:12px"><summary style="font-size:13px;font-weight:600;cursor:pointer;padding:8px 0;border-bottom:1px solid var(--border)">Output</summary>
+        <pre style="font-size:12px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-all;padding:12px 0;max-height:300px;overflow-y:auto">${escHtml(selTrace?.assistant?.content||'—')}</pre>
+      </details>
+      <!-- Tool Calls Section -->
+      ${toolSpans.length?`<details style="margin-bottom:12px"><summary style="font-size:13px;font-weight:600;cursor:pointer;padding:8px 0;border-bottom:1px solid var(--border)">Tool Calls (${toolSpans.length})</summary>
+        <div style="padding:12px 0">${toolSpans.map(sp=>`<div style="padding:6px 10px;margin-bottom:6px;border-radius:6px;background:var(--card);border:1px solid var(--border)">
+          <span class="pill pill-dim" style="font-size:10px">${escHtml(sp.name||sp.tool||'tool')}</span>
+          ${sp.args?`<pre style="font-size:11px;color:var(--text-dim);margin-top:4px;white-space:pre-wrap;max-height:100px;overflow-y:auto">${escHtml(typeof sp.args==='string'?sp.args:JSON.stringify(sp.args,null,2))}</pre>`:''}
+          ${sp.result?`<pre style="font-size:11px;color:var(--text);margin-top:4px;white-space:pre-wrap;max-height:100px;overflow-y:auto">${escHtml(typeof sp.result==='string'?sp.result:JSON.stringify(sp.result,null,2))}</pre>`:''}
+        </div>`).join('')}</div></details>`:''}
+      <!-- Token Usage Section -->
+      ${selLog?.tokens_in||selLog?.tokens_out?`<details style="margin-bottom:12px"><summary style="font-size:13px;font-weight:600;cursor:pointer;padding:8px 0;border-bottom:1px solid var(--border)">Token Usage</summary>
+        <div style="padding:12px 0;font-size:12px;font-family:monospace;line-height:2">
+          <div><span style="color:var(--accent)">prompt_tokens</span>: ${selLog.tokens_in||0}</div>
+          <div><span style="color:var(--accent)">completion_tokens</span>: ${selLog.tokens_out||0}</div>
+          <div><span style="color:var(--accent)">total_tokens</span>: ${(selLog.tokens_in||0)+(selLog.tokens_out||0)}</div>
+        </div></details>`:''}
+    </div>
+  </div>`}
 
 // ═══ Agent Log ═══
 async function renderAgentLog(c){

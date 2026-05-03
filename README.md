@@ -7,7 +7,8 @@
 [![PyPI](https://img.shields.io/pypi/v/youngcan-wyckoff-analysis?color=blue)](https://pypi.org/project/youngcan-wyckoff-analysis/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
-[![Streamlit](https://img.shields.io/badge/demo-Streamlit-FF4B4B.svg)](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)
+[![Web App](https://img.shields.io/badge/Web-React%20App-0ea5e9.svg)](https://wyckoff.pages.dev/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B.svg)](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)
 [![Homepage](https://img.shields.io/badge/homepage-Wyckoff%20Homepage-0ea5e9.svg)](https://youngcan-wang.github.io/wyckoff-homepage/)
 
 [English](docs/README_EN.md) | [日本語](docs/README_JA.md) | [Español](docs/README_ES.md) | [한국어](docs/README_KO.md) | [架构文档](docs/ARCHITECTURE.md)
@@ -18,15 +19,61 @@
 
 用自然语言和一位威科夫大师对话。他能调动 10 个专业工具 + 5 个通用能力，自主串联多步推理，给出"打还是不打"的结论。
 
-Web + CLI + MCP 三通道，Gemini / Claude / OpenAI 多模型切换，GitHub Actions 定时全自动。
+CLI + Web + MCP 三通道，Gemini / Claude / OpenAI 多模型切换，GitHub Actions 定时全自动。
 
 项目主页：**[youngcan-wang.github.io/wyckoff-homepage](https://youngcan-wang.github.io/wyckoff-homepage/)**
 
-## 启动即用 — 一键配置 Agent
+---
 
-| 启动界面 | 持仓查询 |
+## 线上使用
+
+无需安装，注册即用。
+
+### Web App（React）
+
+现代 React SPA，AI Agent 对话 + 持仓管理 + 漏斗选股 + 数据导出，流式输出 + 工具调用可视化。
+
+在线地址：**[wyckoff.pages.dev](https://wyckoff.pages.dev/)**
+
+### Streamlit
+
+Streamlit 版本功能完整可用，不再迭代新功能。
+
+在线地址：**[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
+
+| 读盘室 | 数据导出 |
 |:---:|:---:|
-| <img src="attach/cli-home.png" width="450" /> | <img src="attach/cli-running.png" width="450" /> |
+| <img src="attach/web-chat.png" width="450" /> | <img src="attach/web-export.png" width="450" /> |
+
+---
+
+## 本地使用
+
+### CLI — 命令行 Agent ⭐ 强烈推荐
+
+终端原生交互，功能最全，支持后台任务、记忆系统、Skills 扩展、MCP Server。所有数据存本地 SQLite，无需联网即可使用。
+
+**安装：**
+
+```bash
+# 一键安装（推荐）
+curl -fsSL https://raw.githubusercontent.com/YoungCan-Wang/Wyckoff-Analysis/main/install.sh | bash
+
+# 或 Homebrew
+brew tap YoungCan-Wang/wyckoff && brew install wyckoff
+
+# 或 pip
+uv pip install youngcan-wyckoff-analysis
+```
+
+**启动：**
+
+```bash
+wyckoff          # 启动 Agent 对话
+wyckoff dashboard  # 启动本地可视化面板
+```
+
+**升级：** `wyckoff update`
 
 启动后只需两步：
 1. `/model` — 选择模型（Gemini / Claude / OpenAI），输入 API Key
@@ -38,7 +85,59 @@ Web + CLI + MCP 三通道，Gemini / Claude / OpenAI 多模型切换，GitHub Ac
 > 大盘现在什么水温
 ```
 
-> 💡 可选：`/login` 登录后持仓同步云端，多设备共享。不登录也能完整使用所有功能。
+> 可选：`/login` 登录后持仓同步云端，多设备共享。不登录也能完整使用所有功能。
+
+| 启动界面 | 持仓查询 |
+|:---:|:---:|
+| <img src="attach/cli-home.png" width="450" /> | <img src="attach/cli-running.png" width="450" /> |
+
+| 诊断报告 | 操作指令 |
+|:---:|:---:|
+| <img src="attach/cli-analysis.png" width="450" /> | <img src="attach/cli-result.png" width="450" /> |
+
+---
+
+### Web 本地版 ⭐ 优先推荐
+
+React SPA 本地部署，数据读写本地 SQLite（与 CLI 共享同一份数据），浏览器可视化体验。
+
+**安装 & 启动：**
+
+```bash
+cd web/apps/web
+pnpm install
+pnpm dev        # http://localhost:5173
+```
+
+功能：读盘室（AI Agent 对话）、持仓管理、推荐跟踪、漏斗选股、尾盘记录、数据导出、单股分析。
+
+---
+
+### 本地可视化面板（Dashboard）
+
+```bash
+wyckoff dashboard
+```
+
+一条命令启动本地 HTTP 面板（默认端口 8765），自动打开浏览器。全部数据存储在本地 SQLite，无需联网。
+
+功能页面：AI 推荐、信号池、持仓、Agent 记忆、配置、对话日志、Agent 日志、同步状态。支持暗色/亮色主题切换，中英双语。
+
+| 数据总览 | 对话日志 |
+|:---:|:---:|
+| <img src="attach/dashboard-overview.png" width="450" /> | <img src="attach/dashboard-chatlog.png" width="450" /> |
+
+---
+
+### 回测网格
+
+18 组参数并行回测，自动输出最优参数组合、夏普矩阵和策略体检：
+
+| 最优参数 & 梯队表 | 参数矩阵 |
+|:---:|:---:|
+| <img src="attach/backtest-grid-1.png" width="450" /> | <img src="attach/backtest-grid-2.png" width="450" /> |
+
+---
 
 ## 功能一览
 
@@ -62,93 +161,6 @@ Web + CLI + MCP 三通道，Gemini / Claude / OpenAI 多模型切换，GitHub Ac
 | 通用 Agent 能力 | 执行命令、读写文件、抓取网页 — 发一个 CSV 路径即可分析，不只是股票工具 |
 | MCP Server | 10 个工具通过 MCP 协议对外暴露，Claude Code / Cursor / 任何 MCP Client 即插即用 |
 | 多通道推送 | 飞书 / 企微 / 钉钉 / Telegram |
-
-## 数据源
-
-个股日线自动降级：
-
-```
-tickflow → tushare → akshare → baostock → efinance
-```
-
-任一源不可用时自动切换，无需干预。
-
-> **数据源 API Key（解锁实时行情 + 分钟K线 + 盘中监控）**  
-> 购买链接：[TickFlow 注册](https://tickflow.org/auth/register?ref=5N4NKTCPL4)
->
-> **大模型 API Key（支持 Gemini / Claude / OpenAI / DeepSeek 等）**  
-> 购买链接：[1Route 注册](https://www.1route.dev/register?aff=359904261)
-
-## 快速开始
-
-### 一键安装（推荐）
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/YoungCan-Wang/Wyckoff-Analysis/main/install.sh | bash
-```
-
-自动检测 Python、安装 uv、创建隔离环境，装完直接 `wyckoff` 启动。
-
-### Homebrew
-
-```bash
-brew tap YoungCan-Wang/wyckoff
-brew install wyckoff
-```
-
-### pip
-
-```bash
-uv venv && source .venv/bin/activate
-uv pip install youngcan-wyckoff-analysis
-wyckoff
-```
-
-升级：`wyckoff update`
-
-### CLI 效果
-
-| 诊断报告 | 操作指令 |
-|:---:|:---:|
-| <img src="attach/cli-analysis.png" width="450" /> | <img src="attach/cli-result.png" width="450" /> |
-
-### 本地可视化面板
-
-```bash
-wyckoff dashboard
-```
-
-一条命令启动本地 HTTP 面板（默认端口 8765），自动打开浏览器。全部数据存储在本地 SQLite，无需联网，安全可信。
-
-功能页面：AI 推荐、信号池、持仓、Agent 记忆、配置、对话日志、Agent 日志、同步状态。支持暗色/亮色主题切换，中英双语。
-
-| 数据总览 | 对话日志 |
-|:---:|:---:|
-| <img src="attach/dashboard-overview.png" width="450" /> | <img src="attach/dashboard-chatlog.png" width="450" /> |
-
-### 回测网格
-
-18 组参数并行回测，自动输出最优参数组合、夏普矩阵和策略体检：
-
-| 最优参数 & 梯队表 | 参数矩阵 |
-|:---:|:---:|
-| <img src="attach/backtest-grid-1.png" width="450" /> | <img src="attach/backtest-grid-2.png" width="450" /> |
-
-### Web
-
-```bash
-git clone https://github.com/YoungCan-Wang/Wyckoff-Analysis.git
-cd Wyckoff-Analysis
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run streamlit_app.py
-```
-
-在线体验：**[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
-
-| 读盘室 | 数据导出 |
-|:---:|:---:|
-| <img src="attach/web-chat.png" width="450" /> | <img src="attach/web-export.png" width="450" /> |
 
 ## 工具
 
@@ -183,6 +195,22 @@ Agent 的武器库 — 10 个量价工具 + 5 个通用能力：
 | L3 | 板块共振 | 行业 Top-N 分布筛选 |
 | L4 | 微观狙击 | Spring / LPS / SOS / EVR 四大触发信号 |
 | L5 | AI 审判 | LLM 三阵营分类：逻辑破产 / 储备 / 起跳板 |
+
+## 数据源
+
+个股日线自动降级：
+
+```
+tickflow → tushare → akshare → baostock → efinance
+```
+
+任一源不可用时自动切换，无需干预。
+
+> **数据源 API Key（解锁实时行情 + 分钟K线 + 盘中监控）**  
+> 购买链接：[TickFlow 注册](https://tickflow.org/auth/register?ref=5N4NKTCPL4)
+>
+> **大模型 API Key（支持 Gemini / Claude / OpenAI / DeepSeek 等）**  
+> 购买链接：[1Route 注册](https://www.1route.dev/register?aff=359904261)
 
 ## 每日自动化
 

@@ -772,7 +772,10 @@ def list_chat_sessions(limit: int = 50) -> list[dict]:
                   COUNT(*) AS msg_count,
                   SUM(tokens_in) AS total_tokens_in,
                   SUM(tokens_out) AS total_tokens_out,
-                  MAX(CASE WHEN error != '' THEN error ELSE NULL END) AS last_error
+                  MAX(CASE WHEN error != '' THEN error ELSE NULL END) AS last_error,
+                  MAX(CASE WHEN role='assistant' THEN model ELSE NULL END) AS model,
+                  (SELECT content FROM chat_log c2 WHERE c2.session_id=chat_log.session_id AND c2.role='user' ORDER BY c2.created_at ASC LIMIT 1) AS first_user_msg,
+                  SUM(elapsed_s) AS total_elapsed_s
            FROM chat_log
            GROUP BY session_id
            ORDER BY MAX(created_at) DESC
