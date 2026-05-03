@@ -214,6 +214,13 @@ export function ChatPage() {
                 </button>
               ))}
             </div>
+            <div className="mt-8 rounded-lg border border-dashed border-border/60 px-4 py-2.5 text-center">
+              <p className="text-[11px] text-muted-foreground/70">
+                网页版暂不支持会话历史、Agent 记忆与后台任务 ·{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-[10px]">pip install youngcan-wyckoff-analysis</code>{' '}
+                解锁完整能力
+              </p>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
