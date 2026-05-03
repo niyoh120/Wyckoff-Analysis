@@ -35,15 +35,19 @@ CLI + Web + MCP 三通道，Gemini / Claude / OpenAI 多模型切换，GitHub Ac
 
 在线地址：**[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/home)**
 
+| 读盘室 | 漏斗选股 |
+|:---:|:---:|
+| <img src="docs/screenshots/web-chat.png" width="450" /> | <img src="docs/screenshots/web-screen.png" width="450" /> |
+
+| 推荐跟踪 | 持仓管理 |
+|:---:|:---:|
+| <img src="docs/screenshots/web-track.png" width="450" /> | <img src="docs/screenshots/web-portfolio.png" width="450" /> |
+
 ### Streamlit
 
 Streamlit 版本功能完整可用，不再迭代新功能。
 
 在线地址：**[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
-
-| 读盘室 | 数据导出 |
-|:---:|:---:|
-| <img src="attach/web-chat.png" width="450" /> | <img src="attach/web-export.png" width="450" /> |
 
 ---
 
