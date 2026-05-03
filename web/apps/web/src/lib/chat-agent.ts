@@ -246,6 +246,13 @@ function createReasoningFetch(): typeof globalThis.fetch {
 
     const res = await globalThis.fetch(input, init)
 
+    if (!res.ok) {
+      const text = await res.clone().text().catch(() => '')
+      let msg = `API ${res.status}`
+      try { const j = JSON.parse(text); msg = j?.error?.message || j?.error || msg } catch {}
+      throw new Error(msg)
+    }
+
     const clone = res.clone()
     clone.json().then((data: Record<string, unknown>) => {
       const choices = data?.choices as Array<{ message?: { reasoning_content?: string } }> | undefined
@@ -661,6 +668,9 @@ export async function runChatAgentStream(
   const tools = buildTools(userId, config)
   const steps: StepInfo[] = []
 
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 120_000)
+
   try {
     const result = streamText({
       model: provider(config.model),
@@ -668,29 +678,31 @@ export async function runChatAgentStream(
       messages,
       tools,
       maxSteps: 10,
-      onStepFinish: ({ toolCalls, text }) => {
-        if (toolCalls && toolCalls.length > 0) {
-          for (const tc of toolCalls) {
-            const step: StepInfo = { type: 'tool_call', toolName: tc.toolName }
-            steps.push(step)
-            callbacks.onStep(step)
-          }
-        }
-        if (text) {
-          const step: StepInfo = { type: 'text', text }
-          steps.push(step)
-          callbacks.onStep(step)
-        }
-      },
+      abortSignal: abort.signal,
     })
 
-    for await (const chunk of result.textStream) {
-      callbacks.onTextDelta(chunk)
+    let finalText = ''
+    for await (const event of result.fullStream) {
+      switch (event.type) {
+        case 'text-delta':
+          finalText += event.textDelta
+          callbacks.onTextDelta(event.textDelta)
+          break
+        case 'tool-call': {
+          const step: StepInfo = { type: 'tool_call', toolName: event.toolName }
+          steps.push(step)
+          callbacks.onStep(step)
+          break
+        }
+        case 'error':
+          throw event.error
+      }
     }
 
-    const finalText = await result.text
+    clearTimeout(timer)
     callbacks.onFinish(finalText, steps)
   } catch (err) {
+    clearTimeout(timer)
     callbacks.onError(err instanceof Error ? err : new Error(String(err)))
   }
 }
