@@ -88,3 +88,6 @@ jobs:
       - name: TypeScript check
         run: pnpm -r exec tsc --noEmit
         working-directory: web
+      - name: Run web tests (harness)
+        run: pnpm --filter @wyckoff/web test
+        working-directory: web
