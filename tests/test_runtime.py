@@ -128,14 +128,10 @@ def test_runtime_answers_all_tool_calls_when_doom_loop_aborts_round():
 
     events = list(AgentRuntime(provider, tools).run_stream(messages))
 
-    third_assistant = [
-        m for m in messages if m.get("role") == "assistant" and len(m.get("tool_calls", [])) == 2
-    ][0]
+    third_assistant = [m for m in messages if m.get("role") == "assistant" and len(m.get("tool_calls", [])) == 2][0]
     tool_call_ids = {call["id"] for call in third_assistant["tool_calls"]}
     answered_ids = {
-        m["tool_call_id"]
-        for m in messages
-        if m.get("role") == "tool" and m.get("tool_call_id") in tool_call_ids
+        m["tool_call_id"] for m in messages if m.get("role") == "tool" and m.get("tool_call_id") in tool_call_ids
     }
     assert answered_ids == tool_call_ids
     assert any(e["type"] == "tool_error" and e["tool_call_id"] == "tc4" for e in events)
