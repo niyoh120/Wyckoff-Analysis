@@ -16,6 +16,7 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+*.tsbuildinfo
 
 pip-wheel-metadata/
 dist/
@@ -30,6 +31,7 @@ data/sector_map_cache.json
 data/market_cap_cache.json
 data/funnel_snapshots/*
 !data/funnel_snapshots/.gitkeep
+data/strategy_shadow/
 logs/
 *.csv
 *.xlsx
