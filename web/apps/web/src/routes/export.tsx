@@ -163,7 +163,7 @@ export function ExportPage() {
         <div className="mb-4 flex items-center gap-3">
           <button
             onClick={handleDownload}
-            className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
           >
             <Download size={16} />
             下载 CSV ({fileName})

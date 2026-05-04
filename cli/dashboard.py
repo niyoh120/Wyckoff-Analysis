@@ -413,7 +413,7 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
   --border:#1e2740;--border2:#2a3452;
   --text:#c8d1e0;--text2:#8892a8;--text-dim:#505a70;
   --accent:#00d4aa;--accent2:#00b894;--accent-dim:rgba(0,212,170,.08);
-  --red:#ff4757;--amber:#f59e0b;--blue:#3b82f6;--green:#10b981;
+  --red:#ff4757;--amber:#f59e0b;--blue:#3b82f6;--green:#06b6d4;
   --card:#0f1420;
   --hover-bg:rgba(255,255,255,.02);--hover-td:rgba(255,255,255,.015);
   --scan-a:rgba(0,0,0,.03);
@@ -424,7 +424,7 @@ html.light{
   --border:#dce0e6;--border2:#c8cdd5;
   --text:#1a1d24;--text2:#5a6270;--text-dim:#9aa0ab;
   --accent:#0a9b7a;--accent2:#088a6b;--accent-dim:rgba(10,155,122,.08);
-  --red:#d63031;--amber:#d4880f;--blue:#2563eb;--green:#059669;
+  --red:#d63031;--amber:#d4880f;--blue:#2563eb;--green:#0891b2;
   --card:#ffffff;
   --hover-bg:rgba(0,0,0,.02);--hover-td:rgba(0,0,0,.02);
   --scan-a:rgba(255,255,255,.04);
@@ -467,7 +467,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:
 .tbl-wrap::before{content:'';display:block;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.3}
 
 .pill{display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:.5px}
-.pill-green{background:rgba(16,185,129,.12);color:var(--green);border:1px solid rgba(16,185,129,.2)}
+.pill-green{background:rgba(6,182,212,.12);color:var(--green);border:1px solid rgba(6,182,212,.2)}
 .pill-red{background:rgba(255,71,87,.12);color:var(--red);border:1px solid rgba(255,71,87,.2)}
 .pill-amber{background:rgba(245,158,11,.12);color:var(--amber);border:1px solid rgba(245,158,11,.2)}
 .pill-yellow{background:rgba(167,139,250,.12);color:#a78bfa;border:1px solid rgba(167,139,250,.25)}

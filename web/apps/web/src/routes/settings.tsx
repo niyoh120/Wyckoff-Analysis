@@ -134,7 +134,7 @@ export function SettingsPage() {
       <h1 className="mb-6 text-xl font-semibold">设置</h1>
 
       {toast && (
-        <div className={`mb-4 rounded-lg px-4 py-2 text-sm ${toast.includes('失败') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+        <div className={`mb-4 rounded-lg px-4 py-2 text-sm ${toast.includes('失败') ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'}`}>
           {toast}
         </div>
       )}
@@ -161,7 +161,7 @@ export function SettingsPage() {
             <details key={p} className="rounded-lg border border-border">
               <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">
                 {PROVIDER_LABELS[p]}
-                {configs[p]?.api_key && <span className="ml-2 text-green-600">●</span>}
+                {configs[p]?.api_key && <span className="ml-2 text-indigo-600">●</span>}
               </summary>
               <div className="space-y-3 border-t border-border px-4 py-3">
                 <Input
