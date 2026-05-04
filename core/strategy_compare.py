@@ -202,7 +202,12 @@ def format_strategy_comparison_markdown(
         f"**漏斗概览**: {scope_text}只 → 结构命中:{len(shadow_codes)}（信号事件 {event_count} 次）",
         f"**大盘水温**: {bench_line}",
         f"**Top 行业**: {', '.join(top_sectors) if top_sectors else '无'}",
-        f"**L4 触发**: SOS:{trigger_counts['sos']} | Spring:{trigger_counts['spring']} | LPS:{trigger_counts['lps']} | EVR:{trigger_counts['evr']}",
+        (
+            f"**L4 触发**: SOS（强势信号）:{trigger_counts['sos']} | "
+            f"Spring（假跌破修复）:{trigger_counts['spring']} | "
+            f"LPS（最后支撑点）:{trigger_counts['lps']} | "
+            f"EVR（放量不跌）:{trigger_counts['evr']}"
+        ),
         "",
     ]
 

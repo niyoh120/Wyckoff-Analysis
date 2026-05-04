@@ -89,8 +89,7 @@
 | `/tracking` | 跟踪 | 推荐跟踪 + 涨跌幅 |
 | `/tail-buy` | 尾盘记录 | 尾盘策略执行历史 |
 | `/export` | 数据导出 | CSV 导出 |
-| `/home` | 项目主页 | iframe 嵌入 GitHub Pages 主页 |
-| `/changelog` | 更新日志 | Web 端独立版本线（v1.0.0 起） |
+| `/guide` | 功能说明 | Web 端功能入口和日常工作流说明 |
 | `/settings` | 设置 | 模型 / API Key / 数据源配置 |
 
 ### DeepSeek R1 兼容

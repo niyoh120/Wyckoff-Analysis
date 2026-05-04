@@ -29,5 +29,5 @@ React Web App 首版上线，部署到 Cloudflare Pages。
 
 ### 链接
 
-- Web App: https://wyckoff-analysis.pages.dev/home
+- Web App: https://wyckoff-analysis.pages.dev/
 - 项目主页: https://youngcan-wang.github.io/wyckoff-homepage/

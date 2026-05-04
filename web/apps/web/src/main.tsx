@@ -42,7 +42,6 @@ createRoot(document.getElementById('root')!).render(
                 <Route path="/tail-buy" element={<TailBuyPage />} />
                 <Route path="/export" element={<ExportPage />} />
                 <Route path="/guide" element={<FeatureGuidePage />} />
-                <Route path="/changelog" element={<Navigate to="/guide" replace />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
             </Route>

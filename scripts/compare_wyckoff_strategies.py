@@ -113,8 +113,8 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(CN_TZ).strftime("%Y%m%d_%H%M%S")
-    md_path = out_dir / f"wyckoff_v2_shadow_{ts}.md"
-    json_path = out_dir / f"wyckoff_v2_shadow_{ts}.json"
+    md_path = out_dir / f"wyckoff_structure_shadow_{ts}.md"
+    json_path = out_dir / f"wyckoff_structure_shadow_{ts}.json"
 
     md_path.write_text(report, encoding="utf-8")
     payload = {
@@ -139,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         from utils.feishu import send_feishu_notification  # noqa: E402
 
-        title = f"🔬 Wyckoff V2 结构影子池 {datetime.now(CN_TZ).strftime('%Y-%m-%d %H:%M')}"
+        title = f"🔬 Wyckoff 结构影子池 {datetime.now(CN_TZ).strftime('%Y-%m-%d %H:%M')}"
         ok = send_feishu_notification(webhook, title, report)
         if not ok:
             print("[shadow] 飞书发送失败")
