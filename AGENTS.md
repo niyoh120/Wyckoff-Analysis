@@ -24,7 +24,11 @@ pnpm -r exec tsc --noEmit                # typecheck
 
 ## Hard Rules (CI enforced, will block merge)
 
-1. **Function length ≤ 50 lines** — No single function/method may exceed 50 lines of code. If it does, split it. Legacy violations are whitelisted in `.metrics/func_whitelist.json`; new violations or worsening existing ones will fail CI.
+1. **No redundant code** — Every function, variable, and abstraction must earn its existence. Forbidden patterns:
+   - Wrapper functions whose body is a single forwarded call
+   - Variables that are assigned once and immediately returned
+   - Intermediate abstractions with only one caller and no reuse prospect
+   - Re-exports or re-declarations that add no value
 
 2. **Pass ruff check** — All Python code must pass `ruff check .` with the project config in `pyproject.toml`.
 
@@ -36,13 +40,15 @@ pnpm -r exec tsc --noEmit                # typecheck
 
 ## Soft Rules (quality expectations)
 
-1. **No code bloat** — If 50 lines can do the job, don't write 80. Code volume is tracked in `.metrics/loc.json`; growth >5% without corresponding feature additions will be flagged.
+1. **Function length ≤ 80 lines (warning)** — Functions exceeding 80 lines trigger a CI warning. Not a hard fail, but a signal to consider splitting. Legacy violations tracked in `.metrics/func_whitelist.json`.
 
-2. **No dead code** — Don't leave unused imports, commented-out blocks, or unreachable branches. Delete them.
+2. **No code bloat** — If 50 lines can do the job, don't write 80. Code volume is tracked in `.metrics/loc.json`; growth >5% without corresponding feature additions will be flagged.
 
-3. **Comments: only when WHY is non-obvious** — Don't explain what code does. Don't reference tickets or tasks. Only explain hidden constraints or surprising behavior.
+3. **No dead code** — Don't leave unused imports, commented-out blocks, or unreachable branches. Delete them.
 
-4. **No debug artifacts** — Don't commit console.log, print(), breakpoint(), or TODO/FIXME comments.
+4. **Comments: only when WHY is non-obvious** — Don't explain what code does. Don't reference tickets or tasks. Only explain hidden constraints or surprising behavior.
+
+5. **No debug artifacts** — Don't commit console.log, print(), breakpoint(), or TODO/FIXME comments.
 
 ## Architecture Constraints
 

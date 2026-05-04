@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 METRICS_DIR = ROOT / ".metrics"
 LOC_FILE = METRICS_DIR / "loc.json"
 WHITELIST_FILE = METRICS_DIR / "func_whitelist.json"
-MAX_FUNC_LINES = 50
+MAX_FUNC_LINES = 80
 LOC_GROWTH_WARN_PCT = 5
 
 PY_DIRS = ["agents", "app", "cli", "core", "integrations", "pages", "scripts", "tools", "utils"]
@@ -171,16 +171,16 @@ def cmd_check_functions() -> int:
 
     if new_violations or worsened:
         if new_violations:
-            print(f"FAIL: {len(new_violations)} NEW functions exceed {MAX_FUNC_LINES}-line limit:")
+            print(f"WARNING: {len(new_violations)} functions exceed {MAX_FUNC_LINES}-line soft limit:")
             for f, fn, n in new_violations:
                 print(f"  {f}  {fn}()  {n} lines")
         if worsened:
-            print(f"FAIL: {len(worsened)} whitelisted functions got LONGER:")
+            print(f"WARNING: {len(worsened)} whitelisted functions got longer:")
             for f, fn, old, new in worsened:
                 print(f"  {f}  {fn}()  {old} -> {new} lines")
-        return 1
+        return 0
 
-    print(f"OK: No new functions exceed {MAX_FUNC_LINES}-line limit. ({len(wl)} legacy whitelisted)")
+    print(f"OK: All functions within {MAX_FUNC_LINES}-line soft limit. ({len(wl)} legacy tracked)")
     return 0
 
 

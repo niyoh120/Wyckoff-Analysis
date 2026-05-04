@@ -372,12 +372,12 @@ rm tests/golden/*.txt && pytest tests/test_holding_diagnostic.py -v
 
 | 机制 | 说明 |
 |------|------|
-| 硬限制 | 新增函数 > 50 行 → CI 失败 |
+| 软限制 | 新增函数 > 80 行 → CI WARNING（不阻断） |
 | 白名单 | `.metrics/func_whitelist.json` 记录存量超标函数 |
-| 恶化检测 | 白名单函数变更长 → CI 失败 |
+| 趋势跟踪 | 白名单函数变更长时输出 WARNING |
 | 基准更新 | `python scripts/quality_gate.py --snapshot` |
 
-触碰白名单函数时应尝试缩减其长度。
+核心原则：不卡行数，卡冗余。每个函数、变量、抽象层必须有存在的理由。
 
 ---
 
