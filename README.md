@@ -1,8 +1,10 @@
 <div align="center">
 
-# Wyckoff Trading Agent
+# WyckoffAgent — Open-Source Wyckoff Trading Agent
 
-**A 股威科夫量价分析智能体 — 你说人话，他读盘面**
+**Open-source Wyckoff trading agent and AI stock screener for volume-price analysis, A-share screening, portfolio diagnosis, CLI workflows, and MCP tools.**
+
+**A 股威科夫量价分析智能体 — 你说人话，他读盘面。**
 
 [![PyPI](https://img.shields.io/pypi/v/youngcan-wyckoff-analysis?color=blue)](https://pypi.org/project/youngcan-wyckoff-analysis/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
@@ -17,11 +19,17 @@
 
 ---
 
+WyckoffAgent is a research-oriented AI trading analysis agent. It helps users inspect Wyckoff volume-price structure, screen stocks, diagnose portfolios, run local CLI workflows, and expose analysis tools through MCP-compatible clients.
+
 用自然语言和一位威科夫大师对话。系统把 A 股日线行情、威科夫结构识别、AI 研报、持仓风控、推荐跟踪和通知推送串成一条自动化链路。
 
 React Web、Streamlit 维护入口、CLI、MCP 与 GitHub Actions 共同组成当前产品形态；行情优先复用 Supabase 缓存，缺口再回源补拉并回写。
 
 项目主页：**[youngcan-wang.github.io/wyckoff-homepage](https://youngcan-wang.github.io/wyckoff-homepage/)**
+
+关键词入口：**[Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/trading-agent/)** · **[Wyckoff Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/wyckoff-trading-agent/)** · **[AI Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/ai-trading-agent/)** · **[Stock Screener Agent](https://youngcan-wang.github.io/wyckoff-homepage/stock-screener-agent/)**
+
+> Risk disclosure: WyckoffAgent is for educational, research, and informational use. It does not provide investment advice, does not account for every personal financial circumstance, and does not guarantee future performance.
 
 ---
 
