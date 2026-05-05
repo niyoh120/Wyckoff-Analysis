@@ -1,9 +1,6 @@
 name: Tail Buy
 
 on:
-  schedule:
-    # UTC 05:50 Mon-Fri = 北京时间 13:50
-    - cron: "50 5 * * 1-5"
   workflow_dispatch:
 
 concurrency:
