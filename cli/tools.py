@@ -24,12 +24,13 @@ logger = logging.getLogger(__name__)
 
 
 class ToolContext:
-    """最小化 ToolContext shim，提供 .state / .provider / .registry。"""
+    """最小化 ToolContext shim，提供 .state / .provider / .registry / .on_progress。"""
 
     def __init__(self, state: dict[str, Any] | None = None):
         self.state = state or {}
         self.provider = None
         self.registry = None
+        self.on_progress = None
 
 
 # ---------------------------------------------------------------------------

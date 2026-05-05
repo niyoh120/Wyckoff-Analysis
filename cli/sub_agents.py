@@ -91,18 +91,26 @@ def run_sub_agent(
     context: str,
     provider,
     registry,
+    on_progress=None,
 ) -> dict[str, Any]:
-    """启动一个 sub-agent mini loop，返回结果文本。"""
-    from cli.agent import run as agent_run
+    """启动一个 sub-agent mini loop，通过 on_progress 实时上报事件。"""
+    from cli.runtime import AgentRuntime
     from core.prompts import with_current_time
 
     proxy = SubAgentToolProxy(registry, set(sub.tool_names))
-    user_content = task
-    if context:
-        user_content = f"{task}\n\n上下文:\n{context}"
+    user_content = f"{task}\n\n上下文:\n{context}" if context else task
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
-    result = agent_run(provider, proxy, messages, with_current_time(sub.system_prompt))
-    return {"agent": sub.name, "result": result["text"], "usage": result.get("usage", {})}
+    runtime = AgentRuntime(provider, proxy)
+    final: dict[str, Any] | None = None
+
+    for event in runtime.run_stream(messages, with_current_time(sub.system_prompt)):
+        if on_progress:
+            event["sub_agent"] = sub.name
+            on_progress(event)
+        if event["type"] == "done":
+            final = {"agent": sub.name, "result": event["text"], "usage": event.get("usage", {})}
+
+    return final or {"agent": sub.name, "result": "(无返回)", "usage": {}}
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +124,8 @@ def delegate_to_research(task: str, context: str = "", *, tool_context=None) -> 
     registry = getattr(tool_context, "registry", None)
     if not provider or not registry:
         return {"error": "provider/registry 未注入，无法启动 sub-agent"}
-    return run_sub_agent(RESEARCH_AGENT, task, context, provider, registry)
+    on_progress = getattr(tool_context, "on_progress", None)
+    return run_sub_agent(RESEARCH_AGENT, task, context, provider, registry, on_progress)
 
 
 def delegate_to_analysis(task: str, context: str = "", *, tool_context=None) -> dict:
@@ -125,7 +134,8 @@ def delegate_to_analysis(task: str, context: str = "", *, tool_context=None) -> 
     registry = getattr(tool_context, "registry", None)
     if not provider or not registry:
         return {"error": "provider/registry 未注入，无法启动 sub-agent"}
-    return run_sub_agent(ANALYSIS_AGENT, task, context, provider, registry)
+    on_progress = getattr(tool_context, "on_progress", None)
+    return run_sub_agent(ANALYSIS_AGENT, task, context, provider, registry, on_progress)
 
 
 def delegate_to_trading(task: str, context: str = "", *, tool_context=None) -> dict:
@@ -134,4 +144,5 @@ def delegate_to_trading(task: str, context: str = "", *, tool_context=None) -> d
     registry = getattr(tool_context, "registry", None)
     if not provider or not registry:
         return {"error": "provider/registry 未注入，无法启动 sub-agent"}
-    return run_sub_agent(TRADING_AGENT, task, context, provider, registry)
+    on_progress = getattr(tool_context, "on_progress", None)
+    return run_sub_agent(TRADING_AGENT, task, context, provider, registry, on_progress)

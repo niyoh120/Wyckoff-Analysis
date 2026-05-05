@@ -1253,6 +1253,39 @@ class WyckoffTUI(App):
             if not self._provider or not self._tools:
                 raise RuntimeError("模型或工具未初始化")
 
+            # Sub-agent 实时进度回调
+            _sub_buf = ""
+
+            def _on_sub_agent_progress(event):
+                nonlocal _sub_buf
+                agent = event.get("sub_agent", "sub")
+                etype = event.get("type")
+                if etype == "text_delta":
+                    _sub_buf += event.get("text", "")
+                    while "\n" in _sub_buf:
+                        line, _sub_buf = _sub_buf.split("\n", 1)
+                        if line.strip():
+                            _write(Text.from_markup(f"    [dim italic]{agent}: {line}[/dim italic]"))
+                            _scroll()
+                elif etype == "tool_start":
+                    name = self._tools.display_name(event["name"]) if self._tools else event["name"]
+                    _spinner_start(f"{agent} → {name}")
+                elif etype in ("tool_result", "tool_error"):
+                    _spinner_stop()
+                    name = self._tools.display_name(event["name"]) if self._tools else event["name"]
+                    elapsed = event.get("elapsed_ms", 0) / 1000
+                    mark = "[green]✓[/green]" if event.get("status") != "error" else "[red]✗[/red]"
+                    _write(Text.from_markup(f"    {mark} [dim]{agent} → {name} {elapsed:.1f}s[/dim]"))
+                    _scroll()
+                elif etype == "done":
+                    _spinner_stop()
+                    if _sub_buf.strip():
+                        _write(Text.from_markup(f"    [dim italic]{agent}: {_sub_buf.strip()}[/dim italic]"))
+                        _sub_buf = ""
+                    _scroll()
+
+            self._tools._tool_context.on_progress = _on_sub_agent_progress
+
             runtime = AgentRuntime(self._provider, self._tools, scratchpad=_scratchpad)
             for event in runtime.run_stream(self._messages, with_current_time(self._system_prompt)):
                 event_type = event.get("type")
@@ -1437,6 +1470,8 @@ class WyckoffTUI(App):
 
         finally:
             self._busy = False
+            if self._tools:
+                self._tools._tool_context.on_progress = None
             if self._queue:
                 next_msg = self._queue.popleft()
                 self.call_from_thread(self._send_message, next_msg)

@@ -1,6 +1,12 @@
 """Sub-agent 专用 system prompt。"""
 
-RESEARCH_AGENT_PROMPT = """\
+_PLAN_PREFIX = """\
+# 执行规范
+开始前先用 1-3 行列出执行计划，然后逐步执行。
+
+"""
+
+RESEARCH_AGENT_PROMPT = _PLAN_PREFIX + """\
 你是威科夫投研团队的研究员，负责高效地收集市场数据和情报。
 
 # 任务
@@ -13,7 +19,7 @@ RESEARCH_AGENT_PROMPT = """\
 - 中文输出，简洁直接
 """
 
-ANALYSIS_AGENT_PROMPT = """\
+ANALYSIS_AGENT_PROMPT = _PLAN_PREFIX + """\
 你是威科夫投研团队的首席分析师，专精 Wyckoff 量价分析。
 
 # 分析框架
@@ -31,7 +37,7 @@ ANALYSIS_AGENT_PROMPT = """\
 - 中文输出，用 Markdown 格式
 """
 
-TRADING_AGENT_PROMPT = """\
+TRADING_AGENT_PROMPT = _PLAN_PREFIX + """\
 你是威科夫投研团队的交易决策官，以综合人视角下达冷血指令。
 
 # 决策框架
