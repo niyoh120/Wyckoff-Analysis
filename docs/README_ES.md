@@ -60,9 +60,21 @@ No requiere instalacion.
 
 SPA moderna con chat de AI Agent, gestion de cartera, screener de embudo, seguimiento de recomendaciones, exportacion de datos, streaming y visualizacion de llamadas a herramientas.
 
+| Sala de chat | Screener de embudo |
+|:---:|:---:|
+| <img src="screenshots/web-chat.png" width="450" /> | <img src="screenshots/web-screen.png" width="450" /> |
+
+| Seguimiento de recomendaciones | Cartera |
+|:---:|:---:|
+| <img src="screenshots/web-track.png" width="450" /> | <img src="screenshots/web-portfolio.png" width="450" /> |
+
 **Portal Streamlit de mantenimiento**: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
 
 Streamlit sostuvo el MVP inicial y sigue disponible para exportacion de datos, analisis de acciones individuales y configuracion.
+
+| Sala de chat | Exportacion de datos |
+|:---:|:---:|
+| <img src="../attach/web-chat.png" width="450" /> | <img src="../attach/web-export.png" width="450" /> |
 
 ## Funcionalidades
 
@@ -145,6 +157,14 @@ Solo dos pasos tras el inicio:
 
 Actualizar: `wyckoff update`
 
+| Pantalla inicial | Consulta de cartera |
+|:---:|:---:|
+| <img src="../attach/cli-home.png" width="450" /> | <img src="../attach/cli-running.png" width="450" /> |
+
+| Reporte de diagnostico | Instrucciones de operacion |
+|:---:|:---:|
+| <img src="../attach/cli-analysis.png" width="450" /> | <img src="../attach/cli-result.png" width="450" /> |
+
 ### Panel local
 
 ```bash
@@ -154,6 +174,10 @@ wyckoff dashboard
 Inicia un panel HTTP local (puerto 8765 por defecto) y abre el navegador automaticamente. Todos los datos quedan en SQLite local.
 
 Incluye recomendaciones, senales, cartera, memoria del agente, configuracion, logs de chat, logs del agente y estado de sincronizacion. Soporta tema oscuro/claro y UI bilingue CN/EN.
+
+| Resumen | Logs de chat | Detalle de trace |
+|:---:|:---:|:---:|
+| <img src="../attach/dashboard-overview.png" width="300" /> | <img src="../attach/dashboard-chatlog.png" width="300" /> | <img src="../attach/dashboard-chatlog-trace.png" width="300" /> |
 
 ### Grid de backtest
 

@@ -89,7 +89,18 @@ Streamlit 框架支撑了项目早期 MVP。当前保留数据导出、单股分
 
 | 读盘室 | 数据导出 |
 |:---:|:---:|
-| <img src="attach/web-chat.png" width="450" /> | <img src="attach/web-export.png" width="450" /> |
+| <img src="attach/demo/streamlit-chat.png" width="450" /> | <img src="attach/demo/streamlit-export.png" width="450" /> |
+
+---
+
+## 演示视频（含中文字幕）
+
+| 场景 | 视频 |
+|:---:|:---:|
+| 「从0到1读盘」Web 全流程（读盘室→设置） | [web-demo.mp4](attach/demo/web-demo.mp4) |
+| 「老入口维护」Streamlit 全流程（8 个入口页） | [streamlit-demo.mp4](attach/demo/streamlit-demo.mp4) |
+| 「终端党最爱」CLI 流程（启动→执行→结果） | [cli-demo.mp4](attach/demo/cli-demo.mp4) |
+| 「数据可追踪」Dashboard 全流程（各 tab） | [dashboard-demo.mp4](attach/demo/dashboard-demo.mp4) |
 
 ---
 
@@ -169,9 +180,21 @@ wyckoff dashboard
 
 功能页面：AI 推荐、信号池、持仓、Agent 记忆、配置、对话日志、Agent 日志、同步状态。支持暗色/亮色主题切换，中英双语。
 
-| 数据总览 | 对话日志 | Trace 详情 |
+| 总览 | AI 推荐 | 信号池 |
 |:---:|:---:|:---:|
-| <img src="attach/dashboard-overview.png" width="300" /> | <img src="attach/dashboard-chatlog.png" width="300" /> | <img src="attach/dashboard-chatlog-trace.png" width="300" /> |
+| <img src="attach/demo/dashboard-overview-new.png" width="300" /> | <img src="attach/demo/dashboard-recommendations.png" width="300" /> | <img src="attach/demo/dashboard-signals.png" width="300" /> |
+
+| 尾盘记录 | 持仓 | Agent 记忆 |
+|:---:|:---:|:---:|
+| <img src="attach/demo/dashboard-tail-buy.png" width="300" /> | <img src="attach/demo/dashboard-portfolio.png" width="300" /> | <img src="attach/demo/dashboard-memory.png" width="300" /> |
+
+| 后台任务 | 对话日志 | 同步状态 |
+|:---:|:---:|:---:|
+| <img src="attach/demo/dashboard-bgtasks.png" width="300" /> | <img src="attach/demo/dashboard-chatlog-new.png" width="300" /> | <img src="attach/demo/dashboard-sync.png" width="300" /> |
+
+| 对话日志详情（Trace） |
+|:---:|
+| <img src="attach/demo/dashboard-chatlog-detail-content.png" width="920" /> |
 
 ---
 

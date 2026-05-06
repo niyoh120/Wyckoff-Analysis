@@ -60,9 +60,21 @@ No installation required.
 
 Modern React SPA with AI Agent chat, portfolio management, funnel screening, recommendation tracking, data export, streaming output, and tool-call visualization.
 
+| Chat Room | Funnel Screener |
+|:---:|:---:|
+| <img src="screenshots/web-chat.png" width="450" /> | <img src="screenshots/web-screen.png" width="450" /> |
+
+| Recommendation Tracking | Portfolio |
+|:---:|:---:|
+| <img src="screenshots/web-track.png" width="450" /> | <img src="screenshots/web-portfolio.png" width="450" /> |
+
 **Streamlit Maintenance Portal**: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
 
 Streamlit powered the early MVP and remains available for data export, single-stock analysis, and settings.
+
+| Chat Room | Data Export |
+|:---:|:---:|
+| <img src="../attach/web-chat.png" width="450" /> | <img src="../attach/web-export.png" width="450" /> |
 
 ## Features
 
@@ -145,6 +157,14 @@ Just two steps after launch:
 
 Upgrade: `wyckoff update`
 
+| Launch Screen | Portfolio Query |
+|:---:|:---:|
+| <img src="../attach/cli-home.png" width="450" /> | <img src="../attach/cli-running.png" width="450" /> |
+
+| Diagnosis Report | Action Instructions |
+|:---:|:---:|
+| <img src="../attach/cli-analysis.png" width="450" /> | <img src="../attach/cli-result.png" width="450" /> |
+
 ### Local Dashboard
 
 ```bash
@@ -154,6 +174,10 @@ wyckoff dashboard
 Starts a local HTTP dashboard (default port 8765) and opens the browser automatically. All data stays in local SQLite.
 
 Pages include recommendations, signals, portfolio, agent memory, configuration, chat logs, agent logs, and sync status. Dark/light theme and CN/EN bilingual UI are supported.
+
+| Overview | Chat Logs | Trace Detail |
+|:---:|:---:|:---:|
+| <img src="../attach/dashboard-overview.png" width="300" /> | <img src="../attach/dashboard-chatlog.png" width="300" /> | <img src="../attach/dashboard-chatlog-trace.png" width="300" /> |
 
 ### Backtest Grid
 

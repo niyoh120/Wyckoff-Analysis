@@ -60,9 +60,21 @@ Web + CLI + MCP 트리플 채널, Gemini / Claude / OpenAI / DeepSeek 멀티 모
 
 AI Agent 대화, 포트폴리오 관리, 퍼널 스크리닝, 추천 추적, 데이터 내보내기, 스트리밍 출력, 도구 호출 시각화를 제공하는 최신 React SPA입니다.
 
+| 대화실 | 퍼널 스크리닝 |
+|:---:|:---:|
+| <img src="screenshots/web-chat.png" width="450" /> | <img src="screenshots/web-screen.png" width="450" /> |
+
+| 추천 추적 | 포트폴리오 |
+|:---:|:---:|
+| <img src="screenshots/web-track.png" width="450" /> | <img src="screenshots/web-portfolio.png" width="450" /> |
+
 **Streamlit 유지보수 포털**: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
 
 Streamlit은 초기 MVP를 지탱한 유지보수 포털이며, 현재도 데이터 내보내기, 단일 종목 분석, 설정 등에 사용할 수 있습니다.
+
+| 대화실 | 데이터 내보내기 |
+|:---:|:---:|
+| <img src="../attach/web-chat.png" width="450" /> | <img src="../attach/web-export.png" width="450" /> |
 
 ## 기능 개요
 
@@ -145,6 +157,14 @@ wyckoff
 
 업데이트: `wyckoff update`
 
+| 시작 화면 | 포트폴리오 조회 |
+|:---:|:---:|
+| <img src="../attach/cli-home.png" width="450" /> | <img src="../attach/cli-running.png" width="450" /> |
+
+| 진단 리포트 | 실행 지시 |
+|:---:|:---:|
+| <img src="../attach/cli-analysis.png" width="450" /> | <img src="../attach/cli-result.png" width="450" /> |
+
 ### 로컬 대시보드
 
 ```bash
@@ -154,6 +174,10 @@ wyckoff dashboard
 로컬 HTTP 대시보드(기본 포트 8765)를 시작하고 브라우저를 자동으로 엽니다. 모든 데이터는 로컬 SQLite에 저장됩니다.
 
 추천, 시그널, 포트폴리오, Agent 기억, 설정, 대화 로그, Agent 로그, 동기화 상태를 제공합니다. 다크/라이트 테마와 중/영 이중 언어 UI를 지원합니다.
+
+| 데이터 개요 | 대화 로그 | Trace 상세 |
+|:---:|:---:|:---:|
+| <img src="../attach/dashboard-overview.png" width="300" /> | <img src="../attach/dashboard-chatlog.png" width="300" /> | <img src="../attach/dashboard-chatlog-trace.png" width="300" /> |
 
 ### 백테스트 그리드
 
