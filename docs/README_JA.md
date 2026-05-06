@@ -20,6 +20,50 @@
 
 Web + CLI + MCP の三系統対応、Gemini / Claude / OpenAI / DeepSeek から選択可能、GitHub Actions による完全自動化。
 
+プロジェクトホームページ：**[youngcan-wang.github.io/wyckoff-homepage](https://youngcan-wang.github.io/wyckoff-homepage/)**
+
+キーワード入口：**[Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/trading-agent/)** · **[Wyckoff Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/wyckoff-trading-agent/)** · **[AI Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/ai-trading-agent/)** · **[Stock Screener Agent](https://youngcan-wang.github.io/wyckoff-homepage/stock-screener-agent/)**
+
+> リスク開示：WyckoffAgent は教育・研究・情報提供を目的としたツールです。投資助言ではなく、個人の財務状況を網羅するものでも、将来の成果を保証するものでもありません。
+
+## ドキュメントナビ
+
+| 知りたいこと | 参照先 |
+|---|---|
+| 使い方、デプロイ、設定 | この README |
+| アーキテクチャ、Actions、データテーブル、キャッシュ方針 | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| ファネル、AI レポート、OMS、バックテストロジック | [../README_STRATEGY.md](../README_STRATEGY.md) |
+| 用語集 | [../GLOSSARY.md](../GLOSSARY.md) |
+| 研究ノートと運用 | [../wiki_repo_new/Home.md](../wiki_repo_new/Home.md) |
+
+## Special Thanks
+
+<table>
+  <tr>
+    <td width="150" align="center">
+      <a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4">
+        <img src="../attach/tickflow-logo.png" alt="TickFlow" width="120" />
+      </a>
+    </td>
+    <td>
+      <strong><a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4">TickFlow</a></strong><br />
+      WyckoffAgent の A株 / 米国株 / 香港株の高品質マーケットデータ能力を支えてくれる TickFlow に感謝します。
+    </td>
+  </tr>
+</table>
+
+## オンライン利用
+
+インストール不要です。
+
+**React Web App**：**[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
+
+AI Agent 対話、ポートフォリオ管理、ファネル選股、推奨追跡、データ出力、ストリーミング表示、ツール呼び出し可視化を備えた React SPA。
+
+**Streamlit メンテナンス入口**：**[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
+
+Streamlit は初期 MVP を支えた入口で、現在もデータ出力・単一銘柄分析・設定などに利用できます。
+
 ## 機能一覧
 
 | 機能 | 説明 |
@@ -53,10 +97,14 @@ tickflow → tushare → akshare → baostock → efinance
 
 いずれかのソースが利用不可の場合、自動的に次へ切り替え。手動操作は不要。
 
-> **推奨：TickFlow接続でリアルタイム/分時データが強化されます**
+> **推奨：TickFlow 接続で A株 / 米国株 / 香港株のリアルタイム・分時データ能力が強化されます**
 > 登録：[TickFlow登録リンク](https://tickflow.org/auth/register?ref=5N4NKTCPL4)
 
-## クイックスタート
+## ローカル利用
+
+### CLI — 推奨
+
+ターミナルネイティブのワークフローで、最も機能が揃っています。バックグラウンドタスク、記憶、Skills、MCP Server、ローカル SQLite 保存に対応。
 
 ### ワンライナーインストール（推奨）
 
@@ -97,6 +145,16 @@ wyckoff
 
 アップグレード：`wyckoff update`
 
+### ローカルダッシュボード
+
+```bash
+wyckoff dashboard
+```
+
+ローカル HTTP ダッシュボード（デフォルト 8765）を起動し、ブラウザを自動で開きます。すべてのデータはローカル SQLite に保存されます。
+
+推奨、シグナル、保有、Agent 記憶、設定、対話ログ、Agent ログ、同期状態に対応。ダーク/ライトテーマと日中バイリンガル UI を備えています。
+
 ### バックテストグリッド
 
 18 パラメータの並列実行、最適パラメータ・シャープマトリクス・戦略ヘルスチェックを出力：
@@ -105,7 +163,17 @@ wyckoff
 |:---:|:---:|
 | <img src="../attach/backtest-grid-1.png" width="450" /> | <img src="../attach/backtest-grid-2.png" width="450" /> |
 
-### Web
+### ローカル Web
+
+CLI と同じローカル SQLite データを共有する React SPA：
+
+```bash
+cd web/apps/web
+pnpm install
+pnpm dev
+```
+
+旧 Streamlit のローカル起動：
 
 ```bash
 git clone https://github.com/YoungCan-Wang/Wyckoff-Analysis.git
@@ -188,6 +256,8 @@ Streamlit：**[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-a
 | `FEISHU_WEBHOOK_URL` | Feishu プッシュ | オプション |
 | `TG_BOT_TOKEN` + `TG_CHAT_ID` | Telegram プッシュ | オプション |
 
+> データソース：[TickFlow →](https://tickflow.org/auth/register?ref=5N4NKTCPL4) ｜ LLM API：[1Route →](https://www.1route.dev/register?aff=359904261)
+
 全設定項目と GitHub Actions Secrets の詳細は [アーキテクチャドキュメント](ARCHITECTURE.md) を参照。
 
 ## MCP Server
@@ -225,6 +295,20 @@ claude mcp add wyckoff -- wyckoff-mcp
 軽量なワイコフ分析機能の再利用：[`YoungCan-Wang/wyckoff_skill`](https://github.com/YoungCan-Wang/wyckoff_skill.git)
 
 AIアシスタントに「ワイコフ視点」を素早く装着するのに最適。
+
+## コミュニティ
+
+| Feishu グループ | QQ グループ | Feishu 個人 |
+|:---:|:---:|:---:|
+| <img src="../attach/飞书群二维码.png" width="200" /> | <img src="../attach/QQ群二维码.jpg" width="200" /><br/>グループ番号: 761348919 | <img src="../attach/飞书个人二维码.png" width="200" /> |
+
+## スポンサー
+
+役に立ったら Star をお願いします。利益が出たら作者にハンバーガーをおごってください。
+
+| Alipay | WeChat |
+|:---:|:---:|
+| <img src="../attach/支付宝收款码.jpg" width="200" /> | <img src="../attach/微信收款码.png" width="200" /> |
 
 ## リスク警告
 

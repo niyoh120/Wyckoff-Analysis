@@ -20,6 +20,50 @@
 
 Web + CLI + MCP 트리플 채널, Gemini / Claude / OpenAI / DeepSeek 멀티 모델 전환, GitHub Actions 자동화 스케줄링 지원.
 
+프로젝트 홈페이지: **[youngcan-wang.github.io/wyckoff-homepage](https://youngcan-wang.github.io/wyckoff-homepage/)**
+
+키워드 입구: **[Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/trading-agent/)** · **[Wyckoff Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/wyckoff-trading-agent/)** · **[AI Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/ai-trading-agent/)** · **[Stock Screener Agent](https://youngcan-wang.github.io/wyckoff-homepage/stock-screener-agent/)**
+
+> 위험 고지: WyckoffAgent는 교육, 연구, 정보 제공 목적의 도구입니다. 투자 조언을 제공하지 않으며, 개인별 재무 상황을 모두 반영하지 않고, 미래 성과를 보장하지 않습니다.
+
+## 문서 안내
+
+| 알고 싶은 내용 | 위치 |
+|---|---|
+| 사용, 배포, 설정 | 이 README |
+| 아키텍처, Actions, 데이터 테이블, 캐시 정책 | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| 퍼널, AI 리포트, OMS, 백테스트 로직 | [../README_STRATEGY.md](../README_STRATEGY.md) |
+| 용어집 | [../GLOSSARY.md](../GLOSSARY.md) |
+| 연구 노트와 운영 | [../wiki_repo_new/Home.md](../wiki_repo_new/Home.md) |
+
+## Special Thanks
+
+<table>
+  <tr>
+    <td width="150" align="center">
+      <a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4">
+        <img src="../attach/tickflow-logo.png" alt="TickFlow" width="120" />
+      </a>
+    </td>
+    <td>
+      <strong><a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4">TickFlow</a></strong><br />
+      WyckoffAgent에 A주 / 미국주식 / 홍콩주식 고품질 시장 데이터 기능을 제공해 준 TickFlow에 감사드립니다.
+    </td>
+  </tr>
+</table>
+
+## 온라인 사용
+
+설치 없이 바로 사용할 수 있습니다.
+
+**React Web App**: **[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
+
+AI Agent 대화, 포트폴리오 관리, 퍼널 스크리닝, 추천 추적, 데이터 내보내기, 스트리밍 출력, 도구 호출 시각화를 제공하는 최신 React SPA입니다.
+
+**Streamlit 유지보수 포털**: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
+
+Streamlit은 초기 MVP를 지탱한 유지보수 포털이며, 현재도 데이터 내보내기, 단일 종목 분석, 설정 등에 사용할 수 있습니다.
+
 ## 기능 개요
 
 | 기능 | 설명 |
@@ -53,10 +97,14 @@ tickflow → tushare → akshare → baostock → efinance
 
 어느 소스든 사용 불가 시 자동 전환되며, 별도 개입이 필요 없습니다.
 
-> **권장: TickFlow 연결로 실시간/분봉 데이터 강화**
+> **권장: TickFlow 연결로 A주 / 미국주식 / 홍콩주식 실시간 및 분봉 데이터 기능 강화**
 > 등록: [TickFlow 등록 링크](https://tickflow.org/auth/register?ref=5N4NKTCPL4)
 
-## 빠른 시작
+## 로컬 사용
+
+### CLI — 권장
+
+터미널 네이티브 워크플로우이며 기능이 가장 완전합니다. 백그라운드 작업, 메모리, Skills, MCP Server, 로컬 SQLite 저장을 지원합니다.
 
 ### 원라인 설치 (권장)
 
@@ -97,6 +145,16 @@ wyckoff
 
 업데이트: `wyckoff update`
 
+### 로컬 대시보드
+
+```bash
+wyckoff dashboard
+```
+
+로컬 HTTP 대시보드(기본 포트 8765)를 시작하고 브라우저를 자동으로 엽니다. 모든 데이터는 로컬 SQLite에 저장됩니다.
+
+추천, 시그널, 포트폴리오, Agent 기억, 설정, 대화 로그, Agent 로그, 동기화 상태를 제공합니다. 다크/라이트 테마와 중/영 이중 언어 UI를 지원합니다.
+
 ### 백테스트 그리드
 
 18개 파라미터 병렬 실행, 최적 파라미터, Sharpe 매트릭스, 전략 건강 체크 출력:
@@ -105,7 +163,17 @@ wyckoff
 |:---:|:---:|
 | <img src="../attach/backtest-grid-1.png" width="450" /> | <img src="../attach/backtest-grid-2.png" width="450" /> |
 
-### Web
+### 로컬 Web
+
+CLI와 동일한 로컬 SQLite 데이터를 공유하는 React SPA:
+
+```bash
+cd web/apps/web
+pnpm install
+pnpm dev
+```
+
+Legacy Streamlit 로컬 실행:
 
 ```bash
 git clone https://github.com/YoungCan-Wang/Wyckoff-Analysis.git
@@ -188,6 +256,8 @@ Streamlit: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-an
 | `FEISHU_WEBHOOK_URL` | Feishu 푸시 | 선택 |
 | `TG_BOT_TOKEN` + `TG_CHAT_ID` | Telegram 푸시 | 선택 |
 
+> 데이터 소스: [TickFlow →](https://tickflow.org/auth/register?ref=5N4NKTCPL4) | LLM API: [1Route →](https://www.1route.dev/register?aff=359904261)
+
 전체 설정 항목 및 GitHub Actions Secrets 설명은 [아키텍처 문서](ARCHITECTURE.md)를 참조하세요.
 
 ## MCP Server
@@ -225,6 +295,20 @@ claude mcp add wyckoff -- wyckoff-mcp
 경량 와이코프 분석 기능 재사용: [`YoungCan-Wang/wyckoff_skill`](https://github.com/YoungCan-Wang/wyckoff_skill.git)
 
 AI 어시스턴트에 빠르게 "와이코프 시각"을 장착하기에 적합합니다.
+
+## 커뮤니티
+
+| Feishu 그룹 | QQ 그룹 | Feishu 연락처 |
+|:---:|:---:|:---:|
+| <img src="../attach/飞书群二维码.png" width="200" /> | <img src="../attach/QQ群二维码.jpg" width="200" /><br/>그룹 번호: 761348919 | <img src="../attach/飞书个人二维码.png" width="200" /> |
+
+## 후원
+
+프로젝트가 도움이 되었다면 Star를 부탁드립니다. 돈을 벌었다면 저자에게 햄버거를 사 주세요.
+
+| Alipay | WeChat |
+|:---:|:---:|
+| <img src="../attach/支付宝收款码.jpg" width="200" /> | <img src="../attach/微信收款码.png" width="200" /> |
 
 ## 위험 경고
 

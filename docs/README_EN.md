@@ -20,6 +20,50 @@ Talk to a Wyckoff master in natural language. He commands 10 professional tools 
 
 Web + CLI + MCP triple channel, Gemini / Claude / OpenAI / DeepSeek multi-model switching, GitHub Actions for fully automated daily runs.
 
+Project homepage: **[youngcan-wang.github.io/wyckoff-homepage](https://youngcan-wang.github.io/wyckoff-homepage/)**
+
+Keyword entries: **[Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/trading-agent/)** · **[Wyckoff Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/wyckoff-trading-agent/)** · **[AI Trading Agent](https://youngcan-wang.github.io/wyckoff-homepage/ai-trading-agent/)** · **[Stock Screener Agent](https://youngcan-wang.github.io/wyckoff-homepage/stock-screener-agent/)**
+
+> Risk disclosure: WyckoffAgent is for educational, research, and informational use. It does not provide investment advice, does not account for every personal financial circumstance, and does not guarantee future performance.
+
+## Documentation
+
+| Topic | Where to Read |
+|---|---|
+| Usage, deployment, configuration | This README |
+| Architecture, Actions, data tables, cache policy | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Funnel, AI reports, OMS, backtesting logic | [../README_STRATEGY.md](../README_STRATEGY.md) |
+| Terms and concepts | [../GLOSSARY.md](../GLOSSARY.md) |
+| Research notes and operations | [../wiki_repo_new/Home.md](../wiki_repo_new/Home.md) |
+
+## Special Thanks
+
+<table>
+  <tr>
+    <td width="150" align="center">
+      <a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4">
+        <img src="../attach/tickflow-logo.png" alt="TickFlow" width="120" />
+      </a>
+    </td>
+    <td>
+      <strong><a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4">TickFlow</a></strong><br />
+      Thanks to TickFlow for high-quality A-share / US stock / Hong Kong stock market data support for WyckoffAgent.
+    </td>
+  </tr>
+</table>
+
+## Online Usage
+
+No installation required.
+
+**React Web App**: **[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
+
+Modern React SPA with AI Agent chat, portfolio management, funnel screening, recommendation tracking, data export, streaming output, and tool-call visualization.
+
+**Streamlit Maintenance Portal**: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
+
+Streamlit powered the early MVP and remains available for data export, single-stock analysis, and settings.
+
 ## Features
 
 | Capability | Description |
@@ -53,10 +97,14 @@ tickflow → tushare → akshare → baostock → efinance
 
 When any source is unavailable the system silently falls back to the next — zero intervention required.
 
-> **Recommended: connect TickFlow for stronger real-time / intraday capabilities**
+> **Recommended: connect TickFlow for stronger A-share / US stock / Hong Kong stock real-time and intraday capabilities**
 > Register: [TickFlow Registration](https://tickflow.org/auth/register?ref=5N4NKTCPL4)
 
-## Quick Start
+## Local Usage
+
+### CLI — Recommended
+
+Native terminal workflow with the most complete feature set. Supports background tasks, memory, Skills, MCP Server, and local SQLite storage.
 
 ### One-line Install (recommended)
 
@@ -97,6 +145,16 @@ Just two steps after launch:
 
 Upgrade: `wyckoff update`
 
+### Local Dashboard
+
+```bash
+wyckoff dashboard
+```
+
+Starts a local HTTP dashboard (default port 8765) and opens the browser automatically. All data stays in local SQLite.
+
+Pages include recommendations, signals, portfolio, agent memory, configuration, chat logs, agent logs, and sync status. Dark/light theme and CN/EN bilingual UI are supported.
+
 ### Backtest Grid
 
 18 parameter combos run in parallel, outputs optimal parameters, Sharpe matrix, and strategy health check:
@@ -105,7 +163,17 @@ Upgrade: `wyckoff update`
 |:---:|:---:|
 | <img src="../attach/backtest-grid-1.png" width="450" /> | <img src="../attach/backtest-grid-2.png" width="450" /> |
 
-### Web
+### Local Web
+
+React SPA local deployment, sharing the same local SQLite data with the CLI:
+
+```bash
+cd web/apps/web
+pnpm install
+pnpm dev
+```
+
+Legacy Streamlit local run:
 
 ```bash
 git clone https://github.com/YoungCan-Wang/Wyckoff-Analysis.git
@@ -188,6 +256,8 @@ Advanced configuration (`.env` file or GitHub Actions Secrets):
 | `FEISHU_WEBHOOK_URL` | Feishu push notifications | Optional |
 | `TG_BOT_TOKEN` + `TG_CHAT_ID` | Telegram push notifications | Optional |
 
+> Data source: [TickFlow →](https://tickflow.org/auth/register?ref=5N4NKTCPL4) | LLM API: [1Route →](https://www.1route.dev/register?aff=359904261)
+
 See the [Architecture doc](ARCHITECTURE.md) for the full config reference and GitHub Actions Secrets setup.
 
 ## MCP Server
@@ -225,6 +295,20 @@ Once registered, just ask "diagnose 000001" in Claude Code / Cursor to invoke Wy
 Lightweight reuse of the Wyckoff analysis capability: [`YoungCan-Wang/wyckoff_skill`](https://github.com/YoungCan-Wang/wyckoff_skill.git)
 
 Ideal for giving any AI assistant a quick "Wyckoff lens."
+
+## Community
+
+| Feishu Group | QQ Group | Feishu Contact |
+|:---:|:---:|:---:|
+| <img src="../attach/飞书群二维码.png" width="200" /> | <img src="../attach/QQ群二维码.jpg" width="200" /><br/>Group: 761348919 | <img src="../attach/飞书个人二维码.png" width="200" /> |
+
+## Sponsor
+
+If this project helps, a GitHub Star is appreciated. If it helps you make money, buy the author a burger.
+
+| Alipay | WeChat |
+|:---:|:---:|
+| <img src="../attach/支付宝收款码.jpg" width="200" /> | <img src="../attach/微信收款码.png" width="200" /> |
 
 ## Disclaimer
 
