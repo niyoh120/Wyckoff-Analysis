@@ -296,6 +296,8 @@ class ChatSessionManager:
                                     "input_tokens": getattr(um, "prompt_token_count", 0) or 0,
                                     "output_tokens": getattr(um, "candidates_token_count", 0) or 0,
                                     "total_tokens": getattr(um, "total_token_count", 0) or 0,
+                                    "cache_read_tokens": getattr(um, "cached_content_token_count", 0) or 0,
+                                    "cache_write_tokens": getattr(um, "cache_tokens_input", 0) or 0,
                                 },
                             )
                         )

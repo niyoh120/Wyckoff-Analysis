@@ -68,11 +68,12 @@ class ClaudeProvider(LLMProvider):
 
         tool_calls = []
         text_buf = ""
-        # 用于追踪当前正在构建的 tool_use block
         current_tool: dict | None = None
         current_tool_json = ""
         input_tokens = 0
         output_tokens = 0
+        cache_read = 0
+        cache_write = 0
 
         with self._client.messages.stream(**kwargs) as stream:
             for event in stream:
@@ -107,11 +108,19 @@ class ClaudeProvider(LLMProvider):
                     usage = getattr(event.message, "usage", None)
                     if usage:
                         input_tokens = getattr(usage, "input_tokens", 0)
+                        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+                        cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
 
         if tool_calls:
             yield {"type": "tool_calls", "tool_calls": tool_calls, "text": text_buf}
 
-        yield {"type": "usage", "input_tokens": input_tokens, "output_tokens": output_tokens}
+        yield {
+            "type": "usage",
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read,
+            "cache_write_tokens": cache_write,
+        }
 
     def _build_messages(self, messages: list[dict]) -> list[dict]:
         """将统一消息格式转为 Claude messages 格式。"""

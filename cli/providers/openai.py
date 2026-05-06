@@ -52,9 +52,13 @@ class OpenAIProvider(LLMProvider):
         response = self._client.chat.completions.create(**kwargs)
         result = self._parse_response(response)
         if hasattr(response, "usage") and response.usage:
+            p_details = getattr(response.usage, "prompt_tokens_details", None)
+            c_details = getattr(response.usage, "completion_tokens_details", None)
             result["usage"] = {
                 "input_tokens": response.usage.prompt_tokens or 0,
                 "output_tokens": response.usage.completion_tokens or 0,
+                "cache_read_tokens": (getattr(p_details, "cached_tokens", 0) or 0) if p_details else 0,
+                "cache_write_tokens": (getattr(c_details, "cached_tokens", 0) or 0) if c_details else 0,
             }
         return result
 
@@ -82,6 +86,8 @@ class OpenAIProvider(LLMProvider):
         text_buf = ""
         input_tokens = 0
         output_tokens = 0
+        cache_read = 0
+        cache_write = 0
 
         try:
             stream = self._client.chat.completions.create(**kwargs)
@@ -99,6 +105,12 @@ class OpenAIProvider(LLMProvider):
             if not chunk.choices and chunk.usage:
                 input_tokens = chunk.usage.prompt_tokens or 0
                 output_tokens = chunk.usage.completion_tokens or 0
+                details = getattr(chunk.usage, "prompt_tokens_details", None)
+                if details:
+                    cache_read = getattr(details, "cached_tokens", 0) or 0
+                comp_details = getattr(chunk.usage, "completion_tokens_details", None)
+                if comp_details:
+                    cache_write = getattr(comp_details, "cached_tokens", 0) or 0
                 continue
 
             if not chunk.choices:
@@ -166,7 +178,13 @@ class OpenAIProvider(LLMProvider):
                 tool_calls.append({"id": entry["id"], "name": entry["name"], "args": args})
             yield {"type": "tool_calls", "tool_calls": tool_calls, "text": text_buf}
 
-        yield {"type": "usage", "input_tokens": input_tokens, "output_tokens": output_tokens}
+        yield {
+            "type": "usage",
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read,
+            "cache_write_tokens": cache_write,
+        }
 
     def _build_messages(self, messages: list[dict], system_prompt: str) -> list[dict]:
         """将统一消息格式转为 OpenAI messages 格式。"""

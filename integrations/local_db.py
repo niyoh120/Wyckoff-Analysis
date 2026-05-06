@@ -547,6 +547,14 @@ def update_local_free_cash(portfolio_id: str, free_cash: float) -> None:
 # ---------------------------------------------------------------------------
 
 
+_MEMORY_KEEP_LIMITS: dict[str, int] = {
+    "preference": 50,
+    "stock_opinion": 30,
+    "decision": 30,
+    "market_view": 20,
+}
+
+
 def save_memory(memory_type: str, content: str, codes: str = "") -> int:
     conn = get_db()
     with conn:
@@ -554,6 +562,14 @@ def save_memory(memory_type: str, content: str, codes: str = "") -> int:
             """INSERT INTO agent_memory (memory_type, content, codes)
                VALUES (?, ?, ?)""",
             (memory_type, content, codes),
+        )
+        limit = _MEMORY_KEEP_LIMITS.get(memory_type, 50)
+        conn.execute(
+            """DELETE FROM agent_memory WHERE memory_type = ? AND id NOT IN (
+                   SELECT id FROM agent_memory WHERE memory_type = ?
+                   ORDER BY created_at DESC LIMIT ?
+               )""",
+            (memory_type, memory_type, limit),
         )
         return cur.lastrowid or 0
 

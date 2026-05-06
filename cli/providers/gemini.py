@@ -99,6 +99,8 @@ class GeminiProvider(LLMProvider):
             "type": "usage",
             "input_tokens": getattr(usage_meta, "prompt_token_count", 0) or 0,
             "output_tokens": getattr(usage_meta, "candidates_token_count", 0) or 0,
+            "cache_read_tokens": getattr(usage_meta, "cached_content_token_count", 0) or 0,
+            "cache_write_tokens": getattr(usage_meta, "cache_tokens_input", 0) or 0,
         }
 
     def _build_contents(self, messages: list[dict]) -> list[types.Content]:
