@@ -47,13 +47,19 @@ React Web、Streamlit 维护入口、CLI、MCP 与 GitHub Actions 共同组成�
 
 ## Special Thanks
 
-<p align="center">
-  <a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4">
-    <img src="https://tickflow.org/favicon.ico" alt="TickFlow" width="48" height="48" />
-  </a>
-</p>
-
-感谢 [TickFlow](https://tickflow.org/auth/register?ref=5N4NKTCPL4) 为 WyckoffAgent 提供高质量 A 股行情数据能力支持。
+<table>
+  <tr>
+    <td width="150" align="center">
+      <a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4">
+        <img src="attach/tickflow-logo.png" alt="TickFlow" width="120" />
+      </a>
+    </td>
+    <td>
+      <strong><a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4">TickFlow</a></strong><br />
+      感谢 TickFlow 为 WyckoffAgent 提供高质量 A 股行情数据能力支持。
+    </td>
+  </tr>
+</table>
 
 ---
 
