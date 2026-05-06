@@ -113,11 +113,11 @@ def _runtime_config(market: str, output: str | None) -> RuntimeConfig:
     return RuntimeConfig(
         spec=spec,
         max_symbols=_int_env("MARKET_FUNNEL_MAX_SYMBOLS", spec.default_max_symbols, minimum=1),
-        quote_batch_size=_int_env("MARKET_FUNNEL_QUOTE_BATCH_SIZE", 5, minimum=1),
+        quote_batch_size=_int_env("MARKET_FUNNEL_QUOTE_BATCH_SIZE", 50, minimum=1),
         quote_batch_sleep=_float_env("MARKET_FUNNEL_QUOTE_BATCH_SLEEP", 1.1),
         kline_count=_int_env("MARKET_FUNNEL_KLINE_COUNT", 320, minimum=220),
-        kline_batch_size=_int_env("MARKET_FUNNEL_KLINE_BATCH_SIZE", 80, minimum=1),
-        kline_batch_sleep=_float_env("MARKET_FUNNEL_KLINE_BATCH_SLEEP", 0.4),
+        kline_batch_size=_int_env("MARKET_FUNNEL_KLINE_BATCH_SIZE", 100, minimum=1),
+        kline_batch_sleep=_float_env("MARKET_FUNNEL_KLINE_BATCH_SLEEP", 2.1),
         min_quote_amount=_float_env("MARKET_FUNNEL_MIN_QUOTE_AMOUNT", spec.default_min_quote_amount),
         min_avg_amount=_float_env("MARKET_FUNNEL_MIN_AVG_AMOUNT", 0.0),
         min_history_rows=_int_env("MARKET_FUNNEL_MIN_HISTORY_ROWS", 220, minimum=80),
@@ -317,12 +317,99 @@ def _candidate_rows(
     return out
 
 
+def _report_path(output_path: Path | None) -> Path | None:
+    if output_path is None:
+        return None
+    if output_path.name.endswith("_result.json"):
+        return output_path.with_name(output_path.name.replace("_result.json", "_report.md"))
+    return output_path.with_suffix(".md")
+
+
+def _fmt_number(value: Any) -> str:
+    try:
+        return f"{int(value):,}"
+    except (TypeError, ValueError):
+        return "0"
+
+
+def _fmt_float(value: Any, digits: int = 2) -> str:
+    try:
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _render_markdown_report(result: dict[str, Any]) -> str:
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    rows = [
+        ("股票池", result.get("universe_symbol_count")),
+        ("实时行情返回", result.get("quote_count")),
+        ("流动性预筛", result.get("selected_count")),
+        ("日K可用", result.get("fetched_count")),
+        ("L1 基础结构", metrics.get("layer1")),
+        ("L2 强弱通道", metrics.get("layer2")),
+        ("L3 板块共振", metrics.get("layer3")),
+        ("L4 触发命中", metrics.get("total_hits")),
+    ]
+    trigger_rows = []
+    for key, count in (metrics.get("by_trigger") or {}).items():
+        trigger_rows.append(f"| {TRIGGER_LABELS.get(str(key), str(key))} | {_fmt_number(count)} |")
+    candidates = result.get("top_candidates") if isinstance(result.get("top_candidates"), list) else []
+    candidate_rows = []
+    for index, item in enumerate(candidates[:30], start=1):
+        triggers = " / ".join(str(x) for x in item.get("triggers", [])) or "-"
+        candidate_rows.append(
+            "| "
+            f"{index} | {item.get('symbol', '-')} | {item.get('name', '-')} | "
+            f"{_fmt_float(item.get('score'))} | {_fmt_float(item.get('latest_close'), 3)} | {triggers} |"
+        )
+
+    blocks = [
+        f"# Wyckoff Funnel {result.get('label', result.get('market', ''))} 最终报告",
+        "## 漏斗概览",
+        "| 阶段 | 数量 |",
+        "| --- | ---: |",
+        *[f"| {name} | {_fmt_number(value)} |" for name, value in rows],
+        "",
+        "## 触发分布",
+        "| 触发 | 数量 |",
+        "| --- | ---: |",
+        *(trigger_rows or ["| 无触发 | 0 |"]),
+        "",
+        "## Top 候选",
+        "| # | 代码 | 名称 | 分数 | 最新收盘 | 触发 |",
+        "| ---: | --- | --- | ---: | ---: | --- |",
+        *(candidate_rows or ["| - | - | - | - | - | 本次无 L4 触发候选 |"]),
+        "",
+        "## 运行参数",
+        f"- 股票池文件: `{result.get('symbol_file', '-')}`",
+        f"- 实时行情: `{result.get('limits', {}).get('quote_batch_size', '-')}` 标的/批, "
+        f"sleep `{result.get('limits', {}).get('quote_batch_sleep', '-')}`s",
+        f"- 日K批量: `{result.get('limits', {}).get('kline_batch_size', '-')}` 标的/批, "
+        f"sleep `{result.get('limits', {}).get('kline_batch_sleep', '-')}`s",
+        f"- 成交额门槛: `{_fmt_number(result.get('limits', {}).get('min_quote_amount'))}`",
+    ]
+    return "\n".join(blocks).rstrip() + "\n"
+
+
 def _write_output(path: Path | None, payload: dict[str, Any]) -> None:
     if path is None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[market-funnel] result written: {path}")
+
+
+def _write_report(path: Path | None, result: dict[str, Any]) -> None:
+    report = _render_markdown_report(result)
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(report, encoding="utf-8")
+        print(f"[market-funnel] report written: {path}")
+    summary_path = os.getenv("GITHUB_STEP_SUMMARY", "").strip()
+    if summary_path:
+        with Path(summary_path).open("a", encoding="utf-8") as fh:
+            fh.write(report + "\n")
 
 
 def run_market_funnel(
@@ -350,13 +437,16 @@ def run_market_funnel(
     df_map, fetch_stats = _fetch_daily_histories(tf, symbols, runtime)
     fetched_symbols = [symbol for symbol in symbols if symbol in df_map]
     name_map = {str(item["symbol"]): str(item["name"]) for item in ranked}
+    print(f"[market-funnel] {runtime.spec.label} 漏斗筛选 L1~L4 symbols={len(fetched_symbols)}")
     triggers, metrics = _run_layers(fetched_symbols, name_map, df_map, runtime) if df_map else ({}, {})
+    report_path = _report_path(runtime.output_path)
     result = {
         "ok": bool(quotes and df_map),
         "market": runtime.spec.key,
         "label": runtime.spec.label,
         "universe": runtime.spec.universe,
         "symbol_file": str(runtime.symbol_path),
+        "report_path": str(report_path) if report_path else "",
         "universe_symbol_count": len(universe_symbols),
         "quote_count": len(quotes),
         "selected_count": len(symbols),
@@ -374,6 +464,7 @@ def run_market_funnel(
         },
     }
     _write_output(runtime.output_path, result)
+    _write_report(report_path, result)
     print(
         f"[market-funnel] done ok={result['ok']} market={runtime.spec.key} "
         f"quotes={len(quotes)} selected={len(symbols)} fetched={len(df_map)} "

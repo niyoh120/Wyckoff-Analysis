@@ -90,3 +90,7 @@ def test_run_market_funnel_uses_quote_prefilter_and_batch_fetch(tmp_path, monkey
     assert payload["limits"]["quote_batch_size"] == 1
     assert payload["limits"]["quote_batch_sleep"] == 0.0
     assert payload["limits"]["kline_batch_size"] == 1
+    report = output.with_name("hk_report.md").read_text(encoding="utf-8")
+    assert "Wyckoff Funnel 港股 最终报告" in report
+    assert "## 漏斗概览" in report
+    assert "| 股票池 | 3 |" in report
