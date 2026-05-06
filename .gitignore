@@ -33,10 +33,12 @@ data/funnel_snapshots/*
 !data/funnel_snapshots/.gitkeep
 data/strategy_shadow/
 logs/
+tmp/
 *.csv
 *.xlsx
 *.xls
 .env
+.claude/settings.local.json
 
 # 回测产物与快照缓存（体积大，本地生成即可）
 analysis/backtest/

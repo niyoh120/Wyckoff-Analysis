@@ -18,7 +18,6 @@ jobs:
       PYTHONUNBUFFERED: "1"
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
       TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
-      TICKFLOW_BASE_URL: ${{ secrets.TICKFLOW_BASE_URL }}
       TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}

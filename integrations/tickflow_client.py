@@ -18,14 +18,14 @@ from integrations.tickflow_notice import (
     record_tickflow_limit_event,
 )
 
-TICKFLOW_BASE_URL = os.getenv("TICKFLOW_BASE_URL", "https://api.tickflow.org").strip().rstrip("/")
+TICKFLOW_BASE_URL = "https://api.tickflow.org"
 TICKFLOW_TIMEOUT_SECONDS = max(int(os.getenv("TICKFLOW_TIMEOUT_SECONDS", "12")), 3)
 TICKFLOW_MAX_RETRIES = max(int(os.getenv("TICKFLOW_MAX_RETRIES", "3")), 1)
 TICKFLOW_RETRY_BACKOFF_SECONDS = max(float(os.getenv("TICKFLOW_RETRY_BACKOFF_SECONDS", "1.5")), 0.1)
 
 _PERIOD_SET = {"1m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M", "1Q", "1Y"}
 _CN_TZ = "Asia/Shanghai"
-_ADJUST_SET = {"none", "forward", "backward"}
+_ADJUST_SET = {"none", "forward", "backward", "forward_additive", "backward_additive"}
 _TICKFLOW_LOG_VERBOSE = os.getenv("TICKFLOW_LOG_VERBOSE", "0").strip().lower() in {
     "1",
     "true",
@@ -235,6 +235,52 @@ class TickFlowClient:
     def get_intraday(self, symbol: str, *, period: str = "1m", count: int = 500) -> pd.DataFrame:
         return self.get_klines(symbol, period=period, count=count, intraday=True)
 
+    def get_klines_batch(
+        self,
+        symbols: list[str],
+        *,
+        period: str = "1d",
+        count: int = 300,
+        start_time_ms: int | None = None,
+        end_time_ms: int | None = None,
+        adjust: str | None = None,
+    ) -> dict[str, pd.DataFrame]:
+        """批量查询历史 K 线，返回 {symbol: DataFrame}。"""
+        p = str(period or "1d").strip()
+        if p not in _PERIOD_SET:
+            raise ValueError(f"不支持的 period: {p}")
+        clean = [normalize_cn_symbol(x) for x in symbols if str(x or "").strip()]
+        clean = sorted(set(x for x in clean if x))
+        if not clean:
+            _tf_log("get_klines_batch skip: no valid symbols", always=True)
+            return {}
+        params: dict[str, Any] = {
+            "symbols": ",".join(clean),
+            "period": p,
+            "count": max(int(count), 1),
+        }
+        if start_time_ms is not None:
+            params["start_time"] = int(start_time_ms)
+        if end_time_ms is not None:
+            params["end_time"] = int(end_time_ms)
+        if adjust is not None:
+            adj = str(adjust or "").strip().lower()
+            if adj not in _ADJUST_SET:
+                raise ValueError(f"不支持的 adjust: {adjust}")
+            params["adjust"] = adj
+        payload = self._request("/v1/klines/batch", params=params)
+        raw = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(raw, dict):
+            _tf_log("get_klines_batch empty payload", always=True)
+            return {}
+        out: dict[str, pd.DataFrame] = {}
+        for sym, kline_payload in raw.items():
+            symbol = normalize_cn_symbol(str(sym or "").strip())
+            if symbol and isinstance(kline_payload, dict):
+                out[symbol] = parse_ohlcv_payload({"data": kline_payload})
+        _tf_log(f"get_klines_batch done: received={len(out)}/{len(clean)}", always=True)
+        return out
+
     def get_intraday_batch(
         self,
         symbols: list[str],
@@ -318,14 +364,25 @@ class TickFlowClient:
         _tf_log(f"get_financial_metrics done: received={len(out)}/{len(clean)}", always=True)
         return out
 
-    def get_quotes(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
-        clean = [normalize_cn_symbol(x) for x in symbols if str(x or "").strip()]
-        clean = [x for x in clean if x]
-        if not clean:
+    def get_quotes(
+        self,
+        symbols: list[str] | None = None,
+        *,
+        universes: list[str] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        clean = [normalize_cn_symbol(x) for x in symbols or [] if str(x or "").strip()]
+        clean = sorted(set(x for x in clean if x))
+        universe_ids = sorted(set(str(x).strip() for x in universes or [] if str(x).strip()))
+        if not clean and not universe_ids:
             return {}
+        params: dict[str, Any] = {}
+        if clean:
+            params["symbols"] = ",".join(clean)
+        if universe_ids:
+            params["universes"] = ",".join(universe_ids)
         payload = self._request(
             "/v1/quotes",
-            params={"symbols": ",".join(sorted(set(clean)))},
+            params=params,
         )
         data = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(data, list):

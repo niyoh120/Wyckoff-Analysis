@@ -1,0 +1,59 @@
+name: Wyckoff Funnel HK
+
+on:
+  schedule:
+    # 港股常规交易 16:00 HKT 收盘；16:35 HKT / 08:35 UTC 执行，给收盘行情留缓冲。
+    - cron: '35 8 * * 1-5'
+  workflow_dispatch:
+
+concurrency:
+  group: hk-funnel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+      TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
+      MARKET_FUNNEL_MAX_SYMBOLS: "600"
+      MARKET_FUNNEL_KLINE_COUNT: "320"
+      MARKET_FUNNEL_KLINE_BATCH_SIZE: "80"
+      MARKET_FUNNEL_KLINE_BATCH_SLEEP: "0.5"
+      MARKET_FUNNEL_MIN_QUOTE_AMOUNT: "2000000"
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Prepare logs dir
+        run: mkdir -p logs
+
+      - name: Run HK funnel
+        run: |
+          set -o pipefail
+          python -u scripts/market_funnel_job.py \
+            --market hk \
+            --output "${{ github.workspace }}/logs/hk_funnel_result.json" \
+            2>&1 | tee -a "${{ github.workspace }}/logs/hk_funnel.console.log"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hk-funnel-logs-${{ github.run_number }}
+          path: logs/*
+          retention-days: 7
+          if-no-files-found: warn

@@ -63,6 +63,7 @@ class FunnelConfig:
     trading_days: int = 320
 
     # Layer 1
+    require_cn_main_or_chinext: bool = True
     min_market_cap_yi: float = 35.0
     min_avg_amount_wan: float = 5000.0
     amount_avg_window: int = 20
@@ -336,7 +337,7 @@ def layer1_filter(
     l1_roe_negative = 0
     l1_high_debt = 0
     for sym in symbols:
-        if not _is_main_or_chinext(sym):
+        if cfg.require_cn_main_or_chinext and not _is_main_or_chinext(sym):
             continue
         name = name_map.get(sym, "")
         if "ST" in name.upper():

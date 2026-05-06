@@ -1,0 +1,59 @@
+name: Wyckoff Funnel US
+
+on:
+  schedule:
+    # 美股常规交易 16:00 ET 收盘；21:35 UTC 覆盖 EST/EDT，始终在收盘后执行。
+    - cron: '35 21 * * 1-5'
+  workflow_dispatch:
+
+concurrency:
+  group: us-funnel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+      TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
+      MARKET_FUNNEL_MAX_SYMBOLS: "800"
+      MARKET_FUNNEL_KLINE_COUNT: "320"
+      MARKET_FUNNEL_KLINE_BATCH_SIZE: "80"
+      MARKET_FUNNEL_KLINE_BATCH_SLEEP: "0.5"
+      MARKET_FUNNEL_MIN_QUOTE_AMOUNT: "5000000"
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Prepare logs dir
+        run: mkdir -p logs
+
+      - name: Run US funnel
+        run: |
+          set -o pipefail
+          python -u scripts/market_funnel_job.py \
+            --market us \
+            --output "${{ github.workspace }}/logs/us_funnel_result.json" \
+            2>&1 | tee -a "${{ github.workspace }}/logs/us_funnel.console.log"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: us-funnel-logs-${{ github.run_number }}
+          path: logs/*
+          retention-days: 7
+          if-no-files-found: warn
