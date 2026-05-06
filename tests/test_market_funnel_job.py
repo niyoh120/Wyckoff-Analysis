@@ -30,12 +30,13 @@ def _daily_frame(rows: int = 230) -> pd.DataFrame:
 
 class FakeTickFlowClient:
     def __init__(self) -> None:
+        self.quote_batches: list[list[str]] = []
         self.kline_batches: list[list[str]] = []
 
     def get_quotes(self, symbols=None, *, universes=None):
-        assert symbols is None
-        assert universes == ["HK_Equity"]
-        return {
+        assert universes is None
+        self.quote_batches.append(list(symbols or []))
+        quotes = {
             "00700.HK": {
                 "symbol": "00700.HK",
                 "last_price": 350.0,
@@ -50,6 +51,7 @@ class FakeTickFlowClient:
             },
             "09999.HK": {"symbol": "09999.HK", "last_price": 0.0, "amount": 10_000_000.0},
         }
+        return {symbol: quotes[symbol] for symbol in symbols or [] if symbol in quotes}
 
     def get_klines_batch(self, symbols, *, period, count, adjust):
         self.kline_batches.append(list(symbols))
@@ -60,7 +62,11 @@ class FakeTickFlowClient:
 
 
 def test_run_market_funnel_uses_quote_prefilter_and_batch_fetch(tmp_path, monkeypatch):
+    symbol_file = tmp_path / "hk_symbols.txt"
+    symbol_file.write_text("00700.HK\n00005.HK\n09999.HK\n", encoding="utf-8")
+    monkeypatch.setenv("MARKET_FUNNEL_SYMBOL_FILE", str(symbol_file))
     monkeypatch.setenv("MARKET_FUNNEL_MAX_SYMBOLS", "2")
+    monkeypatch.setenv("MARKET_FUNNEL_QUOTE_BATCH_SIZE", "1")
     monkeypatch.setenv("MARKET_FUNNEL_KLINE_COUNT", "230")
     monkeypatch.setenv("MARKET_FUNNEL_KLINE_BATCH_SIZE", "1")
     monkeypatch.setenv("MARKET_FUNNEL_KLINE_BATCH_SLEEP", "0")
@@ -74,7 +80,11 @@ def test_run_market_funnel_uses_quote_prefilter_and_batch_fetch(tmp_path, monkey
     assert result["ok"] is True
     assert result["market"] == "hk"
     assert result["quote_count"] == 3
+    assert result["universe_symbol_count"] == 3
     assert result["selected_count"] == 2
     assert result["fetched_count"] == 2
+    assert client.quote_batches == [["00700.HK"], ["00005.HK"], ["09999.HK"]]
     assert client.kline_batches == [["00700.HK"], ["00005.HK"]]
-    assert json.loads(output.read_text(encoding="utf-8"))["limits"]["kline_batch_size"] == 1
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["limits"]["quote_batch_size"] == 1
+    assert payload["limits"]["kline_batch_size"] == 1

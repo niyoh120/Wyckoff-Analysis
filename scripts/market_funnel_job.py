@@ -38,6 +38,7 @@ class MarketSpec:
     key: str
     label: str
     universe: str
+    symbol_file: str
     default_max_symbols: int
     default_min_quote_amount: float
 
@@ -46,6 +47,7 @@ class MarketSpec:
 class RuntimeConfig:
     spec: MarketSpec
     max_symbols: int
+    quote_batch_size: int
     kline_count: int
     kline_batch_size: int
     kline_batch_sleep: float
@@ -53,6 +55,7 @@ class RuntimeConfig:
     min_avg_amount: float
     min_history_rows: int
     output_path: Path | None
+    symbol_path: Path
 
 
 MARKET_SPECS = {
@@ -60,6 +63,7 @@ MARKET_SPECS = {
         key="hk",
         label="港股",
         universe="HK_Equity",
+        symbol_file="hk.txt",
         default_max_symbols=600,
         default_min_quote_amount=2_000_000.0,
     ),
@@ -67,6 +71,7 @@ MARKET_SPECS = {
         key="us",
         label="美股",
         universe="US_Equity",
+        symbol_file="us.txt",
         default_max_symbols=800,
         default_min_quote_amount=5_000_000.0,
     ),
@@ -95,9 +100,19 @@ def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
 
 def _runtime_config(market: str, output: str | None) -> RuntimeConfig:
     spec = MARKET_SPECS[market]
+    symbol_file = (
+        os.getenv(f"MARKET_FUNNEL_{market.upper()}_SYMBOL_FILE", "").strip()
+        or os.getenv("MARKET_FUNNEL_SYMBOL_FILE", "").strip()
+    )
+    symbol_path = (
+        Path(symbol_file)
+        if symbol_file
+        else Path(__file__).resolve().parents[1] / "data" / "market_universes" / spec.symbol_file
+    )
     return RuntimeConfig(
         spec=spec,
         max_symbols=_int_env("MARKET_FUNNEL_MAX_SYMBOLS", spec.default_max_symbols, minimum=1),
+        quote_batch_size=_int_env("MARKET_FUNNEL_QUOTE_BATCH_SIZE", 100, minimum=1),
         kline_count=_int_env("MARKET_FUNNEL_KLINE_COUNT", 320, minimum=220),
         kline_batch_size=_int_env("MARKET_FUNNEL_KLINE_BATCH_SIZE", 80, minimum=1),
         kline_batch_sleep=_float_env("MARKET_FUNNEL_KLINE_BATCH_SLEEP", 0.4),
@@ -105,7 +120,25 @@ def _runtime_config(market: str, output: str | None) -> RuntimeConfig:
         min_avg_amount=_float_env("MARKET_FUNNEL_MIN_AVG_AMOUNT", 0.0),
         min_history_rows=_int_env("MARKET_FUNNEL_MIN_HISTORY_ROWS", 220, minimum=80),
         output_path=Path(output) if output else None,
+        symbol_path=symbol_path,
     )
+
+
+def _load_symbols(path: Path) -> list[str]:
+    if not path.exists():
+        raise FileNotFoundError(f"market symbol file not found: {path}")
+    seen: set[str] = set()
+    symbols: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        clean = line.split("#", 1)[0].replace(",", " ").strip()
+        for raw in clean.split():
+            symbol = raw.strip().upper()
+            if symbol and symbol not in seen:
+                seen.add(symbol)
+                symbols.append(symbol)
+    if not symbols:
+        raise ValueError(f"market symbol file is empty: {path}")
+    return symbols
 
 
 def _row_float(row: dict[str, Any], *keys: str) -> float | None:
@@ -173,6 +206,19 @@ def _rank_quotes(
 def _chunks(items: list[str], size: int) -> list[list[str]]:
     width = max(int(size), 1)
     return [items[i : i + width] for i in range(0, len(items), width)]
+
+
+def _fetch_quotes(
+    client: TickFlowClient,
+    symbols: list[str],
+    cfg: RuntimeConfig,
+) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    batches = _chunks(symbols, cfg.quote_batch_size)
+    for index, chunk in enumerate(batches, start=1):
+        print(f"[market-funnel] {cfg.spec.label} 行情批次 {index}/{len(batches)} symbols={len(chunk)}")
+        out.update(client.get_quotes(symbols=chunk))
+    return out
 
 
 def _fetch_daily_histories(
@@ -283,11 +329,14 @@ def run_market_funnel(
 ) -> dict[str, Any]:
     runtime = _runtime_config(market, output)
     tf = client or TickFlowClient(api_key=os.getenv("TICKFLOW_API_KEY", "").strip())
+    universe_symbols = _load_symbols(runtime.symbol_path)
     print(
         f"[market-funnel] start market={runtime.spec.key} universe={runtime.spec.universe} "
-        f"max_symbols={runtime.max_symbols} kline_batch={runtime.kline_batch_size}"
+        f"symbols={len(universe_symbols)} max_symbols={runtime.max_symbols} "
+        f"quote_batch={runtime.quote_batch_size} kline_batch={runtime.kline_batch_size} "
+        f"symbol_file={runtime.symbol_path}"
     )
-    quotes = tf.get_quotes(universes=[runtime.spec.universe])
+    quotes = _fetch_quotes(tf, universe_symbols, runtime)
     ranked = _rank_quotes(quotes, max_symbols=runtime.max_symbols, min_quote_amount=runtime.min_quote_amount)
     if not ranked and runtime.min_quote_amount > 0:
         print("[market-funnel] quote amount filter returned empty; retry ranking without amount floor")
@@ -302,6 +351,8 @@ def run_market_funnel(
         "market": runtime.spec.key,
         "label": runtime.spec.label,
         "universe": runtime.spec.universe,
+        "symbol_file": str(runtime.symbol_path),
+        "universe_symbol_count": len(universe_symbols),
         "quote_count": len(quotes),
         "selected_count": len(symbols),
         "fetched_count": len(df_map),
@@ -310,6 +361,7 @@ def run_market_funnel(
         "top_candidates": _candidate_rows(triggers, name_map=name_map, df_map=df_map)[:50],
         "limits": {
             "max_symbols": runtime.max_symbols,
+            "quote_batch_size": runtime.quote_batch_size,
             "kline_batch_size": runtime.kline_batch_size,
             "kline_batch_sleep": runtime.kline_batch_sleep,
             "min_quote_amount": runtime.min_quote_amount,
