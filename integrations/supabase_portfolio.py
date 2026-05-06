@@ -299,8 +299,10 @@ def upsert_position(portfolio_id: str, position: dict[str, Any], client: Client 
             "name": str(position.get("name", "") or "").strip(),
             "shares": int(position.get("shares", 0) or 0),
             "cost_price": float(position.get("cost_price", 0) or 0),
-            "buy_dt": str(position.get("buy_dt", "") or "").strip(),
         }
+        buy_dt = str(position.get("buy_dt", "") or "").strip()
+        if buy_dt:
+            row["buy_dt"] = buy_dt
         client.table(TABLE_PORTFOLIO_POSITIONS).upsert(row, on_conflict="portfolio_id,code").execute()
         return True, f"{code} 已更新"
     except Exception as e:

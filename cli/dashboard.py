@@ -1095,7 +1095,7 @@ async function renderChatSession(c,sid){
     <!-- Right: Detail Panel -->
     <div style="flex:1;overflow-y:auto;padding:16px 20px">
       <div class="detail-tabs">
-        ${['simple','pro'].map(lv=>`<button class="detail-tab ${_chatViewLevel===lv?'active':''}" onclick="_chatViewLevel='${lv}';loadPage('chatlog')">${lv==='simple'?'Simple':'PRO'}</button>`).join('')}
+        ${['simple','opik','pro'].map(lv=>`<button class="detail-tab ${_chatViewLevel===lv?'active':''}" onclick="_chatViewLevel='${lv}';loadPage('chatlog')">${lv==='simple'?'Simple':lv==='opik'?'Opik':'PRO'}</button>`).join('')}
       </div>
       <div class="detail-head">
         <span class="pill pill-time">${localTime(selLog?.created_at)}</span>
@@ -1116,7 +1116,36 @@ async function renderChatSession(c,sid){
         const rd=meta.rounds_detail;
         if(rd&&rd.length>1)html+=proSection('Rounds Timeline',proRenderTimeline(rd),true,rd.length+' turns');
         return html;
-      })():`
+      })():_chatViewLevel==='opik'?`
+      <details open style="margin-bottom:12px"><summary class="summary-row">
+        <span>Input (system+messages+tools)</span><span style="display:flex;gap:4px">${viewTabs('input')}</span>
+      </summary>
+        <pre class="code-panel" style="max-height:none">${fmtContent(selTrace?.user?.content,{system_prompt:systemPrompt,messages:fullMessages,tools:toolSchemas},_chatInputMode)}</pre>
+      </details>
+      <details open style="margin-bottom:12px"><summary class="summary-row">
+        <span>Output</span><span style="display:flex;gap:4px">${viewTabs('output')}</span>
+      </summary>
+        <pre class="code-panel" style="max-height:none">${fmtContent(selTrace?.assistant?.content,{role:'assistant',content:selTrace?.assistant?.content||'',model:selLog?.model||'',provider:selLog?.provider||'',usage:{input:selLog?.tokens_in||0,output:selLog?.tokens_out||0,cache_read:meta.cache_read||0,cache_write:meta.cache_write||0,total:(selLog?.tokens_in||0)+(selLog?.tokens_out||0)+(meta.cache_read||0)},elapsed_s:selLog?.elapsed_s||0,stop_reason:meta.stop_reason||'stop',rounds:meta.rounds||1,tool_calls:toolSpans.length?toolSpans.map(s=>({name:s.name||s.tool||'tool',status:s.status||'ok',args:s.args||undefined,result:s.result||undefined})):undefined},_chatOutputMode)}</pre>
+      </details>
+      ${toolSpans.length?`<details open style="margin-bottom:12px"><summary class="summary-row"><span>Spans (${toolSpans.length})</span></summary>
+        <div style="padding:12px 0">${toolSpans.map(sp=>{
+          const statusIcon=sp.status==='error'?'<span style="color:var(--red)">✗</span>':sp.status==='background'?'<span style="color:var(--blue)">↗</span>':'<span style="color:var(--accent)">✓</span>';
+          return `<div style="padding:8px 10px;margin-bottom:6px;border-radius:6px;background:var(--card);border:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${statusIcon}<span class="pill pill-blue" style="font-size:10px">${escHtml(sp.name||sp.tool||'tool')}</span>${sp.status?`<span class="pill ${sp.status==='error'?'pill-red':sp.status==='background'?'pill-cyan':'pill-green'}" style="font-size:10px">${escHtml(sp.status)}</span>`:''}</div>
+          ${sp.args||sp.args_brief?`<pre class="code-panel" style="font-size:11px;color:var(--text2);margin-top:6px;max-height:100px">${escHtml(typeof sp.args==='string'?sp.args:sp.args?JSON.stringify(sp.args,null,2):sp.args_brief||'')}</pre>`:''}
+          ${sp.result?`<pre class="code-panel" style="font-size:11px;margin-top:6px;max-height:100px">${escHtml(typeof sp.result==='string'?sp.result:JSON.stringify(sp.result,null,2))}</pre>`:''}
+          ${sp.error?`<pre style="font-size:11px;color:var(--red);margin-top:4px">${escHtml(sp.error)}</pre>`:''}
+        </div>`}).join('')}</div></details>`:''}
+      ${selLog?.tokens_in||selLog?.tokens_out?`<details style="margin-bottom:12px"><summary class="summary-row"><span>Token Usage</span></summary>
+        <div style="padding:12px 0;font-size:12px;font-family:monospace;line-height:2">
+          <div><span style="color:var(--amber)">prompt_tokens</span>: ${(selLog.tokens_in||0).toLocaleString()}</div>
+          <div><span style="color:var(--amber)">completion_tokens</span>: ${(selLog.tokens_out||0).toLocaleString()}</div>
+          ${meta.cache_read?`<div><span style="color:var(--cyan)">cache_read</span>: ${(meta.cache_read||0).toLocaleString()}</div>`:''}
+          ${meta.cache_write?`<div><span style="color:var(--cyan)">cache_write</span>: ${(meta.cache_write||0).toLocaleString()}</div>`:''}
+          <div><span style="color:var(--accent)">total_tokens</span>: ${((selLog.tokens_in||0)+(selLog.tokens_out||0)+(meta.cache_read||0)).toLocaleString()}</div>
+        </div></details>`:''}
+      ${Object.keys(meta).length?`<details style="margin-bottom:12px"><summary class="summary-row"><span>Metadata</span></summary>
+        <pre class="code-panel" style="font-size:11px;color:var(--text2);max-height:260px">${escHtml(JSON.stringify(meta,null,2))}</pre></details>`:''}`:`
       <details open style="margin-bottom:12px"><summary class="summary-row">
         <span>Input</span><span style="display:flex;gap:4px">${viewTabs('input')}</span>
       </summary>

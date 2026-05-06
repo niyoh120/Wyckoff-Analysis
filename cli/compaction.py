@@ -221,10 +221,14 @@ def flush_memory_before_compaction(
         all_text = " ".join(m.get("content", "") or "" for m in messages)
         codes = extract_stock_codes(all_text)
 
+        _skip_phrases = ("摘要", "压缩", "总结", "对话历史", "分析讨论", "上下文")
         for line in result.strip().split("\n"):
             line = line.strip().lstrip("- ").strip()
-            if line and len(line) >= 5 and "无" not in line[:3]:
-                save_memory("preference", line, codes=",".join(codes[:10]))
+            if not line or len(line) < 5 or "无" in line[:3]:
+                continue
+            if any(p in line for p in _skip_phrases):
+                continue
+            save_memory("preference", line, codes=",".join(codes[:10]))
     except Exception:
         pass
 

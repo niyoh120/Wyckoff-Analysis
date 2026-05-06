@@ -454,6 +454,7 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
                                 "name": p.get("name", ""),
                                 "shares": p.get("shares", 0),
                                 "cost_price": p.get("cost", p.get("cost_price", 0)),
+                                "buy_dt": p.get("buy_dt", ""),
                                 "stop_loss": p.get("stop_loss"),
                             }
                             for p in state.get("positions", [])
@@ -1316,6 +1317,7 @@ def update_portfolio(
                                 "name": p.get("name", ""),
                                 "shares": p.get("shares", 0),
                                 "cost_price": p.get("cost", p.get("cost_price", 0)),
+                                "buy_dt": p.get("buy_dt", ""),
                                 "stop_loss": p.get("stop_loss"),
                             }
                             for p in state.get("positions", [])
