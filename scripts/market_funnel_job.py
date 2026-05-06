@@ -112,7 +112,7 @@ def _runtime_config(market: str, output: str | None) -> RuntimeConfig:
     return RuntimeConfig(
         spec=spec,
         max_symbols=_int_env("MARKET_FUNNEL_MAX_SYMBOLS", spec.default_max_symbols, minimum=1),
-        quote_batch_size=_int_env("MARKET_FUNNEL_QUOTE_BATCH_SIZE", 100, minimum=1),
+        quote_batch_size=_int_env("MARKET_FUNNEL_QUOTE_BATCH_SIZE", 5, minimum=1),
         kline_count=_int_env("MARKET_FUNNEL_KLINE_COUNT", 320, minimum=220),
         kline_batch_size=_int_env("MARKET_FUNNEL_KLINE_BATCH_SIZE", 80, minimum=1),
         kline_batch_sleep=_float_env("MARKET_FUNNEL_KLINE_BATCH_SLEEP", 0.4),
