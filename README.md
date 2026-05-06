@@ -95,12 +95,12 @@ Streamlit 框架支撑了项目早期 MVP。当前保留数据导出、单股分
 
 ## 演示视频（含中文字幕）
 
-| 场景 | 视频 |
-|:---:|:---:|
-| 「从0到1读盘」Web 全流程（读盘室→设置） | [web-demo.mp4](attach/demo/web-demo.mp4) |
-| 「老入口维护」Streamlit 全流程（8 个入口页） | [streamlit-demo.mp4](attach/demo/streamlit-demo.mp4) |
-| 「终端党最爱」CLI 流程（启动→执行→结果） | [cli-demo.mp4](attach/demo/cli-demo.mp4) |
-| 「数据可追踪」Dashboard 全流程（各 tab） | [dashboard-demo.mp4](attach/demo/dashboard-demo.mp4) |
+| 场景 | 本地文件 | Git 播放页 |
+|:---:|:---:|:---:|
+| 「从0到1读盘」Web 全流程（读盘室→设置） | [web-demo.mp4](attach/demo/web-demo.mp4) | [Play on GitHub](https://github.com/YoungCan-Wang/WyckoffTradingAgent/blob/main/attach/demo/web-demo.mp4) |
+| 「老入口维护」Streamlit 全流程（8 个入口页） | [streamlit-demo.mp4](attach/demo/streamlit-demo.mp4) | [Play on GitHub](https://github.com/YoungCan-Wang/WyckoffTradingAgent/blob/main/attach/demo/streamlit-demo.mp4) |
+| 「终端党最爱」CLI 流程（启动→执行→结果） | [cli-demo.mp4](attach/demo/cli-demo.mp4) | [Play on GitHub](https://github.com/YoungCan-Wang/WyckoffTradingAgent/blob/main/attach/demo/cli-demo.mp4) |
+| 「数据可追踪」Dashboard 全流程（各 tab） | [dashboard-demo.mp4](attach/demo/dashboard-demo.mp4) | [Play on GitHub](https://github.com/YoungCan-Wang/WyckoffTradingAgent/blob/main/attach/demo/dashboard-demo.mp4) |
 
 ---
 
