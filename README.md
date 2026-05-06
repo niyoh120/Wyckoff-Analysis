@@ -95,12 +95,29 @@ Streamlit 框架支撑了项目早期 MVP。当前保留数据导出、单股分
 
 ## 演示视频（含中文字幕）
 
-| 场景 | 本地文件 | Git 预览图 |
-|:---:|:---:|:---:|
-| 「从0到1读盘」Web 全流程（读盘室→设置） | [web-demo.mp4](attach/demo/web-demo.mp4) | <img src="attach/demo/web-demo.gif" width="220" /> |
-| 「老入口维护」Streamlit 全流程（8 个入口页） | [streamlit-demo.mp4](attach/demo/streamlit-demo.mp4) | <img src="attach/demo/streamlit-demo.gif" width="220" /> |
-| 「终端党最爱」CLI 流程（启动→执行→结果） | [cli-demo.mp4](attach/demo/cli-demo.mp4) | <img src="attach/demo/cli-demo.gif" width="220" /> |
-| 「数据可追踪」Dashboard 全流程（各 tab） | [dashboard-demo.mp4](attach/demo/dashboard-demo.mp4) | <img src="attach/demo/dashboard-demo.gif" width="220" /> |
+### 「从0到1读盘」Web 全流程（读盘室→设置）
+
+本地文件：[web-demo.mp4](attach/demo/web-demo.mp4)
+
+<img src="attach/demo/web-demo.gif" width="900" />
+
+### 「老入口维护」Streamlit 全流程（8 个入口页）
+
+本地文件：[streamlit-demo.mp4](attach/demo/streamlit-demo.mp4)
+
+<img src="attach/demo/streamlit-demo.gif" width="900" />
+
+### 「终端党最爱」CLI 流程（启动→执行→结果）
+
+本地文件：[cli-demo.mp4](attach/demo/cli-demo.mp4)
+
+<img src="attach/demo/cli-demo.gif" width="900" />
+
+### 「数据可追踪」Dashboard 全流程（各 tab）
+
+本地文件：[dashboard-demo.mp4](attach/demo/dashboard-demo.mp4)
+
+<img src="attach/demo/dashboard-demo.gif" width="900" />
 
 ---
 
