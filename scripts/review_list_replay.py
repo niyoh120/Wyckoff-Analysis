@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import sys
 from collections import Counter
+from datetime import date
 
 import pandas as pd
 
@@ -194,6 +195,167 @@ def _explain_risk_reject(
     return " | ".join(parts)
 
 
+def _normalize_code6(raw: object) -> str:
+    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
+    return digits[-6:].zfill(6) if digits else ""
+
+
+def _normalize_recommend_date(raw: object) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return "日期未知"
+    try:
+        if len(s) == 8 and s.isdigit():
+            d = pd.to_datetime(s, format="%Y%m%d")
+        else:
+            d = pd.to_datetime(s)
+        if pd.isna(d):
+            return s
+        return d.strftime("%Y-%m-%d")
+    except Exception:
+        return s
+
+
+def _load_recommendation_lookup(codes: list[str]) -> tuple[dict[str, list[dict]], str]:
+    clean_codes = sorted({int(c) for c in (_normalize_code6(code) for code in codes) if c})
+    if not clean_codes:
+        return {}, ""
+    try:
+        from core.constants import TABLE_RECOMMENDATION_TRACKING
+        from integrations.supabase_base import create_admin_client, is_admin_configured
+
+        if not is_admin_configured():
+            return {}, "推荐表未配置，无法确认是否被推荐过"
+
+        client = create_admin_client()
+        rows: list[dict] = []
+        chunk_size = 200
+        for start in range(0, len(clean_codes), chunk_size):
+            chunk = clean_codes[start : start + chunk_size]
+            resp = (
+                client.table(TABLE_RECOMMENDATION_TRACKING)
+                .select("code,name,recommend_date,recommend_count,is_ai_recommended")
+                .in_("code", chunk)
+                .order("recommend_date", desc=True)
+                .limit(10000)
+                .execute()
+            )
+            rows.extend([row for row in (resp.data or []) if isinstance(row, dict)])
+
+        lookup: dict[str, list[dict]] = {}
+        for row in rows:
+            code = _normalize_code6(row.get("code"))
+            if code:
+                lookup.setdefault(code, []).append(row)
+        return lookup, ""
+    except Exception as e:
+        print(f"[review] 推荐表读取失败: {e}")
+        return {}, "推荐表读取失败，无法确认是否被推荐过"
+
+
+def _format_recommendation_history(code: str, lookup: dict[str, list[dict]], load_error: str = "") -> str:
+    if load_error:
+        return f"推荐记录: {load_error}"
+    records = lookup.get(_normalize_code6(code), [])
+    if not records:
+        return "推荐记录: 此股没被推荐过"
+
+    dates = sorted({_normalize_recommend_date(row.get("recommend_date")) for row in records}, reverse=True)
+    parsed_counts = []
+    for row in records:
+        try:
+            parsed_counts.append(int(row.get("recommend_count") or 0))
+        except Exception:
+            pass
+    count = max([len(dates), *parsed_counts]) if parsed_counts else len(dates)
+    return f"推荐记录: {'、'.join(dates)} 被推荐过；累计推荐{count}次"
+
+
+def _short_code_list(rows: list[dict[str, str]], limit: int = 8) -> str:
+    shown = [f"{row['code']}{row['name']}" for row in rows[:limit]]
+    if len(rows) > limit:
+        shown.append(f"等{len(rows)}只")
+    return "、".join(shown) if shown else "无"
+
+
+def _build_focus_lines(rows: list[dict[str, str]], today: date, previous_trade_date: date) -> list[str]:
+    total = max(len(rows), 1)
+    stage_rows: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        stage_rows.setdefault(row["stage"], []).append(row)
+
+    l2_rows = stage_rows.get("L2淘汰", [])
+    risk_rows = stage_rows.get("风控淘汰[触发结构止损或派发]", [])
+    l4_miss_rows = stage_rows.get("L4未命中", [])
+    l3_rows = stage_rows.get("L3淘汰", [])
+    l1_rows = stage_rows.get("L1淘汰", [])
+    l4_hit_rows = stage_rows.get("L4命中", [])
+
+    lines = ["**重点归因**"]
+    if (today - previous_trade_date).days > 1:
+        lines.append(
+            f"- **日期间隔**：{previous_trade_date} 收盘后到 {today} 之间跨 {((today - previous_trade_date).days)} 个自然日，节假日/周末消息驱动的跳空异动，本来就很难由前一交易日日线结构提前捕获。"
+        )
+    if l2_rows:
+        pct = len(l2_rows) / total * 100.0
+        lines.append(
+            f"- **L2 是主因**：{len(l2_rows)} / {total}（{pct:.1f}%）前一日没有进入六通道。这里不宜直接放宽实盘漏斗，否则会把大量无结构、纯事件驱动的一日异动混入候选池。"
+        )
+    if risk_rows:
+        lines.append(
+            f"- **风控冲突优先复盘**：{_short_code_list(risk_rows)}。这些票已进入后续层，但被结构止损/派发硬剔除，最适合单独检查止损是否对节后修复过敏。"
+        )
+    if l4_miss_rows:
+        lines.append(
+            f"- **L4 扳机漏网**：{_short_code_list(l4_miss_rows)}。这些票已过 L2/L3，只差 Spring/LPS/EVR/SOS 微观触发，适合测试“爆发前夜压缩/试盘”类观察信号。"
+        )
+    if l3_rows:
+        lines.append(
+            f"- **板块层漏网**：{_short_code_list(l3_rows)}。若同一题材后续反复出现，可考虑给极强个股更多行业绕行权。"
+        )
+    if l1_rows:
+        lines.append(
+            f"- **基础过滤漏网**：{_short_code_list(l1_rows)}。主要是成交额/基础流动性，不建议为涨停复盘反向放宽。"
+        )
+    if l4_hit_rows:
+        lines.append(
+            f"- **已被漏斗捕获**：{_short_code_list(l4_hit_rows)}。这类不是形态漏检，后续应核对是否被 AI 配额或风控环节挡住。"
+        )
+    return lines
+
+
+def _build_report_lines(
+    rows: list[dict[str, str]],
+    stage_counter: Counter[str],
+    today: date,
+    previous_trade_date: date,
+    end_trade_date: str,
+) -> list[str]:
+    summary = " | ".join([f"{k}{v}" for k, v in stage_counter.items()]) or "无"
+    recommendation_notes = [str(row.get("recommendation", "")).strip() for row in rows]
+    recommendation_hits = sum(1 for note in recommendation_notes if "累计推荐" in note)
+    recommendation_unknown = sum(1 for note in recommendation_notes if "无法确认" in note)
+    lines = [
+        f"**今日**: {today}",
+        f"**前一日漏斗**: {end_trade_date}",
+        f"**今日涨幅 ≥ 8% 股票数**: {len(rows)}",
+        f"**结果汇总**: {summary}",
+        f"**推荐表交叉检查**: 命中{recommendation_hits}只 | 未推荐{len(rows) - recommendation_hits - recommendation_unknown}只"
+        + (f" | 无法确认{recommendation_unknown}只" if recommendation_unknown else ""),
+        "",
+        *_build_focus_lines(rows, today=today, previous_trade_date=previous_trade_date),
+        "",
+        "**逐票复盘（在前一日漏斗中止步层级与原因）**",
+        "",
+    ]
+
+    for row in rows:
+        recommendation = str(row.get("recommendation", "")).strip()
+        suffix = f" | {recommendation}" if recommendation else ""
+        lines.append(f"• {row['code']} {row['name']} | {row['stage']} | {row['reason']}{suffix}")
+    return lines
+
+
 def main() -> int:
     webhook = os.getenv("FEISHU_WEBHOOK_URL", "").strip()
     if not webhook:
@@ -302,6 +464,7 @@ def main() -> int:
     l2_ctx = _build_layer2_context(df_map=df_map, bench_df=bench_df)
     hit_map = _build_hit_map(triggers)
     blocked_exit_map = _blocked_exit_signal_map(metrics.get("exit_signals", {}) or {})
+    recommendation_lookup, recommendation_error = _load_recommendation_lookup(review_codes)
 
     rows: list[dict[str, str]] = []
     stage_counter: Counter[str] = Counter()
@@ -359,23 +522,17 @@ def main() -> int:
                 "name": name,
                 "stage": stage,
                 "reason": reason,
+                "recommendation": _format_recommendation_history(code, recommendation_lookup, recommendation_error),
             }
         )
 
-    summary = " | ".join([f"{k}{v}" for k, v in stage_counter.items()]) or "无"
-    lines = [
-        f"**今日**: {today}",
-        f"**前一日漏斗**: {end_trade_date}",
-        f"**今日涨幅 ≥ 8% 股票数**: {len(review_codes)}",
-        f"**结果汇总**: {summary}",
-        "",
-        "**逐票复盘（在前一日漏斗中止步层级与原因）**",
-        "",
-    ]
-
-    for row in rows:
-        lines.append(f"• {row['code']} {row['name']} | {row['stage']} | {row['reason']}")
-
+    lines = _build_report_lines(
+        rows=rows,
+        stage_counter=stage_counter,
+        today=today,
+        previous_trade_date=previous_trade_date,
+        end_trade_date=end_trade_date,
+    )
     title = "🔍 涨停复盘：今日涨停为何未在前一日漏斗捕获"
     content = "\n".join(lines)
     ok = send_feishu_notification(webhook, title, content)
