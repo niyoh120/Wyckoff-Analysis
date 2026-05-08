@@ -177,7 +177,7 @@ wyckoff dashboard  # 启动本地可视化面板
 
 ### Web 本地版 ⭐ 优先推荐
 
-React SPA 本地部署，数据读写本地 SQLite（与 CLI 共享同一份数据），浏览器可视化体验。
+React SPA + Cloudflare Workers API，数据通过 Supabase 读写（需配置 `.env` 中的 Supabase 凭据），浏览器可视化体验。
 
 **安装 & 启动：**
 
