@@ -4,8 +4,12 @@
 
 ### Docs
 
-- 重整项目文档与 Wiki 边界，避免当前事实与研究笔记互相漂移。
-- 同步架构文档、策略手册与 Wiki 中的 Actions、行情缓存、回测矩阵和模型供应商口径。
+- 精简主 README（414→204 行），保留全部截图和 GIF，优化结构为快速入口式。
+- 重写 README_STRATEGY.md 策略手册，修正五层漏斗描述、L2 六通道、L4 信号条件。
+- 全量重写 Wiki 11 篇文章，新增 Agent 设计专题（流式输出、工具注册、上下文压缩、记忆、Loop Guard、Provider、后台任务、Skills）。
+- 删除冗余 `docs/streaming_rendering_pipeline.md`（内容已覆盖于 Wiki 11_Tech_Agent_Design）。
+- 多语言 README 徽章统一（替换 Streamlit 为 Homepage 徽章）。
+- 删除主 README、多语言 README 和 Homepage 中的关键词入口 SEO 链接。
 
 ## v0.3.4 (2026-04-24)
 
