@@ -18,7 +18,9 @@ with content_col:
 
     loading = show_page_loading(title="加载中...", subtitle="从 Supabase 读取尾盘记录")
     try:
-        raw_data = load_tail_buy_from_supabase(limit=200)
+        user = st.session_state.get("user") or {}
+        user_id = str(user.get("id", "") if isinstance(user, dict) else "").strip()
+        raw_data = load_tail_buy_from_supabase(limit=200, user_id=user_id)
     finally:
         loading.empty()
 

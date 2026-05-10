@@ -55,11 +55,12 @@ def load_tail_buy_from_supabase(limit: int = 100, user_id: str = "") -> list[dic
     if not _configured():
         return []
     user_id = user_id.strip() or _get_user_id()
+    if not user_id:
+        print("[tail_buy] user_id not provided and SUPABASE_USER_ID not set, skip read")
+        return []
     try:
         client = _admin()
-        q = client.table(TABLE_TAIL_BUY_HISTORY).select("*")
-        if user_id:
-            q = q.eq("user_id", user_id)
+        q = client.table(TABLE_TAIL_BUY_HISTORY).select("*").eq("user_id", user_id)
         resp = q.order("run_date", desc=True).limit(limit).execute()
         return resp.data or []
     except Exception as e:
