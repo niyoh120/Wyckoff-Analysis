@@ -961,10 +961,10 @@ def generate_strategy_decision(tool_context: ToolContext) -> dict:
 
 
 def query_history(source: str, status: str = "all", run_date: str = "", decision: str = "", limit: int = 20) -> dict:
-    """查询历史记录：AI 推荐追踪、信号确认池或尾盘买入记录。
+    """查询历史记录：形态复盘、信号确认池或尾盘买入记录。
 
     Args:
-        source: "recommendation" 查推荐追踪；"signal" 查信号确认池；"tail_buy" 查尾盘买入记录
+        source: "recommendation" 查形态复盘；"signal" 查信号确认池；"tail_buy" 查尾盘买入记录
         status: 仅 signal 源使用，"all"/"pending"/"confirmed"/"expired"
         run_date: 仅 tail_buy 源使用，按日期过滤（YYYY-MM-DD）
         decision: 仅 tail_buy 源使用，按决策过滤（BUY/WATCH 等）
@@ -1006,7 +1006,7 @@ def _query_recommendation(limit: int) -> dict:
                 except Exception:
                     pass
         if not records:
-            return {"message": "暂无推荐跟踪记录", "records": []}
+            return {"message": "暂无复盘记录", "records": []}
         simplified = [
             {
                 "code": str(r.get("code", "")),

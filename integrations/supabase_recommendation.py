@@ -1,5 +1,5 @@
 """
-Supabase 推荐跟踪数据存取模块
+Supabase 形态复盘数据存取模块
 """
 
 from __future__ import annotations
@@ -235,7 +235,7 @@ def _resolve_initial_price_from_history(code_str: str, rec_date: date) -> float:
 
 def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any]]) -> bool:
     """
-    将每日选出的股票存入推荐跟踪表
+    将每日选出的股票存入形态复盘表
     recommend_date: YYYYMMDD (int)
     """
     if not is_supabase_configured() or not symbols_info:
@@ -599,7 +599,7 @@ def correct_tracking_initial_prices() -> int:
 
 
 def load_recommendation_tracking(limit: int = 1000, client=None) -> list[dict[str, Any]]:
-    """加载推荐跟踪数据"""
+    """加载形态复盘数据"""
     try:
         if client is None:
             client = _get_supabase_admin_client()
@@ -642,7 +642,7 @@ def _pick_close_on_or_before(sorted_trade_dates: list[str], target_yyyymmdd: str
 
 def refresh_tracking_prices_with_tushare_unadjusted() -> dict[str, Any]:
     """
-    使用 Tushare（日线不复权）回填并刷新推荐跟踪价格：
+    使用 Tushare（日线不复权）回填并刷新形态复盘价格：
     - initial_price: 推荐日（或之前最近交易日）收盘价
     - current_price: 当前系统时间对应最近交易日收盘价
     - change_pct: (current - initial) / initial * 100
@@ -757,7 +757,7 @@ def refresh_tracking_prices_with_tushare_unadjusted() -> dict[str, Any]:
 
 def refresh_tracking_prices_with_tickflow_realtime() -> dict[str, Any]:
     """
-    使用 Tickflow 实时报价刷新推荐跟踪价格：
+    使用 Tickflow 实时报价刷新形态复盘价格：
     - current_price: Tickflow /v1/quotes 的 last_price
     - initial_price: 推荐日（或之前最近交易日）Tickflow 不复权日线收盘价
     - change_pct: (current - initial) / initial * 100

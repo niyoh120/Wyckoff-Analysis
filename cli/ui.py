@@ -148,7 +148,7 @@ def print_help() -> None:
     console.print("  [dim]有没有确认的信号[/dim]          信号确认池")
     console.print("  [dim]我的持仓还安全吗[/dim]          持仓体检")
     console.print("  [dim]帮我从全市场找机会[/dim]        五层漏斗扫描")
-    console.print("  [dim]过去推荐的表现怎么样[/dim]      战绩追踪")
+    console.print("  [dim]过去推荐的表现怎么样[/dim]      形态复盘")
     console.print()
 
 

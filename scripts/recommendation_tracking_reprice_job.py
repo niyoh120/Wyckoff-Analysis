@@ -1,5 +1,5 @@
 """
-推荐跟踪价格回填任务（独立定时）：
+形态复盘价格回填任务（独立定时）：
 - 从 recommendation_tracking 读取 code / recommend_date
 - 使用 Tickflow 实时报价与不复权日线计算：
   - initial_price: 推荐时间对应最近交易日收盘价（不复权）
@@ -43,7 +43,7 @@ def _log(msg: str, logs_path: str | None = None) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="推荐跟踪价格回填任务（Tickflow 实时报价）")
+    parser = argparse.ArgumentParser(description="形态复盘价格回填任务（Tickflow 实时报价）")
     parser.add_argument("--logs", default="", help="日志文件路径（可选）")
     args = parser.parse_args()
     logs_path = str(args.logs or "").strip() or None

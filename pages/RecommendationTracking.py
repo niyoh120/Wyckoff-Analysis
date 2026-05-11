@@ -1,4 +1,4 @@
-"""推荐跟踪页面。"""
+"""威科夫形态复盘页面。"""
 
 from datetime import date, datetime
 
@@ -11,7 +11,7 @@ from app.ui_helpers import show_page_loading
 from integrations.supabase_client import get_supabase_client
 from integrations.supabase_recommendation import load_recommendation_tracking
 
-setup_page(page_title="推荐跟踪", page_icon="🎯")
+setup_page(page_title="形态复盘", page_icon="🎯")
 
 RECOMMENDATION_KEEP_DATES = 30
 AVG_WINDOWS = (5, 10, 15, 20, 25, 30)
@@ -31,31 +31,31 @@ def _latest_recommend_dates(df: pd.DataFrame, limit: int) -> list[int]:
 content_col = show_right_nav()
 
 with content_col:
-    st.title("🎯 推荐跟踪")
-    st.markdown("记录每日定时任务生成的威科夫推荐股票，并跟踪其后续的表现。数据在每日定时任务后自动刷新。")
+    st.title("🎯 威科夫形态复盘")
+    st.markdown("每日定时任务自动入选威科夫形态股票，并复盘其后续走势表现。数据在每日定时任务后自动刷新。")
     st.info(
-        "此页仅展示推荐表中最新 30 个推荐交易日的数据；这 30 个日期按数据库实际存在的推荐日计算，不按连续自然日补齐。"
+        "此页仅展示复盘表中最新 30 个复盘交易日的数据；这 30 个日期按数据库实际存在的入选日计算，不按连续自然日补齐。"
     )
 
     # 1. 加载数据
-    loading = show_page_loading(title="思考中...", subtitle="从数据库加载推荐历史")
+    loading = show_page_loading(title="思考中...", subtitle="从数据库加载复盘历史")
     try:
         raw_data = load_recommendation_tracking(limit=2000, client=get_supabase_client())
     finally:
         loading.empty()
 
     if not raw_data:
-        st.info("目前暂无推荐跟踪数据，请等待下一次定时任务运行。")
+        st.info("目前暂无形态复盘数据，请等待下一次定时任务运行。")
         st.stop()
 
     # 2. 转换数据为 DataFrame 并处理展示逻辑
     df = pd.DataFrame(raw_data)
     if "recommend_date" not in df.columns:
-        st.error("推荐跟踪数据缺少 recommend_date 字段，请检查 recommendation_tracking 表结构或 RLS 权限。")
+        st.error("形态复盘数据缺少 recommend_date 字段，请检查 recommendation_tracking 表结构或 RLS 权限。")
         st.caption("返回字段：" + ", ".join(str(c) for c in df.columns.tolist()))
         st.stop()
     if "code" not in df.columns:
-        st.error("推荐跟踪数据缺少 code 字段，请检查 recommendation_tracking 表结构或 RLS 权限。")
+        st.error("形态复盘数据缺少 code 字段，请检查 recommendation_tracking 表结构或 RLS 权限。")
         st.caption("返回字段：" + ", ".join(str(c) for c in df.columns.tolist()))
         st.stop()
     if "name" not in df.columns:
@@ -86,16 +86,16 @@ with content_col:
     if latest_dates:
         df = df[df["recommend_date"].isin(latest_dates)].copy()
     else:
-        st.info("目前暂无有效推荐日期，请等待下一次定时任务运行。")
+        st.info("目前暂无有效入选日期，请等待下一次定时任务运行。")
         st.stop()
 
-    st.markdown("### 🔎 推荐交易日窗口")
+    st.markdown("### 🔎 复盘交易日窗口")
     selected_window = st.selectbox(
         "统计与列表窗口",
         options=AVG_WINDOWS,
         index=len(AVG_WINDOWS) - 1,
-        format_func=lambda v: f"近{v}个推荐交易日",
-        help="按推荐表中实际存在的推荐日期倒序取样，不按连续自然日补齐。",
+        format_func=lambda v: f"近{v}个复盘交易日",
+        help="按复盘表中实际存在的入选日期倒序取样，不按连续自然日补齐。",
     )
     active_dates = latest_dates[:selected_window]
     df = df[df["recommend_date"].isin(active_dates)].copy()
@@ -150,7 +150,7 @@ with content_col:
 
     # 3. 统计指标 (KPIs)
     st.markdown("### 📊 表现摘要")
-    st.caption(f"当前窗口覆盖 {len(active_dates)} 个推荐交易日，{len(stats_df)} 条推荐记录。")
+    st.caption(f"当前窗口覆盖 {len(active_dates)} 个复盘交易日，{len(stats_df)} 条复盘记录。")
     col1, col2, col3, col4, col5 = st.columns(5)
     active_df = df[~df["rag_vetoed"]]
     avg_change = active_df["change_pct"].mean()
@@ -159,10 +159,10 @@ with content_col:
     total_recommend_events = int(df["recommend_count"].sum())
 
     col1.metric("覆盖股票数", f"{len(df)} 支")
-    col2.metric(f"近{selected_window}个推荐交易日平均涨幅", _format_pct(avg_change))
+    col2.metric(f"近{selected_window}个复盘交易日平均涨幅", _format_pct(avg_change))
     col3.metric("最高涨幅", _format_pct(max_change))
     col4.metric("最大跌幅", _format_pct(min_change))
-    col5.metric("总推荐次数", f"{total_recommend_events} 次")
+    col5.metric("总入选次数", f"{total_recommend_events} 次")
 
     st.divider()
 
@@ -174,12 +174,12 @@ with content_col:
         search_query = st.text_input("搜索代码或名字", placeholder="输入 601318 或 中国平安...", key="rec_search")
 
     with ai_col:
-        only_ai = st.checkbox("只看AI推荐", value=False, key="rec_only_ai")
+        only_ai = st.checkbox("只看AI入选", value=False, key="rec_only_ai")
 
     with sort_col:
         sort_by = st.selectbox(
             "排序",
-            options=["默认（涨幅→推荐次数→AI→日期→分值→现价）", "推荐日期", "涨跌幅", "分值", "代码"],
+            options=["默认（涨幅→入选次数→AI→日期→分值→现价）", "入选日期", "涨跌幅", "分值", "代码"],
             index=0,
         )
     with order_col:
@@ -196,7 +196,7 @@ with content_col:
         filtered_df = filtered_df[filtered_df["is_ai_recommended"]]
 
     # 排序：默认多级（涨幅高→低，同涨幅推荐次数高→低，同则 AI 在上，同则日期新→旧，同则分值高→低，同则现价高→低）
-    if sort_by == "默认（涨幅→推荐次数→AI→日期→分值→现价）":
+    if sort_by == "默认（涨幅→入选次数→AI→日期→分值→现价）":
         filtered_df = filtered_df.sort_values(
             by=[
                 "change_pct",
@@ -211,7 +211,7 @@ with content_col:
         )
     else:
         sort_map = {
-            "推荐日期": "recommend_date",
+            "入选日期": "recommend_date",
             "涨跌幅": "change_pct",
             "分值": "funnel_score",
             "代码": "code",
@@ -249,21 +249,21 @@ with content_col:
         "累计涨跌幅",
         "加入价",
         "当前价",
-        "AI推荐",
+        "AI入选",
         "RAG防雷",
-        "推荐次数",
-        "加入推荐天数",
-        "推荐日期",
-        "推荐原因",
-        "推荐分值",
+        "入选次数",
+        "入选天数",
+        "入选日期",
+        "入选原因",
+        "复盘分值",
     ]
 
     # 使用 dataframe 渲染，增加一些样式建议
     st.dataframe(
         display_df.style.format(
             {
-                "加入推荐天数": lambda v: "-" if pd.isna(v) else f"{int(v)}",
-                "推荐分值": lambda v: "-" if pd.isna(v) else f"{float(v):.2f}",
+                "入选天数": lambda v: "-" if pd.isna(v) else f"{int(v)}",
+                "复盘分值": lambda v: "-" if pd.isna(v) else f"{float(v):.2f}",
                 "加入价": "{:.2f}",
                 "当前价": "{:.2f}",
                 "累计涨跌幅": "{:+.2f}%",
@@ -277,7 +277,7 @@ with content_col:
             ),
             subset=["累计涨跌幅"],
         )
-        .map(lambda v: "color: #16a34a; font-weight: 700;" if v == "是" else "color: #6b7280;", subset=["AI推荐"])
+        .map(lambda v: "color: #16a34a; font-weight: 700;" if v == "是" else "color: #6b7280;", subset=["AI入选"])
         .map(lambda v: "color: #dc2626; font-weight: 700;" if v == "已剔除" else "", subset=["RAG防雷"]),
         use_container_width=True,
         hide_index=True,

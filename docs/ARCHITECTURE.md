@@ -86,7 +86,7 @@
 | `/analysis` | 单股分析 | 输入代码 → K 线图 + LLM 诊断 |
 | `/screener` | 漏斗选股 | 展示最新 AI 推荐结果 |
 | `/portfolio` | 持仓 | 持仓明细 + 收益率 |
-| `/tracking` | 跟踪 | 推荐跟踪 + 涨跌幅 |
+| `/tracking` | 跟踪 | 形态复盘 + 涨跌幅 |
 | `/tail-buy` | 尾盘记录 | 尾盘策略执行历史 |
 | `/export` | 数据导出 | CSV 导出 |
 | `/guide` | 功能说明 | Web 端功能入口和日常工作流说明 |
@@ -449,7 +449,7 @@ TUI 启动时自动执行 `prune_memories()`，清理 90 天前的 `session` 和
 | 页面 | 数据源 | 说明 |
 |------|--------|------|
 | 总览 | sync_meta | 各模块最后同步时间 + 行数 |
-| AI 推荐 | recommendation_tracking | 推荐股票 + 当前价 + 收益率，支持逐条删除 |
+| AI 推荐 | recommendation_tracking | 入选股票 + 当前价 + 收益率，支持逐条删除 |
 | 信号池 | signal_pending | L4 信号状态列表，支持逐条删除 |
 | 持仓 | portfolio + positions | 当前持仓明细 |
 | Agent 记忆 | agent_memory | 跨会话记忆列表，支持逐条删除 |
@@ -507,7 +507,7 @@ CREATE TABLE chat_log (
 |---|------|
 | `schema_version` | 迁移版本管理（当前 v7） |
 | `agent_memory_fts` | FTS5 全文检索索引（自动同步） |
-| `recommendation_tracking` | 推荐跟踪镜像 |
+| `recommendation_tracking` | 形态复盘镜像 |
 | `signal_pending` | 信号池镜像 |
 | `market_signal_daily` | 大盘信号镜像 |
 | `portfolio` | 持仓元数据镜像 |
@@ -596,7 +596,7 @@ signal_pending (pending/confirmed)
 | **尾盘策略** (`tail_buy_1420.yml`) | 周一-周五 13:50 | `tail_buy_intraday_job.py` |
 | **盘前风控** (`premarket_risk.yml`) | 周一-周五 08:20 | A50 + VIX 预警 |
 | **涨停复盘** (`review_list_replay.yml`) | 周一-周五 19:25 | 当日涨幅 ≥ 8% 回溯 |
-| **推荐跟踪重定价** (`recommendation_tracking_reprice.yml`) | 周日-周四 23:00 | 同步收盘价、计算收益 |
+| **形态复盘重定价** (`recommendation_tracking_reprice.yml`) | 周日-周四 23:00 | 同步收盘价、计算收益 |
 | **数据库维护** (`db_maintenance.yml`) | 每天 23:05 | 清理过期行情、订单、信号、市场信号等滑动窗口数据 |
 | **回测网格** (`backtest_grid.yml`) | 每月 1 / 15 日 04:00 | 3 阶段：快照→18 并行格→聚合通知 |
 | **Web 后台任务** (`web_quant_jobs.yml`) | 手动触发 | Web/Streamlit 发起的漏斗/研报任务 |
@@ -623,14 +623,14 @@ tickflow                                        （1 分钟盘中数据，尾盘
 | `trade_orders` | AI 交易建议 |
 | `user_settings` | 用户配置（API Key / Webhook / provider base_url / custom_providers JSON） |
 | `stock_hist_cache` | 日线行情缓存（按 `symbol + adjust + date` 去重，默认滑动保留约 320 个交易日窗口） |
-| `recommendation_tracking` | 推荐跟踪 |
+| `recommendation_tracking` | 威科夫形态复盘 |
 | `signal_pending` | 信号确认池 |
 | `market_signal_daily` | 大盘信号 |
 | `daily_nav` | 每日净值 |
 
 数据隔离：Web JWT → RLS，CLI access_token → RLS，脚本 service_role_key → 绕过 RLS。
 
-`scripts/db_maintenance.py` 负责清理过期数据：行情缓存约 320 日，推荐跟踪按表内最新 30 个推荐日期保留，订单/信号/净值等短周期表保留 10-30 日区间，避免数据库行数无限增长。
+`scripts/db_maintenance.py` 负责清理过期数据：行情缓存约 320 日，形态复盘按表内最新 30 个入选日期保留，订单/信号/净值等短周期表保留 10-30 日区间，避免数据库行数无限增长。
 
 ## CLI 命令
 
@@ -653,7 +653,7 @@ wyckoff portfolio add <code>     # 添加持仓
 wyckoff portfolio rm <code>      # 删除持仓
 wyckoff portfolio cash [--amount]# 查看/设置可用资金
 wyckoff signal [status]          # 查看信号池
-wyckoff recommend                # 查看推荐记录（别名 rec）
+wyckoff recommend                # 查看复盘记录（别名 rec）
 wyckoff dashboard [--port N]     # 启动可视化面板（别名 dash）
 wyckoff sync [status]            # 手动同步 / 查看同步状态
 wyckoff cleanup [--days N]       # 清理过期本地数据（默认 30 天）

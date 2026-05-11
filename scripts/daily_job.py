@@ -281,7 +281,7 @@ def main() -> int:
     elif benchmark_context:
         _persist_benchmark_context(benchmark_context, logs_path)
 
-    # 推荐跟踪写库（按 recommend_date=最近交易日）
+    # 形态复盘写库（按 recommend_date=最近交易日）
     if step2_ok and symbols_info:
         try:
             recommend_trade_date_int = int(_latest_trade_date_str().replace("-", ""))

@@ -250,7 +250,7 @@ class AgentTestHarness:
             },
             "generate_ai_report": {"ok": True, "report_text": "测试报告", "stock_count": 1},
             "generate_strategy_decision": {"message": "策略分析完成"},
-            "query_history": {"message": "暂无推荐跟踪记录", "records": []},
+            "query_history": {"message": "暂无复盘记录", "records": []},
         }
 
         mock_tools = []

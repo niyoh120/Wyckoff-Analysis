@@ -1,4 +1,4 @@
-name: Recommendation Tracking Reprice
+name: Wyckoff Pattern Replay Reprice
 
 on:
   schedule:

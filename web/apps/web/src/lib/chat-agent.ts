@@ -20,7 +20,7 @@ const SYSTEM_PROMPT = `# 角色设定
 1. **搜索** — search_stock：在全市场中搜索股票（名称或代码）
 2. **查看持仓** — view_portfolio：查看用户的持仓列表和资金
 3. **大盘水温** — market_overview：查看市场信号、指数走势
-4. **战绩追踪** — query_recommendations：查询推荐跟踪记录
+4. **形态复盘** — query_recommendations：查询形态复盘记录
 5. **尾盘记录** — query_tail_buy：查询尾盘买入记录
 6. **调仓方案** — plan_portfolio_update：生成调仓方案（不直接执行）
 11. **确认执行** — execute_portfolio_update：用户确认后执行调仓方案
@@ -35,7 +35,7 @@ const SYSTEM_PROMPT = `# 角色设定
 - "我有什么持仓" → view_portfolio
 - "帮我看看某只股票" → analyze_stock
 - "大盘怎么样" → market_overview
-- "推荐了什么" → query_recommendations
+- "复盘记录" → query_recommendations
 - "尾盘买了啥" → query_tail_buy
 - "帮我选股" / "今天有什么好票" → screen_stocks
 - "帮我出个研报" → generate_ai_report
@@ -246,7 +246,7 @@ function buildTools(userId: string, config: LLMConfig) {
     }),
 
     query_recommendations: tool({
-      description: '查询推荐跟踪记录，显示推荐的股票及其涨跌表现。',
+      description: '查询形态复盘记录，显示入选股票及其后续涨跌表现。',
       inputSchema: z.object({ limit: z.number().describe('返回条数，通常20') }),
       execute: ({ limit }) => execQueryRecommendations(deps, limit),
     }),
@@ -304,7 +304,7 @@ function buildTools(userId: string, config: LLMConfig) {
     }),
 
     screen_stocks: tool({
-      description: '查看最新一期漏斗选股结果：AI推荐的候选股票列表及其评分。',
+      description: '查看最新一期漏斗选股结果：AI入选的候选股票列表及其评分。',
       inputSchema: z.object({}),
       execute: () => execScreenStocks(deps),
     }),

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 METRICS_DIR = ROOT / ".metrics"
 LOC_FILE = METRICS_DIR / "loc.json"
 WHITELIST_FILE = METRICS_DIR / "func_whitelist.json"
-MAX_FUNC_LINES = 80
+MAX_FUNC_LINES = 50
 LOC_GROWTH_WARN_PCT = 5
 
 PY_DIRS = ["agents", "app", "cli", "core", "integrations", "pages", "scripts", "tools", "utils"]
@@ -148,11 +148,26 @@ def cmd_snapshot() -> int:
     LOC_FILE.write_text(json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     all_violations = scan_py_functions(PY_DIRS) + scan_ts_functions(TS_DIRS)
-    wl = {_make_key(f, fn): n for f, fn, n in all_violations}
-    save_whitelist(wl)
+    current = {_make_key(f, fn): n for f, fn, n in all_violations}
+
+    old_wl = load_whitelist()
+    new_wl: dict[str, int] = {}
+    for key, val in current.items():
+        if key in old_wl:
+            new_wl[key] = min(old_wl[key], val)
+        else:
+            new_wl[key] = val
+    save_whitelist(new_wl)
+
+    removed = set(old_wl) - set(current)
+    improved = sum(1 for k in new_wl if k in old_wl and new_wl[k] < old_wl[k])
 
     print(f"LOC baseline: Python={metrics['total_python_loc']}  TS={metrics['total_ts_loc']}")
-    print(f"Function whitelist: {len(wl)} legacy functions recorded")
+    print(f"Function whitelist: {len(new_wl)} functions tracked")
+    if removed:
+        print(f"  Removed {len(removed)} entries (functions no longer over limit)")
+    if improved:
+        print(f"  Ratcheted down {improved} entries (functions got shorter)")
     return 0
 
 
@@ -162,25 +177,40 @@ def cmd_check_functions() -> int:
 
     new_violations = []
     worsened = []
+    unchanged = []
     for filepath, funcname, lines in all_v:
         key = _make_key(filepath, funcname)
         if key not in wl:
             new_violations.append((filepath, funcname, lines))
         elif lines > wl[key]:
             worsened.append((filepath, funcname, wl[key], lines))
+        else:
+            unchanged.append((filepath, funcname, lines))
 
-    if new_violations or worsened:
-        if new_violations:
-            print(f"WARNING: {len(new_violations)} functions exceed {MAX_FUNC_LINES}-line soft limit:")
-            for f, fn, n in new_violations:
-                print(f"  {f}  {fn}()  {n} lines")
-        if worsened:
-            print(f"WARNING: {len(worsened)} whitelisted functions got longer:")
-            for f, fn, old, new in worsened:
-                print(f"  {f}  {fn}()  {old} -> {new} lines")
-        return 0
+    has_error = False
 
-    print(f"OK: All functions within {MAX_FUNC_LINES}-line soft limit. ({len(wl)} legacy tracked)")
+    if new_violations:
+        has_error = True
+        print(f"ERROR: {len(new_violations)} NEW functions exceed {MAX_FUNC_LINES}-line limit:")
+        for f, fn, n in new_violations:
+            print(f"  {f}  {fn}()  {n} lines")
+
+    if worsened:
+        has_error = True
+        print(f"ERROR: {len(worsened)} whitelisted functions got LONGER (not allowed):")
+        for f, fn, old, new in worsened:
+            print(f"  {f}  {fn}()  {old} -> {new} lines")
+
+    if unchanged:
+        print(f"WARNING: {len(unchanged)} legacy functions still over limit (whitelisted):")
+        for f, fn, n in unchanged:
+            print(f"  {f}  {fn}()  {n} lines")
+
+    if has_error:
+        print(f"\nFAILED: Split long functions to ≤ {MAX_FUNC_LINES} lines before committing.")
+        return 1
+
+    print(f"OK: No new violations. ({len(wl)} legacy functions tracked in whitelist)")
     return 0
 
 

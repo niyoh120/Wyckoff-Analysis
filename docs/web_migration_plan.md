@@ -61,7 +61,7 @@ Supabase Auth (仅保留登录认证)
 
 | 服务 | 类型 | 适合场景 | 免费额度 | 本项目用途 |
 |------|------|----------|----------|-----------|
-| **D1** | SQLite 关系数据库 | 结构化数据、SQL 查询 | 5GB 存储，500 万次读/天，10 万次写/天 | 持仓、推荐记录、聊天历史、funnel 结果 |
+| **D1** | SQLite 关系数据库 | 结构化数据、SQL 查询 | 5GB 存储，500 万次读/天，10 万次写/天 | 持仓、复盘记录、聊天历史、funnel 结果 |
 | **KV** | 全局键值存储 | 配置、缓存、高频读低频写 | 10 万次读/天，1000 次写/天，1GB 存储 | 用户设置、LLM 配置、session 缓存 |
 | **R2** | 对象存储 (S3 兼容) | 文件、大对象、静态资源 | 10GB 存储，100 万次读/月，10 万次写/月 | K 线 OHLCV 缓存、导出 CSV、研报 PDF |
 | **Workers** | 边缘计算 | API 路由、代理、业务逻辑 | 10 万次请求/天，10ms CPU | Hono API、Agent SSE、TickFlow 代理 |
@@ -84,7 +84,7 @@ Supabase Auth (仅保留登录认证)
 - [ ] Auth 中间件（验证 Supabase JWT）
 - [ ] Portfolio 页（持仓 CRUD）
 - [ ] Settings 页（用户配置）
-- [ ] Recommendation Tracking 页（推荐跟踪表格）
+- [ ] Wyckoff Pattern Replay 页（形态复盘表格）
 
 ### Phase 3 — Cloudflare 存储迁移
 

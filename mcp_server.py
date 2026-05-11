@@ -38,7 +38,7 @@ from agents.chat_tools import query_history as _query_history
 
 @mcp.tool()
 def query_history(source: str, status: str = "all", run_date: str = "", decision: str = "", limit: int = 20) -> dict:
-    """查询历史记录：推荐追踪(recommendation)、信号确认池(signal)或尾盘买入(tail_buy)。"""
+    """查询历史记录：形态复盘(recommendation)、信号确认池(signal)或尾盘买入(tail_buy)。"""
     return _query_history(source=source, status=status, run_date=run_date, decision=decision, limit=limit)
 
 

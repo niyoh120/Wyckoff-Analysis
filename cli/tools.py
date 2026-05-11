@@ -127,14 +127,14 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "query_history",
-        "description": "查询历史记录：AI 推荐追踪、信号确认池或尾盘买入记录。",
+        "description": "查询历史记录：形态复盘、信号确认池或尾盘买入记录。",
         "parameters": {
             "type": "object",
             "properties": {
                 "source": {
                     "type": "string",
                     "enum": ["recommendation", "signal", "tail_buy"],
-                    "description": "'recommendation' 推荐追踪；'signal' 信号确认池；'tail_buy' 尾盘买入",
+                    "description": "'recommendation' 形态复盘；'signal' 信号确认池；'tail_buy' 尾盘买入",
                 },
                 "status": {"type": "string", "description": "仅 signal：'all'/'pending'/'confirmed'/'expired'"},
                 "run_date": {"type": "string", "description": "仅 tail_buy：按日期过滤 YYYY-MM-DD"},
@@ -198,7 +198,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     # ── 委派工具 ──
     {
         "name": "delegate_to_research",
-        "description": "委派研究员收集市场数据和情报。用于全市场扫描、信号查询、推荐记录、回测等数据收集任务。",
+        "description": "委派研究员收集市场数据和情报。用于全市场扫描、信号查询、复盘记录、回测等数据收集任务。",
         "parameters": {
             "type": "object",
             "properties": {

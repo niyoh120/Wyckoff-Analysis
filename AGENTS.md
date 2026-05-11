@@ -40,9 +40,9 @@ pnpm -r exec tsc --noEmit                # typecheck
 
 ## Soft Rules (quality expectations)
 
-1. **Function length ≤ 80 lines (warning)** — Functions exceeding 80 lines trigger a CI warning. Not a hard fail, but a signal to consider splitting. Legacy violations tracked in `.metrics/func_whitelist.json`.
+1. **Function length ≤ 50 lines (hard fail)** — New functions exceeding 50 lines block merge. Whitelisted legacy functions must not grow longer (also blocks merge). Legacy violations tracked in `.metrics/func_whitelist.json`; whitelist values only ratchet down, never up.
 
-2. **No code bloat** — If 50 lines can do the job, don't write 80. Code volume is tracked in `.metrics/loc.json`; growth >5% without corresponding feature additions will be flagged.
+2. **No code bloat** — If 30 lines can do the job, don't write 50. Code volume is tracked in `.metrics/loc.json`; growth >5% without corresponding feature additions will be flagged.
 
 3. **No dead code** — Don't leave unused imports, commented-out blocks, or unreachable branches. Delete them.
 

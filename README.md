@@ -16,7 +16,7 @@
 
 ---
 
-用自然语言和一位威科夫大师对话。系统把 A 股日线行情、威科夫结构识别、AI 研报、持仓风控、推荐跟踪和通知推送串成一条自动化链路，并已扩展支持港股与美股漏斗扫描。
+用自然语言和一位威科夫大师对话。系统把 A 股日线行情、威科夫结构识别、AI 研报、持仓风控、形态复盘和通知推送串成一条自动化链路，并已扩展支持港股与美股漏斗扫描。
 
 React Web、CLI、MCP 与 GitHub Actions 共同组成当前产品形态；行情优先复用 Supabase 缓存，缺口再回源补拉并回写。
 
@@ -90,7 +90,7 @@ wyckoff dashboard  # 启动本地可视化面板
 |:---:|:---:|
 | <img src="docs/screenshots/web-chat.png" width="450" /> | <img src="docs/screenshots/web-screen.png" width="450" /> |
 
-| 推荐跟踪 | 持仓管理 |
+| 形态复盘 | 持仓管理 |
 |:---:|:---:|
 | <img src="docs/screenshots/web-track.png" width="450" /> | <img src="docs/screenshots/web-portfolio.png" width="450" /> |
 
@@ -112,7 +112,7 @@ wyckoff dashboard  # 启动本地可视化面板
 wyckoff dashboard
 ```
 
-| 总览 | AI 推荐 | 信号池 |
+| 总览 | 形态复盘 | 信号池 |
 |:---:|:---:|:---:|
 | <img src="attach/demo/dashboard-overview-new.png" width="300" /> | <img src="attach/demo/dashboard-recommendations.png" width="300" /> | <img src="attach/demo/dashboard-signals.png" width="300" /> |
 

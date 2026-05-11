@@ -62,7 +62,7 @@ Modern React SPA with AI Agent chat, portfolio management, funnel screening, rec
 |:---:|:---:|
 | <img src="screenshots/web-chat.png" width="450" /> | <img src="screenshots/web-screen.png" width="450" /> |
 
-| Recommendation Tracking | Portfolio |
+| Wyckoff Pattern Replay | Portfolio |
 |:---:|:---:|
 | <img src="screenshots/web-track.png" width="450" /> | <img src="screenshots/web-portfolio.png" width="450" /> |
 
@@ -86,7 +86,7 @@ Streamlit powered the early MVP and remains available for data export, single-st
 | Private Rebalance | Synthesizes holdings + candidates, outputs EXIT / TRIM / HOLD / PROBE / ATTACK orders, pushes to Telegram |
 | Tail-Buy Strategy | Executes at 13:50, two-stage evaluation (rule scoring + LLM review) for end-of-day entries |
 | Signal Confirmation Pool | L4 trigger signals must pass 1-3 day price confirmation before becoming actionable |
-| Recommendation Tracking | Historical picks auto-sync closing prices and compute cumulative returns |
+| Wyckoff Pattern Replay | Historical picks auto-sync closing prices and compute cumulative returns |
 | Daily-Bar Backtest | Replays post-funnel N-day returns; reports win rate / Sharpe / max drawdown |
 | Pre-Market Risk | A50 futures + VIX monitoring with four alert levels |
 | Local Dashboard | `wyckoff dashboard` — recommendations, signals, portfolio, agent memory, chat logs; dark/light theme, bilingual CN/EN |

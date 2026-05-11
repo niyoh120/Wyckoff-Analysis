@@ -17,7 +17,7 @@
     wyckoff config                  # 数据源配置
     wyckoff portfolio list/add/rm   # 持仓管理
     wyckoff signal                  # 信号确认池
-    wyckoff recommend               # AI 推荐跟踪
+    wyckoff recommend               # 威科夫形态复盘
     wyckoff sync                    # 同步 Supabase → SQLite
 """
 
@@ -538,9 +538,9 @@ def _cmd_recommend(args):
         sys.exit(1)
     records = result.get("records", [])
     if not records:
-        print(result.get("message", "暂无推荐记录"))
+        print(result.get("message", "暂无复盘记录"))
         return
-    print(f"AI 推荐跟踪 ({result.get('total', 0)} 条)")
+    print(f"威科夫形态复盘 ({result.get('total', 0)} 条)")
     print(
         f"{'代码':<8} {'名称':<8} {'阵营':<8} {'推荐日':<10} {'推荐价':>8} {'现价':>8} {'盈亏%':>7} {'最高%':>7} {'状态':<8}"
     )
@@ -1141,7 +1141,7 @@ def main():
     p_signal.add_argument("-n", "--limit", type=int, default=30, help="返回条数")
 
     # wyckoff recommend
-    p_rec = sub.add_parser("recommend", help="AI 推荐跟踪", aliases=["rec"])
+    p_rec = sub.add_parser("recommend", help="威科夫形态复盘", aliases=["rec"])
     p_rec.add_argument("-n", "--limit", type=int, default=20, help="返回条数")
 
     # wyckoff dashboard / dash
