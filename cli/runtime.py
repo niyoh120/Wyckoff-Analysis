@@ -35,6 +35,32 @@ logger = logging.getLogger(__name__)
 
 RuntimeEvent = dict[str, Any]
 
+STREAM_CHUNK_TIMEOUT = 60.0
+
+
+def _iter_with_timeout(stream, timeout: float):
+    """包装流式迭代器，chunk 间超过 timeout 秒未收到数据则抛出 TimeoutError。"""
+    import threading
+
+    sentinel = object()
+
+    def _next_chunk():
+        try:
+            return next(stream)
+        except StopIteration:
+            return sentinel
+
+    while True:
+        with ThreadPoolExecutor(1) as pool:
+            future = pool.submit(_next_chunk)
+            try:
+                result = future.result(timeout=timeout)
+            except Exception:
+                raise TimeoutError(f"模型响应超时（{timeout:.0f}s 内无数据）") from None
+        if result is sentinel:
+            return
+        yield result
+
 
 @dataclass
 class RoundState:
@@ -105,6 +131,9 @@ class AgentRuntime:
             if event:
                 yield event
 
+            if round_idx > 0:
+                yield {"type": "model_start", "round": round_idx + 1}
+
             round_state = yield from self._collect_model_round(messages, system_prompt, round_idx + 1)
             self._accumulate_usage(state, round_state)
             if round_state.thinking:
@@ -152,7 +181,8 @@ class AgentRuntime:
         round_number: int,
     ) -> Iterator[RuntimeEvent | RoundState]:
         round_state = RoundState()
-        for chunk in self.provider.chat_stream(messages, self.tools.schemas(), system_prompt):
+        stream = self.provider.chat_stream(messages, self.tools.schemas(), system_prompt)
+        for chunk in _iter_with_timeout(stream, STREAM_CHUNK_TIMEOUT):
             event = self._consume_model_chunk(round_state, chunk, round_number)
             if event:
                 yield event

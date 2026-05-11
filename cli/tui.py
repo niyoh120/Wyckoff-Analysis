@@ -585,6 +585,7 @@ class WyckoffTUI(App):
 
         if self._busy:
             self._queue.append(text)
+            log.write(Text.from_markup(f"  [dim]📋 已排队（等待当前回复完成后自动发送）[/dim]"))
             return
 
         # 用户消息
@@ -1294,11 +1295,7 @@ class WyckoffTUI(App):
                 _ensure_round(round_number)
 
                 if event_type == "compaction":
-                    _write(
-                        Text.from_markup(
-                            f"  [dim]📦 上下文已压缩（{event['before_messages']}条 → {event['after_messages']}条）[/dim]"
-                        )
-                    )
+                    _write(Text.from_markup(f"  [dim]📦 上下文已压缩（{event['before_messages']}条 → {event['after_messages']}条）[/dim]"))
                     _scroll()
                     continue
 
@@ -1340,6 +1337,9 @@ class WyckoffTUI(App):
                     _spinner_stop()
                     _display_thinking(event.get("text", ""))
                     continue
+
+                if event_type == "model_start":
+                    _spinner_start("思考中"); continue
 
                 if event_type == "tool_start":
                     _flush_stream_line()
