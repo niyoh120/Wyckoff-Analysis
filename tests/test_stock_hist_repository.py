@@ -55,7 +55,7 @@ def test_get_stock_hist_uses_cache_when_only_tail_non_trading_gap_fails(monkeypa
     monkeypatch.setattr(repo, "_fetch_gap", fail_tail_gap)
     monkeypatch.setattr(repo, "upsert_cache_data", lambda *args, **kwargs: None)
 
-    out = repo.get_stock_hist("000001", date(2026, 4, 29), date(2026, 5, 1))
+    out = repo.get_stock_hist("000001", date(2026, 4, 29), date(2026, 5, 1), context="background")
 
     assert len(out) == 2
     assert out.iloc[-1]["日期"] == "2026-04-30"
