@@ -39,27 +39,39 @@ STREAM_CHUNK_TIMEOUT = 60.0
 
 
 def _iter_with_timeout(stream, timeout: float):
-    """包装流式迭代器，chunk 间超过 timeout 秒未收到数据则抛出 TimeoutError。"""
+    """包装流式迭代器，chunk 间超过 timeout 秒无数据则抛出 TimeoutError。
+
+    使用独立 daemon 线程 + Queue 实现：半开连接卡死时，主线程在 queue.get
+    超时后立即抛出，不等待僵死的生产线程（daemon 线程随进程退出自动回收）。
+    """
+    import queue
     import threading
 
-    sentinel = object()
+    _SENTINEL = None
+    _EXCEPTION = object()
+    q: queue.Queue = queue.Queue()
 
-    def _next_chunk():
+    def _producer():
         try:
-            return next(stream)
-        except StopIteration:
-            return sentinel
+            for chunk in stream:
+                q.put(chunk)
+            q.put(_SENTINEL)
+        except BaseException as exc:
+            q.put((_EXCEPTION, exc))
+
+    t = threading.Thread(target=_producer, daemon=True)
+    t.start()
 
     while True:
-        with ThreadPoolExecutor(1) as pool:
-            future = pool.submit(_next_chunk)
-            try:
-                result = future.result(timeout=timeout)
-            except Exception:
-                raise TimeoutError(f"模型响应超时（{timeout:.0f}s 内无数据）") from None
-        if result is sentinel:
+        try:
+            item = q.get(timeout=timeout)
+        except queue.Empty:
+            raise TimeoutError(f"模型响应超时（{timeout:.0f}s 内无数据）") from None
+        if item is _SENTINEL:
             return
-        yield result
+        if isinstance(item, tuple) and len(item) == 2 and item[0] is _EXCEPTION:
+            raise item[1]
+        yield item
 
 
 @dataclass
