@@ -41,9 +41,7 @@ def save_tail_buy_to_supabase(rows: list[dict], user_id: str = "") -> int:
     ]
     try:
         client = _admin()
-        client.table(TABLE_TAIL_BUY_HISTORY).upsert(
-            payload, on_conflict="code,run_date,user_id"
-        ).execute()
+        client.table(TABLE_TAIL_BUY_HISTORY).upsert(payload, on_conflict="code,run_date,user_id").execute()
         return len(payload)
     except Exception as e:
         print(f"[tail_buy] supabase write failed: {e}")
