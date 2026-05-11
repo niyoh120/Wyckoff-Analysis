@@ -1,17 +1,17 @@
 {
-  "total_python_loc": 39354,
-  "total_ts_loc": 4743,
+  "total_python_loc": 39434,
+  "total_ts_loc": 4909,
   "by_module": {
     "agents": 1852,
     "app": 1588,
-    "cli": 7056,
+    "cli": 7136,
     "core": 5690,
     "integrations": 6391,
     "pages": 2519,
     "scripts": 11805,
     "tools": 1565,
     "utils": 888,
-    "web/apps/web/src": 4589,
+    "web/apps/web/src": 4755,
     "web/apps/api/src": 76,
     "web/packages/shared/src": 78
   },

@@ -23,9 +23,19 @@ interface KlineData {
   volume: number
 }
 
+interface WyckoffMarkerInput {
+  date: string
+  type: 'spring' | 'sos' | 'lps' | 'evr'
+  label: string
+  position: 'aboveBar' | 'belowBar'
+}
+
 interface KlineChartProps {
   data: KlineData[]
   height?: number
+  wyckoffMarkers?: WyckoffMarkerInput[]
+  tradingRange?: { support: number; resistance: number }
+  stage?: string
 }
 
 interface StructureSnapshot {
@@ -40,10 +50,10 @@ interface StructureSnapshot {
   tone: 'strong' | 'watch' | 'weak'
 }
 
-export function KlineChart({ data, height = 400 }: KlineChartProps) {
+export function KlineChart({ data, height = 400, wyckoffMarkers, tradingRange, stage }: KlineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
-  const structure = useMemo(() => buildStructureSnapshot(data), [data])
+  const structure = useMemo(() => buildStructureSnapshot(data, tradingRange, stage), [data, tradingRange, stage])
 
   useEffect(() => {
     if (!containerRef.current || data.length === 0) return
@@ -81,25 +91,10 @@ export function KlineChart({ data, height = 400 }: KlineChartProps) {
       wickDownColor: theme.down,
     })
 
-    const ma5Series = chart.addSeries(LineSeries, {
-      color: '#f59e0b',
-      lineWidth: 1,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    })
-    const ma20Series = chart.addSeries(LineSeries, {
-      color: '#2563eb',
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    })
-    const ma50Series = chart.addSeries(LineSeries, {
-      color: '#7c3aed',
-      lineWidth: 2,
-      lineStyle: LineStyle.Dashed,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    })
+    const maOpts = { priceLineVisible: false, lastValueVisible: false } as const
+    const ma5Series = chart.addSeries(LineSeries, { ...maOpts, color: '#f59e0b', lineWidth: 1 })
+    const ma20Series = chart.addSeries(LineSeries, { ...maOpts, color: '#2563eb', lineWidth: 2 })
+    const ma50Series = chart.addSeries(LineSeries, { ...maOpts, color: '#7c3aed', lineWidth: 2, lineStyle: LineStyle.Dashed })
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
@@ -129,29 +124,9 @@ export function KlineChart({ data, height = 400 }: KlineChartProps) {
     ma20Series.setData(movingAverage(data, 20))
     ma50Series.setData(movingAverage(data, 50))
     volumeSeries.setData(volumes)
-    createSeriesMarkers(candleSeries, buildMarkers(data))
+    createSeriesMarkers(candleSeries, wyckoffMarkers ? toSeriesMarkers(wyckoffMarkers) : buildMarkers(data))
 
-    const levels = buildPriceLevels(data)
-    if (levels.support > 0) {
-      candleSeries.createPriceLine({
-        price: levels.support,
-        color: theme.support,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: '支撑',
-      })
-    }
-    if (levels.resistance > 0) {
-      candleSeries.createPriceLine({
-        price: levels.resistance,
-        color: theme.resistance,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: '压力',
-      })
-    }
+    addPriceLines(candleSeries, tradingRange ?? buildPriceLevels(data), theme)
 
     chart.timeScale().fitContent()
     chartRef.current = chart
@@ -169,7 +144,7 @@ export function KlineChart({ data, height = 400 }: KlineChartProps) {
       chart.remove()
       chartRef.current = null
     }
-  }, [data, height])
+  }, [data, height, wyckoffMarkers, tradingRange])
 
   return (
     <div className="space-y-3">
@@ -186,9 +161,20 @@ export function KlineChart({ data, height = 400 }: KlineChartProps) {
         <Legend color="#f59e0b" label="MA5" />
         <Legend color="#2563eb" label="MA20" />
         <Legend color="#7c3aed" label="MA50" />
-        <Legend color="#ef4444" label="SOS/突破" />
-        <Legend color="#2563eb" label="测试" />
-        <Legend color="#10b981" label="供应风险" />
+        {wyckoffMarkers ? (
+          <>
+            <Legend color="#f59e0b" label="Spring" />
+            <Legend color="#ef4444" label="SOS" />
+            <Legend color="#2563eb" label="LPS" />
+            <Legend color="#7c3aed" label="EVR" />
+          </>
+        ) : (
+          <>
+            <Legend color="#ef4444" label="SOS/突破" />
+            <Legend color="#2563eb" label="测试" />
+            <Legend color="#10b981" label="供应风险" />
+          </>
+        )}
       </div>
     </div>
   )
@@ -218,6 +204,15 @@ function Legend({ color, label }: { color: string; label: string }) {
   )
 }
 
+function addPriceLines(series: ReturnType<IChartApi['addSeries']>, levels: { support: number; resistance: number }, theme: ReturnType<typeof readChartTheme>) {
+  if (levels.support > 0) {
+    series.createPriceLine({ price: levels.support, color: theme.support, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '支撑' })
+  }
+  if (levels.resistance > 0) {
+    series.createPriceLine({ price: levels.resistance, color: theme.resistance, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '压力' })
+  }
+}
+
 function readChartTheme() {
   const style = getComputedStyle(document.documentElement)
   const color = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback
@@ -241,6 +236,20 @@ function movingAverage(data: KlineData[], period: number): LineData<Time>[] {
     points.push({ time: data[index]!.date as Time, value: avg(window.map((d) => d.close)) })
   }
   return points
+}
+
+const MARKER_STYLES: Record<string, { shape: 'arrowUp' | 'arrowDown' | 'circle'; color: string }> = {
+  spring: { shape: 'arrowUp', color: '#f59e0b' },
+  sos: { shape: 'arrowUp', color: '#ef4444' },
+  lps: { shape: 'circle', color: '#2563eb' },
+  evr: { shape: 'arrowDown', color: '#7c3aed' },
+}
+
+function toSeriesMarkers(markers: WyckoffMarkerInput[]): SeriesMarker<Time>[] {
+  return markers.map((m) => {
+    const style = MARKER_STYLES[m.type] ?? { shape: 'circle' as const, color: '#6b7280' }
+    return { time: m.date as Time, position: m.position, shape: style.shape, color: style.color, text: m.label, size: 1.2 }
+  })
 }
 
 function buildMarkers(data: KlineData[]): SeriesMarker<Time>[] {
@@ -290,19 +299,28 @@ function buildMarkers(data: KlineData[]): SeriesMarker<Time>[] {
   return markers.slice(-12)
 }
 
-function buildStructureSnapshot(data: KlineData[]): StructureSnapshot | null {
+function buildStructureSnapshot(
+  data: KlineData[],
+  trOverride?: { support: number; resistance: number },
+  stageOverride?: string,
+): StructureSnapshot | null {
   if (data.length === 0) return null
   const latest = data[data.length - 1]!
   const previous = data[data.length - 2]
   const ma20 = data.length >= 20 ? avg(data.slice(-20).map((d) => d.close)) : latest.close
   const ma50 = data.length >= 50 ? avg(data.slice(-50).map((d) => d.close)) : ma20
-  const levels = buildPriceLevels(data)
+  const levels = trOverride ?? buildPriceLevels(data)
   const volumeBase = data.length >= 21 ? avg(data.slice(-21, -1).map((d) => d.volume)) : avg(data.map((d) => d.volume))
   const changePct = previous ? (latest.close / previous.close - 1) * 100 : 0
   const volumeRatio = volumeBase > 0 ? latest.volume / volumeBase : 0
+
+  if (stageOverride) {
+    const tone = stageOverride === 'Markup' ? 'strong' : stageOverride === '回踩/弱势' ? 'weak' : 'watch'
+    return { changePct, latestClose: latest.close, ma20, ma50, volumeRatio, ...levels, phase: stageOverride, tone }
+  }
+
   const upperBand = levels.support + (levels.resistance - levels.support) * 0.72
   const lowerBand = levels.support + (levels.resistance - levels.support) * 0.28
-
   if (latest.close > ma20 && ma20 >= ma50 && latest.close >= upperBand) {
     return { changePct, latestClose: latest.close, ma20, ma50, volumeRatio, ...levels, phase: '右侧走强', tone: 'strong' }
   }

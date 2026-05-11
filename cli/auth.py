@@ -268,6 +268,27 @@ def set_fallback_model(model_id: str) -> None:
     _save_config(data)
 
 
+def load_light_model_id() -> str:
+    """返回 light 路由模型 id（空字符串表示未设置）。"""
+    data = _ensure_models_format(_load_config())
+    lid = data.get("light", "")
+    models = data.get("models", [])
+    if lid and any(m["id"] == lid for m in models):
+        return lid
+    return ""
+
+
+def set_light_model(model_id: str) -> None:
+    """设置 light 路由模型。空字符串清除设置。"""
+    data = _ensure_models_format(_load_config())
+    if model_id:
+        models = data.get("models", [])
+        if not any(m["id"] == model_id for m in models):
+            return
+    data["light"] = model_id
+    _save_config(data)
+
+
 # --- 向后兼容 ---
 
 

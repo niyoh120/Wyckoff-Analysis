@@ -432,6 +432,7 @@ class WyckoffTUI(App):
             parts.append(f"{prov}:{model}")
         email = self._tools.state.get("email", "") if self._tools else ""
         parts.append(email or "未登录")
+        parts.append(f"#{self._session_id}")
         t = self._session_tokens
         if t["rounds"] > 0:
             parts.append(f"Token: {t['input'] + t['output']:,}")
@@ -1590,11 +1591,11 @@ class WyckoffTUI(App):
             except Exception:
                 pass
 
-        # 重置状态
         self._messages.clear()
         self._queue.clear()
         self._session_tokens = {"input": 0, "output": 0, "rounds": 0}
         self._session_id = session_id
+        self._update_status()
         log.clear()
 
         log.write(Text.from_markup(f"[green]已恢复会话[/green] [dim]{session_id} · {len(rows)} 条记录[/dim]\n"))

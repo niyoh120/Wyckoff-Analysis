@@ -111,6 +111,90 @@ def run_backtest(
 
 
 # ---------------------------------------------------------------------------
+# Tier 2+: 引擎直连工具（无需 LLM，返回纯结构数据）
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def market_regime() -> dict:
+    """获取 A 股市场水温：regime(RISK_ON/NEUTRAL/RISK_OFF/CRASH/PANIC_REPAIR)、大盘指标和动态阈值。"""
+    from datetime import date as _date, timedelta
+
+    from core.wyckoff_engine import FunnelConfig
+    from integrations.data_source import fetch_index_hist
+    from tools.market_regime import analyze_benchmark_and_tune_cfg
+
+    end = _date.today()
+    start = end - timedelta(days=400)
+    bench_df = fetch_index_hist("000001", start, end)
+    smallcap_df = fetch_index_hist("399006", start, end)
+    return analyze_benchmark_and_tune_cfg(bench_df, smallcap_df, FunnelConfig(), breadth=None)
+
+
+@mcp.tool()
+def wyckoff_diagnose(code: str) -> dict:
+    """单股 Wyckoff 结构诊断：交易区间(TR)、触发信号(Spring/SOS/LPS/EVR)、阶段和事件分类。纯引擎数据，非 LLM 文本。"""
+    import dataclasses
+    from datetime import date as _date, timedelta
+
+    from core.stock_cache import normalize_hist_df
+    from core.wyckoff_engine import FunnelConfig
+    from core.wyckoff_events import classify_wyckoff_event
+    from core.wyckoff_v2_structure import detect_structure_triggers, identify_trading_range
+    from integrations.stock_hist_repository import get_stock_hist
+
+    end = _date.today()
+    start = end - timedelta(days=500)
+    raw = get_stock_hist(code, start, end)
+    if raw is None or raw.empty:
+        return {"error": f"无法获取 {code} 的行情数据"}
+
+    df = normalize_hist_df(raw)
+    cfg = FunnelConfig()
+    tr = identify_trading_range(df, cfg)
+    result = detect_structure_triggers([code], {code: df}, cfg)
+
+    stock_triggers = []
+    for trig_type in ("spring", "sos", "lps", "evr"):
+        for sym, _score in result.triggers.get(trig_type, []):
+            if sym == code:
+                stock_triggers.append(trig_type)
+
+    stage = result.stage_map.get(code, "")
+    event = classify_wyckoff_event(stock_triggers, stage=stage)
+
+    return {
+        "code": code,
+        "trading_range": dataclasses.asdict(tr) if tr else None,
+        "triggers": stock_triggers,
+        "stage": stage,
+        "event": dataclasses.asdict(event),
+    }
+
+
+@mcp.tool()
+def run_funnel_simulation(board: str = "all") -> dict:
+    """运行 Wyckoff 五层漏斗仿真，返回原始结构数据（层计数、触发、阶段、通道、板块、退出信号）。耗时 30-60s。"""
+    import os
+
+    os.environ.setdefault("FUNNEL_EXECUTOR_MODE", "thread")
+    if board != "all":
+        os.environ["FUNNEL_POOL_MODE"] = board
+
+    from core.funnel_pipeline import run_funnel
+
+    ok, symbols, bench_ctx, details = run_funnel("", notify=False, return_details=True)
+    if not ok:
+        return {"error": "漏斗运行失败", "details": details}
+    return {
+        "success": True,
+        "candidates": symbols,
+        "regime": bench_ctx,
+        "details": details,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Tier 3: 需 Supabase 用户认证
 # ---------------------------------------------------------------------------
 

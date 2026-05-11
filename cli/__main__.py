@@ -229,136 +229,152 @@ def _cmd_auth(args):
         sys.exit(1)
 
 
+def _model_list():
+    from cli.auth import load_default_model_id, load_fallback_model_id, load_light_model_id, load_model_configs
+
+    configs = load_model_configs()
+    default_id = load_default_model_id()
+    fallback_id = load_fallback_model_id()
+    light_id = load_light_model_id()
+    if not configs:
+        print("尚无模型配置，使用 wyckoff model add 添加")
+        return
+    for c in configs:
+        marks = ""
+        if c["id"] == default_id:
+            marks += " *"
+        if c["id"] == fallback_id:
+            marks += " ⚡"
+        if c["id"] == light_id:
+            marks += " 💡"
+        print(f"  {c['id']}{marks}  provider={c.get('provider_name', '')}  model={c.get('model', '')}  base_url={c.get('base_url', '') or '(default)'}")
+    legend = "  * = 默认"
+    if fallback_id:
+        legend += "  ⚡ = fallback"
+    if light_id:
+        legend += "  💡 = light 路由"
+    print(f"\n{legend}")
+
+
+def _model_add():
+    from cli.auth import load_model_configs, save_model_entry, set_default_model
+
+    model_id = input("别名 (如 gemini, longcat): ").strip().lower()
+    if not model_id:
+        print("已取消")
+        return
+    provider = input("供应商 (gemini/openai/claude): ").strip().lower()
+    if provider not in ("gemini", "openai", "claude"):
+        print(f"✗ 不支持: {provider}")
+        sys.exit(1)
+    import getpass
+
+    api_key = getpass.getpass("API Key (购买: https://www.1route.dev/register?aff=359904261): ").strip()
+    if not api_key:
+        print("已取消")
+        return
+    default_models = {"gemini": "gemini-2.0-flash", "openai": "gpt-4o", "claude": "claude-sonnet-4-20250514"}
+    model = input(f"模型名 (留空使用 {default_models.get(provider, '')}): ").strip()
+    model = model or default_models.get(provider, "")
+    base_url = input("Base URL (留空使用默认): ").strip()
+    entry = {"id": model_id, "provider_name": provider, "api_key": api_key, "model": model, "base_url": base_url}
+    save_model_entry(entry)
+    if len(load_model_configs()) == 1:
+        set_default_model(model_id)
+    print(f"✓ 模型 {model_id} 已保存")
+
+
+def _model_role_set(args, role: str):
+    """通用 fallback/light 角色设置。"""
+    from cli.auth import load_model_configs
+
+    if role == "fallback":
+        from cli.auth import load_fallback_model_id as _load, set_fallback_model as _set
+
+        label, empty_msg = "fallback", "未设置（降级到所有模型）"
+    else:
+        from cli.auth import load_light_model_id as _load, set_light_model as _set
+
+        label, empty_msg = "light 路由", "未设置（不启用自动路由）"
+
+    model_id = args.model_id
+    if not model_id:
+        print(f"当前 {label}: {_load() or empty_msg}")
+        return
+    if model_id == "none":
+        _set("")
+        print(f"✓ 已清除 {label} 设置")
+        return
+    configs = load_model_configs()
+    if not any(c["id"] == model_id for c in configs):
+        print(f"✗ 模型 {model_id} 不存在")
+        sys.exit(1)
+    _set(model_id)
+    suffix = "（简单问题自动使用此模型）" if role == "light" else ""
+    print(f"✓ {label.capitalize()} 模型已设为 {model_id}{suffix}")
+
+
+def _wrap_routing_provider(state: dict) -> None:
+    """如果配置了 light 模型，用 RoutingProvider 包装当前 provider。"""
+    try:
+        from cli.auth import load_light_model_id, load_model_configs
+
+        light_id = load_light_model_id()
+        if not light_id or not state.get("provider"):
+            return
+        light_cfg = next((c for c in load_model_configs() if c["id"] == light_id), None)
+        if not light_cfg:
+            return
+        light_prov, err = _create_provider(
+            light_cfg["provider_name"], light_cfg["api_key"], light_cfg.get("model", ""), light_cfg.get("base_url", "")
+        )
+        if not err:
+            from cli.model_router import RoutingProvider
+
+            state["provider"] = RoutingProvider(state["provider"], light_prov)
+    except Exception:
+        pass
+
+
 def _cmd_model(args):
-    from cli.auth import (
-        load_default_model_id,
-        load_model_configs,
-        remove_model_entry,
-        save_model_entry,
-        set_default_model,
-    )
+    from cli.auth import load_model_configs, remove_model_entry, save_model_entry, set_default_model
 
     sub = args.model_cmd or "list"
 
     if sub == "list":
-        configs = load_model_configs()
-        default_id = load_default_model_id()
-        from cli.auth import load_fallback_model_id
-
-        fallback_id = load_fallback_model_id()
-        if not configs:
-            print("尚无模型配置，使用 wyckoff model add 添加")
-            return
-        for c in configs:
-            marks = ""
-            if c["id"] == default_id:
-                marks += " *"
-            if c["id"] == fallback_id:
-                marks += " ⚡"
-            print(
-                f"  {c['id']}{marks}  provider={c.get('provider_name', '')}  model={c.get('model', '')}  base_url={c.get('base_url', '') or '(default)'}"
-            )
-        if fallback_id:
-            print("\n  * = 默认  ⚡ = fallback")
-        return
-
+        return _model_list()
     if sub == "add":
-        # 交互式添加
-        model_id = input("别名 (如 gemini, longcat): ").strip().lower()
-        if not model_id:
-            print("已取消")
-            return
-        provider = input("供应商 (gemini/openai/claude): ").strip().lower()
-        if provider not in ("gemini", "openai", "claude"):
-            print(f"✗ 不支持: {provider}")
-            sys.exit(1)
-        import getpass
-
-        api_key = getpass.getpass("API Key (购买: https://www.1route.dev/register?aff=359904261): ").strip()
-        if not api_key:
-            print("已取消")
-            return
-        default_models = {"gemini": "gemini-2.0-flash", "openai": "gpt-4o", "claude": "claude-sonnet-4-20250514"}
-        model = input(f"模型名 (留空使用 {default_models.get(provider, '')}): ").strip()
-        model = model or default_models.get(provider, "")
-        base_url = input("Base URL (留空使用默认): ").strip()
-        entry = {
-            "id": model_id,
-            "provider_name": provider,
-            "api_key": api_key,
-            "model": model,
-            "base_url": base_url,
-        }
-        save_model_entry(entry)
-        if len(load_model_configs()) == 1:
-            set_default_model(model_id)
-        print(f"✓ 模型 {model_id} 已保存")
-        return
-
+        return _model_add()
     if sub == "set":
-        model_id = args.model_id
-        provider = args.provider
-        api_key = args.api_key
+        model_id, provider, api_key = args.model_id, args.provider, args.api_key
         if not all([model_id, provider, api_key]):
             print("用法: wyckoff model set <id> <provider> <api_key> [--model X] [--base-url X]")
             sys.exit(1)
-        entry = {
-            "id": model_id,
-            "provider_name": provider,
-            "api_key": api_key,
-            "model": args.model_name or "",
-            "base_url": args.base_url or "",
-        }
-        save_model_entry(entry)
+        save_model_entry({"id": model_id, "provider_name": provider, "api_key": api_key, "model": args.model_name or "", "base_url": args.base_url or ""})
         print(f"✓ 模型 {model_id} 已保存")
         return
-
     if sub == "rm":
-        model_id = args.model_id
-        if not model_id:
+        if not args.model_id:
             print("用法: wyckoff model rm <id>")
             sys.exit(1)
-        if remove_model_entry(model_id):
-            print(f"✓ 模型 {model_id} 已删除")
-        else:
-            print("✗ 至少保留一个模型")
+        print(f"✓ 模型 {args.model_id} 已删除" if remove_model_entry(args.model_id) else "✗ 至少保留一个模型")
         return
-
     if sub == "default":
-        model_id = args.model_id
-        if not model_id:
+        if not args.model_id:
             print("用法: wyckoff model default <id>")
             sys.exit(1)
         configs = load_model_configs()
-        if not any(c["id"] == model_id for c in configs):
-            print(f"✗ 模型 {model_id} 不存在")
+        if not any(c["id"] == args.model_id for c in configs):
+            print(f"✗ 模型 {args.model_id} 不存在")
             sys.exit(1)
-        set_default_model(model_id)
-        print(f"✓ 默认模型已切换为 {model_id}")
+        set_default_model(args.model_id)
+        print(f"✓ 默认模型已切换为 {args.model_id}")
         return
-
-    if sub == "fallback":
-        from cli.auth import load_fallback_model_id, set_fallback_model
-
-        model_id = args.model_id
-        if not model_id:
-            current = load_fallback_model_id()
-            print(f"当前 fallback: {current or '未设置（降级到所有模型）'}")
-            return
-        if model_id == "none":
-            set_fallback_model("")
-            print("✓ 已清除 fallback 设置（将降级到所有模型）")
-            return
-        configs = load_model_configs()
-        if not any(c["id"] == model_id for c in configs):
-            print(f"✗ 模型 {model_id} 不存在")
-            sys.exit(1)
-        set_fallback_model(model_id)
-        print(f"✓ Fallback 模型已设为 {model_id}")
-        return
+    if sub in ("fallback", "light"):
+        return _model_role_set(args, sub)
 
     print(f"未知子命令: {sub}")
-    print("用法: wyckoff model [list|add|set|rm|default|fallback]")
+    print("用法: wyckoff model [list|add|set|rm|default|fallback|light]")
     sys.exit(1)
 
 
@@ -947,15 +963,8 @@ def _cmd_tui(_args=None):
 
     system_prompt = CHAT_AGENT_SYSTEM_PROMPT
 
-    state = {
-        "provider": None,
-        "provider_name": "",
-        "model": "",
-        "api_key": "",
-        "base_url": "",
-    }
+    state = {"provider": None, "provider_name": "", "model": "", "api_key": "", "base_url": ""}
 
-    # --- 从 wyckoff.json 注入数据源 token ---
     try:
         from cli.auth import load_config
 
@@ -998,6 +1007,8 @@ def _cmd_tui(_args=None):
     except Exception:
         pass
 
+    _wrap_routing_provider(state)
+
     if state["provider"]:
         tools.set_provider(state["provider"])
 
@@ -1007,11 +1018,8 @@ def _cmd_tui(_args=None):
 
     def _dash_bg():
         try:
-            from http.server import HTTPServer
-
-            from cli.dashboard import _Handler
-
-            HTTPServer(("127.0.0.1", 8765), _Handler).serve_forever()
+            from cli.dashboard import start_dashboard_background
+            start_dashboard_background()
         except Exception:
             pass
 

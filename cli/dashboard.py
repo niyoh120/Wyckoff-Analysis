@@ -375,14 +375,35 @@ class _Handler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------------
 
 
+def start_dashboard_background(port: int = 8765):
+    """后台静默启动 dashboard（daemon 线程调用，不打开浏览器）。"""
+    server = HTTPServer(("127.0.0.1", port), _Handler)
+    server.allow_reuse_address = True
+    server.serve_forever()
+
+
+def _port_in_use(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
 def start_dashboard(port: int = 8765):
     """启动 dashboard HTTP 服务并打开浏览器。"""
+    url = f"http://127.0.0.1:{port}"
+
+    if _port_in_use(port):
+        print(f"Dashboard 已在运行: {url}")
+        webbrowser.open(url)
+        return
+
     from integrations.local_db import init_db
 
     init_db()
 
     server = HTTPServer(("127.0.0.1", port), _Handler)
-    url = f"http://127.0.0.1:{port}"
+    server.allow_reuse_address = True
     print(f"Wyckoff Dashboard: {url}")
     print("按 Ctrl+C 停止")
 

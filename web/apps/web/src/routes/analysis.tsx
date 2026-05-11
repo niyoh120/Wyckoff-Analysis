@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Loader2, Play } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -7,6 +7,7 @@ import { loadLLMConfig, type LLMConfig } from '@/lib/chat-agent'
 import { MarkdownContent } from '@/components/markdown'
 import { KlineChart } from '@/components/kline-chart'
 import { usePreferences } from '@/lib/preferences'
+import { detectWyckoffAnnotations } from '@/lib/wyckoff-detect'
 
 interface KlineData {
   date: string
@@ -129,6 +130,7 @@ export function AnalysisPage() {
   const [checkingConfig, setCheckingConfig] = useState(true)
   const [hasModelConfig, setHasModelConfig] = useState(false)
   const [hasDataSource, setHasDataSource] = useState(false)
+  const wyckoff = useMemo(() => (result?.klineData ? detectWyckoffAnnotations(result.klineData) : null), [result?.klineData])
 
   useEffect(() => {
     if (!user) return
@@ -158,10 +160,7 @@ export function AnalysisPage() {
 
   async function handleAnalyze() {
     const code = symbol.trim().replace(/\D/g, '')
-    if (code.length !== 6) {
-      setError(t('common.invalidStockCode'))
-      return
-    }
+    if (code.length !== 6) { setError(t('common.invalidStockCode')); return }
 
     setError('')
     setLoading(true)
@@ -280,7 +279,7 @@ export function AnalysisPage() {
                   {result.klineData.length} {t('common.rows')}
                 </span>
               </div>
-              <KlineChart data={result.klineData} height={350} />
+              <KlineChart data={result.klineData} height={350} wyckoffMarkers={wyckoff?.markers} tradingRange={wyckoff?.tradingRange ?? undefined} stage={wyckoff?.stage} />
             </section>
           )}
 
