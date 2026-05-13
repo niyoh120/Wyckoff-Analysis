@@ -56,7 +56,10 @@ def load_all_market_meta() -> dict[str, list[dict[str, Any]]]:
     """Load all generated market metadata files."""
     base_dir = _resolve_universe_dir()
     aliases = _load_aliases_by_symbol(base_dir)
-    return {market: _merge_aliases(_read_meta(base_dir / filename), aliases, market) for market, filename in META_FILES.items()}
+    return {
+        market: _merge_aliases(_read_meta(base_dir / filename), aliases, market)
+        for market, filename in META_FILES.items()
+    }
 
 
 def _load_aliases_by_symbol(base_dir: Path) -> dict[str, dict[str, Any]]:
