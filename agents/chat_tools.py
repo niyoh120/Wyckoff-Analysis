@@ -521,7 +521,7 @@ def search_stock_by_name(keyword: str, tool_context: ToolContext) -> list[dict]:
     """根据关键词搜索 A 股 / ETF / 美股 / 港股，支持名称和代码双向模糊搜索。
 
     Args:
-        keyword: 搜索关键词，如 "宁德"、"300750"、"AAPL" 或 "00700"
+        keyword: 搜索关键词，如 "宁德"、"300750"、"纳指100"、"苹果"、"AAPL.US" 或 "00700.HK"
 
     Returns:
         匹配的股票列表，每项包含 code、name、price、pct_chg、market_cap、news 字段。最多返回 10 条。

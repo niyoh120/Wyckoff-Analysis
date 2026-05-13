@@ -32,6 +32,13 @@ def test_generated_meta_searches_us_hk_and_etf() -> None:
     assert search_market_meta("纳指100", limit=1)[0]["code"] == "513100"
 
 
+def test_generated_meta_searches_common_aliases() -> None:
+    assert search_market_meta("苹果", limit=1)[0]["symbol"] == "AAPL.US"
+    assert search_market_meta("腾讯", limit=1)[0]["symbol"] == "00700.HK"
+    assert search_market_meta("英伟达", limit=1)[0]["symbol"] == "NVDA.US"
+    assert [row["symbol"] for row in search_market_meta("苹果", limit=3)] == ["AAPL.US"]
+
+
 def test_etf_name_map_loads_generated_meta() -> None:
     names = load_symbol_name_map(("etf_cn",))
 

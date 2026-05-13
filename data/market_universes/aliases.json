@@ -1,0 +1,130 @@
+[
+  {
+    "symbol": "AAPL.US",
+    "name": "Apple",
+    "aliases": ["苹果", "苹果公司", "Apple", "iPhone"],
+    "market": "us",
+    "asset_type": "stock",
+    "currency": "USD"
+  },
+  {
+    "symbol": "MSFT.US",
+    "name": "Microsoft",
+    "aliases": ["微软", "Microsoft"],
+    "market": "us",
+    "asset_type": "stock",
+    "currency": "USD"
+  },
+  {
+    "symbol": "NVDA.US",
+    "name": "NVIDIA",
+    "aliases": ["英伟达", "英偉達", "NVIDIA", "NVDA"],
+    "market": "us",
+    "asset_type": "stock",
+    "currency": "USD"
+  },
+  {
+    "symbol": "TSLA.US",
+    "name": "Tesla",
+    "aliases": ["特斯拉", "Tesla"],
+    "market": "us",
+    "asset_type": "stock",
+    "currency": "USD"
+  },
+  {
+    "symbol": "GOOGL.US",
+    "name": "Alphabet",
+    "aliases": ["谷歌", "Google", "Alphabet"],
+    "market": "us",
+    "asset_type": "stock",
+    "currency": "USD"
+  },
+  {
+    "symbol": "META.US",
+    "name": "Meta Platforms",
+    "aliases": ["Meta", "Facebook", "脸书"],
+    "market": "us",
+    "asset_type": "stock",
+    "currency": "USD"
+  },
+  {
+    "symbol": "AMZN.US",
+    "name": "Amazon",
+    "aliases": ["亚马逊", "Amazon"],
+    "market": "us",
+    "asset_type": "stock",
+    "currency": "USD"
+  },
+  {
+    "symbol": "AMD.US",
+    "name": "AMD",
+    "aliases": ["超威", "AMD"],
+    "market": "us",
+    "asset_type": "stock",
+    "currency": "USD"
+  },
+  {
+    "symbol": "00700.HK",
+    "name": "Tencent",
+    "aliases": ["腾讯", "騰訊", "腾讯控股", "Tencent"],
+    "market": "hk",
+    "asset_type": "stock",
+    "currency": "HKD"
+  },
+  {
+    "symbol": "09988.HK",
+    "name": "Alibaba",
+    "aliases": ["阿里", "阿里巴巴", "Alibaba"],
+    "market": "hk",
+    "asset_type": "stock",
+    "currency": "HKD"
+  },
+  {
+    "symbol": "03690.HK",
+    "name": "Meituan",
+    "aliases": ["美团", "美團", "Meituan"],
+    "market": "hk",
+    "asset_type": "stock",
+    "currency": "HKD"
+  },
+  {
+    "symbol": "01810.HK",
+    "name": "Xiaomi",
+    "aliases": ["小米", "小米集团", "Xiaomi"],
+    "market": "hk",
+    "asset_type": "stock",
+    "currency": "HKD"
+  },
+  {
+    "symbol": "09618.HK",
+    "name": "JD.com",
+    "aliases": ["京东", "京東", "JD"],
+    "market": "hk",
+    "asset_type": "stock",
+    "currency": "HKD"
+  },
+  {
+    "symbol": "01211.HK",
+    "name": "BYD",
+    "aliases": ["比亚迪", "比亞迪", "BYD"],
+    "market": "hk",
+    "asset_type": "stock",
+    "currency": "HKD"
+  },
+  {
+    "symbol": "00388.HK",
+    "name": "HKEX",
+    "aliases": ["港交所", "香港交易所", "HKEX"],
+    "market": "hk",
+    "asset_type": "stock",
+    "currency": "HKD"
+  },
+  {
+    "symbol": "00005.HK",
+    "name": "HSBC",
+    "aliases": ["汇丰", "滙豐", "HSBC"],
+    "market": "hk",
+    "asset_type": "stock",
+    "currency": "HKD"
+  }
+]

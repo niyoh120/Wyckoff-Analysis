@@ -1,8 +1,8 @@
 [project]
 name = "youngcan-wyckoff-analysis"
-version = "0.8.0"
+version = "0.8.1"
 requires-python = ">=3.11"
-description = "Wyckoff method quantitative analysis system for A-shares"
+description = "Wyckoff method quantitative analysis system for A-shares, Hong Kong stocks, and US stocks"
 readme = "README.md"
 license = "AGPL-3.0-only"
 authors = [{ name = "youngcan" }]
@@ -57,6 +57,12 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["agents*", "app*", "cli*", "core*", "integrations*", "tools*", "utils*", "scripts*"]
+
+[tool.setuptools.data-files]
+"share/youngcan-wyckoff-analysis/market_universes" = [
+    "data/market_universes/*.json",
+    "data/market_universes/*.txt",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

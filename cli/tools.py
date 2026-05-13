@@ -40,22 +40,25 @@ class ToolContext:
 TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "search_stock_by_name",
-        "description": "根据关键词搜索 A 股股票，支持名称、代码、拼音首字母模糊搜索。最多返回 10 条。",
+        "description": "根据关键词搜索 A 股 / ETF / 美股 / 港股，支持名称、代码、常见中文别名和 TickFlow 标准代码。最多返回 10 条。",
         "parameters": {
             "type": "object",
             "properties": {
-                "keyword": {"type": "string", "description": "搜索关键词，如 '宁德' 或 '300750' 或 'gzmt'"},
+                "keyword": {
+                    "type": "string",
+                    "description": "搜索关键词，如 '宁德'、'300750'、'纳指100'、'苹果'、'AAPL.US'、'00700.HK'",
+                },
             },
             "required": ["keyword"],
         },
     },
     {
         "name": "analyze_stock",
-        "description": "分析单只 A 股股票：Wyckoff 健康诊断或近期行情查询。",
+        "description": "分析单只股票：A 股/ETF 支持 6 位代码；美股/港股使用 TickFlow 标准代码。支持 Wyckoff 健康诊断或近期行情查询。",
         "parameters": {
             "type": "object",
             "properties": {
-                "code": {"type": "string", "description": "6 位股票代码，如 '000001' 或 '600519'"},
+                "code": {"type": "string", "description": "股票代码，如 '000001'、'513100'、'AAPL.US'、'00700.HK'"},
                 "mode": {
                     "type": "string",
                     "enum": ["diagnose", "price"],
