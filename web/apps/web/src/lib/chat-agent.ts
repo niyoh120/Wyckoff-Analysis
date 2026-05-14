@@ -203,7 +203,10 @@ async function throwForApiError(res: Response): Promise<void> {
   try {
     const j = JSON.parse(text)
     msg = j?.error?.message || j?.error || msg
-  } catch {}
+  } catch {
+    const plain = text.trim()
+    if (plain) msg = plain.slice(0, 500)
+  }
   throw new Error(msg)
 }
 
