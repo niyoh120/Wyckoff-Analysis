@@ -138,10 +138,7 @@ def build_position_weight_frame(
                 continue
             active = pos_by_day.get(day, [])
             n_active = len(active)
-            if n_active:
-                weight = sum(1.0 / n_active for p in active if p["code"] == code)
-            else:
-                weight = 0.0
+            weight = sum(1.0 / n_active for p in active if p["code"] == code) if n_active else 0.0
             rows.append(
                 {
                     "dt": pd.Timestamp(day),

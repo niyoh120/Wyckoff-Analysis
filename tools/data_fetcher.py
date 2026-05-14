@@ -395,16 +395,16 @@ def terminate_executor_processes(ex: ProcessPoolExecutor, batch_no: int) -> None
     procs = getattr(ex, "_processes", {}) or {}
     killed = 0
     for proc in procs.values():
-        try:
-            if proc.is_alive():
+        from contextlib import suppress
+
+        with suppress(Exception):
+            if proc and proc.is_alive():
                 proc.terminate()
                 proc.join(timeout=1)
                 if proc.is_alive():
                     proc.kill()
                     proc.join(timeout=1)
                 killed += 1
-        except Exception:
-            pass
     if killed:
         print(f"[funnel] 批次#{batch_no} 已强制终止 {killed} 个卡住子进程")
 

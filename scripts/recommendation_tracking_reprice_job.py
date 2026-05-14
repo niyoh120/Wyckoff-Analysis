@@ -18,12 +18,12 @@ from zoneinfo import ZoneInfo
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-try:
+from contextlib import suppress
+
+with suppress(Exception):
     from dotenv import load_dotenv
 
     load_dotenv()
-except Exception:
-    pass
 from integrations.supabase_recommendation import refresh_tracking_prices_with_tickflow_realtime
 
 TZ = ZoneInfo("Asia/Shanghai")

@@ -86,10 +86,7 @@ def _member_snapshot(df: pd.DataFrame) -> dict | None:
     high = pd.to_numeric(s.get("high"), errors="coerce")
     low = pd.to_numeric(s.get("low"), errors="coerce")
     volume = pd.to_numeric(s.get("volume"), errors="coerce")
-    if "amount" in s.columns:
-        amount = pd.to_numeric(s.get("amount"), errors="coerce")
-    else:
-        amount = close * volume
+    amount = pd.to_numeric(s.get("amount"), errors="coerce") if "amount" in s.columns else close * volume
     if len(close.dropna()) < 40:
         return None
 

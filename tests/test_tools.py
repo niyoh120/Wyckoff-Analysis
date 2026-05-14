@@ -264,7 +264,7 @@ class TestSymbolPool:
         from agents import chat_tools
 
         captured_env = {}
-        fake_pipeline = ModuleType("core.funnel_pipeline")
+        fake_pipeline = ModuleType("scripts.wyckoff_funnel")
 
         def fake_run_funnel(*args, **kwargs):
             captured_env["mode"] = os.environ.get("FUNNEL_POOL_MODE")
@@ -272,8 +272,8 @@ class TestSymbolPool:
             captured_env["executor"] = os.environ.get("FUNNEL_EXECUTOR_MODE")
             return True, [], {}, {"metrics": {}, "triggers": {}, "name_map": {}}
 
-        fake_pipeline.run_funnel = fake_run_funnel
-        monkeypatch.setitem(sys.modules, "core.funnel_pipeline", fake_pipeline)
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "scripts.wyckoff_funnel", fake_pipeline)
         monkeypatch.setattr(chat_tools, "_ensure_tushare_token", lambda tool_context: None)
         monkeypatch.setenv("FUNNEL_POOL_MODE", "manual")
         monkeypatch.setenv("FUNNEL_POOL_BOARD", "chinext")

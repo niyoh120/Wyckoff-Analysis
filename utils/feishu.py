@@ -253,9 +253,8 @@ def send_backtest_card(webhook_url: str, summary_path: str) -> bool:
                     for i, cn in enumerate(col_names):
                         result[cn][key] = parts[i + 1]
                 continue
-            if in_table and (line.startswith("##") or line.strip() == ""):
-                if col_names:
-                    break
+            if in_table and (line.startswith("##") or line.strip() == "") and col_names:
+                break
         return result
 
     track_data = _parse_vertical_table("Trend vs Accum")
@@ -524,10 +523,7 @@ def send_tail_buy_card(webhook_url: str, title: str, content: str) -> bool:
         if not safe_items:
             elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "- 无"}})
             return
-        if int(max_items) > 0:
-            shown = safe_items[:max_items]
-        else:
-            shown = safe_items
+        shown = safe_items[:max_items] if int(max_items) > 0 else safe_items
         body = "\n".join([_tail_buy_format_item(x, item_char_limit) for x in shown])
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": body}})
         omitted = max(len(safe_items) - len(shown), 0)

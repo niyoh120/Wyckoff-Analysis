@@ -44,12 +44,12 @@ def _load_grid(env_key: str, default: list) -> list:
     raw = os.getenv(env_key, "").strip()
     if not raw:
         return default
-    try:
+    from contextlib import suppress
+
+    with suppress(Exception):
         parsed = json.loads(raw)
         if isinstance(parsed, list):
             return parsed
-    except Exception:
-        pass
     return default
 
 

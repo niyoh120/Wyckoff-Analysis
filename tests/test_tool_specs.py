@@ -18,10 +18,10 @@ def test_tool_specs_cover_all_public_schemas():
 
 
 def test_legacy_tool_sets_are_derived_from_specs():
-    assert CONFIRM_TOOLS == {name for name, spec in TOOL_SPECS.items() if spec.requires_approval}
-    assert BACKGROUND_TOOLS == {name for name, spec in TOOL_SPECS.items() if spec.background}
-    assert CONCURRENCY_SAFE_TOOLS == {name for name, spec in TOOL_SPECS.items() if spec.concurrency_safe}
-    assert TOOL_DISPLAY_NAMES == {name: spec.display_name for name, spec in TOOL_SPECS.items()}
+    assert {name for name, spec in TOOL_SPECS.items() if spec.requires_approval} == CONFIRM_TOOLS
+    assert {name for name, spec in TOOL_SPECS.items() if spec.background} == BACKGROUND_TOOLS
+    assert {name for name, spec in TOOL_SPECS.items() if spec.concurrency_safe} == CONCURRENCY_SAFE_TOOLS
+    assert {name: spec.display_name for name, spec in TOOL_SPECS.items()} == TOOL_DISPLAY_NAMES
 
 
 def test_tool_registry_reads_runtime_behavior_from_specs():

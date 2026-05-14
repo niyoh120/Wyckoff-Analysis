@@ -82,9 +82,9 @@ def _swing_values(series: pd.Series, *, kind: str, window: int) -> list[float]:
         span = values.iloc[i - w : i + w + 1].dropna()
         if span.empty:
             continue
-        if kind == "low" and float(current) <= float(span.min()):
-            out.append(float(current))
-        elif kind == "high" and float(current) >= float(span.max()):
+        if (kind == "low" and float(current) <= float(span.min())) or (
+            kind == "high" and float(current) >= float(span.max())
+        ):
             out.append(float(current))
     return out
 

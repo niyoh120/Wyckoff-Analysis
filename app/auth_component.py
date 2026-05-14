@@ -1,3 +1,4 @@
+import contextlib
 import re
 
 import streamlit as st
@@ -243,10 +244,8 @@ def logout():
     supabase = _safe_get_supabase_client()
     if supabase is None:
         return
-    try:
+    with contextlib.suppress(Exception):
         supabase.auth.sign_out()
-    except Exception:
-        pass
     clear_tokens_from_storage()
     reset_user_settings_state()
     # 清理聊天状态，防止跨账号会话串用

@@ -273,9 +273,8 @@ def _validate_plot_code(code_block: str) -> tuple[bool, str]:
             return (False, f"不允许的语句: {type(node).__name__}")
         if isinstance(node, ast.Name) and node.id in DISALLOWED_NAMES:
             return (False, f"不允许的标识符: {node.id}")
-        if isinstance(node, ast.Attribute):
-            if node.attr in DISALLOWED_ATTRS or node.attr.startswith("__"):
-                return (False, f"不允许的属性访问: {node.attr}")
+        if isinstance(node, ast.Attribute) and (node.attr in DISALLOWED_ATTRS or node.attr.startswith("__")):
+            return (False, f"不允许的属性访问: {node.attr}")
         if isinstance(node, ast.Call):
             fn = node.func
             if isinstance(fn, ast.Name) and fn.id in DISALLOWED_NAMES:

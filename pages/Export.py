@@ -72,9 +72,7 @@ def _maybe_cleanup_export_artifacts() -> None:
 # 增加网络请求重试机制，应对 RemoteDisconnected 等反爬限制
 def _should_retry_fetch(e: Exception) -> bool:
     # 明确的"数据源全失败"不应重试，否则页面会长时间卡在加载中
-    if is_data_source_failure_message(str(e)):
-        return False
-    return True
+    return not is_data_source_failure_message(str(e))
 
 
 @retry(

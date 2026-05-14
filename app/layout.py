@@ -62,13 +62,13 @@ def init_session_state() -> None:
     access = st.session_state.get("access_token") or ""
     refresh = st.session_state.get("refresh_token") or ""
     if not access or not refresh:
-        try:
+        from contextlib import suppress
+
+        with suppress(Exception):
             restored_access, restored_refresh = restore_tokens_from_storage()
             if restored_access and restored_refresh:
                 st.session_state.access_token = restored_access
                 st.session_state.refresh_token = restored_refresh
-        except Exception:
-            pass
 
     # 确保 URL query_params 中带有 session_key（跨页面导航时保持）
     ensure_query_params_synced()

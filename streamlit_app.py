@@ -46,7 +46,7 @@ with st.sidebar:
     )
     if _new_provider != _current_provider:
         st.session_state["chat_provider"] = _new_provider
-        # 清掉旧 agent，下面会用新 provider 重建
+        # Provider 切换需要重建对话上下文。
         st.session_state.pop("chat_manager", None)
         st.session_state.pop("chat_messages", None)
         st.rerun()

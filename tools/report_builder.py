@@ -28,6 +28,11 @@ _SIGNAL_TAG_MAP = [
     ("evr", "放量滞涨背离异动"),
     ("compression", "窄幅缩量蓄势异动"),
 ]
+_SPRINGBOARD_RULE_MAP = {
+    "A": "A=缩量高收测试",
+    "B": "B=放量高收突破",
+    "C": "C=支撑多次测试",
+}
 
 
 # ── 报告解析工具 ──
@@ -274,6 +279,178 @@ def _build_supply_demand_summary(df: pd.DataFrame) -> str:
     return summary + "\n"
 
 
+def _safe_float(value: object) -> float | None:
+    try:
+        value_float = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if pd.isna(value_float) else value_float
+
+
+def _springboard_codes(grade: str | None) -> list[str]:
+    raw = str(grade or "").strip().upper()
+    if not raw or raw == "NONE":
+        return []
+    parts = {part.strip() for part in raw.split("+")}
+    return [code for code in ("A", "B", "C") if code in parts]
+
+
+def _springboard_grade_text(grade: str | None) -> str:
+    raw = str(grade or "").strip()
+    if not raw:
+        return ""
+    if raw.lower() == "none":
+        return "none（0/3，无硬门槛）"
+    codes = _springboard_codes(raw)
+    labels = [_SPRINGBOARD_RULE_MAP.get(code, code) for code in codes]
+    return f"{raw}（{' + '.join(labels)}）" if labels else raw
+
+
+def _build_trading_range_line(df: pd.DataFrame, close_val: float) -> str:
+    if df.empty:
+        return ""
+    base = df.tail(KEY_LEVEL_WINDOW + 1).iloc[:-1] if len(df) > KEY_LEVEL_WINDOW else df.tail(KEY_LEVEL_WINDOW)
+    highs = pd.to_numeric(base.get("high"), errors="coerce").dropna()
+    lows = pd.to_numeric(base.get("low"), errors="coerce").dropna()
+    if highs.empty or lows.empty:
+        return ""
+    creek = float(highs.max())
+    ice = float(lows.min())
+    width = creek - ice
+    pos = None if width <= 0 else max(0.0, min(100.0, (float(close_val) - ice) / width * 100))
+    pos_text = "NA" if pos is None else f"{pos:.0f}%"
+    return f"  [结构支撑/阻力] Creek(箱体上沿):{creek:.2f}, Ice(箱体下沿):{ice:.2f}, 区间位置:{pos_text}\n"
+
+
+def _format_financial_snapshot(financial_metrics: dict | None) -> str:
+    if not financial_metrics:
+        return ""
+    pct_keys = {"roe", "net_income_yoy", "gross_margin", "debt_to_asset_ratio"}
+    parts = []
+    for key, label in [
+        ("eps_basic", "EPS"),
+        ("roe", "ROE"),
+        ("net_income_yoy", "净利润同比"),
+        ("gross_margin", "毛利率"),
+        ("debt_to_asset_ratio", "资产负债率"),
+    ]:
+        value = _safe_float(financial_metrics.get(key))
+        if value is not None:
+            parts.append(f"{label}: {value:.1f}%" if key in pct_keys else f"{label}: {value:.2f}")
+    return f"  [基本面快照] {' | '.join(parts)}\n" if parts else ""
+
+
+def _build_candidate_type_line(
+    raw_tag: str,
+    facts: list[str],
+    springboard_grade: str | None,
+    exit_signal: str | None,
+    sector_state_code: str | None,
+) -> str:
+    raw_lower = str(raw_tag or "").lower()
+    if exit_signal:
+        kind = "冲突复核（退出预警 + 初筛异动）"
+    elif str(sector_state_code or "").upper() == "CONSENSUS_CLIMAX":
+        kind = "高潮风险复核"
+    elif len(_springboard_codes(springboard_grade)) >= 2:
+        kind = "起跳板复核"
+    elif "sos" in raw_lower:
+        kind = "强突破复核"
+    elif any(token in raw_lower for token in ("spring", "lps", "evr")):
+        kind = "左侧吸筹复核"
+    else:
+        kind = "结构候选复核"
+    source = "/".join(facts) if facts else (str(raw_tag or "").strip() or "未标注")
+    return f"  [候选类型] {kind} | 信号来源:{source}\n"
+
+
+def _build_conflict_line(exit_signal: str | None) -> str:
+    if not exit_signal:
+        return ""
+    return (
+        "  [冲突提示] 同时存在退出预警与初筛异动，默认按诱多/修复失败审查；只有重新站回关键位且放量高收才允许升级。\n"
+    )
+
+
+def _row_vsa_tags(row: pd.Series, vol_ratio: float) -> list[str]:
+    pct = _safe_float(row.get("pct_chg_calc")) or 0.0
+    amp = _safe_float(row.get("amplitude_pct")) or 0.0
+    close_pos = _safe_float(row.get("close_pos_pct")) or 50.0
+    open_v = _safe_float(row.get("open"))
+    close_v = _safe_float(row.get("close"))
+    low_v = _safe_float(row.get("low"))
+    high_v = _safe_float(row.get("high"))
+    tags: list[str] = []
+    if amp >= 5 and close_pos >= 80 and vol_ratio >= 1.5:
+        tags.append("宽幅高收放量")
+    if amp >= 5 and close_pos <= 25 and vol_ratio >= 1.5:
+        tags.append("宽幅低收放量")
+    if None not in (open_v, close_v, low_v, high_v) and high_v > low_v:
+        lower_shadow = (min(open_v, close_v) - low_v) / (high_v - low_v) * 100
+        if lower_shadow >= 40 and close_pos >= 65:
+            tags.append("长下影收复")
+    if vol_ratio < 0.8 and close_pos >= 60 and abs(pct) <= 2.5:
+        tags.append("缩量高收测试")
+    if pct < 0 and vol_ratio >= 1.5 and close_pos <= 50:
+        tags.append("供应放大")
+    if pct >= HIGHLIGHT_PCT_THRESHOLD and vol_ratio >= HIGHLIGHT_VOL_RATIO and close_pos >= 70:
+        tags.append("放量突破")
+    return tags[:3]
+
+
+def _build_recent_slice(df: pd.DataFrame) -> str:
+    recent_lines = ["  [近15日量价切片]:"]
+    for _, row in df.tail(RECENT_DAYS).iterrows():
+        vol_ma20 = _safe_float(row.get("vol_ma20"))
+        volume = _safe_float(row.get("volume")) or 0.0
+        vol_ratio = volume / vol_ma20 if vol_ma20 and vol_ma20 > 0 else 0.0
+        pct = _safe_float(row.get("pct_chg_calc")) or 0.0
+        amp = _safe_float(row.get("amplitude_pct"))
+        close_pos = _safe_float(row.get("close_pos_pct"))
+        tags = _row_vsa_tags(row, vol_ratio)
+        date_str = str(row.get("date", ""))[5:10]
+        tag_text = f" [{'/'.join(tags)}]" if tags else ""
+        amp_text = f"{amp:.1f}%" if amp is not None else "NA"
+        close_pos_text = f"{close_pos:.0f}%" if close_pos is not None else "NA"
+        recent_lines.append(
+            f"    {date_str}: 收{float(row['close']):.2f} ({pct:+.1f}%), "
+            f"振幅:{amp_text}, 收位:{close_pos_text}, 量比:{vol_ratio:.1f}x{tag_text}"
+        )
+    return "\n".join(recent_lines) + "\n"
+
+
+def _build_highlight_section(df: pd.DataFrame) -> str:
+    highlights = []
+    for _, row in df.tail(HIGHLIGHT_DAYS).iterrows():
+        pct = _safe_float(row.get("pct_chg_calc")) or 0.0
+        vol_ma20 = _safe_float(row.get("vol_ma20"))
+        volume = _safe_float(row.get("volume")) or 0.0
+        vol_ratio = volume / vol_ma20 if vol_ma20 and vol_ma20 > 0 else 0.0
+        if abs(pct) < HIGHLIGHT_PCT_THRESHOLD and vol_ratio < HIGHLIGHT_VOL_RATIO:
+            continue
+        tag_parts = []
+        if abs(pct) >= HIGHLIGHT_PCT_THRESHOLD:
+            tag_parts.append(f"涨跌{pct:+.1f}%")
+        if vol_ratio >= HIGHLIGHT_VOL_RATIO:
+            tag_parts.append(f"量比{vol_ratio:.1f}x")
+        date_str = str(row.get("date", ""))[5:10]
+        highlights.append(f"    {date_str}: 收{float(row['close']):.2f} ({', '.join(tag_parts)})")
+    return "\n  [近60日异动高光]:\n" + "\n".join(highlights) + "\n" if highlights else ""
+
+
+def _track_execution_requirements() -> str:
+    return (
+        "补充执行要求：\n"
+        "1) 买入触发必须包含量价确认条件（缩量回踩/拒绝下破）；放量下破必须取消买入。\n"
+        "2) 盘面解剖须结合振幅、收位与量比，说明洗盘/承接/冲高回落的博弈痕迹。\n"
+        "3) 【板块状态/证据】仅作行业参考，最终以个股量价结构定生死。\n"
+        "4) 【结构支撑/阻力】中的 Creek 是箱体上沿，Ice 是箱体下沿；突破 Creek 后不能回落，跌破 Ice 后必须快速收回才可视作 Spring。\n"
+        "5) 【起跳板预判】A=缩量高收测试，B=放量高收突破，C=支撑多次测试；若事实切片冲突，以事实切片为准。\n"
+        "6) 若同时出现【退出预警】和向上异动，默认按诱多/修复失败审查，除非重新站回关键位且放量高收。\n"
+        "7) 近15日切片后的 VSA 标签仅是辅助索引，最终仍必须引用原始涨跌、振幅、收位与量比。\n\n"
+    )
+
+
 def generate_stock_payload(
     stock_code: str,
     stock_name: str,
@@ -359,6 +536,7 @@ def generate_stock_payload(
     policy_prefix = f" {policy_tag}" if policy_tag else ""
     tag_text = ""
     raw_tag = str(wyckoff_tag or "").strip()
+    facts: list[str] = []
     if raw_tag:
         lowered = raw_tag.lower()
         facts = [lbl for tok, lbl in _SIGNAL_TAG_MAP if tok in lowered]
@@ -369,6 +547,8 @@ def generate_stock_payload(
         f"  [价格锚点] 最新收盘价:{close_val:.2f}\n"
         f"{background}\n"
     )
+    header += _build_trading_range_line(df, close_val)
+    header += _build_candidate_type_line(raw_tag, facts, springboard_grade, exit_signal, sector_state_code)
     if stage:
         header += f"  [阶段假设] {stage}\n"
     if industry:
@@ -388,69 +568,19 @@ def generate_stock_payload(
         if exit_reason:
             exit_parts.append(f"原因: {exit_reason}")
         header += f"  [退出预警] {', '.join(exit_parts)}\n"
+    header += _build_conflict_line(exit_signal)
 
-    if financial_metrics:
-        fm = financial_metrics
-        fm_parts = []
-        _pct_keys = {"roe", "net_income_yoy", "gross_margin", "debt_to_asset_ratio"}
-        for key, label in [
-            ("eps_basic", "EPS"),
-            ("roe", "ROE"),
-            ("net_income_yoy", "净利润同比"),
-            ("gross_margin", "毛利率"),
-            ("debt_to_asset_ratio", "资产负债率"),
-        ]:
-            v = fm.get(key)
-            if v is not None:
-                try:
-                    fv = float(v)
-                    fm_parts.append(f"{label}: {fv:.1f}%" if key in _pct_keys else f"{label}: {fv:.2f}")
-                except (ValueError, TypeError):
-                    pass
-        if fm_parts:
-            header += f"  [基本面快照] {' | '.join(fm_parts)}\n"
+    header += _format_financial_snapshot(financial_metrics)
 
     if springboard_grade:
-        _met = 0 if springboard_grade == "none" else springboard_grade.count("+") + 1
-        header += f"  [起跳板预判] 满足条件: {springboard_grade} ({_met}/3)\n"
+        met = len(_springboard_codes(springboard_grade))
+        grade_text = _springboard_grade_text(springboard_grade)
+        header += f"  [起跳板预判] 满足条件: {grade_text} ({met}/3)\n"
 
     supply_summary = _build_supply_demand_summary(df)
-
-    # 近 15 日量价切片
-    recent = df.tail(RECENT_DAYS)
-    recent_lines = ["  [近15日量价切片]:"]
-    for _, row in recent.iterrows():
-        vol_ratio = row["volume"] / row["vol_ma20"] if pd.notna(row["vol_ma20"]) and row["vol_ma20"] > 0 else 0
-        pct = row["pct_chg_calc"] if pd.notna(row["pct_chg_calc"]) else 0
-        amplitude_pct = row.get("amplitude_pct", pd.NA)
-        close_pos_pct = row.get("close_pos_pct", pd.NA)
-        date_str = str(row["date"])[5:10]
-        amp_text = f"{float(amplitude_pct):.1f}%" if pd.notna(amplitude_pct) else "NA"
-        close_pos_text = f"{float(close_pos_pct):.0f}%" if pd.notna(close_pos_pct) else "NA"
-        recent_lines.append(
-            f"    {date_str}: 收{row['close']:.2f} ({pct:+.1f}%), 振幅:{amp_text}, 收位:{close_pos_text}, 量比:{vol_ratio:.1f}x"
-        )
-
-    # 近 60 日异动高光
-    tail60 = df.tail(HIGHLIGHT_DAYS)
-    highlights = []
-    for _, row in tail60.iterrows():
-        pct = row["pct_chg_calc"] if pd.notna(row["pct_chg_calc"]) else 0
-        vol_ratio = row["volume"] / row["vol_ma20"] if pd.notna(row["vol_ma20"]) and row["vol_ma20"] > 0 else 0
-        if abs(pct) >= HIGHLIGHT_PCT_THRESHOLD or vol_ratio >= HIGHLIGHT_VOL_RATIO:
-            date_str = str(row["date"])[5:10]
-            tag_parts = []
-            if abs(pct) >= HIGHLIGHT_PCT_THRESHOLD:
-                tag_parts.append(f"涨跌{pct:+.1f}%")
-            if vol_ratio >= HIGHLIGHT_VOL_RATIO:
-                tag_parts.append(f"量比{vol_ratio:.1f}x")
-            highlights.append(f"    {date_str}: 收{row['close']:.2f} ({', '.join(tag_parts)})")
-
-    highlight_section = ""
-    if highlights:
-        highlight_section = "\n  [近60日异动高光]:\n" + "\n".join(highlights) + "\n"
-
-    return header + "\n".join(recent_lines) + "\n" + supply_summary + highlight_section + "\n"
+    recent_section = _build_recent_slice(df)
+    highlight_section = _build_highlight_section(df)
+    return header + recent_section + supply_summary + highlight_section + "\n"
 
 
 def build_track_user_message(
@@ -518,10 +648,7 @@ def build_track_user_message(
         + "请做三阵营分流：1) 逻辑破产 2) 储备营地 3) 处于起跳板。\n"
         + "其中前两类属于非操作区，第三类才是可执行区。\n"
         + "输出必须包含这三个部分，且只能使用输入列表中的股票代码，不得遗漏或新增。\n\n"
-        + "补充执行要求：\n"
-        + "1) 买入触发必须包含量价确认条件（缩量回踩/拒绝下破）；放量下破必须取消买入。\n"
-        + "2) 盘面解剖须结合振幅、收位与量比，说明洗盘/承接/冲高回落的博弈痕迹。\n"
-        + "3) 【板块状态/证据】仅作行业参考，最终以个股量价结构定生死。\n\n"
+        + _track_execution_requirements()
         + "\n".join(payloads)
     )
     return message

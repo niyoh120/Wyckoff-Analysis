@@ -30,17 +30,16 @@ def _stock_name_map() -> dict[str, str]:
 
 def _etf_name_map() -> dict[str, str]:
     """从结构化 ETF meta 加载 ETF 名称映射。"""
+    from contextlib import suppress
     from pathlib import Path
 
-    try:
-        from tools.market_universe_meta import load_symbol_name_map
+    with suppress(Exception):
+        from integrations.data_source import load_symbol_name_map
 
         meta_map = load_symbol_name_map(("etf_cn",))
         out = {code: name for code, name in meta_map.items() if len(code) == 6 and code.isdigit()}
         if out:
             return out
-    except Exception:
-        pass
 
     path = Path(__file__).resolve().parent.parent / "data" / "market_universes" / "etf_cn.txt"
     if not path.is_file():

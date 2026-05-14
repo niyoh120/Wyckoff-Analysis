@@ -158,9 +158,7 @@ def main() -> int:
             ): sym
             for sym in symbols
         }
-        done = 0
-        for ft in as_completed(futs):
-            done += 1
+        for done, ft in enumerate(as_completed(futs), 1):
             sym, df, err, elapsed = ft.result()
             if df is not None:
                 all_frames.append(df)

@@ -404,7 +404,7 @@ def _analyze_holdings_actions(
         return [], False, meta
 
     symbols = [normalize_cn_symbol(p["code"]) for p in positions]
-    symbol_set = sorted(set([s for s in symbols if s]))
+    symbol_set = sorted({s for s in symbols if s})
     _log(
         f"持仓动作分析开始: requested={requested_portfolio_id}, resolved={resolved_portfolio_id}, "
         f"positions={len(positions)}, symbols={len(symbol_set)}",
@@ -1213,7 +1213,7 @@ def _build_llm_routes(
         base_url=primary_base_url,
     )
 
-    # fallback: NVIDIA Kimi K2（仅当前主路由失败时使用）
+    # NVIDIA Kimi K2 作为主路由失败时的备用模型。
     nvidia_key = os.getenv("NVIDIA_API_KEY", "").strip()
     nvidia_base = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").strip()
     nvidia_kimi = os.getenv("NVIDIA_MODEL_KIMI", "").strip()

@@ -380,7 +380,7 @@ class TickFlowClient:
         if p not in _PERIOD_SET:
             raise ValueError(f"不支持的 period: {p}")
         clean = [normalize_cn_symbol(x) for x in symbols if str(x or "").strip()]
-        clean = sorted(set(x for x in clean if x))
+        clean = sorted({x for x in clean if x})
         if not clean:
             _tf_log("get_klines_batch skip: no valid symbols", always=True)
             return {}
@@ -424,7 +424,7 @@ class TickFlowClient:
         if p not in _PERIOD_SET:
             raise ValueError(f"不支持的 period: {p}")
         clean = [normalize_cn_symbol(x) for x in symbols if str(x or "").strip()]
-        clean = sorted(set(x for x in clean if x))
+        clean = sorted({x for x in clean if x})
         if not clean:
             _tf_log("get_intraday_batch skip: no valid symbols", always=True)
             return {}
@@ -461,7 +461,7 @@ class TickFlowClient:
     def get_financial_metrics(self, symbols: list[str], *, latest: bool = True) -> dict[str, list[dict]]:
         """批量获取核心财务指标。返回 {symbol: [MetricsRecord]}"""
         clean = [normalize_cn_symbol(x) for x in symbols if str(x or "").strip()]
-        clean = sorted(set(x for x in clean if x))
+        clean = sorted({x for x in clean if x})
         if not clean:
             _tf_log("get_financial_metrics skip: no valid symbols", always=True)
             return {}
@@ -490,8 +490,8 @@ class TickFlowClient:
         universes: list[str] | None = None,
     ) -> dict[str, dict[str, Any]]:
         clean = [normalize_cn_symbol(x) for x in symbols or [] if str(x or "").strip()]
-        clean = sorted(set(x for x in clean if x))
-        universe_ids = sorted(set(str(x).strip() for x in universes or [] if str(x).strip()))
+        clean = sorted({x for x in clean if x})
+        universe_ids = sorted({str(x).strip() for x in universes or [] if str(x).strip()})
         if not clean and not universe_ids:
             return {}
         out: dict[str, dict[str, Any]] = {}

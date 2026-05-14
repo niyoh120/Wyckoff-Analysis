@@ -291,10 +291,7 @@ def _latest_cycle(rows: list[dict[str, str]], sample_size: int = 20) -> tuple[st
     latest_date = tail[-1].get("signal_date", "")
     first_date = tail[0].get("signal_date", "")
     label_parts = [f"{k}({REGIME_LABELS.get(k, k)}) {v}/{len(tail)}" for k, v in dominant]
-    if len(dominant) >= 2:
-        cycle = f"{dominant[0][0]} / {dominant[1][0]} 切换观察期"
-    else:
-        cycle = f"{dominant[0][0]} 主导期"
+    cycle = f"{dominant[0][0]} / {dominant[1][0]} 切换观察期" if len(dominant) >= 2 else f"{dominant[0][0]} 主导期"
     detail = (
         f"最优组合可完整验证的尾段信号为 {first_date} ~ {latest_date}，近 {len(tail)} 笔以 "
         + "、".join(label_parts)
