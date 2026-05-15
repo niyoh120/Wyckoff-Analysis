@@ -1593,7 +1593,23 @@ def _query_signal(status: str, limit: int) -> dict:
 # Helper — 缓存 user client，避免重复消费 refresh_token
 # ---------------------------------------------------------------------------
 
-_user_client_cache: dict[str, Any] = {}  # user_id → Client
+_user_client_cache: dict[str, Any] = {}  # user_id:token_prefix → Client
+
+
+def _close_cached_clients() -> None:
+    from integrations.supabase_base import close_client
+
+    for c in _user_client_cache.values():
+        close_client(c)
+    _user_client_cache.clear()
+
+
+def _evict_stale_clients(keep_key: str) -> None:
+    from integrations.supabase_base import close_client
+
+    stale = [k for k in _user_client_cache if k != keep_key]
+    for k in stale:
+        close_client(_user_client_cache.pop(k))
 
 
 def _get_user_client(tool_context: ToolContext | None):
@@ -1626,6 +1642,7 @@ def _get_user_client(tool_context: ToolContext | None):
     if new_rt:
         tool_context.state["refresh_token"] = new_rt
     final_key = f"{user_id}:{(new_at or at)[:16]}"
+    _evict_stale_clients(final_key)
     _user_client_cache[final_key] = client
     return client
 
@@ -1661,7 +1678,7 @@ def _with_auth_retry(tool_context: ToolContext | None, fn, *args, **kwargs):
     except Exception as e:
         if not _is_auth_error(e) or tool_context is None:
             raise
-    _user_client_cache.clear()
+    _close_cached_clients()
     client, new_at, new_rt = _relogin_and_create_client(tool_context)
     if client is None:
         return None

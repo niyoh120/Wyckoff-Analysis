@@ -114,6 +114,33 @@ def get_session_tokens(client: Client) -> tuple[str, str]:
     return "", ""
 
 
+def close_client(client: Client) -> None:
+    """关闭 Supabase client 底层的 httpx 连接，避免 CLOSE_WAIT 泄漏。"""
+    try:
+        rest = getattr(client, "_postgrest", None) or getattr(client, "postgrest", None)
+        if rest:
+            session = getattr(rest, "session", None) or getattr(rest, "_session", None)
+            if session and hasattr(session, "aclose"):
+                import asyncio
+
+                try:
+                    asyncio.get_event_loop().run_until_complete(session.aclose())
+                except Exception:
+                    pass
+            elif session and hasattr(session, "close"):
+                session.close()
+    except Exception:
+        logger.debug("close_client: postgrest session close failed", exc_info=True)
+    try:
+        auth = getattr(client, "auth", None)
+        if auth:
+            http = getattr(auth, "_http_client", None) or getattr(auth, "http_client", None)
+            if http and hasattr(http, "close"):
+                http.close()
+    except Exception:
+        logger.debug("close_client: auth http close failed", exc_info=True)
+
+
 def is_admin_configured() -> bool:
     """检查是否存在显式 Supabase 凭据（env / st.secrets）。
 

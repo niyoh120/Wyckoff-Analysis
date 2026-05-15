@@ -8,6 +8,7 @@ of reimplementing the loop.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
@@ -43,6 +44,7 @@ def _iter_with_timeout(stream, timeout: float):
 
     使用独立 daemon 线程 + Queue 实现：半开连接卡死时，主线程在 queue.get
     超时后立即抛出，不等待僵死的生产线程（daemon 线程随进程退出自动回收）。
+    超时或异常时主动 close stream 释放底层连接。
     """
     import queue
     import threading
@@ -62,16 +64,22 @@ def _iter_with_timeout(stream, timeout: float):
     t = threading.Thread(target=_producer, daemon=True)
     t.start()
 
-    while True:
-        try:
-            item = q.get(timeout=timeout)
-        except queue.Empty:
-            raise TimeoutError(f"模型响应超时（{timeout:.0f}s 内无数据）") from None
-        if item is _SENTINEL:
-            return
-        if isinstance(item, tuple) and len(item) == 2 and item[0] is _EXCEPTION:
-            raise item[1]
-        yield item
+    try:
+        while True:
+            try:
+                item = q.get(timeout=timeout)
+            except queue.Empty:
+                raise TimeoutError(f"模型响应超时（{timeout:.0f}s 内无数据）") from None
+            if item is _SENTINEL:
+                return
+            if isinstance(item, tuple) and len(item) == 2 and item[0] is _EXCEPTION:
+                raise item[1]
+            yield item
+    except BaseException:
+        if hasattr(stream, "close"):
+            with contextlib.suppress(Exception):
+                stream.close()
+        raise
 
 
 @dataclass

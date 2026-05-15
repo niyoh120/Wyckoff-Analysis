@@ -101,48 +101,51 @@ class OpenAIProvider(LLMProvider):
                 kwargs.pop("frequency_penalty", None)
                 stream = self._client.chat.completions.create(**kwargs)
 
-        for chunk in stream:
-            if not chunk.choices and chunk.usage:
-                input_tokens = chunk.usage.prompt_tokens or 0
-                output_tokens = chunk.usage.completion_tokens or 0
-                details = getattr(chunk.usage, "prompt_tokens_details", None)
-                if details:
-                    cache_read = getattr(details, "cached_tokens", 0) or 0
-                comp_details = getattr(chunk.usage, "completion_tokens_details", None)
-                if comp_details:
-                    cache_write = getattr(comp_details, "cached_tokens", 0) or 0
-                continue
+        try:
+            for chunk in stream:
+                if not chunk.choices and chunk.usage:
+                    input_tokens = chunk.usage.prompt_tokens or 0
+                    output_tokens = chunk.usage.completion_tokens or 0
+                    details = getattr(chunk.usage, "prompt_tokens_details", None)
+                    if details:
+                        cache_read = getattr(details, "cached_tokens", 0) or 0
+                    comp_details = getattr(chunk.usage, "completion_tokens_details", None)
+                    if comp_details:
+                        cache_write = getattr(comp_details, "cached_tokens", 0) or 0
+                    continue
 
-            if not chunk.choices:
-                continue
+                if not chunk.choices:
+                    continue
 
-            delta = chunk.choices[0].delta
+                delta = chunk.choices[0].delta
 
-            # 推理模型（DeepSeek R1 / LongCat-Thinking 等）的思考过程
-            reasoning = getattr(delta, "reasoning_content", None)
-            if reasoning:
-                yield {"type": "thinking_delta", "text": reasoning}
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning:
+                    yield {"type": "thinking_delta", "text": reasoning}
 
-            if delta.content:
-                text_buf += delta.content
-                yield {"type": "text_delta", "text": delta.content}
+                if delta.content:
+                    text_buf += delta.content
+                    yield {"type": "text_delta", "text": delta.content}
 
-            if delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    if idx not in tool_map:
-                        tool_map[idx] = {
-                            "id": tc_delta.id or "",
-                            "name": tc_delta.function.name or "" if tc_delta.function else "",
-                            "args_json": "",
-                        }
-                    if tc_delta.id:
-                        tool_map[idx]["id"] = tc_delta.id
-                    if tc_delta.function:
-                        if tc_delta.function.name:
-                            tool_map[idx]["name"] = tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            tool_map[idx]["args_json"] += tc_delta.function.arguments
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tool_map:
+                            tool_map[idx] = {
+                                "id": tc_delta.id or "",
+                                "name": tc_delta.function.name or "" if tc_delta.function else "",
+                                "args_json": "",
+                            }
+                        if tc_delta.id:
+                            tool_map[idx]["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                tool_map[idx]["name"] = tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                tool_map[idx]["args_json"] += tc_delta.function.arguments
+        finally:
+            if hasattr(stream, "close"):
+                stream.close()
 
         # 兜底：某些模型（如 kimi-k2 via NVIDIA）会把 tool call 输出为文本标签
         if not tool_map and "<tool_call>" in text_buf:
