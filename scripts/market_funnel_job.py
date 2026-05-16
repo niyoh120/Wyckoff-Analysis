@@ -74,7 +74,7 @@ MARKET_SPECS = {
         label="美股",
         universe="US_Equity",
         symbol_file="us.txt",
-        default_max_symbols=800,
+        default_max_symbols=1500,
         default_min_quote_amount=5_000_000.0,
     ),
     "etf": MarketSpec(
@@ -317,11 +317,20 @@ def _run_layers(
     return triggers, metrics
 
 
-def _latest_close(df: pd.DataFrame | None) -> float | None:
+def _latest_history_snapshot(df: pd.DataFrame | None) -> tuple[float | None, int | None]:
     if df is None or df.empty or "close" not in df.columns:
-        return None
+        return (None, None)
+    if "date" in df.columns:
+        work = df[["date", "close"]].copy()
+        work["date"] = pd.to_datetime(work["date"], errors="coerce")
+        work["close"] = pd.to_numeric(work["close"], errors="coerce")
+        work = work.dropna(subset=["date", "close"])
+        work = work[work["close"] > 0].sort_values("date")
+        if not work.empty:
+            latest = work.iloc[-1]
+            return (float(latest["close"]), int(latest["date"].strftime("%Y%m%d")))
     close = pd.to_numeric(df["close"], errors="coerce").dropna()
-    return float(close.iloc[-1]) if not close.empty else None
+    return (float(close.iloc[-1]), None) if not close.empty else (None, None)
 
 
 def _candidate_rows(
@@ -341,7 +350,10 @@ def _candidate_rows(
             item["triggers"].append(TRIGGER_LABELS.get(trigger, trigger))
     out = list(rows.values())
     for item in out:
-        item["latest_close"] = _latest_close(df_map.get(str(item["symbol"])))
+        latest_close, latest_trade_date = _latest_history_snapshot(df_map.get(str(item["symbol"])))
+        item["latest_close"] = latest_close
+        if latest_trade_date is not None:
+            item["latest_trade_date"] = latest_trade_date
     out.sort(key=lambda item: float(item["score"]), reverse=True)
     return out
 
@@ -448,15 +460,27 @@ def _require_tickflow_client() -> TickFlowClient:
     return TickFlowClient(api_key=api_key)
 
 
+def _candidate_recommend_date(candidates: list[dict[str, Any]]) -> int:
+    dates: list[int] = []
+    for c in candidates:
+        try:
+            date_int = int(c.get("latest_trade_date"))
+        except (TypeError, ValueError):
+            continue
+        if 19000101 <= date_int <= 29991231:
+            dates.append(date_int)
+    if not dates:
+        raise ValueError("cannot resolve recommendation trade date from market histories")
+    return max(dates)
+
+
 def _upsert_funnel_to_tracking(candidates: list[dict[str, Any]], market: str) -> None:
     if not candidates or market not in ("us", "hk"):
         return
-    from datetime import datetime as _dt
-    from zoneinfo import ZoneInfo as _ZI
 
     from integrations.supabase_recommendation import upsert_global_recommendations
 
-    today_int = int(_dt.now(_ZI("Asia/Shanghai")).strftime("%Y%m%d"))
+    recommend_date = _candidate_recommend_date(candidates)
     rows = []
     for c in candidates:
         rows.append(
@@ -468,10 +492,51 @@ def _upsert_funnel_to_tracking(candidates: list[dict[str, Any]], market: str) ->
                 "latest_close": float(c.get("latest_close") or 0),
             }
         )
-    ok = upsert_global_recommendations(today_int, rows, market)
-    print(f"[market-funnel] DB write: market={market}, candidates={len(rows)}, ok={ok}")
+    ok = upsert_global_recommendations(recommend_date, rows, market)
+    print(f"[market-funnel] DB write: market={market}, date={recommend_date}, candidates={len(rows)}, ok={ok}")
     if not ok:
         raise RuntimeError(f"DB write failed for market={market}, candidates={len(rows)}")
+
+
+def _build_funnel_result(
+    runtime: RuntimeConfig,
+    universe_symbols: list[str],
+    quotes: dict[str, dict[str, Any]],
+    symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    fetch_stats: dict[str, Any],
+    metrics: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    report_path: Path | None,
+) -> dict[str, Any]:
+    return {
+        "ok": bool(quotes and df_map),
+        "market": runtime.spec.key,
+        "label": runtime.spec.label,
+        "universe": runtime.spec.universe,
+        "symbol_file": str(runtime.symbol_path),
+        "report_path": str(report_path) if report_path else "",
+        "universe_symbol_count": len(universe_symbols),
+        "quote_count": len(quotes),
+        "selected_count": len(symbols),
+        "fetched_count": len(df_map),
+        "fetch_stats": fetch_stats,
+        "metrics": metrics,
+        "top_candidates": candidates[:100],
+        "limits": {
+            "max_symbols": runtime.max_symbols,
+            "quote_batch_size": runtime.quote_batch_size,
+            "quote_batch_sleep": runtime.quote_batch_sleep,
+            "kline_batch_size": runtime.kline_batch_size,
+            "kline_batch_sleep": runtime.kline_batch_sleep,
+            "min_quote_amount": runtime.min_quote_amount,
+        },
+    }
+
+
+def _write_tracking_candidates_if_enabled(candidates: list[dict[str, Any]], market: str) -> None:
+    if os.getenv("MARKET_FUNNEL_WRITE_DB", "").strip().lower() in {"1", "true", "yes"}:
+        _upsert_funnel_to_tracking(candidates, market)
 
 
 def run_market_funnel(
@@ -502,33 +567,21 @@ def run_market_funnel(
     print(f"[market-funnel] {runtime.spec.label} 漏斗筛选 L1~L4 symbols={len(fetched_symbols)}")
     triggers, metrics = _run_layers(fetched_symbols, name_map, df_map, runtime) if df_map else ({}, {})
     report_path = _report_path(runtime.output_path)
-    result = {
-        "ok": bool(quotes and df_map),
-        "market": runtime.spec.key,
-        "label": runtime.spec.label,
-        "universe": runtime.spec.universe,
-        "symbol_file": str(runtime.symbol_path),
-        "report_path": str(report_path) if report_path else "",
-        "universe_symbol_count": len(universe_symbols),
-        "quote_count": len(quotes),
-        "selected_count": len(symbols),
-        "fetched_count": len(df_map),
-        "fetch_stats": fetch_stats,
-        "metrics": metrics,
-        "top_candidates": _candidate_rows(triggers, name_map=name_map, df_map=df_map)[:50],
-        "limits": {
-            "max_symbols": runtime.max_symbols,
-            "quote_batch_size": runtime.quote_batch_size,
-            "quote_batch_sleep": runtime.quote_batch_sleep,
-            "kline_batch_size": runtime.kline_batch_size,
-            "kline_batch_sleep": runtime.kline_batch_sleep,
-            "min_quote_amount": runtime.min_quote_amount,
-        },
-    }
+    candidates = _candidate_rows(triggers, name_map=name_map, df_map=df_map)
+    result = _build_funnel_result(
+        runtime,
+        universe_symbols,
+        quotes,
+        symbols,
+        df_map,
+        fetch_stats,
+        metrics,
+        candidates,
+        report_path,
+    )
     _write_output(runtime.output_path, result)
     _write_report(report_path, result)
-    if os.getenv("MARKET_FUNNEL_WRITE_DB", "").strip().lower() in {"1", "true", "yes"}:
-        _upsert_funnel_to_tracking(result.get("top_candidates") or [], runtime.spec.key)
+    _write_tracking_candidates_if_enabled(candidates, runtime.spec.key)
     print(
         f"[market-funnel] done ok={result['ok']} market={runtime.spec.key} "
         f"quotes={len(quotes)} selected={len(symbols)} fetched={len(df_map)} "
