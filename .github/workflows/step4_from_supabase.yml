@@ -1,0 +1,72 @@
+name: Step4 From Supabase
+
+on:
+  workflow_dispatch:
+    inputs:
+      recommend_date:
+        description: "Recommendation date, YYYYMMDD or YYYY-MM-DD. Empty uses latest trade date."
+        required: false
+        default: ""
+
+concurrency:
+  group: step4-from-supabase-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: "1"
+      TZ: Asia/Shanghai
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      DEFAULT_LLM_PROVIDER: gemini
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_USER_ID: ${{ secrets.SUPABASE_USER_ID }}
+      STEP4_BUY_HARD_STOP_ENABLED: "1"
+      STEP4_BUY_HARD_STOP_PCT: "9.0"
+      STEP4_BUY_STOP_MODE: "floor"
+      STEP4_PROBE_BUDGET_LIMIT: "0.10"
+      STEP4_ATTACK_BUDGET_LIMIT: "0.20"
+      STEP4_BUY_BLOCK_REGIMES: CRASH,BLACK_SWAN,RISK_OFF
+      STEP4_RECOMMEND_DATE: ${{ github.event.inputs.recommend_date }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Prepare logs dir
+        run: mkdir -p logs
+
+      - name: Run Step4 from Supabase
+        run: |
+          set -o pipefail
+          python -u scripts/step4_from_supabase.py \
+            --logs "${{ github.workspace }}/logs/step4_from_supabase.log" \
+            2>&1 | tee -a "${{ github.workspace }}/logs/step4_from_supabase.console.log"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step4-from-supabase-logs-${{ github.run_number }}
+          path: logs/*
+          retention-days: 7
+          if-no-files-found: warn

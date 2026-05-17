@@ -29,7 +29,7 @@ from core.batch_report import generate_stock_payload
 from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_for_llm
 from core.prompts import PRIVATE_PM_DECISION_JSON_PROMPT
 from core.wyckoff_engine import FunnelConfig, normalize_hist_from_fetch
-from integrations.fetch_a_share_csv import _fetch_hist, _resolve_trading_window
+from integrations.fetch_a_share_csv import TradingWindow, _fetch_hist, _resolve_trading_window
 from integrations.llm_client import call_llm
 from integrations.supabase_market_signal import compose_market_banner, load_market_signal_daily
 from integrations.supabase_portfolio import (
@@ -96,6 +96,12 @@ STEP4_CHASE_GAP_PCT_MIN = max(float(os.getenv("STEP4_CHASE_GAP_PCT_MIN", "1.2"))
 STEP4_CHASE_GAP_PCT_MAX = max(float(os.getenv("STEP4_CHASE_GAP_PCT_MAX", "5.5")), STEP4_CHASE_GAP_PCT_MIN)
 STEP4_CHASE_ATR_MULT_MIN = max(float(os.getenv("STEP4_CHASE_ATR_MULT_MIN", "0.8")), 0.1)
 STEP4_CHASE_ATR_MULT_MAX = max(float(os.getenv("STEP4_CHASE_ATR_MULT_MAX", "2.4")), STEP4_CHASE_ATR_MULT_MIN)
+
+
+def _resolve_step4_trade_context() -> tuple[date, TradingWindow, str]:
+    end_day = resolve_end_calendar_day()
+    window = _resolve_trading_window(end_calendar_day=end_day, trading_days=TRADING_DAYS)
+    return end_day, window, window.end_trade_date.isoformat()
 
 # --- OMS 防追高与滑点保护配置 ---
 STEP4_MAX_GAP_UP_PCT = float(os.getenv("STEP4_MAX_GAP_UP_PCT", "3.0"))  # 最大允许跳空/追高幅度(%)
@@ -1695,13 +1701,13 @@ def run(
         print("[step4] tg_bot_token/tg_chat_id 未配置，跳过 Step4 推送")
         return (True, "skipped_telegram_unconfigured")
 
-    trade_date = resolve_end_calendar_day().strftime("%Y-%m-%d")
+    end_day, window, trade_date = _resolve_step4_trade_context()
+    if trade_date != end_day.isoformat():
+        print(f"[step4] trade_date 使用最近交易日: calendar_day={end_day.isoformat()}, trade_date={trade_date}")
     if check_daily_run_exists(portfolio_id, trade_date, state_signature=state_signature):
         print(f"[step4] 幂等性检查: {portfolio_id} {trade_date} 当前持仓快照已运行过，跳过。")
         return (True, "skipped_idempotency")
 
-    end_day = resolve_end_calendar_day()
-    window = _resolve_trading_window(end_calendar_day=end_day, trading_days=TRADING_DAYS)
     (
         positions_payload,
         position_failures,
