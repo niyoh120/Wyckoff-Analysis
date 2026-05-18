@@ -30,6 +30,9 @@ data/*.csv
 data/trade_dates_cache.json
 data/sector_map_cache.json
 data/market_cap_cache.json
+data/concept_map_cache.json
+data/concept_heat_cache.json
+data/concept_heat_history.json
 data/funnel_snapshots/*
 !data/funnel_snapshots/.gitkeep
 data/strategy_shadow/

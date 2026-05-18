@@ -145,6 +145,9 @@ class FunnelConfig:
     sector_count_quantile: float = 0.70
     sector_super_strength_quantile: float = 0.90  # 小而强板块免死阈值（强度分位）
     sector_heat_bypass_min_count: int = 0  # 0=关闭；>0时 L2 通过 ≥ 此数的板块直接绕行 L3
+    use_concept_map: bool = True  # 启用概念模式（有 concept_map 时优先用概念聚合）
+    theme_line_min_days: int = 3  # 主线判定最少连续天数
+    theme_line_top_n: int = 20  # 每日取 Top N 概念计入热度历史
 
     # Layer 4 - Spring
     spring_support_window: int = 60
@@ -804,125 +807,156 @@ def _compute_sector_strength(
     return st_df.set_index("sym")["strength"].astype(float).to_dict()
 
 
+def _build_sector_groups(
+    symbols: list[str],
+    sector_map: dict[str, str],
+    concept_map: dict[str, list[str]] | None,
+    use_concept: bool,
+) -> tuple[dict[str, int], dict[str, list[str]]]:
+    """构建板块聚合：概念优先(多标签)，行业兜底(单标签)。返回 (counts, sym_sectors)。"""
+    counts: dict[str, int] = {}
+    sym_sectors: dict[str, list[str]] = {}
+    for sym in symbols:
+        sectors: list[str] = []
+        if use_concept and concept_map:
+            sectors = concept_map.get(sym, [])
+        if not sectors:
+            industry = sector_map.get(sym, "")
+            if industry:
+                sectors = [industry]
+        sym_sectors[sym] = sectors
+        for s in sectors:
+            counts[s] = counts.get(s, 0) + 1
+    return counts, sym_sectors
+
+
+def _compute_sector_thresholds(
+    counts: dict[str, int],
+    base_counts: dict[str, int],
+    sector_strength_map: dict[str, float],
+    cfg: FunnelConfig,
+) -> tuple[int, float, float, float, dict[str, float]]:
+    """计算板块筛选的各项动态阈值。返回 (count_threshold, pass_threshold, strength_threshold, super_threshold, pass_ratio_map)。"""
+    ranked = sorted(counts.items(), key=lambda x: -x[1])
+    min_count = max(int(cfg.sector_min_count), 1)
+    q = min(max(float(cfg.sector_count_quantile), 0.0), 1.0)
+    size_arr = np.array(list(counts.values()), dtype=float)
+    q_count = int(np.ceil(np.quantile(size_arr, q))) if size_arr.size > 0 else min_count
+    threshold = max(min_count, q_count)
+
+    pass_ratio_map: dict[str, float] = {}
+    pass_ratios: list[float] = []
+    for sec, cnt in ranked:
+        ratio = float(cnt) / float(max(int(base_counts.get(sec, 0)), 1))
+        pass_ratio_map[sec] = ratio
+        pass_ratios.append(ratio)
+    pass_threshold = float(np.quantile(np.array(pass_ratios, dtype=float), q)) if pass_ratios else 0.0
+
+    strength_vals = list(sector_strength_map.values())
+    strength_threshold = float(np.quantile(np.array(strength_vals, dtype=float), q)) if strength_vals else 0.0
+    super_q = min(max(float(getattr(cfg, "sector_super_strength_quantile", 0.90)), 0.0), 1.0)
+    super_threshold = float(np.quantile(np.array(strength_vals, dtype=float), super_q)) if strength_vals else 0.0
+    return threshold, pass_threshold, strength_threshold, super_threshold, pass_ratio_map
+
+
+def _rank_and_filter_sectors(
+    counts: dict[str, int],
+    base_counts: dict[str, int],
+    sector_strength_map: dict[str, float],
+    cfg: FunnelConfig,
+    hot_concepts: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """从板块 counts 中选出 keep_sectors 和 top_sectors。"""
+    threshold, pass_threshold, strength_threshold, super_threshold, pass_ratio_map = (
+        _compute_sector_thresholds(counts, base_counts, sector_strength_map, cfg)
+    )
+    ranked = sorted(counts.items(), key=lambda x: -x[1])
+    min_count = max(int(cfg.sector_min_count), 1)
+    heat_min = cfg.sector_heat_bypass_min_count
+    heat_bypass = {s for s, c in ranked if heat_min > 0 and c >= heat_min}
+    hot_set = set(hot_concepts or [])
+
+    keep_sectors: list[str] = list(heat_bypass)
+    for s, c in ranked:
+        if s in heat_bypass:
+            continue
+        str_val = sector_strength_map.get(s, 0.0)
+        normal_pass = c >= threshold and pass_ratio_map.get(s, 0.0) >= pass_threshold and str_val >= strength_threshold
+        super_pass = c >= min_count and str_val >= super_threshold
+        hot_pass = s in hot_set and c >= min_count
+        if normal_pass or super_pass or hot_pass:
+            keep_sectors.append(s)
+    if not keep_sectors:
+        size_arr = np.array(list(counts.values()), dtype=float)
+        max_count = int(size_arr.max()) if size_arr.size > 0 else 0
+        keep_sectors = [s for s, c in ranked if c == max_count]
+
+    keep_sectors_sorted = sorted(
+        keep_sectors,
+        key=lambda s: (-(1.0 if s in hot_set else 0.0), -sector_strength_map.get(s, 0.0), -counts.get(s, 0), s),
+    )
+    top_n = max(int(cfg.top_n_sectors), 0)
+    top_sectors = keep_sectors_sorted[:top_n] if top_n > 0 else keep_sectors_sorted
+    return keep_sectors_sorted, top_sectors
+
+
+def _compute_per_sector_strength(
+    counts: dict[str, int],
+    sym_sectors: dict[str, list[str]],
+    symbols: list[str],
+    strength_map: dict[str, float],
+) -> dict[str, float]:
+    """计算每个板块的中位强度分数。"""
+    sector_strength: dict[str, float] = {}
+    for sec in counts:
+        vals = [strength_map[sym] for sym in symbols if sec in sym_sectors.get(sym, []) and sym in strength_map]
+        sector_strength[sec] = float(np.median(vals)) if vals else 0.0
+    return sector_strength
+
+
 def layer3_sector_resonance(
     symbols: list[str],
     sector_map: dict[str, str],
     cfg: FunnelConfig,
     base_symbols: list[str] | None = None,
     df_map: dict[str, pd.DataFrame] | None = None,
+    concept_map: dict[str, list[str]] | None = None,
+    hot_concepts: list[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """
-    统计行业分布，做"行业通过率 + 行业强度中位数"分析：
-    - 行业通过率 = L2行业样本数 / 基准池(L1)行业样本数
-    - 行业强度 = 行业内个股短中期动量分数中位数
-    注：为了避免错杀刚刚启动的威科夫吸筹/潜伏标的，
-    本层不再对股票做硬性剔除，仅进行 Top 行业计算以供后续打分和标识使用。
-    返回 (原始输入 symbols 列表, top_sectors 强势行业列表)。
+    板块共振过滤：概念优先(多标签)，行业兜底(单标签)。
+    hot_concepts（主线概念）享有准入优待。
+    返回 (filtered_symbols, top_sectors)。
     """
     if base_symbols is None:
         base_symbols = symbols
 
-    counts: dict[str, int] = {}
-    for sym in symbols:
-        sector = sector_map.get(sym, "")
-        if sector:
-            counts[sector] = counts.get(sector, 0) + 1
-
+    use_concept = bool(cfg.use_concept_map and concept_map)
+    counts, sym_sectors = _build_sector_groups(symbols, sector_map, concept_map, use_concept)
     if not counts:
         return symbols, []
 
-    base_counts: dict[str, int] = {}
-    for sym in base_symbols:
-        sector = sector_map.get(sym, "")
-        if sector:
-            base_counts[sector] = base_counts.get(sector, 0) + 1
-
+    base_counts, _ = _build_sector_groups(base_symbols, sector_map, concept_map, use_concept)
     strength_map = _compute_sector_strength(symbols, df_map)
+    sector_strength_map = _compute_per_sector_strength(counts, sym_sectors, symbols, strength_map)
 
-    ranked = sorted(counts.items(), key=lambda x: -x[1])
-    min_count = max(int(cfg.sector_min_count), 1)
-    q = float(cfg.sector_count_quantile)
-    q = min(max(q, 0.0), 1.0)
-    size_arr = np.array(list(counts.values()), dtype=float)
-    q_count = int(np.ceil(np.quantile(size_arr, q))) if size_arr.size > 0 else min_count
-    threshold = max(min_count, q_count)
-
-    # 行业通过率阈值（动态）：按行业通过率分位数（默认与 sector_count_quantile 同步）
-    pass_ratios: list[float] = []
-    pass_ratio_map: dict[str, float] = {}
-    for sec, cnt in ranked:
-        base_cnt = max(int(base_counts.get(sec, 0)), 1)
-        ratio = float(cnt) / float(base_cnt)
-        pass_ratio_map[sec] = ratio
-        pass_ratios.append(ratio)
-    pass_threshold = float(np.quantile(np.array(pass_ratios, dtype=float), q)) if pass_ratios else 0.0
-
-    # 行业强度阈值（动态）：行业内强度中位数分位阈值
-    sector_strength_map: dict[str, float] = {}
-    for sec, _ in ranked:
-        vals = [strength_map.get(sym) for sym in symbols if sector_map.get(sym, "") == sec and sym in strength_map]
-        vals = [float(v) for v in vals if v is not None]
-        sector_strength_map[sec] = float(np.median(vals)) if vals else 0.0
-    strength_vals = list(sector_strength_map.values())
-    strength_threshold = float(np.quantile(np.array(strength_vals, dtype=float), q)) if strength_vals else 0.0
-
-    # 小而强板块免死阈值：强度进 Top X% 时放宽数量门槛，防止概念主线被大行业吞没。
-    super_q = float(getattr(cfg, "sector_super_strength_quantile", 0.90))
-    super_q = min(max(super_q, 0.0), 1.0)
-    super_strength_threshold = (
-        float(np.quantile(np.array(strength_vals, dtype=float), super_q)) if strength_vals else 0.0
+    keep_sectors_sorted, top_sectors = _rank_and_filter_sectors(
+        counts, base_counts, sector_strength_map, cfg, hot_concepts
     )
 
-    heat_min = cfg.sector_heat_bypass_min_count
-    heat_bypass = {s for s, c in ranked if heat_min > 0 and c >= heat_min}
-
-    keep_sectors: list[str] = list(heat_bypass)
-    for s, c in ranked:
-        if s in heat_bypass:
-            continue
-        pass_r = pass_ratio_map.get(s, 0.0)
-        str_val = sector_strength_map.get(s, 0.0)
-        normal_pass = c >= threshold and pass_r >= pass_threshold and str_val >= strength_threshold
-        super_pass = c >= min_count and str_val >= super_strength_threshold
-        if normal_pass or super_pass:
-            keep_sectors.append(s)
-    if not keep_sectors:
-        max_count = int(size_arr.max()) if size_arr.size > 0 else 0
-        keep_sectors = [s for s, c in ranked if c == max_count]
-
-    # Top 行业按强度排序展示，而非按数量排序，提升"主线识别"灵敏度。
-    keep_sectors_sorted = sorted(
-        keep_sectors,
-        key=lambda s: (
-            -sector_strength_map.get(s, 0.0),
-            -pass_ratio_map.get(s, 0.0),
-            -counts.get(s, 0),
-            s,
-        ),
-    )
-    top_n = max(int(cfg.top_n_sectors), 0)
-    top_sectors = keep_sectors_sorted[:top_n] if top_n > 0 else keep_sectors_sorted
-
-    # L3 板块共振过滤：保留 Top 行业内的股票 + 强势个股通配。
-    # 三级放行机制：核心热门板块直通 → 次优板块需个股强度 ≥60% → 强势个股(Top20%)无视板块。
-    # 门槛已放宽以适配 A 股板块快速轮动特征，减少好股票因板块切换被误杀。
     top_sector_set = set(top_sectors)
     keep_sector_set = set(keep_sectors_sorted)
     filtered: list[str] = []
     for sym in symbols:
-        sector = sector_map.get(sym, "")
+        sym_secs = set(sym_sectors.get(sym, []))
         sym_strength = strength_map.get(sym, 0.0)
-        if sector in top_sector_set:
-            # 核心热门板块：直接保留
+        if sym_secs & top_sector_set:
             filtered.append(sym)
-        elif sector in keep_sector_set and sym_strength >= 0.60:
-            # 次优板块 + 个股强度 60%+：有条件保留
+        elif sym_secs & keep_sector_set and sym_strength >= 0.60:
             filtered.append(sym)
         elif sym_strength >= 0.80:
-            # 强势个股通配：无论板块，个股强度 Top 20% 可绕过
             filtered.append(sym)
 
-    # 安全兜底：避免极端行情下池子被清空
     if len(filtered) < 3:
         filtered = list(symbols)
 

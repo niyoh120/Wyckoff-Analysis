@@ -1108,7 +1108,11 @@ def fetch_index_hist(code: str, start: str | date, end: str | date) -> pd.DataFr
 _DATA_CACHE_DIR = Path(__file__).resolve().parent.parent / "data"
 _SECTOR_CACHE = _DATA_CACHE_DIR / "sector_map_cache.json"
 _MARKET_CAP_CACHE = _DATA_CACHE_DIR / "market_cap_cache.json"
+_CONCEPT_CACHE = _DATA_CACHE_DIR / "concept_map_cache.json"
+_CONCEPT_HEAT_CACHE = _DATA_CACHE_DIR / "concept_heat_cache.json"
+_CONCEPT_HEAT_HISTORY = _DATA_CACHE_DIR / "concept_heat_history.json"
 _CACHE_TTL = 24 * 60 * 60
+_CONCEPT_HEAT_TTL = 4 * 60 * 60
 
 
 def _atomic_write_json(path: Path, payload: object) -> None:
@@ -1251,3 +1255,205 @@ def fetch_market_cap_map() -> dict[str, float]:
             _debug_source_fail("market_cap_cache_write", e)
 
     return mapping
+
+
+# --- 概念板块映射（东财 datacenter-web + 同花顺） ---
+
+_CONCEPT_NOISE = frozenset([
+    "昨日涨停", "昨日连板", "注册制次新股", "新股与次新股", "科创次新股",
+    "融资融券", "沪股通", "深股通", "北交所概念", "MSCI概念",
+    "ST板块", "转债标的", "高管增持", "股权激励", "员工持股",
+    "昨日触板", "创业板重组松绑", "送转预期",
+])
+
+_CONCEPT_REQ_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+_CONCEPT_REQ_TIMEOUT = 30
+
+
+def _fetch_concept_map_from_eastmoney() -> dict[str, list[str]]:
+    """分页拉取东财全量概念成分股数据，建 code→[概念名] 反向索引。"""
+    import requests
+
+    url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+    mapping: dict[str, list[str]] = {}
+    for page in range(1, 20):
+        params = {
+            "reportName": "RPT_F10_CORETHEME_BOARDTYPE",
+            "columns": "SECURITY_CODE,BOARD_NAME",
+            "filter": '(IS_PRECISE="1")',
+            "pageSize": 5000,
+            "pageNumber": page,
+        }
+        r = requests.get(url, params=params, timeout=_CONCEPT_REQ_TIMEOUT, headers=_CONCEPT_REQ_HEADERS)
+        data = r.json()
+        if not data.get("result") or not data["result"].get("data"):
+            break
+        for row in data["result"]["data"]:
+            name = row.get("BOARD_NAME", "")
+            if name and name not in _CONCEPT_NOISE:
+                mapping.setdefault(row["SECURITY_CODE"], []).append(name)
+        if len(data["result"]["data"]) < 5000:
+            break
+        time.sleep(0.2)
+    return mapping
+
+
+def fetch_concept_map() -> dict[str, list[str]]:
+    """
+    获取 code→[概念名称] 多标签映射。缓存 24h。
+    数据源：东财 datacenter-web RPT_F10_CORETHEME_BOARDTYPE 全量分页。
+    """
+    try:
+        if _CONCEPT_CACHE.exists() and (time.time() - _CONCEPT_CACHE.stat().st_mtime) < _CACHE_TTL:
+            with open(_CONCEPT_CACHE, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        _debug_source_fail("concept_cache_read", e)
+
+    try:
+        mapping = _fetch_concept_map_from_eastmoney()
+    except Exception as e:
+        _debug_source_fail("concept_map_fetch", e)
+        return _concept_cache_fallback()
+
+    if not mapping:
+        return _concept_cache_fallback()
+
+    try:
+        _atomic_write_json(_CONCEPT_CACHE, mapping)
+    except Exception as e:
+        _debug_source_fail("concept_cache_write", e)
+
+    return mapping
+
+
+def _concept_cache_fallback() -> dict[str, list[str]]:
+    """概念映射获取失败时回退到过期缓存。"""
+    try:
+        if _CONCEPT_CACHE.exists():
+            with open(_CONCEPT_CACHE, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        _debug_source_fail("concept_cache_fallback_read", e)
+    return {}
+
+
+def fetch_concept_heat() -> list[dict[str, Any]]:
+    """
+    获取概念板块实时行情（涨跌幅+资金净流入）。缓存 4h。
+    数据源：同花顺首页 gnSection hidden input。
+    """
+    try:
+        if _CONCEPT_HEAT_CACHE.exists() and (time.time() - _CONCEPT_HEAT_CACHE.stat().st_mtime) < _CONCEPT_HEAT_TTL:
+            with open(_CONCEPT_HEAT_CACHE, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        _debug_source_fail("concept_heat_cache_read", e)
+
+    try:
+        items = _fetch_concept_heat_from_ths()
+    except Exception as e:
+        _debug_source_fail("concept_heat_fetch", e)
+        return _concept_heat_cache_fallback()
+
+    if not items:
+        return _concept_heat_cache_fallback()
+
+    try:
+        _atomic_write_json(_CONCEPT_HEAT_CACHE, items)
+    except Exception as e:
+        _debug_source_fail("concept_heat_cache_write", e)
+
+    return items
+
+
+def _fetch_concept_heat_from_ths() -> list[dict[str, Any]]:
+    """解析同花顺首页 gnSection 获取概念涨跌幅+资金流。"""
+    import requests
+
+    url = "https://q.10jqka.com.cn/gn/"
+    r = requests.get(url, timeout=_CONCEPT_REQ_TIMEOUT, headers=_CONCEPT_REQ_HEADERS)
+    r.encoding = "gbk"
+    match = re.search(r"id=\"gnSection\"\s+value='(.*?)'", r.text, re.DOTALL)
+    if not match:
+        return []
+    data = json.loads(match.group(1))
+    items = []
+    for item in data.values():
+        name = item.get("platename", "")
+        if not name or name in _CONCEPT_NOISE:
+            continue
+        items.append({
+            "name": name,
+            "pct": float(item.get("199112", 0)),
+            "net_inflow": float(item.get("zjjlr", 0)),
+            "cid": str(item.get("cid", "")),
+        })
+    items.sort(key=lambda x: x["pct"], reverse=True)
+    return items
+
+
+def _concept_heat_cache_fallback() -> list[dict[str, Any]]:
+    """概念热度获取失败时回退到过期缓存。"""
+    try:
+        if _CONCEPT_HEAT_CACHE.exists():
+            with open(_CONCEPT_HEAT_CACHE, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        _debug_source_fail("concept_heat_cache_fallback_read", e)
+    return []
+
+
+def update_concept_heat_history(today: str, heat: list[dict[str, Any]], top_n: int = 20) -> None:
+    """将当天热度追加到 history 文件，保留最近 20 个交易日。"""
+    history: dict[str, dict] = {}
+    try:
+        if _CONCEPT_HEAT_HISTORY.exists():
+            with open(_CONCEPT_HEAT_HISTORY, encoding="utf-8") as f:
+                history = json.load(f)
+    except Exception as e:
+        _debug_source_fail("concept_heat_history_read", e)
+
+    top_items = sorted(heat, key=lambda x: x.get("net_inflow", 0), reverse=True)[:top_n]
+    history[today] = {it["name"]: {"pct": it["pct"], "inflow": it["net_inflow"]} for it in top_items}
+
+    # 只保留最近 20 天
+    sorted_dates = sorted(history.keys(), reverse=True)[:20]
+    history = {d: history[d] for d in sorted_dates}
+
+    try:
+        _atomic_write_json(_CONCEPT_HEAT_HISTORY, history)
+    except Exception as e:
+        _debug_source_fail("concept_heat_history_write", e)
+
+
+def detect_theme_lines(min_days: int = 3) -> list[str]:
+    """
+    从热度历史中识别主线：连续 min_days 天出现在历史记录中的概念。
+    返回按连续天数降序排列的概念名列表。
+    """
+    try:
+        if not _CONCEPT_HEAT_HISTORY.exists():
+            return []
+        with open(_CONCEPT_HEAT_HISTORY, encoding="utf-8") as f:
+            history = json.load(f)
+    except Exception as e:
+        _debug_source_fail("theme_lines_read", e)
+        return []
+
+    if len(history) < min_days:
+        return []
+
+    sorted_dates = sorted(history.keys(), reverse=True)
+    concept_streak: dict[str, int] = {}
+    for concept in history.get(sorted_dates[0], {}):
+        streak = 1
+        for d in sorted_dates[1:]:
+            if concept in history.get(d, {}):
+                streak += 1
+            else:
+                break
+        if streak >= min_days:
+            concept_streak[concept] = streak
+
+    return sorted(concept_streak, key=lambda c: concept_streak[c], reverse=True)

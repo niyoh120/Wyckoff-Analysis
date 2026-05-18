@@ -38,9 +38,13 @@ from core.wyckoff_engine import (
     resolve_ai_candidate_policy,
 )
 from integrations.data_source import (
+    detect_theme_lines,
+    fetch_concept_heat,
+    fetch_concept_map,
     fetch_index_hist,
     fetch_market_cap_map,
     fetch_sector_map,
+    update_concept_heat_history,
 )
 from integrations.fetch_a_share_csv import (
     _resolve_trading_window,
@@ -624,6 +628,21 @@ def run_funnel_job(
     except Exception as e:
         logger.warning("行业映射加载失败，降级为空映射: %s", e)
         sector_map = {}
+    print("[funnel] 加载概念映射...")
+    try:
+        concept_map = fetch_concept_map()
+    except Exception as e:
+        logger.warning("概念映射加载失败，降级为空映射: %s", e)
+        concept_map = {}
+    print("[funnel] 加载概念热度...")
+    try:
+        concept_heat = fetch_concept_heat()
+    except Exception as e:
+        logger.warning("概念热度加载失败: %s", e)
+        concept_heat = []
+    if concept_heat:
+        update_concept_heat_history(window.end_trade_date.isoformat(), concept_heat, top_n=cfg.theme_line_top_n)
+    hot_concepts = detect_theme_lines(min_days=cfg.theme_line_min_days)
     print("[funnel] 加载市值数据...")
     try:
         market_cap_map = fetch_market_cap_map()
@@ -734,6 +753,8 @@ def run_funnel_job(
         cfg,
         base_symbols=l1_passed + list(_etf_codes & set(etf_df_map)),
         df_map=all_df_map,
+        concept_map=concept_map,
+        hot_concepts=hot_concepts,
     )
     l3_passed = [s for s in l3_raw if s not in _etf_codes]
     sector_rotation = analyze_sector_rotation(
@@ -817,6 +838,9 @@ def run_funnel_job(
         "layer2_channel_map": l2_channel_map,
         "layer3": len(l3_passed),
         "top_sectors": top_sectors,
+        "concept_heat": concept_heat[:20],
+        "theme_lines": hot_concepts,
+        "candidate_concepts": {s: concept_map.get(s, []) for s in (ranked_l3_symbols or l3_passed)},
         "etf_enhancement": _etf_metrics(etf_symbols, etf_df_map, etf_l2_passed, etf_sector_map, etf_candidates),
         "etf_candidates": etf_candidates,
         "sector_rotation": sector_rotation,
@@ -855,7 +879,7 @@ def run_funnel_job(
         f"[funnel] L1={metrics['layer1']}, L2={metrics['layer2']}, "
         f"(主升={l2_momentum}, 潜伏={l2_ambush}, 吸筹={l2_accum}, 地量={l2_dry_vol}, 护盘={l2_rs_div}, 点火={l2_sos}), "
         f"L3={metrics['layer3']}, 命中={total_hits}, "
-        f"Top行业={top_sectors}, 各触发={metrics['by_trigger']}"
+        f"Top板块={top_sectors}, 主线={hot_concepts[:3] if hot_concepts else []}, 各触发={metrics['by_trigger']}"
     )
     report_progress("筛选完成", f"命中={total_hits}只", 1.0)
 
