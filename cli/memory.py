@@ -122,11 +122,56 @@ def _provider_text(provider: Any, user_text: str, system_prompt: str) -> str:
     return "".join(c.get("text", "") for c in chunks if c.get("type") == "text_delta")
 
 
-def _save_summary_memories(summary: str, codes: str, source_ref: str) -> int:
+_DEDUP_PROMPT = """判断"新记忆"是否与以下已有记忆语义重复（含义相同或高度相似即为重复）。
+仅回复一行：
+- 重复则回复 DUPLICATE:<id>（id 为最匹配的已有记忆编号）
+- 不重复则回复 NEW"""
+
+
+def _get_dedup_provider() -> Any | None:
+    """获取去重用的 provider：优先 fallback，其次 main。"""
+    try:
+        from cli._provider_factory import _create_provider
+        from cli.auth import load_default_model_id, load_fallback_model_id, load_model_configs
+
+        configs = load_model_configs()
+        if not configs:
+            return None
+        fallback_id = load_fallback_model_id()
+        target_id = fallback_id or load_default_model_id()
+        cfg = next((c for c in configs if c["id"] == target_id), configs[0])
+        provider, err = _create_provider(
+            cfg["provider_name"], cfg["api_key"], cfg.get("model", ""), cfg.get("base_url", "")
+        )
+        return provider if not err else None
+    except Exception:
+        return None
+
+
+def _find_duplicate(memory_type: str, content: str, provider: Any) -> int | None:
+    """用 LLM 判断新记忆是否与同类型已有记忆语义重复，返回重复记忆 id 或 None。"""
+    from integrations.local_db import get_recent_memories
+
+    existing = get_recent_memories(memory_type=memory_type, limit=10)
+    if not existing:
+        return None
+    lines = [f"#{m['id']}: {m['content']}" for m in existing]
+    user_text = f"已有记忆:\n" + "\n".join(lines) + f"\n\n新记忆:\n{content}"
+    result = _provider_text(provider, user_text, _DEDUP_PROMPT).strip()
+    match = re.match(r"DUPLICATE[:\s]*#?(\d+)", result)
+    return int(match.group(1)) if match else None
+
+
+def _save_summary_memories(summary: str, codes: str, source_ref: str, dedup_provider: Any = None) -> int:
     from integrations.local_db import save_memory
 
     saved = 0
     for memory_type, content in _summary_memories(summary):
+        if dedup_provider:
+            dup_id = _find_duplicate(memory_type, content, dedup_provider)
+            if dup_id:
+                logger.debug("memory dedup: '%s' duplicates #%d", content[:50], dup_id)
+                continue
         saved += int(
             bool(
                 save_memory(
@@ -193,7 +238,8 @@ def save_session_summary(
         all_text = " ".join(m.get("content", "") or "" for m in messages)
         codes = extract_stock_codes(all_text)
         codes_str = ",".join(codes[:20])
-        if _save_summary_memories(summary, codes_str, _source_ref(session_id)):
+        dedup_provider = _get_dedup_provider()
+        if _save_summary_memories(summary, codes_str, _source_ref(session_id), dedup_provider):
             if not skip_layers:
                 refresh_memory_layers(provider)
     except Exception:
