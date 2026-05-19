@@ -10,18 +10,24 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_SESSION_SUMMARY_PROMPT = """请将以下对话提取为 L1 原子记忆（中文，≤300字）：
-1. 讨论了哪些股票（代码+结论）
-2. 用户的操作意图和决策
-3. 重要的市场判断
-4. 用户表达的偏好或禁忌（如"不要推荐ST股"、"不追涨"等）
-每条记忆一行，前缀标注类型：[股票] / [决策] / [市场] / [偏好]
-每条只写一个事实或结论，忽略寒暄和工具调用细节。"""
+_SESSION_SUMMARY_PROMPT = """从以下对话中提取值得跨会话记忆的信息（中文）。
 
-_LAYER_REFRESH_PROMPT = """请基于以下 L1 原子记忆，生成更高层的长期记忆：
-- [画像] 用户稳定偏好/风险边界/工作习惯，最多3条
-- [场景] 可复用的交易/复盘场景，最多3条
-每条一行，保留股票代码、条件和结论，不要编造。"""
+只提取这两类：
+- [偏好] 用户表达的投资风格、禁忌、操作习惯（如"不追涨"、"只做威科夫形态"）
+- [决策] 用户非显而易见的决策逻辑/原因（如"因为板块轮动加速所以缩短持仓周期"）
+
+不要提取：
+- 具体买卖了哪只股票（持仓从数据库查询即可）
+- 临时操作（加仓、清仓、调仓的事实）
+- 当前市场状态（行情每天变）
+- 工具调用细节
+
+每条一行，前缀标注 [偏好] 或 [决策]。只写从对话中无法自动推断的洞察，没有则回复"无"。"""
+
+_LAYER_REFRESH_PROMPT = """请基于以下偏好和决策记忆，生成更高层的长期记忆：
+- [画像] 用户稳定偏好/风险边界/操作习惯，最多3条
+- [场景] 可复用的决策模式/场景，最多3条
+每条一行，保留条件和结论，不要编造。"""
 
 _CODE_RE = re.compile(r"(?<!\d)(\d{6})(?!\d)")
 _CJK_RE = re.compile(r"[一-鿿]{2,4}")
@@ -48,10 +54,8 @@ _STOPWORDS = frozenset(
 )
 
 _SUMMARY_TYPES = {
-    "股票": "stock_opinion",
-    "决策": "decision",
-    "市场": "market_view",
     "偏好": "preference",
+    "决策": "decision",
 }
 
 _LAYER_TYPES = {
@@ -192,7 +196,7 @@ def refresh_memory_layers(provider: Any) -> int:
     atoms = [
         m
         for m in get_recent_memories(limit=30)
-        if m.get("memory_type") in {"stock_opinion", "decision", "market_view", "preference", "fact"}
+        if m.get("memory_type") in {"preference", "decision"}
     ]
     if len(atoms) < 3:
         return 0
@@ -290,8 +294,8 @@ def build_memory_context(user_message: str) -> str:
             lines.extend(_memory_line(m) for m in scenarios[:3])
 
         if memories:
-            lines.append("# 历史原子记忆")
-            atom_types = {"stock_opinion", "decision", "market_view", "fact", "session"}
+            lines.append("# 历史记忆")
+            atom_types = {"preference", "decision"}
             lines.extend(_memory_line(m) for m in memories if m.get("memory_type") in atom_types)
         return "\n".join(lines)
     except Exception:
