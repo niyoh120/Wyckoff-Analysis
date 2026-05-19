@@ -136,10 +136,12 @@ def test_screen_stocks_legacy_polls_task(monkeypatch):
 def test_run_backtest_legacy_polls_task(monkeypatch):
     _configure_remote(monkeypatch)
     calls: list[tuple[str, str]] = []
+    captured_payload: dict[str, Any] = {}
 
     def fake_request(method, url, headers, json=None, timeout=0):
         calls.append((method, url))
         if url.endswith("/v1/backtest"):
+            captured_payload.update(json or {})
             return FakeResponse(200, {"task_id": "task-1", "status": "completed", "created_at": "2026-05-15T00:00:00Z"})
         return FakeResponse(
             200,
@@ -167,6 +169,7 @@ def test_run_backtest_legacy_polls_task(monkeypatch):
         board="all",
         stop_loss_pct=-7.0,
         take_profit_pct=18.0,
+        execution_strategy={"id": "s1", "name": "策略1", "sell_after_buy_only": True},
     )
 
     assert calls == [
@@ -176,6 +179,9 @@ def test_run_backtest_legacy_polls_task(monkeypatch):
     assert result["source"] == "strategy_api"
     assert result["trades"] == 3
     assert result["sharpe_ratio"] == 1.2
+    assert captured_payload["execution_strategy"]["id"] == "s1"
+    assert captured_payload["execution_strategy"]["sell_after_buy_only"] is True
+    assert result["strategy_id"] == "s1"
 
 
 def test_run_step4_rebalance_remote(monkeypatch):

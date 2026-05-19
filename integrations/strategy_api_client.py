@@ -368,8 +368,9 @@ def _backtest_payload(
     stop_loss_pct: float,
     take_profit_pct: float | None,
     strategy_version: str,
+    execution_strategy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "start_date": start,
         "end_date": end,
         "board": board,
@@ -379,6 +380,9 @@ def _backtest_payload(
         "take_profit": [take_profit_pct],
         "strategy_version": strategy_version,
     }
+    if execution_strategy:
+        payload["execution_strategy"] = execution_strategy
+    return payload
 
 
 def _backtest_legacy_result(
@@ -390,6 +394,7 @@ def _backtest_legacy_result(
     top_n: int,
     stop_loss_pct: float,
     take_profit_pct: float | None,
+    execution_strategy: dict[str, Any] | None,
     task: dict[str, Any],
 ) -> dict[str, Any]:
     result = task.get("result") or {}
@@ -398,12 +403,18 @@ def _backtest_legacy_result(
     best = result.get("best") or {}
     if not isinstance(best, dict):
         best = {}
+    result_strategy = result.get("execution_strategy")
+    if not isinstance(result_strategy, dict):
+        result_strategy = execution_strategy or {}
     return {
         "source": "strategy_api",
         "period": f"{start} ~ {end}",
         "hold_days": best.get("hold_days", hold_days),
         "top_n": result.get("top_n", top_n),
         "board": board,
+        "execution_strategy": result_strategy,
+        "strategy_id": result_strategy.get("id"),
+        "strategy_name": result_strategy.get("name"),
         "stop_loss_pct": best.get("stop_loss_pct", stop_loss_pct),
         "take_profit_pct": best.get("take_profit_pct", take_profit_pct),
         "trades": best.get("trades", 0),
@@ -444,6 +455,7 @@ def run_backtest_legacy(
     board: str,
     stop_loss_pct: float,
     take_profit_pct: float | None,
+    execution_strategy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cfg = _require_config()
     accepted = _request(
@@ -458,6 +470,7 @@ def run_backtest_legacy(
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
             strategy_version=cfg.strategy_version,
+            execution_strategy=execution_strategy,
         ),
     )
     task = wait_for_task(str(accepted.get("task_id") or ""))
@@ -469,6 +482,7 @@ def run_backtest_legacy(
         top_n=top_n,
         stop_loss_pct=stop_loss_pct,
         take_profit_pct=take_profit_pct,
+        execution_strategy=execution_strategy,
         task=task,
     )
 

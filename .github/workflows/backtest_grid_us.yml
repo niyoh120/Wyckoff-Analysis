@@ -3,14 +3,6 @@ name: Backtest Grid US
 on:
   workflow_dispatch:
     inputs:
-      period:
-        description: "回测时期"
-        required: true
-        type: choice
-        options:
-          - "bear_2022"
-          - "bull_2023"
-        default: "bear_2022"
       top_n:
         description: "每日选股 TopN"
         required: true
@@ -37,27 +29,25 @@ env:
   WYCKOFF_STRATEGY_API_POLL_TIMEOUT: "3600"
 
 jobs:
-  # ────────────────────────────────────────────────
-  # Phase 1: TickFlow 拉取美股全量日 K 快照
-  # ────────────────────────────────────────────────
   fetch:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        period:
+          - key: bear_2022
+            label: "熊市(2022加息周期)"
+            start: "2022-01-03"
+            end: "2022-10-12"
+          - key: bull_2023
+            label: "牛市(2023-24 AI驱动)"
+            start: "2023-01-03"
+            end: "2024-07-31"
     env:
       PYTHONUNBUFFERED: "1"
       TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
       TZ: America/New_York
     steps:
-      - name: Resolve period dates
-        run: |
-          PERIOD="${{ inputs.period || 'bear_2022' }}"
-          if [ "$PERIOD" = "bear_2022" ]; then
-            echo "BT_START=2022-01-03" >> "$GITHUB_ENV"
-            echo "BT_END=2022-10-12" >> "$GITHUB_ENV"
-          elif [ "$PERIOD" = "bull_2023" ]; then
-            echo "BT_START=2023-01-03" >> "$GITHUB_ENV"
-            echo "BT_END=2024-07-31" >> "$GITHUB_ENV"
-          fi
-
       - uses: actions/checkout@v4
 
       - name: Set up Python
@@ -76,48 +66,100 @@ jobs:
         run: |
           set -euo pipefail
           python -u scripts/backtest_snapshot_fetch_us.py \
-            --start "$BT_START" \
-            --end "$BT_END" \
+            --start "${{ matrix.period.start }}" \
+            --end "${{ matrix.period.end }}" \
             --trading-days "$BT_TRADING_DAYS" \
-            --output-dir snapshot_data
+            --output-dir "snapshot_data/${{ matrix.period.key }}"
 
       - name: Upload snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: backtest-us-snapshot
-          path: snapshot_data/*
+          name: backtest-us-snapshot-${{ matrix.period.key }}
+          path: snapshot_data/${{ matrix.period.key }}/*
           retention-days: 3
 
-  # ────────────────────────────────────────────────
-  # Phase 2: 18 并行 job（美股参数网格）
-  # hold_days=[5,10,20] × stop_loss=[-8,-10,-12] × take_profit=[0,25]
-  # ────────────────────────────────────────────────
   grid:
     runs-on: ubuntu-latest
     needs: fetch
     strategy:
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 12
       matrix:
-        hold_days: [5, 10, 20]
-        stop_loss: [-8, -10, -12]
-        take_profit: [0, 25]
+        period:
+          - key: bear_2022
+            label: "熊市(2022加息周期)"
+            start: "2022-01-03"
+            end: "2022-10-12"
+          - key: bull_2023
+            label: "牛市(2023-24 AI驱动)"
+            start: "2023-01-03"
+            end: "2024-07-31"
+        strategy:
+          - id: s1_open_2x3x
+            name: "策略1"
+            desc: "开盘买入，2x/3x各卖50%，未成交按现价"
+            hold: 20
+            stop: 0
+            tp: 0
+            entry: open_next_session
+            pullback: 0
+            targets: "[2.0, 3.0]"
+            fallback: mark_to_market
+          - id: s2_pullback30_2x3x
+            name: "策略2"
+            desc: "回撤30%买入，2x/3x各卖50%；满3日未成交按原价，不满3日按现价"
+            hold: 3
+            stop: 0
+            tp: 0
+            entry: pullback_from_signal
+            pullback: 30
+            targets: "[2.0, 3.0]"
+            fallback: original_or_mark
+          - id: s3_pullback10_12x15x
+            name: "策略3"
+            desc: "回撤10%买入，1.2x/1.5x各卖50%；满3日剩余按最后一日1.2x开盘价，不满3日按现价"
+            hold: 3
+            stop: 0
+            tp: 0
+            entry: pullback_from_signal
+            pullback: 10
+            targets: "[1.2, 1.5]"
+            fallback: last_day_1_2x_open_or_mark
+          - id: patch_a_open_12x15x
+            name: "补充A"
+            desc: "开盘买入，1.2x/1.5x各卖50%，未成交按3日后开盘价"
+            hold: 3
+            stop: 0
+            tp: 0
+            entry: open_next_session
+            pullback: 0
+            targets: "[1.2, 1.5]"
+            fallback: open_after_3d
+          - id: patch_b_pullback10_11x13x
+            name: "补充B"
+            desc: "回撤10%买入，1.1x/1.3x各卖50%，未成交按3日后开盘价"
+            hold: 3
+            stop: 0
+            tp: 0
+            entry: pullback_from_signal
+            pullback: 10
+            targets: "[1.1, 1.3]"
+            fallback: open_after_3d
+          - id: patch_c_pullback20_12x15x
+            name: "补充C"
+            desc: "回撤20%买入，1.2x/1.5x各卖50%，未成交按3日后开盘价"
+            hold: 3
+            stop: 0
+            tp: 0
+            entry: pullback_from_signal
+            pullback: 20
+            targets: "[1.2, 1.5]"
+            fallback: open_after_3d
     env:
       PYTHONUNBUFFERED: "1"
       TZ: America/New_York
 
     steps:
-      - name: Resolve period dates
-        run: |
-          PERIOD="${{ inputs.period || 'bear_2022' }}"
-          if [ "$PERIOD" = "bear_2022" ]; then
-            echo "BT_START=2022-01-03" >> "$GITHUB_ENV"
-            echo "BT_END=2022-10-12" >> "$GITHUB_ENV"
-          elif [ "$PERIOD" = "bull_2023" ]; then
-            echo "BT_START=2023-01-03" >> "$GITHUB_ENV"
-            echo "BT_END=2024-07-31" >> "$GITHUB_ENV"
-          fi
-
       - uses: actions/checkout@v4
 
       - name: Set up Python
@@ -134,30 +176,56 @@ jobs:
       - name: Download snapshot
         uses: actions/download-artifact@v4
         with:
-          name: backtest-us-snapshot
+          name: backtest-us-snapshot-${{ matrix.period.key }}
           path: snapshot_data/
 
-      - name: Run grid backtest cell
+      - name: Run strategy backtest cell
         shell: bash
+        env:
+          BT_START: ${{ matrix.period.start }}
+          BT_END: ${{ matrix.period.end }}
+          PERIOD_KEY: ${{ matrix.period.key }}
+          PERIOD_LABEL: ${{ matrix.period.label }}
+          STRATEGY_ID: ${{ matrix.strategy.id }}
+          STRATEGY_NAME: ${{ matrix.strategy.name }}
+          STRATEGY_DESC: ${{ matrix.strategy.desc }}
+          ENTRY_RULE: ${{ matrix.strategy.entry }}
+          PULLBACK_PCT: ${{ matrix.strategy.pullback }}
+          TARGET_MULTIPLIERS: ${{ matrix.strategy.targets }}
+          FALLBACK_RULE: ${{ matrix.strategy.fallback }}
+          HOLD: ${{ matrix.strategy.hold }}
+          STOP: ${{ matrix.strategy.stop }}
+          TP: ${{ matrix.strategy.tp }}
         run: |
           set -euo pipefail
-          HOLD="${{ matrix.hold_days }}"
-          STOP="${{ matrix.stop_loss }}"
-          TP="${{ matrix.take_profit }}"
-          STOP_TAG="${STOP#-}"
-          OUT_DIR="analysis/backtest_grid_us/h${HOLD}_sl${STOP_TAG}_tp${TP}"
+          OUT_DIR="analysis/backtest_grid_us/${PERIOD_KEY}_${STRATEGY_ID}"
           echo "OUT_DIR=${OUT_DIR}" >> "${GITHUB_ENV}"
           mkdir -p "${OUT_DIR}"
           export OUT_DIR
 
           set -o pipefail
-          HOLD="${HOLD}" STOP="${STOP}" TP="${TP}" python - <<'PY' | tee "${OUT_DIR}/run.log"
+          python - <<'PY' | tee "${OUT_DIR}/run.log"
           import json
           import os
           from pathlib import Path
 
           from integrations.strategy_api_client import run_backtest_legacy
 
+          execution_strategy = {
+              "id": os.environ["STRATEGY_ID"],
+              "name": os.environ["STRATEGY_NAME"],
+              "description": os.environ["STRATEGY_DESC"],
+              "entry_rule": os.environ["ENTRY_RULE"],
+              "pullback_pct": float(os.environ["PULLBACK_PCT"]),
+              "target_multipliers": json.loads(os.environ["TARGET_MULTIPLIERS"]),
+              "target_weights": [0.5, 0.5],
+              "fallback_rule": os.environ["FALLBACK_RULE"],
+              "max_entry_wait_days": int(os.environ["HOLD"]),
+              "max_exit_wait_days": int(os.environ["HOLD"]),
+              "sell_after_buy_only": True,
+              "target_scan_start": "after_entry",
+              "same_day_pullback_exit_policy": "forbid",
+          }
           take_profit = float(os.environ["TP"])
           summary = run_backtest_legacy(
               start=os.environ["BT_START"],
@@ -167,6 +235,16 @@ jobs:
               board="us",
               stop_loss_pct=float(os.environ["STOP"]),
               take_profit_pct=(take_profit if take_profit > 0 else None),
+              execution_strategy=execution_strategy,
+          )
+          summary.update(
+              {
+                  "period_key": os.environ["PERIOD_KEY"],
+                  "period_label": os.environ["PERIOD_LABEL"],
+                  "start": os.environ["BT_START"],
+                  "end": os.environ["BT_END"],
+                  "strategy_desc": os.environ["STRATEGY_DESC"],
+              }
           )
           out_dir = Path(os.environ["OUT_DIR"])
           out_dir.mkdir(parents=True, exist_ok=True)
@@ -178,14 +256,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backtest-us-grid-h${{ matrix.hold_days }}-sl${{ matrix.stop_loss }}-tp${{ matrix.take_profit }}-${{ github.run_number }}
+          name: backtest-us-grid-${{ matrix.period.key }}-${{ matrix.strategy.id }}-${{ github.run_number }}
           path: ${{ env.OUT_DIR }}/*
           retention-days: 7
           if-no-files-found: warn
 
-  # ────────────────────────────────────────────────
-  # Phase 3: 汇总 + 飞书通知
-  # ────────────────────────────────────────────────
   notify:
     runs-on: ubuntu-latest
     needs: grid
@@ -193,19 +268,6 @@ jobs:
     env:
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
     steps:
-      - name: Resolve period dates
-        run: |
-          PERIOD="${{ inputs.period || 'bear_2022' }}"
-          if [ "$PERIOD" = "bear_2022" ]; then
-            echo "BT_START=2022-01-03" >> "$GITHUB_ENV"
-            echo "BT_END=2022-10-12" >> "$GITHUB_ENV"
-            echo "PERIOD_LABEL=熊市(2022加息周期)" >> "$GITHUB_ENV"
-          elif [ "$PERIOD" = "bull_2023" ]; then
-            echo "BT_START=2023-01-03" >> "$GITHUB_ENV"
-            echo "BT_END=2024-07-31" >> "$GITHUB_ENV"
-            echo "PERIOD_LABEL=牛市(2023-24 AI驱动)" >> "$GITHUB_ENV"
-          fi
-
       - uses: actions/checkout@v4
 
       - name: Set up Python
@@ -222,15 +284,15 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Update market backtest report
+      - name: Build report and notify
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          python3 scripts/update_backtest_market_report.py \
+          python -u scripts/notify_us_backtest.py \
             --artifacts-dir artifacts \
             --output docs/BACKTEST_US_REPORT.md \
             --run-url "$RUN_URL" \
-            --generated-at "$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            --top-n "$BT_TOP_N"
 
       - name: Upload market backtest report
         uses: actions/upload-artifact@v4
@@ -239,203 +301,6 @@ jobs:
           path: docs/BACKTEST_US_REPORT.md
           retention-days: 30
           if-no-files-found: error
-
-      - name: Aggregate and notify
-        shell: bash
-        env:
-          BT_TOP_N: ${{ inputs.top_n || '2' }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          python3 -u - <<'PYEOF'
-          import os, glob, json, re, requests
-
-          webhook = os.environ.get('FEISHU_WEBHOOK_URL', '').strip()
-          if not webhook:
-              print('FEISHU_WEBHOOK_URL 未配置，跳过通知')
-              exit(0)
-
-          print('[notify] artifacts 目录结构:')
-          for root, dirs, files in os.walk('artifacts'):
-              for f in files:
-                  print(f'  {os.path.join(root, f)}')
-
-          summaries = sorted(glob.glob('artifacts/**/summary_*.md', recursive=True))
-          print(f'[notify] 找到 {len(summaries)} 个 summary 文件: {summaries[:5]}')
-
-          if len(summaries) == 1:
-              from utils.feishu import send_backtest_card
-              ok = send_backtest_card(webhook, summaries[0])
-              print(f'send_backtest_card: {ok}')
-              exit(0)
-
-          def extract(content, keyword):
-              for line in content.split('\n'):
-                  if keyword in line:
-                      val = line.split(':')[-1].strip().rstrip('%')
-                      try: return float(val)
-                      except ValueError: return None
-              return None
-
-          cells = []
-          for sf in summaries:
-              dirname = os.path.basename(os.path.dirname(sf))
-              m_hold = re.search(r'h(\d+)', dirname)
-              m_sl = re.search(r'sl-?(\d+)', dirname)
-              m_tp = re.search(r'tp(\d+)', dirname)
-              if not m_hold or not m_sl:
-                  continue
-              with open(sf, 'r') as f:
-                  content = f.read()
-              cells.append({
-                  'hold': int(m_hold.group(1)),
-                  'sl': int(m_sl.group(1)),
-                  'tp': int(m_tp.group(1)) if m_tp else 0,
-                  'win': extract(content, '胜率'),
-                  'avg': extract(content, '平均收益'),
-                  'sharpe': extract(content, '夏普比'),
-                  'mdd': extract(content, '最大回撤'),
-                  'trades': extract(content, '成交样本'),
-                  'calmar': extract(content, '卡玛比'),
-              })
-
-          def fmt(v, spec):
-              return format(v, spec) if v is not None else '-'
-
-          def sharp_flag(v):
-              if v is None: return '⚪'
-              if v >= 0.6: return '🟢'
-              if v >= 0.2: return '🟡'
-              if v >= 0: return '🟠'
-              return '🔴'
-
-          def risk_comment(c):
-              if not c: return '无有效样本'
-              s = c.get('sharpe')
-              avg = c.get('avg')
-              mdd = c.get('mdd')
-              notes = []
-              if s is not None and s < 0: notes.append('风险收益比偏弱')
-              elif s is not None and s < 0.2: notes.append('边际优势较薄')
-              else: notes.append('风险收益尚可')
-              if avg is not None and avg < 0: notes.append('单笔期望为负')
-              if mdd is not None and mdd <= -15: notes.append('回撤较大')
-              return '；'.join(notes[:2]) if notes else '指标平衡'
-
-          elements = []
-          run_url = os.environ.get('RUN_URL', '')
-          bt_start = os.environ.get('BT_START', '?')
-          bt_end = os.environ.get('BT_END', '?')
-          bt_topn = os.environ.get('BT_TOP_N', '?')
-          period_label = os.environ.get('PERIOD_LABEL', '?')
-
-          elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
-              'content': f'**市场** US  ·  **时期** {period_label}\n**区间** {bt_start} ~ {bt_end}  ·  **TopN** {bt_topn}  ·  **共 {len(cells)} 单元**\n[查看详情]({run_url})'}})
-
-          best = None
-          if not cells:
-              elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '⚠️ 未找到回测结果文件'}})
-          else:
-              valid = [c for c in cells if c.get('sharpe') is not None]
-              if not valid:
-                  elements.append({'tag': 'hr'})
-                  elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '⚠️ 结果文件存在，但未解析到有效夏普指标'}})
-              else:
-                  best = max(valid, key=lambda c: c['sharpe'])
-                  ranked = sorted(valid, key=lambda c: c['sharpe'], reverse=True)
-                  pos_cnt = sum(1 for c in valid if (c.get('sharpe') or 0) > 0)
-                  neg_cnt = sum(1 for c in valid if (c.get('sharpe') or 0) <= 0)
-
-                  elements.append({'tag': 'hr'})
-                  bs = best.get('sharpe', 0) or 0
-                  tag = '🏆' if bs > 0 else '📌'
-                  tp_str = f'TP{best["tp"]}%' if best['tp'] else '无止盈'
-                  elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
-                      'content': f'{tag} **最优参数**: 持有{best["hold"]}天 / SL-{best["sl"]}% / {tp_str}'}})
-
-                  cols = [
-                      ('**夏普**', f'{sharp_flag(best.get("sharpe"))} {fmt(best.get("sharpe"), ".3f")}'),
-                      ('**胜率**', f'{fmt(best.get("win"), ".1f")}%'),
-                      ('**均收**', f'{fmt(best.get("avg"), "+.2f")}%'),
-                      ('**回撤**', f'{fmt(best.get("mdd"), ".1f")}%'),
-                      ('**样本**', f'{int(best.get("trades") or 0)}笔'),
-                  ]
-                  elements.append({'tag': 'column_set', 'flex_mode': 'stretch',
-                      'background_style': 'grey', 'columns': [
-                          {'tag': 'column', 'width': 'weighted', 'weight': 1, 'elements': [
-                              {'tag': 'div', 'text': {'tag': 'lark_md', 'content': f'{label}\n{val}'}}
-                          ]} for label, val in cols
-                      ]})
-
-                  elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
-                      'content': f'**策略体检**: {risk_comment(best)}  ·  正夏普组合 {pos_cnt} / 负夏普组合 {neg_cnt}'}})
-
-                  elements.append({'tag': 'hr'})
-                  elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': f'**参数梯队表（共 {len(ranked)} 组）**'}})
-
-                  header_cols = [('**#**', 1), ('**参数组合**', 4), ('**夏普**', 2), ('**胜率**', 2), ('**均收**', 2), ('**回撤**', 2), ('**样本**', 2)]
-                  elements.append({
-                      'tag': 'column_set', 'flex_mode': 'stretch', 'background_style': 'grey',
-                      'columns': [{'tag': 'column', 'width': 'weighted', 'weight': w, 'elements': [
-                          {'tag': 'div', 'text': {'tag': 'lark_md', 'content': t}}]} for t, w in header_cols],
-                  })
-
-                  for i, c in enumerate(ranked, 1):
-                      is_best = c['hold'] == best['hold'] and c['sl'] == best['sl'] and c['tp'] == best.get('tp')
-                      mark = '🏆' if is_best else ''
-                      tp_s = f'TP{c["tp"]}%' if c['tp'] else '无TP'
-                      combo = f'{c["hold"]}天 / SL-{c["sl"]}% / {tp_s}'
-                      sharpe_v = f'{sharp_flag(c.get("sharpe"))} {fmt(c.get("sharpe"), ".3f")}{(" " + mark) if mark else ""}'
-                      row = [(str(i), 1), (combo, 4), (sharpe_v, 2), (f'{fmt(c.get("win"), ".1f")}%', 2),
-                             (f'{fmt(c.get("avg"), "+.2f")}%', 2), (f'{fmt(c.get("mdd"), ".1f")}%', 2), (f'{int(c.get("trades") or 0)}笔', 2)]
-                      elements.append({
-                          'tag': 'column_set', 'flex_mode': 'stretch',
-                          'columns': [{'tag': 'column', 'width': 'weighted', 'weight': w, 'elements': [
-                              {'tag': 'div', 'text': {'tag': 'lark_md', 'content': txt}}]} for txt, w in row],
-                      })
-
-                  # 夏普矩阵
-                  holds = sorted(set(c['hold'] for c in cells))
-                  sls = sorted(set(c['sl'] for c in cells))
-                  agg = {}
-                  for c in cells:
-                      key = (c['hold'], c['sl'])
-                      if c.get('sharpe') is not None:
-                          if key not in agg or c['sharpe'] > agg[key]['sharpe']:
-                              agg[key] = c
-
-                  if len(holds) > 1 and len(sls) > 1:
-                      elements.append({'tag': 'hr'})
-                      elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
-                          'content': '**最优夏普矩阵** (每格取 TP 最优)'}})
-                      hdr_cols = [{'tag': 'column', 'width': 'weighted', 'weight': 1, 'elements': [
-                          {'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**持有\\\\SL**'}}]}]
-                      for s in sls:
-                          hdr_cols.append({'tag': 'column', 'width': 'weighted', 'weight': 1, 'elements': [
-                              {'tag': 'div', 'text': {'tag': 'lark_md', 'content': f'**-{s}%**'}}]})
-                      elements.append({'tag': 'column_set', 'flex_mode': 'stretch', 'background_style': 'grey', 'columns': hdr_cols})
-                      for h in holds:
-                          row_cols = [{'tag': 'column', 'width': 'weighted', 'weight': 1, 'elements': [
-                              {'tag': 'div', 'text': {'tag': 'lark_md', 'content': f'**{h}天**'}}]}]
-                          for s in sls:
-                              c = agg.get((h, s))
-                              v = fmt(c.get('sharpe') if c else None, '.3f')
-                              is_b = c and c.get('hold') == best.get('hold') and c.get('sl') == best.get('sl') and c.get('tp') == best.get('tp')
-                              cell_text = f'**{v}** 🏆' if is_b and v != '-' else v
-                              row_cols.append({'tag': 'column', 'width': 'weighted', 'weight': 1, 'elements': [
-                                  {'tag': 'div', 'text': {'tag': 'lark_md', 'content': cell_text}}]})
-                          elements.append({'tag': 'column_set', 'flex_mode': 'stretch', 'columns': row_cols})
-
-          template = 'blue' if (best and (best.get('sharpe') or 0) > 0) else 'orange' if cells else 'red'
-          payload = {
-              'msg_type': 'interactive',
-              'card': {
-                  'header': {'title': {'tag': 'plain_text', 'content': '📊 US Backtest Grid 美股回测完成'}, 'template': template},
-                  'elements': elements,
-              },
-          }
-          resp = requests.post(webhook, json=payload, timeout=15)
-          print(f'飞书通知: status={resp.status_code}, body={resp.text[:200]}')
-          PYEOF
 
       - name: Commit US backtest report
         if: always() && github.ref == 'refs/heads/main'
@@ -452,27 +317,34 @@ jobs:
 
       - name: Notify on failure
         if: failure()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          export RUN_URL='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
-          python3 - <<'PYEOF'
-          import os, urllib.request, json
-          url = os.environ.get('FEISHU_WEBHOOK_URL', '')
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          url = os.environ.get("FEISHU_WEBHOOK_URL", "")
           if not url:
-              print('FEISHU_WEBHOOK_URL 未配置，跳过失败通知')
-              exit(0)
-          run_url = os.environ.get('RUN_URL', '')
-          content = '**US Backtest Grid 美股回测失败**\n**Run**: ' + run_url
+              print("FEISHU_WEBHOOK_URL 未配置，跳过失败通知")
+              raise SystemExit(0)
           payload = {
-              'msg_type': 'interactive',
-              'card': {
-                  'header': {'title': {'tag': 'plain_text', 'content': '❌ US Backtest Grid 失败'}, 'template': 'red'},
-                  'elements': [{'tag': 'div', 'text': {'tag': 'lark_md', 'content': content}}],
+              "msg_type": "interactive",
+              "card": {
+                  "header": {"title": {"tag": "plain_text", "content": "❌ US Backtest Grid 失败"}, "template": "red"},
+                  "elements": [
+                      {
+                          "tag": "div",
+                          "text": {
+                              "tag": "lark_md",
+                              "content": "**US Backtest Grid 美股回测失败**\n**Run**: " + os.environ.get("RUN_URL", ""),
+                          },
+                      }
+                  ],
               },
           }
-          data = json.dumps(payload).encode('utf-8')
-          req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
-          try:
-              urllib.request.urlopen(req, timeout=15)
-          except Exception as e:
-              print(f'通知失败: {e}')
-          PYEOF
+          data = json.dumps(payload).encode("utf-8")
+          req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+          urllib.request.urlopen(req, timeout=15)
+          PY
