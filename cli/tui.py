@@ -1540,7 +1540,9 @@ class WyckoffTUI(App):
 
             self._tools._tool_context.on_progress = _on_sub_agent_progress
 
-            runtime = AgentRuntime(self._provider, self._tools, scratchpad=_scratchpad, cancel_check=self._cancel_event.is_set)
+            runtime = AgentRuntime(
+                self._provider, self._tools, scratchpad=_scratchpad, cancel_check=self._cancel_event.is_set
+            )
             for event in runtime.run_stream(self._messages, with_current_time(self._system_prompt)):
                 if self._cancel_event.is_set():
                     _spinner_stop()
