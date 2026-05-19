@@ -160,7 +160,7 @@ def _find_duplicate(memory_type: str, content: str, provider: Any) -> int | None
     if not existing:
         return None
     lines = [f"#{m['id']}: {m['content']}" for m in existing]
-    user_text = f"已有记忆:\n" + "\n".join(lines) + f"\n\n新记忆:\n{content}"
+    user_text = "已有记忆:\n" + "\n".join(lines) + f"\n\n新记忆:\n{content}"
     result = _provider_text(provider, user_text, _DEDUP_PROMPT).strip()
     match = re.match(r"DUPLICATE[:\s]*#?(\d+)", result)
     return int(match.group(1)) if match else None
@@ -193,11 +193,7 @@ def _save_summary_memories(summary: str, codes: str, source_ref: str, dedup_prov
 def refresh_memory_layers(provider: Any) -> int:
     from integrations.local_db import get_recent_memories, save_memory
 
-    atoms = [
-        m
-        for m in get_recent_memories(limit=30)
-        if m.get("memory_type") in {"preference", "decision"}
-    ]
+    atoms = [m for m in get_recent_memories(limit=30) if m.get("memory_type") in {"preference", "decision"}]
     if len(atoms) < 3:
         return 0
     lines = [f"- #{m.get('id')} [{m.get('memory_type')}] {m.get('content')}" for m in atoms]

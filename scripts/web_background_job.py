@@ -81,48 +81,57 @@ def _apply_funnel_env(payload: dict[str, Any]) -> None:
 
 def _run_funnel_screen(request_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     _apply_funnel_env(payload)
-    from integrations.strategy_api_client import (
-        screen_stocks_legacy,
-    )
+    from core.funnel_pipeline import run_funnel
 
-    board = str(payload.get("board", "") or "all").strip().lower()
-    if board == "main_chinext":
-        board = "all"
-    manual_symbols = str(payload.get("manual_symbols", "") or "").strip()
-    universe = [code.strip() for code in manual_symbols.split(",") if code.strip()] if manual_symbols else None
-    top_n = int(payload.get("top_n") or payload.get("limit_count") or 20)
-    remote = screen_stocks_legacy(board=board, universe=universe, top_n=top_n)
-    symbols_for_report = remote.get("symbols_for_report", []) or []
-    summary = remote.get("summary") or {}
-    benchmark_context = remote.get("benchmark_context", {}) or {}
-    selected_for_ai = remote.get("selected_for_ai") or [row.get("code") for row in symbols_for_report]
+    ok, symbols_for_report, benchmark_context, details = run_funnel(
+        "",
+        notify=False,
+        return_details=True,
+    )
+    metrics = details.get("metrics", {}) or {}
+    triggers = details.get("triggers", {}) or {}
+    name_map = details.get("name_map", {}) or {}
+    sector_map = details.get("sector_map", {}) or {}
+
+    trigger_groups: dict[str, list[dict[str, Any]]] = {}
+    unique_hit_codes: set[str] = set()
+    for trigger_name, rows in triggers.items():
+        group_rows: list[dict[str, Any]] = []
+        for code, score in rows:
+            code_s = str(code).strip()
+            if code_s:
+                unique_hit_codes.add(code_s)
+            group_rows.append(
+                {
+                    "code": code_s,
+                    "name": str(name_map.get(code_s, code_s)),
+                    "industry": str(sector_map.get(code_s, "") or "未知行业"),
+                    "score": float(score),
+                }
+            )
+        trigger_groups[str(trigger_name)] = group_rows
 
     return {
         "request_id": request_id,
         "job_kind": "funnel_screen",
-        "ok": True,
-        "source": "strategy_api",
+        "ok": bool(ok),
         "benchmark_context": benchmark_context,
-        "metrics": {
-            "total_symbols": int(summary.get("total_scanned", 0) or 0),
-            "strategy_version": remote.get("strategy_version"),
-            "trade_date": remote.get("trade_date"),
-        },
+        "metrics": metrics,
         "summary": {
-            "total_symbols": int(summary.get("total_scanned", 0) or 0),
-            "layer1": int(summary.get("layer1_passed", 0) or 0),
-            "layer2": int(summary.get("layer2_passed", 0) or 0),
-            "layer3": int(summary.get("layer3_passed", 0) or 0),
-            "l4_unique_hits": len(symbols_for_report),
-            "selected_for_ai": len(selected_for_ai),
+            "total_symbols": int(metrics.get("total_symbols", 0) or 0),
+            "layer1": int(metrics.get("layer1", 0) or 0),
+            "layer2": int(metrics.get("layer2", 0) or 0),
+            "layer3": int(metrics.get("layer3", 0) or 0),
+            "l4_unique_hits": int(len(unique_hit_codes)),
+            "selected_for_ai": int(len(details.get("selected_for_ai", []) or [])),
         },
-        "trigger_groups": remote.get("trigger_groups", {}),
+        "trigger_groups": trigger_groups,
         "symbols_for_report": symbols_for_report,
-        "selected_for_ai": selected_for_ai,
-        "trend_selected": remote.get("trend_selected", []),
-        "accum_selected": remote.get("accum_selected", []),
-        "top_sectors": remote.get("top_sectors", []),
-        "content_preview": json.dumps(symbols_for_report[:20], ensure_ascii=False),
+        "selected_for_ai": details.get("selected_for_ai", []) or [],
+        "trend_selected": details.get("trend_selected", []) or [],
+        "accum_selected": details.get("accum_selected", []) or [],
+        "top_sectors": metrics.get("top_sectors", []) or [],
+        "content_preview": str(details.get("content", "") or "")[:4000],
     }
 
 

@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -15,10 +17,6 @@ from collections import deque
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-
-import contextlib
-import re
 
 from rich.highlighter import Highlighter
 from rich.markdown import Markdown
@@ -31,6 +29,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
+
 # ---------------------------------------------------------------------------
 # 禁用 kitty keyboard protocol（与 macOS 中文输入法冲突）
 # ---------------------------------------------------------------------------
@@ -41,11 +40,13 @@ def _patch_driver_no_kitty() -> None:
 
     def _patched_start(self, *args, **kwargs):
         _orig_write = self.write
+
         def _filtered_write(data: str) -> None:
             if "\x1b[>1u" in data:
                 data = data.replace("\x1b[>1u", "")
             if data:
                 _orig_write(data)
+
         self.write = _filtered_write
         _orig_start(self, *args, **kwargs)
         self.write = _orig_write

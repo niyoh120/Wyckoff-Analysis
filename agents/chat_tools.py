@@ -673,28 +673,12 @@ def analyze_stock(
         诊断结果或行情数据 dict。
     """
     try:
-        mode = (mode or "diagnose").strip().lower()
-        if mode not in ("diagnose", "price"):
-            return {"error": f"mode 参数无效: '{mode}'，可选值: diagnose, price"}
-
-        if mode == "diagnose":
-            from integrations.strategy_api_client import (
-                StrategyApiError,
-                analyze_stock_legacy,
-            )
-
-            try:
-                return analyze_stock_legacy(
-                    code,
-                    cost=cost,
-                    user_id=_get_user_id(tool_context),
-                )
-            except StrategyApiError as exc:
-                return {"error": str(exc), "source": "strategy_api"}
-
         _ensure_tushare_token(tool_context)
         from integrations.stock_hist_repository import _COL_MAP, get_stock_hist
 
+        mode = (mode or "diagnose").strip().lower()
+        if mode not in ("diagnose", "price"):
+            return {"error": f"mode 参数无效: '{mode}'，可选值: diagnose, price"}
         end_date = date.today()
 
         if mode == "price":
@@ -732,7 +716,46 @@ def analyze_stock(
                 **({"tickflow_limit_hint": hist_hints[0]} if hist_hints else {}),
             }
 
-        return {"error": f"mode 参数无效: '{mode}'，可选值: diagnose, price"}
+        # mode == "diagnose"
+        from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_text
+
+        start_date = end_date - timedelta(days=500)
+        df = get_stock_hist(code, start_date, end_date)
+        if df is None or df.empty:
+            return {"error": f"无法获取 {code} 的行情数据"}
+        hist_hints = _collect_tickflow_limit_hints_from_df(df)
+        hist_meta = _hist_metadata(df)
+        latest_date = _latest_hist_date(df, "日期")
+        df = df.rename(columns=_COL_MAP)
+        name = _code_to_name(code)
+        d = diagnose_one_stock(code, name, cost, df)
+        text = format_diagnostic_text(d)
+        return {
+            "code": d.code,
+            "name": d.name,
+            "health": d.health,
+            "pnl_pct": round(d.pnl_pct, 2),
+            "latest_close": d.latest_close,
+            "ma_pattern": d.ma_pattern,
+            "l2_channel": d.l2_channel,
+            "track": d.track,
+            "accum_stage": d.accum_stage,
+            "l4_triggers": d.l4_triggers,
+            "exit_signal": d.exit_signal,
+            "stop_loss_status": d.stop_loss_status,
+            "vol_ratio_20_60": round(d.vol_ratio_20_60, 2),
+            "range_60d_pct": round(d.range_60d_pct, 1),
+            "ret_10d_pct": round(d.ret_10d_pct, 1),
+            "ret_20d_pct": round(d.ret_20d_pct, 1),
+            "from_year_high_pct": round(d.from_year_high_pct, 1),
+            "from_year_low_pct": round(d.from_year_low_pct, 1),
+            "health_reasons": d.health_reasons,
+            "formatted_text": text,
+            "data_status": "ok",
+            "latest_date": latest_date or _latest_hist_date(df),
+            **hist_meta,
+            **({"tickflow_limit_hint": hist_hints[0]} if hist_hints else {}),
+        }
     except Exception as e:
         logger.exception("analyze_stock error")
         return {"error": str(e)}
@@ -823,6 +846,10 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
             }
 
         # mode == "diagnose"
+        _ensure_tushare_token(tool_context)
+        from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_text
+        from integrations.stock_hist_repository import get_stock_hist
+
         if not state.get("positions"):
             return {
                 "message": "持仓记录存在但无头寸",
@@ -831,12 +858,10 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
                 "positions": [],
             }
 
-        from integrations.strategy_api_client import (
-            StrategyApiError,
-            analyze_stock_legacy,
-        )
-
+        end_date = date.today()
+        start_date = end_date - timedelta(days=500)
         results = []
+        hist_tickflow_hints: list[str] = []
         successful_count = 0
         failed_count = 0
         for pos in state["positions"]:
@@ -844,21 +869,42 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
             pos_name = pos.get("name", pos_code)
             pos_cost = float(pos.get("cost", pos.get("cost_price", 0)) or 0)
             try:
-                results.append(
-                    analyze_stock_legacy(
-                        pos_code,
-                        name=pos_name,
-                        cost=pos_cost,
-                        user_id=_get_user_id(tool_context),
-                    )
-                )
-                successful_count += 1
-            except StrategyApiError as e:
-                failed_count += 1
-                results.append({"code": pos_code, "name": pos_name, "error": str(e), "source": "strategy_api"})
+                df = get_stock_hist(pos_code, start_date, end_date)
+                if df is None or df.empty:
+                    failed_count += 1
+                    results.append({"code": pos_code, "name": pos_name, "error": "无行情数据"})
+                    continue
+                hist_meta = _hist_metadata(df)
+                latest_date = _latest_hist_date(df, "日期")
+                for hint in _collect_tickflow_limit_hints_from_df(df):
+                    if hint not in hist_tickflow_hints:
+                        hist_tickflow_hints.append(hint)
+                from integrations.stock_hist_repository import _COL_MAP
 
-        return {
-            "source": "strategy_api",
+                df = df.rename(columns=_COL_MAP)
+                d = diagnose_one_stock(pos_code, pos_name, pos_cost, df)
+                successful_count += 1
+                results.append(
+                    {
+                        "code": d.code,
+                        "name": d.name,
+                        "health": d.health,
+                        "pnl_pct": round(d.pnl_pct, 2),
+                        "latest_close": d.latest_close,
+                        "l2_channel": d.l2_channel,
+                        "l4_triggers": d.l4_triggers,
+                        "health_reasons": d.health_reasons,
+                        "formatted_text": format_diagnostic_text(d),
+                        "data_status": "ok",
+                        "latest_date": latest_date or _latest_hist_date(df),
+                        **hist_meta,
+                    }
+                )
+            except Exception as e:
+                failed_count += 1
+                results.append({"code": pos_code, "name": pos_name, "error": str(e)})
+
+        result = {
             "portfolio_id": portfolio_id,
             "free_cash": state.get("free_cash", 0),
             "position_count": len(state["positions"]),
@@ -866,6 +912,9 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
             "failed_count": failed_count,
             "diagnostics": results,
         }
+        if hist_tickflow_hints:
+            result["tickflow_limit_hint"] = hist_tickflow_hints[0]
+        return result
     except Exception as e:
         logger.exception("portfolio error")
         return {"error": str(e)}
@@ -1187,21 +1236,72 @@ def screen_stocks(board: str = "all", tool_context: ToolContext = None) -> dict:
         筛选结果 dict，包含各层统计和最终候选股票列表。
     """
     try:
+        _ensure_tushare_token(tool_context)
         # 参数校验与别名映射
         board = str(board or "all").strip().lower()
         board = _BOARD_ALIAS.get(board, board)
         if board not in _VALID_BOARDS:
             return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext"}
 
-        from integrations.strategy_api_client import (
-            StrategyApiError,
-            screen_stocks_legacy,
-        )
+        # 保存并设置环境变量（调用后恢复）
+        prev_mode = os.environ.get("FUNNEL_POOL_MODE")
+        prev_board = os.environ.get("FUNNEL_POOL_BOARD")
+        prev_exec = os.environ.get("FUNNEL_EXECUTOR_MODE")
+        os.environ["FUNNEL_POOL_MODE"] = "board"
+        os.environ["FUNNEL_POOL_BOARD"] = board
+        # CLI 后台线程中 fork 子进程会触发 Python 3.13+ fds_to_keep 错误，强制用 thread
+        os.environ["FUNNEL_EXECUTOR_MODE"] = "thread"
+
+        from scripts.wyckoff_funnel import run as run_funnel
 
         try:
-            return screen_stocks_legacy(board=board)
-        except StrategyApiError as exc:
-            return {"error": str(exc), "source": "strategy_api"}
+            ok, symbols, bench_ctx, details = run_funnel(
+                "",
+                notify=False,
+                return_details=True,
+            )
+        finally:
+            # 恢复环境变量，避免影响后续调用
+            if prev_mode is None:
+                os.environ.pop("FUNNEL_POOL_MODE", None)
+            else:
+                os.environ["FUNNEL_POOL_MODE"] = prev_mode
+            if prev_board is None:
+                os.environ.pop("FUNNEL_POOL_BOARD", None)
+            else:
+                os.environ["FUNNEL_POOL_BOARD"] = prev_board
+            if prev_exec is None:
+                os.environ.pop("FUNNEL_EXECUTOR_MODE", None)
+            else:
+                os.environ["FUNNEL_EXECUTOR_MODE"] = prev_exec
+
+        metrics = details.get("metrics") or {}
+        triggers = details.get("triggers") or {}
+        name_map = details.get("name_map") or {}
+
+        trigger_summary = {}
+        for trigger_name, rows in triggers.items():
+            trigger_summary[trigger_name] = [
+                {
+                    "code": str(code),
+                    "name": str(name_map.get(str(code), code)),
+                    "score": round(float(score), 2),
+                }
+                for code, score in rows
+            ]
+
+        return {
+            "ok": bool(ok),
+            "summary": {
+                "total_scanned": int(metrics.get("total_symbols", 0)),
+                "layer1_passed": int(metrics.get("layer1", 0)),
+                "layer2_passed": int(metrics.get("layer2", 0)),
+                "layer3_passed": int(metrics.get("layer3", 0)),
+            },
+            "trigger_groups": trigger_summary,
+            "top_sectors": metrics.get("top_sectors", []),
+            "symbols_for_report": symbols,
+        }
     except Exception as e:
         logger.exception("screen_stocks error")
         return {"error": str(e)}
@@ -1323,13 +1423,33 @@ def generate_strategy_decision(tool_context: ToolContext) -> dict:
                 llm_base_url=base_url,
             )
 
+        # 生成策略决策（需要 Telegram 配置来发送，但在聊天模式下直接返回结果）
+        from core.strategy import run_step4
+
+        tg_bot_token = os.getenv("TG_BOT_TOKEN", "")
+        tg_chat_id = os.getenv("TG_CHAT_ID", "")
+
+        if not tg_bot_token or not tg_chat_id:
+            return {
+                "message": "策略分析完成，但未配置 Telegram 无法发送通知。以下是筛选和研报结果。",
+                "screen_summary": screen_result.get("summary", {}),
+                "report_preview": (report_text[:2000] + "...") if len(report_text) > 2000 else report_text,
+            }
+
+        ok, reason = run_step4(
+            external_report=report_text,
+            benchmark_context=None,
+            api_key=api_key,
+            model=model,
+            portfolio_id=portfolio_id,
+            tg_bot_token=tg_bot_token,
+            tg_chat_id=tg_chat_id,
+        )
+
         return {
-            "ok": True,
-            "reason": "local_strategy_decision_disabled",
-            "message": "筛选与研报已完成；主应用不再本地执行策略决策量化逻辑。",
+            "ok": bool(ok),
+            "reason": str(reason or ""),
             "screen_summary": screen_result.get("summary", {}),
-            "portfolio_id": portfolio_id,
-            "report_preview": (report_text[:2000] + "...") if len(report_text) > 2000 else report_text,
         }
     except Exception as e:
         logger.exception("generate_strategy_decision error")
@@ -1862,6 +1982,10 @@ def run_backtest(
     try:
         from datetime import date, timedelta
 
+        from core.backtester import run_backtest as _run_backtest
+
+        _ensure_tushare_token(tool_context)
+
         start_dt = date.fromisoformat(str(start).strip()[:10]) if start else date.today() - timedelta(days=180)
         end_dt = date.fromisoformat(str(end).strip()[:10]) if end else date.today() - timedelta(days=1)
 
@@ -1870,23 +1994,37 @@ def run_backtest(
         stop_loss_pct = min(0.0, float(stop_loss_pct))
         take_profit_pct = max(0.0, float(take_profit_pct))
 
-        from integrations.strategy_api_client import (
-            StrategyApiError,
-            run_backtest_legacy,
+        _trades_df, summary = _run_backtest(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            hold_days=hold_days,
+            top_n=top_n,
+            board=str(board or "main_chinext").strip(),
+            sample_size=0,
+            trading_days=320,
+            max_workers=8,
+            exit_mode="sltp",
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
         )
 
-        try:
-            return run_backtest_legacy(
-                start=start_dt.isoformat(),
-                end=end_dt.isoformat(),
-                hold_days=hold_days,
-                top_n=top_n,
-                board=str(board or "main_chinext").strip(),
-                stop_loss_pct=stop_loss_pct,
-                take_profit_pct=take_profit_pct,
-            )
-        except StrategyApiError as exc:
-            return {"error": str(exc), "source": "strategy_api"}
+        return {
+            "period": f"{start_dt} ~ {end_dt}",
+            "hold_days": hold_days,
+            "top_n": top_n,
+            "board": board,
+            "stop_loss_pct": stop_loss_pct,
+            "take_profit_pct": take_profit_pct,
+            "trades": summary.get("trades", 0),
+            "win_rate_pct": summary.get("win_rate_pct"),
+            "avg_ret_pct": summary.get("avg_ret_pct"),
+            "median_ret_pct": summary.get("median_ret_pct"),
+            "sharpe_ratio": summary.get("sharpe_ratio"),
+            "max_drawdown_pct": summary.get("max_drawdown_pct"),
+            "portfolio_total_ret_pct": summary.get("portfolio_total_ret_pct"),
+            "portfolio_ann_ret_pct": summary.get("portfolio_ann_ret_pct"),
+            "max_consecutive_losses": summary.get("max_consecutive_losses"),
+        }
     except Exception as e:
         logger.exception("run_backtest error")
         return {"error": str(e)}

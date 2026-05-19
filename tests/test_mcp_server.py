@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from types import ModuleType
 
@@ -28,19 +29,27 @@ def import_mcp_server(monkeypatch):
     return importlib.import_module("mcp_server")
 
 
-def test_run_funnel_simulation_routes_to_strategy_api(monkeypatch):
+def test_run_funnel_simulation_maps_main_chinext_and_restores_env(monkeypatch):
     mcp_server = import_mcp_server(monkeypatch)
-    captured = {}
+    captured_env = {}
 
-    def fake_screen_stocks_legacy(*, board):
-        captured["board"] = board
-        return {"symbols_for_report": [{"code": "000001"}], "summary": {"total_scanned": 1}}
+    def fake_run(*args, **kwargs):
+        captured_env["mode"] = os.environ.get("FUNNEL_POOL_MODE")
+        captured_env["board"] = os.environ.get("FUNNEL_POOL_BOARD")
+        captured_env["executor"] = os.environ.get("FUNNEL_EXECUTOR_MODE")
+        return True, [{"code": "000001"}], {"regime": "NEUTRAL"}, {"metrics": {}}
 
-    monkeypatch.setattr("integrations.strategy_api_client.screen_stocks_legacy", fake_screen_stocks_legacy)
+    fake_funnel = ModuleType("scripts.wyckoff_funnel")
+    fake_funnel.run = fake_run
+    monkeypatch.setitem(sys.modules, "scripts.wyckoff_funnel", fake_funnel)
+    monkeypatch.setenv("FUNNEL_POOL_MODE", "manual")
+    monkeypatch.setenv("FUNNEL_POOL_BOARD", "chinext")
+    monkeypatch.setenv("FUNNEL_EXECUTOR_MODE", "process")
 
     result = mcp_server.run_funnel_simulation(board="main_chinext")
 
     assert result["success"] is True
-    assert result["source"] == "strategy_api"
-    assert result["candidates"] == [{"code": "000001"}]
-    assert captured == {"board": "all"}
+    assert captured_env == {"mode": "board", "board": "all", "executor": "thread"}
+    assert os.environ["FUNNEL_POOL_MODE"] == "manual"
+    assert os.environ["FUNNEL_POOL_BOARD"] == "chinext"
+    assert os.environ["FUNNEL_EXECUTOR_MODE"] == "process"

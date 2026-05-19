@@ -210,12 +210,31 @@ def _run_springboard_scoring(
     symbols_info: list[dict],
     step2_details: dict,
 ) -> int:
-    """API 分支不在主应用执行起跳板量化评分。"""
-    del step2_details
+    """从 triggers 反查 code→signal_type，调用量化评分器。"""
+    from core.signal_confirmation import score_springboard_abc
+
+    all_df_map = step2_details.get("all_df_map", {})
+    triggers = step2_details.get("triggers", {})
+    code_to_sig: dict[str, str] = {}
+    for sig_type, hits in triggers.items():
+        for code, _ in hits:
+            code_to_sig.setdefault(str(code).strip(), sig_type)
+
+    scored = 0
     for item in symbols_info:
-        if isinstance(item, dict):
+        code = str(item.get("code", "")).strip()
+        sig_type = str(item.get("signal_type", "")).strip().lower() or code_to_sig.get(code, "")
+        df = all_df_map.get(code)
+        if df is None or df.empty or not sig_type:
             item["springboard_grade"] = "none"
-    return 0
+            continue
+        result = score_springboard_abc(df, sig_type)
+        item["springboard_a"] = result["a"]
+        item["springboard_b"] = result["b"]
+        item["springboard_c"] = result["c"]
+        item["springboard_grade"] = result["grade"]
+        scored += 1
+    return scored
 
 
 def _run_step4_holdings_diagnosis(portfolio_id: str, logs_path: str | None) -> str:
@@ -262,7 +281,7 @@ def _run_step4_pipeline(
     model: str,
     logs_path: str | None,
 ) -> dict:
-    from integrations.strategy_api_client import run_step4_rebalance_remote
+    from core.strategy import run_step4
 
     t0 = datetime.now(TZ)
     tg_bot_token = os.getenv("TG_BOT_TOKEN", "").strip()
@@ -288,17 +307,18 @@ def _run_step4_pipeline(
             code = str(item.get("code", "")).strip()
             if code in allowed_set:
                 step4_candidate_meta.append(item)
-    _log(f"Step4 私人再平衡(API): 候选收口为 Step3 起跳板 {len(step4_candidate_meta)} 只", logs_path)
+    _log(f"Step4 私人再平衡: 候选收口为 Step3 起跳板 {len(step4_candidate_meta)} 只", logs_path)
 
     holdings_diag_text = _run_step4_holdings_diagnosis(portfolio_id, logs_path)
+
     step4_ok = True
     step4_reason = "ok"
     step4_err = None
     try:
-        payload = run_step4_rebalance_remote(
+        step4_ok, step4_reason = run_step4(
             external_report=step3_report_text,
             benchmark_context=benchmark_context,
-            llm_api_key=api_key,
+            api_key=api_key,
             model=model,
             candidate_meta=step4_candidate_meta,
             portfolio_id=portfolio_id,
@@ -306,18 +326,15 @@ def _run_step4_pipeline(
             tg_chat_id=tg_chat_id,
             holdings_intraday_report=holdings_diag_text,
         )
-        step4_ok = bool(payload.get("ok"))
-        step4_reason = str(payload.get("reason") or "")
         step4_err = None if step4_ok else STEP4_REASON_MAP.get(step4_reason, step4_reason)
     except Exception as e:
         step4_ok = False
-        step4_reason = "strategy_api_failed"
+        step4_reason = "unexpected_exception"
         step4_err = str(e)
     elapsed4 = (datetime.now(TZ) - t0).total_seconds()
     _log(
         f"Step4 私人再平衡: user={user_id}, portfolio={portfolio_id}, "
-        f"source=strategy_api, ok={step4_ok}, reason={step4_reason}, "
-        f"holdings_diag_len={len(holdings_diag_text)}, elapsed={elapsed4:.1f}s, err={step4_err}",
+        f"ok={step4_ok}, reason={step4_reason}, elapsed={elapsed4:.1f}s, err={step4_err}",
         logs_path,
     )
     return {
@@ -325,7 +342,7 @@ def _run_step4_pipeline(
         "ok": step4_ok and step4_err is None,
         "err": step4_err,
         "elapsed_s": round(elapsed4, 1),
-        "output": f"user={user_id}, portfolio={portfolio_id}, source=strategy_api, reason={step4_reason}",
+        "output": f"user={user_id}, portfolio={portfolio_id}, reason={step4_reason}",
     }
 
 
@@ -390,7 +407,7 @@ def main() -> int:
         extract_operation_pool_codes,
         run_step3,
     )
-    from integrations.strategy_api_client import screen_stocks_legacy
+    from core.funnel_pipeline import run_funnel as run_step2
 
     summary: list[dict] = []
     has_blocking_failure = False
@@ -407,17 +424,9 @@ def main() -> int:
     step2_err = None
     step2_details: dict = {}
     try:
-        result = screen_stocks_legacy(
-            board="all",
-            top_n=200,
-            include_signal_confirmation=True,
-            include_springboard_scoring=True,
-        )
-        symbols_info = result.get("symbols_for_report", []) or []
-        benchmark_context = result.get("benchmark_context", {}) or {}
-        step2_details = {}
-        step2_ok = True
-        step2_err = None
+        result = run_step2(webhook, return_details=True)
+        step2_ok, symbols_info, benchmark_context, step2_details = result
+        step2_err = None if step2_ok else "飞书发送失败"
     except Exception as e:
         step2_err = str(e)
     elapsed2 = (datetime.now(TZ) - t0).total_seconds()
@@ -434,13 +443,6 @@ def main() -> int:
         f"Step2 Wyckoff Funnel: ok={step2_ok}, symbols={len(symbols_info)}, elapsed={elapsed2:.1f}s, err={step2_err}",
         logs_path,
     )
-    if step2_ok:
-        _log(
-            "Step2 Strategy API口径: "
-            f"signal_confirmed={int(result.get('signal_confirmation_count') or 0)}, "
-            f"springboard_scored={int(result.get('springboard_scored_count') or 0)}",
-            logs_path,
-        )
     if step2_err:
         has_blocking_failure = True
     elif benchmark_context:

@@ -574,19 +574,22 @@ def _cmd_screen(args):
     init_db()
     board = args.board or "all"
     print(f"正在执行全市场漏斗筛选 (board={board}) ...")
-    from integrations.strategy_api_client import (
-        screen_stocks_legacy,
-    )
+    from scripts.wyckoff_funnel import run_funnel_job
 
     try:
-        result = screen_stocks_legacy(board="all" if board == "main_chinext" else board)
+        triggers, metrics = run_funnel_job()
     except Exception as e:
         print(f"✗ 筛选失败: {e}")
         sys.exit(1)
-    rows = result.get("symbols_for_report", []) or []
-    print(f"\n✓ 筛选完成  命中 {len(rows)} 只  source=strategy_api")
-    for item in rows[:20]:
-        print(f"    {item.get('code')}  {item.get('name', '')}  score={float(item.get('score') or 0):.2f}")
+    total = sum(len(v) for v in triggers.values())
+    print(f"\n✓ 筛选完成  命中 {total} 只")
+    for signal_type, items in triggers.items():
+        if items:
+            print(f"\n  [{signal_type}] ({len(items)} 只)")
+            for code, score in items[:10]:
+                print(f"    {code}  score={score:.2f}")
+    if metrics:
+        print(f"\n  指标: {json.dumps(metrics, ensure_ascii=False)}")
 
 
 # ---------------------------------------------------------------------------
@@ -604,27 +607,24 @@ def _cmd_backtest(args):
     end_dt = date.today() - timedelta(days=1)
     start_dt = end_dt - timedelta(days=args.months * 30)
     print(f"正在回测 {start_dt} → {end_dt}  hold_days={args.hold_days} ...")
-    from integrations.strategy_api_client import (
-        run_backtest_legacy,
-    )
+    from scripts.backtest_runner import run_backtest
 
     try:
-        summary = run_backtest_legacy(
-            start=start_dt.isoformat(),
-            end=end_dt.isoformat(),
+        df, summary = run_backtest(
+            start_dt=start_dt,
+            end_dt=end_dt,
             hold_days=args.hold_days,
             top_n=args.top_n,
             board="all",
-            stop_loss_pct=-7.0,
-            take_profit_pct=18.0,
+            sample_size=0,
+            trading_days=60,
+            max_workers=4,
         )
     except Exception as e:
         print(f"✗ 回测失败: {e}")
         sys.exit(1)
-    print(f"\n✓ 回测完成  交易 {summary.get('trades', 0)} 笔  source=strategy_api")
+    print(f"\n✓ 回测完成  交易 {len(df)} 笔")
     for k, v in summary.items():
-        if k in {"rows", "source", "task_id", "strategy_version"}:
-            continue
         if isinstance(v, float):
             print(f"  {k}: {v:.4f}")
         else:
