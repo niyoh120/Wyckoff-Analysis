@@ -86,3 +86,66 @@ def test_signal_confirmation_dry_run_does_not_write(monkeypatch):
 
     assert confirmed == [{"code": "000001"}]
     assert writes == []
+
+
+def test_step3_input_preview_sends_summary_and_writes_artifact(monkeypatch, tmp_path):
+    import scripts.step3_batch_report as step3
+
+    sent: dict[str, str] = {}
+    artifact_path = tmp_path / "step3_llm_input_preview.md"
+    monkeypatch.setenv("STEP3_INPUT_PREVIEW_PATH", str(artifact_path))
+    monkeypatch.setenv("FEISHU_INPUT_PREVIEW_AS_FILE", "1")
+    monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "YoungCan-Wang/WyckoffTradingAgent")
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.setenv("GITHUB_RUN_NUMBER", "456")
+
+    def fake_send_feishu(_webhook_url, title, content):
+        sent["title"] = title
+        sent["content"] = content
+        return True
+
+    monkeypatch.setattr(step3, "send_feishu_notification", fake_send_feishu)
+    monkeypatch.setattr(step3, "send_feishu_file", lambda path: path == str(artifact_path))
+
+    ok, report = step3._send_input_preview(
+        webhook_url="https://example.invalid/hook",
+        model="gemini-test",
+        system_prompt="SYSTEM PROMPT BODY",
+        previews=[{"track": "Trend", "selected_count": 2, "user_message": "VERY LONG USER MESSAGE"}],
+    )
+
+    assert ok is True
+    assert report == artifact_path.read_text(encoding="utf-8")
+    assert "SYSTEM PROMPT BODY" in report
+    assert "VERY LONG USER MESSAGE" in report
+    assert "SYSTEM PROMPT BODY" not in sent["content"]
+    assert "VERY LONG USER MESSAGE" not in sent["content"]
+    assert "step3_llm_input_preview.md" in sent["content"]
+    assert "input-preview-logs-456" in sent["content"]
+    assert "https://github.com/YoungCan-Wang/WyckoffTradingAgent/actions/runs/123" in sent["content"]
+
+
+def test_step3_input_preview_falls_back_to_original_when_file_send_fails(monkeypatch, tmp_path):
+    import scripts.step3_batch_report as step3
+
+    sent: dict[str, str] = {}
+    monkeypatch.setenv("STEP3_INPUT_PREVIEW_PATH", str(tmp_path / "step3_llm_input_preview.md"))
+    monkeypatch.setenv("FEISHU_INPUT_PREVIEW_AS_FILE", "1")
+    monkeypatch.setattr(step3, "send_feishu_file", lambda _path: False)
+    monkeypatch.setattr(
+        step3,
+        "send_feishu_notification",
+        lambda _webhook_url, _title, content: sent.setdefault("content", content) is not None,
+    )
+
+    ok, _report = step3._send_input_preview(
+        webhook_url="https://example.invalid/hook",
+        model="gemini-test",
+        system_prompt="SYSTEM PROMPT BODY",
+        previews=[{"track": "Trend", "selected_count": 2, "user_message": "VERY LONG USER MESSAGE"}],
+    )
+
+    assert ok is True
+    assert "SYSTEM PROMPT BODY" in sent["content"]
+    assert "VERY LONG USER MESSAGE" in sent["content"]

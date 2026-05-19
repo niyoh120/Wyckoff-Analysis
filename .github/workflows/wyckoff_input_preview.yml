@@ -24,6 +24,12 @@ jobs:
       DEBUG_MODEL_IO: "1"
       DEBUG_MODEL_IO_FULL: "1"
       DAILY_JOB_PREVIEW_ONLY: "1"
+      STEP3_INPUT_PREVIEW_PATH: ${{ github.workspace }}/logs/step3_llm_input_preview.md
+      FEISHU_INPUT_PREVIEW_AS_FILE: "1"
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_PREVIEW_CHAT_ID: ${{ secrets.FEISHU_PREVIEW_CHAT_ID }}
+      FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
       # 测试任务不触发实盘再平衡
       DAILY_JOB_SKIP_STEP4: "1"
       TZ: Asia/Shanghai

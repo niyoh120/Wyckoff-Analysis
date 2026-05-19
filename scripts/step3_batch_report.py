@@ -49,7 +49,7 @@ from tools.report_builder import (
 from tools.report_builder import (
     build_track_user_message as _build_track_user_message,
 )
-from utils.feishu import send_feishu_notification
+from utils.feishu import send_feishu_file, send_feishu_notification
 from utils.notify import send_dingtalk_notification, send_wecom_notification
 from utils.trading_clock import resolve_end_calendar_day
 
@@ -160,9 +160,6 @@ def _send_input_preview(
     wecom_webhook: str = "",
     dingtalk_webhook: str = "",
 ) -> tuple[bool, str]:
-    """
-    预演模式：不调用模型，仅展示将发送给模型的输入内容。
-    """
     total_selected = sum(int(x.get("selected_count", 0) or 0) for x in previews)
     blocks: list[str] = [
         "# 🧪 Step3 模型输入预演（未调用大模型）",
@@ -179,31 +176,88 @@ def _send_input_preview(
         "",
     ]
     for idx, item in enumerate(previews, start=1):
-        blocks.extend(
-            [
-                f"## USER MESSAGE {idx} / {len(previews)}",
-                "",
-                f"- 轨道: `{item.get('track', '')}`",
-                f"- 股票数: `{item.get('selected_count', 0)}`",
-                "",
-                "```text",
-                str(item.get("user_message", "") or ""),
-                "```",
-                "",
-            ]
-        )
+        blocks += [
+            f"## USER MESSAGE {idx} / {len(previews)}",
+            "",
+            f"- 轨道: `{item.get('track', '')}`",
+            f"- 股票数: `{item.get('selected_count', 0)}`",
+            "",
+            "```text",
+            str(item.get("user_message", "") or ""),
+            "```",
+            "",
+        ]
     report = "\n".join(blocks).rstrip() + "\n"
     title = f"🧪 模型输入预演 {date.today().strftime('%Y-%m-%d')}"
-    sent = send_feishu_notification(webhook_url, title, report) if webhook_url else True
+    artifact_path = _write_input_preview_artifact(report)
+    file_enabled = _preview_file_enabled()
+    file_sent = send_feishu_file(artifact_path) if file_enabled else False
+    notification = _build_input_preview_notice(model, total_selected, previews, artifact_path) if file_sent else report
+    sent = send_feishu_notification(webhook_url, title, notification) if webhook_url else file_sent or not file_enabled
     if wecom_webhook:
-        send_wecom_notification(wecom_webhook, title, report)
+        send_wecom_notification(wecom_webhook, title, notification)
     if dingtalk_webhook:
-        send_dingtalk_notification(dingtalk_webhook, title, report)
+        send_dingtalk_notification(dingtalk_webhook, title, notification)
     if not sent:
         print("[step3] 预演报告飞书推送失败")
         return (False, report)
-    print(f"[step3] 预演报告发送成功，股票数={total_selected}")
+    print(f"[step3] 预演报告发送成功，股票数={total_selected}, file_sent={file_sent}, path={artifact_path}")
     return (True, report)
+
+
+def _preview_file_enabled() -> bool:
+    return os.getenv("FEISHU_INPUT_PREVIEW_AS_FILE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _write_input_preview_artifact(report: str) -> str:
+    path = os.getenv("STEP3_INPUT_PREVIEW_PATH", "").strip()
+    if not path:
+        path = os.path.join(os.getenv("LOGS_DIR", "logs"), "step3_llm_input_preview.md")
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(report)
+    return path
+
+
+def _github_run_url() -> str:
+    server_url = os.getenv("GITHUB_SERVER_URL", "").strip()
+    repository = os.getenv("GITHUB_REPOSITORY", "").strip()
+    run_id = os.getenv("GITHUB_RUN_ID", "").strip()
+    if not server_url or not repository or not run_id:
+        return ""
+    return f"{server_url}/{repository}/actions/runs/{run_id}"
+
+
+def _build_input_preview_notice(
+    model: str,
+    total_selected: int,
+    previews: list[dict],
+    artifact_path: str,
+) -> str:
+    run_number = os.getenv("GITHUB_RUN_NUMBER", "").strip()
+    artifact_name = f"input-preview-logs-{run_number}" if run_number else "input-preview-logs-*"
+    track_parts = [
+        f"{str(item.get('track', '') or 'Unknown')} {int(item.get('selected_count', 0) or 0)}" for item in previews
+    ]
+    lines = [
+        "完整 LLM input 已作为飞书文件发送，卡片不再展开长文本。",
+        "",
+        f"- 目标模型: `{model}`",
+        f"- 输入股票数: `{total_selected}`",
+        f"- 分轨: `{', '.join(track_parts) if track_parts else '-'}`",
+        f"- 文件名: `{os.path.basename(artifact_path)}`",
+        f"- Actions 备份 artifact: `{artifact_name}`",
+    ]
+    run_url = _github_run_url()
+    if run_url:
+        lines.append(f"- Run: {run_url}")
+    lines.extend(
+        [
+            "",
+            "任务结束后，在本次 Actions 页面底部 Artifacts 下载该文件。",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _has_required_sections(report: str) -> bool:
