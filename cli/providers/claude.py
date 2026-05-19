@@ -14,8 +14,18 @@ from cli.providers.base import LLMProvider
 class ClaudeProvider(LLMProvider):
     """通过 anthropic SDK 调用 Claude 模型。"""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
-        self._client = anthropic.Anthropic(api_key=api_key)
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514", base_url: str = ""):
+        kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+            import httpx
+
+            def _strip_auth(request: httpx.Request) -> None:
+                if "authorization" in request.headers:
+                    del request.headers["authorization"]
+
+            kwargs["http_client"] = httpx.Client(event_hooks={"request": [_strip_auth]})
+        self._client = anthropic.Anthropic(**kwargs)
         self._model = model
 
     @property

@@ -77,6 +77,12 @@ export function SettingsPage() {
           model: data.deepseek_model || '',
           base_url: data.deepseek_base_url || PROVIDER_BASE_URLS.deepseek,
         }
+      } else if (p === 'anthropic') {
+        cfgs[p] = {
+          api_key: data.anthropic_api_key || '',
+          model: data.anthropic_model || '',
+          base_url: data.anthropic_base_url || '',
+        }
       } else {
         const info = custom[p] || {}
         cfgs[p] = {
@@ -121,6 +127,9 @@ export function SettingsPage() {
       deepseek_api_key: configs.deepseek?.api_key || '',
       deepseek_model: configs.deepseek?.model || '',
       deepseek_base_url: configs.deepseek?.base_url || '',
+      anthropic_api_key: configs.anthropic?.api_key || '',
+      anthropic_model: configs.anthropic?.model || '',
+      anthropic_base_url: configs.anthropic?.base_url || '',
       custom_providers,
       tickflow_api_key: tickflowKey,
       feishu_webhook: feishuWebhook,

@@ -10,6 +10,7 @@ const FORWARD_HEADERS = new Set([
   'content-type',
   'accept',
   'x-api-key',
+  'anthropic-version',
 ])
 
 const ALLOWED_TARGET_ORIGINS = new Set([
@@ -17,6 +18,8 @@ const ALLOWED_TARGET_ORIGINS = new Set([
   'https://api.openai.com',
   'https://generativelanguage.googleapis.com',
   'https://api.deepseek.com',
+  'https://api.anthropic.com',
+  'https://token-plan-sgp.xiaomimimo.com',
   'https://api.tickflow.org',
   'https://api.tushare.pro',
 ])
