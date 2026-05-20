@@ -565,7 +565,7 @@ function trackingScoreKind(row: Recommendation): 'priority' | 'raw' | null {
   if (!isFiniteNumber(row.funnel_score)) return null
   const reason = row.recommend_reason ?? ''
   if (row.funnel_score >= 20) return 'priority'
-  if (row.funnel_score >= 10 && (reason.includes('点火破局') || reason.includes('吸筹通道'))) {
+  if (row.funnel_score >= 10 && (reason.includes('点火破局') || reason.includes('吸筹通道') || reason.includes('趋势延续'))) {
     return 'priority'
   }
   return 'raw'

@@ -387,8 +387,8 @@ def _l2_reason(spec: SymbolSpec, df: pd.DataFrame, cfg: FunnelConfig) -> str:
     if metrics["close"] and metrics["ma50"] and metrics["close"] < metrics["ma50"]:
         return f"收盘 {metrics['close']:.2f} 低于 MA50 {metrics['ma50']:.2f}，强弱通道不足"
     if spec.market == "cn" and cfg.enable_rps_filter:
-        return "未通过 Layer2 六通道，常见原因是 RPS/相对强弱或吸筹结构不足"
-    return "未通过 Layer2 主升/潜伏/吸筹/地量/护盘/点火通道"
+        return "未通过 Layer2 七通道，常见原因是 RPS/相对强弱或吸筹结构不足"
+    return "未通过 Layer2 七通道（主升/潜伏/吸筹/地量/护盘/趋势延续/点火）"
 
 
 def _l3_reason(spec: SymbolSpec, ctx: ReplayContext) -> str:

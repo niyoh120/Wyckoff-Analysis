@@ -86,7 +86,7 @@ class HoldingDiagnostic:
 
 # ── 通道 → 轨道映射 ──
 
-_TREND_CHANNELS = {"主升通道", "点火破局"}
+_TREND_CHANNELS = {"主升通道", "趋势延续", "点火破局"}
 _ACCUM_CHANNELS = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护盘"}
 
 

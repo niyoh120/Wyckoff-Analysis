@@ -2,7 +2,7 @@
 Wyckoff Funnel 5 层漏斗筛选引擎
 
 Layer 1: 剥离垃圾（ST / 北交所 / 科创板 / 市值 / 成交额）
-Layer 2: 六通道甄选（主升/潜伏/吸筹/地量/暗中护盘/点火破局）
+Layer 2: 七通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/点火破局）
 Layer 2.5: Markup 加速检测
 Layer 3: 板块共振（行业分布 Top-N + RPS 动量）
 Layer 4: 威科夫狙击（Spring / SOS / LPS / Effort vs Result）
@@ -1772,7 +1772,7 @@ def allocate_ai_candidates(
     max_trend_l3_fill = int(policy["max_trend_l3_fill"])
     max_accum_l3_fill = int(policy["max_accum_l3_fill"])
 
-    trend_channel_tags = {"主升通道", "点火破局"}
+    trend_channel_tags = {"主升通道", "趋势延续", "点火破局"}
     accum_channel_tags = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护盘"}
 
     def _channel_tags(code: str) -> set[str]:

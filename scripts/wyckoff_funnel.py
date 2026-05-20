@@ -2,7 +2,7 @@
 Wyckoff Funnel 定时任务：5 层漏斗筛选 → 多渠道推送
 
 Layer 1: 剥离垃圾（ST/北交所/科创板/市值/成交额）
-Layer 2: 六通道甄选（主升/潜伏/吸筹/地量/暗中护盘/点火破局）
+Layer 2: 七通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/点火破局）
 Layer 2.5: Markup 加速检测
 Layer 3: 板块共振（行业 Top-N）
 Layer 4: 威科夫狙击（Spring / SOS / LPS / Effort vs Result）
@@ -802,6 +802,7 @@ def run_funnel_job(
     l2_accum = sum(1 for v in l2_channel_map.values() if "吸筹通道" in v)
     l2_dry_vol = sum(1 for v in l2_channel_map.values() if "地量蓄势" in v)
     l2_rs_div = sum(1 for v in l2_channel_map.values() if "暗中护盘" in v)
+    l2_trend_cont = sum(1 for v in l2_channel_map.values() if "趋势延续" in v)
     l2_sos = sum(1 for v in l2_channel_map.values() if "点火破局" in v)
 
     # Layer 3 (Sector Resonance) — ETF L2 结果注入板块热度
@@ -893,6 +894,7 @@ def run_funnel_job(
         "layer2_accum": l2_accum,
         "layer2_dry_vol": l2_dry_vol,
         "layer2_rs_div": l2_rs_div,
+        "layer2_trend_cont": l2_trend_cont,
         "layer2_sos": l2_sos,
         "layer2_channel_map": l2_channel_map,
         "layer3": len(l3_passed),
@@ -936,7 +938,7 @@ def run_funnel_job(
         }
     print(
         f"[funnel] L1={metrics['layer1']}, L2={metrics['layer2']}, "
-        f"(主升={l2_momentum}, 潜伏={l2_ambush}, 吸筹={l2_accum}, 地量={l2_dry_vol}, 护盘={l2_rs_div}, 点火={l2_sos}), "
+        f"(主升={l2_momentum}, 潜伏={l2_ambush}, 吸筹={l2_accum}, 地量={l2_dry_vol}, 护盘={l2_rs_div}, 趋势={l2_trend_cont}, 点火={l2_sos}), "
         f"L3={metrics['layer3']}, 命中={total_hits}, "
         f"Top板块={top_sectors}, 主线={hot_concepts[:3] if hot_concepts else []}, 各触发={metrics['by_trigger']}"
     )
