@@ -263,28 +263,25 @@ def _fetch_daily_histories(
     return out, stats
 
 
-def _funnel_config(cfg: RuntimeConfig) -> FunnelConfig:
-    funnel_cfg = FunnelConfig(trading_days=cfg.kline_count)
+def funnel_config_for_market(market: str, *, trading_days: int = 320, min_avg_amount: float = 0.0) -> FunnelConfig:
+    funnel_cfg = FunnelConfig(trading_days=trading_days)
     funnel_cfg.require_cn_main_or_chinext = False
     funnel_cfg.min_market_cap_yi = 0.0
-    funnel_cfg.min_avg_amount_wan = cfg.min_avg_amount / 10000.0
+    funnel_cfg.min_avg_amount_wan = min_avg_amount / 10000.0
     funnel_cfg.enable_rs_filter = False
     funnel_cfg.enable_rs_divergence_channel = False
     funnel_cfg.require_bench_latest_alignment = False
 
-    if cfg.spec.key == "us":
-        # 美股波动率更高，SOS/Spring 门槛收紧避免 meme 股噪音
+    if market == "us":
         funnel_cfg.sos_pct_min = 7.0
         funnel_cfg.sos_vol_ratio = 3.0
         funnel_cfg.spring_vol_ratio = 1.3
         funnel_cfg.evr_max_rise = 3.0
-    elif cfg.spec.key == "hk":
-        # 港股仙股多，Spring 低价回收率天然放大，用 bias 保护 + 放宽吸筹
+    elif market == "hk":
         funnel_cfg.spring_tr_max_range_pct = 25.0
         funnel_cfg.sos_max_bias_200 = 25.0
         funnel_cfg.accum_price_from_low_max = 0.40
-    elif cfg.spec.key == "etf":
-        # ETF 波动率低于个股，放宽触发门槛
+    elif market == "etf":
         funnel_cfg.sos_pct_min = 3.5
         funnel_cfg.sos_vol_ratio = 2.0
         funnel_cfg.spring_vol_ratio = 1.0
@@ -292,6 +289,14 @@ def _funnel_config(cfg: RuntimeConfig) -> FunnelConfig:
         funnel_cfg.evr_max_rise = 2.0
 
     return funnel_cfg
+
+
+def _funnel_config(cfg: RuntimeConfig) -> FunnelConfig:
+    return funnel_config_for_market(
+        cfg.spec.key,
+        trading_days=cfg.kline_count,
+        min_avg_amount=cfg.min_avg_amount,
+    )
 
 
 def _run_layers(

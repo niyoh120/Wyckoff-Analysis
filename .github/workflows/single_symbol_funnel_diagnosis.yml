@@ -1,0 +1,77 @@
+name: Single Symbol Funnel Diagnosis
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "单只股票代码，如 603390、00700.HK、AAPL"
+        required: true
+        type: string
+      start_date:
+        description: "回看起始日期 YYYY-MM-DD"
+        required: true
+        type: string
+      end_date:
+        description: "回看结束日期 YYYY-MM-DD"
+        required: true
+        type: string
+      trading_days:
+        description: "起始日前置交易日数量"
+        required: false
+        default: "320"
+        type: string
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+      FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+      TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
+      TICKFLOW_KLINE_RATE_LIMIT_PER_MIN: "110"
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      TZ: Asia/Shanghai
+      GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run single symbol diagnosis
+        run: |
+          set -o pipefail
+          mkdir -p logs/single_symbol_funnel
+          python -u scripts/single_symbol_funnel_diagnosis.py \
+            --symbol "${{ inputs.symbol }}" \
+            --start-date "${{ inputs.start_date }}" \
+            --end-date "${{ inputs.end_date }}" \
+            --trading-days "${{ inputs.trading_days }}" \
+            --output-dir "${{ github.workspace }}/logs/single_symbol_funnel" \
+            2>&1 | tee "${{ github.workspace }}/logs/single_symbol_funnel/console.log"
+
+      - name: Append report summary
+        if: always()
+        run: |
+          if [ -f logs/single_symbol_funnel/report.md ]; then
+            cat logs/single_symbol_funnel/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: single-symbol-funnel-${{ inputs.symbol }}-${{ github.run_number }}
+          path: logs/single_symbol_funnel/*
+          retention-days: 14
+          if-no-files-found: warn
