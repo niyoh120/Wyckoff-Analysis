@@ -288,7 +288,7 @@ export function ChatPage() {
                     <button
                       key={`${m.provider}-${m.model}`}
                       onClick={() => {
-                        setLlmConfig({ api_key: m.api_key, model: m.model, base_url: m.base_url })
+                        setLlmConfig({ api_key: m.api_key, model: m.model, base_url: m.base_url, protocol: m.protocol })
                         setShowModelPicker(false)
                       }}
                       className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-muted/50 ${

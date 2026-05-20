@@ -65,6 +65,7 @@ export interface ModelOption {
   model: string
   api_key: string
   base_url: string
+  protocol?: 'openai' | 'anthropic'
 }
 
 const RETIRED_PROVIDERS = new Set(['zhipu', 'minimax', 'qwen', 'volcengine'])
@@ -162,6 +163,7 @@ export async function loadAllModels(userId: string): Promise<ModelOption[]> {
       models.push({
         provider: p, label: LABELS[p] || p, model: m,
         api_key: key, base_url: data[`${p}_base_url`] || BASE_URLS[p] || '',
+        protocol: p === 'anthropic' ? 'anthropic' : 'openai',
       })
     }
   }
