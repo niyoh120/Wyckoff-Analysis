@@ -138,6 +138,14 @@ class FunnelConfig:
     rs_div_bench_ref_window: int = 60  # 大盘新低对比的参考窗口（近 60 日）
     rs_div_price_from_low_max: float = 0.50  # 位阶保护：现价 <= 年内低点 +50%
 
+    # Layer 2 趋势延续通道（Trend Continuation Channel）
+    # 已确认多头且 RPS 极强的稳定趋势股，不受 bias_200 上限约束。
+    # 通过最大回撤排除暴涨暴跌的老妖股。
+    enable_trend_cont_channel: bool = True
+    trend_cont_rps_slow_min: float = 85.0  # RPS120 >= 此值
+    trend_cont_max_drawdown_pct: float = 20.0  # 近 N 日最大回撤 < 此值
+    trend_cont_drawdown_window: int = 60  # 回撤计算窗口（交易日）
+
     # Layer 3
     # 行业共振过滤：按"行业样本数分位阈值 + 最小样本数"动态过滤，避免固定 TopN 误杀。
     top_n_sectors: int = 5
@@ -723,6 +731,22 @@ def layer2_strength_detailed(
                                     if vol_confirm_ok:
                                         rs_div_ok = True
 
+        # 趋势延续通道（Trend Continuation Channel）
+        # 已确认多头 + RPS120 极强 + 近期回撤可控 → 不受 bias_200 限制
+        trend_cont_ok = False
+        if cfg.enable_trend_cont_channel and bullish_alignment and rps_filter_active:
+            _tc_rps_ok = rps_slow is not None and rps_slow >= cfg.trend_cont_rps_slow_min
+            _tc_dd_ok = False
+            if _tc_rps_ok:
+                dd_window = max(int(cfg.trend_cont_drawdown_window), 10)
+                recent_close = close.tail(dd_window)
+                if len(recent_close) >= 10:
+                    cum_max = recent_close.cummax()
+                    drawdown = (recent_close - cum_max) / cum_max * 100.0
+                    max_dd = float(drawdown.min())
+                    _tc_dd_ok = abs(max_dd) < cfg.trend_cont_max_drawdown_pct
+            trend_cont_ok = _tc_rps_ok and _tc_dd_ok
+
         # 点火破局通道（SOS Bypass）
         # 如果当天爆发了放量大阳线，哪怕它此前 RPS 很低或者量能没萎缩，也直接送入 L4 让扳机去二次确认
         sos_ok = False
@@ -731,7 +755,7 @@ def layer2_strength_detailed(
             if sos_score is not None:
                 sos_ok = True
 
-        if momentum_ok or ambush_ok or accum_ok or dry_vol_ok or rs_div_ok or sos_ok:
+        if momentum_ok or ambush_ok or accum_ok or dry_vol_ok or rs_div_ok or trend_cont_ok or sos_ok:
             passed.append(sym)
             labels: list[str] = []
             if momentum_ok:
@@ -744,6 +768,8 @@ def layer2_strength_detailed(
                 labels.append("地量蓄势")
             if rs_div_ok:
                 labels.append("暗中护盘")
+            if trend_cont_ok:
+                labels.append("趋势延续")
             if sos_ok:
                 labels.append("点火破局")
 
