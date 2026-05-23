@@ -38,7 +38,7 @@ from core.funnel_pipeline import (
     rank_l3_candidates,
 )
 from core.sector_rotation import analyze_sector_rotation
-from core.signal_confirmation import PendingPool
+from core.signal_confirmation import PendingPool, score_springboard_abc
 from core.wyckoff_engine import (
     FunnelConfig,
     FunnelResult,
@@ -579,6 +579,30 @@ def _calc_atr_from_ohlc(
     return sum(trs) / len(trs) if trs else None
 
 
+def _apply_abc_filter(
+    codes: list[str],
+    day_df_map: dict[str, pd.DataFrame],
+    triggers: dict[str, list],
+) -> list[str]:
+    """Keep only codes meeting >= 2 ABC springboard conditions."""
+    passed: list[str] = []
+    all_trigger_codes: dict[str, list[str]] = {}
+    for ttype, hits in triggers.items():
+        for code, _ in hits:
+            all_trigger_codes.setdefault(str(code).strip(), []).append(ttype)
+    for code in codes:
+        df = day_df_map.get(code)
+        if df is None or df.empty:
+            continue
+        best_count = 0
+        for sig_type in all_trigger_codes.get(code, ["unknown"]):
+            result = score_springboard_abc(df, sig_type)
+            best_count = max(best_count, result["met_count"])
+        if best_count >= 2:
+            passed.append(code)
+    return passed
+
+
 def run_backtest(
     start_dt: date,
     end_dt: date,
@@ -608,6 +632,7 @@ def run_backtest(
     metrics_engine: str = DEFAULT_METRICS_ENGINE,
     wbt_fee_rate: float = DEFAULT_WBT_FEE_RATE,
     wbt_n_jobs: int = DEFAULT_WBT_N_JOBS,
+    abc_filter: bool = False,
 ) -> tuple[pd.DataFrame, dict]:
     metrics_engine = str(metrics_engine or "legacy").strip().lower()
     if metrics_engine not in {"legacy", "auto", "both", "wbt"}:
@@ -850,6 +875,11 @@ def run_backtest(
             if ratio < 1.0:
                 keep_n = max(1, int(len(ranked_codes) * ratio + 0.5))
                 ranked_codes = ranked_codes[:keep_n]
+
+        if abc_filter and ranked_codes:
+            ranked_codes = _apply_abc_filter(ranked_codes, day_df_map, result.triggers)
+            if not ranked_codes:
+                continue
 
         # Only needed for string names
         name_score_map = _combine_trigger_scores(result.triggers)
@@ -1966,6 +1996,12 @@ def main() -> int:
         default=DEFAULT_WBT_N_JOBS,
         help="wbt Rust 后端并行线程数",
     )
+    parser.add_argument(
+        "--abc-filter",
+        action="store_true",
+        default=False,
+        help="启用 ABC 起跳板过滤：仅保留满足 >=2 条件的候选（更严格的信号质量门槛）",
+    )
     args = parser.parse_args()
 
     start_dt = _parse_date(args.start)
@@ -2011,6 +2047,7 @@ def main() -> int:
                 metrics_engine=args.metrics_engine,
                 wbt_fee_rate=args.wbt_fee_rate,
                 wbt_n_jobs=args.wbt_n_jobs,
+                abc_filter=args.abc_filter,
             )
         except Exception as exc:
             last_error = exc
