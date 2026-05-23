@@ -85,7 +85,7 @@ _WELCOME_TEXT = (
 )
 
 # 当系统提示词/工具策略有重要变更时，提升版本号以触发会话内 manager 重建
-CHAT_AGENT_VERSION = "2026-05-01-portfolio-tool-source-v1"
+CHAT_AGENT_VERSION = "2026-05-24-context-compaction-v1"
 
 
 def _get_chat_config() -> tuple[str, str, str, str]:
@@ -171,6 +171,7 @@ def _init_chat_manager():
             user_id=user_id or "anonymous",
             agent=agent,
             api_key=api_key,
+            model_name=model,
         )
         st.session_state["chat_manager"] = mgr
         st.session_state["_chat_manager_user_id"] = user_id
@@ -409,7 +410,19 @@ with content_col:
                     )
 
                     for event_type, data in manager.send_message_streaming(prompt, auth_state=_get_auth_state()):
-                        if event_type == "thinking":
+                        if event_type == "compaction":
+                            before = int(data.get("before_messages", 0) or 0)
+                            after = int(data.get("after_messages", 0) or 0)
+                            tail = int(data.get("tail_messages", 0) or 0)
+                            stream_status_placeholder.markdown(
+                                (
+                                    '<div class="chat-stream-status">📦 已压缩前序上下文：'
+                                    f"{before} → {after} 条，保留最近 {tail} 条继续读盘</div>"
+                                ),
+                                unsafe_allow_html=True,
+                            )
+
+                        elif event_type == "thinking":
                             # 首次出现 thinking 时创建可折叠区域
                             if thinking_expander is None:
                                 thinking_expander = status_container.expander("💭 推理过程", expanded=True)

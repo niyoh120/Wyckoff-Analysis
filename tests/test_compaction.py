@@ -7,10 +7,13 @@ from cli.compaction import (
     TAIL_KEEP,
     _expand_tail_for_tool_refs,
     _summarize_tool_result,
+    build_local_context_summary,
     compact_messages,
     estimate_tokens,
+    find_tail_start_by_token_budget,
     get_compact_threshold,
     get_context_window,
+    get_recent_keep_tokens,
     serialize_messages_for_compaction,
 )
 
@@ -30,6 +33,11 @@ class TestGetContextWindow:
 
     def test_threshold_ratio(self):
         assert get_compact_threshold("claude-sonnet-4") == int(200_000 * COMPACT_RATIO)
+
+    def test_recent_keep_budget_scales_with_model(self):
+        assert get_recent_keep_tokens("gpt-3.5-turbo") == 2_000
+        assert get_recent_keep_tokens("deepseek-chat") == 8_000
+        assert get_recent_keep_tokens("claude-sonnet-4") == 20_000
 
 
 class TestEstimateTokens:
@@ -116,6 +124,24 @@ class TestSerializeMessages:
         msgs = [{"role": "user", "content": "帮我看看600519"}]
         text = serialize_messages_for_compaction(msgs)
         assert "[user] 帮我看看600519" in text
+
+
+class TestTailBudget:
+    def test_keeps_more_than_fixed_tail_when_budget_needs_it(self):
+        msgs = [{"role": "user", "content": f"短消息 {i} " + "x" * 400} for i in range(12)]
+        tail_start = find_tail_start_by_token_budget(msgs, keep_recent_tokens=900)
+        assert tail_start < len(msgs) - TAIL_KEEP
+        assert msgs[tail_start]["role"] != "tool"
+
+    def test_local_summary_keeps_codes_and_recent_points(self):
+        msgs = [
+            {"role": "user", "content": "帮我看看 600519 和 000001"},
+            {"role": "assistant", "content": "600519 还在高位震荡，000001 需要等量能确认。"},
+        ]
+        summary = build_local_context_summary(msgs)
+        assert "600519" in summary
+        assert "000001" in summary
+        assert "高位震荡" in summary
 
 
 class TestCompactMessages:

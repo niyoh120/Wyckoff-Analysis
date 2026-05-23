@@ -35,6 +35,8 @@ _MODEL_CONTEXT_WINDOWS: list[tuple[str, int]] = [
 _DEFAULT_CONTEXT_WINDOW = 64_000
 COMPACT_RATIO = 0.25
 TAIL_KEEP = 4
+DEFAULT_RECENT_KEEP_TOKENS = 20_000
+MIN_RECENT_KEEP_TOKENS = 4_000
 
 _CODE_RE = re.compile(r"\d{6}")
 
@@ -49,6 +51,15 @@ def get_context_window(model_name: str) -> int:
 
 def get_compact_threshold(model_name: str) -> int:
     return int(get_context_window(model_name) * COMPACT_RATIO)
+
+
+def get_recent_keep_tokens(model_name: str) -> int:
+    """Return the recent-context budget to keep after compaction."""
+
+    threshold = get_compact_threshold(model_name) if model_name else 12_000
+    if threshold <= MIN_RECENT_KEEP_TOKENS * 2:
+        return max(1_000, threshold // 2)
+    return min(DEFAULT_RECENT_KEEP_TOKENS, max(MIN_RECENT_KEEP_TOKENS, threshold // 2))
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +77,10 @@ def estimate_tokens(messages: list[dict[str, Any]]) -> int:
             args_str = json.dumps(tc.get("args", {}), ensure_ascii=False)
             total += len(args_str) // 3
     return total
+
+
+def _estimate_message_tokens(message: dict[str, Any]) -> int:
+    return estimate_tokens([message])
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +326,94 @@ def _expand_tail_for_tool_refs(messages: list[dict[str, Any]], tail_start: int) 
     return tail_start
 
 
+def find_tail_start_by_token_budget(
+    messages: list[dict[str, Any]],
+    keep_recent_tokens: int,
+    *,
+    min_tail_messages: int = TAIL_KEEP,
+) -> int:
+    """Find a tail boundary that keeps recent context by token budget.
+
+    The boundary is message-based and never starts on a tool result. The caller
+    should still pass the result through `_expand_tail_for_tool_refs` so tool
+    result messages keep their matching assistant tool calls.
+    """
+
+    if not messages:
+        return 0
+
+    min_tail_start = max(0, len(messages) - max(1, min_tail_messages))
+    accumulated = 0
+    tail_start = min_tail_start
+
+    for i in range(len(messages) - 1, -1, -1):
+        accumulated += _estimate_message_tokens(messages[i])
+        if accumulated >= keep_recent_tokens:
+            tail_start = i
+            break
+    else:
+        tail_start = 0
+
+    tail_start = min(tail_start, min_tail_start)
+
+    while tail_start > 0 and messages[tail_start].get("role") == "tool":
+        tail_start -= 1
+
+    return _expand_tail_for_tool_refs(messages, tail_start)
+
+
+def build_local_context_summary(messages: list[dict[str, Any]], *, max_chars: int = 1200) -> str:
+    """Build a deterministic summary for surfaces that cannot run a summary LLM.
+
+    This is intentionally compact and factual. It is not a replacement for the
+    LLM compactor used by the CLI, but it gives UI-backed sessions a stable
+    checkpoint when their provider/session layer owns the model call.
+    """
+
+    if not messages:
+        return "无前序对话。"
+
+    user_goals: list[str] = []
+    assistant_notes: list[str] = []
+    tool_notes: list[str] = []
+    codes: list[str] = []
+
+    def _add_code_matches(text: str) -> None:
+        for code in _CODE_RE.findall(text or ""):
+            if code not in codes:
+                codes.append(code)
+
+    for msg in messages:
+        role = msg.get("role", "")
+        content = str(msg.get("content", "") or "").strip()
+        _add_code_matches(content)
+        if role == "user" and content:
+            user_goals.append(content[:180])
+        elif role == "assistant" and content:
+            assistant_notes.append(content[:220])
+        elif role == "tool" and content:
+            tool_notes.append(_summarize_tool_result(msg.get("name", ""), content, max_len=220))
+
+    lines = ["前序对话已压缩为摘要。"]
+    if codes:
+        lines.append(f"涉及标的：{', '.join(codes[:12])}")
+    if user_goals:
+        lines.append("用户关注：")
+        for item in user_goals[-6:]:
+            lines.append(f"- {item}")
+    if assistant_notes:
+        lines.append("已给出的主要结论：")
+        for item in assistant_notes[-6:]:
+            lines.append(f"- {item}")
+    if tool_notes:
+        lines.append("工具结果要点：")
+        for item in tool_notes[-4:]:
+            lines.append(f"- {item}")
+
+    summary = "\n".join(lines)
+    return summary if len(summary) <= max_chars else summary[: max_chars - 1].rstrip() + "…"
+
+
 def compact_messages(
     messages: list[dict[str, Any]],
     provider: Any,
@@ -324,7 +427,7 @@ def compact_messages(
     if len(messages) <= TAIL_KEEP + 2 or estimate_tokens(messages) <= threshold:
         return messages, False
 
-    tail_start = _expand_tail_for_tool_refs(messages, len(messages) - TAIL_KEEP)
+    tail_start = find_tail_start_by_token_budget(messages, get_recent_keep_tokens(model_name))
     if tail_start <= 2:
         return messages, False
 

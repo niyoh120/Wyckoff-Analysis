@@ -28,9 +28,19 @@ from uuid import uuid4
 
 from google.adk.agents import LlmAgent
 from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.events import Event
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+
+from cli.compaction import (
+    TAIL_KEEP,
+    build_local_context_summary,
+    estimate_tokens,
+    find_tail_start_by_token_budget,
+    get_compact_threshold,
+    get_recent_keep_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +53,8 @@ _ROUTE_HINT_MARKER = "\n\n[系统内部路由提示："
 _STOCK_CODE_RE = re.compile(r"(?<!\d)(?:[036]\d{5})(?!\d)")
 _DIAGNOSE_HINT_RE = re.compile(r"(帮我看看|看看|看下|分析一下|诊断一下|能不能买|值不值得买)")
 _PRICE_HINT_RE = re.compile(r"(最近走势|行情|价格|k线|K线|日线数据|OHLCV|收盘价|涨跌幅)")
+_READING_ROOM_SUMMARY_PREFIX = "[读盘室对话摘要]"
+_READING_ROOM_SUMMARY_ACK = "好的，我已接续前序读盘室上下文。"
 
 
 def _agent_input_text(text: str) -> str:
@@ -68,6 +80,59 @@ def _should_force_diagnose_route(text: str) -> bool:
     return bool(_STOCK_CODE_RE.search(normalized) and _DIAGNOSE_HINT_RE.search(normalized))
 
 
+def build_compacted_chat_history(
+    messages: list[dict[str, str]],
+    model_name: str = "",
+) -> tuple[list[dict[str, str]], dict[str, Any] | None]:
+    """Compact chat history for ADK-backed reading-room sessions.
+
+    ADK owns the actual provider call in this surface, so we use a deterministic
+    checkpoint summary and a token-budgeted recent tail instead of asking another
+    model to summarize.
+    """
+
+    if len(messages) <= TAIL_KEEP + 2:
+        return messages, None
+
+    normalized = [
+        {"role": "assistant" if m.get("role") == "assistant" else "user", "content": str(m.get("content", "") or "")}
+        for m in messages
+        if str(m.get("content", "") or "").strip()
+    ]
+    threshold = get_compact_threshold(model_name) if model_name else 12_000
+    before_tokens = estimate_tokens(normalized)
+    if before_tokens <= threshold:
+        return messages, None
+
+    tail_start = find_tail_start_by_token_budget(normalized, get_recent_keep_tokens(model_name))
+    if tail_start <= 2:
+        return messages, None
+
+    head = normalized[:tail_start]
+    tail = normalized[tail_start:]
+    summary = build_local_context_summary(head)
+    compacted = [
+        {
+            "role": "user",
+            "content": (
+                f"{_READING_ROOM_SUMMARY_PREFIX}\n{summary}\n\n"
+                "[系统说明] 以上是前序读盘室对话摘要。后续回答可以结合摘要和保留的最近对话，"
+                "但当前持仓、价格、行情和策略结果仍必须以工具实时返回为准。"
+            ),
+        },
+        {"role": "assistant", "content": _READING_ROOM_SUMMARY_ACK},
+        *tail,
+    ]
+    return compacted, {
+        "before_messages": len(normalized),
+        "after_messages": len(compacted),
+        "before_tokens": before_tokens,
+        "after_tokens": estimate_tokens(compacted),
+        "summary_chars": len(summary),
+        "tail_messages": len(tail),
+    }
+
+
 class ChatSessionManager:
     """
     封装 ADK Runner + SessionService，提供同步接口给 Streamlit。
@@ -81,10 +146,12 @@ class ChatSessionManager:
         user_id: str,
         agent: LlmAgent,
         api_key: str = "",
+        model_name: str = "",
     ):
         self.user_id = user_id
         self.agent = agent
         self._api_key = api_key
+        self.model_name = model_name
 
         # API Key 通过 agent 实例传递，避免使用进程级环境变量承载用户凭证。
 
@@ -157,6 +224,59 @@ class ChatSessionManager:
         """切换到指定会话。"""
         self._current_session_id = session_id
 
+    def compact_session_if_needed(self, *, auth_state: dict[str, str] | None = None) -> dict[str, Any] | None:
+        """Compact the active ADK session by rebuilding it from summary + recent tail."""
+
+        if not self._current_session_id:
+            return None
+
+        old_session_id = self._current_session_id
+        compacted, meta = build_compacted_chat_history(self.get_session_history(), self.model_name)
+        if not meta:
+            return None
+
+        new_session_id = self.new_session(auth_state=auth_state)
+        self._seed_session_history(new_session_id, compacted)
+        meta.update({"old_session_id": old_session_id, "new_session_id": new_session_id})
+        logger.info(
+            "Compacted reading-room session %s -> %s (%s -> %s messages, %s -> %s est tokens)",
+            old_session_id,
+            new_session_id,
+            meta["before_messages"],
+            meta["after_messages"],
+            meta["before_tokens"],
+            meta["after_tokens"],
+        )
+        return meta
+
+    def _seed_session_history(self, session_id: str, messages: list[dict[str, str]]) -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            session = loop.run_until_complete(
+                self._session_service.get_session(
+                    app_name=APP_NAME,
+                    user_id=self.user_id,
+                    session_id=session_id,
+                )
+            )
+            if not session:
+                return
+            for msg in messages:
+                content = str(msg.get("content", "") or "").strip()
+                if not content:
+                    continue
+                role = "user" if msg.get("role") == "user" else "model"
+                author = "user" if role == "user" else self.agent.name
+                event = Event(
+                    author=author,
+                    content=types.Content(role=role, parts=[types.Part.from_text(text=content)]),
+                )
+                loop.run_until_complete(self._session_service.append_event(session=session, event=event))
+        except Exception:
+            logger.warning("failed to seed compacted session history for %s", session_id, exc_info=True)
+        finally:
+            loop.close()
+
     def send_message(self, text: str) -> str:
         """
         发送消息并获取 Agent 回复（同步阻塞接口，兼容旧调用方）。
@@ -188,10 +308,15 @@ class ChatSessionManager:
             - ("tool_call", dict)   — 工具调用开始 {"name": ..., "args": ...}
             - ("tool_result", dict) — 工具调用结果 {"name": ..., "response": ...}
             - ("text_chunk", str)   — Agent 回复文本片段（逐 token）
+            - ("compaction", dict)  — 对话上下文已自动压缩
             - ("done", str)         — 最终完整回复
             - ("error", str)        — 错误信息
         """
         session_id = self.ensure_session(auth_state=auth_state)
+        compact_meta = self.compact_session_if_needed(auth_state=auth_state)
+        if compact_meta:
+            session_id = self.ensure_session(auth_state=auth_state)
+            yield ("compaction", compact_meta)
 
         user_content = types.Content(
             role="user",
