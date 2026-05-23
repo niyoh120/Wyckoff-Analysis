@@ -708,6 +708,9 @@ class WyckoffTUI(App):
                 )
             )
 
+    def action_show_prompt_templates(self) -> None:
+        self._show_prompt_templates()
+
     def action_switch_theme(self) -> None:
         """打开主题切换器并保存选择。"""
         self.action_change_theme()
@@ -811,9 +814,12 @@ class WyckoffTUI(App):
         elif cmd == "/new":
             self.action_new_chat()
         elif cmd == "/help":
+            from cli.prompt_templates import load_prompt_templates
             from cli.skills import load_skills
 
+            templates = load_prompt_templates()
             skills = load_skills()
+            template_lines = "".join(f"  /{t.name:<11s}— {t.description}\n" for t in templates.values())
             skill_lines = "".join(f"  /{s.name:<11s}— {s.description}\n" for s in skills.values())
             log.write(
                 Text.from_markup(
@@ -824,12 +830,15 @@ class WyckoffTUI(App):
                     "  /logout  — 退出登录\n"
                     "  /token   — Token 用量\n"
                     "  /changelog— 版本更新日志\n"
+                    "  /prompt  — Prompt 模板（list/show/<name>）\n"
                     "  /schedule— 定时任务（list/add/rm/on/off）\n"
                     "  /resume  — 恢复历史对话\n"
+                    "  /fork    — 分叉当前会话\n"
                     "  /new     — 新对话 (Ctrl+N)\n"
                     "  /clear   — 清屏 (Ctrl+L)\n"
                     "  /quit    — 退出 (Ctrl+Q)\n"
                     f"\n[bold]Skills[/bold]\n{skill_lines}"
+                    f"\n[bold]Prompt Templates[/bold]\n{template_lines}"
                     "\n[bold]快捷键[/bold]\n"
                     "  Ctrl+P   — 命令面板\n"
                     "  Ctrl+C   — 复制选中文本 / 退出\n"
@@ -886,12 +895,16 @@ class WyckoffTUI(App):
                 )
         elif cmd == "/changelog":
             self._show_changelog(log)
+        elif cmd == "/prompt":
+            self._handle_prompt_cmd(raw, log)
         elif cmd == "/resume":
             parts = raw.strip().split(maxsplit=1)
             if len(parts) > 1:
                 self._resume_session(parts[1].strip())
             else:
                 self._resume_session_selector()
+        elif cmd == "/fork":
+            self.action_fork_session()
         elif cmd == "/schedule":
             self._handle_schedule_cmd(raw, log)
         else:
@@ -915,14 +928,18 @@ class WyckoffTUI(App):
     # ----- Skills -----
 
     def _try_skill(self, raw: str, log) -> None:
+        from cli.prompt_templates import load_prompt_templates
         from cli.skills import load_skills
 
+        templates = load_prompt_templates()
         skills = load_skills()
         parts = raw.strip().split(maxsplit=1)
         cmd_name = parts[0].lstrip("/").lower()
         user_input = parts[1] if len(parts) > 1 else ""
         if cmd_name in skills:
             self._execute_skill(cmd_name, user_input)
+        elif cmd_name in templates:
+            self._execute_prompt_template(cmd_name, user_input)
         else:
             log.write(Text.from_markup(f"[red]未知命令: {raw}[/red]，/help 查看"))
 
@@ -944,6 +961,65 @@ class WyckoffTUI(App):
     def action_run_skill(self, name: str) -> None:
         """命令面板调用 skill 入口。"""
         self._execute_skill(name)
+
+    # ----- Prompt Templates -----
+
+    def _show_prompt_templates(self) -> None:
+        from cli.prompt_templates import load_prompt_templates
+
+        log = self.query_one("#chat-log", ChatLog)
+        templates = load_prompt_templates()
+        if not templates:
+            log.write(Text.from_markup("[dim]暂无 Prompt 模板[/dim]"))
+            return
+        lines = ["\n[bold]Prompt 模板[/bold]"]
+        for tpl in templates.values():
+            hint = f" [dim]{tpl.argument_hint}[/dim]" if tpl.argument_hint else ""
+            lines.append(f"  [cyan]/{tpl.name:<13}[/cyan] {tpl.description}{hint}")
+        lines.append("\n[dim]用法: /prompt <name> [补充说明]，也可以直接输入 /daily 这类模板名[/dim]")
+        log.write(Text.from_markup("\n".join(lines)))
+
+    def _handle_prompt_cmd(self, raw: str, log) -> None:
+        from cli.prompt_templates import load_prompt_templates
+
+        templates = load_prompt_templates()
+        parts = raw.strip().split(maxsplit=2)
+        if len(parts) == 1 or parts[1] == "list":
+            self._show_prompt_templates()
+            return
+        if parts[1] == "show":
+            if len(parts) < 3:
+                log.write(Text.from_markup("[dim]用法: /prompt show <name>[/dim]"))
+                return
+            tpl = templates.get(parts[2].strip().lower())
+            if not tpl:
+                log.write(Text.from_markup(f"[red]未知 Prompt 模板: {parts[2]}[/red]"))
+                return
+            body = tpl.prompt.replace("[", "\\[").replace("]", "\\]")
+            log.write(Text.from_markup(f"\n[bold]{tpl.name}[/bold] — {tpl.description}\n\n[dim]{body}[/dim]"))
+            return
+        name = parts[1].strip().lower()
+        user_input = parts[2] if len(parts) > 2 else ""
+        self._execute_prompt_template(name, user_input)
+
+    def _execute_prompt_template(self, name: str, user_input: str = "") -> None:
+        from cli.prompt_templates import load_prompt_templates, render_prompt_template
+
+        log = self.query_one("#chat-log", ChatLog)
+        templates = load_prompt_templates()
+        template = templates.get(name)
+        if not template:
+            log.write(Text.from_markup(f"[red]未知 Prompt 模板: {name}[/red]"))
+            return
+        if not self._provider:
+            log.write(Text.from_markup("[yellow]⚠ 未配置模型，请先输入 /model add[/yellow]"))
+            return
+        prompt = render_prompt_template(template, user_input)
+        self._send_message(prompt)
+
+    def action_run_template(self, name: str) -> None:
+        """命令面板调用 Prompt 模板入口。"""
+        self._execute_prompt_template(name)
 
     # ----- /config 交互 -----
 
@@ -1016,6 +1092,7 @@ class WyckoffTUI(App):
     def _list_models(self) -> None:
         log = self.query_one("#chat-log", ChatLog)
         from cli.auth import load_default_model_id, load_model_configs
+        from cli.model_registry import format_model_metadata, infer_model_info
 
         configs = load_model_configs()
         default_id = load_default_model_id()
@@ -1025,7 +1102,12 @@ class WyckoffTUI(App):
         log.write(Text.from_markup("\n[bold]已配置模型[/bold] [dim](↑↓选择 Enter确认 Esc取消)[/dim]"))
         for c in configs:
             mark = " [green]⭐ 默认[/green]" if c["id"] == default_id else ""
-            log.write(Text.from_markup(f"  [bold]{c['id']}[/bold] — {c['provider_name']}/{c.get('model', '?')}{mark}"))
+            metadata = format_model_metadata(infer_model_info(c))
+            log.write(
+                Text.from_markup(
+                    f"  [bold]{c['id']}[/bold] — {c['provider_name']}/{c.get('model', '?')} [dim]{metadata}[/dim]{mark}"
+                )
+            )
         self._switch_model_selector()
 
     def _remove_model(self, model_id: str) -> None:
@@ -1119,6 +1201,7 @@ class WyckoffTUI(App):
     def _switch_model_selector(self) -> None:
         """弹出浮层选择器切换当前模型。"""
         from cli.auth import load_default_model_id, load_model_configs
+        from cli.model_registry import format_token_window, infer_model_info
 
         configs = load_model_configs()
         if not configs:
@@ -1129,7 +1212,8 @@ class WyckoffTUI(App):
         options = []
         for c in configs:
             mark = " ⭐" if c["id"] == default_id else ""
-            label = f"{c['id']} ({c.get('model', '?')}){mark}"
+            info = infer_model_info(c)
+            label = f"{c['id']} ({c.get('model', '?')} · ctx {format_token_window(info.context_window)}){mark}"
             options.append((c["id"], label))
         self._show_selector(options, "model_switch")
 
@@ -1902,6 +1986,34 @@ class WyckoffTUI(App):
 
     def action_resume_session(self) -> None:
         self._resume_session_selector()
+
+    def action_export_session(self) -> None:
+        from cli.session_tools import SessionToolError, export_session_transcript
+
+        log = self.query_one("#chat-log", ChatLog)
+        try:
+            result = export_session_transcript(session_id=self._session_id)
+        except SessionToolError as exc:
+            log.write(Text.from_markup(f"[red]导出失败: {exc}[/red]"))
+            return
+        log.write(Text.from_markup(f"[green]✓ 会话已导出[/green] [dim]{result.path}[/dim]"))
+
+    def action_fork_session(self) -> None:
+        from cli.session_tools import SessionToolError, fork_session
+
+        log = self.query_one("#chat-log", ChatLog)
+        self._save_memory_async()
+        try:
+            result = fork_session(session_id=self._session_id)
+        except SessionToolError as exc:
+            log.write(Text.from_markup(f"[red]分叉失败: {exc}[/red]"))
+            return
+        log.write(
+            Text.from_markup(
+                f"[green]✓ 会话已分叉[/green] [dim]{result.source_session_id} → {result.new_session_id}[/dim]"
+            )
+        )
+        self._resume_session(result.new_session_id)
 
     def _resume_session_selector(self) -> None:
         """弹出选择器，选择要恢复的历史会话。"""
