@@ -72,7 +72,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: single-symbol-funnel-${{ inputs.symbol }}-${{ github.run_number }}
+          name: single-symbol-funnel-run${{ github.run_number }}
           path: logs/single_symbol_funnel/*
           retention-days: 14
           if-no-files-found: warn
