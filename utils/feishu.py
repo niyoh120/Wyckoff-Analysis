@@ -2,8 +2,8 @@
 飞书 Webhook 通知，纯工具函数。
 
 配置来源由调用方决定，互不耦合：
-- Streamlit：使用用户登录后 Supabase 中的 feishu_webhook
 - 定时任务：使用 GitHub Actions 的 FEISHU_WEBHOOK_URL secret
+- CLI / 本地任务：使用环境变量或调用方传入的 webhook
 """
 
 from __future__ import annotations

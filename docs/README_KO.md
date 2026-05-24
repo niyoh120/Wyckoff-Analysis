@@ -66,13 +66,7 @@ AI Agent 대화, 포트폴리오 관리, 퍼널 스크리닝, 추천 추적, 데
 |:---:|:---:|
 | <img src="screenshots/web-track.png" width="450" /> | <img src="screenshots/web-portfolio.png" width="450" /> |
 
-**Streamlit 유지보수 포털**: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
-
-Streamlit은 초기 MVP를 지탱한 유지보수 포털이며, 현재도 데이터 내보내기, 단일 종목 분석, 설정 등에 사용할 수 있습니다.
-
-| 대화실 | 데이터 내보내기 |
-|:---:|:---:|
-| <img src="../attach/web-chat.png" width="450" /> | <img src="../attach/web-export.png" width="450" /> |
+**Streamlit MVP 종료**: `main`에서는 Streamlit을 더 이상 유지보수하지 않습니다. 과거 런타임 코드는 `release/streamlit` 브랜치에 보존되어 있으며, MVP 제품 구조와 스크린샷은 [STREAMLIT_MVP_ARCHITECTURE.md](STREAMLIT_MVP_ARCHITECTURE.md)에 보관되어 있습니다.
 
 ## 기능 개요
 
@@ -195,19 +189,7 @@ pnpm install
 pnpm dev
 ```
 
-Legacy Streamlit 로컬 실행:
-
-```bash
-git clone https://github.com/YoungCan-Wang/WyckoffTradingAgent.git
-cd WyckoffTradingAgent
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run streamlit_app.py
-```
-
 Web App: **[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
-
-Streamlit: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
 
 ## 도구
 

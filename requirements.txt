@@ -3,8 +3,6 @@ baostock
 efinance>=0.2.0
 tushare>=1.2.89
 pandas>=2.2.0,<3.0
-streamlit>=1.52.2
-streamlit-javascript>=0.1.5
 google-genai>=0.6.0
 requests>=2.31.0
 certifi
@@ -17,9 +15,6 @@ py-mini-racer>=0.6.0
 matplotlib>=3.8.0
 pillow>=10.0.0
 
-# ── agent framework ──
-google-adk>=1.0.0
-deprecated>=1.2.0
 litellm>=1.40.0
 
 # ── dev / test ──

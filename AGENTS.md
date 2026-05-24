@@ -5,7 +5,9 @@
 
 ## Project Overview
 
-Multi-market quantitative analysis system based on Wyckoff method, covering A-shares, Hong Kong stocks, US stocks, and ETFs. Python backend (CLI + MCP + maintenance Streamlit) + React/TypeScript web frontend.
+Multi-market quantitative analysis system based on Wyckoff method, covering A-shares, Hong Kong stocks, US stocks, and ETFs. Python backend (CLI + MCP) + React/TypeScript web frontend.
+
+Streamlit is fully retired from `main`: do not add, restore, or maintain Streamlit runtime code here. The historical Streamlit MVP code is preserved on the `release/streamlit` branch, and its product architecture/screenshots are archived in [docs/STREAMLIT_MVP_ARCHITECTURE.md](docs/STREAMLIT_MVP_ARCHITECTURE.md).
 
 ## Quick Commands
 
@@ -53,6 +55,7 @@ pnpm -r exec tsc --noEmit                # typecheck
 ## Architecture Constraints
 
 - **Web: no new pages** — New features go into the Agent (chat) interface, not as separate routes.
+- **No Streamlit in main** — Streamlit is no longer maintained on `main`; route product work through CF Pages, CLI, MCP, or GitHub Actions.
 - **Data isolation: Route A** — Signals are shared; portfolio and settings are per-user.
 - **Python ≥ 3.11**, **Node ≥ 20**, **pnpm** for web workspace.
 

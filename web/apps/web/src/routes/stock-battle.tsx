@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { CheckSquare, Loader2, Swords, XSquare } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferences } from '@/lib/preferences'
@@ -11,6 +11,7 @@ import { UpgradeNotice } from '@/components/upgrade-notice'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
 import { TICKFLOW_PURCHASE, fetchKlineViaTickFlow, fetchValueSnapshot, getUserDataKeys, isSupportedKlineCode, type KlineData, type ValueSnapshot } from '@/lib/kline'
 import { avg } from '@/lib/math'
+import { saveAnalysisHistory } from '@/lib/local-history'
 import { resolveStockQuery } from '@/lib/market-search'
 import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueScore, type ValueTone, type ValueView } from '@/lib/value-analysis'
 
@@ -37,12 +38,24 @@ interface StrengthStats {
 
 type ChartMode = 'overlay' | 'separate'
 
+interface BattleHistoryPayload {
+  input: string
+  stocks: BattleStock[]
+  selectedCodes: string[]
+  mode: ChartMode
+  overlayLimit: number
+  report: string
+  benchmark: KlineData[]
+}
+
 const DEFAULT_INPUT = '中国平安\n贵州茅台\nAAPL\nNVDA\n腾讯'
 
 export function StockBattlePage() {
+  const user = useAuthStore((s) => s.user)
   const [input, setInput] = useState(DEFAULT_INPUT)
   const battle = useBattleRunner()
   const selectedSeries = useSelectedSeries(battle.stocks, battle.selectedCodes)
+  useBattleHistory(user?.id, input, battle.stocks, battle.selectedCodes, battle.mode, battle.overlayLimit, battle.report, battle.benchmark)
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5 p-6">
@@ -74,12 +87,13 @@ function useBattleRunner() {
   const [report, setReport] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const [benchmark, setBenchmark] = useState<KlineData[]>([])
+
   async function run(input: string) {
     if (!user) return
     abortRef.current?.abort()
     const abort = new AbortController()
     abortRef.current = abort
-    setLoading(true); setError(''); setStocks([]); setBenchmark([])
+    setLoading(true); setError(''); setStocks([]); setBenchmark([]); setSelectedCodes([]); setReport('')
     try {
       const [config, keys, targets] = await Promise.all([loadLLMConfig(user.id), getUserDataKeys(user.id), resolveTargets(input)])
       if (!config) throw new Error(t('battle.missingModel'))
@@ -100,7 +114,61 @@ function useBattleRunner() {
       setLoading(false)
     }
   }
+
   return { loading, error, stocks, selectedCodes, mode, overlayLimit, report, benchmark, run, setSelectedCodes, setMode, setOverlayLimit }
+}
+
+function useBattleHistory(
+  userId: string | undefined,
+  input: string,
+  stocks: BattleStock[],
+  selectedCodes: string[],
+  mode: ChartMode,
+  overlayLimit: number,
+  report: string,
+  benchmark: KlineData[],
+) {
+  const savedKey = useRef('')
+
+  useEffect(() => {
+    if (!userId || !report || stocks.length === 0) return
+    const payload = buildBattleHistoryPayload(input, stocks, selectedCodes, mode, overlayLimit, report, benchmark)
+    const key = battleHistoryKey(payload)
+    if (savedKey.current === key) return
+    savedKey.current = key
+    void saveAnalysisHistory({
+      kind: 'stock-battle',
+      userId,
+      title: payload.stocks.map((stock) => stock.name || stock.code).slice(0, 3).join(' / '),
+      subtitle: `${payload.stocks.length} stocks`,
+      symbols: payload.stocks.map((stock) => stock.code),
+      payload,
+    }).catch(() => undefined)
+  }, [benchmark, input, mode, overlayLimit, report, selectedCodes, stocks, userId])
+}
+
+function buildBattleHistoryPayload(
+  input: string,
+  stocks: BattleStock[],
+  selectedCodes: string[],
+  mode: ChartMode,
+  overlayLimit: number,
+  report: string,
+  benchmark: KlineData[],
+): BattleHistoryPayload {
+  return {
+    input,
+    stocks,
+    selectedCodes,
+    mode,
+    overlayLimit,
+    report,
+    benchmark,
+  }
+}
+
+function battleHistoryKey(payload: BattleHistoryPayload): string {
+  return `${payload.stocks.map((stock) => stock.code).join(',')}:${payload.report.length}`
 }
 
 function BattleHeader() {

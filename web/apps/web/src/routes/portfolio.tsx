@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, LayoutDashboard, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -13,12 +13,16 @@ import { AIDisclaimer } from '@/components/ai-disclaimer'
 import {
   checkWhitelist,
   fetchKlineViaTickFlow,
+  fetchValueSnapshot,
   getUserDataKeys,
   normalizeCode,
   TICKFLOW_PURCHASE,
   type KlineData,
+  type ValueSnapshot,
 } from '@/lib/kline'
 import { avg } from '@/lib/math'
+import { saveAnalysisHistory } from '@/lib/local-history'
+import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueScore, type ValueTone, type ValueView } from '@/lib/value-analysis'
 
 interface Position {
   code: string | number
@@ -48,7 +52,20 @@ interface PositionPnL {
 interface FullDiagnosisResult {
   report: string
   positions: PositionPnL[]
+  values: PortfolioValueRow[]
   summaryStats: { totalCost: number; totalMarket: number; pnlPct: number; freeCash: number; count: number }
+}
+
+interface PortfolioValueRow {
+  code: string
+  name: string
+  snapshot: ValueSnapshot
+}
+
+interface PortfolioHistoryPayload {
+  source: 'database' | 'manual'
+  result: FullDiagnosisResult
+  report: string
 }
 
 async function fetchPortfolio(userId: string): Promise<Portfolio> {
@@ -69,6 +86,8 @@ export function PortfolioPage() {
   const portfolioData = usePortfolioData(user?.id)
   const fullDiag = useFullDiagnosisRunner()
   const [manualPortfolio, setManualPortfolio] = useState<Portfolio>({ free_cash: 0, positions: [] })
+  const source = portfolioData.isWhitelisted ? 'database' : 'manual'
+  usePortfolioHistory(user?.id, fullDiag.result, source)
 
   if (portfolioData.isLoading) return <WyckoffLoading />
 
@@ -83,7 +102,7 @@ export function PortfolioPage() {
       ) : (
         <ManualInput portfolio={manualPortfolio} fullLoading={fullDiag.loading} progress={fullDiag.progress} onChange={setManualPortfolio} onDiagnosis={() => fullDiag.run(manualPortfolio)} />
       )}
-      {fullDiag.result && <FullDiagnosisPanel result={fullDiag.result} />}
+      {fullDiag.result && <FullDiagnosisPanel result={fullDiag.result} report={fullDiag.streamingReport || fullDiag.result.report} streaming={fullDiag.loading && fullDiag.progress?.step === 'llm'} />}
     </div>
   )
 }
@@ -119,45 +138,123 @@ function useFullDiagnosisRunner() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<FullDiagnosisResult | null>(null)
+  const [streamingReport, setStreamingReport] = useState('')
   const [progress, setProgress] = useState<DiagProgress | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const streamBuf = useRef('')
+  const rafRef = useRef(0)
 
   async function run(portfolio: Portfolio) {
     if (!user || loading || portfolio.positions.length === 0) return
-    abortRef.current?.abort()
-    const abort = new AbortController()
-    abortRef.current = abort
-
-    setError('')
-    setResult(null)
-    setLoading(true)
     const total = portfolio.positions.length
-    setProgress({ step: 'config', fetched: 0, total })
+    const abort = startDiagnosisRun(abortRef, streamBuf, rafRef)
+    resetDiagnosisState(setError, setResult, setStreamingReport, setLoading, setProgress, total)
     try {
       const [config, keys] = await Promise.all([loadLLMConfig(user.id), getUserDataKeys(user.id)])
       if (!config) throw new Error(t('portfolio.missingModel'))
 
       setProgress({ step: 'kline', fetched: 0, total })
       const entries = await fetchAllPositionKlines(portfolio.positions, keys, (n) => setProgress({ step: 'kline', fetched: n, total }))
+      if (abort.signal.aborted) return
 
+      setResult(buildDiagnosisResult(entries, '', portfolio.free_cash))
       setProgress({ step: 'llm', fetched: total, total })
       const prompt = buildFullPortfolioPrompt(entries, portfolio.free_cash)
-      const report = await callFullPortfolioLLM(config, prompt, abort.signal)
+      const onDelta = (chunk: string) => {
+        streamBuf.current += chunk
+        scheduleStreamingReportFlush(streamBuf, rafRef, setStreamingReport)
+      }
+      const report = await callFullPortfolioLLM(config, prompt, abort.signal, onDelta)
+      cancelAnimationFrame(rafRef.current)
       if (abort.signal.aborted) return
+      setStreamingReport(report)
       setResult(buildDiagnosisResult(entries, report, portfolio.free_cash))
     } catch (err) {
       if (abort.signal.aborted) return
       setError(err instanceof Error ? err.message : t('portfolio.failed'))
     } finally {
-      setLoading(false)
-      setProgress(null)
+      finishDiagnosisRun(rafRef, setLoading, setProgress)
     }
   }
 
-  return { loading, error, result, progress, run }
+  return { loading, error, result, streamingReport, progress, run }
 }
 
-type PositionEntry = { position: Position; kline: KlineData[] }
+function usePortfolioHistory(userId: string | undefined, result: FullDiagnosisResult | null, source: PortfolioHistoryPayload['source']) {
+  const savedKey = useRef('')
+
+  useEffect(() => {
+    if (!userId || !result?.report) return
+    const payload: PortfolioHistoryPayload = { source, result, report: result.report }
+    const key = portfolioHistoryKey(payload)
+    if (savedKey.current === key) return
+    savedKey.current = key
+    void saveAnalysisHistory({
+      kind: 'portfolio-diagnosis',
+      userId,
+      title: `${result.summaryStats.count}只持仓诊断`,
+      subtitle: `${source === 'database' ? '数据库持仓' : '手动持仓'} · ${formatSignedPct(result.summaryStats.pnlPct)}`,
+      symbols: result.positions.map((position) => position.code),
+      payload,
+    }).catch(() => undefined)
+  }, [result, source, userId])
+}
+
+function portfolioHistoryKey(payload: PortfolioHistoryPayload): string {
+  return `${payload.source}:${payload.result.positions.map((position) => position.code).join(',')}:${payload.report.length}`
+}
+
+function formatSignedPct(value: number): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
+}
+
+function startDiagnosisRun(
+  abortRef: MutableRefObject<AbortController | null>,
+  streamBuf: MutableRefObject<string>,
+  rafRef: MutableRefObject<number>,
+) {
+  abortRef.current?.abort()
+  cancelAnimationFrame(rafRef.current)
+  const abort = new AbortController()
+  abortRef.current = abort
+  streamBuf.current = ''
+  return abort
+}
+
+function resetDiagnosisState(
+  setError: Dispatch<SetStateAction<string>>,
+  setResult: Dispatch<SetStateAction<FullDiagnosisResult | null>>,
+  setStreamingReport: Dispatch<SetStateAction<string>>,
+  setLoading: Dispatch<SetStateAction<boolean>>,
+  setProgress: Dispatch<SetStateAction<DiagProgress | null>>,
+  total: number,
+) {
+  setError('')
+  setResult(null)
+  setStreamingReport('')
+  setLoading(true)
+  setProgress({ step: 'config', fetched: 0, total })
+}
+
+function finishDiagnosisRun(
+  rafRef: MutableRefObject<number>,
+  setLoading: Dispatch<SetStateAction<boolean>>,
+  setProgress: Dispatch<SetStateAction<DiagProgress | null>>,
+) {
+  cancelAnimationFrame(rafRef.current)
+  setLoading(false)
+  setProgress(null)
+}
+
+function scheduleStreamingReportFlush(buf: MutableRefObject<string>, raf: MutableRefObject<number>, set: Dispatch<SetStateAction<string>>) {
+  if (raf.current) return
+  raf.current = requestAnimationFrame(() => {
+    raf.current = 0
+    set(buf.current)
+  })
+}
+
+type PositionEntry = { position: Position; kline: KlineData[]; valueSnapshot: ValueSnapshot }
 
 async function fetchAllPositionKlines(positions: Position[], keys: Awaited<ReturnType<typeof getUserDataKeys>>, onProgress: (n: number) => void): Promise<PositionEntry[]> {
   if (!keys.tickflow) throw new Error(`触发数据源并发请求限制，请升级数据源：${TICKFLOW_PURCHASE}`)
@@ -167,8 +264,12 @@ async function fetchAllPositionKlines(positions: Position[], keys: Awaited<Retur
   await Promise.all(
     positions.map(async (p, i) => {
       try {
-        const kline = await fetchKlineViaTickFlow(normalizeCode(p.code), keys.tickflow!)
-        if (kline.length > 0) entries.push({ position: positions[i]!, kline })
+        const code = normalizeCode(p.code)
+        const [kline, valueSnapshot] = await Promise.all([
+          fetchKlineViaTickFlow(code, keys.tickflow!),
+          fetchValueSnapshot(code, keys).catch((): ValueSnapshot => ({ symbol: code, source: 'none', metrics: null, reason: 'not-found' })),
+        ])
+        if (kline.length > 0) entries.push({ position: positions[i]!, kline, valueSnapshot })
         else errors.push(normalizeCode(p.code))
       } catch (err) {
         errors.push(`${normalizeCode(p.code)}: ${err instanceof Error ? err.message : '失败'}`)
@@ -178,6 +279,7 @@ async function fetchAllPositionKlines(positions: Position[], keys: Awaited<Retur
   )
   if (errors.length > 0) throw new Error(`K 线获取失败: ${errors.join(', ')}`)
   if (entries.length === 0) throw new Error('无法获取任何持仓的 K 线数据')
+  entries.sort((a, b) => positions.indexOf(a.position) - positions.indexOf(b.position))
   return entries
 }
 
@@ -197,8 +299,12 @@ function buildDiagnosisResult(entries: PositionEntry[], report: string, freeCash
       weight: totalMarket > 0 ? (mktVal / totalMarket) * 100 : 0,
     }
   })
+  const values: PortfolioValueRow[] = entries.map((e) => {
+    const code = normalizeCode(e.position.code)
+    return { code, name: e.position.name || code, snapshot: e.valueSnapshot }
+  })
   return {
-    report, positions,
+    report, positions, values,
     summaryStats: { totalCost, totalMarket, pnlPct: totalCost > 0 ? ((totalMarket - totalCost) / totalCost) * 100 : 0, freeCash, count: entries.length },
   }
 }
@@ -363,24 +469,118 @@ function HoldingRow({ position }: { position: Position }) {
   )
 }
 
-function FullDiagnosisPanel({ result }: { result: FullDiagnosisResult }) {
+function FullDiagnosisPanel({ result, report, streaming }: { result: FullDiagnosisResult; report: string; streaming: boolean }) {
   const { t } = usePreferences()
   const { summaryStats: s } = result
   return (
     <section className="space-y-4">
       <PnLTable positions={result.positions} stats={s} />
+      <PortfolioValuePanel values={result.values} />
       <div className="rounded-lg border border-indigo-200 bg-indigo-50/30 p-5 dark:border-indigo-500/30 dark:bg-indigo-500/5">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <LayoutDashboard size={18} className="text-indigo-600 dark:text-indigo-400" />
+          {streaming ? <Loader2 size={18} className="animate-spin text-indigo-600 dark:text-indigo-400" /> : <LayoutDashboard size={18} className="text-indigo-600 dark:text-indigo-400" />}
           <h2 className="text-base font-semibold">{t('portfolio.fullDiagnosis')}</h2>
         </div>
         <AIDisclaimer />
         <article className="mt-4 prose prose-sm max-w-none text-foreground">
-          <MarkdownContent content={result.report} />
+          {report ? <MarkdownContent content={report} /> : <p className="text-sm text-muted-foreground">模型分析中...</p>}
         </article>
       </div>
     </section>
   )
+}
+
+function PortfolioValuePanel({ values }: { values: PortfolioValueRow[] }) {
+  const { t } = usePreferences()
+  const [view, setView] = useState<ValueView>('quality')
+  if (values.length === 0) return null
+  const rows = [...values].sort((a, b) => buildValueScore(b.snapshot.metrics).score - buildValueScore(a.snapshot.metrics).score)
+  return (
+    <section className="rounded-lg border border-border p-4">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">{t('analysis.valueTitle')}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{t('analysis.valueSubtitle')}</p>
+        </div>
+        <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1" role="tablist" aria-label={t('analysis.valueTitle')}>
+          {(['quality', 'risk'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setView(mode)}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${view === mode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              role="tab"
+              aria-selected={view === mode}
+            >
+              {mode === 'quality' ? t('analysis.valueQuality') : t('analysis.valueRisk')}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {rows.map((row) => <PortfolioValueCard key={row.code} row={row} view={view} />)}
+      </div>
+    </section>
+  )
+}
+
+function PortfolioValueCard({ row, view }: { row: PortfolioValueRow; view: ValueView }) {
+  const { t } = usePreferences()
+  const metrics = row.snapshot.metrics
+  const value = buildValueScore(metrics, t)
+  if (!metrics) {
+    return (
+      <div className="rounded-lg border border-border p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold">{row.code} {row.name}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">{valueUnavailableText(row.snapshot.reason, t)}</p>
+          </div>
+          <ValueBadge value={value} />
+        </div>
+      </div>
+    )
+  }
+  const signals = view === 'quality' ? value.strengths : value.risks
+  return (
+    <div className="rounded-lg border border-border p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold">{row.code} {row.name}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{sourceLabel(row.snapshot)}{metrics.period_end ? ` · ${metrics.period_end}` : ''}</p>
+        </div>
+        <ValueBadge value={value} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm md:grid-cols-3">
+        <ValueMetricCell label={t('analysis.valueRoe')} value={formatValuePercent(metrics.roe)} tone={numberTone(metrics.roe, 10, 0)} />
+        <ValueMetricCell label={t('analysis.valueProfitYoy')} value={formatValuePercent(metrics.net_income_yoy)} tone={numberTone(metrics.net_income_yoy, 0, -10)} />
+        <ValueMetricCell label={t('analysis.valueRevenueYoy')} value={formatValuePercent(metrics.revenue_yoy)} tone={numberTone(metrics.revenue_yoy, 0, -10)} />
+        <ValueMetricCell label={t('analysis.valueGrossMargin')} value={formatValuePercent(metrics.gross_margin)} tone={numberTone(metrics.gross_margin, 30, 15)} />
+        <ValueMetricCell label={t('analysis.valueDebtRatio')} value={formatValuePercent(metrics.debt_to_asset_ratio)} tone={reverseNumberTone(metrics.debt_to_asset_ratio, 55, 70)} />
+        <ValueMetricCell label={t('analysis.valueCashRevenue')} value={formatValuePercent(metrics.operating_cash_to_revenue)} tone={numberTone(metrics.operating_cash_to_revenue, 5, 0)} />
+      </div>
+      <div className="mt-3 space-y-2">
+        {signals.length > 0 ? signals.slice(0, 3).map((signal) => (
+          <div key={signal.label} className={`rounded-md border px-3 py-2 text-xs ${signalClass(signal.tone)}`}>{signal.label}</div>
+        )) : (
+          <div className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">{t('analysis.valueNoSignals')}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ValueMetricCell({ label, value, tone }: { label: string; value: string; tone: ValueTone }) {
+  return (
+    <div className="min-w-0">
+      <div className="truncate text-xs text-muted-foreground">{label}</div>
+      <div className={`mt-0.5 font-semibold ${metricToneClass(tone)}`}>{value}</div>
+    </div>
+  )
+}
+
+function ValueBadge({ value }: { value: ValueScore }) {
+  return <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(value.tone)}`}>{value.label}</span>
 }
 
 function PnLTable({ positions, stats }: { positions: PositionPnL[]; stats: FullDiagnosisResult['summaryStats'] }) {
@@ -440,11 +640,11 @@ function EmptyBox({ text }: { text: string }) {
   return <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">{text}</div>
 }
 
-function buildFullPortfolioPrompt(entries: { position: Position; kline: KlineData[] }[], freeCash: number): string {
+function buildFullPortfolioPrompt(entries: PositionEntry[], freeCash: number): string {
   const totalCost = entries.reduce((s, e) => s + Number(e.position.shares || 0) * Number(e.position.cost_price || 0), 0)
   const totalMarket = entries.reduce((s, e) => s + Number(e.position.shares || 0) * (e.kline[e.kline.length - 1]?.close || 0), 0)
 
-  const sections = entries.map(({ position, kline }) => {
+  const sections = entries.map(({ position, kline, valueSnapshot }) => {
     const code = normalizeCode(position.code)
     const shares = Number(position.shares || 0)
     const cost = Number(position.cost_price || 0)
@@ -461,6 +661,7 @@ function buildFullPortfolioPrompt(entries: { position: Position; kline: KlineDat
       `## ${code} ${position.name || code}`,
       `${shares}股 成本¥${cost.toFixed(2)} 最新¥${latest.toFixed(2)} 浮盈${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}% 仓位占比${weight}%`,
       `MA5=${ma5.toFixed(2)} MA20=${ma20.toFixed(2)} 60日高=${Math.max(...recent.map((d) => d.high)).toFixed(2)} 60日低=${Math.min(...recent.map((d) => d.low)).toFixed(2)}`,
+      buildValueDigest(valueSnapshot),
       '```csv\ndate,close,volume', csv, '```',
     ].join('\n')
   })
@@ -477,11 +678,11 @@ function buildFullPortfolioPrompt(entries: { position: Position; kline: KlineDat
   return [header, '', ...sections].join('\n\n')
 }
 
-async function callFullPortfolioLLM(config: Parameters<typeof streamLLMResponse>[0], prompt: string, signal?: AbortSignal): Promise<string> {
+async function callFullPortfolioLLM(config: Parameters<typeof streamLLMResponse>[0], prompt: string, signal?: AbortSignal, onDelta?: (chunk: string) => void): Promise<string> {
   const result = await streamLLMResponse(config, [
-    { role: 'system', content: '你是威科夫资产配置诊断专家。基于用户的全部持仓和真实K线做整体诊断。输出包含：\n1. 仓位分布评估（集中度、行业分散性）\n2. 各持仓当前威科夫阶段一句话判断\n3. 现金比例是否合理\n4. 整体风险暴露（哪些持仓需要警惕）\n5. 加减仓优先级建议\n6. 操作建议（先减谁、可加谁、现金该不该动）\n\n用简洁的 Markdown 格式回答。不编造数据。' },
+    { role: 'system', content: '你是威科夫资产配置诊断专家。基于用户的全部持仓、真实K线和价值面快照做整体诊断。主框架仍是仓位、趋势和量价结构；价值面只用于校准公司质量、风险暴露和仓位置信度，不要用基本面替代K线事实。输出包含：\n1. 仓位分布评估（集中度、行业分散性）\n2. 各持仓当前威科夫阶段一句话判断，并说明价值面质量/风险如何影响持仓置信度\n3. 现金比例是否合理\n4. 整体风险暴露（哪些持仓需要警惕）\n5. 加减仓优先级建议\n6. 操作建议（先减谁、可加谁、现金该不该动）\n\n用简洁的 Markdown 格式回答。不编造数据。' },
     { role: 'user', content: `请对我的完整持仓做整体诊断和资产配置建议。\n\n${prompt}` },
-  ], { temperature: 0.5, maxTokens: 4000, signal })
+  ], { temperature: 0.5, maxTokens: 4000, signal, onDelta })
   if (!result) throw new Error('模型未返回结果，请重试')
   return result
 }

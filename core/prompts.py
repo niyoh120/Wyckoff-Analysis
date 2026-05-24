@@ -375,7 +375,7 @@ WYCKOFF_SINGLE_SYSTEM_PROMPT = r"""
 8、当图表中有多个吸筹区和派发区，请完整绘制。
 9、代码必须是完整的，包含所有必要的 import（pandas, matplotlib等）。数据应假设已经加载到 DataFrame `df` 中，列名包括 'date', 'open', 'close', 'high', 'low', 'volume'。日期列应转换为 datetime 对象。
 10、**不要**在代码中包含数据加载部分（read_csv等），假设 `df` 已经存在。
-11、代码最后不应调用 `plt.show()`，而是应该将 figure 对象保存或准备好展示。或者，如果是在 Streamlit 环境中，可以使用 `st.pyplot(fig)`。考虑到通用性，请生成一个 `create_plot(df)` 函数，返回 matplotlib 的 Figure 对象。
+11、代码最后不应调用 `plt.show()`，而是应该将 figure 对象保存或准备好展示。考虑到通用性，请生成一个 `create_plot(df)` 函数，返回 matplotlib 的 Figure 对象。
 
 【输出格式（强制）】
 你必须按以下顺序输出，且“未来路径推演”必须是独立文字段落，禁止只写在代码注释里：

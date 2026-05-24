@@ -16,6 +16,7 @@ const TrackingPage = lazy(() => import('@/routes/tracking').then(m => ({ default
 const SettingsPage = lazy(() => import('@/routes/settings').then(m => ({ default: m.SettingsPage })))
 const AnalysisPage = lazy(() => import('@/routes/analysis').then(m => ({ default: m.AnalysisPage })))
 const StockBattlePage = lazy(() => import('@/routes/stock-battle').then(m => ({ default: m.StockBattlePage })))
+const HistoryPage = lazy(() => import('@/routes/history').then(m => ({ default: m.HistoryPage })))
 const TailBuyPage = lazy(() => import('@/routes/tail-buy').then(m => ({ default: m.TailBuyPage })))
 const ExportPage = lazy(() => import('@/routes/export').then(m => ({ default: m.ExportPage })))
 const FeatureGuidePage = lazy(() => import('@/routes/feature-guide').then(m => ({ default: m.FeatureGuidePage })))
@@ -43,6 +44,7 @@ createRoot(document.getElementById('root')!).render(
                   <Route path="/tracking" element={<TrackingPage />} />
                   <Route path="/analysis" element={<AnalysisPage />} />
                   <Route path="/battle" element={<StockBattlePage />} />
+                  <Route path="/history" element={<HistoryPage />} />
                   <Route path="/tail-buy" element={<TailBuyPage />} />
                   <Route path="/export" element={<ExportPage />} />
                   <Route path="/guide" element={<FeatureGuidePage />} />

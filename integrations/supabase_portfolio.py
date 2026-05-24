@@ -1,5 +1,5 @@
 """
-Supabase 投资组合读写（脚本侧，无 Streamlit 依赖）
+Supabase 投资组合读写（脚本侧）
 用途：
 1) 读取 USER_LIVE 持仓状态给 Step4 使用
 2) 记录 AI 订单建议与每日净值快照

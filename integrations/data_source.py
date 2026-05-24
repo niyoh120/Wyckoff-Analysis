@@ -532,7 +532,7 @@ def _ensure_baostock_login():
 
 
 def _fetch_stock_efinance(symbol: str, start: str, end: str) -> pd.DataFrame:
-    # Streamlit Cloud / 只读部署环境下，efinance 在 import 阶段会尝试写 site-packages/efinance/data。
+    # 只读部署环境下，efinance 在 import 阶段会尝试写 site-packages/efinance/data。
     # 这里做一次兼容导入：临时忽略该 mkdir 的 PermissionError，随后把缓存目录重定向到 /tmp。
     import pathlib
     import tempfile
@@ -566,7 +566,7 @@ def _fetch_stock_efinance(symbol: str, start: str, end: str) -> pd.DataFrame:
     ef_cfg.SEARCH_RESULT_CACHE_PATH = str(cache_dir / "search-cache.json")
 
     # 额外抑制 efinance 内部对 site-packages 下 data 目录的硬编码访问尝试导致的 FileNotFoundError
-    # 这种错误通常发生在 Python 3.13 + Streamlit Cloud 环境下
+    # 这种错误通常发生在 Python 3.13 + 只读运行环境下
 
     # fqt: 0 不复权, 1 前复权, 2 后复权
     fqt = 1  # 默认前复权

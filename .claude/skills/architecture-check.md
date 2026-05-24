@@ -38,15 +38,14 @@ user_invocable: true
 | `core/` | 业务逻辑核心 | Wyckoff 引擎、策略、诊断 |
 | `tools/` | 可复用工具函数 | 数据获取、排名、筛选 |
 | `integrations/` | 外部系统对接 | Supabase、LLM、数据源 |
-| `agents/` | Agent 逻辑 | Chat agent、session |
+| `agents/` | Agent 工具逻辑 | Web、CLI、MCP 共享工具 |
 | `cli/` | CLI 界面 | 命令、TUI、provider |
-| `pages/` | Streamlit 页面 | (遗留，不新增) |
 | `scripts/` | 一次性/定时任务 | daily_job、backtest |
 | `utils/` | 通用工具 | 日期、通知、helpers |
 
 **检查方式**:
 - 新 `.py` 文件所在目录是否匹配其职责？
-- 是否在 `pages/` 下新增了文件？（应迁移到 agent）
+- 是否新增了 `app/`、`pages/` 或 `streamlit_app.py`？（主分支不再维护 Streamlit）
 
 ### Rule 3: 数据隔离 (Route A)
 

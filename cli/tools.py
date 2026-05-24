@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# ToolContext shim — 替代 google.adk.tools.ToolContext
+# ToolContext shim — 替代历史 ADK ToolContext
 # ---------------------------------------------------------------------------
 
 

@@ -63,18 +63,7 @@ class _RateLimitedPro:
 
 def get_pro():
     """返回限流版 Tushare Pro API 实例；若未配置 token 则返回 None。"""
-    token = ""
-    # 优先尝试从 streamlit session 中获取用户配置
-    try:
-        import streamlit as st
-
-        token = (st.session_state.get("tushare_token") or "").strip()
-    except Exception:
-        logger.debug("streamlit session unavailable for tushare token", exc_info=True)
-
-    # 如果 session 中没有，再尝试从环境变量获取
-    if not token:
-        token = os.getenv("TUSHARE_TOKEN", "").strip()
+    token = os.getenv("TUSHARE_TOKEN", "").strip()
 
     if not token:
         return None

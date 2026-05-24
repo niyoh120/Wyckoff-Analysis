@@ -118,22 +118,9 @@ wyckoff dashboard  # 启动本地可视化面板
 
 </details>
 
-### Streamlit（维护入口）
+### Streamlit MVP 已下线
 
-在线地址：**[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
-
-<p align="center">
-  <img src="attach/demo/streamlit-chat.png" alt="Streamlit 读盘室" width="900" />
-</p>
-
-<details>
-<summary><strong>展开更多 Streamlit 截图</strong></summary>
-
-| 数据导出 |
-|:---:|
-| <img src="attach/demo/streamlit-export.png" width="450" /> |
-
-</details>
+Streamlit 已经不再迭代维护，主分支已全面移除 Streamlit 运行代码。相关代码仍保留在 `release/streamlit` 分支；Streamlit MVP 时期的产品架构和效果图见 [docs/STREAMLIT_MVP_ARCHITECTURE.md](docs/STREAMLIT_MVP_ARCHITECTURE.md)。
 
 ### 本地可视化面板（Dashboard）
 

@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router'
-import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Home, Github, Sun, Languages, Swords, Map, type LucideIcon } from 'lucide-react'
+import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Home, Github, Sun, Languages, Swords, Map, History, type LucideIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { MarketBar } from '@/components/market-bar'
@@ -10,6 +10,7 @@ const navItems = [
   { to: '/analysis', icon: BarChart3, labelKey: 'nav.analysis' },
   { to: '/battle', icon: Swords, labelKey: 'nav.battle' },
   { to: '/portfolio', icon: Briefcase, labelKey: 'nav.portfolio' },
+  { to: '/history', icon: History, labelKey: 'nav.history' },
   { to: '/tracking', icon: TrendingUp, labelKey: 'nav.tracking' },
   { to: '/tail-buy', icon: Moon, labelKey: 'nav.tailBuy' },
   { to: '/export', icon: FileDown, labelKey: 'nav.export' },

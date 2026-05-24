@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router'
-import { AlertTriangle, BarChart3, Bot, Briefcase, CalendarDays, CheckCircle2, CloudCog, Download, ExternalLink, GitBranch, MessageSquare, Moon, RadioTower, Rocket, Settings, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, BarChart3, Bot, Briefcase, CalendarDays, CheckCircle2, CloudCog, Download, ExternalLink, GitBranch, MessageSquare, Moon, RadioTower, Rocket, Settings, Swords, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react'
 import { usePreferences, type Locale, type TranslationKey } from '@/lib/preferences'
 
 const workflows = [
@@ -15,6 +15,11 @@ const workflows = [
     descKey: 'guide.workflow.analysis.desc',
   },
   {
+    icon: Swords,
+    titleKey: 'guide.workflow.battle.title',
+    descKey: 'guide.workflow.battle.desc',
+  },
+  {
     icon: Briefcase,
     titleKey: 'guide.workflow.portfolio.title',
     descKey: 'guide.workflow.portfolio.desc',
@@ -27,6 +32,7 @@ const tools = [
   { nameKey: 'guide.tool.signal', detailKey: 'guide.tool.signal.detail' },
   { nameKey: 'guide.tool.tail', detailKey: 'guide.tool.tail.detail' },
   { nameKey: 'guide.tool.export', detailKey: 'guide.tool.export.detail' },
+  { nameKey: 'guide.tool.history', detailKey: 'guide.tool.history.detail' },
   { nameKey: 'guide.tool.model', detailKey: 'guide.tool.model.detail' },
 ] satisfies { nameKey: TranslationKey; detailKey: TranslationKey }[]
 
@@ -56,22 +62,22 @@ const playbooks = [
 const capabilityCopy = {
   'zh-CN': {
     eyebrow: '能力边界',
-    title: '系统已经很强，但 Web 只是驾驶舱',
-    intro: '有些能力适合在网页里点一点就用；有些能力需要 GitHub Actions、本地 CLI 或后台任务来承载。这里把“系统有，但 Web 端暂未完整接入”的部分摊开，避免你以为功能消失了。',
-    webTitle: 'Web 端已经覆盖',
-    webItems: ['单股 320 日结构图与模型分析', '读盘室自然语言工具调用', '推荐跟踪、尾盘记录、持仓诊断查看', '单标的数据导出与基础配置'],
-    gapTitle: '系统有，但 Web 端不完整',
+    title: 'Web 是日常工作台，后台负责重任务',
+    intro: '当前 Web 端已经覆盖读盘、单股、多股、持仓、跟踪和导出这些高频动作；全市场漏斗、回测、回刷和运维任务继续放在 GitHub Actions、CLI 或数据库后台，避免把长任务和敏感权限塞进浏览器。',
+    webTitle: 'Web 端已经接入',
+    webItems: ['单股 320 日日线结构图、价值快照、AI 报告与本地历史', '多股对抗的相对强弱、叠加/分图、价值面校准与本地历史', '持仓诊断支持数据库持仓和手动持仓，结果保存在当前浏览器', '形态跟踪、尾盘记录、批量行情导出、模型和数据源配置'],
+    gapTitle: '系统有，但不放在 Web 里主跑',
     whyTitle: '为什么不全塞进 Web',
     costLinkText: '成本详见：COST_MODEL.md',
     accessTitle: '当前入口',
   },
   'en-US': {
     eyebrow: 'Capability Map',
-    title: 'The system is deeper than the web cockpit',
-    intro: 'Some workflows belong in the browser. Others need GitHub Actions, local CLI, or background jobs. This map shows what exists in the system but is not fully wired into the web UI yet.',
+    title: 'The web UI is the daily desk; background jobs carry the heavy work',
+    intro: 'The web UI now covers the high-frequency loops: reading, single-stock analysis, stock battle, portfolio diagnosis, tracking, and export. Full-market funnels, backtests, repricing, and maintenance stay in GitHub Actions, CLI, or database-side jobs instead of pushing long jobs and sensitive permissions into the browser.',
     webTitle: 'Covered by the web UI',
-    webItems: ['Single-stock 320-day structure chart and model analysis', 'Natural-language tool use in Reading Room', 'Recommendation tracking, tail-buy logs, and portfolio diagnosis views', 'Single-symbol export and basic configuration'],
-    gapTitle: 'Available in the system, partial or missing on web',
+    webItems: ['Single-stock 320-day chart, value snapshot, AI report, and local history', 'Stock battle with relative strength, overlay/separate charts, value calibration, and local history', 'Portfolio diagnosis for database or manual positions, with browser-local result history', 'Pattern tracking, tail-buy logs, batch market-data export, model and data-source settings'],
+    gapTitle: 'Available in the system, but not browser-first',
     whyTitle: 'Why not put everything in the browser',
     costLinkText: 'Cost details: COST_MODEL.md',
     accessTitle: 'Where to use them today',
@@ -91,25 +97,27 @@ const capabilityCopy = {
 const capabilityGaps = {
   'zh-CN': [
     ['全市场漏斗任务', 'A股、港股、美股每日全市场扫描、L1-L4 分层、信号写库与飞书推送仍主要跑在 GitHub Actions。'],
-    ['单票漏斗复盘诊断', '输入一只股票和日期区间，逐日解释为什么没进漏斗、卡在哪层、哪天被选中。'],
+    ['LLM 输入预览与飞书产物', '每日审核输入、完整报告、文件/文档分发更适合由 Actions 产出，Web 只承接查询和轻量分析。'],
     ['回测与参数网格', '牛熊周期、TopN、止损/止盈/持仓天数等批量计算适合后台长任务，Web 目前只展示部分结果。'],
-    ['信号生命周期与补价回刷', 'pending/confirmed/expired、推荐表现回刷、现价同步、MFE/MAE 统计都在后台维护。'],
-    ['本地自动化与 CLI Agent', 'OpenClaw 本地 cron、CLI/TUI、长上下文 Agent、文件产物和本机环境变量不适合直接暴露给浏览器。'],
-    ['维护与数据库任务', '缓存清理、RLS/服务端密钥操作、日志 artifact、批量导出属于运维能力，Web 只保留安全入口。'],
+    ['信号生命周期与补价回刷', 'pending/confirmed/expired、推荐表现回刷、30 个交易日保留、MFE/MAE 统计都在后台维护。'],
+    ['CLI Agent 与本机文件流', 'CLI/TUI、长上下文 Agent、诊断导出、本机环境变量和文件产物不适合直接暴露给浏览器。'],
+    ['Streamlit 历史页面', 'Streamlit MVP 已在 main 退场并归档到 release/streamlit；新能力默认进入 CF Pages、CLI、MCP 或 Actions。'],
+    ['维护与数据库任务', '缓存清理、RLS/服务端密钥操作、日志 artifact、全量清库/回刷属于运维能力，Web 只保留安全入口。'],
   ],
   'en-US': [
     ['Full-market funnel jobs', 'A-share, HK, and US market scans, L1-L4 layering, signal writes, and Feishu pushes mainly run in GitHub Actions.'],
-    ['Single-symbol funnel diagnosis', 'Given one symbol and a date range, replay each day to explain where the symbol failed and when it was selected.'],
+    ['LLM input previews and Feishu artifacts', 'Daily review inputs, full reports, and file/doc distribution fit Actions better; the web UI handles querying and lightweight analysis.'],
     ['Backtests and parameter grids', 'Bull/bear windows, TopN, stop-loss, take-profit, and holding-day grids are long-running backend workloads.'],
-    ['Signal lifecycle and repricing', 'pending/confirmed/expired updates, recommendation repricing, live price sync, MFE/MAE stats run in background jobs.'],
-    ['Local automation and CLI Agent', 'OpenClaw cron, CLI/TUI, long-context agents, local files, and env vars should stay on the user machine.'],
-    ['Maintenance and database jobs', 'Cache cleanup, service-role operations, log artifacts, and bulk exports are operational tools, not browser-first UI.'],
+    ['Signal lifecycle and repricing', 'pending/confirmed/expired updates, recommendation repricing, 30-trading-day retention, and MFE/MAE stats run in background jobs.'],
+    ['CLI Agent and local file flows', 'CLI/TUI, long-context agents, diagnostic exports, local env vars, and file artifacts should stay on the user machine.'],
+    ['Archived Streamlit pages', 'The Streamlit MVP is retired from main and archived on release/streamlit; new work goes to CF Pages, CLI, MCP, or Actions.'],
+    ['Maintenance and database jobs', 'Cache cleanup, service-role operations, log artifacts, full cleanup, and repricing are operational tools, not browser-first UI.'],
   ],
 } satisfies Record<Locale, [string, string][]>
 
 const capabilityReasons = {
-  'zh-CN': ['全市场漏斗、回测网格、逐日复盘诊断都属于长时间计算；如果全部在线化，需要持续计算资源和排队能力。', '320 日日线、多市场结果、分钟线、回刷统计会带来大数据量存储；如果全部给 Web 即时查询，需要更高数据库与缓存成本。'],
-  'en-US': ['Full-market funnels, backtest grids, and day-by-day replay diagnosis are long-running computations that require persistent compute and queue capacity when fully online.', '320-day bars, multi-market results, intraday data, and repricing stats create large storage needs that raise database and cache costs for instant web queries.'],
+  'zh-CN': ['全市场漏斗、回测网格、LLM 审核和回刷统计都是长时间计算；浏览器适合发起、查看和轻量分析，不适合作为任务队列。', '服务端密钥、RLS、批量清库和全量回刷有权限风险；这些动作留在 Actions/CLI/运维脚本里更可控。', 'Web 本地历史只保存在当前浏览器，是为了避免把用户临时分析结果写库；跨设备沉淀再单独做同步策略。'],
+  'en-US': ['Full-market funnels, backtest grids, LLM reviews, and repricing stats are long-running computations; the browser is better for launching, viewing, and lightweight analysis than acting as a job queue.', 'Service-role keys, RLS, bulk cleanup, and full repricing carry permission risk, so they stay in Actions, CLI, or ops scripts.', 'Web local history is intentionally browser-local to avoid writing temporary analysis results to the database; cross-device sync needs a separate policy.'],
 } satisfies Record<Locale, string[]>
 
 const capabilityLaunch = {
@@ -140,16 +148,16 @@ const capabilityLaunch = {
 
 const capabilityAccess = {
   'zh-CN': [
-    ['GitHub Actions', '漏斗、回测、单票诊断、回刷、维护任务'],
-    ['本地 CLI / OpenClaw', '准点触发、长任务、本地密钥和文件工作流'],
+    ['GitHub Actions', '漏斗、审核输入、飞书产物、回测、回刷、维护任务'],
+    ['本地 CLI', '准点触发、长任务、本地密钥、诊断导出和文件工作流'],
     ['运维脚本 / 数据库控制台', '偏后台的配置、调试和数据库维护能力'],
-    ['Web 端', '高频查看、轻量分析、配置和用户安全入口'],
+    ['Web 端', '读盘、单股、多股、持仓、跟踪、导出、配置和本地历史'],
   ],
   'en-US': [
-    ['GitHub Actions', 'Funnel, backtest, symbol diagnosis, repricing, maintenance jobs'],
-    ['Local CLI / OpenClaw', 'On-time triggers, long jobs, local secrets and file workflows'],
+    ['GitHub Actions', 'Funnel, review input, Feishu artifacts, backtest, repricing, maintenance jobs'],
+    ['Local CLI', 'On-time triggers, long jobs, local secrets, diagnostic exports, and file workflows'],
     ['Ops scripts / database console', 'Admin-like configuration, debugging, and database maintenance'],
-    ['Web UI', 'Frequent viewing, lightweight analysis, settings, and safe user entry points'],
+    ['Web UI', 'Reading, single-stock, battle, portfolio, tracking, export, settings, and local history'],
   ],
 } satisfies Record<Locale, [string, string][]>
 
@@ -185,7 +193,7 @@ export function FeatureGuidePage() {
             <p className="mt-1 text-sm text-muted-foreground">{t('guide.coreDesc')}</p>
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {workflows.map(({ icon: Icon, titleKey, descKey }) => (
             <article key={titleKey} className="rounded-lg border border-border bg-background p-4 shadow-sm shadow-primary/5">
               <Icon className="mb-3 text-primary" size={20} />

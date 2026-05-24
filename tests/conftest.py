@@ -8,10 +8,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ── 屏蔽 Streamlit ────────────────────────────────────────────────
-# core/ 层不应依赖 streamlit，但某些 integrations 模块在顶层 import 了它。
-# 通过环境变量让 supabase_client 等跳过初始化。
-
 
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):

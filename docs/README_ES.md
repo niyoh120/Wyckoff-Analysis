@@ -66,13 +66,7 @@ SPA moderna con chat de AI Agent, gestion de cartera, screener de embudo, seguim
 |:---:|:---:|
 | <img src="screenshots/web-track.png" width="450" /> | <img src="screenshots/web-portfolio.png" width="450" /> |
 
-**Portal Streamlit de mantenimiento**: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
-
-Streamlit sostuvo el MVP inicial y sigue disponible para exportacion de datos, analisis de acciones individuales y configuracion.
-
-| Sala de chat | Exportacion de datos |
-|:---:|:---:|
-| <img src="../attach/web-chat.png" width="450" /> | <img src="../attach/web-export.png" width="450" /> |
+**MVP de Streamlit retirado**: Streamlit ya no se mantiene en `main`. El codigo historico se conserva en la rama `release/streamlit`, y la arquitectura/capturas del MVP estan archivadas en [STREAMLIT_MVP_ARCHITECTURE.md](STREAMLIT_MVP_ARCHITECTURE.md).
 
 ## Funcionalidades
 
@@ -195,19 +189,7 @@ pnpm install
 pnpm dev
 ```
 
-Ejecucion local legacy de Streamlit:
-
-```bash
-git clone https://github.com/YoungCan-Wang/WyckoffTradingAgent.git
-cd WyckoffTradingAgent
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run streamlit_app.py
-```
-
 Web App: **[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
-
-Streamlit: **[wyckoff-analysis-youngcanphoenix.streamlit.app](https://wyckoff-analysis-youngcanphoenix.streamlit.app/)**
 
 ## Herramientas
 

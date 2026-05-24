@@ -38,25 +38,19 @@ GEMINI_RETRY_DELAY = 2.0
 
 def get_provider_credentials(provider: str) -> tuple[str, str, str]:
     """
-    根据 provider 从 Streamlit session_state 和环境变量取 (api_key, model, base_url)。
+    根据 provider 从环境变量取 (api_key, model, base_url)。
 
-    优先 session_state，其次环境变量，Gemini 有模型兜底。
+    Streamlit MVP 已下线，主分支不再从页面 session_state 读取模型配置。
     """
-    import streamlit as st
-
     key_suffix = provider.lower()
     env_prefix = key_suffix.upper()
-    api_key = (st.session_state.get(f"{key_suffix}_api_key") or "").strip() or os.getenv(
-        f"{env_prefix}_API_KEY", ""
-    ).strip()
-    model = (st.session_state.get(f"{key_suffix}_model") or "").strip() or os.getenv(f"{env_prefix}_MODEL", "").strip()
-    base_url = (st.session_state.get(f"{key_suffix}_base_url") or "").strip() or os.getenv(
-        f"{env_prefix}_BASE_URL", ""
-    ).strip()
+    api_key = os.getenv(f"{env_prefix}_API_KEY", "").strip()
+    model = os.getenv(f"{env_prefix}_MODEL", "").strip()
+    base_url = os.getenv(f"{env_prefix}_BASE_URL", "").strip()
     if not base_url and provider in OPENAI_COMPATIBLE_BASE_URLS:
         base_url = (OPENAI_COMPATIBLE_BASE_URLS.get(provider, "") or "").strip()
     if not model and provider == "gemini":
-        model = st.session_state.get("gemini_model") or DEFAULT_GEMINI_MODEL
+        model = DEFAULT_GEMINI_MODEL
     if not model and provider == "1route":
         model = "gpt-5.5"
     return (api_key, model or "", base_url)

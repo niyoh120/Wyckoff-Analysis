@@ -2,8 +2,8 @@
 
 ## 1. Frontend Architecture
 *   **React (`web/`) is the production web surface.** New user-facing capabilities should be implemented in the Agent/chat experience rather than new standalone routes.
-*   **Streamlit (`app/` and `streamlit_app.py`) is maintenance-only.** It can keep historical export or diagnostic utilities, but it is not the grey-release path for new product features.
-*   **Agent Rule:** Do not suggest deleting `app/` just because it is maintenance code, but do not route new feature work through Streamlit first.
+*   **Streamlit is fully retired from `main`.** Do not add, restore, or maintain Streamlit runtime code. Historical MVP code is preserved on `release/streamlit`; product architecture and screenshots are archived in [docs/STREAMLIT_MVP_ARCHITECTURE.md](docs/STREAMLIT_MVP_ARCHITECTURE.md).
+*   **Agent Rule:** Route product work through CF Pages, CLI, MCP, or GitHub Actions. Do not use Streamlit as a grey-release path.
 
 ## 2. Documentation Structure
 *   **Wiki Visibility:** The `wiki_repo_new/` directory is **intentionally kept hidden** (ignored via `.gitignore`).

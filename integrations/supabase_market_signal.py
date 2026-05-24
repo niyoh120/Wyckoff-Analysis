@@ -389,14 +389,6 @@ def _iter_market_signal_clients(client: Client | None = None) -> list[Client]:
             clients.append(_get_supabase_admin_client())
         except Exception:
             logger.debug("failed to create supabase admin client", exc_info=True)
-    try:
-        from integrations.supabase_client import get_supabase_client
-
-        session_client = get_supabase_client()
-        if session_client is not None:
-            clients.append(session_client)
-    except Exception:
-        logger.debug("failed to get supabase session client", exc_info=True)
     return clients
 
 

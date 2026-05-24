@@ -14,6 +14,7 @@ import { TICKFLOW_PURCHASE, fetchKline, fetchValueSnapshot, getUserDataKeys, che
 import { avg } from '@/lib/math'
 import { marketLabel, resolveStockQuery, searchStocks, type StockSearchResult } from '@/lib/market-search'
 import { buildValuePrompt, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
+import { saveAnalysisHistory } from '@/lib/local-history'
 
 interface AnalysisResult {
   report: string
@@ -29,17 +30,39 @@ export function AnalysisPage() {
   const search = useStockSearch()
   const prerequisites = usePrerequisites(user?.id)
   const runner = useAnalysisRunner(search, prerequisites.setHasModelConfig)
+  useAnalysisHistory(user?.id, runner.result)
   const disabled = runner.loading || !search.symbol.trim() || prerequisites.checkingConfig || !prerequisites.hasModelConfig || !prerequisites.hasDataSource
 
   return (
-    <div className="flex h-full flex-col p-6">
-      <h1 className="mb-6 text-xl font-semibold">{t('analysis.title')}</h1>
-      <MissingConfigBanner prerequisites={prerequisites} />
-      <SearchForm search={search} loading={runner.loading} disabled={disabled} onAnalyze={runner.handleAnalyze} onClearError={() => runner.setError('')} />
-      {runner.error && <div className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200">{runner.error}</div>}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden px-6 py-5">
+      <div className="shrink-0 border-b border-border/70 pb-4">
+        <h1 className="mb-4 text-xl font-semibold">{t('analysis.title')}</h1>
+        <MissingConfigBanner prerequisites={prerequisites} />
+        <SearchForm search={search} loading={runner.loading} disabled={disabled} onAnalyze={runner.handleAnalyze} onClearError={() => runner.setError('')} />
+        {runner.error && <div className="mt-3 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200">{runner.error}</div>}
+      </div>
       <AnalysisContent runner={runner} />
     </div>
   )
+}
+
+function useAnalysisHistory(userId: string | undefined, result: AnalysisResult | null) {
+  const savedKey = useRef('')
+
+  useEffect(() => {
+    if (!userId || !result?.report) return
+    const key = analysisHistoryKey(result)
+    if (savedKey.current === key) return
+    savedKey.current = key
+    void saveAnalysisHistory({
+      kind: 'single-analysis',
+      userId,
+      title: `${result.symbol} ${result.name}`,
+      subtitle: `${result.klineData.length} rows · ${sourceLabel(result.valueSnapshot)}`,
+      symbols: [result.symbol],
+      payload: result,
+    }).catch(() => undefined)
+  }, [result, userId])
 }
 
 interface SearchController {
@@ -176,10 +199,7 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
     setStep('resolve')
     const resolved = await resolveAnalysisCode(search.symbol, search.selectedStock)
     if (!resolved) { setError(t('analysis.invalidStockCode')); setStep(null); return }
-    abortRef.current?.abort()
-    const abort = (abortRef.current = new AbortController())
-    setError(''); setLoading(true); setResult(null); setStreamingReport(''); setEarlyKline(null)
-    search.setSymbol(resolved.code); search.setSelectedStock(resolved.stock); search.setSearchOpen(false)
+    const abort = startAnalysisRequest(abortRef, search, resolved, setError, setLoading, setResult, setStreamingReport, setEarlyKline)
     try {
       const [config, dataKeys] = await Promise.all([loadLLMConfig(user!.id), getUserDataKeys(user!.id)])
       setHasModelConfig(Boolean(config?.api_key && config?.model))
@@ -209,6 +229,28 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
   return { loading, result, error, step, streamingReport, earlyKline, setError, handleAnalyze }
 }
 
+function startAnalysisRequest(
+  abortRef: React.MutableRefObject<AbortController | null>,
+  search: SearchController,
+  resolved: NonNullable<Awaited<ReturnType<typeof resolveAnalysisCode>>>,
+  setError: Dispatch<SetStateAction<string>>,
+  setLoading: Dispatch<SetStateAction<boolean>>,
+  setResult: Dispatch<SetStateAction<AnalysisResult | null>>,
+  setStreamingReport: Dispatch<SetStateAction<string>>,
+  setEarlyKline: Dispatch<SetStateAction<AnalysisRunnerState['earlyKline']>>,
+): AbortController {
+  abortRef.current?.abort()
+  const abort = new AbortController()
+  abortRef.current = abort
+  setError(''); setLoading(true); setResult(null); setStreamingReport(''); setEarlyKline(null)
+  search.setSymbol(resolved.code); search.setSelectedStock(resolved.stock); search.setSearchOpen(false)
+  return abort
+}
+
+function analysisHistoryKey(result: AnalysisResult): string {
+  return `${result.symbol}:${result.klineData.length}:${result.report.length}`
+}
+
 function scheduleFlush(buf: React.MutableRefObject<string>, raf: React.MutableRefObject<number>, set: Dispatch<SetStateAction<string>>) {
   if (raf.current) return
   raf.current = requestAnimationFrame(() => { raf.current = 0; set(buf.current) })
@@ -219,7 +261,7 @@ function MissingConfigBanner({ prerequisites }: { prerequisites: Prerequisites }
   const { t } = usePreferences()
   if (prerequisites.checkingConfig || (prerequisites.hasModelConfig && prerequisites.hasDataSource)) return null
   return (
-    <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
       <h2 className="mb-2 text-sm font-semibold text-amber-900 dark:text-amber-100">{t('analysis.missingTitle')}</h2>
       <ul className="mb-3 list-disc space-y-1 pl-5 text-sm text-amber-800 dark:text-amber-200">
         {!prerequisites.hasModelConfig && <li>{t('analysis.missingModel')}</li>}
@@ -247,15 +289,15 @@ function SearchForm({
 }) {
   const { t } = usePreferences()
   return (
-    <div className="mb-6">
-      <div className="flex items-end gap-3">
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-end gap-3">
         <StockSearchBox search={search} onAnalyze={onAnalyze} onClearError={onClearError} />
-        <button onClick={onAnalyze} disabled={disabled} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        <button onClick={onAnalyze} disabled={disabled} className="flex h-10 shrink-0 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
           {loading ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
           {loading ? t('analysis.analyzing') : t('analysis.start')}
         </button>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {t('analysis.marketHint')}
         <a href={TICKFLOW_PURCHASE} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t('common.tickflowLink')}</a>
       </p>
@@ -270,7 +312,7 @@ function StockSearchBox({ search, onAnalyze, onClearError }: { search: SearchCon
     onClearError()
   }
   return (
-    <div className="relative flex-1 max-w-md" onBlur={(e) => closeSearchOnOuterBlur(e, search.setSearchOpen)}>
+    <div className="relative min-w-[240px] flex-1 lg:max-w-3xl" onBlur={(e) => closeSearchOnOuterBlur(e, search.setSearchOpen)}>
       <label className="mb-1.5 block text-sm font-medium">{t('common.stockCode')}</label>
       <div className="relative">
         <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -343,13 +385,17 @@ function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
   const valueSnapshot = result?.valueSnapshot ?? earlyKline?.valueSnapshot
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="flex min-h-0 flex-1 flex-col pt-4">
       {step && <AnalysisProgressBar step={step} />}
-      {symbol && name && <div className="mb-4 flex items-center gap-2"><span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">{symbol} {name}</span></div>}
-      <div className={report ? 'grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]' : 'space-y-6'}>
-        <div className="min-w-0 space-y-6">
-          {kline && <KlineSection klineData={kline} />}
-          {valueSnapshot && <ValueSection snapshot={valueSnapshot} />}
+      {symbol && name && (
+        <div className="mb-3 flex shrink-0 items-center gap-2">
+          <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">{symbol} {name}</span>
+        </div>
+      )}
+      <div className={report ? 'min-h-0 flex-1 overflow-auto pr-1 xl:grid xl:gap-4 xl:overflow-hidden xl:pr-0 xl:grid-cols-[minmax(420px,0.9fr)_minmax(560px,1.1fr)] 2xl:grid-cols-[minmax(500px,0.85fr)_minmax(720px,1.15fr)]' : 'min-h-0 flex-1 overflow-auto pr-1'}>
+        <div className={report ? 'space-y-4 xl:min-h-0 xl:overflow-auto xl:pr-1' : 'space-y-6'}>
+          {kline && <KlineSection klineData={kline} compact={Boolean(report)} />}
+          {valueSnapshot && <ValueSection snapshot={valueSnapshot} compact={Boolean(report)} />}
         </div>
         {report && <ReportSection report={report} />}
       </div>
@@ -357,7 +403,7 @@ function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
   )
 }
 
-function KlineSection({ klineData }: { klineData: KlineData[] }) {
+function KlineSection({ klineData, compact = false }: { klineData: KlineData[]; compact?: boolean }) {
   const { t } = usePreferences()
   const wyckoff = useMemo(() => detectWyckoffAnnotations(klineData), [klineData])
   return (
@@ -366,12 +412,12 @@ function KlineSection({ klineData }: { klineData: KlineData[] }) {
         <div><h2 className="text-base font-semibold">{t('analysis.chartTitle')}</h2><p className="mt-1 text-xs text-muted-foreground">{t('analysis.chartSubtitle')}</p></div>
         <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{klineData.length} {t('common.rows')}</span>
       </div>
-      <KlineChart data={klineData} height={350} wyckoffMarkers={wyckoff?.markers} tradingRange={wyckoff?.tradingRange ?? undefined} stage={wyckoff?.stage} showIndicators />
+      <KlineChart data={klineData} height={compact ? 320 : 430} wyckoffMarkers={wyckoff?.markers} tradingRange={wyckoff?.tradingRange ?? undefined} stage={wyckoff?.stage} showIndicators />
     </section>
   )
 }
 
-function ValueSection({ snapshot }: { snapshot: ValueSnapshot }) {
+function ValueSection({ snapshot, compact = false }: { snapshot: ValueSnapshot; compact?: boolean }) {
   const { t } = usePreferences()
   const [view, setView] = useState<ValueView>('quality')
   const metrics = snapshot.metrics
@@ -379,7 +425,7 @@ function ValueSection({ snapshot }: { snapshot: ValueSnapshot }) {
 
   if (!metrics) {
     return (
-      <section className="rounded-lg border border-border p-5">
+      <section className={`rounded-lg border border-border bg-background ${compact ? 'p-4' : 'p-5'}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold">{t('analysis.valueTitle')}</h2>
@@ -403,7 +449,7 @@ function ValueSection({ snapshot }: { snapshot: ValueSnapshot }) {
   ]
 
   return (
-    <section className="rounded-lg border border-border p-5">
+    <section className={`rounded-lg border border-border bg-background ${compact ? 'p-4' : 'p-5'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">{t('analysis.valueTitle')}</h2>
@@ -456,11 +502,15 @@ function ValueSection({ snapshot }: { snapshot: ValueSnapshot }) {
 function ReportSection({ report }: { report: string }) {
   const { t } = usePreferences()
   return (
-    <div className="rounded-lg border border-border p-6">
-      <h2 className="mb-4 text-base font-semibold">{t('analysis.reportTitle')}</h2>
-      <AIDisclaimer />
-      <article className="mt-4 prose prose-sm max-w-none text-foreground"><MarkdownContent content={report} /></article>
-    </div>
+    <section className="flex min-h-[420px] min-w-0 flex-col rounded-lg border border-border bg-background xl:min-h-0">
+      <div className="shrink-0 border-b border-border/70 px-5 py-4">
+        <h2 className="mb-3 text-base font-semibold">{t('analysis.reportTitle')}</h2>
+        <AIDisclaimer />
+      </div>
+      <article className="prose prose-base min-h-0 max-w-none flex-1 overflow-auto px-6 py-5 text-foreground">
+        <MarkdownContent content={report} />
+      </article>
+    </section>
   )
 }
 
@@ -488,7 +538,7 @@ function AnalysisProgressBar({ step }: { step: AnalysisStep }) {
 function EmptyAnalysisState() {
   const { t } = usePreferences()
   return (
-    <div className="flex flex-1 items-center justify-center text-muted-foreground">
+    <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
       <div className="text-center"><div className="mb-3 text-4xl">📊</div><p className="text-sm">{t('analysis.emptyTitle')}</p><p className="mt-1 text-xs">{t('analysis.emptySubtitle')}</p></div>
     </div>
   )

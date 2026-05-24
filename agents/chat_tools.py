@@ -1,8 +1,5 @@
 """
-ADK 工具函数 — 将已有的 Wyckoff 引擎能力暴露给对话 Agent。
-
-每个函数都是一个 ADK tool：普通 Python 函数 + 类型标注 + docstring，
-ADK 的 FunctionTool 会自动解析为工具 schema。
+Wyckoff Agent 工具函数 — 将已有引擎能力暴露给 Web、CLI 和 MCP。
 
 用户凭据（API Key / Tushare Token 等）按需从 Supabase 实时获取，
 不依赖 st.session_state 或 os.environ 的长链传递。
@@ -26,13 +23,12 @@ from datetime import date, timedelta
 from typing import Any
 from urllib.parse import urlparse
 
-try:
-    from google.adk.tools import ToolContext
-except ImportError:
-    # CLI 模式下无 ADK，使用 shim
-    class ToolContext:  # type: ignore[no-redef]
-        def __init__(self, state=None):
-            self.state = state or {}
+
+class ToolContext:
+    """最小化工具上下文，兼容 Web、CLI、MCP 的共享工具函数。"""
+
+    def __init__(self, state=None):
+        self.state = state or {}
 
 
 logger = logging.getLogger(__name__)
@@ -2253,7 +2249,7 @@ def web_fetch(url: str, tool_context: ToolContext = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 工具列表导出（Web/Streamlit 端，不含 exec/read/write/web_fetch）
+# 工具列表导出（Web/MCP/CLI 端，不含 exec/read/write/web_fetch）
 # ---------------------------------------------------------------------------
 
 WYCKOFF_TOOLS = [

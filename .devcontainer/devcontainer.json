@@ -6,7 +6,7 @@
     "codespaces": {
       "openFiles": [
         "README.md",
-        "streamlit_app.py"
+        "docs/STREAMLIT_MVP_ARCHITECTURE.md"
       ]
     },
     "vscode": {
@@ -17,17 +17,17 @@
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; echo '✅ Packages installed and Requirements met'",
   "postAttachCommand": {
-    "server": "streamlit run streamlit_app.py --server.enableCORS false --server.enableXsrfProtection false"
+    "status": "echo 'Streamlit is retired on main. Use wyckoff, wyckoff dashboard, or cd web/apps/web && pnpm dev.'"
   },
   "portsAttributes": {
-    "8501": {
-      "label": "Application",
+    "5173": {
+      "label": "CF Pages Web App",
       "onAutoForward": "openPreview"
     }
   },
   "forwardPorts": [
-    8501
+    5173
   ]
 }

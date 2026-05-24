@@ -43,27 +43,9 @@ sys.path.insert(0, _PACKAGE_ROOT)
 # 加载 .env（项目根目录）
 load_dotenv()
 
-# 抑制 Streamlit 在非 Streamlit 环境下的全部日志
-os.environ["STREAMLIT_LOG_LEVEL"] = "error"
 import logging as _logging
 
 logger = _logging.getLogger(__name__)
-
-
-def _silence_streamlit():
-    for name in list(_logging.Logger.manager.loggerDict):
-        if name.startswith("streamlit"):
-            lg = _logging.getLogger(name)
-            lg.handlers.clear()
-            lg.setLevel(_logging.CRITICAL)
-            lg.propagate = False
-
-
-try:
-    import streamlit  # noqa: F401
-except Exception:
-    logger.debug("streamlit import failed", exc_info=True)
-_silence_streamlit()
 
 # CLI 环境：只显示 CRITICAL，不泄漏 traceback 给用户
 import warnings as _warnings
