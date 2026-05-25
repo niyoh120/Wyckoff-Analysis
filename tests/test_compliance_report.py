@@ -47,6 +47,35 @@ def test_public_payload_is_deidentified():
     assert payload["sample_stats"]["springboard_count"] == 1
 
 
+def test_public_payload_includes_market_and_etf_metrics_without_codes():
+    from core.compliance_report import build_public_payload
+
+    payload = build_public_payload(
+        benchmark_context={
+            "regime": "RISK_ON",
+            "close": 3200.12,
+            "ma50": 3150.5,
+            "ma200": 3000.0,
+            "breadth": {"ratio_pct": 56.7, "delta_pct": 6.2},
+            "etf_enhancement": {
+                "pool": 10,
+                "fetched": 9,
+                "l2_passed": 3,
+                "strong_candidates": 2,
+                "boosted_sectors": ["半导体", "证券"],
+            },
+            "etf_candidates": [{"code": "512480", "name": "半导体ETF", "sector": "半导体"}],
+        },
+        selected_df=_sample_df(),
+    )
+
+    text = json.dumps(payload, ensure_ascii=False)
+    assert payload["market"]["regime_label"] == "风险偏好回升"
+    assert payload["etf"]["l2_passed"] == 3
+    assert payload["etf"]["strong_themes"] == ["半导体", "证券"]
+    assert "512480" not in text
+
+
 def test_public_payload_handles_missing_industry_column():
     from core.compliance_report import build_public_payload
 
@@ -104,6 +133,11 @@ def test_generate_compliance_brief_fallback_has_no_stock_identifiers(monkeypatch
     assert "浦发银行" not in text
     assert "特锐德" not in text
     assert "市场观察简报" in text
+    assert "大盘结构" in text
+    assert "ETF温度" in text
+    assert "模型" not in text
+    assert "候选池" not in text
+    assert "操作池" not in text
 
 
 def test_generate_compliance_brief_rejects_bad_llm_output(monkeypatch):

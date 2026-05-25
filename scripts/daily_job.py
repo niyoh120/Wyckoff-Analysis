@@ -450,6 +450,16 @@ def _run_step4_pipeline(
     }
 
 
+def _run_step2_with_etf_metrics(run_step2, webhook: str, preview_only: bool):
+    result = run_step2("" if preview_only else webhook, notify=not preview_only, return_details=True)
+    step2_ok, symbols_info, benchmark_context, step2_details = result
+    if benchmark_context and step2_details:
+        metrics = step2_details.get("metrics", {}) or {}
+        benchmark_context["etf_enhancement"] = metrics.get("etf_enhancement", {}) or {}
+        benchmark_context["etf_candidates"] = metrics.get("etf_candidates", []) or []
+    return step2_ok, symbols_info, benchmark_context, step2_details
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="每日定时任务：Wyckoff Funnel → 批量研报")
     parser.add_argument("--dry-run", action="store_true", help="仅校验配置，不执行任务")
@@ -536,8 +546,9 @@ def main() -> int:
     step2_err = None
     step2_details: dict = {}
     try:
-        result = run_step2("" if preview_only else webhook, notify=not preview_only, return_details=True)
-        step2_ok, symbols_info, benchmark_context, step2_details = result
+        step2_ok, symbols_info, benchmark_context, step2_details = _run_step2_with_etf_metrics(
+            run_step2, webhook, preview_only
+        )
         step2_err = None if step2_ok else "飞书发送失败"
     except Exception as e:
         step2_err = str(e)
