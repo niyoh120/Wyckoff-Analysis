@@ -192,3 +192,23 @@ watch_score = 0.25 × q20 + 0.20 × q5 + 0.05 × q3
 | **申万指数 (SW Index)** | 由申万宏源编制的行业指数，tushare 中通过 `sw_daily` 接口获取（注意不是 `index_daily`） |
 | **快照 (Snapshot)** | 将一次性拉取的全量股票数据序列化到本地文件（csv.gz），后续回测直接读快照而非再次请求网络，提升速度并避免 API 限制 |
 | **前复权 (qfq)** | 以最新价格为基准向前调整历史价格，消除分红送股导致的价格跳空。回测默认使用前复权数据 |
+
+## 11. 信号反馈闭环
+
+```mermaid
+flowchart LR
+  A["L4 信号"] --> B["Observation<br/>观察样本"]
+  B --> C["Outcome<br/>未来收益/回撤"]
+  C --> D["Health<br/>信号健康度"]
+  D --> E["Registry<br/>启停状态"]
+  E --> F["Dynamic Policy<br/>下一轮配额"]
+```
+
+| 名词 | 含义 |
+|------|------|
+| **Observation** | 某日某股票触发某个 L4 信号的原始样本，落在 `signal_observations`。 |
+| **Outcome** | Observation 之后 1/3/5/10/20 日的收益和最大回撤，落在 `signal_outcomes`。 |
+| **Health** | 按信号类型聚合后的胜率、均值收益、样本数和权重，落在 `signal_health_daily`。 |
+| **Registry** | 信号生命周期表，控制信号是 `ACTIVE`、`WATCH`、`EXPERIMENTAL` 还是 `RETIRED`。 |
+| **Shadow Run** | 动态策略旁路演练：真实推荐不变，只记录动态策略会新增或移除哪些候选。 |
+| **Dynamic Policy** | 根据信号健康度、registry 和市场广度，动态调整 Trend / Accum 候选配额。 |

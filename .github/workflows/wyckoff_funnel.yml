@@ -71,6 +71,8 @@ jobs:
       # AI 候选选择：正式 L4 全量进入 Step3，Trend/Accum 仅用于分轨研报。
       FUNNEL_AI_SELECTION_MODE: "all_formal_l4"
       FUNNEL_AI_TOTAL_CAP: "8"
+      # off=静态配额；shadow=旁路记录动态策略差异；on=正式启用动态配额。
+      FUNNEL_DYNAMIC_POLICY: ${{ vars.FUNNEL_DYNAMIC_POLICY || secrets.FUNNEL_DYNAMIC_POLICY || 'off' }}
       FUNNEL_AI_RISK_ON_TREND: "3"
       FUNNEL_AI_RISK_ON_ACCUM: "5"
       FUNNEL_AI_RISK_OFF_TREND: "0"

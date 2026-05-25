@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 
-_SCHEMA_VERSION = 8
+_SCHEMA_VERSION = 10
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -123,11 +123,29 @@ CREATE TABLE IF NOT EXISTS tail_buy_history (
     signal_type TEXT DEFAULT '',
     status TEXT DEFAULT '',
     final_decision TEXT NOT NULL,
+    rule_decision TEXT DEFAULT '',
     rule_score REAL DEFAULT 0,
     priority_score REAL DEFAULT 0,
     rule_reasons TEXT DEFAULT '',
     llm_decision TEXT DEFAULT '',
     llm_reason TEXT DEFAULT '',
+    llm_confidence REAL,
+    llm_model_used TEXT DEFAULT '',
+    initial_price REAL DEFAULT 0,
+    current_price REAL DEFAULT 0,
+    change_pct REAL DEFAULT 0,
+    price_updated_at TEXT DEFAULT '',
+    last_close REAL DEFAULT 0,
+    vwap REAL DEFAULT 0,
+    dist_vwap_pct REAL DEFAULT 0,
+    close_pos REAL DEFAULT 0,
+    day_ret_pct REAL DEFAULT 0,
+    last30_ret_pct REAL DEFAULT 0,
+    last15_ret_pct REAL DEFAULT 0,
+    tail30_volume_share REAL DEFAULT 0,
+    drop_from_high_pct REAL DEFAULT 0,
+    fetch_error TEXT DEFAULT '',
+    features_json TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(code, run_date)
 );
@@ -200,6 +218,7 @@ def init_db() -> None:
     conn = get_db()
     conn.executescript(_DDL)
     _ensure_agent_memory_columns(conn)
+    _ensure_tail_buy_history_columns(conn)
     cur = conn.execute("SELECT MAX(version) FROM schema_version")
     row = cur.fetchone()
     current = row[0] if row and row[0] else 0
@@ -219,6 +238,8 @@ def init_db() -> None:
             logger.warning("migration: add metadata column failed", exc_info=True)
     if current < 8:
         _ensure_agent_memory_columns(conn)
+    if current < 9:
+        _ensure_tail_buy_history_columns(conn)
     if current < _SCHEMA_VERSION:
         conn.execute(
             "INSERT OR REPLACE INTO schema_version(version) VALUES(?)",
@@ -240,6 +261,33 @@ def _ensure_agent_memory_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE agent_memory ADD COLUMN {name} {ddl}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_level ON agent_memory(memory_level)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_source ON agent_memory(source_ref)")
+
+
+def _ensure_tail_buy_history_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(tail_buy_history)").fetchall()}
+    columns = {
+        "rule_decision": "TEXT DEFAULT ''",
+        "llm_confidence": "REAL",
+        "llm_model_used": "TEXT DEFAULT ''",
+        "initial_price": "REAL DEFAULT 0",
+        "current_price": "REAL DEFAULT 0",
+        "change_pct": "REAL DEFAULT 0",
+        "price_updated_at": "TEXT DEFAULT ''",
+        "last_close": "REAL DEFAULT 0",
+        "vwap": "REAL DEFAULT 0",
+        "dist_vwap_pct": "REAL DEFAULT 0",
+        "close_pos": "REAL DEFAULT 0",
+        "day_ret_pct": "REAL DEFAULT 0",
+        "last30_ret_pct": "REAL DEFAULT 0",
+        "last15_ret_pct": "REAL DEFAULT 0",
+        "tail30_volume_share": "REAL DEFAULT 0",
+        "drop_from_high_pct": "REAL DEFAULT 0",
+        "fetch_error": "TEXT DEFAULT ''",
+        "features_json": "TEXT DEFAULT ''",
+    }
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE tail_buy_history ADD COLUMN {name} {ddl}")
 
 
 def _backfill_background_tasks_from_chat_log(conn: sqlite3.Connection) -> None:
@@ -1007,28 +1055,51 @@ def save_tail_buy_results(rows: list[dict]) -> int:
         conn.executemany(
             """INSERT OR REPLACE INTO tail_buy_history
                (code, name, run_date, signal_date, signal_type, status,
-                final_decision, rule_score, priority_score, rule_reasons,
-                llm_decision, llm_reason, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-            [
-                (
-                    str(r.get("code", "")).strip(),
-                    str(r.get("name", "")).strip(),
-                    str(r.get("run_date", "")).strip(),
-                    str(r.get("signal_date", "")).strip(),
-                    str(r.get("signal_type", "")).strip(),
-                    str(r.get("status", "")).strip(),
-                    str(r.get("final_decision", "")).strip(),
-                    float(r.get("rule_score", 0) or 0),
-                    float(r.get("priority_score", 0) or 0),
-                    str(r.get("rule_reasons", "")).strip(),
-                    str(r.get("llm_decision", "")).strip(),
-                    str(r.get("llm_reason", "")).strip(),
-                )
-                for r in rows
-            ],
+                final_decision, rule_decision, rule_score, priority_score, rule_reasons,
+                llm_decision, llm_reason, llm_confidence, llm_model_used,
+                initial_price, current_price, change_pct, price_updated_at,
+                last_close, vwap, dist_vwap_pct, close_pos, day_ret_pct,
+                last30_ret_pct, last15_ret_pct, tail30_volume_share, drop_from_high_pct,
+                fetch_error, features_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            [_tail_buy_insert_values(r) for r in rows],
         )
     return len(rows)
+
+
+def _tail_buy_insert_values(r: dict) -> tuple[Any, ...]:
+    return (
+        str(r.get("code", "")).strip(),
+        str(r.get("name", "")).strip(),
+        str(r.get("run_date", "")).strip(),
+        str(r.get("signal_date", "")).strip(),
+        str(r.get("signal_type", "")).strip(),
+        str(r.get("status", "")).strip(),
+        str(r.get("final_decision", "")).strip(),
+        str(r.get("rule_decision", "")).strip(),
+        float(r.get("rule_score", 0) or 0),
+        float(r.get("priority_score", 0) or 0),
+        str(r.get("rule_reasons", "")).strip(),
+        str(r.get("llm_decision", "")).strip(),
+        str(r.get("llm_reason", "")).strip(),
+        r.get("llm_confidence"),
+        str(r.get("llm_model_used", "")).strip(),
+        float(r.get("initial_price", 0) or 0),
+        float(r.get("current_price", 0) or 0),
+        float(r.get("change_pct", 0) or 0),
+        str(r.get("price_updated_at", "")).strip(),
+        float(r.get("last_close", 0) or 0),
+        float(r.get("vwap", 0) or 0),
+        float(r.get("dist_vwap_pct", 0) or 0),
+        float(r.get("close_pos", 0) or 0),
+        float(r.get("day_ret_pct", 0) or 0),
+        float(r.get("last30_ret_pct", 0) or 0),
+        float(r.get("last15_ret_pct", 0) or 0),
+        float(r.get("tail30_volume_share", 0) or 0),
+        float(r.get("drop_from_high_pct", 0) or 0),
+        str(r.get("fetch_error", "")).strip(),
+        str(r.get("features_json", "")).strip(),
+    )
 
 
 def load_tail_buy_history(

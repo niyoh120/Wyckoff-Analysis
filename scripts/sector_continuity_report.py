@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from integrations.data_source import _CONCEPT_HEAT_HISTORY, fetch_concept_heat
+from integrations.supabase_concept_heat import load_concept_heat_history_from_supabase, upsert_concept_heat_history
 
 
 def _load_history() -> dict[str, dict]:
+    history = load_concept_heat_history_from_supabase()
+    if history:
+        print(f"[sector_continuity] Supabase 历史覆盖 {len(history)} 个交易日")
+        return history
     if not _CONCEPT_HEAT_HISTORY.exists():
         return {}
     with open(_CONCEPT_HEAT_HISTORY, encoding="utf-8") as f:
@@ -20,8 +26,6 @@ def _load_history() -> dict[str, dict]:
 
 def _update_history_with_today(history: dict, heat: list[dict]) -> dict:
     """将今日热度写入 history（不落盘，仅内存）。"""
-    from datetime import date
-
     today = date.today().isoformat()
     top_items = sorted(heat, key=lambda x: x.get("net_inflow", 0), reverse=True)[:20]
     history[today] = {
@@ -183,6 +187,9 @@ def main() -> None:
     history = _load_history()
 
     if heat:
+        written = upsert_concept_heat_history(date.today().isoformat(), heat)
+        if written:
+            print(f"[sector_continuity] Supabase 写入今日概念热度 {written} 条")
         history = _update_history_with_today(history, heat)
 
     if not history:

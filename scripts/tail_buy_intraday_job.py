@@ -59,6 +59,7 @@ TICKFLOW_UPGRADE_HINT = TICKFLOW_LIMIT_HINT
 HOLDING_ACTION_ADD = "ADD"
 HOLDING_ACTION_HOLD = "HOLD"
 HOLDING_ACTION_TRIM = "TRIM"
+TAIL_BUY_TRIM_WEAK_LOSS_PCT = -abs(float(os.getenv("TAIL_BUY_TRIM_WEAK_LOSS_PCT", "2.0")))
 
 
 @dataclass
@@ -460,11 +461,13 @@ def _analyze_holdings_actions(
         else:
             signal_item = signal_map.get(code)
             signal_score = _safe_float(signal_item.signal_score, 0.0) if signal_item else 0.0
+            signal_type = str(signal_item.signal_type if signal_item else "")
             status = str(signal_item.status if signal_item else "pending")
             features = compute_tail_features(df_1m)
             score, decision, reasons = score_tail_features(
                 features,
                 signal_score=signal_score,
+                signal_type=signal_type,
                 status=status,
                 style=style,
             )
@@ -481,6 +484,15 @@ def _analyze_holdings_actions(
             close_pos = _safe_float(features.get("close_pos"), 0.0)
             last30_ret_pct = _safe_float(features.get("last30_ret_pct"), 0.0)
             drop_from_high_pct = _safe_float(features.get("drop_from_high_pct"), 0.0)
+            has_actionable_signal = signal_item is not None and signal_type.strip().lower() not in {
+                "",
+                "holding",
+                "unknown",
+            }
+            weak_tail = (
+                dist_vwap_pct <= -0.6 or close_pos < 0.42 or last30_ret_pct <= -0.8 or drop_from_high_pct <= -2.2
+            )
+            severe_tail = (dist_vwap_pct <= -1.0 and close_pos < 0.35) or drop_from_high_pct <= -2.8
 
             base_reasons = _dedupe_texts(reasons, limit=2)
             if advice.current_price > 0 and effective_stop > 0 and advice.current_price <= effective_stop:
@@ -492,7 +504,13 @@ def _analyze_holdings_actions(
                     ],
                     limit=3,
                 )
-            elif decision == DECISION_BUY and dist_vwap_pct >= 0.15 and close_pos >= 0.68 and last30_ret_pct >= 0.2:
+            elif (
+                decision == DECISION_BUY
+                and has_actionable_signal
+                and dist_vwap_pct >= 0.15
+                and close_pos >= 0.68
+                and last30_ret_pct >= 0.2
+            ):
                 advice.action = HOLDING_ACTION_ADD
                 advice.reasons = _dedupe_texts(
                     [
@@ -501,8 +519,10 @@ def _analyze_holdings_actions(
                     ],
                     limit=3,
                 )
-            elif decision == DECISION_SKIP and (
-                dist_vwap_pct <= -0.6 or close_pos < 0.42 or last30_ret_pct <= -0.8 or drop_from_high_pct <= -2.2
+            elif (
+                decision == DECISION_SKIP
+                and weak_tail
+                and (advice.pnl_pct <= TAIL_BUY_TRIM_WEAK_LOSS_PCT or severe_tail)
             ):
                 advice.action = HOLDING_ACTION_TRIM
                 advice.reasons = _dedupe_texts(
@@ -514,9 +534,14 @@ def _analyze_holdings_actions(
                 )
             else:
                 advice.action = HOLDING_ACTION_HOLD
+                hold_reason = "结构中性，先持有观察"
+                if decision == DECISION_BUY and not has_actionable_signal:
+                    hold_reason = "无有效L4信号，不做尾盘加仓"
+                elif decision == DECISION_BUY:
+                    hold_reason = "尾盘强度未达加仓触发线，先持有观察"
                 advice.reasons = _dedupe_texts(
                     [
-                        "结构中性，先持有观察",
+                        hold_reason,
                         *base_reasons,
                     ],
                     limit=3,
@@ -1170,6 +1195,42 @@ def _send_notifications(
     return feishu_ok, tg_ok
 
 
+def _tail_buy_persist_row(c: TailBuyCandidate, started_at: datetime) -> dict[str, Any]:
+    initial_price = _safe_float(c.features.get("last_close"), 0.0)
+    return {
+        "code": c.code,
+        "name": c.name,
+        "run_date": started_at.strftime("%Y-%m-%d"),
+        "signal_date": c.signal_date,
+        "signal_type": c.signal_type,
+        "status": c.status,
+        "final_decision": c.final_decision,
+        "rule_decision": c.rule_decision,
+        "rule_score": c.rule_score,
+        "priority_score": c.priority_score,
+        "rule_reasons": json.dumps(c.rule_reasons, ensure_ascii=False),
+        "llm_decision": c.llm_decision or "",
+        "llm_reason": c.llm_reason,
+        "llm_confidence": c.llm_confidence,
+        "llm_model_used": c.llm_model_used,
+        "initial_price": initial_price,
+        "current_price": initial_price,
+        "change_pct": 0.0,
+        "price_updated_at": started_at.isoformat(),
+        "last_close": c.features.get("last_close", 0.0),
+        "vwap": c.features.get("vwap", 0.0),
+        "dist_vwap_pct": c.features.get("dist_vwap_pct", 0.0),
+        "close_pos": c.features.get("close_pos", 0.0),
+        "day_ret_pct": c.features.get("day_ret_pct", 0.0),
+        "last30_ret_pct": c.features.get("last30_ret_pct", 0.0),
+        "last15_ret_pct": c.features.get("last15_ret_pct", 0.0),
+        "tail30_volume_share": c.features.get("tail30_volume_share", 0.0),
+        "drop_from_high_pct": c.features.get("drop_from_high_pct", 0.0),
+        "fetch_error": c.fetch_error,
+        "features_json": json.dumps(c.features, ensure_ascii=False, default=str),
+    }
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Tail Buy Intraday Job")
     parser.add_argument("--max-llm-symbols", type=int, default=int(os.getenv("TAIL_BUY_LLM_TOP_N", "20")))
@@ -1411,24 +1472,7 @@ def main() -> int:
         from integrations.local_db import init_db, save_tail_buy_results
 
         init_db()
-        persistable = [
-            {
-                "code": c.code,
-                "name": c.name,
-                "run_date": started_at.strftime("%Y-%m-%d"),
-                "signal_date": c.signal_date,
-                "signal_type": c.signal_type,
-                "status": c.status,
-                "final_decision": c.final_decision,
-                "rule_score": c.rule_score,
-                "priority_score": c.priority_score,
-                "rule_reasons": json.dumps(c.rule_reasons, ensure_ascii=False),
-                "llm_decision": c.llm_decision or "",
-                "llm_reason": c.llm_reason,
-            }
-            for c in merged
-            if c.final_decision != "SKIP"
-        ]
+        persistable = [_tail_buy_persist_row(c, started_at) for c in merged if c.final_decision != "SKIP"]
         saved = save_tail_buy_results(persistable)
         _log(f"已写入 {saved} 条尾盘结果到本地 SQLite", logs_path)
         # 持久化 BUY 到 Supabase

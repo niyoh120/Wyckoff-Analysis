@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -381,6 +381,50 @@ def test_auto_style_selects_by_signal_type():
     assert sos_out.rule_score > 0
 
 
+def test_holding_tail_action_adds_clear_signal_even_if_losing(monkeypatch):
+    from scripts import tail_buy_intraday_job as job
+
+    class FakeTickFlow:
+        def get_quotes(self, symbols):
+            return {symbol: {"last_price": 9.5} for symbol in symbols}
+
+        def get_intraday_batch(self, chunk, *, period, count):
+            assert period == "1m"
+            assert count == 5000
+            df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.8, tail_volume_mult=2.0)
+            return {symbol: df for symbol in chunk}
+
+    monkeypatch.setattr(
+        job,
+        "load_portfolio_state",
+        lambda _portfolio_id: {
+            "state_signature": "sig",
+            "positions": [{"code": "000001", "name": "平安银行", "shares": 1000, "cost": 10.0}],
+        },
+    )
+    signal = TailBuyCandidate(
+        code="000001",
+        name="平安银行",
+        signal_date="2026-05-20",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=6.0,
+    )
+
+    holdings, _limit_hit, _meta = job._analyze_holdings_actions(
+        tickflow_client=FakeTickFlow(),
+        portfolio_id="USER_LIVE:test",
+        signal_map={"000001": signal},
+        style="auto",
+        intraday_batch_size=20,
+        hard_stop_pct=8.0,
+        deadline_at=datetime.now(job.TZ) + timedelta(seconds=60),
+    )
+
+    assert holdings[0].action == job.HOLDING_ACTION_ADD
+    assert "尾盘结构延续走强" in "；".join(holdings[0].reasons)
+
+
 def test_build_tail_buy_markdown_truncates_error_items_over_limit():
     items = []
     for i in range(7):
@@ -437,6 +481,15 @@ def test_tail_buy_history_save_and_load(tmp_path, monkeypatch):
             "rule_reasons": '["尾盘走强"]',
             "llm_decision": "BUY",
             "llm_reason": "强势回踩",
+            "initial_price": 10.88,
+            "current_price": 10.88,
+            "change_pct": 0.0,
+            "price_updated_at": "2026-04-25T14:55:00+08:00",
+            "last_close": 10.88,
+            "vwap": 10.41,
+            "dist_vwap_pct": 4.5,
+            "last30_ret_pct": 1.2,
+            "features_json": '{"last_close":10.88}',
         },
         {
             "code": "002217",
@@ -462,6 +515,11 @@ def test_tail_buy_history_save_and_load(tmp_path, monkeypatch):
     buy_only = load_tail_buy_history(decision="BUY")
     assert len(buy_only) == 1
     assert buy_only[0]["code"] == "301090"
+    assert buy_only[0]["initial_price"] == 10.88
+    assert buy_only[0]["current_price"] == 10.88
+    assert buy_only[0]["change_pct"] == 0.0
+    assert buy_only[0]["last_close"] == 10.88
+    assert buy_only[0]["dist_vwap_pct"] == 4.5
 
     by_date = load_tail_buy_history(run_date="2026-04-25")
     assert len(by_date) == 2

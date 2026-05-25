@@ -24,6 +24,12 @@ import pandas as pd
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.dynamic_policy import (
+    build_signal_weight_map,
+    dynamic_policy_mode,
+    filter_triggers_by_registry,
+    resolve_dynamic_candidate_policy,
+)
 from core.sector_rotation import analyze_sector_rotation
 from core.wyckoff_engine import (
     FunnelConfig,
@@ -49,6 +55,11 @@ from integrations.data_source import (
 )
 from integrations.fetch_a_share_csv import (
     _resolve_trading_window,
+)
+from integrations.supabase_signal_feedback import (
+    load_signal_health_snapshot,
+    load_signal_registry,
+    upsert_policy_shadow_run,
 )
 from integrations.tickflow_notice import TICKFLOW_UPGRADE_URL
 
@@ -650,6 +661,174 @@ def _promote_l2_bypass_for_ai(
     return added
 
 
+def _load_dynamic_policy_context(regime: str, benchmark_context: dict) -> dict:
+    mode = dynamic_policy_mode()
+    if mode == "off":
+        return {"mode": mode, "health": [], "registry": [], "weights": {}, "policy": None}
+    try:
+        health_rows = load_signal_health_snapshot(market="cn")
+        registry_rows = load_signal_registry(market="cn")
+    except Exception as exc:
+        logger.warning("动态策略上下文加载失败，降级为静态: %s", exc)
+        return {"mode": "off", "health": [], "registry": [], "weights": {}, "policy": None}
+    weights = build_signal_weight_map(health_rows, registry_rows, regime=regime)
+    base_policy = resolve_ai_candidate_policy(regime)
+    policy = resolve_dynamic_candidate_policy(
+        base_policy,
+        weights,
+        breadth=(benchmark_context.get("breadth") or {}),
+    )
+    if health_rows or registry_rows:
+        print(
+            "[funnel] 动态策略上下文: "
+            f"mode={mode}, weights={weights or {}}, "
+            f"TrendWeight={policy.get('trend_health_weight', 1)}, "
+            f"AccumWeight={policy.get('accum_health_weight', 1)}"
+        )
+    return {"mode": mode, "health": health_rows, "registry": registry_rows, "weights": weights, "policy": policy}
+
+
+def _candidate_result(metrics: dict, triggers: dict[str, list[tuple[str, float]]]) -> FunnelResult:
+    return FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=metrics.get("layer3_symbols", []) or [],
+        top_sectors=[],
+        triggers=triggers,
+        stage_map=metrics.get("accum_stage_map", {}) or {},
+        markup_symbols=metrics.get("markup_symbols", []) or [],
+        exit_signals=metrics.get("exit_signals", {}) or {},
+        channel_map=metrics.get("layer2_channel_map", {}) or {},
+    )
+
+
+def _public_policy(policy: dict) -> dict:
+    return {k: v for k, v in policy.items() if not str(k).startswith("_")}
+
+
+def _selection_diff(base_selected: list[str], shadow_selected: list[str]) -> tuple[list[str], list[str]]:
+    base_set = set(base_selected)
+    shadow_set = set(shadow_selected)
+    return ([c for c in shadow_selected if c not in base_set], [c for c in base_selected if c not in shadow_set])
+
+
+def _allocate_candidates_for_ai(
+    metrics: dict,
+    triggers: dict[str, list[tuple[str, float]]],
+    l3_ranked_symbols: list[str],
+    regime: str,
+    sector_map: dict[str, str],
+    benchmark_context: dict,
+) -> tuple[list[str], list[str], dict[str, float], dict]:
+    dynamic_ctx = _load_dynamic_policy_context(str(regime), benchmark_context)
+    dynamic_mode = str(dynamic_ctx.get("mode") or "off")
+    allocation_triggers = triggers
+    if dynamic_mode == "on":
+        allocation_triggers = filter_triggers_by_registry(triggers, dynamic_ctx.get("registry", []) or [])
+    mock_result = _candidate_result(metrics, allocation_triggers)
+    alloc_started = time.monotonic()
+    dynamic_policy = dynamic_ctx.get("policy") if dynamic_mode == "on" else None
+    trend_selected, accum_selected, score_map = allocate_ai_candidates(
+        mock_result,
+        l3_ranked_symbols,
+        regime,
+        sector_map=sector_map,
+        max_per_sector=2,
+        policy_override=dynamic_policy,
+        signal_weight_map=(dynamic_ctx.get("weights") or {}) if dynamic_mode == "on" else None,
+    )
+    ai_policy = dynamic_policy or resolve_ai_candidate_policy(regime)
+    if dynamic_mode == "shadow" and dynamic_ctx.get("policy"):
+        shadow_policy = dynamic_ctx["policy"]
+        ai_policy["_dynamic_mode"] = dynamic_mode
+        ai_policy["_shadow_policy"] = shadow_policy
+        ai_policy["_signal_weights"] = dynamic_ctx.get("weights") or {}
+        ai_policy["_registry_rows"] = dynamic_ctx.get("registry") or []
+        ai_policy["_health_rows"] = dynamic_ctx.get("health") or []
+        print(
+            "[funnel] 动态策略shadow: "
+            f"base Trend={ai_policy['trend_quota']}, Accum={ai_policy['accum_quota']} -> "
+            f"shadow Trend={shadow_policy['trend_quota']}, Accum={shadow_policy['accum_quota']}"
+        )
+    alloc_elapsed = time.monotonic() - alloc_started
+    print(
+        f"[funnel] AI候选分配完成: trend={len(trend_selected)}, accum={len(accum_selected)}, "
+        f"elapsed={alloc_elapsed:.3f}s"
+    )
+    return trend_selected, accum_selected, score_map, ai_policy
+
+
+def _shadow_selected_codes(
+    metrics: dict,
+    triggers: dict[str, list[tuple[str, float]]],
+    l3_ranked_symbols: list[str],
+    regime: str,
+    sector_map: dict[str, str],
+    ai_policy: dict,
+) -> tuple[list[str], list[str], dict[str, float]]:
+    shadow_triggers = filter_triggers_by_registry(triggers, ai_policy.get("_registry_rows", []) or [])
+    trend, accum, score_map = allocate_ai_candidates(
+        _candidate_result(metrics, shadow_triggers),
+        l3_ranked_symbols,
+        regime,
+        sector_map=sector_map,
+        max_per_sector=2,
+        policy_override=ai_policy.get("_shadow_policy"),
+        signal_weight_map=ai_policy.get("_signal_weights") or {},
+    )
+    return trend, accum, score_map
+
+
+def _maybe_persist_policy_shadow_run(
+    *,
+    ai_policy: dict,
+    metrics: dict,
+    triggers: dict[str, list[tuple[str, float]]],
+    selected_for_ai: list[str],
+    l3_ranked_symbols: list[str],
+    regime: str,
+    sector_map: dict[str, str],
+) -> dict:
+    if ai_policy.get("_dynamic_mode") != "shadow" or not ai_policy.get("_shadow_policy"):
+        return {}
+    shadow_trend, shadow_accum, _score_map = _shadow_selected_codes(
+        metrics,
+        triggers,
+        l3_ranked_symbols,
+        regime,
+        sector_map,
+        ai_policy,
+    )
+    shadow_selected = shadow_trend + shadow_accum
+    diff_added, diff_removed = _selection_diff(selected_for_ai, shadow_selected)
+    row = {
+        "market": "cn",
+        "trade_date": str(metrics.get("end_trade_date") or date.today().isoformat()),
+        "regime": str(regime or "NEUTRAL").strip().upper() or "NEUTRAL",
+        "base_policy": _public_policy(ai_policy),
+        "shadow_policy": _public_policy(ai_policy.get("_shadow_policy") or {}),
+        "signal_weights": ai_policy.get("_signal_weights") or {},
+        "base_selected": selected_for_ai,
+        "shadow_selected": shadow_selected,
+        "diff_added": diff_added,
+        "diff_removed": diff_removed,
+        "registry_snapshot": ai_policy.get("_registry_rows") or [],
+        "health_snapshot": ai_policy.get("_health_rows") or [],
+        "updated_at": datetime.now(CN_TZ).isoformat(),
+    }
+    written = upsert_policy_shadow_run(row)
+    print(
+        "[funnel] 动态策略shadow已写入 signal_policy_shadow_runs: "
+        f"written={written}, added={len(diff_added)}, removed={len(diff_removed)}"
+    )
+    return {
+        "shadow_table": "signal_policy_shadow_runs",
+        "shadow_written": written,
+        "shadow_added_count": len(diff_added),
+        "shadow_removed_count": len(diff_removed),
+    }
+
+
 def run_funnel_job(
     include_debug_context: bool = False,
     direct_source: bool = False,
@@ -884,6 +1063,7 @@ def run_funnel_job(
         "pool_merged": len(merged_symbols),
         "pool_st_excluded": len(st_symbols),
         "pool_batches": total_batches,
+        "end_trade_date": window.end_trade_date.isoformat(),
         "fetch_ok": int(fetch_stats.get("fetch_ok", len(all_df_map)) or 0),
         "fetch_fail": int(fetch_stats.get("fetch_fail", 0) or 0),
         "fetch_date_mismatch": int(fetch_stats.get("fetch_date_mismatch", 0) or 0),
@@ -1054,30 +1234,13 @@ def run(
             f"Trend={len(trend_selected)}, Accum={len(accum_selected)}, total={len(selected_for_ai)}"
         )
     else:
-        mock_result = FunnelResult(
-            layer1_symbols=[],
-            layer2_symbols=[],
-            layer3_symbols=metrics.get("layer3_symbols", []) or [],
-            top_sectors=[],
-            triggers=triggers,
-            stage_map=accum_stage_map,
-            markup_symbols=markup_symbols,
-            exit_signals=exit_signals,
-            channel_map=l2_channel_map,
-        )
-        alloc_started = time.monotonic()
-        trend_selected, accum_selected, score_map = allocate_ai_candidates(
-            mock_result,
+        trend_selected, accum_selected, score_map, ai_policy = _allocate_candidates_for_ai(
+            metrics,
+            triggers,
             l3_ranked_symbols,
-            regime,
-            sector_map=sector_map,
-            max_per_sector=2,
-        )
-        ai_policy = resolve_ai_candidate_policy(regime)
-        alloc_elapsed = time.monotonic() - alloc_started
-        print(
-            f"[funnel] AI候选分配完成: trend={len(trend_selected)}, accum={len(accum_selected)}, "
-            f"elapsed={alloc_elapsed:.3f}s"
+            str(regime),
+            sector_map,
+            benchmark_context,
         )
         selected_for_ai = trend_selected + accum_selected
 
@@ -1106,6 +1269,17 @@ def run(
         dropped = before - len(selected_for_ai)
         if dropped:
             print(f"[funnel] min_funnel_score={min_funnel_score} 过滤掉 {dropped} 只低质量候选")
+
+    shadow_meta = _maybe_persist_policy_shadow_run(
+        ai_policy=ai_policy,
+        metrics=metrics,
+        triggers=triggers,
+        selected_for_ai=selected_for_ai,
+        l3_ranked_symbols=l3_ranked_symbols,
+        regime=str(regime),
+        sector_map=sector_map,
+    )
+    ai_policy.update(shadow_meta)
 
     if use_legacy_card and use_legacy_selection:
         bench_line = "未知"
@@ -1357,6 +1531,12 @@ def run(
         f"**Top 行业**: {', '.join(metrics['top_sectors']) if metrics['top_sectors'] else '无'}",
         "",
     ]
+    if ai_policy.get("shadow_table"):
+        lines.insert(
+            -1,
+            f"**动态策略 Shadow**: `{ai_policy['shadow_table']}` 写入{ai_policy.get('shadow_written', 0)}行；"
+            f"shadow新增{ai_policy.get('shadow_added_count', 0)}只，移除{ai_policy.get('shadow_removed_count', 0)}只",
+        )
     _append_etf_section(lines, etf_metrics, etf_candidates)
     if etf_metrics or etf_candidates:
         lines.append("")

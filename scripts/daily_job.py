@@ -211,6 +211,46 @@ def _mark_step3_recommendations(
         _log(f"推荐记录AI标记失败: {e}", logs_path)
 
 
+def _persist_signal_observations(
+    step2_details: dict,
+    benchmark_context: dict,
+    ai_codes: list[str],
+    logs_path: str | None,
+    *,
+    dry_run: bool = False,
+) -> None:
+    if not step2_details:
+        return
+    if dry_run:
+        _log("预演模式: 跳过信号观察样本入库", logs_path)
+        return
+    try:
+        from core.signal_feedback import build_signal_observations
+        from integrations.supabase_signal_feedback import upsert_signal_observations
+
+        metrics = step2_details.get("metrics", {}) or {}
+        bypass_codes = {str(c).strip() for c in step2_details.get("l2_bypass_selected", []) if str(c).strip()}
+        source_map = {code: "l2_bypass" for code in bypass_codes}
+        rows = build_signal_observations(
+            _latest_trade_date_str(),
+            step2_details.get("review_triggers") or step2_details.get("triggers") or {},
+            regime=str((benchmark_context or {}).get("regime") or "NEUTRAL"),
+            selected_for_ai=step2_details.get("selected_for_ai", []) or [],
+            ai_recommended=ai_codes,
+            name_map=step2_details.get("name_map", {}) or {},
+            sector_map=step2_details.get("sector_map", {}) or {},
+            score_map=step2_details.get("priority_score_map", {}) or {},
+            stage_map=metrics.get("accum_stage_map", {}) or {},
+            channel_map=metrics.get("layer2_channel_map", {}) or {},
+            latest_close_map=metrics.get("latest_close_map", {}) or {},
+            source_map=source_map,
+        )
+        written = upsert_signal_observations(rows)
+        _log(f"信号观察样本入库: rows={len(rows)}, written={written}", logs_path)
+    except Exception as e:
+        _log(f"信号观察样本入库失败: {e}", logs_path)
+
+
 def _load_step4_target() -> tuple[dict | None, str]:
     target_user_id = os.getenv("SUPABASE_USER_ID", "").strip()
     if not target_user_id:
@@ -589,6 +629,11 @@ def main() -> int:
     else:
         summary.append({"step": "批量研报", "ok": True, "err": None, "elapsed_s": 0, "output": "skipped (no symbols)"})
         _log("Step3 批量研报: 跳过（无筛选结果）", logs_path)
+
+    if step2_ok and step2_details:
+        _persist_signal_observations(
+            step2_details, benchmark_context, step3_springboard_codes, logs_path, dry_run=preview_only
+        )
 
     # Step4: 私人账户再平衡（按 SUPABASE_USER_ID 唯一执行）
     if skip_step4:

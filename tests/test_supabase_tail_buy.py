@@ -15,8 +15,13 @@ class _FakeQuery:
         self.order_column = ""
         self.order_desc = False
         self.limit_value: int | None = None
+        self.update_payload: dict | None = None
 
     def select(self, _columns: str):
+        return self
+
+    def update(self, payload: dict):
+        self.update_payload = payload
         return self
 
     def eq(self, column: str, value: str):
@@ -35,7 +40,12 @@ class _FakeQuery:
     def execute(self):
         rows = self.client.rows
         for column, value in self.filters:
-            rows = [row for row in rows if row.get(column) == value]
+            rows = [row for row in rows if str(row.get(column)) == str(value)]
+        if self.update_payload is not None:
+            for row in rows:
+                row.update(self.update_payload)
+            self.client.updates.append({"filters": list(self.filters), "payload": dict(self.update_payload)})
+            return _Response(data=rows)
         if self.order_column:
             rows = sorted(rows, key=lambda row: row.get(self.order_column, ""), reverse=self.order_desc)
         if self.limit_value is not None:
@@ -48,6 +58,7 @@ class _FakeClient:
         self.rows = rows
         self.table_calls = 0
         self.last_query: _FakeQuery | None = None
+        self.updates: list[dict] = []
 
     def table(self, _name: str):
         self.table_calls += 1
@@ -146,3 +157,69 @@ def test_sync_tail_buy_filters_user_before_local_write(monkeypatch):
     assert client.last_query.filters == [("user_id", "user-a")]
     assert [row["code"] for row in captured] == ["600001"]
     assert meta == {"tail_buy_history": 1}
+
+
+def test_tail_buy_payload_includes_entry_and_current_prices():
+    from integrations.supabase_tail_buy import _payload_row
+
+    payload = _payload_row(
+        {
+            "code": "600001",
+            "name": "A",
+            "run_date": "2026-05-10",
+            "initial_price": 10.5,
+            "current_price": 10.8,
+            "change_pct": 2.86,
+            "price_updated_at": "2026-05-10T07:00:00+00:00",
+            "features_json": '{"last_close":10.5}',
+        },
+        "user-a",
+    )
+
+    assert payload["initial_price"] == 10.5
+    assert payload["current_price"] == 10.8
+    assert payload["change_pct"] == 2.86
+    assert payload["price_updated_at"] == "2026-05-10T07:00:00+00:00"
+    assert payload["features_json"] == {"last_close": 10.5}
+
+
+def test_refresh_tail_buy_prices_updates_current_price(monkeypatch):
+    from integrations import supabase_tail_buy
+
+    rows = [
+        {
+            "user_id": "user-a",
+            "code": "600001",
+            "run_date": "2026-05-10",
+            "initial_price": 10.0,
+            "last_close": 9.8,
+        },
+        {
+            "user_id": "user-b",
+            "code": "600002",
+            "run_date": "2026-05-10",
+            "initial_price": 20.0,
+            "last_close": 20.0,
+        },
+    ]
+    client = _FakeClient(rows)
+    captured: dict[str, object] = {}
+
+    def fake_fetch_quotes(api_key: str, symbols: list[str], batch_size: int) -> dict[str, dict]:
+        captured.update({"api_key": api_key, "symbols": symbols, "batch_size": batch_size})
+        return {"600001.SH": {"last_price": 11.2}}
+
+    monkeypatch.setenv("TICKFLOW_API_KEY", "tick-key")
+    monkeypatch.setattr(supabase_tail_buy, "_configured", lambda: True)
+    monkeypatch.setattr(supabase_tail_buy, "_admin", lambda: client)
+    monkeypatch.setattr(supabase_tail_buy, "_fetch_tail_quotes", fake_fetch_quotes)
+
+    summary = supabase_tail_buy.refresh_tail_buy_prices_with_tickflow_realtime(user_id="user-a")
+
+    assert summary["rows_total"] == 1
+    assert summary["rows_updated"] == 1
+    assert captured["symbols"] == ["600001.SH"]
+    assert rows[0]["current_price"] == 11.2
+    assert rows[0]["change_pct"] == 12.0
+    assert rows[0]["price_updated_at"]
+    assert rows[1].get("current_price") is None

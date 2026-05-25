@@ -19,6 +19,12 @@ TABLE_TRADE_ORDERS = "trade_orders"
 TABLE_DAILY_NAV = "daily_nav"
 TABLE_TAIL_BUY_HISTORY = "tail_buy_history"
 TABLE_WHITELIST = "whitelist"
+TABLE_CONCEPT_HEAT_HISTORY = "concept_heat_history"
+TABLE_SIGNAL_OBSERVATIONS = "signal_observations"
+TABLE_SIGNAL_OUTCOMES = "signal_outcomes"
+TABLE_SIGNAL_HEALTH_DAILY = "signal_health_daily"
+TABLE_SIGNAL_REGISTRY = "signal_registry"
+TABLE_SIGNAL_POLICY_SHADOW_RUNS = "signal_policy_shadow_runs"
 
 # Local SQLite DB path
 from pathlib import Path as _Path

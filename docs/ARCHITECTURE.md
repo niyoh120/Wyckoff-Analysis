@@ -579,6 +579,30 @@ pending ──(价格确认)──→ confirmed（可操作）
 
 TTL：SOS 2 天、Spring 3 天、LPS 3 天、EVR 2 天、Compression 3 天。
 
+## 信号反馈与动态策略闭环
+
+完整说明见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)。核心关系是：漏斗写观察样本，feedback 盘后验收，下一轮漏斗读取新的健康度和 registry。
+
+```mermaid
+flowchart LR
+  A["漏斗本轮运行<br/>Layer1-4 + AI + OMS"] --> B["signal_observations"]
+  B --> C["signal_feedback_job.py<br/>计算 outcomes"]
+  C --> D["signal_health_daily<br/>signal_registry"]
+  D --> E{"FUNNEL_DYNAMIC_POLICY"}
+  E -- "off" --> F["下一轮仍用静态配额"]
+  E -- "shadow" --> G["静态配额出结果<br/>动态配额写 shadow 差异"]
+  E -- "on" --> H["动态配额正式介入"]
+  F --> A
+  G --> A
+  H --> A
+```
+
+| 模式 | 行为 |
+|------|------|
+| `off` | 默认静态 Trend / Accum 配额，不读取反馈权重。 |
+| `shadow` | 主流程保持静态配额，同时把动态策略候选差异写入 `signal_policy_shadow_runs`。 |
+| `on` | 正式使用 `signal_health_daily` 权重和 `signal_registry` 启停状态。 |
+
 ## 尾盘策略
 
 `core/tail_buy_strategy.py` + `scripts/tail_buy_intraday_job.py`
@@ -611,16 +635,18 @@ signal_pending (pending/confirmed)
 
 ## Pipeline（定时任务）
 
-### GitHub Actions 工作流（12 个）
+### GitHub Actions 主要工作流
 
 | 工作流 | 时间（北京） | 说明 |
 |-------|-------------|------|
 | **CI** (`ci.yml`) | push/PR | pytest + compile + dry-run |
 | **A 股漏斗筛选 + AI 研报 + 决策** (`wyckoff_funnel.yml`) | 周日-周四 18:25 | `daily_job.py` Step2→3→4 |
+| **信号反馈闭环** (`signal_feedback.yml`) | 周一-周五 23:30 | `signal_feedback_job.py` 刷新 outcomes / health / registry |
 | **港股漏斗筛选** (`wyckoff_funnel_hk.yml`) | 周一-周五 16:35 | `market_funnel_job.py --market hk` |
 | **美股漏斗筛选** (`wyckoff_funnel_us.yml`) | 周二-周六 05:35 | `market_funnel_job.py --market us` |
 | **尾盘策略** (`tail_buy_1420.yml`) | 周一-周五 13:50 | `tail_buy_intraday_job.py` |
 | **盘前风控** (`premarket_risk.yml`) | 周一-周五 08:20 | A50 + VIX 预警 |
+| **板块连续性报告** (`sector_continuity.yml`) | 周一-周五盘后 | 计算概念 / 行业热度并持久化 |
 | **涨停复盘** (`review_list_replay.yml`) | 周一-周五 19:25 | 当日涨幅 ≥ 8% 回溯 |
 | **形态复盘重定价** (`recommendation_tracking_reprice.yml`) | 周日-周四 23:00 | 同步收盘价、计算收益 |
 | **数据库维护** (`db_maintenance.yml`) | 每天 23:05 | 清理过期行情、订单、信号、市场信号等滑动窗口数据 |
@@ -654,6 +680,12 @@ tickflow                                        （1 分钟盘中数据，尾盘
 | `signal_pending` | 信号确认池 |
 | `market_signal_daily` | 大盘信号 |
 | `daily_nav` | 每日净值 |
+| `concept_heat_history` | 板块连续性与概念热度历史 |
+| `signal_observations` | L4 信号观察样本 |
+| `signal_outcomes` | 信号后续收益 / 回撤结果 |
+| `signal_health_daily` | 按信号聚合的健康度快照 |
+| `signal_registry` | 信号生命周期与启停状态 |
+| `signal_policy_shadow_runs` | 动态策略 shadow run 差异记录 |
 
 数据隔离：Web JWT → RLS，CLI access_token → RLS，脚本 service_role_key → 绕过 RLS。
 

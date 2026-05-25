@@ -95,6 +95,41 @@ def sync_portfolio(portfolio_id: str = "USER_LIVE", client=None) -> int:
     return 1 + len(positions)
 
 
+def _tail_buy_local_row(row: dict) -> dict:
+    return {
+        "code": str(row.get("code", "")),
+        "name": row.get("name", ""),
+        "run_date": str(row.get("run_date", "")),
+        "signal_date": row.get("signal_date", ""),
+        "signal_type": row.get("signal_type", ""),
+        "status": row.get("status", ""),
+        "final_decision": row.get("final_decision", "BUY"),
+        "rule_decision": row.get("rule_decision", ""),
+        "rule_score": float(row.get("rule_score", 0)),
+        "priority_score": float(row.get("priority_score", 0)),
+        "rule_reasons": row.get("rule_reasons", ""),
+        "llm_decision": row.get("llm_decision", ""),
+        "llm_reason": row.get("llm_reason", ""),
+        "llm_confidence": row.get("llm_confidence"),
+        "llm_model_used": row.get("llm_model_used", ""),
+        "initial_price": row.get("initial_price", 0),
+        "current_price": row.get("current_price", 0),
+        "change_pct": row.get("change_pct", 0),
+        "price_updated_at": row.get("price_updated_at", ""),
+        "last_close": row.get("last_close", 0),
+        "vwap": row.get("vwap", 0),
+        "dist_vwap_pct": row.get("dist_vwap_pct", 0),
+        "close_pos": row.get("close_pos", 0),
+        "day_ret_pct": row.get("day_ret_pct", 0),
+        "last30_ret_pct": row.get("last30_ret_pct", 0),
+        "last15_ret_pct": row.get("last15_ret_pct", 0),
+        "tail30_volume_share": row.get("tail30_volume_share", 0),
+        "drop_from_high_pct": row.get("drop_from_high_pct", 0),
+        "fetch_error": row.get("fetch_error", ""),
+        "features_json": row.get("features_json", ""),
+    }
+
+
 def sync_tail_buy(client=None, user_id: str = "") -> int:
     from core.constants import TABLE_TAIL_BUY_HISTORY
     from integrations.local_db import save_tail_buy_results, update_sync_meta
@@ -115,23 +150,7 @@ def sync_tail_buy(client=None, user_id: str = "") -> int:
         .execute()
     )
     rows = resp.data or []
-    persistable = [
-        {
-            "code": str(r.get("code", "")),
-            "name": r.get("name", ""),
-            "run_date": str(r.get("run_date", "")),
-            "signal_date": r.get("signal_date", ""),
-            "signal_type": r.get("signal_type", ""),
-            "status": "",
-            "final_decision": r.get("final_decision", "BUY"),
-            "rule_score": float(r.get("rule_score", 0)),
-            "priority_score": float(r.get("priority_score", 0)),
-            "rule_reasons": r.get("rule_reasons", ""),
-            "llm_decision": r.get("llm_decision", ""),
-            "llm_reason": r.get("llm_reason", ""),
-        }
-        for r in rows
-    ]
+    persistable = [_tail_buy_local_row(r) for r in rows]
     n = save_tail_buy_results(persistable)
     update_sync_meta("tail_buy_history", n)
     return n

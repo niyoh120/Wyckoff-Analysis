@@ -44,6 +44,30 @@
 
 每轮全量拉取后，行情数据序列化到 `data/funnel_snapshots`。这使得计算与网络完全分离——回测和调参全程离线，不需要重复拉数据。
 
+### 信号反馈闭环
+
+A 股主漏斗和 feedback 是错峰运行的反馈系统，不是同一任务里的强同步步骤。漏斗先产出信号样本，feedback 盘后验收，下一轮漏斗再读取新的策略状态。
+
+```mermaid
+flowchart LR
+  A["18:25 漏斗<br/>发现 L4 信号"] --> B["AI 研报 + OMS<br/>形成推荐/观察"]
+  B --> C["写 signal_observations"]
+  C --> D["23:30 feedback<br/>计算 outcomes"]
+  D --> E["聚合 signal_health_daily"]
+  E --> F["更新 signal_registry"]
+  F --> G["下一轮漏斗<br/>动态配额 / shadow 对比"]
+```
+
+`FUNNEL_DYNAMIC_POLICY` 控制反馈结果如何介入：
+
+| 模式 | 策略行为 |
+|------|----------|
+| `off` | 使用静态 Trend / Accum 配额。 |
+| `shadow` | 真实输出仍走静态配额，同时记录动态策略会新增/移除哪些候选。 |
+| `on` | 正式使用信号健康度权重和 registry 状态。 |
+
+Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否真的比静态配额更聪明。
+
 ### 跨市场 universe
 
 A 股主漏斗仍使用本地股票池和行业映射；港股、美股、ETF 的代码与名称元数据维护在 `data/market_universes/*.json`。港股 / 美股漏斗使用 TickFlow 批量日线接口拉取 320 个交易日窗口，和 A 股主流程保持相同的结构识别口径，但不走 A 股专属的 Tushare 兜底。

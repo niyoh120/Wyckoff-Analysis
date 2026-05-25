@@ -1443,6 +1443,12 @@ def update_concept_heat_history(today: str, heat: list[dict[str, Any]], top_n: i
         _atomic_write_json(_CONCEPT_HEAT_HISTORY, history)
     except Exception as e:
         _debug_source_fail("concept_heat_history_write", e)
+    try:
+        from integrations.supabase_concept_heat import upsert_concept_heat_history
+
+        upsert_concept_heat_history(today, heat, top_n=top_n)
+    except Exception as e:
+        _debug_source_fail("concept_heat_history_supabase_write", e)
 
 
 def detect_theme_lines(min_days: int = 3) -> list[str]:

@@ -1,10 +1,13 @@
-name: Sector Continuity Report
+name: Signal Feedback
 
 on:
+  schedule:
+    # 北京时间周一到周五 23:30，GitHub Actions 使用 UTC。
+    - cron: "30 15 * * 1-5"
   workflow_dispatch:
 
 concurrency:
-  group: sector-continuity-${{ github.ref }}
+  group: signal-feedback-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -12,9 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONUNBUFFERED: "1"
-      TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
       TZ: Asia/Shanghai
 
     steps:
@@ -31,12 +35,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Run sector continuity report
-        run: python scripts/sector_continuity_report.py
-
-      - name: Upload report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: sector-continuity-report
-          path: logs/sector_continuity_report.md
+      - name: Refresh signal feedback
+        run: python -u scripts/signal_feedback_job.py

@@ -455,7 +455,7 @@ export async function execQueryRecommendations(deps: ToolDeps, limit: number): P
 export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<string> {
   const { data } = await deps.supabase
     .from('tail_buy_history')
-    .select('code, name, run_date, signal_type, rule_score, priority_score, llm_decision, llm_reason')
+    .select('*')
     .order('run_date', { ascending: false })
     .limit(limit)
 
@@ -463,7 +463,14 @@ export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<s
 
   const lines = data.map((r) => {
     const code = String(r.code).padStart(6, '0')
-    return `${code} ${r.name} | ${r.run_date} | ${r.signal_type} | 规则分${r.rule_score?.toFixed(1)} | ${r.llm_decision} | ${r.llm_reason || ''}`
+    const entry = typeof r.initial_price === 'number' && r.initial_price > 0 ? r.initial_price : r.last_close
+    const current = typeof r.current_price === 'number' && r.current_price > 0 ? r.current_price : entry
+    const change = typeof r.change_pct === 'number' ? `${r.change_pct.toFixed(1)}%` : '-'
+    const price = typeof entry === 'number' && typeof current === 'number'
+      ? `入库${entry.toFixed(2)}→现价${current.toFixed(2)} ${change}`
+      : '入库价-/现价-'
+    const vwapGap = typeof r.dist_vwap_pct === 'number' ? `距VWAP${r.dist_vwap_pct.toFixed(1)}%` : '距VWAP-'
+    return `${code} ${r.name} | ${r.run_date} | ${r.signal_type} | ${r.final_decision || '-'} | ${price} | ${vwapGap} | 规则分${r.rule_score?.toFixed(1)} | ${r.llm_decision || '-'} | ${r.llm_reason || ''}`
   })
 
   return `最近 ${data.length} 条尾盘记录：\n\n${lines.join('\n')}`

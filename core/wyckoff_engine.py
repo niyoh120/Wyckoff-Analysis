@@ -1936,11 +1936,13 @@ def allocate_ai_candidates(
     override_total_cap: int = -1,
     sector_map: dict[str, str] | None = None,
     max_per_sector: int = 2,
+    policy_override: dict[str, int | str] | None = None,
+    signal_weight_map: dict[str, float] | None = None,
 ) -> tuple[list[str], list[str], dict[str, float]]:
     """
     根据大盘政权和各轨配额，计算优先级得分，输出 (trend_selected, accum_selected, score_map)
     """
-    policy = resolve_ai_candidate_policy(regime, override_total_cap=override_total_cap)
+    policy = policy_override or resolve_ai_candidate_policy(regime, override_total_cap=override_total_cap)
     total_cap = int(policy["total_cap"])
     trend_quota = int(policy["trend_quota"])
     accum_quota = int(policy["accum_quota"])
@@ -1993,6 +1995,11 @@ def allocate_ai_candidates(
     def _is_accum_stage_candidate(code: str) -> bool:
         return _stage_name(code) in {"Accum_B", "Accum_C"}
 
+    weights = signal_weight_map or {}
+
+    def _signal_weight(signal_type: str) -> float:
+        return max(float(weights.get(signal_type, 1.0) or 0.0), 0.0)
+
     def _calc_priority_score(code: str, is_trend_side: bool) -> float:
         score = 0.0
         stage_name = _stage_name(code)
@@ -2007,17 +2014,17 @@ def allocate_ai_candidates(
             score += 3.0 if not is_trend_side else 0.0
 
         if code in sos_hit_set:
-            score += 50.0 if code in other_trigger_set else 15.0
+            score += (50.0 if code in other_trigger_set else 15.0) * _signal_weight("sos")
         if code in spring_hit_set:
-            score += 45.0
+            score += 45.0 * _signal_weight("spring")
         if code in lps_hit_set:
-            score += 40.0
+            score += 40.0 * _signal_weight("lps")
         if code in trend_pb_hit_set:
-            score += 45.0
+            score += 45.0 * _signal_weight("trend_pullback")
         if is_trend_side and (code in sos_hit_set or code in trend_pb_hit_set):
-            score += 10.0
+            score += 10.0 * max(_signal_weight("sos"), _signal_weight("trend_pullback"))
         if (not is_trend_side) and (code in spring_hit_set or code in lps_hit_set):
-            score += 10.0
+            score += 10.0 * max(_signal_weight("spring"), _signal_weight("lps"))
 
         exit_sig = result.exit_signals.get(code, {})
         if exit_sig.get("signal") == "stop_loss":

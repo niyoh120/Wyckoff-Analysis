@@ -761,8 +761,10 @@ class WyckoffOrderEngine:
         if effective_stop_loss >= current_price:
             return self._no_trade(dec, name, "止损倒挂(stop_loss >= current_price)")
 
-        # 加仓开关约束：标记为加仓时，必须已有持仓且浮盈
-        if dec.is_add_on:
+        # 对已有持仓的买入动作一律视为加仓。模型偶尔会忘记把 is_add_on 置 true，
+        # 但 OMS 不能允许亏损补仓或把持仓票当成新开仓处理。
+        is_add_on_action = action in {"PROBE", "ATTACK"} and held_shares >= 100
+        if dec.is_add_on or is_add_on_action:
             if not pos or held_shares < 100:
                 return self._no_trade(dec, name, "is_add_on=true 但无可加仓持仓")
             if pos.cost > 0 and current_price <= pos.cost:
@@ -777,6 +779,8 @@ class WyckoffOrderEngine:
                     audit_parts + ["add_on_without_profit->hold"],
                     reason=f"加仓条件不满足（当前未浮盈），降级为 HOLD；原建议: {dec.reason}",
                 )
+            if is_add_on_action and not dec.is_add_on:
+                audit_parts.append("implicit_add_on_for_existing_position")
 
         # =========================================================
         # 防跳空、防追高物理拦截 (Anti-Chase Protection)
@@ -1639,21 +1643,12 @@ def _build_user_message(
         + "[系统硬规则]\n"
         + f"buy_stop_mode={STEP4_BUY_STOP_MODE}, buy_stop_pct={STEP4_BUY_HARD_STOP_PCT:.1f}\n"
         + "仅允许依据结构止损、Distribution 信号与量价破坏做减仓/清仓，不得因为持有天数到期而机械离场。\n\n"
-        + "[持仓管理经验规则（基于历史回放统计）]\n"
-        + "信号优先级: SOS+EVR共振 > SOS > EVR > LPS（LPS不作为主仓买点，仅低仓位观察）\n"
-        + "== 已确认信号(confirmed)持仓 ==\n"
-        + "持有周期: 3-5个交易日，快进快出\n"
-        + "止盈: +8%止盈一半，剩余跟踪移动止盈\n"
-        + "止损: -5%硬止损，不犹豫\n"
-        + "持有3个交易日收益<0: 立即减仓或清仓\n"
-        + "== 未确认信号(非confirmed)持仓 ==\n"
-        + "持有周期: 8-10个交易日；强共振(SOS+EVR)允许到15个交易日\n"
-        + "止盈: +5%先止盈一半；强共振票目标+8%~10%\n"
-        + "止损: -5%减仓预警；-8%硬止损（不解释形态）\n"
-        + "持有3个交易日仍收益<0且无走强迹象: 考虑减仓\n"
-        + "持有10个交易日未达+5%: 不恋战，减仓或退出\n"
-        + "== 通用规则 ==\n"
-        + "反复入选漏斗(recommend_count>5)但持续不涨的票: 视为钝化/滞涨，不加仓\n\n"
+        + "[持仓动作规则]\n"
+        + "EXIT: 只在跌破有效止损、出现明确派发/破位、或风控一票否决时使用。\n"
+        + "TRIM: 只在逼近止损、放量跌破关键位、上涨后出现派发/滞涨时使用；不能只因为浮亏或持有天数而减仓。\n"
+        + "HOLD: 默认动作。结构未破坏、止损未触发、无更强替代候选时必须继续持有。\n"
+        + "PROBE/ATTACK加仓: 只允许已有持仓浮盈、止损已上移、且当前结构明显强于原买点时使用；禁止亏损补仓。\n"
+        + "新开仓: 只有候选明显强于现有最弱持仓且不挤占风控预算时才允许。\n\n"
         + "[内部持仓量价切片]\n"
         + (positions_payload if positions_payload else "当前无持仓，仅现金。")
         + "\n\n[漏斗候选量价切片]\n"
