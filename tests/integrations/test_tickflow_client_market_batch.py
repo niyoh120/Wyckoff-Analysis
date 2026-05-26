@@ -53,6 +53,24 @@ def test_get_quotes_accepts_universe(monkeypatch):
     assert quotes["AAPL.US"]["last_price"] == 205.0
 
 
+def test_get_quotes_chunks_symbols_at_tickflow_limit(monkeypatch):
+    client = TickFlowClient(api_key="test-key")
+    calls = []
+
+    def fake_request(path, *, params=None, json_body=None, method="GET"):
+        calls.append((path, params, json_body, method))
+        return {"data": [{"symbol": symbol, "last_price": 1.0} for symbol in json_body["symbols"]]}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    monkeypatch.setattr("integrations.tickflow_client.time.sleep", lambda _: None)
+
+    symbols = [f"SYM{idx:03d}.US" for idx in range(121)]
+    quotes = client.get_quotes(symbols)
+
+    assert [len(call[2]["symbols"]) for call in calls] == [50, 50, 21]
+    assert len(quotes) == 121
+
+
 def test_get_klines_batch_parses_payload(monkeypatch):
     client = TickFlowClient(api_key="test-key")
     calls = []
