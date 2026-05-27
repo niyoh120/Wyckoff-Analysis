@@ -640,7 +640,8 @@ signal_pending (pending/confirmed)
 | 工作流 | 时间（北京） | 说明 |
 |-------|-------------|------|
 | **CI** (`ci.yml`) | push/PR | pytest + compile + dry-run |
-| **A 股漏斗筛选 + AI 研报 + 决策** (`wyckoff_funnel.yml`) | 周日-周四 18:25 | `daily_job.py` Step2→3→4 |
+| **A 股漏斗筛选 + AI 研报 + 决策** (`wyckoff_funnel.yml`) | 周一-周五 18:25 | `daily_job.py` Step2→3→4，日频写入 `theme_radar_snapshot` |
+| **主线雷达周报** (`theme_radar.yml`) | 周五 21:10 | `theme_radar_job.py --with-news`，周频新闻增强复盘 |
 | **信号反馈闭环** (`signal_feedback.yml`) | 周一-周五 23:30 | `signal_feedback_job.py` 刷新 outcomes / health / registry |
 | **港股漏斗筛选** (`wyckoff_funnel_hk.yml`) | 周一-周五 16:35 | `market_funnel_job.py --market hk` |
 | **美股漏斗筛选** (`wyckoff_funnel_us.yml`) | 周二-周六 05:35 | `market_funnel_job.py --market us` |

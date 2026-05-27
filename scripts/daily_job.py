@@ -260,7 +260,11 @@ def _persist_signal_observations(
 
         metrics = step2_details.get("metrics", {}) or {}
         bypass_codes = {str(c).strip() for c in step2_details.get("l2_bypass_selected", []) if str(c).strip()}
+        strategic_bypass_codes = {
+            str(c).strip() for c in step2_details.get("strategic_l2_bypass_selected", []) if str(c).strip()
+        }
         source_map = {code: "l2_bypass" for code in bypass_codes}
+        source_map.update({code: "strategic_l2_bypass" for code in strategic_bypass_codes})
         rows = build_signal_observations(
             _latest_trade_date_str(),
             step2_details.get("review_triggers") or step2_details.get("triggers") or {},
@@ -496,6 +500,22 @@ def _run_step2_with_etf_metrics(run_step2, webhook: str, preview_only: bool):
     return step2_ok, symbols_info, benchmark_context, step2_details
 
 
+def _persist_theme_radar(step2_details: dict, logs_path: str | None, *, dry_run: bool) -> None:
+    snapshot = ((step2_details or {}).get("metrics", {}) or {}).get("theme_radar") or {}
+    if dry_run or not snapshot:
+        return
+    try:
+        from integrations.theme_radar_storage import persist_theme_radar_snapshot
+
+        result = persist_theme_radar_snapshot(snapshot, local_fallback=False)
+        _log(
+            f"主题雷达写库: supabase={result.get('supabase', 0)}, sqlite={result.get('sqlite', 0)}",
+            logs_path,
+        )
+    except Exception as exc:
+        _log(f"主题雷达写库失败: {exc}", logs_path)
+
+
 def _efficiency_fallback_model() -> str:
     api_key = os.getenv("EFFICIENCY_API_KEY", "").strip()
     model = os.getenv("EFFICIENCY_MODEL", "").strip()
@@ -635,6 +655,8 @@ def main() -> int:
         has_blocking_failure = True
     elif benchmark_context:
         _persist_benchmark_context(benchmark_context, logs_path, dry_run=preview_only)
+    if step2_ok and step2_details:
+        _persist_theme_radar(step2_details, logs_path, dry_run=preview_only)
 
     # Step2.5: 信号确认（pending → confirmed/expired）— 必须在推荐写入前执行，
     # 使 confirmed 信号能沉淀进 recommendation_tracking

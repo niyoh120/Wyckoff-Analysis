@@ -1,0 +1,75 @@
+name: Theme Radar Weekly
+
+on:
+  schedule:
+    # 北京时间周五 21:10（UTC 13:10），周频增强版主线复盘，避开主日任务与整点高峰。
+    - cron: '10 13 * * 5'
+  workflow_dispatch:
+    inputs:
+      with_news:
+        description: "是否抓取 GDELT/RSS 新闻增强"
+        required: false
+        type: boolean
+        default: true
+      end_calendar_day:
+        description: "可选：回放目标自然日，例如 2026-05-26"
+        required: false
+        type: string
+
+concurrency:
+  group: theme-radar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: "1"
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      END_CALENDAR_DAY: ${{ github.event.inputs.end_calendar_day || '' }}
+      FUNNEL_EXECUTOR_MODE: "thread"
+      FUNNEL_MAX_WORKERS: "4"
+      FUNNEL_BATCH_SIZE: "200"
+      FUNNEL_BATCH_SLEEP: "0.55"
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Prepare logs dir
+        run: mkdir -p logs
+
+      - name: Run theme radar
+        run: |
+          set -o pipefail
+          NEWS_FLAG="--with-news"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.with_news }}" != "true" ]; then
+            NEWS_FLAG=""
+          fi
+          python -u scripts/theme_radar_job.py ${NEWS_FLAG} --output "${{ github.workspace }}/logs/theme_radar_report.md" \
+            2>&1 | tee -a "${{ github.workspace }}/logs/theme_radar.console.log"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: theme-radar-logs-${{ github.run_number }}
+          path: logs/*
+          retention-days: 30
+          if-no-files-found: warn

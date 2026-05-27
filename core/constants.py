@@ -25,6 +25,7 @@ TABLE_SIGNAL_OUTCOMES = "signal_outcomes"
 TABLE_SIGNAL_HEALTH_DAILY = "signal_health_daily"
 TABLE_SIGNAL_REGISTRY = "signal_registry"
 TABLE_SIGNAL_POLICY_SHADOW_RUNS = "signal_policy_shadow_runs"
+TABLE_THEME_RADAR_SNAPSHOT = "theme_radar_snapshot"
 
 # Local SQLite DB path
 from pathlib import Path as _Path

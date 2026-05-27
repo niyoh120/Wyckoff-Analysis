@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 
-_SCHEMA_VERSION = 10
+_SCHEMA_VERSION = 11
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -162,6 +162,12 @@ CREATE TABLE IF NOT EXISTS background_task_result (
     UNIQUE(task_id)
 );
 
+CREATE TABLE IF NOT EXISTS theme_radar_snapshot (
+    trade_date TEXT PRIMARY KEY,
+    snapshot_json TEXT NOT NULL,
+    synced_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_rec_date ON recommendation_tracking(recommend_date);
 CREATE INDEX IF NOT EXISTS idx_sig_status ON signal_pending(status);
 CREATE INDEX IF NOT EXISTS idx_mem_type ON agent_memory(memory_type);
@@ -174,6 +180,7 @@ CREATE INDEX IF NOT EXISTS idx_tail_run_date ON tail_buy_history(run_date);
 CREATE INDEX IF NOT EXISTS idx_tail_decision ON tail_buy_history(final_decision);
 CREATE INDEX IF NOT EXISTS idx_bg_task_session ON background_task_result(session_id);
 CREATE INDEX IF NOT EXISTS idx_bg_task_created ON background_task_result(created_at);
+CREATE INDEX IF NOT EXISTS idx_theme_radar_synced ON theme_radar_snapshot(synced_at);
 
 -- FTS5 全文检索索引（记忆系统 hybrid search）
 CREATE VIRTUAL TABLE IF NOT EXISTS agent_memory_fts USING fts5(
@@ -530,6 +537,41 @@ def load_latest_market_signal() -> dict | None:
         return None
     try:
         return json.loads(row["data_json"])
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Theme radar snapshot
+# ---------------------------------------------------------------------------
+
+
+def save_theme_radar_snapshot(snapshot: dict[str, Any]) -> None:
+    trade_date = str(snapshot.get("trade_date", "") or "").strip()
+    if not trade_date:
+        raise ValueError("theme radar snapshot requires trade_date")
+    conn = get_db()
+    with conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO theme_radar_snapshot
+               (trade_date, snapshot_json, synced_at) VALUES (?, ?, datetime('now'))""",
+            (trade_date, json.dumps(snapshot, ensure_ascii=False, default=str)),
+        )
+
+
+def load_latest_theme_radar_snapshot() -> dict | None:
+    conn = get_db()
+    try:
+        cur = conn.execute("SELECT snapshot_json FROM theme_radar_snapshot ORDER BY trade_date DESC LIMIT 1")
+    except sqlite3.OperationalError as exc:
+        if "no such table: theme_radar_snapshot" in str(exc).lower():
+            return None
+        raise
+    row = cur.fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row["snapshot_json"])
     except (json.JSONDecodeError, TypeError):
         return None
 

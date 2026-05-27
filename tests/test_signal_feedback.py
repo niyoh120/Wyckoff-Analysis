@@ -139,6 +139,30 @@ def test_shadow_selection_diff_preserves_shadow_order():
     assert removed == ["000001"]
 
 
+def test_attach_shadow_policy_preserves_base_policy():
+    from scripts.wyckoff_funnel import _attach_shadow_policy
+
+    base = {"trend_quota": 8, "accum_quota": 4, "quota_family": "FULL_FORMAL_L4"}
+    shadow = {"trend_quota": 3, "accum_quota": 5, "quota_family": "RISK_ON+DYNAMIC"}
+
+    _attach_shadow_policy(
+        base,
+        {
+            "mode": "shadow",
+            "policy": shadow,
+            "weights": {"sos": 0.8},
+            "registry": [{"signal_type": "sos"}],
+            "health": [{"signal_type": "sos"}],
+        },
+    )
+
+    assert base["trend_quota"] == 8
+    assert base["accum_quota"] == 4
+    assert base["_dynamic_mode"] == "shadow"
+    assert base["_shadow_policy"] == shadow
+    assert base["_signal_weights"] == {"sos": 0.8}
+
+
 def test_signal_feedback_job_builds_outcome_rows():
     obs = {
         "id": 1,

@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+import pandas as pd
+
+from core.theme_radar import build_theme_radar_snapshot, summarize_theme_radar
+
+
+def _trend_frame(start: float, step: float, days: int = 280) -> pd.DataFrame:
+    dates = pd.date_range("2025-01-01", periods=days, freq="B")
+    close = [start + i * step for i in range(days)]
+    return pd.DataFrame({"date": dates, "close": close, "volume": [1000 + i for i in range(days)]})
+
+
+def test_theme_radar_promotes_persistent_structural_theme() -> None:
+    snapshot = build_theme_radar_snapshot(
+        trade_date="2026-05-27",
+        concept_heat=[{"name": "半导体", "pct": 4.2, "net_inflow": 600_000_000}],
+        concept_history={
+            "2026-05-27": {"半导体": {"pct": 4.2, "inflow": 600_000_000}},
+            "2026-05-26": {"芯片": {"pct": 2.1, "inflow": 300_000_000}},
+            "2026-05-25": {"先进封装": {"pct": 1.8, "inflow": 200_000_000}},
+        },
+        concept_map={"000001": ["半导体"], "000002": ["芯片"], "000003": ["白酒"]},
+        sector_map={"000001": "半导体", "000002": "电子", "000003": "食品饮料"},
+        df_map={
+            "000001": _trend_frame(10, 0.08),
+            "000002": _trend_frame(8, 0.06),
+            "000003": _trend_frame(20, -0.01),
+        },
+        events=[{"title": "半导体 AI chip demand expands", "source": "test"}],
+        name_map={"000001": "芯片A", "000002": "芯片B"},
+    )
+
+    top = snapshot["themes"][0]
+    assert top["theme"] == "芯片半导体"
+    assert top["score"] >= 0.45
+    assert snapshot["strategic_candidates"][0]["theme"] == "芯片半导体"
+    assert "芯片半导体" in summarize_theme_radar(snapshot)
+
+
+def test_theme_radar_snapshot_round_trip_local_db(tmp_path, monkeypatch) -> None:
+    from integrations import local_db
+
+    if local_db._conn is not None:
+        local_db._conn.close()
+    local_db._conn = None
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "theme.db")
+    try:
+        local_db.init_db()
+        local_db.save_theme_radar_snapshot({"trade_date": "2026-05-27", "themes": [], "strategic_candidates": []})
+        assert local_db.load_latest_theme_radar_snapshot()["trade_date"] == "2026-05-27"
+    finally:
+        if local_db._conn is not None:
+            local_db._conn.close()
+        local_db._conn = None

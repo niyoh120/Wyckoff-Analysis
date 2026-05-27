@@ -1,9 +1,11 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router'
+import { useEffect } from 'react'
 import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Home, Github, Sun, Languages, Swords, Map, History, type LucideIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { MarketBar } from '@/components/market-bar'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
+import { trackRouteActivity } from '@/lib/activity'
 
 const navItems = [
   { to: '/chat', icon: MessageSquare, labelKey: 'nav.chat' },
@@ -111,15 +113,11 @@ function SidebarFooter({ email, onLogout }: { email: string; onLogout: () => voi
 }
 
 export function AppLayout() {
-  const navigate = useNavigate()
   const location = useLocation()
   const user = useAuthStore((s) => s.user)
   const { t } = usePreferences()
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    navigate('/login', { replace: true })
-  }
+  const handleLogout = useLogoutHandler()
+  useRouteActivity(user?.id, location)
 
   return (
     <div className="flex h-screen">
@@ -167,4 +165,19 @@ function _navActive(pathname: string, hash: string, to: string) {
     return pathname === targetPath && hash === `#${targetHash}`
   }
   return pathname === targetPath && !hash
+}
+
+function useLogoutHandler() {
+  const navigate = useNavigate()
+  return async () => {
+    await supabase.auth.signOut()
+    navigate('/login', { replace: true })
+  }
+}
+
+function useRouteActivity(userId: string | undefined, location: ReturnType<typeof useLocation>) {
+  const route = `${location.pathname}${location.search}${location.hash}`
+  useEffect(() => {
+    if (userId) trackRouteActivity(userId, route)
+  }, [route, userId])
 }
