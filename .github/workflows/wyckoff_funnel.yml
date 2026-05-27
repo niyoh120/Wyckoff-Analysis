@@ -5,6 +5,11 @@ on:
     # 北京 18:25 (UTC+8)，为了避开 GitHub Actions 整点/半点的高峰期丢包问题，提前5分钟
     - cron: '25 10 * * 0-4'
   workflow_dispatch:
+    inputs:
+      end_calendar_day:
+        description: "可选：回放目标自然日，例如 2026-05-26"
+        required: false
+        type: string
 
 concurrency:
   group: daily-job-${{ github.ref }}
@@ -24,6 +29,7 @@ jobs:
       FUNNEL_MAX_WORKERS: "4"
       FUNNEL_BATCH_SIZE: "200"
       FUNNEL_BATCH_SLEEP: "0.55"
+      END_CALENDAR_DAY: ${{ github.event.inputs.end_calendar_day || '' }}
       DEFAULT_LLM_PROVIDER: ${{ secrets.DEFAULT_LLM_PROVIDER }}
       STEP3_LLM_PROVIDER: ${{ vars.STEP3_LLM_PROVIDER || secrets.STEP3_LLM_PROVIDER || 'gemini' }}
       STEP3_LLM_FALLBACK_PROVIDERS: ${{ vars.STEP3_LLM_FALLBACK_PROVIDERS || secrets.STEP3_LLM_FALLBACK_PROVIDERS || 'efficiency' }}
@@ -84,6 +90,7 @@ jobs:
       FUNNEL_AI_RISK_OFF_ACCUM: "0"
       FUNNEL_AI_NEUTRAL_TREND: "2"
       FUNNEL_AI_NEUTRAL_ACCUM: "3"
+      DAILY_JOB_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
       TZ: Asia/Shanghai
 
     steps:
@@ -100,8 +107,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Prepare logs dir
-        run: mkdir -p logs
+      - name: Prepare artifact dirs
+        run: mkdir -p logs artifacts
 
       - name: Run daily job
         run: |
@@ -113,9 +120,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: daily-job-logs-${{ github.run_number }}
-          path: logs/*.log
-          retention-days: 7
+          name: daily-job-artifacts-${{ github.run_number }}
+          path: |
+            logs/*.log
+            artifacts/**
+          retention-days: 30
           if-no-files-found: warn
 
       - name: Notify on failure

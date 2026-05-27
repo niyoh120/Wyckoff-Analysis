@@ -4,10 +4,12 @@ Supabase 形态复盘数据存取模块
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from bisect import bisect_right
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -22,6 +24,19 @@ from integrations.supabase_base import create_admin_client as _get_supabase_admi
 from integrations.supabase_base import is_admin_configured as is_supabase_configured
 
 logger = logging.getLogger(__name__)
+RECOMMENDATION_BACKUP_COLUMNS = (
+    "code",
+    "name",
+    "recommend_reason",
+    "recommend_date",
+    "initial_price",
+    "current_price",
+    "change_pct",
+    "recommend_count",
+    "funnel_score",
+    "is_ai_recommended",
+    "updated_at",
+)
 
 
 def _fetch_all_tracking_records(client, select_expr: str = "*", page_size: int = 1000) -> list[dict[str, Any]]:
@@ -305,13 +320,28 @@ def _extract_recommendation_score(row: dict[str, Any]) -> float | None:
     return None
 
 
+def _merge_recommendation_payload_row(existing: dict[str, Any], row: dict[str, Any]) -> None:
+    if not existing.get("name") and row.get("name"):
+        existing["name"] = row["name"]
+    old_score = existing.get("funnel_score")
+    new_score = row.get("funnel_score")
+    if new_score is not None and (old_score is None or float(new_score) > float(old_score)):
+        existing["funnel_score"] = new_score
+        existing["recommend_reason"] = row.get("recommend_reason", "")
+    old_price = _safe_float(existing.get("initial_price"), 0.0)
+    new_price = _safe_float(row.get("initial_price"), 0.0)
+    if old_price <= 0 < new_price:
+        existing["initial_price"] = new_price
+        existing["current_price"] = new_price
+
+
 def _build_recommendation_payload(
     recommend_date: int,
     symbols_info: list[dict[str, Any]],
     existing_counts: dict[int, int],
     existing_code_dates: dict[int, set[int]],
 ) -> list[dict[str, Any]]:
-    payload = []
+    payload_by_code: dict[int, dict[str, Any]] = {}
     for item in symbols_info:
         code_int = _extract_recommendation_code(item.get("code"))
         if code_int is None:
@@ -320,22 +350,71 @@ def _build_recommendation_payload(
         seen_dates = existing_code_dates.get(code_int, set())
         new_cnt = old_cnt if recommend_date in seen_dates else max(old_cnt, 0) + 1
         price = _extract_recommendation_price(item)
-        payload.append(
-            {
-                "code": code_int,
-                "name": str(item.get("name", "")).strip(),
-                "recommend_reason": str(item.get("tag", "")).strip(),
-                "recommend_date": recommend_date,
-                "initial_price": price,
-                "current_price": price,
-                "change_pct": 0.0,
-                "recommend_count": new_cnt,
-                "funnel_score": _extract_recommendation_score(item),
-                "is_ai_recommended": False,
-                "updated_at": datetime.now(UTC).isoformat(),
-            }
-        )
-    return payload
+        row = {
+            "code": code_int,
+            "name": str(item.get("name", "")).strip(),
+            "recommend_reason": str(item.get("tag", "")).strip(),
+            "recommend_date": recommend_date,
+            "initial_price": price,
+            "current_price": price,
+            "change_pct": 0.0,
+            "recommend_count": new_cnt,
+            "funnel_score": _extract_recommendation_score(item),
+            "is_ai_recommended": False,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        existing = payload_by_code.get(code_int)
+        if existing:
+            _merge_recommendation_payload_row(existing, row)
+        else:
+            payload_by_code[code_int] = row
+    return list(payload_by_code.values())
+
+
+def _upsert_recommendation_payload(client, payload: list[dict[str, Any]]) -> None:
+    if not payload:
+        return
+    try:
+        for chunk in _chunked(payload, 500):
+            client.table(TABLE_RECOMMENDATION_TRACKING).upsert(chunk, on_conflict="code,recommend_date").execute()
+    except Exception as e:
+        msg = str(e).lower()
+        optional_cols = ("is_ai_recommended", "funnel_score", "recommend_count")
+        if not any(col in msg for col in optional_cols):
+            raise
+        fallback_payload: list[dict[str, Any]] = []
+        for row in payload:
+            r = dict(row)
+            for col in optional_cols:
+                r.pop(col, None)
+            fallback_payload.append(r)
+        for chunk in _chunked(fallback_payload, 500):
+            client.table(TABLE_RECOMMENDATION_TRACKING).upsert(chunk, on_conflict="code,recommend_date").execute()
+
+
+def prepare_recommendation_payload(recommend_date: int, symbols_info: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not is_supabase_configured() or not symbols_info:
+        return []
+    client = _get_supabase_admin_client()
+    existing_counts, existing_code_dates = _load_existing_recommendation_history(client)
+    return _build_recommendation_payload(
+        recommend_date,
+        symbols_info,
+        existing_counts,
+        existing_code_dates,
+    )
+
+
+def upsert_recommendation_payload(payload: list[dict[str, Any]]) -> bool:
+    if not is_supabase_configured() or not payload:
+        return False
+    try:
+        client = _get_supabase_admin_client()
+        _upsert_recommendation_payload(client, payload)
+        return True
+    except Exception as e:
+        print(f"[supabase_recommendation] upsert_recommendation_payload failed: {e}")
+        return False
 
 
 def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any]]) -> bool:
@@ -346,47 +425,100 @@ def upsert_recommendations(recommend_date: int, symbols_info: list[dict[str, Any
     if not is_supabase_configured() or not symbols_info:
         return False
     try:
-        client = _get_supabase_admin_client()
+        payload = prepare_recommendation_payload(recommend_date, symbols_info)
 
-        try:
-            existing_counts, existing_code_dates = _load_existing_recommendation_history(client)
-        except Exception as e:
-            logger.warning("[supabase_recommendation] skip upsert: failed to load recommendation history: %s", e)
-            return False
-
-        payload = _build_recommendation_payload(
-            recommend_date,
-            symbols_info,
-            existing_counts,
-            existing_code_dates,
-        )
-
-        if payload:
-            # 使用 upsert，基于 (code, recommend_date) 唯一约束：
-            # - 同一只股票在同一天重跑会覆盖更新；
-            # - 跨天会新增一条记录；
-            # - recommend_count 按 code 维度累计。
-            try:
-                client.table(TABLE_RECOMMENDATION_TRACKING).upsert(payload, on_conflict="code,recommend_date").execute()
-            except Exception as e:
-                msg = str(e).lower()
-                optional_cols = ("is_ai_recommended", "funnel_score", "recommend_count")
-                if any(col in msg for col in optional_cols):
-                    fallback_payload: list[dict[str, Any]] = []
-                    for row in payload:
-                        r = dict(row)
-                        for col in optional_cols:
-                            r.pop(col, None)
-                        fallback_payload.append(r)
-                    client.table(TABLE_RECOMMENDATION_TRACKING).upsert(
-                        fallback_payload, on_conflict="code,recommend_date"
-                    ).execute()
-                else:
-                    raise
-        return True
+        # 使用 upsert，基于 (code, recommend_date) 唯一约束：
+        # - 同一只股票在同一天重跑会覆盖更新；
+        # - 跨天会新增一条记录；
+        # - recommend_count 按 code 维度累计。
+        return upsert_recommendation_payload(payload)
     except Exception as e:
         print(f"[supabase_recommendation] upsert_recommendations failed: {e}")
         return False
+
+
+def _clean_backup_value(value: Any) -> Any:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str | int | float | bool):
+        return value
+    return str(value)
+
+
+def _backup_rows(rows: list[dict[str, Any]], ai_codes: list[str] | None) -> list[dict[str, Any]]:
+    ai_set = {_code6(code) for code in ai_codes or [] if _code6(code)}
+    snapshot = []
+    for row in rows:
+        clean_row = {col: _clean_backup_value(row.get(col)) for col in RECOMMENDATION_BACKUP_COLUMNS if col in row}
+        if ai_codes is not None:
+            clean_row["is_ai_recommended"] = _code6(clean_row.get("code")) in ai_set
+        snapshot.append(clean_row)
+    return sorted(snapshot, key=lambda item: int(item.get("code") or 0))
+
+
+def _sql_literal(value: Any) -> str:
+    value = _clean_backup_value(value)
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return str(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _recommendation_restore_sql(rows: list[dict[str, Any]]) -> str:
+    columns = [col for col in RECOMMENDATION_BACKUP_COLUMNS if any(col in row for row in rows)]
+    if not rows or not columns:
+        return "-- no recommendation rows to restore\n"
+    values = []
+    for row in rows:
+        values.append("  (" + ", ".join(_sql_literal(row.get(col)) for col in columns) + ")")
+    updates = ",\n  ".join(f"{col} = excluded.{col}" for col in columns if col not in {"code", "recommend_date"})
+    return "\n".join(
+        [
+            "begin;",
+            f"insert into public.{TABLE_RECOMMENDATION_TRACKING} ({', '.join(columns)})",
+            "values",
+            ",\n".join(values),
+            "on conflict (code, recommend_date) do update set",
+            f"  {updates};",
+            "commit;",
+            "",
+        ]
+    )
+
+
+def write_recommendation_backup_artifact(
+    recommend_date: int,
+    rows: list[dict[str, Any]],
+    output_dir: str,
+    *,
+    ai_codes: list[str] | None = None,
+) -> list[str]:
+    if not output_dir or not rows:
+        return []
+    snapshot = _backup_rows(rows, ai_codes)
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    base = f"recommendation_tracking_{recommend_date}"
+    json_path = target / f"{base}.json"
+    sql_path = target / f"{base}.sql"
+    payload = {
+        "table": f"public.{TABLE_RECOMMENDATION_TRACKING}",
+        "recommend_date": recommend_date,
+        "row_count": len(snapshot),
+        "generated_at": datetime.now(UTC).isoformat(),
+        "rows": snapshot,
+    }
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    sql_path.write_text(_recommendation_restore_sql(snapshot), encoding="utf-8")
+    return [str(json_path), str(sql_path)]
 
 
 def mark_ai_recommendations(recommend_date: int, ai_codes: list[str]) -> bool:

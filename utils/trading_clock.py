@@ -49,9 +49,16 @@ def resolve_end_calendar_day(
 ) -> date:
     """
     日线目标日统一口径（北京时间）：
+    - END_CALENDAR_DAY: 手动回放时锁定目标自然日
     - switch_hour(默认16):00 - 23:59 -> T（当天）
     - 00:00 - switch_hour(默认16):59 -> T-1（上一自然日）
     """
+    raw = os.getenv("END_CALENDAR_DAY", "").strip()
+    if raw:
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date()
+        except Exception:
+            pass
     dt = now.astimezone(CN_TZ) if now else datetime.now(CN_TZ)
     if dt.hour >= int(switch_hour):
         return dt.date()

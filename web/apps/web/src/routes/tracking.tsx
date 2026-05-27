@@ -65,19 +65,46 @@ interface TrackingReadyContentProps {
 }
 
 const RETENTION_DATES = 30
+const TRACKING_PAGE_SIZE = 1000
 const AVG_WINDOWS = [5, 10, 15, 20, 25, 30] as const
 type RecommendationWindow = (typeof AVG_WINDOWS)[number]
 type SortBy = 'date' | 'change' | 'score' | 'count' | 'mfe' | 'mae'
 type SortOrder = 'desc' | 'asc'
 
 async function fetchTracking(market: MarketTab): Promise<Recommendation[]> {
+  const rows: Recommendation[] = []
+  let offset = 0
+  while (true) {
+    const batch = await fetchTrackingPage(market, offset)
+    rows.push(...batch)
+    if (batch.length < TRACKING_PAGE_SIZE || hasLoadedRetentionWindow(rows)) break
+    offset += TRACKING_PAGE_SIZE
+  }
+  const dateSet = new Set(getLatestRecommendDates(rows, RETENTION_DATES))
+  return rows.filter((row) => dateSet.has(row.recommend_date))
+}
+
+async function fetchTrackingPage(market: MarketTab, offset: number): Promise<Recommendation[]> {
   const { data, error } = await supabase
     .from(MARKET_TABLE[market])
     .select('*')
     .order('recommend_date', { ascending: false })
-    .limit(2000)
+    .order('code', { ascending: true })
+    .range(offset, offset + TRACKING_PAGE_SIZE - 1)
   if (error) throw new Error(`${MARKET_TABLE[market]}: ${error.message}`)
   return data || []
+}
+
+function hasLoadedRetentionWindow(rows: Recommendation[]): boolean {
+  const dates = getLatestRecommendDates(rows, RETENTION_DATES + 1)
+  const cutoffDate = dates[RETENTION_DATES - 1]
+  const oldestFetched = rows.at(-1)?.recommend_date
+  return (
+    dates.length > RETENTION_DATES
+    && typeof oldestFetched === 'number'
+    && typeof cutoffDate === 'number'
+    && oldestFetched < cutoffDate
+  )
 }
 
 export function TrackingPage() {

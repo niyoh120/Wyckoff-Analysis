@@ -29,7 +29,9 @@ from integrations.llm_client import get_provider_credentials, provider_fallbacks
 from integrations.supabase_market_signal import upsert_market_signal_daily
 from integrations.supabase_recommendation import (
     mark_ai_recommendations,
-    upsert_recommendations,
+    prepare_recommendation_payload,
+    upsert_recommendation_payload,
+    write_recommendation_backup_artifact,
 )
 from utils.trading_clock import next_trading_day, resolve_end_calendar_day
 
@@ -170,21 +172,47 @@ def _persist_recommendations(
     logs_path: str | None,
     *,
     dry_run: bool = False,
-) -> int | None:
+) -> tuple[int | None, list[dict]]:
     if dry_run:
         _log(f"预演模式: 跳过推荐记录入库 count={len(symbols_info)}", logs_path)
-        return None
+        return None, []
     try:
         recommend_trade_date_int = int(_latest_trade_date_str().replace("-", ""))
-        rec_ok = upsert_recommendations(recommend_trade_date_int, symbols_info)
+        payload = prepare_recommendation_payload(recommend_trade_date_int, symbols_info)
+        _write_recommendation_backup(recommend_trade_date_int, payload, logs_path, ai_codes=None)
+        rec_ok = upsert_recommendation_payload(payload)
         _log(
-            f"推荐记录入库: ok={rec_ok}, count={len(symbols_info)}, date={recommend_trade_date_int}",
+            "推荐记录入库: "
+            f"ok={rec_ok}, raw_count={len(symbols_info)}, payload_count={len(payload)}, date={recommend_trade_date_int}",
             logs_path,
         )
-        return recommend_trade_date_int
+        return recommend_trade_date_int, payload
     except Exception as e:
         _log(f"推荐记录入库失败: {e}", logs_path)
-        return None
+        return None, []
+
+
+def _write_recommendation_backup(
+    recommend_trade_date_int: int,
+    payload: list[dict],
+    logs_path: str | None,
+    *,
+    ai_codes: list[str] | None,
+) -> None:
+    output_dir = os.getenv("DAILY_JOB_ARTIFACTS_DIR", "").strip()
+    if not output_dir or not payload:
+        return
+    try:
+        paths = write_recommendation_backup_artifact(
+            recommend_trade_date_int,
+            payload,
+            output_dir,
+            ai_codes=ai_codes,
+        )
+        if paths:
+            _log(f"推荐记录备份 artifact: {', '.join(paths)}", logs_path)
+    except Exception as e:
+        _log(f"推荐记录备份 artifact 失败: {e}", logs_path)
 
 
 def _mark_step3_recommendations(
@@ -543,7 +571,7 @@ def main() -> int:
         return 0
 
     # 非交易日跳过：检查下一个交易日是否在 2 天内（周日跑 → 周一应该开盘）
-    today = datetime.now(TZ).date()
+    today = resolve_end_calendar_day()
     nxt = next_trading_day(today)
     if nxt and (nxt - today).days > 2:
         skip_msg = f"📅 下一交易日 {nxt} 距今超过 2 天，任务跳过"
@@ -569,6 +597,7 @@ def main() -> int:
     benchmark_context: dict = {}
     step3_report_text = ""
     recommend_trade_date_int: int | None = None
+    recommendation_payload: list[dict] = []
 
     _log("开始定时任务", logs_path)
     if preview_only:
@@ -612,7 +641,11 @@ def main() -> int:
 
     # 形态复盘写库（按 recommend_date=最近交易日）
     if step2_ok and symbols_info:
-        recommend_trade_date_int = _persist_recommendations(symbols_info, logs_path, dry_run=preview_only)
+        recommend_trade_date_int, recommendation_payload = _persist_recommendations(
+            symbols_info,
+            logs_path,
+            dry_run=preview_only,
+        )
 
     # Step2.7: 起跳板 A/B/C 量化评分
     if symbols_info and step2_details:
@@ -671,6 +704,13 @@ def main() -> int:
             logs_path,
         )
         _mark_step3_recommendations(recommend_trade_date_int, step3_springboard_codes, logs_path, dry_run=preview_only)
+        if recommend_trade_date_int and recommendation_payload:
+            _write_recommendation_backup(
+                recommend_trade_date_int,
+                recommendation_payload,
+                logs_path,
+                ai_codes=step3_springboard_codes,
+            )
     else:
         summary.append({"step": "批量研报", "ok": True, "err": None, "elapsed_s": 0, "output": "skipped (no symbols)"})
         _log("Step3 批量研报: 跳过（无筛选结果）", logs_path)

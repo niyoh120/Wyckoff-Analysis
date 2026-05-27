@@ -23,3 +23,11 @@ class TestResolveEndCalendarDay:
     def test_returns_date_type(self):
         result = resolve_end_calendar_day(datetime(2024, 6, 1, 20, 0, tzinfo=CN_TZ))
         assert isinstance(result, date)
+
+    def test_env_override_wins(self, monkeypatch):
+        monkeypatch.setenv("END_CALENDAR_DAY", "2026-05-26")
+        morning = datetime(2024, 3, 15, 9, 0, tzinfo=CN_TZ)
+
+        result = resolve_end_calendar_day(morning, switch_hour=16)
+
+        assert result == date(2026, 5, 26)
