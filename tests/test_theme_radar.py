@@ -11,6 +11,12 @@ def _trend_frame(start: float, step: float, days: int = 280) -> pd.DataFrame:
     return pd.DataFrame({"date": dates, "close": close, "volume": [1000 + i for i in range(days)]})
 
 
+def _compound_frame(start: float, daily_rate: float, days: int = 280) -> pd.DataFrame:
+    dates = pd.date_range("2025-01-01", periods=days, freq="B")
+    close = [start * ((1.0 + daily_rate) ** i) for i in range(days)]
+    return pd.DataFrame({"date": dates, "close": close, "volume": [1000 + i for i in range(days)]})
+
+
 def test_theme_radar_promotes_persistent_structural_theme() -> None:
     snapshot = build_theme_radar_snapshot(
         trade_date="2026-05-27",
@@ -36,6 +42,29 @@ def test_theme_radar_promotes_persistent_structural_theme() -> None:
     assert top["score"] >= 0.45
     assert snapshot["strategic_candidates"][0]["theme"] == "芯片半导体"
     assert "芯片半导体" in summarize_theme_radar(snapshot)
+
+
+def test_theme_radar_ranks_long_horizon_leaders_inside_theme() -> None:
+    snapshot = build_theme_radar_snapshot(
+        trade_date="2026-05-27",
+        concept_heat=[{"name": "光模块", "pct": 3.5, "net_inflow": 500_000_000}],
+        concept_history={"2026-05-27": {"CPO": {"pct": 3.5, "inflow": 500_000_000}}},
+        concept_map={"000001": ["CPO"], "000002": ["光通信"], "000003": ["白酒"]},
+        sector_map={"000001": "通信设备", "000002": "通信设备", "000003": "食品饮料"},
+        df_map={
+            "000001": _compound_frame(10, 0.006),
+            "000002": _compound_frame(10, 0.003),
+            "000003": _trend_frame(20, -0.01),
+        },
+        name_map={"000001": "光模块龙头", "000002": "光通信跟随"},
+    )
+
+    candidates = [item for item in snapshot["strategic_candidates"] if item["theme"] == "光模块"]
+    assert candidates[0]["code"] == "000001"
+    assert candidates[0]["theme_rank"] == 1
+    assert candidates[0]["leader_score"] > candidates[1]["leader_score"]
+    assert candidates[0]["ret120"] > 100
+    assert candidates[0]["near_high_120d"] is True
 
 
 def test_theme_radar_snapshot_round_trip_local_db(tmp_path, monkeypatch) -> None:
