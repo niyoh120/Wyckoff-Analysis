@@ -210,6 +210,7 @@ wyckoff dashboard
 | 想了解 | 去哪里看 |
 |--------|----------|
 | 架构、Actions、数据表、缓存 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| **A 股主漏斗执行流程（上下游 + 流程图）** | [docs/A_SHARE_FUNNEL_FLOW.md](docs/A_SHARE_FUNNEL_FLOW.md) |
 | 信号反馈闭环、shadow/on 动态策略 | [docs/SIGNAL_FEEDBACK_LOOP.md](docs/SIGNAL_FEEDBACK_LOOP.md) |
 | 系统迭代策略与落地状态 | [docs/ITERATION_STRATEGY.md](docs/ITERATION_STRATEGY.md) |
 | 运营成本、规模化预算 | [docs/COST_MODEL.md](docs/COST_MODEL.md) |
