@@ -57,6 +57,8 @@ def get_provider_credentials(provider: str) -> tuple[str, str, str]:
         model = DEFAULT_GEMINI_MODEL
     if not model and provider == "1route":
         model = "gpt-5.5"
+    if not model and provider == "deepseek":
+        model = "deepseek-v4-flash"
     return (api_key, model or "", base_url)
 
 

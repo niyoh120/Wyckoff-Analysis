@@ -120,30 +120,45 @@ class TestValidateVolumeSupport:
 class TestScoreRescue:
     def test_full_signals(self):
         score, reasons = _score_rescue(
-            breakout=True, breakout_strength=2.0,
-            vwap_reclaim=True, vwap_dist=1.5,
-            trend_dir="up", trend_slope=0.1,
-            vol_confirmed=True, vol_ratio=1.8, vpc=0.4,
+            breakout=True,
+            breakout_strength=2.0,
+            vwap_reclaim=True,
+            vwap_dist=1.5,
+            trend_dir="up",
+            trend_slope=0.1,
+            vol_confirmed=True,
+            vol_ratio=1.8,
+            vpc=0.4,
         )
         assert score >= 80
         assert len(reasons) >= 4
 
     def test_no_volume_caps_at_30(self):
         score, reasons = _score_rescue(
-            breakout=True, breakout_strength=2.0,
-            vwap_reclaim=True, vwap_dist=1.5,
-            trend_dir="up", trend_slope=0.1,
-            vol_confirmed=False, vol_ratio=0.8, vpc=0.4,
+            breakout=True,
+            breakout_strength=2.0,
+            vwap_reclaim=True,
+            vwap_dist=1.5,
+            trend_dir="up",
+            trend_slope=0.1,
+            vol_confirmed=False,
+            vol_ratio=0.8,
+            vpc=0.4,
         )
         assert score <= 30
         assert any("封顶" in r for r in reasons)
 
     def test_partial_score(self):
         score, reasons = _score_rescue(
-            breakout=False, breakout_strength=0.0,
-            vwap_reclaim=True, vwap_dist=1.0,
-            trend_dir="up", trend_slope=0.08,
-            vol_confirmed=False, vol_ratio=1.0, vpc=0.3,
+            breakout=False,
+            breakout_strength=0.0,
+            vwap_reclaim=True,
+            vwap_dist=1.0,
+            trend_dir="up",
+            trend_slope=0.08,
+            vol_confirmed=False,
+            vol_ratio=1.0,
+            vpc=0.3,
         )
         assert 40 <= score <= 70
         assert len(reasons) >= 2

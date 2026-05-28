@@ -1055,7 +1055,11 @@ def run(
                         f"- {code} {result.name}: 命中 {hit_text if hit_text != '-' else '负面关键词'}{semantic_text}{ev_text}"
                     )
 
+            from integrations.rag_veto import RAG_SEMANTIC_MODEL
+
+            rag_model_label = RAG_SEMANTIC_MODEL or "未配置"
             rag_summary_lines = [
+                f"- 语义模型: {rag_model_label}",
                 f"- 扫描股票: {scanned_n}",
                 f"- 新闻拉取成功: {external_ok_n}/{scanned_n}" if scanned_n else "- 新闻拉取成功: 0/0",
                 f"- 命中负面关键词: {relevant_n}/{scanned_n}" if scanned_n else "- 命中负面关键词: 0/0",
