@@ -375,7 +375,7 @@ def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
         semantic_reason = reason_or_err
         veto = bool(verdict)
     else:
-        veto = False
+        veto = True
         semantic_err = reason_or_err
 
     return VetoResult(

@@ -35,6 +35,28 @@ class TestExtractHitsStrict:
         assert "重大事项公告" in ev
 
 
+class TestScanOneFailClosed:
+    def test_keyword_hit_vetoes_when_semantic_config_missing(self, monkeypatch):
+        from integrations import rag_veto as mod
+
+        monkeypatch.setattr(mod, "RAG_SEMANTIC_VETO_ENABLED", True)
+        monkeypatch.setattr(mod, "RAG_SEMANTIC_API_KEY", "")
+        monkeypatch.setattr(mod, "RAG_SEMANTIC_MODEL", "")
+        monkeypatch.setattr(mod, "RAG_SEMANTIC_BASE_URL", "")
+        monkeypatch.setattr(
+            mod,
+            "_fetch_news_akshare",
+            lambda _code: [{"title": "重大事项公告", "content": "公司被证监会立案调查"}],
+        )
+
+        result = mod._scan_one("000001", "平安银行", KEYWORDS)
+
+        assert result.veto is True
+        assert {"立案", "调查", "证监会"}.issubset(set(result.hits))
+        assert result.semantic_checked is False
+        assert result.error == "semantic_disabled:missing_RAG_SEMANTIC_*_config"
+
+
 class TestStMentionsThisStock:
     """ST 关键词精确匹配：只有 *ST/ST + 本股名称前缀才算命中。"""
 
