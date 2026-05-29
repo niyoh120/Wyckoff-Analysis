@@ -172,8 +172,6 @@ CREATE INDEX IF NOT EXISTS idx_rec_date ON recommendation_tracking(recommend_dat
 CREATE INDEX IF NOT EXISTS idx_sig_status ON signal_pending(status);
 CREATE INDEX IF NOT EXISTS idx_mem_type ON agent_memory(memory_type);
 CREATE INDEX IF NOT EXISTS idx_mem_codes ON agent_memory(codes);
-CREATE INDEX IF NOT EXISTS idx_mem_level ON agent_memory(memory_level);
-CREATE INDEX IF NOT EXISTS idx_mem_source ON agent_memory(source_ref);
 CREATE INDEX IF NOT EXISTS idx_chatlog_session ON chat_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_chatlog_created ON chat_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_tail_run_date ON tail_buy_history(run_date);

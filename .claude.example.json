@@ -1,0 +1,17 @@
+{
+  "projects": {
+    "/path/to/Wyckoff-Analysis": {
+      "mcpServers": {
+        "wyckoff": {
+          "type": "stdio",
+          "command": "/path/to/Wyckoff-Analysis/.venv/bin/python",
+          "args": ["mcp_server.py"],
+          "env": {
+            "SUPABASE_USER_ID": "your-supabase-user-id",
+            "TICKFLOW_API_KEY": "your-tickflow-api-key"
+          }
+        }
+      }
+    }
+  }
+}
