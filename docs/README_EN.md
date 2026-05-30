@@ -302,9 +302,9 @@ Ideal for giving any AI assistant a quick "Wyckoff lens."
 
 ## Community
 
-| Feishu Group | QQ Group | Feishu Contact |
-|:---:|:---:|:---:|
-| <img src="../attach/飞书群二维码.png" width="200" /> | <img src="../attach/QQ群二维码.jpg" width="200" /><br/>Group: 761348919 | <img src="../attach/飞书个人二维码.png" width="200" /> |
+| Feishu Group 1 | Feishu Group 2 | QQ Group | Feishu Contact |
+|:---:|:---:|:---:|:---:|
+| <img src="../attach/飞书群二维码.png" width="200" /> | <img src="../attach/飞书二群二维码.png" width="200" /> | <img src="../attach/QQ群二维码.jpg" width="200" /><br/>Group: 761348919 | <img src="../attach/飞书个人二维码.png" width="200" /> |
 
 ## Sponsor
 

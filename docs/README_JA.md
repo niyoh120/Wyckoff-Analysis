@@ -302,9 +302,9 @@ AIアシスタントに「ワイコフ視点」を素早く装着するのに最
 
 ## コミュニティ
 
-| Feishu グループ | QQ グループ | Feishu 個人 |
-|:---:|:---:|:---:|
-| <img src="../attach/飞书群二维码.png" width="200" /> | <img src="../attach/QQ群二维码.jpg" width="200" /><br/>グループ番号: 761348919 | <img src="../attach/飞书个人二维码.png" width="200" /> |
+| Feishu グループ 1 | Feishu グループ 2 | QQ グループ | Feishu 個人 |
+|:---:|:---:|:---:|:---:|
+| <img src="../attach/飞书群二维码.png" width="200" /> | <img src="../attach/飞书二群二维码.png" width="200" /> | <img src="../attach/QQ群二维码.jpg" width="200" /><br/>グループ番号: 761348919 | <img src="../attach/飞书个人二维码.png" width="200" /> |
 
 ## スポンサー
 

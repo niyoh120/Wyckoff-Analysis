@@ -302,9 +302,9 @@ Ideal para dar a cualquier asistente IA una rapida "perspectiva Wyckoff."
 
 ## Comunidad
 
-| Grupo Feishu | Grupo QQ | Contacto Feishu |
-|:---:|:---:|:---:|
-| <img src="../attach/飞书群二维码.png" width="200" /> | <img src="../attach/QQ群二维码.jpg" width="200" /><br/>Grupo: 761348919 | <img src="../attach/飞书个人二维码.png" width="200" /> |
+| Grupo Feishu 1 | Grupo Feishu 2 | Grupo QQ | Contacto Feishu |
+|:---:|:---:|:---:|:---:|
+| <img src="../attach/飞书群二维码.png" width="200" /> | <img src="../attach/飞书二群二维码.png" width="200" /> | <img src="../attach/QQ群二维码.jpg" width="200" /><br/>Grupo: 761348919 | <img src="../attach/飞书个人二维码.png" width="200" /> |
 
 ## Patrocinio
 

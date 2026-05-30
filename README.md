@@ -235,9 +235,9 @@ wyckoff dashboard
 
 ## 交流
 
-| 飞书群 | QQ群 | 飞书个人 |
-|:---:|:---:|:---:|
-| <img src="attach/飞书群二维码.png" width="200" /> | <img src="attach/QQ群二维码.jpg" width="200" /><br/>群号: 761348919 | <img src="attach/飞书个人二维码.png" width="200" /> |
+| 飞书一群 | 飞书二群 | QQ群 | 飞书个人 |
+|:---:|:---:|:---:|:---:|
+| <img src="attach/飞书群二维码.png" width="200" /> | <img src="attach/飞书二群二维码.png" width="200" /> | <img src="attach/QQ群二维码.jpg" width="200" /><br/>群号: 761348919 | <img src="attach/飞书个人二维码.png" width="200" /> |
 
 ## 赞助
 
