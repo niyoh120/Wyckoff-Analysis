@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from core.theme_radar import build_theme_radar_snapshot, summarize_theme_radar
+from core.theme_radar import ThemeRadarConfig, build_theme_radar_snapshot, summarize_theme_radar
 
 
 def _trend_frame(start: float, step: float, days: int = 280) -> pd.DataFrame:
@@ -65,6 +65,26 @@ def test_theme_radar_ranks_long_horizon_leaders_inside_theme() -> None:
     assert candidates[0]["leader_score"] > candidates[1]["leader_score"]
     assert candidates[0]["ret120"] > 100
     assert candidates[0]["near_high_120d"] is True
+
+
+def test_theme_radar_filters_non_actionable_index_noise() -> None:
+    snapshot = build_theme_radar_snapshot(
+        trade_date="2026-05-27",
+        concept_heat=[
+            {"name": "日经225", "pct": 9.0, "net_inflow": 900_000_000},
+            {"name": "半导体", "pct": 3.8, "net_inflow": 500_000_000},
+        ],
+        concept_history={"2026-05-27": {"日经225": {"pct": 9.0, "inflow": 900_000_000}}},
+        concept_map={"000001": ["日经225"], "000002": ["半导体"]},
+        sector_map={"000001": "日经225", "000002": "半导体"},
+        df_map={"000001": _trend_frame(10, 0.10), "000002": _trend_frame(10, 0.08)},
+        name_map={"000001": "指数噪声", "000002": "芯片A"},
+        config=ThemeRadarConfig(min_theme_score=0.0, min_stock_score=0.0),
+    )
+
+    theme_names = {item["theme"] for item in snapshot["themes"]}
+    assert "日经225" not in theme_names
+    assert "芯片半导体" in theme_names
 
 
 def test_theme_radar_snapshot_round_trip_local_db(tmp_path, monkeypatch) -> None:

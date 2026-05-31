@@ -17,7 +17,7 @@ import argparse
 import os
 import sys
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 # Ensure project root is on sys.path for direct script invocation
@@ -33,7 +33,7 @@ from integrations.supabase_recommendation import (
     upsert_recommendation_payload,
     write_recommendation_backup_artifact,
 )
-from utils.trading_clock import next_trading_day, resolve_end_calendar_day
+from utils.trading_clock import is_a_share_trading_day, next_trading_day, resolve_end_calendar_day
 
 TZ = ZoneInfo("Asia/Shanghai")
 STEP3_REASON_MAP = {
@@ -92,6 +92,17 @@ def _notify_skip(msg: str, feishu: str = "", wecom: str = "", dingtalk: str = ""
             from utils.notify import send_dingtalk_notification
 
             send_dingtalk_notification(dingtalk, "定时任务跳过", msg)
+
+
+def _non_trading_skip_message(today: date) -> str | None:
+    if is_a_share_trading_day(today):
+        return None
+    nxt = next_trading_day(today)
+    if nxt and (nxt - today).days <= 2:
+        return None
+    if nxt:
+        return f"📅 今日 {today} 非交易日，下一交易日 {nxt} 距今超过 2 天，任务跳过"
+    return f"📅 今日 {today} 非交易日，未找到下一交易日，任务跳过"
 
 
 class _TeeStream:
@@ -592,11 +603,9 @@ def main() -> int:
         _log("--dry-run: 配置校验通过，退出", logs_path)
         return 0
 
-    # 非交易日跳过：检查下一个交易日是否在 2 天内（周日跑 → 周一应该开盘）
     today = resolve_end_calendar_day()
-    nxt = next_trading_day(today)
-    if nxt and (nxt - today).days > 2:
-        skip_msg = f"📅 下一交易日 {nxt} 距今超过 2 天，任务跳过"
+    skip_msg = _non_trading_skip_message(today)
+    if skip_msg:
         _log(skip_msg, logs_path)
         _notify_skip(skip_msg, webhook, wecom_webhook, dingtalk_webhook)
         return 0

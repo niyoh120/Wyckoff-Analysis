@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.concept_filters import is_actionable_theme_name
 from core.constants import TABLE_CONCEPT_HEAT_HISTORY
 from integrations.supabase_base import close_client as _close
 from integrations.supabase_base import create_admin_client as _admin
@@ -11,7 +12,8 @@ from integrations.supabase_base import is_admin_configured as _configured
 
 
 def _top_heat_items(heat: list[dict[str, Any]], top_n: int) -> list[dict[str, Any]]:
-    return sorted(heat, key=lambda x: x.get("net_inflow", 0), reverse=True)[: max(int(top_n), 1)]
+    clean = [item for item in heat if is_actionable_theme_name(str(item.get("name", "")))]
+    return sorted(clean, key=lambda x: x.get("net_inflow", 0), reverse=True)[: max(int(top_n), 1)]
 
 
 def upsert_concept_heat_history(trade_date: str, heat: list[dict[str, Any]], top_n: int = 20) -> int:
@@ -38,6 +40,7 @@ def upsert_concept_heat_history(trade_date: str, heat: list[dict[str, Any]], top
     client = None
     try:
         client = _admin()
+        client.table(TABLE_CONCEPT_HEAT_HISTORY).delete().eq("trade_date", trade_date).execute()
         client.table(TABLE_CONCEPT_HEAT_HISTORY).upsert(
             payload,
             on_conflict="trade_date,concept_name",

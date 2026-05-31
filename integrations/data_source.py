@@ -29,6 +29,7 @@ from typing import Any, Literal
 
 import pandas as pd
 
+from core.concept_filters import is_actionable_theme_name
 from integrations.tickflow_notice import (
     TICKFLOW_LIMIT_HINT,
     TICKFLOW_UPGRADE_URL,
@@ -1306,7 +1307,7 @@ def _fetch_concept_map_from_eastmoney() -> dict[str, list[str]]:
             break
         for row in data["result"]["data"]:
             name = row.get("BOARD_NAME", "")
-            if name and name not in _CONCEPT_NOISE:
+            if name and name not in _CONCEPT_NOISE and is_actionable_theme_name(name):
                 mapping.setdefault(row["SECURITY_CODE"], []).append(name)
         if len(data["result"]["data"]) < 5000:
             break
@@ -1397,7 +1398,7 @@ def _fetch_concept_heat_from_ths() -> list[dict[str, Any]]:
     items = []
     for item in data.values():
         name = item.get("platename", "")
-        if not name or name in _CONCEPT_NOISE:
+        if not name or name in _CONCEPT_NOISE or not is_actionable_theme_name(name):
             continue
         items.append(
             {

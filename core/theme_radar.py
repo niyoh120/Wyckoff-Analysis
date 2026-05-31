@@ -9,6 +9,8 @@ from typing import Any
 
 import pandas as pd
 
+from core.concept_filters import is_actionable_theme_name
+
 THEME_ALIASES: dict[str, tuple[str, ...]] = {
     "芯片半导体": ("芯片", "半导体", "集成电路", "先进封装", "存储", "光刻胶", "第三代半导体", "semiconductor", "chip"),
     "AI算力": ("人工智能", "AI应用", "大模型", "算力", "数据中心", "服务器", "液冷", "PCB", "data center", "server"),
@@ -213,7 +215,7 @@ def _heat_by_theme(concept_heat: list[dict[str, Any]]) -> dict[str, dict[str, An
     heat: dict[str, dict[str, Any]] = {}
     for rank, item in enumerate(concept_heat or [], start=1):
         theme = normalize_theme_name(str(item.get("name", "")))
-        if not theme:
+        if not theme or not is_actionable_theme_name(theme):
             continue
         bucket = heat.setdefault(theme, {"score": 0.0, "concepts": [], "pct": 0.0, "inflow": 0.0})
         score = _heat_item_score(item, rank)
@@ -246,7 +248,7 @@ def _history_by_theme(history: dict[str, dict]) -> dict[str, dict[str, Any]]:
 
 
 def _themes_for_day(day: dict[str, Any]) -> set[str]:
-    return {normalize_theme_name(name) for name in day.keys() if normalize_theme_name(name)}
+    return {theme for name in day.keys() if (theme := normalize_theme_name(name)) and is_actionable_theme_name(theme)}
 
 
 def _theme_streak(theme: str, dates: list[str], history: dict[str, dict]) -> int:
@@ -263,7 +265,9 @@ def _events_by_theme(events: list[dict[str, Any]]) -> dict[str, list[dict[str, A
     for event in events:
         themes = event.get("themes") or infer_event_themes(event)
         for theme in themes:
-            grouped.setdefault(normalize_theme_name(str(theme)), []).append(event)
+            normalized = normalize_theme_name(str(theme))
+            if is_actionable_theme_name(normalized):
+                grouped.setdefault(normalized, []).append(event)
     return grouped
 
 
@@ -276,7 +280,7 @@ def _theme_universe(*parts: Any) -> list[str]:
     for concepts in concept_map.values():
         themes.update(normalize_theme_name(c) for c in concepts or [])
     themes.update(normalize_theme_name(v) for v in sector_map.values())
-    return sorted(t for t in themes if t)
+    return sorted(t for t in themes if t and is_actionable_theme_name(t))
 
 
 def _score_theme(

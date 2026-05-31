@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import date
 
 
 def test_preview_only_skips_persistence_and_keeps_llm_input_path(monkeypatch, tmp_path):
@@ -63,6 +64,39 @@ def test_preview_only_skips_persistence_and_keeps_llm_input_path(monkeypatch, tm
     assert captured["signal_dry_run"] is True
     assert captured["step3_webhook"] == "https://example.invalid/webhook"
     assert captured["step3_symbols"] == ["000001", "000002"]
+
+
+def test_non_trading_skip_message_keeps_trading_friday(monkeypatch):
+    import scripts.daily_job as daily_job
+
+    monkeypatch.setattr(daily_job, "is_a_share_trading_day", lambda _today: True)
+    monkeypatch.setattr(
+        daily_job,
+        "next_trading_day",
+        lambda _today: (_ for _ in ()).throw(AssertionError("next day should not be checked")),
+    )
+
+    assert daily_job._non_trading_skip_message(date(2026, 5, 29)) is None
+
+
+def test_non_trading_skip_message_allows_weekend_pre_run(monkeypatch):
+    import scripts.daily_job as daily_job
+
+    monkeypatch.setattr(daily_job, "is_a_share_trading_day", lambda _today: False)
+    monkeypatch.setattr(daily_job, "next_trading_day", lambda _today: date(2026, 6, 1))
+
+    assert daily_job._non_trading_skip_message(date(2026, 5, 31)) is None
+
+
+def test_non_trading_skip_message_skips_long_break(monkeypatch):
+    import scripts.daily_job as daily_job
+
+    monkeypatch.setattr(daily_job, "is_a_share_trading_day", lambda _today: False)
+    monkeypatch.setattr(daily_job, "next_trading_day", lambda _today: date(2026, 6, 3))
+
+    msg = daily_job._non_trading_skip_message(date(2026, 5, 30))
+
+    assert msg == "📅 今日 2026-05-30 非交易日，下一交易日 2026-06-03 距今超过 2 天，任务跳过"
 
 
 def test_signal_confirmation_dry_run_does_not_write(monkeypatch):

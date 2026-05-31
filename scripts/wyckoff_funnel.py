@@ -1093,6 +1093,27 @@ def _theme_report_fields(code: str, candidate_map: dict[str, dict], bonus_map: d
     }
 
 
+def _signal_report_fields(
+    code: str,
+    trigger_key_map: dict[str, list[str]],
+    track: str,
+    regime: str,
+    trigger_score: float,
+) -> dict:
+    signal_types: list[str] = []
+    for key in trigger_key_map.get(code, []) or []:
+        signal = str(key or "").strip()
+        if signal and signal not in signal_types:
+            signal_types.append(signal)
+    return {
+        "primary_signal": signal_types[0] if signal_types else "",
+        "signal_types": signal_types,
+        "signal_track": str(track or "").strip(),
+        "market_regime": str(regime or "NEUTRAL").strip().upper() or "NEUTRAL",
+        "trigger_score": _safe_float(trigger_score),
+    }
+
+
 def _candidate_reason_text(code: str, code_to_reasons: dict[str, list[str]], badge_map: dict[str, str]) -> str:
     reasons = list(code_to_reasons.get(code, []) or [])
     badge = badge_map.get(code, "")
@@ -1967,6 +1988,11 @@ def run(
                 return "Markup"
             return str(accum_stage_map.get(code, "") or "").strip()
 
+        def _legacy_score(code: str) -> float:
+            return float(
+                code_to_total_score.get(code, 0.0) or (metrics.get("layer3_score_map", {}) or {}).get(code, 0.0)
+            )
+
         symbols_for_report = [
             {
                 "code": c,
@@ -1974,9 +2000,8 @@ def run(
                 "tag": _candidate_reason_text(c, code_to_reasons, theme_badge_map),
                 "track": _infer_track(c),
                 "stage": _legacy_stage(c),
-                "score": float(
-                    code_to_total_score.get(c, 0.0) or (metrics.get("layer3_score_map", {}) or {}).get(c, 0.0)
-                ),
+                "score": _legacy_score(c),
+                **_signal_report_fields(c, code_to_trigger_keys, _infer_track(c), str(regime), _legacy_score(c)),
                 "priority_score": float(code_to_best_score.get(c, 0.0)),
                 "priority_rank": idx + 1,
                 "selection_source": (
@@ -2052,6 +2077,9 @@ def run(
     )
     sector_rotation = metrics.get("sector_rotation", {}) or {}
     sector_rotation_map = sector_rotation.get("state_map", {}) or {}
+
+    def _selected_track(code: str) -> str:
+        return "Trend" if code in trend_selected else "Accum" if code in accum_selected else ""
 
     total_cap = int(ai_policy["total_cap"])
     trend_quota = int(ai_policy["trend_quota"])
@@ -2235,9 +2263,10 @@ def run(
                 f"{'战略L2旁路' if c in strategic_l2_bypass_set else 'L2旁路观察' if c in l2_bypass_set else str(l2_channel_map.get(c, '')).strip()} | "
                 f"{_candidate_reason_text(c, code_to_reasons, theme_badge_map)}"
             ).strip(" |"),
-            "track": ("Trend" if c in trend_selected else "Accum" if c in accum_selected else ""),
+            "track": _selected_track(c),
             "stage": _stage_name(c),
             "score": float(_display_score(c)),
+            **_signal_report_fields(c, code_to_trigger_keys, _selected_track(c), str(regime), _display_score(c)),
             "priority_score": float(score_map.get(c, 0.0)),
             "priority_rank": idx + 1,
             "selection_source": _selection_source(c),
