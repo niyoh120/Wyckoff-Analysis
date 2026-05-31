@@ -122,26 +122,29 @@ const capabilityReasons = {
 
 const capabilityLaunch = {
   'zh-CN': {
-    kicker: '开放预告',
+    kicker: '正式开放',
     date: '2026-06-03',
-    title: '将开放知识星球、闲鱼等加入方式',
-    desc: '如果你对这个项目感兴趣，可以和我一起使用漏斗、回测、单票复盘、尾盘策略、持仓诊断等完整能力，而不只停留在 Web 端的轻量入口。',
-    badge: '完整能力',
-    tags: ['完整漏斗能力', '回测与复盘', '多市场数据', '一起迭代'],
+    title: '「威科夫策略交流学习」知识星球',
+    desc: '知识星球现已正式开放！年费仅需 518 元/年（折合每天仅约 1.4 元），518 也取「我要发」的好彩头。项目本身将始终保持开源，并热忱欢迎大家 fork 自行部署、提交 Issue 与 PR。如果您希望免除数据源接口订阅与复杂的云端环境维护工作（个人部署硬件与 API 纯开销高达 20,000+ 元/年），加入星球即可共享云端多端同步、全市场漏斗推送及专属交流社区。',
+    note: '费用主要用于共同平摊数据源、数据库、云服务器、AI API 和自动化任务等系统运维硬成本；不是投资顾问费，也不构成任何收益承诺。',
+    badge: '星球会员特权',
+    tags: ['云端数据同步', '每日漏斗推送', '自动 AI 研报', '专属交流社群'],
   },
   'en-US': {
-    kicker: 'Access preview',
+    kicker: 'Now Open',
     date: '2026-06-03',
-    title: 'Knowledge Planet, Xianyu, and similar access channels will open',
-    desc: 'If this project resonates with you, you can join me to use the full funnel, backtest, replay, tail-buy, and portfolio diagnosis workflows beyond the lightweight web cockpit.',
-    badge: 'Full Access',
-    tags: ['Full funnel', 'Backtest & replay', 'Multi-market data', 'Build together'],
+    title: 'Wyckoff Strategy Learning Planet',
+    desc: 'Knowledge Planet is officially launched! Membership is just 518 CNY/year (about 1.4 CNY/day); 518 is also an auspicious Chinese wordplay for “I want to prosper”. The project itself will always remain open source, and we welcome forks, issues, and PRs. If you wish to bypass local DevOps and API subscriptions (which cost over 20,000+ CNY/year individually), joining the shared cloud gives you cloud sync, daily scans, and the private community.',
+    note: 'The fee mainly helps share hard operating costs such as data feeds, databases, cloud servers, AI APIs, and scheduled automation; it is not an investment advisory fee and does not imply any return guarantee.',
+    badge: 'Member Benefits',
+    tags: ['Cloud Sync', 'Daily Funnel Push', 'AI Report Alerts', 'Quant Community'],
   },
 } satisfies Record<Locale, {
   kicker: string
   date: string
   title: string
   desc: string
+  note: string
   badge: string
   tags: string[]
 }>
@@ -287,7 +290,7 @@ function CapabilityLaunchBanner({ locale }: { locale: Locale }) {
   return (
     <article className="relative mb-5 overflow-hidden rounded-2xl border border-amber-300/50 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.26),transparent_36%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(88,28,135,0.85)_48%,rgba(180,83,9,0.88))] p-5 text-white shadow-lg shadow-amber-900/10">
       <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full border border-white/20 bg-white/10 blur-sm" />
-      <div className="relative grid gap-5 lg:grid-cols-[1fr_280px] lg:items-center">
+      <div className="relative grid gap-5 lg:grid-cols-[1fr_300px] lg:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/15 px-3 py-1 text-xs font-semibold backdrop-blur">
@@ -300,19 +303,29 @@ function CapabilityLaunchBanner({ locale }: { locale: Locale }) {
             </span>
           </div>
           <h3 className="mt-4 text-2xl font-semibold tracking-tight">{copy.title}</h3>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/78">{copy.desc}</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/90">{copy.desc}</p>
+          <p className="mt-3 flex max-w-3xl items-start gap-2 rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-xs leading-5 text-white/85">
+            <AlertTriangle className="mt-0.5 shrink-0" size={14} />
+            <span>{copy.note}</span>
+          </p>
         </div>
-        <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <Users size={16} />
-            {copy.badge}
+        <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur flex flex-col items-center gap-4 sm:flex-row lg:flex-col lg:items-center">
+          <div className="w-full">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+              <Users size={16} />
+              {copy.badge}
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-1">
+              {copy.tags.map((tag) => (
+                <span key={tag} className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs text-white/90">
+                  {tag}
+                </span>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {copy.tags.map((tag) => (
-              <span key={tag} className="rounded-full bg-white/15 px-3 py-1 text-xs text-white/90">
-                {tag}
-              </span>
-            ))}
+          <div className="flex flex-col items-center rounded-xl bg-white p-2 shadow-md shrink-0 w-48 transition-transform hover:scale-[1.03] duration-200">
+            <img src="/zsxq_qr.jpg" alt="Knowledge Planet QR" className="w-full h-auto object-contain rounded-lg" />
+            <span className="mt-2 text-xs font-bold text-slate-800">微信扫码 加入星球</span>
           </div>
         </div>
       </div>
