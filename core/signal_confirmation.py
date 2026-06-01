@@ -118,6 +118,80 @@ def _compute_support_level(
     return float(df_s["low"].tail(20).min())
 
 
+def _springboard_date(df_s: pd.DataFrame, idx: int) -> str:
+    if "date" not in df_s.columns:
+        return str(idx)
+    parsed = pd.to_datetime(df_s.iloc[idx].get("date"), errors="coerce")
+    return "" if pd.isna(parsed) else parsed.date().isoformat()
+
+
+def _metric(raw: Any) -> float | None:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return round(value, 4) if pd.notna(value) else None
+
+
+def _springboard_evidence(
+    df_s: pd.DataFrame,
+    vol_ratio: pd.Series,
+    close_pos: pd.Series,
+    low: pd.Series,
+    support: float,
+    tolerance: float,
+    window: int,
+) -> tuple[int, dict[str, Any]]:
+    tail_idx = list(df_s.tail(5).index)
+    a_hits = []
+    for i in tail_idx:
+        vr = _metric(vol_ratio.loc[i])
+        cp = _metric(close_pos.loc[i])
+        if vr is not None and cp is not None and vr < 0.8 and cp > 60:
+            a_hits.append({"date": _springboard_date(df_s, int(i)), "vol_ratio": vr, "close_pos": cp})
+    touch_idx = []
+    for i in df_s.tail(window).index:
+        low_value = _metric(low.loc[i])
+        if low_value is not None and abs(low_value - support) <= tolerance:
+            touch_idx.append(int(i))
+    last_idx = int(df_s.index[-1])
+    evidence = {
+        "a_hits": a_hits,
+        "b_last": {
+            "date": _springboard_date(df_s, last_idx),
+            "vol_ratio": _metric(vol_ratio.loc[last_idx]),
+            "close_pos": _metric(close_pos.loc[last_idx]),
+        },
+        "c_support": {
+            "support": _metric(support),
+            "tolerance": _metric(tolerance),
+            "touch_dates": [_springboard_date(df_s, i) for i in touch_idx[-8:]],
+        },
+    }
+    return len(touch_idx), evidence
+
+
+def _springboard_result(
+    a: bool,
+    b: bool,
+    c: bool,
+    support: float,
+    touches: int,
+    evidence: dict[str, Any],
+) -> dict[str, Any]:
+    parts = [name for name, ok in (("A", a), ("B", b), ("C", c)) if ok]
+    return {
+        "a": a,
+        "b": b,
+        "c": c,
+        "grade": "+".join(parts) if parts else "none",
+        "met_count": len(parts),
+        "support": _metric(support),
+        "touch_count": touches,
+        "evidence": evidence,
+    }
+
+
 def score_springboard_abc(
     df: pd.DataFrame,
     signal_type: str,
@@ -129,7 +203,7 @@ def score_springboard_abc(
     B: 最后一根K线放量突破（vol_ratio >= 1.5 且 close_pos > 70%）
     C: 支撑位在 window 内被 low 触碰 >= 2 次（tolerance 5%）
     """
-    df_s = df.sort_values("date") if "date" in df.columns else df
+    df_s = (df.sort_values("date") if "date" in df.columns else df).reset_index(drop=True)
     close = pd.to_numeric(df_s["close"], errors="coerce")
     high = pd.to_numeric(df_s["high"], errors="coerce")
     low = pd.to_numeric(df_s["low"], errors="coerce")
@@ -144,24 +218,16 @@ def score_springboard_abc(
     a = bool(((vol_ratio.loc[idx5] < 0.8) & (close_pos.loc[idx5] > 60)).any())
 
     last_idx = df_s.index[-1]
-    b = bool(vol_ratio.loc[last_idx] >= 1.5 and close_pos.loc[last_idx] > 70)
+    last_vr = _metric(vol_ratio.loc[last_idx])
+    last_cp = _metric(close_pos.loc[last_idx])
+    b = bool(last_vr is not None and last_cp is not None and last_vr >= 1.5 and last_cp > 70)
 
     support = _compute_support_level(df, signal_type, window)
     tol = support * 0.05
-    lookback = df_s.tail(window)
-    touches = int(((low.loc[lookback.index] - support).abs() <= tol).sum())
+    touches, evidence = _springboard_evidence(df_s, vol_ratio, close_pos, low, support, tol, window)
     c = touches >= 2
 
-    parts = []
-    if a:
-        parts.append("A")
-    if b:
-        parts.append("B")
-    if c:
-        parts.append("C")
-    met = len(parts)
-    grade = "+".join(parts) if parts else "none"
-    return {"a": a, "b": b, "c": c, "grade": grade, "met_count": met}
+    return _springboard_result(a, b, c, support, touches, evidence)
 
 
 def build_snap(

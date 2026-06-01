@@ -97,6 +97,9 @@ class FunnelConfig:
     rps_accel_slow_min: float = 55.0  # 加速旁路下 RPS120 最低要求
     require_bench_latest_alignment: bool = False
     momentum_bias_200_max: float = 0.25  # 防止主升通道选出离 200 日线太远的鱼尾老妖股
+    # Global Anti-Overfitting Restriction
+    global_entry_max_bias_200: float = 25.0  # 全局统一：凡偏离年线超 25% 的股票，一律拒绝买入（防高位接盘）
+
     # Layer 2 预点火观察池
     enable_pre_ignition_watch: bool = True
     pre_ignition_bias_max: float = 0.20
@@ -190,12 +193,11 @@ class FunnelConfig:
     # Layer 4 - Effort vs Result
     enable_evr_trigger: bool = True
     evr_lookback: int = 3
-    evr_vol_ratio: float = 1.5
+    evr_vol_ratio: float = 1.8  # 从1.5微调至1.8，略微提高异动门槛
     evr_min_turnover: float = 1.5
     evr_vol_window: int = 20
     evr_max_drop: float = 2.0
     evr_max_rise: float = 2.0
-    evr_max_bias_200: float = 40.0
     evr_confirm_days: int = 1
     evr_confirm_allow_break_pct: float = 0.0
 
@@ -204,15 +206,14 @@ class FunnelConfig:
     compression_lookback: int = 5
     compression_atr_window: int = 20
     compression_atr_quantile: float = 0.20
-    compression_vol_decline_ratio: float = 0.80
-    compression_max_bias_200: float = 40.0
+    compression_vol_decline_ratio: float = 0.60  # 统一"量能枯竭"标准为 0.6倍
 
     # Layer 4 - Trend Pullback (趋势回踩)
     enable_trend_pullback_trigger: bool = True
     trend_pb_lookback: int = 10  # 回踩窗口
     trend_pb_min_pullback_pct: float = 5.0  # 最小回撤深度%
     trend_pb_max_pullback_pct: float = 20.0  # 最大回撤深度%
-    trend_pb_vol_shrink_ratio: float = 0.6  # 回落段缩量确认
+    trend_pb_vol_shrink_ratio: float = 0.6  # 回落段缩量确认，统一为 0.6
     trend_pb_ma_window: int = 20  # 均线窗口
 
     # Funnel score
@@ -220,11 +221,10 @@ class FunnelConfig:
 
     # Layer 4 - SOS / JAC (Sign of Strength / Jump Across the Creek)
     sos_pct_min: float = 6.0  # 提高门槛过滤弱突破（原 4.5 追高触发止损率极高）
-    sos_vol_ratio: float = 2.5  # 要求更强量能确认（原 2.0 噪音太多）
+    sos_vol_ratio: float = 3.0  # 要求更暴力抢筹（原 2.5 噪音太多，修改为 3.0）
     sos_vol_window: int = 20  # 计算点火爆量时的参考窗口
-    sos_breakout_window: int = 10
+    sos_breakout_window: int = 60  # 把突破箱体延长到 60天 (约3个月)，拒绝 10日小打小闹
     sos_breakout_tolerance: float = 0.01  # 改为 0.01：突破容差 1%（从 2% 改为 1%）
-    sos_max_bias_200: float = 35.0  # 放宽以覆盖从底部启动的加速股（原20%过紧）
     # SOS 动态极值爆量
     sos_vol_quantile_window: int = 60  # 计算量能分位数的滚动窗口
     sos_vol_quantile: float = 0.95  # 要求当日量能突破历史 N 日的 95% 分位数
@@ -1121,6 +1121,17 @@ def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     prev = df_s.iloc[-2]
     last = df_s.iloc[-1]
 
+    # Global Bias Restriction: Prevent buying Spring at extreme highs
+    if len(df_s) >= 200:
+        close_series = pd.to_numeric(df_s["close"], errors="coerce")
+        ma200 = close_series.rolling(200).mean()
+        ma200_last = ma200.iloc[-1]
+        close_last = close_series.iloc[-1]
+        if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
+            bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
+            if bias_200 > float(getattr(cfg, "global_entry_max_bias_200", 25.0)):
+                return None
+
     # 允许单日盘中洗盘（长下影锤子线）：只要 prev/last 至少一日跌破即可。
     if (prev["low"] >= support_level) and (last["low"] >= support_level):
         return None
@@ -1157,6 +1168,15 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     last_close = close.iloc[-1]
     if last_close < last_ma:
         return None
+
+    # Global Bias Restriction: Prevent buying LPS at extreme highs
+    if len(close) >= 200:
+        ma200 = close.rolling(200).mean()
+        ma200_last = ma200.iloc[-1]
+        if pd.notna(ma200_last) and pd.notna(last_close) and float(ma200_last) > 0:
+            bias_200 = (float(last_close) - float(ma200_last)) / float(ma200_last) * 100.0
+            if bias_200 > float(getattr(cfg, "global_entry_max_bias_200", 25.0)):
+                return None
 
     rising_offset = cfg.lps_lookback + cfg.lps_ma_rising_window
     if len(ma) > rising_offset:
@@ -1203,7 +1223,7 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     close_last = close.iloc[-1]
     if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
         bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
-        if bias_200 > float(cfg.evr_max_bias_200):
+        if bias_200 > float(cfg.global_entry_max_bias_200):
             return None
 
     # 基准量能取"最近窗口但剔除最后两天"，避免当前异动污染基线
@@ -1292,7 +1312,7 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
         ma200_last = ma200.iloc[-1]
         if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
             bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
-            if bias_200 > float(cfg.sos_max_bias_200):
+            if bias_200 > float(cfg.global_entry_max_bias_200):
                 return None
 
     # 只看当天（威科夫点火通常是当天的明显大阳线）
@@ -1364,7 +1384,7 @@ def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
         ma200_last = ma200.iloc[-1]
         if pd.notna(ma200_last) and float(ma200_last) > 0:
             bias = (float(close.iloc[-1]) - float(ma200_last)) / float(ma200_last) * 100.0
-            if bias > cfg.compression_max_bias_200:
+            if bias > cfg.global_entry_max_bias_200:
                 return None
 
     tr = pd.concat(
@@ -1455,6 +1475,16 @@ def _detect_trend_pullback(
     volume = pd.to_numeric(df_s["volume"], errors="coerce")
     if close.isna().all() or volume.isna().all():
         return None
+
+    # Global Bias Restriction: Prevent buying Trend Pullbacks at extreme highs
+    if len(close) >= 200:
+        ma200 = close.rolling(200).mean()
+        ma200_last = ma200.iloc[-1]
+        close_last = close.iloc[-1]
+        if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
+            bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
+            if bias_200 > float(getattr(cfg, "trend_pb_max_bias_200", cfg.global_entry_max_bias_200)):
+                return None
 
     peak_idx = _trend_pullback_peak_idx(close, cfg)
     if peak_idx is None:

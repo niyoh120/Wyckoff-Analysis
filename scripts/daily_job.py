@@ -276,6 +276,7 @@ def _persist_signal_observations(
         }
         source_map = {code: "l2_bypass" for code in bypass_codes}
         source_map.update({code: "strategic_l2_bypass" for code in strategic_bypass_codes})
+        springboard_map = step2_details.get("springboard_map") or _build_springboard_map(step2_details)
         rows = build_signal_observations(
             _latest_trade_date_str(),
             step2_details.get("review_triggers") or step2_details.get("triggers") or {},
@@ -289,6 +290,7 @@ def _persist_signal_observations(
             channel_map=metrics.get("layer2_channel_map", {}) or {},
             latest_close_map=metrics.get("latest_close_map", {}) or {},
             source_map=source_map,
+            springboard_map=springboard_map,
         )
         written = upsert_signal_observations(rows)
         _log(f"信号观察样本入库: rows={len(rows)}, written={written}", logs_path)
@@ -362,30 +364,71 @@ def _run_springboard_scoring(
     step2_details: dict,
 ) -> int:
     """从 triggers 反查 code→signal_type，调用量化评分器。"""
-    from core.signal_confirmation import score_springboard_abc
-
-    all_df_map = step2_details.get("all_df_map", {})
-    triggers = step2_details.get("triggers", {})
-    code_to_sig: dict[str, str] = {}
-    for sig_type, hits in triggers.items():
-        for code, _ in hits:
-            code_to_sig.setdefault(str(code).strip(), sig_type)
+    springboard_map = _build_springboard_map(step2_details)
+    step2_details["springboard_map"] = springboard_map
 
     scored = 0
     for item in symbols_info:
         code = str(item.get("code", "")).strip()
-        sig_type = str(item.get("signal_type", "")).strip().lower() or code_to_sig.get(code, "")
-        df = all_df_map.get(code)
-        if df is None or df.empty or not sig_type:
-            item["springboard_grade"] = "none"
-            continue
-        result = score_springboard_abc(df, sig_type)
-        item["springboard_a"] = result["a"]
-        item["springboard_b"] = result["b"]
-        item["springboard_c"] = result["c"]
-        item["springboard_grade"] = result["grade"]
-        scored += 1
+        fields = springboard_map.get(code) or _empty_springboard_fields()
+        item.update(fields)
+        if fields.get("springboard_scored"):
+            scored += 1
     return scored
+
+
+def _empty_springboard_fields() -> dict:
+    return {
+        "springboard_a": False,
+        "springboard_b": False,
+        "springboard_c": False,
+        "springboard_grade": "none",
+        "springboard_met_count": 0,
+        "springboard_support": None,
+        "springboard_touch_count": 0,
+        "springboard_evidence": {},
+        "springboard_scored": False,
+    }
+
+
+def _springboard_fields(result: dict) -> dict:
+    return {
+        "springboard_a": bool(result.get("a")),
+        "springboard_b": bool(result.get("b")),
+        "springboard_c": bool(result.get("c")),
+        "springboard_grade": str(result.get("grade") or "none"),
+        "springboard_met_count": int(result.get("met_count") or 0),
+        "springboard_support": result.get("support"),
+        "springboard_touch_count": int(result.get("touch_count") or 0),
+        "springboard_evidence": result.get("evidence") or {},
+        "springboard_scored": True,
+    }
+
+
+def _build_springboard_map(step2_details: dict) -> dict[str, dict]:
+    from core.signal_confirmation import score_springboard_abc
+
+    all_df_map = step2_details.get("all_df_map", {})
+    triggers = step2_details.get("review_triggers") or step2_details.get("triggers", {})
+    pairs: list[tuple[str, str]] = []
+    for sig_type, hits in triggers.items():
+        for code, _ in hits:
+            code_s = str(code).strip()
+            sig_s = str(sig_type).strip().lower()
+            if code_s and sig_s:
+                pairs.append((code_s, sig_s))
+
+    out: dict[str, dict] = {}
+    for code, sig_type in pairs:
+        df = all_df_map.get(code)
+        key = f"{sig_type}:{code}"
+        if df is None or df.empty or not sig_type:
+            out[key] = _empty_springboard_fields()
+            out.setdefault(code, out[key])
+            continue
+        out[key] = _springboard_fields(score_springboard_abc(df, sig_type))
+        out.setdefault(code, out[key])
+    return out
 
 
 def _run_step4_holdings_diagnosis(portfolio_id: str, logs_path: str | None) -> str:

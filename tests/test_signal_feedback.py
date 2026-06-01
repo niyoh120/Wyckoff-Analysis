@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from core.dynamic_policy import filter_triggers_by_registry, resolve_dynamic_candidate_policy
+from core.signal_confirmation import score_springboard_abc
 from core.signal_feedback import build_signal_observations, build_signal_registry_updates, summarize_signal_health
 from scripts.signal_feedback_job import _outcome_rows
 
@@ -35,6 +36,28 @@ def test_build_signal_observations_marks_selection_and_source():
         score_map={"000001": 88},
         latest_close_map={"000001": 10.5},
         source_map={"000002": "l2_bypass"},
+        springboard_map={
+            "sos:000001": {
+                "springboard_grade": "A+B",
+                "springboard_met_count": 2,
+                "springboard_a": True,
+                "springboard_b": True,
+                "springboard_c": False,
+                "springboard_support": 10.1,
+                "springboard_touch_count": 1,
+                "springboard_evidence": {"a_hits": [{"date": "2026-05-24"}]},
+            },
+            "spring:000002": {
+                "springboard_grade": "C",
+                "springboard_met_count": 1,
+                "springboard_a": False,
+                "springboard_b": False,
+                "springboard_c": True,
+                "springboard_support": 8.8,
+                "springboard_touch_count": 3,
+                "springboard_evidence": {"c_support": {"touch_dates": ["2026-05-20"]}},
+            },
+        },
     )
 
     first = rows[0]
@@ -44,8 +67,39 @@ def test_build_signal_observations_marks_selection_and_source():
     assert first["selected_for_ai"] is True
     assert first["ai_recommended"] is True
     assert first["entry_price"] == 10.5
+    assert first["springboard_grade"] == "A+B"
+    assert first["springboard_met_count"] == 2
+    assert first["springboard_a"] is True
+    assert first["springboard_evidence"]["a_hits"][0]["date"] == "2026-05-24"
     assert second["track"] == "Accum"
     assert second["source"] == "l2_bypass"
+    assert second["springboard_grade"] == "C"
+    assert second["springboard_c"] is True
+
+
+def test_score_springboard_abc_returns_persistable_metadata():
+    dates = pd.date_range("2026-05-01", periods=25, freq="D")
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "open": [10.0] * 25,
+            "high": [11.0] * 25,
+            "low": [10.0] * 25,
+            "close": [10.5] * 25,
+            "volume": [100.0] * 25,
+        }
+    )
+    df.loc[22, ["close", "volume"]] = [10.8, 50.0]
+    df.loc[24, ["close", "volume"]] = [10.9, 220.0]
+
+    result = score_springboard_abc(df, "spring")
+
+    assert result["a"] is True
+    assert result["b"] is True
+    assert result["c"] is True
+    assert result["grade"] == "A+B+C"
+    assert result["touch_count"] >= 2
+    assert result["evidence"]["b_last"]["date"] == "2026-05-25"
 
 
 def test_signal_feedback_upsert_errors_propagate(monkeypatch):

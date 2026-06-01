@@ -279,7 +279,7 @@ def funnel_config_for_market(market: str, *, trading_days: int = 320, min_avg_am
         funnel_cfg.evr_max_rise = 3.0
     elif market == "hk":
         funnel_cfg.spring_tr_max_range_pct = 25.0
-        funnel_cfg.sos_max_bias_200 = 25.0
+        funnel_cfg.global_entry_max_bias_200 = 25.0
         funnel_cfg.accum_price_from_low_max = 0.40
     elif market == "etf":
         funnel_cfg.sos_pct_min = 3.5

@@ -49,6 +49,26 @@ def _iter_trigger_rows(triggers: dict[str, list[tuple[str, float]]]):
                 yield sig, code_s, _float(score)
 
 
+def _springboard_observation_fields(
+    signal_type: str,
+    code: str,
+    springboard_map: dict[str, dict[str, Any]] | None,
+) -> dict[str, Any]:
+    fields = (springboard_map or {}).get(f"{signal_type}:{code}") or (springboard_map or {}).get(code)
+    if not fields:
+        return {}
+    return {
+        "springboard_grade": fields.get("springboard_grade"),
+        "springboard_met_count": fields.get("springboard_met_count"),
+        "springboard_a": fields.get("springboard_a"),
+        "springboard_b": fields.get("springboard_b"),
+        "springboard_c": fields.get("springboard_c"),
+        "springboard_support": fields.get("springboard_support"),
+        "springboard_touch_count": fields.get("springboard_touch_count"),
+        "springboard_evidence": fields.get("springboard_evidence") or {},
+    }
+
+
 def build_signal_observations(
     trade_date: str,
     triggers: dict[str, list[tuple[str, float]]],
@@ -64,6 +84,7 @@ def build_signal_observations(
     channel_map: dict[str, str] | None = None,
     latest_close_map: dict[str, float] | None = None,
     source_map: dict[str, str] | None = None,
+    springboard_map: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     selected = {_code(c) for c in selected_for_ai or []}
     recommended = {_code(c) for c in ai_recommended or []}
@@ -90,6 +111,7 @@ def build_signal_observations(
                 "source": (source_map or {}).get(code, "funnel"),
                 "lifecycle_status": "ACTIVE",
                 "updated_at": now_iso,
+                **_springboard_observation_fields(signal_type, code, springboard_map),
             }
         )
     return rows
