@@ -14,7 +14,6 @@ def _create_provider(provider_name: str, api_key: str, model: str = "", base_url
             "gemini": "pip install google-genai",
             "claude": "pip install anthropic",
             "openai": "pip install openai",
-            "minimax": "pip install openai",
         }
         hint = install_hints.get(provider_name, "")
         return None, f"Provider '{provider_name}' 不可用，请先安装依赖：{hint}"

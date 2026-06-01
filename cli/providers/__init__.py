@@ -22,6 +22,5 @@ try:
     from cli.providers.openai import OpenAIProvider
 
     PROVIDERS["openai"] = OpenAIProvider
-    PROVIDERS["minimax"] = OpenAIProvider
 except ImportError:
     pass
