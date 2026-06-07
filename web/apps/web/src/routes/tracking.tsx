@@ -1,10 +1,11 @@
 import { useCallback, useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { ArrowRight, CheckCircle2, ExternalLink, ShieldCheck } from 'lucide-react'
 import { createChart, HistogramSeries, type Time } from 'lightweight-charts'
 import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
 import { WyckoffLoading } from '@/components/loading'
-import { usePreferences } from '@/lib/preferences'
+import { usePreferences, type TranslationKey } from '@/lib/preferences'
 import { useAuthStore } from '@/stores/auth'
 
 type MarketTab = 'cn' | 'us' | 'hk'
@@ -71,6 +72,21 @@ type RecommendationWindow = (typeof AVG_WINDOWS)[number]
 type SortBy = 'date' | 'change' | 'score' | 'count' | 'mfe' | 'mae'
 type SortOrder = 'desc' | 'asc'
 
+const LOCKED_BENEFITS = [
+  {
+    titleKey: 'tracking.locked.window',
+    descKey: 'tracking.locked.windowDesc',
+  },
+  {
+    titleKey: 'tracking.locked.signals',
+    descKey: 'tracking.locked.signalsDesc',
+  },
+  {
+    titleKey: 'tracking.locked.replay',
+    descKey: 'tracking.locked.replayDesc',
+  },
+] satisfies { titleKey: TranslationKey; descKey: TranslationKey }[]
+
 async function fetchTracking(market: MarketTab): Promise<Recommendation[]> {
   const rows: Recommendation[] = []
   let offset = 0
@@ -119,16 +135,15 @@ export function TrackingPage() {
   const whitelist = useQuery({
     queryKey: ['whitelist', user?.id],
     queryFn: () => checkWhitelist(user!.id),
-    enabled: !!user?.id && market !== 'cn',
+    enabled: !!user?.id,
   })
 
-  const needsGate = market !== 'cn'
-  const isWhitelisted = !needsGate || whitelist.data === true
+  const isWhitelisted = whitelist.data === true
 
   const { data = [], isLoading: loading, error: fetchError } = useQuery({
     queryKey: ['tracking', market],
     queryFn: () => fetchTracking(market),
-    enabled: !needsGate || isWhitelisted,
+    enabled: isWhitelisted,
     retry: 1,
   })
 
@@ -158,15 +173,14 @@ export function TrackingPage() {
   const latestDate = latestDates[0] ?? null
   const oldestDate = latestDates.at(-1) ?? null
   const activeOldestDate = activeDates.at(-1) ?? null
-  if (needsGate && whitelist.isLoading) return <WyckoffLoading />
+  if (whitelist.isLoading) return <WyckoffLoading />
+  if (!isWhitelisted) return <TrackingLockedView />
 
   return (
     <div className="h-full overflow-auto p-6">
       <TrackingHeader latestDate={latestDate} oldestDate={oldestDate} />
       <MarketTabs market={market} onMarketChange={setMarket} />
-      {needsGate && !isWhitelisted ? (
-        <BetaLocked />
-      ) : fetchError ? (
+      {fetchError ? (
         <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">
           {fetchError.message}
         </div>
@@ -257,13 +271,70 @@ function MarketTabs({ market, onMarketChange }: { market: MarketTab; onMarketCha
   )
 }
 
-function BetaLocked() {
+function TrackingLockedView() {
   const { t } = usePreferences()
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="mb-3 text-4xl">🔒</div>
-      <p className="text-muted-foreground">{t('tracking.betaLocked')}</p>
+    <div className="h-full overflow-auto p-6">
+      <div className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-6xl flex-col justify-center gap-6">
+        <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
+          <section className="py-4">
+            <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-700 dark:text-sky-300">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {t('tracking.locked.eyebrow')}
+            </div>
+            <h1 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-foreground">
+              {t('tracking.locked.title')}
+            </h1>
+            <p className="mt-3 max-w-3xl text-base leading-7 text-muted-foreground">
+              {t('tracking.locked.description')}
+            </p>
+            <div className="mt-6 grid gap-3 md:grid-cols-3">
+              {LOCKED_BENEFITS.map((item) => (
+                <TrackingLockedBenefit key={item.titleKey} title={t(item.titleKey)} desc={t(item.descKey)} />
+              ))}
+            </div>
+            <p className="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-800 dark:text-amber-200">
+              {t('tracking.locked.costNote')}
+            </p>
+          </section>
+          <TrackingLockedAccessCard />
+        </div>
+      </div>
     </div>
+  )
+}
+
+function TrackingLockedBenefit({ title, desc }: { title: string; desc: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card px-4 py-4 shadow-sm">
+      <CheckCircle2 className="mb-3 h-4 w-4 text-sky-600 dark:text-sky-300" />
+      <div className="text-sm font-semibold text-foreground">{title}</div>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{desc}</p>
+    </div>
+  )
+}
+
+function TrackingLockedAccessCard() {
+  const { t } = usePreferences()
+  return (
+    <aside className="rounded-lg border border-border bg-card p-5 shadow-sm">
+      <div className="text-base font-semibold text-foreground">{t('tracking.locked.ctaTitle')}</div>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('tracking.locked.ctaDesc')}</p>
+      <div className="mt-4 rounded-lg border border-border bg-white p-3">
+        <img src="/zsxq_qr.jpg" alt={t('tracking.locked.qrAlt')} className="h-auto w-full rounded-md object-contain" />
+      </div>
+      <div className="mt-4 grid gap-2">
+        <a href="/guide#capability-boundary" className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-700">
+          {t('tracking.locked.join')}
+          <ArrowRight className="h-4 w-4" />
+        </a>
+        <a href="https://github.com/YoungCan-Wang/WyckoffTradingAgent/blob/main/docs/COST_MODEL.md" target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted">
+          {t('tracking.locked.costLink')}
+          <ExternalLink className="h-4 w-4" />
+        </a>
+      </div>
+      <p className="mt-4 text-xs leading-5 text-muted-foreground">{t('tracking.locked.memberHint')}</p>
+    </aside>
   )
 }
 
