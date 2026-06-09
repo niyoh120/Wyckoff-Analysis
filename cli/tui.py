@@ -1873,7 +1873,25 @@ class WyckoffTUI(App):
 
                 if event_type == "compaction":
                     before, after = event["before_messages"], event["after_messages"]
-                    _write(Text.from_markup(f"  [dim]📦 上下文压缩（{before}→{after}条）[/dim]"))
+                    from rich.panel import Panel
+
+                    panel = Panel(
+                        Text.assemble(
+                            (" ⚡ 系统状态：上下文深度压缩中...\n\n", "bold yellow"),
+                            ("已自动提取持久偏好写入 ", "dim white"),
+                            ("SQLite 记忆库", "bold cyan"),
+                            ("；\n已将前序 ", "dim white"),
+                            (str(before), "bold red"),
+                            (" 条陈旧对话压缩为结构化摘要，仅保留最近 ", "dim white"),
+                            (str(after), "bold green"),
+                            (" 条消息以维持当前上下文连贯性。", "dim white"),
+                        ),
+                        border_style="yellow",
+                        title="[bold yellow] 📦 CONTEXT COMPACTION [/bold yellow]",
+                        title_align="left",
+                        padding=(1, 2),
+                    )
+                    _write(panel)
                     _scroll()
                     continue
 
