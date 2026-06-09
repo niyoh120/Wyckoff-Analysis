@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 COMPACT_RESERVE_RATIO = 0.25
 MIN_COMPACT_RESERVE_TOKENS = 16_384
+MAX_COMPACT_RESERVE_TOKENS = 32_768
 TAIL_KEEP = 4
 DEFAULT_RECENT_KEEP_TOKENS = 20_000
 MIN_RECENT_KEEP_TOKENS = 4_000
@@ -35,8 +36,8 @@ def get_compact_reserve_tokens(context_window: int) -> int:
 
     window = max(context_window, 1)
     ratio_reserve = int(window * COMPACT_RESERVE_RATIO)
-    reserve = max(MIN_COMPACT_RESERVE_TOKENS, ratio_reserve)
-    return min(reserve, max(1_000, window // 2))
+    clamped_reserve = max(MIN_COMPACT_RESERVE_TOKENS, min(ratio_reserve, MAX_COMPACT_RESERVE_TOKENS))
+    return min(clamped_reserve, window // 2)
 
 
 def get_compact_threshold(model_name: str = "", context_window: int | None = None) -> int:

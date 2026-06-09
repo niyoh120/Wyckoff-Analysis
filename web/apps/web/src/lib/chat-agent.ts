@@ -68,6 +68,7 @@ const ALLOWED_URL_RE = /^https?:\/\//i
 const UNKNOWN_MODEL_CONTEXT_WINDOW = 64_000
 const COMPACT_RESERVE_RATIO = 0.25
 const MIN_COMPACT_RESERVE_TOKENS = 16_384
+const MAX_COMPACT_RESERVE_TOKENS = 32_768
 const TAIL_KEEP = 4
 const DEFAULT_RECENT_KEEP_TOKENS = 20_000
 const MIN_RECENT_KEEP_TOKENS = 4_000
@@ -110,8 +111,8 @@ export function getChatContextWindow(modelName: string): number {
 function getChatCompactReserveTokens(contextWindow: number): number {
   const window = Math.max(contextWindow, 1)
   const ratioReserve = Math.floor(window * COMPACT_RESERVE_RATIO)
-  const reserve = Math.max(MIN_COMPACT_RESERVE_TOKENS, ratioReserve)
-  return Math.min(reserve, Math.max(1_000, Math.floor(window / 2)))
+  const clampedReserve = Math.max(MIN_COMPACT_RESERVE_TOKENS, Math.min(ratioReserve, MAX_COMPACT_RESERVE_TOKENS))
+  return Math.min(clampedReserve, Math.floor(window / 2))
 }
 
 export function getChatCompactThreshold(modelName: string): number {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from cli.compaction import (
-    COMPACT_RESERVE_RATIO,
+    MAX_COMPACT_RESERVE_TOKENS,
     MIN_COMPACT_RESERVE_TOKENS,
     TAIL_KEEP,
     _expand_tail_for_tool_refs,
@@ -38,7 +38,7 @@ class TestInferContextWindow:
         assert infer_context_window("some-unknown-model") == 64_000
 
     def test_threshold_ratio(self):
-        assert get_compact_threshold("claude-sonnet-4") == int(200_000 * (1 - COMPACT_RESERVE_RATIO))
+        assert get_compact_threshold("claude-sonnet-4") == 200_000 - MAX_COMPACT_RESERVE_TOKENS
 
     def test_threshold_uses_configured_context_window(self):
         assert resolve_context_window("deepseek-chat", 100_000) == 100_000
@@ -47,6 +47,7 @@ class TestInferContextWindow:
     def test_reserve_has_small_window_cap(self):
         assert get_compact_reserve_tokens(16_000) == 8_000
         assert get_compact_reserve_tokens(64_000) == MIN_COMPACT_RESERVE_TOKENS
+        assert get_compact_reserve_tokens(1_000_000) == MAX_COMPACT_RESERVE_TOKENS
 
     def test_recent_keep_budget_scales_with_model(self):
         assert get_recent_keep_tokens("gpt-3.5-turbo") == 4_000
