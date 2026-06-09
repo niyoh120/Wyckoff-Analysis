@@ -14,6 +14,41 @@ from cli.providers.base import LLMProvider
 _TIMEOUT = httpx.Timeout(300.0, connect=60.0)
 
 
+def _openai_extra_content(obj: Any) -> dict[str, Any] | None:
+    """读取 Gemini OpenAI 兼容层附带的 extra_content（含 thought_signature）。"""
+    extra = getattr(obj, "model_extra", None) or {}
+    if isinstance(extra, dict):
+        content = extra.get("extra_content")
+        if content:
+            return content
+    dump_fn = getattr(obj, "model_dump", None)
+    if callable(dump_fn):
+        try:
+            dump = dump_fn()
+            if isinstance(dump, dict):
+                content = dump.get("extra_content")
+                if content:
+                    return content
+        except TypeError:
+            pass
+    return None
+
+
+def _openai_tool_call_payload(tc: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": tc["id"],
+        "type": "function",
+        "function": {
+            "name": tc["name"],
+            "arguments": json.dumps(tc["args"], ensure_ascii=False),
+        },
+    }
+    extra_content = tc.get("extra_content")
+    if extra_content:
+        payload["extra_content"] = extra_content
+    return payload
+
+
 class OpenAIProvider(LLMProvider):
     """通过 openai SDK 调用 OpenAI 模型。"""
 
@@ -138,6 +173,9 @@ class OpenAIProvider(LLMProvider):
                             }
                         if tc_delta.id:
                             tool_map[idx]["id"] = tc_delta.id
+                        extra_content = _openai_extra_content(tc_delta)
+                        if extra_content:
+                            tool_map[idx]["extra_content"] = extra_content
                         if tc_delta.function:
                             if tc_delta.function.name:
                                 tool_map[idx]["name"] = tc_delta.function.name
@@ -178,7 +216,10 @@ class OpenAIProvider(LLMProvider):
                     args = json.loads(entry["args_json"]) if entry["args_json"] else {}
                 except json.JSONDecodeError:
                     args = {}
-                tool_calls.append({"id": entry["id"], "name": entry["name"], "args": args})
+                call = {"id": entry["id"], "name": entry["name"], "args": args}
+                if entry.get("extra_content"):
+                    call["extra_content"] = entry["extra_content"]
+                tool_calls.append(call)
             yield {"type": "tool_calls", "tool_calls": tool_calls, "text": text_buf}
 
         yield {
@@ -208,17 +249,7 @@ class OpenAIProvider(LLMProvider):
                 if msg.get("reasoning_content"):
                     oai_msg["reasoning_content"] = msg["reasoning_content"]
                 if msg.get("tool_calls"):
-                    oai_msg["tool_calls"] = [
-                        {
-                            "id": tc["id"],
-                            "type": "function",
-                            "function": {
-                                "name": tc["name"],
-                                "arguments": json.dumps(tc["args"], ensure_ascii=False),
-                            },
-                        }
-                        for tc in msg["tool_calls"]
-                    ]
+                    oai_msg["tool_calls"] = [_openai_tool_call_payload(tc) for tc in msg["tool_calls"]]
                 oai_msgs.append(oai_msg)
 
             elif role == "tool":
@@ -261,13 +292,15 @@ class OpenAIProvider(LLMProvider):
                     args = json.loads(tc.function.arguments)
                 except (json.JSONDecodeError, TypeError):
                     args = {}
-                tool_calls.append(
-                    {
-                        "id": tc.id,
-                        "name": tc.function.name,
-                        "args": args,
-                    }
-                )
+                call = {
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "args": args,
+                }
+                extra_content = _openai_extra_content(tc)
+                if extra_content:
+                    call["extra_content"] = extra_content
+                tool_calls.append(call)
             return {
                 "type": "tool_calls",
                 "tool_calls": tool_calls,

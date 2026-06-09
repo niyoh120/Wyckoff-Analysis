@@ -13,6 +13,45 @@ from google.genai import types
 from cli.providers.base import LLMProvider
 
 
+def _part_thought_signature(part: Any) -> bytes | None:
+    sig = getattr(part, "thought_signature", None)
+    if sig is None:
+        return None
+    if isinstance(sig, bytes):
+        return sig
+    if isinstance(sig, str):
+        return sig.encode("utf-8")
+    return None
+
+
+def tool_call_dict_from_part(part: Any, *, call_id: str | None = None) -> dict[str, Any]:
+    """从 Gemini Part 提取统一 tool_call 结构，保留 thought_signature。"""
+    fc = part.function_call
+    call: dict[str, Any] = {
+        "id": call_id or uuid.uuid4().hex[:12],
+        "name": fc.name,
+        "args": dict(fc.args) if fc.args else {},
+    }
+    sig = _part_thought_signature(part)
+    if sig is not None:
+        call["thought_signature"] = sig
+    return call
+
+
+def function_call_part_from_tool_call(tc: dict[str, Any]) -> types.Part:
+    """将统一 tool_call 转回 Gemini Part，回传 thought_signature。"""
+    kwargs: dict[str, Any] = {
+        "function_call": types.FunctionCall(
+            name=tc["name"],
+            args=tc.get("args") or {},
+        ),
+    }
+    sig = tc.get("thought_signature")
+    if sig is not None:
+        kwargs["thought_signature"] = sig
+    return types.Part(**kwargs)
+
+
 class GeminiProvider(LLMProvider):
     """通过 google-genai SDK 调用 Gemini 模型。"""
 
@@ -80,14 +119,7 @@ class GeminiProvider(LLMProvider):
                 continue
             for part in chunk.candidates[0].content.parts:
                 if part.function_call:
-                    fc = part.function_call
-                    tool_calls.append(
-                        {
-                            "id": uuid.uuid4().hex[:12],
-                            "name": fc.name,
-                            "args": dict(fc.args) if fc.args else {},
-                        }
-                    )
+                    tool_calls.append(tool_call_dict_from_part(part))
                 elif part.text:
                     text_buf += part.text
                     yield {"type": "text_delta", "text": part.text}
@@ -124,14 +156,7 @@ class GeminiProvider(LLMProvider):
                     parts.append(types.Part.from_text(text=msg["content"]))
                 # 工具调用部分
                 for tc in msg.get("tool_calls", []):
-                    parts.append(
-                        types.Part(
-                            function_call=types.FunctionCall(
-                                name=tc["name"],
-                                args=tc["args"],
-                            )
-                        )
-                    )
+                    parts.append(function_call_part_from_tool_call(tc))
                 if parts:
                     contents.append(types.Content(role="model", parts=parts))
 
@@ -187,14 +212,7 @@ class GeminiProvider(LLMProvider):
 
         for part in parts:
             if part.function_call:
-                fc = part.function_call
-                tool_calls.append(
-                    {
-                        "id": uuid.uuid4().hex[:12],
-                        "name": fc.name,
-                        "args": dict(fc.args) if fc.args else {},
-                    }
-                )
+                tool_calls.append(tool_call_dict_from_part(part))
             elif part.text:
                 text_parts.append(part.text)
 
