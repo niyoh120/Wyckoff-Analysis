@@ -15,8 +15,8 @@ function makeHistory(turns: number) {
 
 describe('reading-room context preparation', () => {
   it('scales recent token budget by model', () => {
-    expect(getChatRecentKeepTokens('gpt-3.5-turbo')).toBe(2000)
-    expect(getChatRecentKeepTokens('deepseek-chat')).toBe(8000)
+    expect(getChatRecentKeepTokens('gpt-3.5-turbo')).toBe(4000)
+    expect(getChatRecentKeepTokens('deepseek-chat')).toBe(20000)
     expect(getChatRecentKeepTokens('claude-sonnet-4')).toBe(20000)
   })
 
