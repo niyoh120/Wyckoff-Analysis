@@ -598,19 +598,6 @@ jobs:
           print(f'飞书通知: status={resp.status_code}, body={resp.text[:200]}')
           PYEOF
 
-      - name: Commit market backtest report
-        if: always() && github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/BACKTEST_MARKET_REPORT.md
-          if git diff --cached --quiet; then
-            echo "Backtest market report unchanged"
-          else
-            git commit -m "docs: update backtest market report"
-            git push
-          fi
-
       - name: Notify on failure
         if: failure()
         run: |
