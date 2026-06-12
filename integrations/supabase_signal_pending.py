@@ -10,7 +10,9 @@ import pandas as pd
 from core.constants import TABLE_SIGNAL_PENDING
 from core.signal_confirmation import SIGNAL_TTL_DAYS, build_snap, run_confirmation_cycle
 from integrations.supabase_base import create_admin_client as _admin
+from integrations.supabase_base import create_read_client as _read
 from integrations.supabase_base import is_admin_configured as _configured
+from integrations.supabase_base import require_server_write_context
 
 
 def write_pending_signals(
@@ -25,6 +27,7 @@ def write_pending_signals(
     """将 L4 触发信号写入 signal_pending 表，返回写入行数。"""
     if not _configured():
         return 0
+    require_server_write_context("write signal_pending")
 
     name_map, sector_map = name_map or {}, sector_map or {}
     now_iso = datetime.now(UTC).isoformat()
@@ -75,10 +78,8 @@ def write_pending_signals(
 
 
 def load_pending_signals() -> list[dict[str, Any]]:
-    if not _configured():
-        return []
     try:
-        return _admin().table(TABLE_SIGNAL_PENDING).select("*").eq("status", "pending").execute().data or []
+        return _read().table(TABLE_SIGNAL_PENDING).select("*").eq("status", "pending").execute().data or []
     except Exception as e:
         print(f"[signal_pending] load failed: {e}")
         return []
@@ -87,6 +88,7 @@ def load_pending_signals() -> list[dict[str, Any]]:
 def batch_update_signals(updates: list[dict[str, Any]]) -> bool:
     if not _configured() or not updates:
         return True
+    require_server_write_context("update signal_pending")
     try:
         client = _admin()
         now_iso = datetime.now(UTC).isoformat()

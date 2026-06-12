@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 40
     env:
       PYTHONUNBUFFERED: "1"
+      WYCKOFF_WRITE_CONTEXT: "server_job"
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
       TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

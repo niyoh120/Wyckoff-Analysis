@@ -103,11 +103,10 @@ def test_load_tail_buy_from_supabase_requires_user_id(monkeypatch):
     from integrations import supabase_tail_buy
 
     monkeypatch.delenv("SUPABASE_USER_ID", raising=False)
-    monkeypatch.setattr(supabase_tail_buy, "_configured", lambda: True)
     monkeypatch.setattr(
         supabase_tail_buy,
-        "_admin",
-        lambda: (_ for _ in ()).throw(AssertionError("admin client should not be created")),
+        "_read",
+        lambda: (_ for _ in ()).throw(AssertionError("read client should not be created")),
     )
 
     assert supabase_tail_buy.load_tail_buy_from_supabase(limit=10) == []
@@ -118,8 +117,7 @@ def test_load_tail_buy_from_supabase_filters_user(monkeypatch):
 
     client = _FakeClient(_tail_buy_rows())
     monkeypatch.delenv("SUPABASE_USER_ID", raising=False)
-    monkeypatch.setattr(supabase_tail_buy, "_configured", lambda: True)
-    monkeypatch.setattr(supabase_tail_buy, "_admin", lambda: client)
+    monkeypatch.setattr(supabase_tail_buy, "_read", lambda: client)
 
     rows = supabase_tail_buy.load_tail_buy_from_supabase(limit=10, user_id="user-a")
 
@@ -210,6 +208,7 @@ def test_refresh_tail_buy_prices_updates_current_price(monkeypatch):
         return {"600001.SH": {"last_price": 11.2}}
 
     monkeypatch.setenv("TICKFLOW_API_KEY", "tick-key")
+    monkeypatch.setenv("WYCKOFF_WRITE_CONTEXT", "server_job")
     monkeypatch.setattr(supabase_tail_buy, "_configured", lambda: True)
     monkeypatch.setattr(supabase_tail_buy, "_admin", lambda: client)
     monkeypatch.setattr(supabase_tail_buy, "_fetch_tail_quotes", fake_fetch_quotes)
@@ -246,6 +245,7 @@ def test_refresh_tail_buy_prices_skips_rows_without_user_id(monkeypatch):
     client = _FakeClient(rows)
 
     monkeypatch.setenv("TICKFLOW_API_KEY", "tick-key")
+    monkeypatch.setenv("WYCKOFF_WRITE_CONTEXT", "server_job")
     monkeypatch.setattr(supabase_tail_buy, "_configured", lambda: True)
     monkeypatch.setattr(supabase_tail_buy, "_admin", lambda: client)
     monkeypatch.setattr(

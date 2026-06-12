@@ -25,6 +25,7 @@ from core.constants import (
 )
 from integrations.supabase_base import create_admin_client as _get_supabase_admin_client
 from integrations.supabase_base import is_admin_configured as is_supabase_configured
+from integrations.supabase_base import require_server_write_context
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +250,7 @@ def update_position_stops(portfolio_id: str, updates: list[dict[str, Any]]) -> b
     """
     if not is_supabase_configured() or not updates:
         return False
+    require_server_write_context("update portfolio stop losses")
     try:
         client = _get_supabase_admin_client()
         # Supabase 不支持批量 update 不同值，需逐个 update
@@ -281,6 +283,13 @@ def _ensure_portfolio_exists(portfolio_id: str, client: Client) -> None:
         ).execute()
 
 
+def _resolve_write_client(client: Client | None, operation: str) -> Client:
+    if client is not None:
+        return client
+    require_server_write_context(operation)
+    return _get_supabase_admin_client()
+
+
 def upsert_position(portfolio_id: str, position: dict[str, Any], client: Client | None = None) -> tuple[bool, str]:
     """新增或更新单个持仓。
 
@@ -291,7 +300,7 @@ def upsert_position(portfolio_id: str, position: dict[str, Any], client: Client 
     if not code or len(code) != 6:
         return False, f"无效的股票代码: {code}"
     try:
-        client = client or _get_supabase_admin_client()
+        client = _resolve_write_client(client, "upsert portfolio position")
         _ensure_portfolio_exists(portfolio_id, client)
         row = {
             "portfolio_id": portfolio_id,
@@ -314,7 +323,7 @@ def delete_position(portfolio_id: str, code: str, client: Client | None = None) 
     """删除单个持仓。"""
     code = code.strip()
     try:
-        client = client or _get_supabase_admin_client()
+        client = _resolve_write_client(client, "delete portfolio position")
         client.table(TABLE_PORTFOLIO_POSITIONS).delete().eq("portfolio_id", portfolio_id).eq("code", code).execute()
         return True, f"{code} 已删除"
     except Exception as e:
@@ -325,7 +334,7 @@ def delete_position(portfolio_id: str, code: str, client: Client | None = None) 
 def update_free_cash(portfolio_id: str, free_cash: float, client: Client | None = None) -> tuple[bool, str]:
     """更新可用资金。"""
     try:
-        client = client or _get_supabase_admin_client()
+        client = _resolve_write_client(client, "update portfolio cash")
         _ensure_portfolio_exists(portfolio_id, client)
         client.table(TABLE_PORTFOLIOS).update({"free_cash": free_cash}).eq("portfolio_id", portfolio_id).execute()
         return True, f"可用资金已更新为 {free_cash:,.2f}"
@@ -347,6 +356,7 @@ def save_ai_trade_orders(
         return False
     if not orders:
         return True
+    require_server_write_context("insert trade_orders")
     try:
         client = _get_supabase_admin_client()
         payload: list[dict[str, Any]] = []
@@ -389,6 +399,7 @@ def cancel_trade_orders(
 ) -> int:
     if not is_supabase_configured():
         return 0
+    require_server_write_context("cancel trade_orders")
     try:
         client = _get_supabase_admin_client()
         query = (
@@ -420,6 +431,7 @@ def upsert_daily_nav(
 ) -> bool:
     if not is_supabase_configured():
         return False
+    require_server_write_context("upsert daily_nav")
     try:
         client = _get_supabase_admin_client()
         payload = {

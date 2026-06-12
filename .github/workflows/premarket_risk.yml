@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 360
     env:
       PYTHONUNBUFFERED: "1"
+      WYCKOFF_WRITE_CONTEXT: "server_job"
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
       PREMARKET_VIX_POLL_INTERVAL_SECONDS: "300"
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

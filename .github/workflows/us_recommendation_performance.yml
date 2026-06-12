@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONUNBUFFERED: "1"
+      WYCKOFF_WRITE_CONTEXT: "server_job"
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}

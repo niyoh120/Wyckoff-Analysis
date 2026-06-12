@@ -49,6 +49,7 @@ def test_upsert_theme_radar_snapshot_writes_summary_columns(monkeypatch):
     from integrations import supabase_theme_radar as mod
 
     client = _FakeClient()
+    monkeypatch.setenv("WYCKOFF_WRITE_CONTEXT", "server_job")
     monkeypatch.setattr(mod, "_configured", lambda: True)
     monkeypatch.setattr(mod, "_admin", lambda: client)
 
@@ -71,8 +72,7 @@ def test_load_latest_theme_radar_snapshot_from_supabase(monkeypatch):
     from integrations import supabase_theme_radar as mod
 
     client = _FakeClient([{"snapshot_json": {"trade_date": "2026-05-27"}}])
-    monkeypatch.setattr(mod, "_configured", lambda: True)
-    monkeypatch.setattr(mod, "_admin", lambda: client)
+    monkeypatch.setattr(mod, "_read", lambda: client)
 
     snapshot = mod.load_latest_theme_radar_snapshot_from_supabase()
 

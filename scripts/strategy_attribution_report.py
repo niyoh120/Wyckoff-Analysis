@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
-from integrations.supabase_base import close_client, create_admin_client
+from integrations.supabase_base import (
+    close_client,
+    create_admin_client,
+    create_read_client,
+    require_server_write_context,
+)
 
 
 def _num(raw: Any) -> float | None:
@@ -275,6 +280,26 @@ def _write_artifacts(report: dict[str, Any], output_dir: str) -> None:
     (out / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _create_user_read_client() -> Any | None:
+    try:
+        from cli.auth import restore_session
+        from integrations.supabase_base import create_user_client
+
+        session = restore_session()
+        if session and session.get("access_token"):
+            return create_user_client(session["access_token"], session.get("refresh_token", ""))
+    except Exception:
+        return None
+    return None
+
+
+def _create_report_client(*, no_write: bool) -> Any:
+    if no_write:
+        return _create_user_read_client() or create_read_client()
+    require_server_write_context("write strategy_attribution_reports")
+    return create_admin_client()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build strategy attribution report")
     parser.add_argument("--market", default="cn")
@@ -284,7 +309,7 @@ def main() -> None:
     parser.add_argument("--no-write", action="store_true")
     args = parser.parse_args()
     horizons = [int(x) for x in args.horizons.split(",") if x.strip()]
-    client = create_admin_client()
+    client = _create_report_client(no_write=args.no_write)
     try:
         report = build_report(client, args.market, args.days, horizons)
         report["created_at"] = datetime.now(UTC).isoformat()

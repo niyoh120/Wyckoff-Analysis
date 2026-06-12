@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONUNBUFFERED: "1"
+      WYCKOFF_WRITE_CONTEXT: "server_job"
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

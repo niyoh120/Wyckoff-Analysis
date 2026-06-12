@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONUNBUFFERED: "1"
+      WYCKOFF_WRITE_CONTEXT: "server_job"
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
       TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
@@ -83,7 +84,7 @@ jobs:
       FUNNEL_AI_SELECTION_MODE: ${{ vars.FUNNEL_AI_SELECTION_MODE || 'quota' }}
       FUNNEL_AI_TOTAL_CAP: "5"
       # off=静态配额；shadow=旁路记录动态策略差异；on=正式启用动态配额。
-      FUNNEL_DYNAMIC_POLICY: ${{ vars.FUNNEL_DYNAMIC_POLICY || secrets.FUNNEL_DYNAMIC_POLICY || 'on' }}
+      FUNNEL_DYNAMIC_POLICY: ${{ vars.FUNNEL_DYNAMIC_POLICY || secrets.FUNNEL_DYNAMIC_POLICY || 'shadow' }}
       FUNNEL_DYNAMIC_POLICY_HORIZON: "5"
       FUNNEL_DEFENSIVE_FORCE_QUOTA: "1"
       FUNNEL_AI_RISK_ON_TREND: "4"

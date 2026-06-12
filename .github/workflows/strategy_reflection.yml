@@ -1,10 +1,13 @@
-name: Sector Continuity Report
+name: Strategy Reflection
 
 on:
+  schedule:
+    # 北京时间周二到周六 00:10，等 signal_feedback 完成后再跑。
+    - cron: "10 16 * * 1-5"
   workflow_dispatch:
 
 concurrency:
-  group: sector-continuity-${{ github.ref }}
+  group: strategy-reflection-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -13,9 +16,11 @@ jobs:
     env:
       PYTHONUNBUFFERED: "1"
       WYCKOFF_WRITE_CONTEXT: "server_job"
-      TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
+      WYCKOFF_STRATEGY_REFLECTION: ${{ vars.WYCKOFF_STRATEGY_REFLECTION || 'shadow' }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SIGNAL_REGISTRY_HORIZON: "5"
       TZ: Asia/Shanghai
 
     steps:
@@ -32,12 +37,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Run sector continuity report
-        run: python scripts/sector_continuity_report.py
-
-      - name: Upload report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: sector-continuity-report
-          path: logs/sector_continuity_report.md
+      - name: Refresh strategy reflection
+        run: python -u scripts/strategy_reflection_job.py

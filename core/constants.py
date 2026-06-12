@@ -25,6 +25,8 @@ TABLE_SIGNAL_OUTCOMES = "signal_outcomes"
 TABLE_SIGNAL_HEALTH_DAILY = "signal_health_daily"
 TABLE_SIGNAL_REGISTRY = "signal_registry"
 TABLE_SIGNAL_POLICY_SHADOW_RUNS = "signal_policy_shadow_runs"
+TABLE_STRATEGY_REFLECTIONS = "strategy_reflections"
+TABLE_STRATEGY_POLICY_CANDIDATES = "strategy_policy_candidates"
 TABLE_STRATEGY_ATTRIBUTION_REPORTS = "strategy_attribution_reports"
 TABLE_THEME_RADAR_SNAPSHOT = "theme_radar_snapshot"
 

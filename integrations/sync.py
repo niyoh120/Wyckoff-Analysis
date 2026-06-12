@@ -13,19 +13,30 @@ import threading
 logger = logging.getLogger(__name__)
 
 
-def _get_admin_client():
-    from integrations.supabase_base import create_admin_client, is_admin_configured
+def _get_read_context():
+    from integrations.supabase_base import create_read_client, create_user_client
 
-    if not is_admin_configured():
-        return None
-    return create_admin_client()
+    try:
+        from cli.auth import restore_session
+
+        session = restore_session()
+        if session and session.get("access_token"):
+            client = create_user_client(session["access_token"], session.get("refresh_token", ""))
+            return client, str(session.get("user_id", "") or "").strip()
+    except Exception:
+        logger.debug("sync: failed to create user read client", exc_info=True)
+    try:
+        return create_read_client(), ""
+    except Exception:
+        logger.debug("sync: failed to create anon read client", exc_info=True)
+        return None, ""
 
 
 def sync_recommendations(client=None) -> int:
     from core.constants import TABLE_RECOMMENDATION_TRACKING
     from integrations.local_db import save_recommendations, update_sync_meta
 
-    sb = client or _get_admin_client()
+    sb = client or _get_read_context()[0]
     if sb is None:
         return 0
     resp = sb.table(TABLE_RECOMMENDATION_TRACKING).select("*").order("recommend_date", desc=True).limit(200).execute()
@@ -39,7 +50,7 @@ def sync_signals(client=None) -> int:
     from core.constants import TABLE_SIGNAL_PENDING
     from integrations.local_db import save_signals, update_sync_meta
 
-    sb = client or _get_admin_client()
+    sb = client or _get_read_context()[0]
     if sb is None:
         return 0
     resp = sb.table(TABLE_SIGNAL_PENDING).select("*").order("signal_date", desc=True).limit(200).execute()
@@ -53,7 +64,7 @@ def sync_market_signals(client=None) -> int:
     from core.constants import TABLE_MARKET_SIGNAL_DAILY
     from integrations.local_db import save_market_signal, update_sync_meta
 
-    sb = client or _get_admin_client()
+    sb = client or _get_read_context()[0]
     if sb is None:
         return 0
     resp = sb.table(TABLE_MARKET_SIGNAL_DAILY).select("*").order("trade_date", desc=True).limit(30).execute()
@@ -70,7 +81,7 @@ def sync_portfolio(portfolio_id: str = "USER_LIVE", client=None) -> int:
     from integrations.local_db import save_portfolio, update_sync_meta
     from integrations.supabase_portfolio import load_portfolio_state
 
-    sb = client or _get_admin_client()
+    sb = client or _get_read_context()[0]
     if sb is None:
         return 0
     state = load_portfolio_state(portfolio_id, client=sb)
@@ -138,7 +149,7 @@ def sync_tail_buy(client=None, user_id: str = "") -> int:
     if not user_id:
         logger.warning("sync_tail_buy skipped: user_id not provided and SUPABASE_USER_ID not set")
         return 0
-    sb = client or _get_admin_client()
+    sb = client or _get_read_context()[0]
     if sb is None:
         return 0
     resp = (
@@ -161,17 +172,22 @@ def sync_all() -> dict[str, int]:
     from integrations.local_db import needs_sync
 
     result: dict[str, int] = {}
-    sb = _get_admin_client()
+    sb, user_id = _get_read_context()
     if sb is None:
-        logger.debug("sync_all: Supabase admin not configured, skipping")
+        logger.debug("sync_all: Supabase read client unavailable, skipping")
         return result
-    for table, fn, max_age in [
+    from integrations.supabase_portfolio import build_user_live_portfolio_id
+
+    portfolio_id = build_user_live_portfolio_id(user_id) if user_id else ""
+    jobs = [
         ("recommendation_tracking", sync_recommendations, 4),
         ("signal_pending", sync_signals, 4),
         ("market_signal_daily", sync_market_signals, 6),
-        ("portfolio", sync_portfolio, 2),
-        ("tail_buy_history", sync_tail_buy, 4),
-    ]:
+    ]
+    if portfolio_id:
+        jobs.append(("portfolio", lambda client: sync_portfolio(portfolio_id, client=client), 2))
+        jobs.append(("tail_buy_history", lambda client: sync_tail_buy(client=client, user_id=user_id), 4))
+    for table, fn, max_age in jobs:
         if not needs_sync(table, max_age_hours=max_age):
             continue
         try:

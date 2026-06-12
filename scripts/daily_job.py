@@ -300,11 +300,12 @@ def _build_signal_observation_rows(
     metrics, name_map, sector_map, stage_map, channel_map, close_map, springboard_map = _observation_context(
         step2_details
     )
+    selected_for_ai = step2_details.get("selected_for_ai", []) or []
     return build_signal_observations(
         _latest_trade_date_str(),
         step2_details.get("review_triggers") or step2_details.get("triggers") or {},
         regime=regime,
-        selected_for_ai=step2_details.get("selected_for_ai", []) or [],
+        selected_for_ai=selected_for_ai,
         ai_recommended=ai_codes,
         name_map=name_map,
         sector_map=sector_map,
@@ -314,6 +315,9 @@ def _build_signal_observation_rows(
         latest_close_map=close_map,
         source_map=_signal_observation_source_map(step2_details),
         springboard_map=springboard_map,
+        selection_mode=os.getenv("FUNNEL_AI_SELECTION_MODE", "quota"),
+        policy_version=f"dynamic:{os.getenv('FUNNEL_DYNAMIC_POLICY', 'off')}",
+        rank_map={str(code): idx + 1 for idx, code in enumerate(selected_for_ai)},
     )
 
 
@@ -335,6 +339,8 @@ def _build_shadow_observation_rows(step2_details: dict, regime: str) -> list[dic
         channel_map=channel_map,
         latest_close_map=close_map,
         source_map=shadow_source_map,
+        selection_mode="shadow",
+        policy_version=f"dynamic:{os.getenv('FUNNEL_DYNAMIC_POLICY', 'off')}",
     )
 
 

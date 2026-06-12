@@ -15,10 +15,35 @@ from core.constants import (
 from integrations.supabase_base import close_client as _close
 from integrations.supabase_base import create_admin_client as _admin
 from integrations.supabase_base import is_admin_configured as _configured
+from integrations.supabase_base import require_server_write_context
+
+OPTIONAL_SIGNAL_OBSERVATION_COLUMNS = (
+    "profile_tag",
+    "stage_tag",
+    "trigger_tags",
+    "selection_mode",
+    "policy_version",
+    "candidate_rank",
+)
 
 
 def _recent_cutoff(days: int) -> str:
     return (date.today() - timedelta(days=max(int(days), 1))).isoformat()
+
+
+def _looks_like_schema_miss(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "column" in text or "schema cache" in text or "could not find" in text
+
+
+def _drop_optional_columns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    clean = []
+    for row in rows:
+        r = dict(row)
+        for column in OPTIONAL_SIGNAL_OBSERVATION_COLUMNS:
+            r.pop(column, None)
+        clean.append(r)
+    return clean
 
 
 def _execute_upsert(
@@ -30,10 +55,16 @@ def _execute_upsert(
 ) -> int:
     if not _configured() or not rows:
         return 0
+    require_server_write_context(f"upsert {table}")
     client = None
     try:
         client = _admin()
-        client.table(table).upsert(rows, on_conflict=conflict).execute()
+        try:
+            client.table(table).upsert(rows, on_conflict=conflict).execute()
+        except Exception as exc:
+            if table != TABLE_SIGNAL_OBSERVATIONS or not _looks_like_schema_miss(exc):
+                raise
+            client.table(table).upsert(_drop_optional_columns(rows), on_conflict=conflict).execute()
         return len(rows)
     except Exception as exc:
         print(f"[signal_feedback] upsert {table} failed: {exc}")
@@ -160,6 +191,30 @@ def load_signal_registry(market: str = "cn") -> list[dict[str, Any]]:
         return resp.data or []
     except Exception as exc:
         print(f"[signal_feedback] load registry failed: {exc}")
+        return []
+    finally:
+        if client is not None:
+            _close(client)
+
+
+def load_policy_shadow_runs(days: int = 30, limit: int = 1000, market: str = "cn") -> list[dict[str, Any]]:
+    if not _configured():
+        return []
+    client = None
+    try:
+        client = _admin()
+        resp = (
+            client.table(TABLE_SIGNAL_POLICY_SHADOW_RUNS)
+            .select("*")
+            .eq("market", market)
+            .gte("trade_date", _recent_cutoff(days))
+            .order("trade_date", desc=True)
+            .limit(max(int(limit), 1))
+            .execute()
+        )
+        return resp.data or []
+    except Exception as exc:
+        print(f"[signal_feedback] load policy shadow failed: {exc}")
         return []
     finally:
         if client is not None:

@@ -9,7 +9,9 @@ from typing import Any
 
 from core.constants import TABLE_TAIL_BUY_HISTORY
 from integrations.supabase_base import create_admin_client as _admin
+from integrations.supabase_base import create_read_client as _read
 from integrations.supabase_base import is_admin_configured as _configured
+from integrations.supabase_base import require_server_write_context
 
 _LEGACY_COLUMNS = {
     "code",
@@ -171,6 +173,7 @@ def save_tail_buy_to_supabase(rows: list[dict], user_id: str = "") -> int:
     """写入 BUY 记录到 Supabase，upsert on (code, run_date, user_id)。"""
     if not _configured() or not rows:
         return 0
+    require_server_write_context("upsert tail_buy_history")
     user_id = user_id.strip() or _get_user_id()
     if not user_id:
         print("[tail_buy] user_id not provided and SUPABASE_USER_ID not set, skip")
@@ -198,13 +201,19 @@ def save_tail_buy_to_supabase(rows: list[dict], user_id: str = "") -> int:
         return 0
 
 
-def refresh_tail_buy_prices_with_tickflow_realtime(limit: int = 1000, user_id: str = "") -> dict[str, Any]:
-    """刷新尾盘记录 current_price/change_pct，initial_price 保持写入时价格。"""
+def _tail_price_refresh_api_key() -> str:
     if not _configured():
         raise ValueError("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 未配置")
+    require_server_write_context("refresh tail_buy_history prices")
     api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
     if not api_key:
         raise ValueError("TICKFLOW_API_KEY 未配置")
+    return api_key
+
+
+def refresh_tail_buy_prices_with_tickflow_realtime(limit: int = 1000, user_id: str = "") -> dict[str, Any]:
+    """刷新尾盘记录 current_price/change_pct，initial_price 保持写入时价格。"""
+    api_key = _tail_price_refresh_api_key()
 
     from integrations.tickflow_client import normalize_cn_symbol
 
@@ -250,16 +259,14 @@ def refresh_tail_buy_prices_with_tickflow_realtime(limit: int = 1000, user_id: s
     }
 
 
-def load_tail_buy_from_supabase(limit: int = 100, user_id: str = "") -> list[dict[str, Any]]:
+def load_tail_buy_from_supabase(limit: int = 100, user_id: str = "", client=None) -> list[dict[str, Any]]:
     """读取最近 N 条尾盘买入记录。"""
-    if not _configured():
-        return []
     user_id = user_id.strip() or _get_user_id()
     if not user_id:
         print("[tail_buy] user_id not provided and SUPABASE_USER_ID not set, skip read")
         return []
     try:
-        client = _admin()
+        client = client or _read()
         q = client.table(TABLE_TAIL_BUY_HISTORY).select("*").eq("user_id", user_id)
         resp = q.order("run_date", desc=True).limit(limit).execute()
         return resp.data or []

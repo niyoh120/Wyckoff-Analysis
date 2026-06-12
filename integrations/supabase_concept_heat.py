@@ -8,7 +8,9 @@ from core.concept_filters import is_actionable_theme_name
 from core.constants import TABLE_CONCEPT_HEAT_HISTORY
 from integrations.supabase_base import close_client as _close
 from integrations.supabase_base import create_admin_client as _admin
+from integrations.supabase_base import create_read_client as _read
 from integrations.supabase_base import is_admin_configured as _configured
+from integrations.supabase_base import require_server_write_context
 
 
 def _top_heat_items(heat: list[dict[str, Any]], top_n: int) -> list[dict[str, Any]]:
@@ -20,6 +22,7 @@ def upsert_concept_heat_history(trade_date: str, heat: list[dict[str, Any]], top
     """写入概念热度历史，upsert on (trade_date, concept_name)。"""
     if not _configured() or not trade_date or not heat:
         return 0
+    require_server_write_context("upsert concept_heat_history")
     payload = []
     for rank, item in enumerate(_top_heat_items(heat, top_n), 1):
         name = str(item.get("name", "")).strip()
@@ -56,12 +59,10 @@ def upsert_concept_heat_history(trade_date: str, heat: list[dict[str, Any]], top
 
 def load_concept_heat_history_from_supabase(limit_days: int = 20) -> dict[str, dict]:
     """读取最近 N 个交易日的概念热度历史。"""
-    if not _configured():
-        return {}
     row_limit = max(int(limit_days), 1) * 50
     client = None
     try:
-        client = _admin()
+        client = _read()
         resp = (
             client.table(TABLE_CONCEPT_HEAT_HISTORY)
             .select("trade_date,concept_name,pct,net_inflow,rank")

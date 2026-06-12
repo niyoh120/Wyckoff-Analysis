@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 45
     env:
       PYTHONUNBUFFERED: "1"
+      WYCKOFF_WRITE_CONTEXT: "server_job"
       TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}

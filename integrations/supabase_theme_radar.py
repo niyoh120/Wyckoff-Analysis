@@ -8,7 +8,9 @@ from typing import Any
 from core.constants import TABLE_THEME_RADAR_SNAPSHOT
 from integrations.supabase_base import close_client as _close
 from integrations.supabase_base import create_admin_client as _admin
+from integrations.supabase_base import create_read_client as _read
 from integrations.supabase_base import is_admin_configured as _configured
+from integrations.supabase_base import require_server_write_context
 
 
 def upsert_theme_radar_snapshot(snapshot: dict[str, Any]) -> int:
@@ -16,6 +18,7 @@ def upsert_theme_radar_snapshot(snapshot: dict[str, Any]) -> int:
     trade_date = str(snapshot.get("trade_date", "") or "").strip()
     if not _configured() or not trade_date:
         return 0
+    require_server_write_context("upsert theme_radar_snapshot")
     payload = {
         "trade_date": trade_date,
         "snapshot_json": snapshot,
@@ -37,11 +40,9 @@ def upsert_theme_radar_snapshot(snapshot: dict[str, Any]) -> int:
 
 def load_latest_theme_radar_snapshot_from_supabase() -> dict | None:
     """Load the latest persisted theme radar snapshot."""
-    if not _configured():
-        return None
     client = None
     try:
-        client = _admin()
+        client = _read()
         resp = (
             client.table(TABLE_THEME_RADAR_SNAPSHOT)
             .select("snapshot_json")

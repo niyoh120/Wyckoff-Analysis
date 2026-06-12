@@ -62,6 +62,7 @@ def test_upsert_concept_heat_history_sorts_and_limits(monkeypatch):
     from integrations import supabase_concept_heat as mod
 
     client = _FakeClient()
+    monkeypatch.setenv("WYCKOFF_WRITE_CONTEXT", "server_job")
     monkeypatch.setattr(mod, "_configured", lambda: True)
     monkeypatch.setattr(mod, "_admin", lambda: client)
 
@@ -101,8 +102,7 @@ def test_load_concept_heat_history_groups_recent_days(monkeypatch):
             {"trade_date": "2026-05-23", "concept_name": "C", "pct": 3, "net_inflow": 30, "rank": 1},
         ]
     )
-    monkeypatch.setattr(mod, "_configured", lambda: True)
-    monkeypatch.setattr(mod, "_admin", lambda: client)
+    monkeypatch.setattr(mod, "_read", lambda: client)
 
     history = mod.load_concept_heat_history_from_supabase(limit_days=2)
 

@@ -69,6 +69,56 @@ def _springboard_observation_fields(
     }
 
 
+def _trigger_tags_by_code(triggers: dict[str, list[tuple[str, float]]]) -> dict[str, list[str]]:
+    tags: dict[str, set[str]] = {}
+    for signal_type, hits in triggers.items():
+        for code, _score in hits:
+            code_s = _code(code)
+            if code_s:
+                tags.setdefault(code_s, set()).add(str(signal_type))
+    return {code: sorted(values) for code, values in tags.items()}
+
+
+def _signal_observation_row(
+    trade_date: str,
+    market: str,
+    regime: str,
+    now_iso: str,
+    item: tuple[str, str, float],
+    ctx: dict[str, Any],
+) -> dict[str, Any]:
+    signal_type, code, trigger_score = item
+    stage = ctx["stage_map"].get(code, "")
+    channel = ctx["channel_map"].get(code, "")
+    return {
+        "market": market,
+        "trade_date": trade_date,
+        "code": code,
+        "name": ctx["name_map"].get(code, code),
+        "signal_type": signal_type,
+        "track": signal_track(signal_type),
+        "regime": str(regime or "NEUTRAL").strip().upper() or "NEUTRAL",
+        "industry": ctx["sector_map"].get(code, ""),
+        "stage": stage,
+        "channel": channel,
+        "profile_tag": channel or signal_track(signal_type),
+        "stage_tag": stage,
+        "trigger_tags": ctx["trigger_tags"].get(code, [signal_type]),
+        "selection_mode": ctx["selection_mode"],
+        "policy_version": ctx["policy_version"],
+        "candidate_rank": ctx["rank_map"].get(code),
+        "trigger_score": trigger_score,
+        "priority_score": _float(ctx["score_map"].get(code)),
+        "entry_price": _float(ctx["latest_close_map"].get(code), default=0.0),
+        "selected_for_ai": code in ctx["selected"],
+        "ai_recommended": code in ctx["recommended"],
+        "source": ctx["source_map"].get(code, "funnel"),
+        "lifecycle_status": "ACTIVE",
+        "updated_at": now_iso,
+        **_springboard_observation_fields(signal_type, code, ctx["springboard_map"]),
+    }
+
+
 def build_signal_observations(
     trade_date: str,
     triggers: dict[str, list[tuple[str, float]]],
@@ -85,36 +135,30 @@ def build_signal_observations(
     latest_close_map: dict[str, float] | None = None,
     source_map: dict[str, str] | None = None,
     springboard_map: dict[str, dict[str, Any]] | None = None,
+    selection_mode: str = "",
+    policy_version: str = "",
+    rank_map: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
-    selected = {_code(c) for c in selected_for_ai or []}
-    recommended = {_code(c) for c in ai_recommended or []}
+    ctx = {
+        "selected": {_code(c) for c in selected_for_ai or []},
+        "recommended": {_code(c) for c in ai_recommended or []},
+        "trigger_tags": _trigger_tags_by_code(triggers),
+        "name_map": name_map or {},
+        "sector_map": sector_map or {},
+        "score_map": score_map or {},
+        "stage_map": stage_map or {},
+        "channel_map": channel_map or {},
+        "latest_close_map": latest_close_map or {},
+        "source_map": source_map or {},
+        "springboard_map": springboard_map,
+        "selection_mode": selection_mode,
+        "policy_version": policy_version,
+        "rank_map": rank_map or {},
+    }
     now_iso = datetime.now(UTC).isoformat()
-    rows: list[dict[str, Any]] = []
-    for signal_type, code, trigger_score in _iter_trigger_rows(triggers):
-        rows.append(
-            {
-                "market": market,
-                "trade_date": trade_date,
-                "code": code,
-                "name": (name_map or {}).get(code, code),
-                "signal_type": signal_type,
-                "track": signal_track(signal_type),
-                "regime": str(regime or "NEUTRAL").strip().upper() or "NEUTRAL",
-                "industry": (sector_map or {}).get(code, ""),
-                "stage": (stage_map or {}).get(code, ""),
-                "channel": (channel_map or {}).get(code, ""),
-                "trigger_score": trigger_score,
-                "priority_score": _float((score_map or {}).get(code)),
-                "entry_price": _float((latest_close_map or {}).get(code), default=0.0),
-                "selected_for_ai": code in selected,
-                "ai_recommended": code in recommended,
-                "source": (source_map or {}).get(code, "funnel"),
-                "lifecycle_status": "ACTIVE",
-                "updated_at": now_iso,
-                **_springboard_observation_fields(signal_type, code, springboard_map),
-            }
-        )
-    return rows
+    return [
+        _signal_observation_row(trade_date, market, regime, now_iso, item, ctx) for item in _iter_trigger_rows(triggers)
+    ]
 
 
 def classify_health(

@@ -3,7 +3,7 @@ Supabase 客户端工厂 — CLI / 脚本 / Web 通用。
 
 所有需要 Supabase 客户端的代码应从此模块获取，而不是各自 create_client。
 - 脚本/定时任务：使用 create_admin_client()（service_role key，绕过 RLS）
-- CLI：无 .env，自动回退到 cli/auth 内置的 anon key
+- CLI：使用 create_read_client() / create_user_client()，默认不得写共享表
 """
 
 from __future__ import annotations
@@ -16,6 +16,10 @@ if TYPE_CHECKING:
     from supabase import Client
 
 logger = logging.getLogger(__name__)
+
+WRITE_CONTEXT_ENV = "WYCKOFF_WRITE_CONTEXT"
+SERVER_WRITE_CONTEXT = "server_job"
+CLI_WRITE_CONTEXT = "cli"
 
 
 def _resolve_credentials() -> tuple[str, str]:
@@ -37,19 +41,16 @@ def _resolve_credentials() -> tuple[str, str]:
 def create_admin_client() -> Client:
     """Service-role 客户端（写库用，不经过 RLS）。
 
-    优先读 SUPABASE_SERVICE_ROLE_KEY，回退到通用凭据链。
+    仅允许显式 service role。不要回退到 anon key，避免 CLI 误拿
+    ``create_admin_client`` 当通用读写入口。
     """
-    from supabase import create_client
-
     url = os.getenv("SUPABASE_URL", "").strip()
     service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
-    if url and service_key:
-        return create_client(url, service_key)
-    # 无 service_role key 时走通用链（CLI 场景用 anon key）
-    url, key = _resolve_credentials()
-    if not url or not key:
-        raise ValueError("SUPABASE_URL / SUPABASE_KEY 未配置")
-    return create_client(url, key)
+    if not url or not service_key:
+        raise ValueError("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 未配置")
+    from supabase import create_client
+
+    return create_client(url, service_key)
 
 
 def create_anon_client() -> Client:
@@ -60,6 +61,17 @@ def create_anon_client() -> Client:
     if not url or not key:
         raise ValueError("Missing Supabase credentials. Please set SUPABASE_URL and SUPABASE_KEY.")
     return create_client(url, key)
+
+
+def create_read_client() -> Client:
+    """只读场景客户端。
+
+    Server job 可用 service role 读取生产表；CLI 默认走 anon/RLS，
+    需要用户级权限的场景应显式传入 create_user_client() 的结果。
+    """
+    if current_write_context() == SERVER_WRITE_CONTEXT and is_admin_configured():
+        return create_admin_client()
+    return create_anon_client()
 
 
 def create_user_client(access_token: str, refresh_token: str = "") -> Client:
@@ -132,7 +144,25 @@ def is_admin_configured() -> bool:
     - 因此不走 _resolve_credentials()（该函数会回退到内置 anon）。
     """
     url = os.getenv("SUPABASE_URL", "").strip()
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip() or os.getenv("SUPABASE_KEY", "").strip()
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
     if url and key:
         return True
     return False
+
+
+def current_write_context() -> str:
+    return os.getenv(WRITE_CONTEXT_ENV, CLI_WRITE_CONTEXT).strip().lower() or CLI_WRITE_CONTEXT
+
+
+def is_server_write_context() -> bool:
+    return current_write_context() == SERVER_WRITE_CONTEXT
+
+
+def require_server_write_context(operation: str = "Supabase shared write") -> None:
+    """共享生产表写入守卫。
+
+    CLI 只有持仓写入可用用户 JWT；信号、推荐、策略等共享表必须由
+    GitHub Actions / server job 显式设置 ``WYCKOFF_WRITE_CONTEXT=server_job``。
+    """
+    if not is_server_write_context():
+        raise PermissionError(f"{operation} requires {WRITE_CONTEXT_ENV}={SERVER_WRITE_CONTEXT}")

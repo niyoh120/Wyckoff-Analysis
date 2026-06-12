@@ -1460,7 +1460,14 @@ def generate_strategy_decision(tool_context: ToolContext) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def query_history(source: str, status: str = "all", run_date: str = "", decision: str = "", limit: int = 20) -> dict:
+def query_history(
+    source: str,
+    status: str = "all",
+    run_date: str = "",
+    decision: str = "",
+    limit: int = 20,
+    tool_context: ToolContext = None,
+) -> dict:
     """查询历史记录：形态复盘、信号确认池或尾盘买入记录。
 
     Args:
@@ -1475,16 +1482,16 @@ def query_history(source: str, status: str = "all", run_date: str = "", decision
     """
     source = (source or "").strip().lower()
     if source == "recommendation":
-        return _query_recommendation(limit)
+        return _query_recommendation(limit, tool_context)
     elif source == "signal":
-        return _query_signal(status, limit)
+        return _query_signal(status, limit, tool_context)
     elif source == "tail_buy":
-        return _query_tail_buy(run_date, decision, limit)
+        return _query_tail_buy(run_date, decision, limit, tool_context)
     else:
         return {"error": f"不支持的 source：{source}，请用 'recommendation'、'signal' 或 'tail_buy'"}
 
 
-def _query_recommendation(limit: int) -> dict:
+def _query_recommendation(limit: int, tool_context: ToolContext | None = None) -> dict:
     try:
         limit = min(max(limit, 1), 50)
         records = []
@@ -1497,7 +1504,7 @@ def _query_recommendation(limit: int) -> dict:
         if not records:
             from integrations.supabase_recommendation import load_recommendation_tracking
 
-            records = load_recommendation_tracking(limit=limit)
+            records = load_recommendation_tracking(limit=limit, client=_get_user_client(tool_context))
             if records:
                 try:
                     from integrations.local_db import save_recommendations
@@ -1527,7 +1534,7 @@ def _query_recommendation(limit: int) -> dict:
         return {"error": str(e)}
 
 
-def _query_signal(status: str, limit: int) -> dict:
+def _query_signal(status: str, limit: int, tool_context: ToolContext | None = None) -> dict:
     try:
         limit = min(max(limit, 1), 100)
         rows: list[dict] = []
@@ -1540,11 +1547,9 @@ def _query_signal(status: str, limit: int) -> dict:
             logger.warning("failed to load signals from local DB", exc_info=True)
         if not rows:
             from core.constants import TABLE_SIGNAL_PENDING
-            from integrations.supabase_base import create_admin_client, is_admin_configured
+            from integrations.supabase_base import create_read_client
 
-            if not is_admin_configured():
-                return {"error": "本地无缓存且 Supabase 未配置"}
-            client = create_admin_client()
+            client = _get_user_client(tool_context) or create_read_client()
             query = client.table(TABLE_SIGNAL_PENDING).select("*")
             if status in ("pending", "confirmed", "expired"):
                 query = query.eq("status", status)
@@ -1930,7 +1935,12 @@ def update_portfolio(
         return {"error": str(e)}
 
 
-def _query_tail_buy(run_date: str, decision: str, limit: int) -> dict:
+def _query_tail_buy(
+    run_date: str,
+    decision: str,
+    limit: int,
+    tool_context: ToolContext | None = None,
+) -> dict:
     try:
         limit = min(max(int(limit), 1), 200)
         from integrations.local_db import load_tail_buy_history
@@ -1943,7 +1953,11 @@ def _query_tail_buy(run_date: str, decision: str, limit: int) -> dict:
         if not records:
             from integrations.supabase_tail_buy import load_tail_buy_from_supabase
 
-            sb_rows = load_tail_buy_from_supabase(limit=limit)
+            sb_rows = load_tail_buy_from_supabase(
+                limit=limit,
+                user_id=_get_user_id(tool_context),
+                client=_get_user_client(tool_context),
+            )
             if sb_rows:
                 from integrations.local_db import save_tail_buy_results
 

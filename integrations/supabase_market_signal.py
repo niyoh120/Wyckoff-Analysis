@@ -16,7 +16,9 @@ from supabase import Client
 
 from core.constants import TABLE_MARKET_SIGNAL_DAILY
 from integrations.supabase_base import create_admin_client as _get_supabase_admin_client
+from integrations.supabase_base import create_read_client as _get_supabase_read_client
 from integrations.supabase_base import is_admin_configured as is_supabase_admin_configured
+from integrations.supabase_base import require_server_write_context
 
 logger = logging.getLogger(__name__)
 
@@ -384,17 +386,17 @@ def _iter_market_signal_clients(client: Client | None = None) -> list[Client]:
     if client is not None:
         clients.append(client)
         return clients
-    if is_supabase_admin_configured():
-        try:
-            clients.append(_get_supabase_admin_client())
-        except Exception:
-            logger.debug("failed to create supabase admin client", exc_info=True)
+    try:
+        clients.append(_get_supabase_read_client())
+    except Exception:
+        logger.debug("failed to create supabase read client", exc_info=True)
     return clients
 
 
 def upsert_market_signal_daily(trade_date: date | str, patch: dict[str, Any]) -> bool:
     if not is_supabase_admin_configured():
         return False
+    require_server_write_context("upsert market_signal_daily")
     try:
         client = _get_supabase_admin_client()
         trade_date_text = _normalize_trade_date(trade_date)

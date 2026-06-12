@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONUNBUFFERED: "1"
+      WYCKOFF_WRITE_CONTEXT: "server_job"
       TZ: Asia/Shanghai
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

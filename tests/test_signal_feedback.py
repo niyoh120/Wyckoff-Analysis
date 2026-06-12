@@ -24,6 +24,29 @@ class _FailingUpsertClient:
         return _FailingUpsertQuery()
 
 
+class _CapturingUpsertQuery:
+    def __init__(self, client):
+        self.client = client
+
+    def upsert(self, rows: list[dict], *, on_conflict: str):
+        self.client.rows = rows
+        self.client.conflict = on_conflict
+        return self
+
+    def execute(self):
+        return None
+
+
+class _CapturingUpsertClient:
+    def __init__(self):
+        self.rows: list[dict] = []
+        self.conflict = ""
+
+    def table(self, name: str):
+        self.table_name = name
+        return _CapturingUpsertQuery(self)
+
+
 def test_build_signal_observations_marks_selection_and_source():
     rows = build_signal_observations(
         "2026-05-25",
@@ -106,6 +129,7 @@ def test_signal_feedback_upsert_errors_propagate(monkeypatch):
     from integrations import supabase_signal_feedback
 
     closed = []
+    monkeypatch.setenv("WYCKOFF_WRITE_CONTEXT", "server_job")
     monkeypatch.setattr(supabase_signal_feedback, "_configured", lambda: True)
     monkeypatch.setattr(supabase_signal_feedback, "_admin", _FailingUpsertClient)
     monkeypatch.setattr(supabase_signal_feedback, "_close", closed.append)
@@ -114,6 +138,35 @@ def test_signal_feedback_upsert_errors_propagate(monkeypatch):
         supabase_signal_feedback.upsert_signal_outcomes([{"observation_id": 1, "horizon_days": 1}])
 
     assert len(closed) == 1
+
+
+def test_signal_feedback_upsert_rejects_cli_context(monkeypatch):
+    from integrations import supabase_signal_feedback
+
+    monkeypatch.delenv("WYCKOFF_WRITE_CONTEXT", raising=False)
+    monkeypatch.setattr(supabase_signal_feedback, "_configured", lambda: True)
+
+    with pytest.raises(PermissionError, match="server_job"):
+        supabase_signal_feedback.upsert_signal_outcomes([{"observation_id": 1, "horizon_days": 1}])
+
+
+def test_signal_observations_conflict_keeps_daily_tags(monkeypatch):
+    from integrations import supabase_signal_feedback
+
+    client = _CapturingUpsertClient()
+    monkeypatch.setenv("WYCKOFF_WRITE_CONTEXT", "server_job")
+    monkeypatch.setattr(supabase_signal_feedback, "_configured", lambda: True)
+    monkeypatch.setattr(supabase_signal_feedback, "_admin", lambda: client)
+    monkeypatch.setattr(supabase_signal_feedback, "_close", lambda _client: None)
+
+    rows = [
+        {"market": "cn", "trade_date": "2026-06-10", "code": "000001", "signal_type": "spring"},
+        {"market": "cn", "trade_date": "2026-06-11", "code": "000001", "signal_type": "lps"},
+    ]
+
+    assert supabase_signal_feedback.upsert_signal_observations(rows) == 2
+    assert client.conflict == "market,trade_date,code,signal_type"
+    assert [row["trade_date"] for row in client.rows] == ["2026-06-10", "2026-06-11"]
 
 
 def test_summarize_signal_health_classifies_watch_and_all_regime():

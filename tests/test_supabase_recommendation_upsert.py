@@ -47,6 +47,7 @@ class FakeSupabaseQuery:
 
 
 def _enable_fake_supabase(monkeypatch, client: FakeSupabaseClient) -> None:
+    monkeypatch.setenv("WYCKOFF_WRITE_CONTEXT", "server_job")
     monkeypatch.setattr("integrations.supabase_recommendation.is_supabase_configured", lambda: True)
     monkeypatch.setattr("integrations.supabase_recommendation._get_supabase_admin_client", lambda: client)
 

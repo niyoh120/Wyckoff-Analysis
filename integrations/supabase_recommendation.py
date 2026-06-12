@@ -21,7 +21,9 @@ from core.constants import (
     TABLE_RECOMMENDATION_TRACKING_US,
 )
 from integrations.supabase_base import create_admin_client as _get_supabase_admin_client
+from integrations.supabase_base import create_read_client as _get_supabase_read_client
 from integrations.supabase_base import is_admin_configured as is_supabase_configured
+from integrations.supabase_base import require_server_write_context
 
 logger = logging.getLogger(__name__)
 RECOMMENDATION_ATTRIBUTION_COLUMNS = (
@@ -583,6 +585,7 @@ def prepare_recommendation_payload(recommend_date: int, symbols_info: list[dict[
 def upsert_recommendation_payload(payload: list[dict[str, Any]]) -> bool:
     if not is_supabase_configured() or not payload:
         return False
+    require_server_write_context("upsert recommendation_tracking")
     try:
         client = _get_supabase_admin_client()
         _upsert_recommendation_payload(client, payload)
@@ -713,6 +716,7 @@ def mark_ai_recommendations(recommend_date: int, ai_codes: list[str]) -> bool:
     """
     if not is_supabase_configured():
         return False
+    require_server_write_context("mark AI recommendations")
     try:
         client = _get_supabase_admin_client()
         now_iso = datetime.now(UTC).isoformat()
@@ -789,6 +793,7 @@ def sync_all_tracking_prices(
     if not is_supabase_configured():
         print("[supabase_recommendation] sync_all_tracking_prices: Supabase 未配置，跳过")
         return 0
+    require_server_write_context("sync recommendation_tracking prices")
 
     try:
         client = _get_supabase_admin_client()
@@ -920,6 +925,7 @@ def correct_tracking_initial_prices() -> int:
     if not is_supabase_configured():
         print("[supabase_recommendation] correct_tracking_initial_prices: Supabase 未配置，跳过")
         return 0
+    require_server_write_context("correct recommendation_tracking prices")
     try:
         client = _get_supabase_admin_client()
         records = _fetch_all_tracking_records(client, "*")
@@ -963,7 +969,7 @@ def load_recommendation_tracking(limit: int = 1000, client=None) -> list[dict[st
     """加载形态复盘数据"""
     try:
         if client is None:
-            client = _get_supabase_admin_client()
+            client = _get_supabase_read_client()
         resp = (
             client.table(TABLE_RECOMMENDATION_TRACKING)
             .select("*")
@@ -1012,6 +1018,7 @@ def refresh_tracking_prices_with_tushare_unadjusted() -> dict[str, Any]:
 
     if not is_supabase_configured():
         raise ValueError("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 未配置")
+    require_server_write_context("refresh CN tracking prices with Tushare")
 
     pro = get_pro()
     if pro is None:
@@ -1180,6 +1187,7 @@ def upsert_global_recommendations(
     table = _resolve_global_table(market)
     if not is_supabase_configured() or not candidates:
         return False
+    require_server_write_context(f"upsert global recommendations {market}")
     try:
         client = _get_supabase_admin_client()
         payload = []
@@ -1244,6 +1252,7 @@ def refresh_global_tracking_prices(market: str) -> dict[str, Any]:
     table = _resolve_global_table(market)
     if not is_supabase_configured():
         raise ValueError("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 未配置")
+    require_server_write_context(f"refresh global tracking prices {market}")
     api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
     if not api_key:
         raise ValueError("TICKFLOW_API_KEY 未配置")
@@ -1378,6 +1387,7 @@ def _build_us_performance_update(
 def refresh_us_tracking_performance(max_dates: int = 60, kline_count: int = 160) -> dict[str, Any]:
     if not is_supabase_configured():
         raise ValueError("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 未配置")
+    require_server_write_context("refresh US tracking performance")
     api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
     if not api_key:
         raise ValueError("TICKFLOW_API_KEY 未配置")
@@ -1476,6 +1486,7 @@ def refresh_tracking_prices_with_tickflow_realtime() -> dict[str, Any]:
     """
     if not is_supabase_configured():
         raise ValueError("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 未配置")
+    require_server_write_context("refresh CN tracking prices")
 
     api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
     if not api_key:

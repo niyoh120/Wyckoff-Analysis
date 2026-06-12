@@ -75,6 +75,8 @@ GitHub Actions 中建议用 Repository Variables 配置：
 | 配置项 | 推荐值 | 说明 |
 |--------|--------|------|
 | `FUNNEL_DYNAMIC_POLICY` | `shadow` | 非敏感配置，优先放 GitHub Variables；也兼容 Secrets。 |
+| `WYCKOFF_WRITE_CONTEXT` | `server_job` | 只有 Actions / server job 可写共享信号、推荐、策略表；CLI 默认只读云端。 |
+| `WYCKOFF_STRATEGY_REFLECTION` | `shadow` | 开启策略反思 shadow 写入，不自动晋级生产策略。 |
 | `SUPABASE_SERVICE_ROLE_KEY` | service role key | 定时任务写反馈表需要绕过 RLS。 |
 
 本地临时验证：
@@ -93,6 +95,8 @@ uv run python scripts/signal_feedback_job.py
 | `signal_health_daily` | feedback job | 漏斗 | 按 signal / regime / horizon 聚合胜率、平均收益、样本数和权重。 |
 | `signal_registry` | feedback job | 漏斗 | 管理信号生命周期：`ACTIVE`、`WATCH`、`EXPERIMENTAL`、`RETIRED`。 |
 | `signal_policy_shadow_runs` | 漏斗 shadow 模式 | 人工复盘 | 比较静态策略和动态策略的候选差异。 |
+| `strategy_reflections` | strategy reflection job | 人工复盘 | 保存基于 outcomes / shadow 的策略反思快照。 |
+| `strategy_policy_candidates` | strategy reflection job | 人工复盘 | 保存 `READY_FOR_REVIEW` 候选策略，不自动切生产。 |
 
 ## 信号生命周期
 
