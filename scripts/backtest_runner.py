@@ -87,6 +87,7 @@ CN_ZONE = ZoneInfo("Asia/Shanghai")
 REGIME_POSITION_RATIO: dict[str, float] = {
     "NEUTRAL": 0.5,  # 震荡市 → 半仓，避免弱市噪声补满 TopN
     "RISK_ON": 0.5,  # 风险偏好期 → 半仓，防止反弹误判时满仓追高
+    "BEAR_REBOUND": 0.25,  # 熊市反抽 → 只保留最强确认候选
     "PANIC_REPAIR": 0.0,  # 恐慌修复 → 暂停新开仓
     "RISK_OFF": 0.0,  # 避险 → 暂停新开仓
     "CRASH": 0.0,  # 崩盘 → 不开仓
@@ -95,6 +96,8 @@ REGIME_POSITION_RATIO: dict[str, float] = {
 FUNNEL_AI_SELECTION_MODE = os.getenv("FUNNEL_AI_SELECTION_MODE", "tradeable_l4").strip().lower()
 _TRADEABLE_L4_SELECTION_MODES = {
     "tradeable_l4",
+}
+_STRICT_L4_SELECTION_MODES = {
     "quality_l4",
     "strict_l4",
 }
@@ -112,6 +115,16 @@ _LEGACY_SELECTION_MODES = {
 }
 _STRUCTURAL_L4_TRIGGERS = {"spring", "lps", "compression", "compress", "trend_pullback"}
 _NAKED_RIGHT_SIDE_TRIGGERS = {"sos", "evr"}
+BACKTEST_LOSS_GUARD_ENABLED = os.getenv("FUNNEL_LOSS_GUARD_ENABLED", "1").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+BACKTEST_LOSS_GUARD_LOW_SCORE = float(os.getenv("FUNNEL_LOSS_GUARD_LOW_SCORE", "1.0"))
+BACKTEST_LOSS_GUARD_RISK_ON_PRE5_RET = float(os.getenv("FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET", "25.0"))
+BACKTEST_LOSS_GUARD_RISK_ON_RANGE_POS = float(os.getenv("FUNNEL_LOSS_GUARD_RISK_ON_RANGE_POS", "85.0"))
+BACKTEST_LOSS_GUARD_RISK_ON_VOL_RATIO = float(os.getenv("FUNNEL_LOSS_GUARD_RISK_ON_VOL_RATIO", "1.8"))
 
 
 @dataclass
@@ -441,6 +454,102 @@ def _is_tradeable_l4_trigger_combo(trigger_keys: set[str]) -> bool:
     return not trigger_keys <= _NAKED_RIGHT_SIDE_TRIGGERS
 
 
+def _channel_tags(raw: str) -> set[str]:
+    return {x.strip() for x in str(raw or "").split("+") if x.strip()}
+
+
+def _is_pure_momentum_channel(channel: str) -> bool:
+    tags = _channel_tags(channel)
+    if not tags or "点火破局" in tags:
+        return False
+    return bool(tags <= {"主升通道", "趋势延续", "加速突破"})
+
+
+def _recent_overheat(df: pd.DataFrame | None) -> bool:
+    if df is None or df.empty or len(df) < 21:
+        return False
+    work = df.copy()
+    for col in ("close", "high", "low", "volume"):
+        if col not in work.columns:
+            return False
+        work[col] = pd.to_numeric(work[col], errors="coerce")
+    last = work.iloc[-1]
+    close = float(last.get("close") or 0.0)
+    if close <= 0:
+        return False
+    pre = work.tail(21).dropna(subset=["close", "high", "low", "volume"])
+    if len(pre) < 21:
+        return False
+    high20 = float(pre["high"].max())
+    low20 = float(pre["low"].min())
+    pre5_ret = (close / float(pre.iloc[-6]["close"]) - 1.0) * 100.0
+    range_pos = (close - low20) / (high20 - low20) * 100.0 if high20 > low20 else 0.0
+    vol20 = float(pre["volume"].tail(20).mean())
+    vol_ratio = float(pre["volume"].tail(5).mean()) / vol20 if vol20 > 0 else 0.0
+    return (
+        pre5_ret >= BACKTEST_LOSS_GUARD_RISK_ON_PRE5_RET
+        and range_pos >= BACKTEST_LOSS_GUARD_RISK_ON_RANGE_POS
+        and vol_ratio >= BACKTEST_LOSS_GUARD_RISK_ON_VOL_RATIO
+    )
+
+
+def _loss_guard_reason(
+    code: str,
+    regime: str,
+    trigger_keys: set[str],
+    trigger_score: float,
+    channel: str,
+    day_df_map: dict[str, pd.DataFrame],
+) -> str:
+    if not BACKTEST_LOSS_GUARD_ENABLED:
+        return ""
+    regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
+    if (
+        "lps" in trigger_keys
+        and not (trigger_keys & {"sos", "evr", "spring"})
+        and trigger_score < BACKTEST_LOSS_GUARD_LOW_SCORE
+    ):
+        return "低分LPS"
+    if regime_norm in {"RISK_OFF", "RISK_ON", "BEAR_REBOUND", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}:
+        if "lps" in trigger_keys and not (trigger_keys & {"sos", "evr", "spring"}):
+            return f"{regime_norm}禁用LPS"
+        if "trend_pullback" in trigger_keys and trigger_score < BACKTEST_LOSS_GUARD_LOW_SCORE:
+            return f"{regime_norm}低分回踩"
+    if regime_norm in {"RISK_ON", "BEAR_REBOUND"} and (trigger_keys & {"sos", "evr", "trend_pullback"}):
+        if _is_pure_momentum_channel(channel):
+            return f"{regime_norm}纯趋势追涨"
+        if _recent_overheat(day_df_map.get(code)):
+            return f"{regime_norm}短期过热"
+    return ""
+
+
+def _apply_tradeable_loss_guard(
+    selected_codes: list[str],
+    trend_sel: list[str],
+    accum_sel: list[str],
+    *,
+    regime: str,
+    trigger_sets: dict[str, set[str]],
+    trigger_score_map: dict[str, float],
+    channel_map: dict[str, str],
+    day_df_map: dict[str, pd.DataFrame],
+) -> tuple[list[str], list[str], list[str]]:
+    kept: list[str] = []
+    for code in selected_codes:
+        reason = _loss_guard_reason(
+            code,
+            regime,
+            trigger_sets.get(code, set()),
+            float(trigger_score_map.get(code, 0.0) or 0.0),
+            str(channel_map.get(code, "") or ""),
+            day_df_map,
+        )
+        if not reason:
+            kept.append(code)
+    kept_set = set(kept)
+    return kept, [c for c in trend_sel if c in kept_set], [c for c in accum_sel if c in kept_set]
+
+
 def _select_ai_input_codes(
     *,
     result: FunnelResult,
@@ -463,7 +572,7 @@ def _select_ai_input_codes(
         key=lambda c: -hit_score_map.get(c, 0.0),
     )
 
-    if selection_mode in _TRADEABLE_L4_SELECTION_MODES:
+    if selection_mode in _STRICT_L4_SELECTION_MODES:
         trigger_sets = _trigger_sets_by_code(result.triggers)
         selected_codes = [
             code for code in sorted_hit_codes if _is_tradeable_l4_trigger_combo(trigger_sets.get(code, set()))
@@ -498,6 +607,18 @@ def _select_ai_input_codes(
         max_per_sector=2,
     )
     selected_codes = _dedup_order(trend_sel + accum_sel)
+    if selection_mode in _TRADEABLE_L4_SELECTION_MODES:
+        trigger_sets = _trigger_sets_by_code(result.triggers)
+        selected_codes, trend_sel, accum_sel = _apply_tradeable_loss_guard(
+            selected_codes,
+            trend_sel,
+            accum_sel,
+            regime=regime,
+            trigger_sets=trigger_sets,
+            trigger_score_map=hit_score_map,
+            channel_map=result.channel_map,
+            day_df_map=day_df_map,
+        )
     min_score = float(getattr(FunnelConfig, "min_funnel_score", 0.15) or 0)
     if min_score > 0 and priority_score_map:
         selected_codes = [c for c in selected_codes if priority_score_map.get(c, 0.0) >= min_score]
@@ -2350,7 +2471,7 @@ def main() -> int:
         "--regime-filter",
         action="store_true",
         default=False,
-        help="启用大盘水温仓位控制: CRASH 不开仓, RISK_ON/PANIC_REPAIR 半仓, NEUTRAL 全仓",
+        help="启用大盘水温仓位控制: CRASH/RISK_OFF 不开仓, BEAR_REBOUND 低仓, RISK_ON/NEUTRAL 半仓",
     )
     parser.add_argument(
         "--pending-mode",

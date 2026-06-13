@@ -21,7 +21,17 @@ REGIME_LABELS = {
     "RISK_OFF": "防守/风险偏好收缩期",
     "NEUTRAL": "震荡中性期",
     "RISK_ON": "风险偏好扩张期",
+    "BEAR_REBOUND": "熊市反抽期",
 }
+
+PERIOD_LABELS = {
+    "recent_6m": "最近6个月",
+    "bull_2020": "牛市 2020-07~2021-02",
+    "bear_2022": "熊市 2021-12~2022-10",
+    "custom": "自定义周期",
+}
+
+PERIOD_ORDER = {"recent_6m": 0, "bull_2020": 1, "bear_2022": 2, "custom": 3}
 
 
 @dataclass(frozen=True)
@@ -29,6 +39,7 @@ class GridCell:
     artifact_dir: Path
     summary_path: Path
     trades_path: Path | None
+    period_key: str
     hold: int
     stop_loss: int
     take_profit: int
@@ -137,6 +148,11 @@ def _parse_params(dirname: str) -> tuple[int, int, int, int] | None:
     )
 
 
+def _parse_period_key(dirname: str) -> str:
+    m = re.search(r"backtest-grid-(recent_6m|bull_2020|bear_2022|custom)-h", dirname)
+    return m.group(1) if m else ""
+
+
 def _find_trades_path(summary_path: Path) -> Path | None:
     matches = sorted(summary_path.parent.glob("trades_*.csv"))
     return matches[0] if matches else None
@@ -159,6 +175,7 @@ def load_grid_cells(artifacts_dir: Path) -> list[GridCell]:
                 artifact_dir=summary_path.parent,
                 summary_path=summary_path,
                 trades_path=_find_trades_path(summary_path),
+                period_key=_parse_period_key(summary_path.parent.name),
                 hold=hold,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
@@ -235,8 +252,82 @@ def _fmt_param(cell: GridCell) -> str:
     return f"{cell.hold}天 / SL-{cell.stop_loss}% / {tp} / {tr}"
 
 
+def _period_label(cell: GridCell) -> str:
+    if cell.period_key:
+        return PERIOD_LABELS.get(cell.period_key, cell.period_key)
+    return f"{cell.start} ~ {cell.end}" if cell.start or cell.end else "未标记周期"
+
+
+def _period_sort_key(label: str) -> tuple[int, str]:
+    return PERIOD_ORDER.get(label, 99), label
+
+
+def _format_backtest_ranges(cells: list[GridCell]) -> str:
+    groups: dict[str, list[GridCell]] = defaultdict(list)
+    for cell in cells:
+        groups[cell.period_key or _period_label(cell)].append(cell)
+    if len(groups) == 1:
+        group = next(iter(groups.values()))
+        starts = [c.start for c in group if c.start]
+        ends = [c.end for c in group if c.end]
+        return f"{min(starts, default='-')} ~ {max(ends, default='-')}"
+
+    parts = []
+    for key in sorted(groups, key=_period_sort_key):
+        group = groups[key]
+        starts = [c.start for c in group if c.start]
+        ends = [c.end for c in group if c.end]
+        label = PERIOD_LABELS.get(key, key)
+        parts.append(f"{label}: {min(starts, default='-')} ~ {max(ends, default='-')} ({len(group)}组)")
+    return "；".join(parts)
+
+
 def _cell_sort_key(cell: GridCell) -> float:
     return cell.sharpe if cell.sharpe is not None else float("-inf")
+
+
+def _cash_sort_key(cell: GridCell) -> float:
+    if cell.cash_total_return is not None:
+        return cell.cash_total_return
+    return _cell_sort_key(cell)
+
+
+def _build_period_best_table(cells: list[GridCell]) -> list[str]:
+    groups: dict[str, list[GridCell]] = defaultdict(list)
+    for cell in cells:
+        groups[cell.period_key or _period_label(cell)].append(cell)
+    if len(groups) < 2:
+        return []
+
+    lines = [
+        "",
+        "## 各周期最佳",
+        "",
+        "| 周期 | 区间 | 最佳参数 | 现金收益 | 最终现金 | 夏普 | 回撤 | 单元 |",
+        "|---|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for key in sorted(groups, key=_period_sort_key):
+        group = groups[key]
+        best = max(group, key=_cash_sort_key)
+        starts = [c.start for c in group if c.start]
+        ends = [c.end for c in group if c.end]
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    PERIOD_LABELS.get(key, key),
+                    f"{min(starts, default='-')} ~ {max(ends, default='-')}",
+                    _fmt_param(best),
+                    _fmt_signed(best.cash_total_return, 2, "%"),
+                    _fmt_num(best.cash_final, 2),
+                    _fmt_num(best.sharpe, 3),
+                    _fmt_num(best.max_drawdown, 1, "%"),
+                    str(len(group)),
+                ]
+            )
+            + " |"
+        )
+    return lines
 
 
 def _build_matrix(cells: list[GridCell], best: GridCell) -> list[str]:
@@ -368,11 +459,10 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
     trigger_stats = _group_stats(best_rows, lambda r: r.get("trigger", ""))
     current_cycle, cycle_detail = _latest_cycle(best_rows)
 
-    start = best.start or min((c.start for c in cells if c.start), default="")
-    end = best.end or max((c.end for c in cells if c.end), default="")
     generated = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     pos_sharpe = sum(1 for c in cells if (c.sharpe or 0) > 0)
     neg_sharpe = len(cells) - pos_sharpe
+    period_best_table = _build_period_best_table(cells)
 
     lines: list[str] = [
         "# 当前市场回测报告",
@@ -381,8 +471,8 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
         "",
         "## 执行上下文",
         "",
-        "- 回测脚本: `python -m scripts.backtest_runner`（由 `.github/workflows/backtest_grid.yml` 以 18 单元参数网格并发执行）",
-        f"- 回测区间: {start} ~ {end}",
+        "- 回测脚本: `python -m scripts.backtest_runner`（由 `.github/workflows/backtest_grid.yml` 每周期以 18 单元参数网格并发执行）",
+        f"- 回测区间: {_format_backtest_ranges(cells)}",
         f"- 市场周期: {current_cycle}",
         f"- 周期说明: {cycle_detail}",
         f"- 可完整验证信号期: {diagnostics.get('first_signal_date') or '-'} ~ {diagnostics.get('last_signal_date') or '-'}",
@@ -411,6 +501,8 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
             f"- 右尾依赖: 去掉最大盈利单后单笔均收约 {_fmt_signed(diagnostics['drop_top_1_avg'], 2, '%')}；"
             f"去掉前三大盈利单后约 {_fmt_signed(diagnostics['drop_top_3_avg'], 2, '%')}。"
         )
+
+    lines.extend(period_best_table)
 
     lines.extend(
         [
@@ -528,7 +620,7 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
             "## 口径说明",
             "",
             "- 胜率是单笔交易 `ret_pct > 0` 的比例，不是组合每日正收益比例。",
-            "- 入场口径以各参数单元 summary 为准；当前 workflow 默认 T+1 14:55，缺分钟线时按 `BACKTEST_ENTRY_PRICE_FALLBACK` 处理。",
+            "- 入场口径以各参数单元 summary 为准；当前 workflow 默认 T+1 开盘价，`tail_1455` 模式缺分钟线时按 `BACKTEST_ENTRY_PRICE_FALLBACK` 处理。",
             "- `可完整验证信号期` 会早于回测结束日，因为持有窗口需要足够后续交易日完成离场验证。",
             "- 本结果仍可能包含当前股票池幸存者偏差，以及当前截面市值/行业映射带来的前视偏差；用于参数方向和市场周期适配判断，不等同于实盘承诺。",
             "",

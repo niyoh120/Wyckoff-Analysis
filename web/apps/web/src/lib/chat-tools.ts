@@ -351,7 +351,7 @@ export async function execMarketOverview(deps: ToolDeps): Promise<string> {
   }
 
   const regimeMap: Record<string, string> = {
-    RISK_ON: '偏强', NEUTRAL: '中性', RISK_OFF: '偏弱', CRASH: '极弱', BLACK_SWAN: '恶劣',
+    RISK_ON: '偏强', BEAR_REBOUND: '反抽', NEUTRAL: '中性', RISK_OFF: '偏弱', CRASH: '极弱', BLACK_SWAN: '恶劣',
   }
   const regime = String(merged.benchmark_regime || 'NEUTRAL')
   const close = Number(merged.main_index_close || 0)

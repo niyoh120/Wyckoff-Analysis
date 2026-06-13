@@ -44,6 +44,7 @@ MONEY_FLOW_DOMINANCE_RATIO = float(os.getenv("FUNNEL_MONEY_FLOW_DOMINANCE_RATIO"
 
 _PV_OUTLOOK_FALLBACK: dict[str, str] = {
     "RISK_ON": "次日推演：若量能维持在20日均量0.95x上方且不破MA50，偏强震荡延续；若放量跌破MA50，需转入防守。",
+    "BEAR_REBOUND": "次日推演：熊市反抽只做强确认，若不能放量站稳MA200，控制仓位并回避追高。",
     "PANIC_REPAIR": "次日推演：修复阶段以确认强度为先，若放量站稳MA50可继续修复；若缩量冲高回落，按反抽处理。",
     "NEUTRAL": "次日推演：中性震荡为主，等待放量突破近高或放量跌破MA50后再确认方向。",
     "RISK_OFF": "次日推演：防守优先，若出现放量下压并失守MA50，继续收缩风险敞口；仅在缩量止跌后再评估试探。",
@@ -329,7 +330,7 @@ def analyze_benchmark_and_tune_cfg(
 ) -> dict:
     """
     Step 0：大盘总闸
-    - 输出宏观水温（RISK_ON / NEUTRAL / RISK_OFF / CRASH / PANIC_REPAIR）
+    - 输出宏观水温（RISK_ON / BEAR_REBOUND / NEUTRAL / RISK_OFF / CRASH / PANIC_REPAIR）
     - 在 RISK_OFF 时动态收紧个股过滤阈值
     """
     context = {
@@ -350,6 +351,8 @@ def analyze_benchmark_and_tune_cfg(
         "panic_reasons": [],
         "repair_triggered": False,
         "repair_reasons": [],
+        "bear_rebound_triggered": False,
+        "bear_rebound_reasons": [],
         "tuned": {
             "min_avg_amount_wan": cfg.min_avg_amount_wan,
             "rs_min_long": cfg.rs_min_long,
@@ -501,6 +504,26 @@ def analyze_benchmark_and_tune_cfg(
                 f"rebound_ok(main_today={main_today_pct}, small_today={small_today_pct})",
             ]
 
+    bull_structure = (
+        close is not None
+        and ma50 is not None
+        and ma200 is not None
+        and ma50_slope_5d is not None
+        and close > ma50 > ma200
+        and ma50_slope_5d > 0
+    )
+    bear_rebound_reasons: list[str] = []
+    if regime == "RISK_ON" and not bull_structure:
+        regime = "BEAR_REBOUND"
+        if close is not None and ma200 is not None and close < ma200:
+            bear_rebound_reasons.append("close_below_ma200")
+        if ma50 is not None and ma200 is not None and ma50 <= ma200:
+            bear_rebound_reasons.append("ma50_below_ma200")
+        if ma50_slope_5d is not None and ma50_slope_5d <= 0:
+            bear_rebound_reasons.append("ma50_slope_non_positive")
+        if not bear_rebound_reasons:
+            bear_rebound_reasons.append("risk_on_without_bull_structure")
+
     # EVR 开关策略：
     # - all_regimes(默认): 各市场水温都开启，保持信号连续性
     # - cold_only: 仅在 RISK_OFF/CRASH 开启
@@ -542,6 +565,12 @@ def analyze_benchmark_and_tune_cfg(
             )
             cfg.rs_min_long = max(cfg.rs_min_long, 4.0)
             cfg.rs_min_short = max(cfg.rs_min_short, 1.0)
+    elif regime == "BEAR_REBOUND":
+        cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, RISK_OFF_MIN_AVG_AMOUNT_WAN)
+        cfg.rs_min_long = max(cfg.rs_min_long, 3.0)
+        cfg.rs_min_short = max(cfg.rs_min_short, 1.0)
+        cfg.rps_fast_min = max(cfg.rps_fast_min, 80.0)
+        cfg.rps_slow_min = max(cfg.rps_slow_min, 75.0)
     elif regime == "RISK_ON":
         cfg.rs_min_long = max(cfg.rs_min_long, 0.0)
         cfg.rs_min_short = max(cfg.rs_min_short, 0.0)
@@ -597,6 +626,8 @@ def analyze_benchmark_and_tune_cfg(
             "panic_reasons": panic_reasons,
             "repair_triggered": bool(repair_reasons),
             "repair_reasons": repair_reasons,
+            "bear_rebound_triggered": bool(bear_rebound_reasons),
+            "bear_rebound_reasons": bear_rebound_reasons,
             "tuned": {
                 "min_avg_amount_wan": cfg.min_avg_amount_wan,
                 "rs_min_long": cfg.rs_min_long,

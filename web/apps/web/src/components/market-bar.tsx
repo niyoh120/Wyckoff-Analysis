@@ -20,6 +20,7 @@ interface MarketSignal {
 
 const REGIME_COLORS: Record<string, { className: string; labelKey: TranslationKey }> = {
   RISK_ON: { className: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200', labelKey: 'market.riskOn' },
+  BEAR_REBOUND: { className: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-200', labelKey: 'market.bearRebound' },
   NEUTRAL: { className: 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-200', labelKey: 'market.neutral' },
   RISK_OFF: { className: 'bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-200', labelKey: 'market.riskOff' },
   CRASH: { className: 'bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-200', labelKey: 'market.crash' },

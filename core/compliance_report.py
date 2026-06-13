@@ -98,6 +98,7 @@ def _fmt_number(value: Any, digits: int = 2) -> str:
 def _regime_label(regime: Any) -> str:
     mapping = {
         "RISK_ON": "风险偏好回升",
+        "BEAR_REBOUND": "熊市反抽",
         "NEUTRAL": "中性震荡",
         "RISK_OFF": "防守降温",
         "CRASH": "极端风险",

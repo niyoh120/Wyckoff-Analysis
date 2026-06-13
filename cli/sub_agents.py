@@ -6,6 +6,8 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from queue import Empty, Queue
+from threading import Thread
 from typing import Any
 
 from cli.compaction import estimate_tokens
@@ -29,6 +31,7 @@ class SubAgent:
     max_tool_rounds: int = 8
     context_budget_tokens: int = 16_000
     result_budget_chars: int = 2_500
+    tool_timeout_seconds: int = 60
 
 
 RESEARCH_AGENT = SubAgent(
@@ -39,6 +42,7 @@ RESEARCH_AGENT = SubAgent(
     max_tool_rounds=8,
     context_budget_tokens=24_000,
     result_budget_chars=3_000,
+    tool_timeout_seconds=90,
     tool_names=(
         "search_stock_by_name",
         "analyze_stock",
@@ -59,6 +63,7 @@ ANALYSIS_AGENT = SubAgent(
     max_tool_rounds=8,
     context_budget_tokens=20_000,
     result_budget_chars=2_500,
+    tool_timeout_seconds=75,
     tool_names=(
         "analyze_stock",
         "portfolio",
@@ -70,15 +75,15 @@ ANALYSIS_AGENT = SubAgent(
 
 TRADING_AGENT = SubAgent(
     name="trading",
-    description="去留决策：攻防指令、调仓执行",
+    description="去留决策：攻防指令、调仓计划",
     system_prompt=TRADING_AGENT_PROMPT,
     timeout_seconds=120,
     max_tool_rounds=6,
     context_budget_tokens=12_000,
     result_budget_chars=1_600,
+    tool_timeout_seconds=45,
     tool_names=(
         "portfolio",
-        "update_portfolio",
         "generate_strategy_decision",
         "analyze_stock",
         "get_market_overview",
@@ -90,9 +95,11 @@ TRADING_AGENT = SubAgent(
 class SubAgentToolProxy:
     """限制 sub-agent 只能看到/调用指定工具子集。"""
 
-    def __init__(self, registry, allowed: set[str]):
+    def __init__(self, registry, allowed: set[str], *, tool_timeout_seconds: int = 60, deadline: float | None = None):
         self._registry = registry
         self._allowed = allowed
+        self._tool_timeout_seconds = max(1, int(tool_timeout_seconds))
+        self._deadline = deadline
 
     def schemas(self) -> list[dict[str, Any]]:
         return [s for s in self._registry.schemas() if s["name"] in self._allowed]
@@ -100,12 +107,48 @@ class SubAgentToolProxy:
     def execute(self, name: str, args: dict[str, Any], messages: list[dict[str, Any]] | None = None) -> Any:
         if name not in self._allowed:
             return {"error": f"sub-agent 无权调用工具: {name}"}
-        return self._registry.execute(name, args, messages=messages)
+        timeout = self._remaining_tool_timeout()
+        if timeout <= 0:
+            return {"error": f"sub-agent 工具调用超时: {name}"}
+        return _execute_with_timeout(
+            lambda: self._registry.execute(name, args, messages=messages),
+            timeout,
+            name,
+        )
 
     def concurrency_safe(self, name: str) -> bool:
         if name not in self._allowed:
             return False
         return self._registry.concurrency_safe(name)
+
+    def _remaining_tool_timeout(self) -> float:
+        timeout = float(self._tool_timeout_seconds)
+        if self._deadline is None:
+            return timeout
+        return min(timeout, self._deadline - time.monotonic())
+
+
+def _execute_with_timeout(fn: Callable[[], Any], timeout_seconds: float, tool_name: str) -> Any:
+    results: Queue[tuple[bool, Any]] = Queue(maxsize=1)
+
+    def _target() -> None:
+        try:
+            results.put((True, fn()))
+        except BaseException as exc:
+            results.put((False, exc))
+
+    thread = Thread(target=_target, daemon=True)
+    thread.start()
+    thread.join(timeout_seconds)
+    if thread.is_alive():
+        return {"error": f"sub-agent 工具调用超时: {tool_name} > {timeout_seconds:.0f}s"}
+    try:
+        ok, value = results.get_nowait()
+    except Empty:
+        return {"error": f"sub-agent 工具调用异常: {tool_name} 无返回"}
+    if ok:
+        return value
+    raise value
 
 
 def run_sub_agent(
@@ -122,7 +165,12 @@ def run_sub_agent(
 
     started_at = time.monotonic()
     deadline = started_at + max(1, sub.timeout_seconds)
-    proxy = SubAgentToolProxy(registry, set(sub.tool_names))
+    proxy = SubAgentToolProxy(
+        registry,
+        set(sub.tool_names),
+        tool_timeout_seconds=sub.tool_timeout_seconds,
+        deadline=deadline,
+    )
     trimmed_context, context_truncated = _fit_context(context, sub.context_budget_tokens)
     user_content = f"{task}\n\n上下文:\n{trimmed_context}" if trimmed_context else task
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]

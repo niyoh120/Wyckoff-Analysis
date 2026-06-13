@@ -17,6 +17,19 @@ def _money_flow_df(prev_close: float, latest_close: float, latest_amount: float)
     return pd.DataFrame({"date": dates, "close": close, "amount": amount})
 
 
+def _benchmark_df(closes: list[float]) -> pd.DataFrame:
+    dates = pd.date_range("2025-01-01", periods=len(closes), freq="D").strftime("%Y-%m-%d")
+    close = pd.Series(closes, dtype=float)
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "close": close,
+            "pct_chg": close.pct_change().fillna(0.0) * 100.0,
+            "volume": [100_000_000.0] * len(closes),
+        }
+    )
+
+
 # ── tools/funnel_config ──
 
 
@@ -188,6 +201,43 @@ class TestMarketRegime:
         assert result["state"] == "主力撤退"
         assert result["trend"] == "retreat"
         assert result["down_amount_yi"] > result["up_amount_yi"]
+
+    def test_breadth_risk_on_without_bull_structure_is_bear_rebound(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+        closes = list(pd.Series(range(220), dtype=float).map(lambda x: 100.0 - x * 0.12))
+        closes[-3:] = [75.0, 75.1, 75.2]
+
+        cfg = FunnelConfig()
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_df(closes),
+            None,
+            cfg,
+            breadth={"ratio_pct": 70.0, "delta_pct": 5.0, "sample_size": 100},
+        )
+
+        assert result["regime"] == "BEAR_REBOUND"
+        assert result["bear_rebound_triggered"] is True
+        assert cfg.rps_fast_min >= 80.0
+
+    def test_breadth_risk_on_with_bull_structure_stays_risk_on(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+        closes = list(pd.Series(range(220), dtype=float).map(lambda x: 100.0 + x * 0.2))
+
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_df(closes),
+            None,
+            FunnelConfig(),
+            breadth={"ratio_pct": 70.0, "delta_pct": 5.0, "sample_size": 100},
+        )
+
+        assert result["regime"] == "RISK_ON"
+        assert result["bear_rebound_triggered"] is False
 
 
 # ── tools/data_fetcher ──

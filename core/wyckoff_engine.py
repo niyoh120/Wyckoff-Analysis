@@ -394,7 +394,7 @@ def resolve_ai_candidate_policy(
     """
     Central source of truth for AI allocation defaults.
 
-    CRASH / PANIC_REPAIR / BLACK_SWAN all share the defensive quota family
+    CRASH / PANIC_REPAIR / BEAR_REBOUND / BLACK_SWAN all share the defensive quota family
     instead of silently falling back to NEUTRAL.
     """
     import os
@@ -408,6 +408,8 @@ def resolve_ai_candidate_policy(
     # 现改为 Trend 优先：右侧已确认趋势的股票胜率远高于左侧潜伏。
     risk_on_trend = max(int(os.getenv("FUNNEL_AI_RISK_ON_TREND", "7")), 0)
     risk_on_accum = max(int(os.getenv("FUNNEL_AI_RISK_ON_ACCUM", "5")), 0)
+    bear_rebound_trend = max(int(os.getenv("FUNNEL_AI_BEAR_REBOUND_TREND", "1")), 0)
+    bear_rebound_accum = max(int(os.getenv("FUNNEL_AI_BEAR_REBOUND_ACCUM", "2")), 0)
     risk_off_trend = max(int(os.getenv("FUNNEL_AI_RISK_OFF_TREND", "2")), 0)
     risk_off_accum = max(int(os.getenv("FUNNEL_AI_RISK_OFF_ACCUM", "3")), 0)
     neutral_trend = max(int(os.getenv("FUNNEL_AI_NEUTRAL_TREND", "5")), 0)
@@ -420,6 +422,10 @@ def resolve_ai_candidate_policy(
         requested_trend = risk_on_trend
         requested_accum = risk_on_accum
         quota_family = "RISK_ON"
+    elif regime_norm in {"BEAR_REBOUND", "PANIC_REPAIR"}:
+        requested_trend = bear_rebound_trend
+        requested_accum = bear_rebound_accum
+        quota_family = "BEAR_REBOUND"
     elif regime_norm in {"RISK_OFF", "CRASH", "BLACK_SWAN"}:
         requested_trend = risk_off_trend
         requested_accum = risk_off_accum

@@ -386,6 +386,60 @@ def _build_intraday_tail_map(step2_details: dict, ai_codes: list[str], logs_path
         return {}
 
 
+def _external_capital_codes(step2_details: dict, ai_codes: list[str]) -> list[str]:
+    ordered: list[str] = []
+    for raw in list(step2_details.get("selected_for_ai", []) or []) + list(ai_codes or []):
+        code = str(raw or "").strip()
+        if code and code not in ordered:
+            ordered.append(code)
+    if ordered:
+        return ordered
+    return list(dict.fromkeys(code for _sig, code, _score in _tail_confirmation_trigger_items(step2_details, ai_codes)))
+
+
+def _build_external_capital_context_map(
+    step2_details: dict, ai_codes: list[str], logs_path: str | None
+) -> dict[str, dict]:
+    flag = os.getenv("FUNNEL_EXTERNAL_CAPITAL_CONTEXT", "1").strip().lower()
+    if flag in {"0", "false", "no", "off"}:
+        return {}
+    codes = _external_capital_codes(step2_details, ai_codes)
+    if not codes:
+        return {}
+    try:
+        max_symbols = max(int(os.getenv("FUNNEL_EXTERNAL_CAPITAL_MAX_SYMBOLS", "20")), 1)
+    except ValueError:
+        max_symbols = 20
+    include_tick = _env_flag("FUNNEL_EXTERNAL_CAPITAL_TICK_CONTEXT")
+    try:
+        tick_max = max(int(os.getenv("FUNNEL_EXTERNAL_CAPITAL_TICK_MAX_SYMBOLS", "3")), 0)
+    except ValueError:
+        tick_max = 3
+    try:
+        tick_min = float(os.getenv("FUNNEL_EXTERNAL_CAPITAL_TICK_MIN_AMOUNT_YUAN", "1000000"))
+    except ValueError:
+        tick_min = 1_000_000.0
+    try:
+        from integrations.external_capital_context import build_external_capital_context
+
+        requested = codes[:max_symbols]
+        out = build_external_capital_context(
+            requested,
+            _latest_trade_date_str(),
+            include_tick=include_tick,
+            tick_max_symbols=tick_max,
+            tick_min_amount_yuan=tick_min,
+        )
+        _log(
+            f"外部资金佐证: requested={len(requested)}, features={len(out)}, tick={'on' if include_tick else 'off'}",
+            logs_path,
+        )
+        return out
+    except Exception as e:
+        _log(f"外部资金佐证失败（已降级）: {e}", logs_path)
+        return {}
+
+
 def _observation_context(step2_details: dict) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict]:
     metrics = step2_details.get("metrics", {}) or {}
     footprint_map = step2_details.get("footprint_map")
@@ -429,6 +483,7 @@ def _build_signal_observation_rows(
     )
     selected_for_ai = step2_details.get("selected_for_ai", []) or []
     intraday_tail_map = step2_details.get("intraday_tail_map") or {}
+    source_context_map = step2_details.get("source_context_map") or {}
     return build_signal_observations(
         _latest_trade_date_str(),
         step2_details.get("review_triggers") or step2_details.get("triggers") or {},
@@ -445,6 +500,7 @@ def _build_signal_observation_rows(
         springboard_map=springboard_map,
         footprint_map=footprint_map,
         intraday_tail_map=intraday_tail_map,
+        source_context_map=source_context_map,
         selection_mode=os.getenv("FUNNEL_AI_SELECTION_MODE", "quota"),
         policy_version=f"dynamic:{os.getenv('FUNNEL_DYNAMIC_POLICY', 'off')}",
         rank_map={str(code): idx + 1 for idx, code in enumerate(selected_for_ai)},
@@ -459,6 +515,7 @@ def _build_shadow_observation_rows(step2_details: dict, regime: str) -> list[dic
         return []
     _, name_map, sector_map, stage_map, channel_map, close_map, _, footprint_map = _observation_context(step2_details)
     intraday_tail_map = step2_details.get("intraday_tail_map") or {}
+    source_context_map = step2_details.get("source_context_map") or {}
     return build_signal_observations(
         _latest_trade_date_str(),
         shadow_triggers,
@@ -472,6 +529,7 @@ def _build_shadow_observation_rows(step2_details: dict, regime: str) -> list[dic
         source_map=shadow_source_map,
         footprint_map=footprint_map,
         intraday_tail_map=intraday_tail_map,
+        source_context_map=source_context_map,
         selection_mode="shadow",
         policy_version=f"dynamic:{os.getenv('FUNNEL_DYNAMIC_POLICY', 'off')}",
     )
@@ -484,6 +542,7 @@ def _build_external_seed_signal_rows(step2_details: dict, regime: str) -> list[d
         _observation_context(step2_details)
     )
     intraday_tail_map = step2_details.get("intraday_tail_map") or {}
+    source_context_map = step2_details.get("source_context_map") or {}
     selected = {str(code).strip() for code in step2_details.get("selected_for_ai", []) if str(code).strip()}
     triggers = {
         signal_type: [(code, score) for code, score in hits if str(code).strip() not in selected]
@@ -508,6 +567,7 @@ def _build_external_seed_signal_rows(step2_details: dict, regime: str) -> list[d
         springboard_map=springboard_map,
         footprint_map=footprint_map,
         intraday_tail_map=intraday_tail_map,
+        source_context_map=source_context_map,
         selection_mode="external_seed_shadow",
         policy_version=f"external_seed:{metrics.get('external_seed_source') or 'external'}",
     )
@@ -548,6 +608,10 @@ def _persist_signal_observations(
         regime = str((benchmark_context or {}).get("regime") or "NEUTRAL")
         if "intraday_tail_map" not in step2_details:
             step2_details["intraday_tail_map"] = _build_intraday_tail_map(step2_details, ai_codes, logs_path)
+        if "source_context_map" not in step2_details:
+            step2_details["source_context_map"] = _build_external_capital_context_map(
+                step2_details, ai_codes, logs_path
+            )
         rows = _build_signal_observation_rows(step2_details, regime, ai_codes)
         rows.extend(_build_shadow_observation_rows(step2_details, regime))
         rows.extend(_build_external_seed_signal_rows(step2_details, regime))

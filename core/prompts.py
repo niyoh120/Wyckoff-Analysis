@@ -48,7 +48,7 @@ C. 支撑位经过 >= 2 次测试且未被有效击穿
 
 regime 对门槛的影响：
 - NEUTRAL / RISK_ON：2 条中可有 1 条用”板块共振 + 资金持续流入”替代，但必须注明替代理由
-- RISK_OFF：必须严格满足 2 条，无例外
+- BEAR_REBOUND / RISK_OFF：必须严格满足 2 条，无例外
 - CRASH：禁入起跳板，见下方 regime 约束
 
 # Spring 真假判别（Accum 轨必读）
@@ -59,6 +59,7 @@ regime 对门槛的影响：
 # regime 仓位约束（用户 message 中会注入当前 regime）
 - NEUTRAL: 起跳板正常推荐
 - RISK_ON: 追涨反转率高，起跳板最多 2 只，必须有缩量回踩确认
+- BEAR_REBOUND: 熊市反抽只做强确认，起跳板最多 1 只，禁止裸追高
 - RISK_OFF: 弱市假突破多，起跳板最多 1-2 只，左侧信号从严
 - CRASH: 禁止推荐起跳板，全部归入储备营地或逻辑破产
 

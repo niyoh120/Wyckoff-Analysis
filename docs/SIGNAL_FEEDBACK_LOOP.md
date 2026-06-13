@@ -154,6 +154,18 @@ registry 只负责控制动态策略是否使用信号；原始 observations 仍
 
 这部分只写入 `features_json` 做 outcome 复盘，不改变主漏斗候选、AI 候选池、loss guard 或 Step4。
 
+## External Capital Context
+
+`signal_observations.features_json.source_context` 记录正式主漏斗候选的外部资金佐证。当前通过 AkShare 按需读取龙虎榜、融资融券和大宗交易；逐笔大单使用腾讯分笔源作为可选项，默认不打开，避免日常任务被慢速网页源拖住：
+
+- `lhb`：东方财富龙虎榜详情，记录上榜原因、净买额、买入额和卖出额。
+- `margin`：上交所 / 深交所融资融券明细，记录融资余额、融资买入、融资偿还和融券变化。
+- `block_trade`：东方财富大宗交易每日明细，记录成交笔数、成交额、折溢率和主要买卖席位。
+- `tick_large_order`：腾讯分笔数据汇总的大额成交，仅在 `FUNNEL_EXTERNAL_CAPITAL_TICK_CONTEXT=1` 时启用。
+- `source_status`：每个外部源的成功、失败或降级状态，便于复盘时区分“没有资金痕迹”和“源失败”。
+
+这部分只作为外部资金痕迹解释和 outcome 复盘特征，不改变主漏斗候选、AI 候选池、loss guard 或 Step4。
+
 ## Shadow 复盘怎么看
 
 Shadow 模式不会影响真实推荐。它的价值是回答三个问题：

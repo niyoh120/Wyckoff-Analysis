@@ -149,6 +149,13 @@ def test_build_signal_observations_marks_selection_and_source():
                 "tail30_volume_share": 0.22,
             }
         },
+        source_context_map={
+            "000001": {
+                "version": "external_capital_context_v1",
+                "lhb": {"net_buy": 123.0},
+                "margin": {"margin_balance": 456.0},
+            }
+        },
     )
 
     first = rows[0]
@@ -166,6 +173,8 @@ def test_build_signal_observations_marks_selection_and_source():
     assert first["features_json"]["springboard"]["springboard_grade"] == "A+B"
     assert first["features_json"]["intraday_tail_confirmation"]["tail_decision"] == "BUY"
     assert first["features_json"]["intraday_tail_confirmation"]["smart_money_score"] == 3.4
+    assert first["features_json"]["source_context"]["lhb"]["net_buy"] == 123.0
+    assert first["features_json"]["source_context"]["margin"]["margin_balance"] == 456.0
     assert second["track"] == "Accum"
     assert second["source"] == "l2_bypass"
     assert second["springboard_grade"] == "C"
@@ -223,6 +232,102 @@ def test_daily_job_intraday_tail_map_skips_without_tickflow_key(monkeypatch):
     )
 
     assert got == {}
+
+
+def test_external_capital_context_normalizes_sources():
+    from integrations.external_capital_context import build_external_capital_context
+
+    class FakeAk:
+        def stock_lhb_detail_em(self, *, start_date: str, end_date: str):
+            assert start_date == "20260612"
+            assert end_date == "20260612"
+            return pd.DataFrame([{"代码": "000001", "龙虎榜净买额": 1200, "解读": "机构净买"}])
+
+        def stock_margin_detail_sse(self, *, date: str):
+            assert date == "20260612"
+            return pd.DataFrame([{"标的证券代码": "600000", "融资余额": 9000, "融资买入额": 300}])
+
+        def stock_margin_detail_szse(self, *, date: str):
+            assert date == "20260612"
+            return pd.DataFrame([{"标的证券代码": "000001", "融资余额": 8000, "融资买入额": 200}])
+
+        def stock_dzjy_mrmx(self, *, symbol: str, start_date: str, end_date: str):
+            assert symbol == "A股"
+            assert start_date == "20260612"
+            assert end_date == "20260612"
+            return pd.DataFrame(
+                [
+                    {"证券代码": "000001", "成交额": 500.0, "折溢率": -2.5, "买方营业部": "买方A"},
+                    {"证券代码": "000001", "成交额": 300.0, "折溢率": -1.5, "买方营业部": "买方B"},
+                ]
+            )
+
+        def stock_zh_a_tick_tx_js(self, *, symbol: str):
+            assert symbol == "sz000001"
+            return pd.DataFrame(
+                [
+                    {"成交时间": "09:30:00", "成交价格": 10.1, "成交金额": 2_000_000, "性质": "买盘"},
+                    {"成交时间": "09:31:00", "成交价格": 10.0, "成交金额": 1_500_000, "性质": "卖盘"},
+                    {"成交时间": "09:32:00", "成交价格": 10.0, "成交金额": 200_000, "性质": "买盘"},
+                ]
+            )
+
+    got = build_external_capital_context(
+        ["000001", "600000"],
+        "2026-06-12",
+        include_tick=True,
+        tick_max_symbols=1,
+        tick_min_amount_yuan=1_000_000,
+        ak_module=FakeAk(),
+    )
+
+    assert got["000001"]["lhb"]["net_buy"] == 1200
+    assert got["000001"]["margin"]["margin_balance"] == 8000
+    assert got["000001"]["block_trade"]["trade_count"] == 2
+    assert got["000001"]["tick_large_order"]["large_net_amount_yuan"] == 500_000
+    assert got["600000"]["margin"]["margin_buy"] == 300
+    assert "tick_large_order" not in got["600000"]
+
+
+def test_daily_job_builds_external_capital_context_map(monkeypatch):
+    from integrations import external_capital_context
+    from scripts import daily_job
+
+    captured = {}
+
+    def fake_build(codes, trade_date, *, include_tick, tick_max_symbols, tick_min_amount_yuan):
+        captured.update(
+            {
+                "codes": codes,
+                "trade_date": trade_date,
+                "include_tick": include_tick,
+                "tick_max_symbols": tick_max_symbols,
+                "tick_min_amount_yuan": tick_min_amount_yuan,
+            }
+        )
+        return {"000001": {"version": "external_capital_context_v1", "margin": {"margin_balance": 1}}}
+
+    monkeypatch.setenv("FUNNEL_EXTERNAL_CAPITAL_CONTEXT", "1")
+    monkeypatch.setenv("FUNNEL_EXTERNAL_CAPITAL_MAX_SYMBOLS", "1")
+    monkeypatch.setenv("FUNNEL_EXTERNAL_CAPITAL_TICK_CONTEXT", "0")
+    monkeypatch.setattr(daily_job, "_latest_trade_date_str", lambda: "2026-06-12")
+    monkeypatch.setattr(external_capital_context, "build_external_capital_context", fake_build)
+
+    got = daily_job._build_external_capital_context_map(
+        {
+            "selected_for_ai": ["000001", "000002"],
+            "review_triggers": {"sos": [("000001", 6.0), ("000002", 5.0)]},
+        },
+        [],
+        None,
+    )
+
+    assert captured["codes"] == ["000001"]
+    assert captured["trade_date"] == "2026-06-12"
+    assert captured["include_tick"] is False
+    assert captured["tick_max_symbols"] == 3
+    assert captured["tick_min_amount_yuan"] == 1_000_000
+    assert got["000001"]["margin"]["margin_balance"] == 1
 
 
 def test_price_action_footprint_marks_breakout_and_supply_pressure():

@@ -15,6 +15,7 @@ from core.wyckoff_engine import (
     allocate_ai_candidates,
     layer1_filter,
     layer3_sector_resonance,
+    resolve_ai_candidate_policy,
 )
 
 
@@ -179,6 +180,17 @@ class TestDetectCompression:
 
 
 class TestAllocateAiCandidates:
+    def test_bear_rebound_uses_defensive_quota_family(self, monkeypatch):
+        monkeypatch.setenv("FUNNEL_AI_TOTAL_CAP", "8")
+        monkeypatch.setenv("FUNNEL_AI_BEAR_REBOUND_TREND", "1")
+        monkeypatch.setenv("FUNNEL_AI_BEAR_REBOUND_ACCUM", "2")
+
+        policy = resolve_ai_candidate_policy("BEAR_REBOUND")
+
+        assert policy["quota_family"] == "BEAR_REBOUND"
+        assert policy["trend_quota"] == 1
+        assert policy["accum_quota"] == 2
+
     def test_evr_and_compression_only_hits_enter_quota_tracks(self):
         result = FunnelResult(
             layer1_symbols=["000001", "000002"],

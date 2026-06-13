@@ -124,7 +124,7 @@ FUNNEL_EXPORT_FULL_FETCH = os.getenv("FUNNEL_EXPORT_FULL_FETCH", "0").strip().lo
     "on",
 }
 FUNNEL_EXPORT_DIR = os.getenv("FUNNEL_EXPORT_DIR", "data/funnel_snapshots").strip() or "data/funnel_snapshots"
-FUNNEL_AI_SELECTION_MODE = os.getenv("FUNNEL_AI_SELECTION_MODE", "legacy_full_hits").strip().lower()
+FUNNEL_AI_SELECTION_MODE = os.getenv("FUNNEL_AI_SELECTION_MODE", "tradeable_l4").strip().lower()
 FUNNEL_DEFENSIVE_FORCE_QUOTA = os.getenv("FUNNEL_DEFENSIVE_FORCE_QUOTA", "1").strip().lower() in {
     "1",
     "true",
@@ -779,16 +779,16 @@ def _loss_guard_reason(
     regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
     if "lps" in keys and not (keys & {"sos", "evr", "spring"}) and trigger_score < FUNNEL_LOSS_GUARD_LOW_SCORE:
         return "低分LPS"
-    if regime_norm in {"RISK_OFF", "RISK_ON", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}:
+    if regime_norm in {"RISK_OFF", "RISK_ON", "BEAR_REBOUND", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}:
         if "lps" in keys and not (keys & {"sos", "evr", "spring"}):
             return f"{regime_norm}禁用LPS"
         if "trend_pullback" in keys and trigger_score < FUNNEL_LOSS_GUARD_LOW_SCORE:
             return f"{regime_norm}低分回踩"
-    if regime_norm == "RISK_ON" and (keys & {"sos", "evr", "trend_pullback"}):
+    if regime_norm in {"RISK_ON", "BEAR_REBOUND"} and (keys & {"sos", "evr", "trend_pullback"}):
         if _is_pure_momentum_channel(channel):
-            return "RISK_ON纯趋势追涨"
+            return f"{regime_norm}纯趋势追涨"
         if _recent_overheat(df_map.get(code)):
-            return "RISK_ON短期过热"
+            return f"{regime_norm}短期过热"
     return ""
 
 
@@ -826,7 +826,7 @@ def _should_force_quota_selection(regime: str, full_mode_enabled: bool) -> bool:
     if not full_mode_enabled or not FUNNEL_DEFENSIVE_FORCE_QUOTA:
         return False
     regime_norm = str(regime or "").strip().upper()
-    return regime_norm in {"RISK_OFF", "CRASH", "BLACK_SWAN"}
+    return regime_norm in {"RISK_OFF", "BEAR_REBOUND", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}
 
 
 def _promotion_limits(selected_for_ai: list[str], cap: int, total_cap: int | None) -> tuple[int | None, int | None]:

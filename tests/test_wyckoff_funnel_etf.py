@@ -265,6 +265,7 @@ def test_defensive_regime_forces_quota_selection(monkeypatch):
     monkeypatch.setattr(funnel, "FUNNEL_DEFENSIVE_FORCE_QUOTA", True)
 
     assert funnel._should_force_quota_selection("CRASH", True) is True
+    assert funnel._should_force_quota_selection("BEAR_REBOUND", True) is True
     assert funnel._should_force_quota_selection("RISK_ON", True) is False
 
 

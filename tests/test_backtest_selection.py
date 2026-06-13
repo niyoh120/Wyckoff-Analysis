@@ -32,23 +32,28 @@ def test_all_formal_l4_selection_excludes_stage_only_candidates() -> None:
     assert track_map == {"000001": "Trend"}
 
 
-def test_tradeable_l4_selection_drops_naked_right_side_noise() -> None:
+def test_tradeable_l4_selection_uses_quota_and_loss_guard() -> None:
     result = FunnelResult(
         layer1_symbols=[],
         layer2_symbols=[],
-        layer3_symbols=[],
+        layer3_symbols=["000001", "000003", "000004", "000005", "000006"],
         top_sectors=[],
         triggers={
-            "sos": [("000001", 5.0), ("000003", 4.0), ("000005", 1.0)],
-            "evr": [("000002", 3.0), ("000003", 3.0)],
-            "lps": [("000004", 2.0)],
+            "sos": [("000001", 5.0), ("000003", 4.0)],
+            "lps": [("000004", 2.0), ("000005", 1.0)],
             "spring": [("000005", 1.5)],
             "compression": [("000006", 1.0)],
         },
         stage_map={},
         markup_symbols=[],
         exit_signals={},
-        channel_map={},
+        channel_map={
+            "000001": "主升通道",
+            "000003": "点火破局",
+            "000004": "吸筹通道",
+            "000005": "吸筹通道",
+            "000006": "吸筹通道",
+        },
     )
 
     codes, score_map, _ = _select_ai_input_codes(
@@ -59,8 +64,12 @@ def test_tradeable_l4_selection_drops_naked_right_side_noise() -> None:
         selection_mode="tradeable_l4",
     )
 
-    assert codes == ["000004", "000005", "000006"]
-    assert score_map == {"000004": 2.0, "000005": 1.5, "000006": 1.0}
+    assert "000001" not in codes
+    assert "000003" in codes
+    assert "000004" not in codes
+    assert "000005" in codes
+    assert "000006" in codes
+    assert score_map["000003"] > 0
 
 
 def test_regime_position_filter_blocks_defensive_regimes() -> None:
@@ -70,6 +79,7 @@ def test_regime_position_filter_blocks_defensive_regimes() -> None:
     assert _apply_regime_position_filter(codes, "RISK_OFF") == []
     assert _apply_regime_position_filter(codes, "NEUTRAL") == ["A", "B"]
     assert _apply_regime_position_filter(codes, "RISK_ON") == ["A", "B"]
+    assert _apply_regime_position_filter(codes, "BEAR_REBOUND") == ["A"]
 
 
 def test_stratified_stats_include_exit_and_excursion_diagnostics() -> None:

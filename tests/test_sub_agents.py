@@ -51,6 +51,23 @@ class TestSubAgentToolProxy:
         assert proxy.concurrency_safe("analyze_stock")
         assert not proxy.concurrency_safe("portfolio")
 
+    def test_execute_tool_timeout_returns_error(self):
+        def slow_tool(_name, _args):
+            time.sleep(0.2)
+            return {"ok": True}
+
+        registry = StubToolRegistry(tool_results={"analyze_stock": slow_tool})
+        proxy = SubAgentToolProxy(
+            registry,
+            {"analyze_stock"},
+            tool_timeout_seconds=1,
+            deadline=time.monotonic() + 0.01,
+        )
+
+        result = proxy.execute("analyze_stock", {"code": "000001"})
+        assert "error" in result
+        assert "工具调用超时" in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # SubAgent 定义一致性
@@ -62,6 +79,10 @@ def test_agent_tool_names_exist_in_schemas():
     for agent in (RESEARCH_AGENT, ANALYSIS_AGENT, TRADING_AGENT):
         missing = set(agent.tool_names) - schema_names
         assert not missing, f"{agent.name} references unknown tools: {missing}"
+
+
+def test_trading_agent_does_not_execute_portfolio_updates():
+    assert "update_portfolio" not in TRADING_AGENT.tool_names
 
 
 # ---------------------------------------------------------------------------

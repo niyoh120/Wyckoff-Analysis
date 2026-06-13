@@ -116,6 +116,7 @@ STEP4_MAX_NEW_BUYS_RISK_OFF = max(int(os.getenv("STEP4_MAX_NEW_BUYS_RISK_OFF", "
 BENCHMARK_REGIME_SEVERITY = {
     "RISK_ON": 0,
     "NEUTRAL": 1,
+    "BEAR_REBOUND": 2,
     "PANIC_REPAIR": 2,
     "RISK_OFF": 3,
     "CRASH": 4,
@@ -462,6 +463,7 @@ def _resolve_chase_limits(dec: DecisionItem, market_regime: str) -> tuple[float,
         "RISK_ON": 1.10,
         "NEUTRAL": 1.00,
         "CAUTION": 0.92,
+        "BEAR_REBOUND": 0.92,
         "PANIC_REPAIR": 0.95,
         "RISK_OFF": 0.85,
         "CRASH": 0.70,
@@ -1449,7 +1451,7 @@ def _max_new_buy_names(market_regime: str) -> int:
     regime = _clean_text(market_regime).upper() or "NEUTRAL"
     if regime == "RISK_ON":
         return STEP4_MAX_NEW_BUYS_RISK_ON
-    if regime in {"CAUTION", "PANIC_REPAIR"}:
+    if regime in {"CAUTION", "BEAR_REBOUND", "PANIC_REPAIR"}:
         return STEP4_MAX_NEW_BUYS_CAUTION
     if regime == "RISK_OFF":
         return STEP4_MAX_NEW_BUYS_RISK_OFF
