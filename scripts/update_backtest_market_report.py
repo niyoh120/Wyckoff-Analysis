@@ -32,6 +32,13 @@ PERIOD_LABELS = {
 }
 
 PERIOD_ORDER = {"recent_6m": 0, "bull_2020": 1, "bear_2022": 2, "custom": 3}
+STYLE_ORDER = {
+    "slot_equal_4": 0,
+    "probe_add": 1,
+    "confirmation_only": 2,
+    "trend_pyramid": 3,
+    "concentrated_swap": 4,
+}
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,8 @@ class GridCell:
     summary_path: Path
     trades_path: Path | None
     period_key: str
+    portfolio_style: str
+    portfolio_style_label: str
     hold: int
     stop_loss: int
     take_profit: int
@@ -87,6 +96,10 @@ def _to_float(raw: str | None) -> float | None:
 def _to_int(raw: str | None) -> int | None:
     val = _to_float(raw)
     return int(val) if val is not None else None
+
+
+def _coalesce(value: object | None, fallback: object | None) -> object | None:
+    return value if value is not None else fallback
 
 
 def _extract_line_value(content: str, label_pattern: str) -> str | None:
@@ -153,9 +166,98 @@ def _parse_period_key(dirname: str) -> str:
     return m.group(1) if m else ""
 
 
+def _split_md_row(line: str) -> list[str]:
+    return [part.strip() for part in line.strip().strip("|").split("|")]
+
+
+def _parse_cash_style_rows(content: str) -> list[dict[str, str]]:
+    lines = content.splitlines()
+    rows: list[dict[str, str]] = []
+    for idx, line in enumerate(lines):
+        cells = _split_md_row(line) if line.strip().startswith("|") else []
+        if cells[:2] != ["风格ID", "风格"]:
+            continue
+        headers = cells
+        for raw in lines[idx + 2 :]:
+            if not raw.strip().startswith("|"):
+                break
+            values = _split_md_row(raw)
+            if len(values) != len(headers):
+                break
+            rows.append(dict(zip(headers, values, strict=True)))
+        break
+    return rows
+
+
+def _fallback_cash_style_rows(content: str) -> list[dict[str, str]]:
+    raw_style = _parse_simple_field(content, "主风格")
+    return [
+        {
+            "风格ID": raw_style.split("(")[-1].rstrip(")") or "slot_equal_4",
+            "风格": raw_style.split("(", 1)[0].strip() or "等额四仓",
+            "最终现金": _extract_line_value(content, "最终现金") or "",
+            "总收益": _extract_line_value(content, "总收益") or "",
+            "成交": _extract_line_value(content, "成交笔数") or "",
+            "胜率": _extract_line_value(content, "胜率") or "",
+            "佣金": _extract_line_value(content, "佣金合计") or "",
+        }
+    ]
+
+
 def _find_trades_path(summary_path: Path) -> Path | None:
     matches = sorted(summary_path.parent.glob("trades_*.csv"))
     return matches[0] if matches else None
+
+
+def _summary_metadata(summary_path: Path, content: str) -> dict[str, object]:
+    start, end = _parse_range(content)
+    board, sample_size = _parse_board_sample(content)
+    return {
+        "artifact_dir": summary_path.parent,
+        "summary_path": summary_path,
+        "trades_path": _find_trades_path(summary_path),
+        "period_key": _parse_period_key(summary_path.parent.name),
+        "start": start,
+        "end": end,
+        "top_n": _parse_simple_field(content, "每日候选上限").replace("Top", "").strip(),
+        "board": board,
+        "sample_size": sample_size,
+        "metrics_engine": _parse_simple_field(content, "绩效引擎"),
+    }
+
+
+def _grid_cell_from_style(
+    meta: dict[str, object],
+    content: str,
+    params: tuple[int, int, int, int],
+    style_row: dict[str, str],
+) -> GridCell:
+    hold, stop_loss, take_profit, trailing_stop = params
+    return GridCell(
+        **meta,
+        portfolio_style=style_row.get("风格ID", "") or "slot_equal_4",
+        portfolio_style_label=style_row.get("风格", "") or style_row.get("风格ID", ""),
+        hold=hold,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        trailing_stop=trailing_stop,
+        trades=_extract_int(content, "成交样本"),
+        win_rate=_coalesce(_to_float(style_row.get("胜率")), _extract_float(content, "胜率")),
+        avg_ret=_extract_float(content, "平均收益"),
+        median_ret=_extract_float(content, "中位收益"),
+        max_drawdown=_extract_float(content, "最大回撤"),
+        sharpe=_extract_float(content, r"夏普比(?:\s*\(Sharpe Ratio\))?"),
+        calmar=_extract_float(content, r"卡玛比(?:\s*\(Calmar Ratio\))?"),
+        total_return=_extract_float(content, "组合总收益"),
+        cash_initial=_extract_float(content, "初始现金"),
+        cash_final=_coalesce(_to_float(style_row.get("最终现金")), _extract_float(content, "最终现金")),
+        cash_total_return=_coalesce(_to_float(style_row.get("总收益")), _extract_float(content, "总收益")),
+        cash_trades=_coalesce(_to_int(style_row.get("成交")), _extract_int(content, "成交笔数")),
+        cash_commission_total=_coalesce(_to_float(style_row.get("佣金")), _extract_float(content, "佣金合计")),
+        wbt_sharpe=_extract_float(content, "wbt 夏普比"),
+        wbt_max_drawdown=_extract_float(content, "wbt 最大回撤"),
+        wbt_daily_win_rate=_extract_float(content, "wbt 日胜率"),
+    )
 
 
 def load_grid_cells(artifacts_dir: Path) -> list[GridCell]:
@@ -165,45 +267,10 @@ def load_grid_cells(artifacts_dir: Path) -> list[GridCell]:
         params = _parse_params(summary_path.parent.name)
         if not params:
             continue
-        hold, stop_loss, take_profit, trailing_stop = params
         content = summary_path.read_text(encoding="utf-8")
-        start, end = _parse_range(content)
-        board, sample_size = _parse_board_sample(content)
-        metrics_engine = _parse_simple_field(content, "绩效引擎")
-        cells.append(
-            GridCell(
-                artifact_dir=summary_path.parent,
-                summary_path=summary_path,
-                trades_path=_find_trades_path(summary_path),
-                period_key=_parse_period_key(summary_path.parent.name),
-                hold=hold,
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-                trailing_stop=trailing_stop,
-                start=start,
-                end=end,
-                top_n=_parse_simple_field(content, "每日候选上限").replace("Top", "").strip(),
-                board=board,
-                sample_size=sample_size,
-                trades=_extract_int(content, "成交样本"),
-                win_rate=_extract_float(content, "胜率"),
-                avg_ret=_extract_float(content, "平均收益"),
-                median_ret=_extract_float(content, "中位收益"),
-                max_drawdown=_extract_float(content, "最大回撤"),
-                sharpe=_extract_float(content, r"夏普比(?:\s*\(Sharpe Ratio\))?"),
-                calmar=_extract_float(content, r"卡玛比(?:\s*\(Calmar Ratio\))?"),
-                total_return=_extract_float(content, "组合总收益"),
-                cash_initial=_extract_float(content, "初始现金"),
-                cash_final=_extract_float(content, "最终现金"),
-                cash_total_return=_extract_float(content, "总收益"),
-                cash_trades=_extract_int(content, "成交笔数"),
-                cash_commission_total=_extract_float(content, "佣金合计"),
-                wbt_sharpe=_extract_float(content, "wbt 夏普比"),
-                wbt_max_drawdown=_extract_float(content, "wbt 最大回撤"),
-                wbt_daily_win_rate=_extract_float(content, "wbt 日胜率"),
-                metrics_engine=metrics_engine,
-            )
-        )
+        meta = _summary_metadata(summary_path, content)
+        for style_row in _parse_cash_style_rows(content) or _fallback_cash_style_rows(content):
+            cells.append(_grid_cell_from_style(meta, content, params, style_row))
     return cells
 
 
@@ -249,7 +316,8 @@ def _cash_pnl(cell: GridCell) -> float | None:
 def _fmt_param(cell: GridCell) -> str:
     tp = f"TP{cell.take_profit}%" if cell.take_profit else "无TP"
     tr = f"Trail-{cell.trailing_stop}%" if cell.trailing_stop else "无Trail"
-    return f"{cell.hold}天 / SL-{cell.stop_loss}% / {tp} / {tr}"
+    style = cell.portfolio_style_label or cell.portfolio_style
+    return f"{style} / {cell.hold}天 / SL-{cell.stop_loss}% / {tp} / {tr}"
 
 
 def _period_label(cell: GridCell) -> str:
@@ -260,6 +328,10 @@ def _period_label(cell: GridCell) -> str:
 
 def _period_sort_key(label: str) -> tuple[int, str]:
     return PERIOD_ORDER.get(label, 99), label
+
+
+def _style_sort_key(label: str) -> tuple[int, str]:
+    return STYLE_ORDER.get(label, 99), label
 
 
 def _format_backtest_ranges(cells: list[GridCell]) -> str:
@@ -317,6 +389,42 @@ def _build_period_best_table(cells: list[GridCell]) -> list[str]:
                 [
                     PERIOD_LABELS.get(key, key),
                     f"{min(starts, default='-')} ~ {max(ends, default='-')}",
+                    _fmt_param(best),
+                    _fmt_signed(best.cash_total_return, 2, "%"),
+                    _fmt_num(best.cash_final, 2),
+                    _fmt_num(best.sharpe, 3),
+                    _fmt_num(best.max_drawdown, 1, "%"),
+                    str(len(group)),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
+def _build_style_best_table(cells: list[GridCell]) -> list[str]:
+    groups: dict[str, list[GridCell]] = defaultdict(list)
+    for cell in cells:
+        groups[cell.portfolio_style or "slot_equal_4"].append(cell)
+    if len(groups) < 2:
+        return []
+
+    lines = [
+        "",
+        "## 各交易风格最佳",
+        "",
+        "| 风格 | 最佳周期 | 最佳参数 | 现金收益 | 最终现金 | 夏普 | 回撤 | 单元 |",
+        "|---|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for key in sorted(groups, key=_style_sort_key):
+        group = groups[key]
+        best = max(group, key=_cash_sort_key)
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    best.portfolio_style_label or key,
+                    PERIOD_LABELS.get(best.period_key, best.period_key or "-"),
                     _fmt_param(best),
                     _fmt_signed(best.cash_total_return, 2, "%"),
                     _fmt_num(best.cash_final, 2),
@@ -451,8 +559,9 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
     if not cells:
         raise ValueError("未找到可解析的 backtest summary artifacts")
 
-    ranked = sorted(cells, key=_cell_sort_key, reverse=True)
+    ranked = sorted(cells, key=_cash_sort_key, reverse=True)
     best = ranked[0]
+    best_sharpe_cell = max(cells, key=_cell_sort_key)
     best_rows = _read_trades(best.trades_path)
     diagnostics = _build_trade_diagnostics(best_rows)
     regime_stats = _group_stats(best_rows, lambda r: r.get("regime", ""))
@@ -463,6 +572,7 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
     pos_sharpe = sum(1 for c in cells if (c.sharpe or 0) > 0)
     neg_sharpe = len(cells) - pos_sharpe
     period_best_table = _build_period_best_table(cells)
+    style_best_table = _build_style_best_table(cells)
 
     lines: list[str] = [
         "# 当前市场回测报告",
@@ -471,19 +581,19 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
         "",
         "## 执行上下文",
         "",
-        "- 回测脚本: `python -m scripts.backtest_runner`（由 `.github/workflows/backtest_grid.yml` 每周期以 18 单元参数网格并发执行）",
+        "- 回测脚本: `python -m scripts.backtest_runner`（由 `.github/workflows/backtest_grid.yml` 每周期以精简参数网格并发执行）",
         f"- 回测区间: {_format_backtest_ranges(cells)}",
         f"- 市场周期: {current_cycle}",
         f"- 周期说明: {cycle_detail}",
         f"- 可完整验证信号期: {diagnostics.get('first_signal_date') or '-'} ~ {diagnostics.get('last_signal_date') or '-'}",
         f"- 股票池: {best.board or '-'} (sample={best.sample_size or '-'})",
         f"- 每日候选上限: {best.top_n or '-'}",
-        f"- 参数单元: {len(cells)} 组；正夏普 {pos_sharpe} 组，非正夏普 {neg_sharpe} 组",
+        f"- 参数/风格单元: {len(cells)} 组；正夏普 {pos_sharpe} 组，非正夏普 {neg_sharpe} 组",
         f"- GitHub Actions: {run_url or '-'}",
         "",
         "## 本次结论",
         "",
-        f"- 最优参数: **{_fmt_param(best)}**",
+        f"- 最优参数（按现金收益）: **{_fmt_param(best)}**",
         f"- 最优夏普: **{_fmt_num(best.sharpe, 3)}**；胜率 **{_fmt_num(best.win_rate, 1, '%')}**；单笔均收 **{_fmt_signed(best.avg_ret, 2, '%')}**；最大回撤 **{_fmt_num(best.max_drawdown, 1, '%')}**；样本 **{best.trades or 0}** 笔",
         f"- 现金账户: 初始 **{_fmt_num(best.cash_initial, 2)}**；最终 **{_fmt_num(best.cash_final, 2)}**；盈亏 **{_fmt_signed(_cash_pnl(best), 2)}**；收益 **{_fmt_signed(best.cash_total_return, 2, '%')}**；现金成交 **{best.cash_trades or 0}** 笔",
         f"- wbt 校验: 夏普 {_fmt_num(best.wbt_sharpe, 3)}，最大回撤 {_fmt_num(best.wbt_max_drawdown, 2, '%')}，日胜率 {_fmt_num(best.wbt_daily_win_rate, 2, '%')}；绩效引擎 `{best.metrics_engine or '-'}`",
@@ -503,11 +613,12 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
         )
 
     lines.extend(period_best_table)
+    lines.extend(style_best_table)
 
     lines.extend(
         [
             "",
-            "## 参数梯队",
+            "## 参数梯队（按现金收益）",
             "",
             "| 排名 | 参数组合 | 夏普 | 胜率 | 均收 | 回撤 | 最终现金 | 现金收益 | 样本 |",
             "|---:|---|---:|---:|---:|---:|---:|---:|---:|",
@@ -533,7 +644,7 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
             + " |"
         )
 
-    lines.extend(["", "## 最优夏普矩阵", "", *_build_matrix(cells, best)])
+    lines.extend(["", "## 最优夏普矩阵", "", *_build_matrix(cells, best_sharpe_cell)])
 
     lines.extend(
         [

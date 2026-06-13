@@ -29,7 +29,12 @@ import pandas as pd
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.cash_portfolio import CashPortfolioConfig, simulate_cash_portfolio
+from core.cash_portfolio import (
+    STYLE_LABELS,
+    CashPortfolioConfig,
+    expand_portfolio_styles,
+    simulate_cash_portfolio,
+)
 from core.funnel_pipeline import (
     analyze_benchmark_and_tune_cfg as _tune_cfg_by_regime,
 )
@@ -79,6 +84,7 @@ DEFAULT_CASH_PORTFOLIO_COMMISSION_RATE = 0.0002
 DEFAULT_CASH_PORTFOLIO_SMALL_TRADE_THRESHOLD = 10_000.0
 DEFAULT_CASH_PORTFOLIO_SMALL_TRADE_FEE = 5.0
 DEFAULT_CASH_PORTFOLIO_LOT_SIZE = 100
+DEFAULT_CASH_PORTFOLIO_STYLES = os.getenv("BACKTEST_PORTFOLIO_STYLES", "slot_equal_4").strip() or "slot_equal_4"
 DEFAULT_ENTRY_PRICE_TIME = "14:55"
 DEFAULT_ENTRY_PRICE_FALLBACK = os.getenv("BACKTEST_ENTRY_PRICE_FALLBACK", "close").strip().lower() or "close"
 CN_ZONE = ZoneInfo("Asia/Shanghai")
@@ -882,6 +888,21 @@ def _ensure_ohlc_lookup_cache(
             ohlc_cache[record.code] = _build_daily_ohlc_lookup(df)
 
 
+def _cash_mark_price_fn(
+    all_df_map: dict[str, pd.DataFrame],
+    ohlc_cache: dict[str, dict[date, tuple[float, float, float, float]]],
+):
+    def _mark(code: str, day: date) -> float | None:
+        if code not in ohlc_cache:
+            df = all_df_map.get(code)
+            if df is not None and not df.empty:
+                ohlc_cache[code] = _build_daily_ohlc_lookup(df)
+        candle = ohlc_cache.get(code, {}).get(day)
+        return float(candle[3]) if candle else None
+
+    return _mark
+
+
 def _calc_atr_from_ohlc(
     sorted_dates: list[date],
     day_ohlc: dict[date, tuple[float, float, float, float]],
@@ -969,6 +990,7 @@ def run_backtest(
     small_trade_threshold: float = DEFAULT_CASH_PORTFOLIO_SMALL_TRADE_THRESHOLD,
     small_trade_fee: float = DEFAULT_CASH_PORTFOLIO_SMALL_TRADE_FEE,
     lot_size: int = DEFAULT_CASH_PORTFOLIO_LOT_SIZE,
+    portfolio_styles: str | list[str] = DEFAULT_CASH_PORTFOLIO_STYLES,
 ) -> tuple[pd.DataFrame, dict]:
     metrics_engine = str(metrics_engine or "legacy").strip().lower()
     entry_price_mode = str(entry_price_mode or "open").strip().lower()
@@ -1011,6 +1033,7 @@ def run_backtest(
         raise ValueError("initial_cash 必须 > 0")
     if max_positions < 1:
         raise ValueError("max_positions 必须 >= 1")
+    portfolio_style_list = expand_portfolio_styles(portfolio_styles)
     if commission_rate < 0 or small_trade_threshold < 0 or small_trade_fee < 0:
         raise ValueError("commission_rate / small_trade_threshold / small_trade_fee 必须 >= 0")
     if lot_size < 1:
@@ -1544,6 +1567,7 @@ def run_backtest(
         "entry_price_missing_skipped": entry_price_missing_skipped,
         "entry_price_source_counts": _entry_price_source_counts(trades_df),
         "cash_portfolio_enabled": bool(cash_portfolio),
+        "cash_portfolio_styles_requested": ",".join(portfolio_style_list),
         "cash_portfolio_commission_rate": float(commission_rate),
         "cash_portfolio_small_trade_threshold": float(small_trade_threshold),
         "cash_portfolio_small_trade_fee": float(small_trade_fee),
@@ -1649,20 +1673,31 @@ def run_backtest(
             }
         )
     if cash_portfolio:
-        cash_trades_df, cash_nav_df, cash_summary = simulate_cash_portfolio(
-            trades_df,
-            CashPortfolioConfig(
-                initial_cash=initial_cash,
-                max_positions=max_positions,
-                commission_rate=commission_rate,
-                small_trade_threshold=small_trade_threshold,
-                small_trade_fee=small_trade_fee,
-                lot_size=lot_size,
-            ),
-        )
-        summary.update(cash_summary)
-        summary["_cash_portfolio_trades_df"] = cash_trades_df
-        summary["_cash_portfolio_nav_df"] = cash_nav_df
+        style_summaries: list[dict] = []
+        trades_by_style: dict[str, pd.DataFrame] = {}
+        nav_by_style: dict[str, pd.DataFrame] = {}
+        for style in portfolio_style_list:
+            cash_trades_df, cash_nav_df, cash_summary = simulate_cash_portfolio(
+                trades_df,
+                CashPortfolioConfig(
+                    initial_cash=initial_cash,
+                    max_positions=max_positions,
+                    commission_rate=commission_rate,
+                    small_trade_threshold=small_trade_threshold,
+                    small_trade_fee=small_trade_fee,
+                    lot_size=lot_size,
+                    portfolio_style=style,
+                ),
+                mark_price_fn=_cash_mark_price_fn(all_df_map, ohlc_lookup_cache),
+            )
+            style_summaries.append(cash_summary)
+            trades_by_style[style] = cash_trades_df
+            nav_by_style[style] = cash_nav_df
+        if style_summaries:
+            summary.update(style_summaries[0])
+        summary["cash_portfolio_style_summaries"] = style_summaries
+        summary["_cash_portfolio_trades_by_style"] = trades_by_style
+        summary["_cash_portfolio_nav_by_style"] = nav_by_style
     return trades_df, summary
 
 
@@ -2119,6 +2154,66 @@ def _entry_price_note(summary: dict) -> str:
     return f"- 入场口径：信号日收盘后出信号，T+1 14:55 分钟线价格买入（跳过一字涨停日，fallback={fallback}{source_text}）。"
 
 
+def _cash_style_summaries(summary: dict) -> list[dict]:
+    rows = summary.get("cash_portfolio_style_summaries")
+    if isinstance(rows, list) and rows:
+        return [r for r in rows if isinstance(r, dict)]
+    if summary.get("cash_portfolio_enabled"):
+        return [summary]
+    return []
+
+
+def _style_display(row: dict) -> str:
+    style = str(row.get("cash_portfolio_style") or "slot_equal_4")
+    return str(row.get("cash_portfolio_style_label") or STYLE_LABELS.get(style, style))
+
+
+def _build_cash_style_table(summary: dict) -> list[str]:
+    rows = _cash_style_summaries(summary)
+    if len(rows) <= 1:
+        return []
+    lines = [
+        "## 交易风格对比",
+        "",
+        "| 风格ID | 风格 | 最终现金 | 总收益 | 成交 | 胜率 | 平均盈利 | 平均亏损 | 加仓 | 换股 | 观察未确认 | 跳过 |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        skipped = _cash_style_skipped(row)
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(row.get("cash_portfolio_style") or "-"),
+                    _style_display(row),
+                    _fmt_metric(row.get("cash_portfolio_final_cash"), 2),
+                    f"{_fmt_metric(row.get('cash_portfolio_total_return_pct'), 2)}%",
+                    _fmt_metric(row.get("cash_portfolio_trades"), 0),
+                    f"{_fmt_metric(row.get('cash_portfolio_win_rate_pct'), 2)}%",
+                    f"{_fmt_metric(row.get('cash_portfolio_avg_profit_pct'), 3)}%",
+                    f"{_fmt_metric(row.get('cash_portfolio_avg_loss_pct'), 3)}%",
+                    _fmt_metric(row.get("cash_portfolio_add_entries"), 0),
+                    _fmt_metric(row.get("cash_portfolio_swap_exits"), 0),
+                    _fmt_metric(row.get("cash_portfolio_unconfirmed"), 0),
+                    str(skipped),
+                ]
+            )
+            + " |"
+        )
+    return lines + [""]
+
+
+def _cash_style_skipped(row: dict) -> int:
+    keys = (
+        "cash_portfolio_skipped_full",
+        "cash_portfolio_skipped_cash",
+        "cash_portfolio_skipped_duplicate",
+        "cash_portfolio_skipped_weight_cap",
+        "cash_portfolio_skipped_not_stronger",
+    )
+    return sum(int(row.get(key) or 0) for key in keys)
+
+
 def _append_diagnostic_table(lines: list[str], title: str, groups: dict[str, dict], *, limit: int = 12) -> None:
     if not groups:
         return
@@ -2159,6 +2254,9 @@ def _build_summary_md(summary: dict) -> str:
         f"{_fmt_metric(summary.get('cash_portfolio_small_trade_fee'), 2)} 元。"
         if summary.get("cash_portfolio_enabled")
         else "- 已纳入双边摩擦成本（各0.5%）；累计收益走单利（cumsum）口径，不放大噪声，便于策略横向比较。"
+    )
+    style_text = "、".join(
+        f"{_style_display(row)}({row.get('cash_portfolio_style')})" for row in _cash_style_summaries(summary)
     )
     notes = [
         "- 该回测使用日线数据（qfq），含 T+1 与涨跌停成交约束（一字板不可成交）。",
@@ -2219,6 +2317,7 @@ def _build_summary_md(summary: dict) -> str:
         f"- 大盘水温仓控: {'开启' if summary.get('regime_filter') else '关闭'}",
         f"- 入场价格模式: {summary.get('entry_price_mode')}"
         + (f" @ {summary.get('entry_price_time')}" if summary.get("entry_price_time") else ""),
+        f"- 交易风格: {style_text or '-'}",
         f"- 绩效引擎: {summary.get('metrics_engine', 'legacy')}"
         + (
             "（wbt 可用）"
@@ -2245,6 +2344,7 @@ def _build_summary_md(summary: dict) -> str:
         *(
             [
                 "## 真实现金账户模拟",
+                f"- 主风格: {_style_display(summary)} ({summary.get('cash_portfolio_style')})",
                 f"- 初始现金: {_fmt_metric(summary.get('cash_portfolio_initial_cash'), 2)}",
                 f"- 最多持仓: {_fmt_metric(summary.get('cash_portfolio_max_positions'), 0)}",
                 f"- 最终现金: {_fmt_metric(summary.get('cash_portfolio_final_cash'), 2)}",
@@ -2259,6 +2359,7 @@ def _build_summary_md(summary: dict) -> str:
             if summary.get("cash_portfolio_enabled")
             else []
         ),
+        *_build_cash_style_table(summary),
         *(
             [
                 "## wbt 权重回测辅助指标",
@@ -2548,6 +2649,11 @@ def main() -> int:
         help="现金账户小额成交固定手续费",
     )
     parser.add_argument("--lot-size", type=int, default=DEFAULT_CASH_PORTFOLIO_LOT_SIZE)
+    parser.add_argument(
+        "--portfolio-styles",
+        default=DEFAULT_CASH_PORTFOLIO_STYLES,
+        help="现金账户交易风格，逗号分隔；支持 slot_equal_4/probe_add/confirmation_only/trend_pyramid/concentrated_swap/all_core",
+    )
     args = parser.parse_args()
 
     start_dt = _parse_date(args.start)
@@ -2604,6 +2710,7 @@ def main() -> int:
                 small_trade_threshold=args.small_trade_threshold,
                 small_trade_fee=args.small_trade_fee,
                 lot_size=args.lot_size,
+                portfolio_styles=args.portfolio_styles,
             )
         except Exception as exc:
             last_error = exc
@@ -2638,17 +2745,21 @@ def main() -> int:
             nav_df.to_csv(nav_path, index=False, encoding="utf-8-sig")
             logger.info("nav     -> %s", nav_path)
 
-        cash_trades_df = summary.pop("_cash_portfolio_trades_df", None)
-        if cash_trades_df is not None and not cash_trades_df.empty:
-            cash_trades_path = out_dir / f"cash_trades_{stamp}.csv"
-            cash_trades_df.to_csv(cash_trades_path, index=False, encoding="utf-8-sig")
-            logger.info("cash trades -> %s", cash_trades_path)
+        cash_trades_by_style = summary.pop("_cash_portfolio_trades_by_style", None)
+        if isinstance(cash_trades_by_style, dict):
+            for style, cash_trades_df in sorted(cash_trades_by_style.items()):
+                if cash_trades_df is not None and not cash_trades_df.empty:
+                    cash_trades_path = out_dir / f"cash_trades_{style}_{stamp}.csv"
+                    cash_trades_df.to_csv(cash_trades_path, index=False, encoding="utf-8-sig")
+                    logger.info("cash trades -> %s", cash_trades_path)
 
-        cash_nav_df = summary.pop("_cash_portfolio_nav_df", None)
-        if cash_nav_df is not None and not cash_nav_df.empty:
-            cash_nav_path = out_dir / f"cash_nav_{stamp}.csv"
-            cash_nav_df.to_csv(cash_nav_path, index=False, encoding="utf-8-sig")
-            logger.info("cash nav -> %s", cash_nav_path)
+        cash_nav_by_style = summary.pop("_cash_portfolio_nav_by_style", None)
+        if isinstance(cash_nav_by_style, dict):
+            for style, cash_nav_df in sorted(cash_nav_by_style.items()):
+                if cash_nav_df is not None and not cash_nav_df.empty:
+                    cash_nav_path = out_dir / f"cash_nav_{style}_{stamp}.csv"
+                    cash_nav_df.to_csv(cash_nav_path, index=False, encoding="utf-8-sig")
+                    logger.info("cash nav -> %s", cash_nav_path)
 
         wbt_weight_df = summary.pop("_wbt_weight_df", None)
         if wbt_weight_df is not None and not wbt_weight_df.empty:

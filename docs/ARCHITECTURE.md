@@ -644,7 +644,7 @@ signal_pending (pending/confirmed)
 | **美股漏斗筛选** (`wyckoff_funnel_us.yml`) | 周二-周六 05:35 | `market_funnel_job.py --market us` |
 | **美股推荐表现** (`us_recommendation_performance.yml`) | 周二-周六 06:15 | `us_recommendation_performance_job.py` |
 | **数据库维护** (`db_maintenance.yml`) | 周二-周六 06:20 | 清理过期行情、订单、信号、市场信号等滑动窗口数据 |
-| **回测网格** (`backtest_grid.yml`) | 每月 UTC 1 / 15 日 20:00，北京时间次日 04:00 | 3 阶段：快照→18 并行格→聚合通知 |
+| **回测网格** (`backtest_grid.yml`) | 每月 UTC 1 / 15 日 20:00，北京时间次日 04:00 | 3 阶段：快照→24 并行格（3 周期 × 8 参数）→聚合通知 |
 
 ### 手动触发工作流
 

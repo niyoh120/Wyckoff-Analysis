@@ -173,7 +173,7 @@ Pages include recommendations, signals, portfolio, agent memory, configuration, 
 
 ### Backtest Grid
 
-18 parameter combos run in parallel, outputs optimal parameters, Sharpe matrix, and strategy health check:
+8 focused parameter combos run in parallel, outputs optimal parameters, Sharpe matrix, and strategy health check:
 
 | Optimal Params & Ranking | Parameter Matrix |
 |:---:|:---:|
@@ -236,7 +236,7 @@ Built-in GitHub Actions cron jobs:
 | Pre-Market Risk | Mon–Fri 08:20 | A50 + VIX alert |
 | Limit-Up Review | Mon–Fri 19:25 | Review stocks that rose >= 8% today |
 | Recommendation Reprice | Sun–Thu 23:00 | Sync closing prices |
-| Backtest Grid | 1st & 15th monthly 04:00 | 18 parallel parameter combos → aggregated report |
+| Backtest Grid | 1st & 15th monthly 04:00 | 8 focused parameter combos → aggregated report |
 | DB Maintenance | Daily 23:05 | Purge stale quotes, orders, signals, market signals, and other rolling-window data |
 
 ## Model Support

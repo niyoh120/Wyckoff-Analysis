@@ -74,6 +74,10 @@ on:
         description: "最多同时持仓数量"
         required: true
         default: "4"
+      portfolio_styles:
+        description: "现金账户交易风格，all_core=等额/补仓/确认/金字塔/集中换股"
+        required: true
+        default: "all_core"
 
 concurrency:
   group: backtest-grid-${{ github.ref }}
@@ -95,6 +99,7 @@ env:
   BACKTEST_ENTRY_PRICE_FALLBACK: ${{ inputs.entry_price_fallback || 'close' }}
   BT_INITIAL_CASH: ${{ inputs.initial_cash || '100000' }}
   BT_MAX_POSITIONS: ${{ inputs.max_positions || '4' }}
+  BT_PORTFOLIO_STYLES: ${{ inputs.portfolio_styles || 'all_core' }}
   BT_COMMISSION_RATE: "0.0002"
   BT_SMALL_TRADE_THRESHOLD: "10000"
   BT_SMALL_TRADE_FEE: "5"
@@ -201,7 +206,7 @@ jobs:
           retention-days: 3
 
   # ────────────────────────────────────────────────
-  # Phase 2: 18 个并行 job 读快照做回测（无需网络拉取）
+  # Phase 2: 24 个并行 job 读快照做回测（无需网络拉取）
   # 维度: hold_days × stop_loss × take_profit（生产对齐默认关闭 trailing）
   # ────────────────────────────────────────────────
   grid:
@@ -213,8 +218,8 @@ jobs:
       max-parallel: 20
       matrix:
         period_key: [recent_6m, bull_2020, bear_2022]
-        hold_days: [5, 10, 15]
-        stop_loss: [-6, -7, -8]
+        hold_days: [10, 15]
+        stop_loss: [-8, -10]
         take_profit: [0, 18]
         trailing_stop: [0]
     env:
@@ -332,6 +337,7 @@ jobs:
             --cash-portfolio \
             --initial-cash "${BT_INITIAL_CASH}" \
             --max-positions "${BT_MAX_POSITIONS}" \
+            --portfolio-styles "${BT_PORTFOLIO_STYLES}" \
             --commission-rate "${BT_COMMISSION_RATE}" \
             --small-trade-threshold "${BT_SMALL_TRADE_THRESHOLD}" \
             --small-trade-fee "${BT_SMALL_TRADE_FEE}" \
@@ -502,6 +508,37 @@ jobs:
                   return 'bear_2022'
               return os.environ.get('BT_PERIOD_LABEL', 'recent_6m')
 
+          def parse_num(raw):
+              text = str(raw or '').strip().replace(',', '').replace('%', '')
+              m = re.search(r'[-+]?\d+(?:\.\d+)?', text)
+              if not m:
+                  return None
+              try:
+                  return float(m.group(0))
+              except ValueError:
+                  return None
+
+          def split_md_row(line):
+              return [part.strip() for part in line.strip().strip('|').split('|')]
+
+          def parse_style_rows(content):
+              lines = content.splitlines()
+              for idx, line in enumerate(lines):
+                  cells = split_md_row(line) if line.strip().startswith('|') else []
+                  if cells[:2] != ['风格ID', '风格']:
+                      continue
+                  headers = cells
+                  rows = []
+                  for raw in lines[idx + 2:]:
+                      if not raw.strip().startswith('|'):
+                          break
+                      values = split_md_row(raw)
+                      if len(values) != len(headers):
+                          break
+                      rows.append(dict(zip(headers, values)))
+                  return rows
+              return []
+
           period_names = {
               'recent_6m': '最近6月',
               'bull_2020': '牛市',
@@ -509,12 +546,26 @@ jobs:
               'custom': '自定义',
           }
           period_order = {'recent_6m': 0, 'bull_2020': 1, 'bear_2022': 2, 'custom': 3}
+          style_names = {
+              'slot_equal_4': '等额四仓',
+              'probe_add': '观察补仓',
+              'confirmation_only': '二次确认',
+              'trend_pyramid': '趋势金字塔',
+              'concentrated_swap': '集中换股',
+          }
+          style_order = {'slot_equal_4': 0, 'probe_add': 1, 'confirmation_only': 2, 'trend_pyramid': 3, 'concentrated_swap': 4}
 
           def period_label(period):
               return period_names.get(period, period)
 
           def period_sort_key(period):
               return (period_order.get(period, 99), period)
+
+          def style_label(style, fallback=''):
+              return fallback or style_names.get(style, style)
+
+          def style_sort_key(style):
+              return (style_order.get(style, 99), style)
 
           cells = []
           for sf in summaries:
@@ -528,7 +579,7 @@ jobs:
               with open(sf, 'r') as f:
                   content = f.read()
               start, end = parse_range(content)
-              cells.append({
+              base_cell = {
                   'period': parse_period(dirname, start, end),
                   'start': start,
                   'end': end,
@@ -543,10 +594,27 @@ jobs:
                   'trades': extract(content, '成交样本'),
                   'calmar': extract(content, '卡玛比'),
                   'cash_initial': extract_exact(content, '初始现金'),
-                  'cash_final': extract_exact(content, '最终现金'),
-                  'cash_return': extract_exact(content, '总收益'),
-                  'cash_trades': extract_exact(content, '成交笔数'),
-              })
+              }
+              style_rows = parse_style_rows(content) or [{
+                  '风格ID': 'slot_equal_4',
+                  '风格': '等额四仓',
+                  '最终现金': extract_text(content, '最终现金'),
+                  '总收益': extract_text(content, '总收益'),
+                  '成交': extract_text(content, '成交笔数'),
+                  '胜率': extract_text(content, '胜率'),
+              }]
+              for style_row in style_rows:
+                  cell = dict(base_cell)
+                  style = style_row.get('风格ID') or 'slot_equal_4'
+                  cell.update({
+                      'style': style,
+                      'style_label': style_label(style, style_row.get('风格', '')),
+                      'cash_final': parse_num(style_row.get('最终现金')),
+                      'cash_return': parse_num(style_row.get('总收益')),
+                      'cash_trades': parse_num(style_row.get('成交')),
+                      'cash_win': parse_num(style_row.get('胜率')),
+                  })
+                  cells.append(cell)
 
           def fmt(v, spec):
               return format(v, spec) if v is not None else '-'
@@ -597,6 +665,10 @@ jobs:
           bt_end = os.environ.get('BT_END', '?')
           bt_topn = os.environ.get('BT_TOP_N', '?')
           periods = sorted(set(c.get('period', '') for c in cells if c.get('period')), key=period_sort_key)
+          styles = sorted(set(c.get('style', '') for c in cells if c.get('style')), key=style_sort_key)
+          param_shapes = sorted(set((c.get('hold'), c.get('sl'), c.get('tp'), c.get('tr')) for c in cells))
+          param_count = len(param_shapes) if param_shapes else 0
+          style_count = len(styles) or 1
           if cells and len(periods) > 1:
               period_text = ' / '.join(period_label(p) for p in periods)
               ranges = []
@@ -606,19 +678,22 @@ jobs:
                   ends = sorted(c.get('end') for c in subset if c.get('end'))
                   ranges.append(f'{period_label(period)} {starts[0] if starts else "?"} ~ {ends[-1] if ends else "?"}')
               range_text = '；'.join(ranges)
-              unit_text = f'共 {len(cells)} 单元（{len(periods)} 周期 × 18）'
+              style_text = ' / '.join(style_label(s) for s in styles) if styles else '-'
+              unit_text = f'共 {len(cells)} 风格单元（{len(periods)}周期 × {param_count}参数 × {style_count}风格）'
           elif cells:
               first = cells[0]
               period_text = period_label(first.get('period', os.environ.get('BT_PERIOD_LABEL', '?')))
               range_text = f'{first.get("start") or bt_start} ~ {first.get("end") or bt_end}'
-              unit_text = f'共 {len(cells)} 单元'
+              style_text = ' / '.join(style_label(s) for s in styles) if styles else '-'
+              unit_text = f'共 {len(cells)} 风格单元（{param_count}参数 × {style_count}风格）'
           else:
               period_text = os.environ.get('BT_PERIOD_LABEL', '?')
               range_text = f'{bt_start} ~ {bt_end}'
+              style_text = '-'
               unit_text = '共 0 单元'
 
           elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
-              'content': f'**周期** {period_text}  ·  **区间** {range_text}  ·  **TopN** {bt_topn}  ·  **{unit_text}**\n[查看详情]({run_url})'}})
+              'content': f'**周期** {period_text}  ·  **风格** {style_text}  ·  **区间** {range_text}  ·  **TopN** {bt_topn}  ·  **{unit_text}**\n[查看详情]({run_url})'}})
 
           best = None
           if not cells:
@@ -641,7 +716,7 @@ jobs:
                   tp_str = f'TP{best["tp"]}%' if best['tp'] else '无止盈'
                   tr_str = f'移动止盈-{best["tr"]}%' if best['tr'] else '无移动止盈'
                   elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
-                      'content': f'{tag} **最优参数（按现金收益）{best_period}**: 持有{best["hold"]}天 / SL-{best["sl"]}% / {tp_str} / {tr_str}'}})
+                      'content': f'{tag} **最优参数（按现金收益）{best_period}**: {style_label(best.get("style", ""), best.get("style_label", ""))} / 持有{best["hold"]}天 / SL-{best["sl"]}% / {tp_str} / {tr_str}'}})
 
                   cols = [
                       ('**现金收益**', f'{fmt(best.get("cash_return"), "+.2f")}%'),
@@ -674,8 +749,24 @@ jobs:
                           tp_s = f'TP{b["tp"]}%' if b['tp'] else '无TP'
                           tr_s = f'Trail-{b["tr"]}%' if b['tr'] else '无Trail'
                           lines.append(
-                              f'- {period_label(period)}: {b["hold"]}天 / SL-{b["sl"]}% / {tp_s} / {tr_s}，'
+                              f'- {period_label(period)}: {style_label(b.get("style", ""), b.get("style_label", ""))} / {b["hold"]}天 / SL-{b["sl"]}% / {tp_s} / {tr_s}，'
                               f'现金收益 {fmt(b.get("cash_return"), "+.2f")}%，夏普 {fmt(b.get("sharpe"), ".3f")}'
+                          )
+                      elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '\n'.join(lines)}})
+
+                  if len(styles) > 1:
+                      elements.append({'tag': 'hr'})
+                      lines = ['**各交易风格最优（按现金收益）**']
+                      for style in styles:
+                          subset = [c for c in valid if c.get('style') == style and rank_value(c) is not None]
+                          if not subset:
+                              continue
+                          b = max(subset, key=rank_value)
+                          tp_s = f'TP{b["tp"]}%' if b['tp'] else '无TP'
+                          tr_s = f'Trail-{b["tr"]}%' if b['tr'] else '无Trail'
+                          lines.append(
+                              f'- {style_label(style, b.get("style_label", ""))}: {period_label(b.get("period", ""))} / {b["hold"]}天 / SL-{b["sl"]}% / {tp_s} / {tr_s}，'
+                              f'现金收益 {fmt(b.get("cash_return"), "+.2f")}%'
                           )
                       elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '\n'.join(lines)}})
 
@@ -708,11 +799,11 @@ jobs:
                   })
 
                   for i, c in enumerate(ranked, 1):
-                      is_best = c.get('period') == best.get('period') and c['hold'] == best['hold'] and c['sl'] == best['sl'] and c['tp'] == best.get('tp') and c['tr'] == best.get('tr')
+                      is_best = c.get('period') == best.get('period') and c.get('style') == best.get('style') and c['hold'] == best['hold'] and c['sl'] == best['sl'] and c['tp'] == best.get('tp') and c['tr'] == best.get('tr')
                       mark = '🏆' if is_best else ''
                       tp_s = f'TP{c["tp"]}%' if c['tp'] else '无TP'
                       tr_s = f'Trail-{c["tr"]}%' if c['tr'] else '无Trail'
-                      combo = f'{c["hold"]}天 / SL-{c["sl"]}% / {tp_s} / {tr_s}'
+                      combo = f'{style_label(c.get("style", ""), c.get("style_label", ""))} / {c["hold"]}天 / SL-{c["sl"]}% / {tp_s} / {tr_s}'
                       if len(periods) > 1:
                           combo = f'{period_label(c.get("period", ""))} · {combo}'
                       sharpe_v = f'{sharp_flag(c.get("sharpe"))} {fmt(c.get("sharpe"), ".3f")}{(" " + mark) if mark else ""}'
@@ -768,7 +859,7 @@ jobs:
                           for s in sls:
                               c = agg.get((h, s))
                               v = fmt(c.get('sharpe') if c else None, '.3f')
-                              is_b = c and c.get('period') == best.get('period') and c.get('hold') == best.get('hold') and c.get('sl') == best.get('sl') and c.get('tp') == best.get('tp') and c.get('tr') == best.get('tr')
+                              is_b = c and c.get('period') == best.get('period') and c.get('style') == best.get('style') and c.get('hold') == best.get('hold') and c.get('sl') == best.get('sl') and c.get('tp') == best.get('tp') and c.get('tr') == best.get('tr')
                               cell_text = f'**{v}** 🏆' if is_b and v != '-' else v
                               row_cols.append({'tag': 'column', 'width': 'weighted', 'weight': 1, 'elements': [
                                   {'tag': 'div', 'text': {'tag': 'lark_md', 'content': cell_text}}]})
