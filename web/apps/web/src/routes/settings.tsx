@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { CheckCircle2, CircleAlert, ExternalLink } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { PROVIDERS, PROVIDER_LABELS, PROVIDER_BASE_URLS } from '@wyckoff/shared'
 import type { Provider } from '@wyckoff/shared'
 import { usePreferences } from '@/lib/preferences'
+import { buildSettingsCapabilityRows, summarizeSettingsCapabilities } from '@/lib/settings-capabilities'
 
 interface ProviderConfig {
   api_key: string
@@ -27,6 +28,19 @@ export function SettingsPage() {
   const [toast, setToast] = useState('')
   const [toastKind, setToastKind] = useState<'success' | 'error'>('success')
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const activeModelConfig = configs[chatProvider]
+  const settingsCapabilities = useMemo(
+    () => buildSettingsCapabilityRows({
+      tickflow: tickflowKey,
+      modelProviderLabel: PROVIDER_LABELS[chatProvider],
+      modelConfig: activeModelConfig,
+    }),
+    [tickflowKey, chatProvider, activeModelConfig?.api_key, activeModelConfig?.model],
+  )
+  const settingsCapabilitySummary = useMemo(
+    () => summarizeSettingsCapabilities(settingsCapabilities),
+    [settingsCapabilities],
+  )
 
   useEffect(() => {
     if (!user) return
@@ -175,6 +189,68 @@ export function SettingsPage() {
       )}
 
       <section className="mb-8">
+        <div className="rounded-lg border border-border">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">{t('settings.capabilityCenter')}</div>
+              <div className="text-xs text-muted-foreground">
+                {t('settings.capabilitySummary', {
+                  ready: settingsCapabilitySummary.readyCount,
+                  total: settingsCapabilitySummary.totalCount,
+                })}
+              </div>
+            </div>
+            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium ${
+              settingsCapabilitySummary.missingCount === 0
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
+                : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'
+            }`}>
+              {settingsCapabilitySummary.readyCount}/{settingsCapabilitySummary.totalCount}
+            </span>
+          </div>
+          <div className="divide-y divide-border">
+            {settingsCapabilities.map((row) => {
+              const StatusIcon = row.isReady ? CheckCircle2 : CircleAlert
+              return (
+                <div key={row.id} className="grid gap-3 px-3 py-3 sm:grid-cols-[9rem_1fr_auto]">
+                  <div>
+                    <div className="text-sm font-medium">{row.name}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{t(row.priorityLabelKey)}</div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap gap-1">
+                      {row.badgeLabelKeys.map((key) => (
+                        <span key={key} className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          {t(key)}
+                        </span>
+                      ))}
+                      {row.badgeLabels?.map((label) => (
+                        <span key={label} className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mt-1.5 text-xs text-foreground">
+                      {row.capabilityLabelKeys.map((key) => t(key)).join(' · ')}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">{t(row.noteKey)}</div>
+                  </div>
+                  <div className={`flex h-7 items-center gap-1.5 self-start rounded-full border px-2 text-xs font-medium ${
+                    row.isReady
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
+                      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'
+                  }`}>
+                    <StatusIcon size={14} />
+                    <span>{t(row.statusLabelKey)}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="mb-8">
         <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t('settings.dataSources')}</h2>
         <div className="space-y-3">
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
@@ -189,7 +265,7 @@ export function SettingsPage() {
               <ExternalLink size={12} />
             </a>
           </div>
-          <Input label="TickFlow API Key" type="password" value={tickflowKey} onChange={setTickflowKey} placeholder="tf-..." />
+          <Input label={t('settings.tickflowApiKey')} type="password" value={tickflowKey} onChange={setTickflowKey} placeholder="tf-..." />
         </div>
       </section>
 
