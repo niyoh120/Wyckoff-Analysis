@@ -2,7 +2,7 @@
 
 > 本文描述 A 股 Wyckoff 主漏斗从 GitHub Actions 触发到 Supabase 写库、跨日反馈闭环的完整执行链路。策略逻辑详见 [`../README_STRATEGY.md`](../README_STRATEGY.md)，架构与数据表详见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
-**主入口**：`.github/workflows/wyckoff_funnel.yml` → `scripts/daily_job.py`（工作日 **18:25** 北京时间）
+**主入口**：`.github/workflows/wyckoff_funnel.yml` → `scripts/daily_job.py`（周日到周四 **17:17** 北京时间；仅次日为 A 股交易日时继续）
 
 ---
 
@@ -11,7 +11,7 @@
 ```mermaid
 flowchart TB
     subgraph UPSTREAM["⬆️ 上游（漏斗运行前已存在）"]
-        U1["GitHub Actions 触发<br/>wyckoff_funnel.yml<br/>工作日 18:25 北京"]
+        U1["GitHub Actions 触发<br/>wyckoff_funnel.yml<br/>周日到周四 17:17 北京"]
         U2["环境变量 / Secrets<br/>TICKFLOW / TUSHARE / LLM / Supabase / IM"]
         U3["本地元数据<br/>行业映射 / 概念映射 / 股票池"]
         U4["前日反馈闭环<br/>signal_health_daily<br/>signal_registry"]
@@ -68,9 +68,9 @@ flowchart TB
 
 ```mermaid
 flowchart TD
-    START(["GitHub Actions 18:25<br/>wyckoff_funnel.yml"]) --> CHECK1{"配置校验<br/>LLM Key / Model"}
+    START(["GitHub Actions 17:17<br/>wyckoff_funnel.yml"]) --> CHECK1{"配置校验<br/>LLM Key / Model"}
     CHECK1 -->|缺失| FAIL1["exit 1"]
-    CHECK1 -->|通过| CHECK2{"交易日判定<br/>trading_clock<br/>下一交易日 ≤ 2 天?"}
+    CHECK1 -->|通过| CHECK2{"次日交易日判定<br/>明日是否 A 股交易日?"}
     CHECK2 -->|否| SKIP["IM 通知跳过<br/>exit 0"]
     CHECK2 -->|是| STEP2
 
@@ -162,8 +162,8 @@ flowchart TD
         R4A["Trend 轨：主升 + 点火"]
         R4B["Accum 轨：潜伏 + 吸筹 + 地量 + 护盘"]
         R5{"FUNNEL_AI_SELECTION_MODE"}
-        R5 -->|all_formal_l4 当前默认| R6["正式 L4 全量送 AI"]
-        R5 -->|legacy| R7["按 regime 静态配额<br/>FUNNEL_AI_*_TREND/ACCUM"]
+        R5 -->|all_formal_l4| R6["正式 L4 全量送 AI"]
+        R5 -->|quota 当前默认| R7["按 regime 静态配额<br/>FUNNEL_AI_*_TREND/ACCUM"]
         R8{"FUNNEL_DYNAMIC_POLICY"}
         R8 -->|off| R9["静态配额"]
         R8 -->|shadow| R10["静态出结果 + shadow 差异写库"]
@@ -246,13 +246,13 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant T1 as Day N 18:25 漏斗
+    participant T1 as Day N 17:17 漏斗
     participant OBS as signal_observations
     participant REC as recommendation_tracking
     participant FB as Day N 23:30 feedback
     participant HL as signal_health_daily
     participant REG as signal_registry
-    participant T2 as Day N+1 18:25 漏斗
+    participant T2 as Day N+1 17:17 漏斗
 
     T1->>OBS: L4 命中 + AI 起跳板标记
     T1->>REC: 形态复盘记录
@@ -283,7 +283,7 @@ sequenceDiagram
 | 时间（北京） | 工作流 | 与漏斗关系 |
 |-------------|--------|-----------|
 | **08:20** | `premarket_risk.yml` | **上游门控**：A50 + VIX → Step4 次日买入权限 |
-| **18:25** | `wyckoff_funnel.yml` | **主漏斗** daily_job Step2→3→4 |
+| **周日-周四 17:17** | `wyckoff_funnel.yml` | **主漏斗** daily_job Step2→3→4；次日非 A 股交易日则跳过 |
 | **19:25** | `review_list_replay.yml` | 下游：涨停复盘 |
 | **21:10 周五** | `theme_radar.yml` | 下游：主线雷达周报（新闻增强） |
 | **23:00 日–四** | `recommendation_tracking_reprice.yml` | 下游：复盘重定价 |
@@ -352,9 +352,10 @@ efinance
 
 | 变量 | 当前值 | 作用 |
 |------|--------|------|
-| `FUNNEL_AI_SELECTION_MODE` | `all_formal_l4` | 正式 L4 全量进 Step3 |
-| `FUNNEL_AI_TOTAL_CAP` | `8` | AI 总量上限（legacy 模式用） |
-| `FUNNEL_DYNAMIC_POLICY` | `off` | 反馈闭环暂不介入配额 |
+| `FUNNEL_AI_SELECTION_MODE` | `quota` | 按市场水温和信号轨道收口 Step3 候选 |
+| `FUNNEL_AI_TOTAL_CAP` | `5` | AI 总量硬上限；战略/主题补位也受此限制 |
+| `FUNNEL_DYNAMIC_POLICY` | `shadow` | 主流程用静态配额，同时记录动态策略差异 |
+| `FUNNEL_AI_NEUTRAL_TREND` / `FUNNEL_AI_NEUTRAL_ACCUM` | `2` / `1` | 中性市场保留 1 个 Accum 槽位给 Spring/LPS/Compression |
 | `STEP4_BUY_HARD_STOP_PCT` | `9.0` | 硬止损 |
 | `STEP4_BUY_BLOCK_REGIMES` | `CRASH,BLACK_SWAN,RISK_OFF` | 极寒熔断 |
 

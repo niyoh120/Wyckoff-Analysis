@@ -170,8 +170,8 @@ def test_split_selected_tracks_preserves_order_and_accum_only_hits():
         },
     )
 
-    assert trend == ["000001", "000003", "000004"]
-    assert accum == ["000002"]
+    assert trend == ["000001", "000003"]
+    assert accum == ["000002", "000004"]
 
 
 def test_merge_trigger_maps_keeps_bypass_l4_hits():

@@ -698,7 +698,7 @@ def _append_formal_l4_sections(
 
 def _is_accum_trigger(keys: list[str]) -> bool:
     key_set = {str(k).strip().lower() for k in keys}
-    return bool(key_set & {"spring", "lps"}) and not bool(key_set & {"sos", "evr", "compression"})
+    return bool(key_set & {"spring", "lps", "compression"}) and not bool(key_set & {"sos", "evr", "trend_pullback"})
 
 
 def _split_selected_tracks(

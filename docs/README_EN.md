@@ -231,7 +231,7 @@ Built-in GitHub Actions cron jobs:
 
 | Task | Schedule (Beijing Time) | Description |
 |---|---|---|
-| Funnel + AI Report + Rebalance | Sun–Thu 18:25 | Fully automated; results pushed to Feishu / Telegram |
+| Funnel + AI Report + Rebalance | Sun–Thu 17:17 | Fully automated; results pushed to Feishu / Telegram |
 | Tail-Buy Strategy | Mon–Fri 13:50 | Rule scoring + LLM review, end-of-day entry screening |
 | Pre-Market Risk | Mon–Fri 08:20 | A50 + VIX alert |
 | Limit-Up Review | Mon–Fri 19:25 | Review stocks that rose >= 8% today |

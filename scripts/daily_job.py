@@ -33,7 +33,7 @@ from integrations.supabase_recommendation import (
     upsert_recommendation_payload,
     write_recommendation_backup_artifact,
 )
-from utils.trading_clock import is_a_share_trading_day, next_trading_day, resolve_end_calendar_day
+from utils.trading_clock import is_a_share_trading_day, resolve_end_calendar_day
 
 TZ = ZoneInfo("Asia/Shanghai")
 STEP3_REASON_MAP = {
@@ -95,14 +95,10 @@ def _notify_skip(msg: str, feishu: str = "", wecom: str = "", dingtalk: str = ""
 
 
 def _non_trading_skip_message(today: date) -> str | None:
-    if is_a_share_trading_day(today):
+    next_day = today + timedelta(days=1)
+    if is_a_share_trading_day(next_day):
         return None
-    nxt = next_trading_day(today)
-    if nxt and (nxt - today).days <= 2:
-        return None
-    if nxt:
-        return f"📅 今日 {today} 非交易日，下一交易日 {nxt} 距今超过 2 天，任务跳过"
-    return f"📅 今日 {today} 非交易日，未找到下一交易日，任务跳过"
+    return f"📅 明日 {next_day} 非 A 股交易日，任务跳过"
 
 
 class _TeeStream:

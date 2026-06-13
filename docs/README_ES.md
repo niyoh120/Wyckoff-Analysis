@@ -231,7 +231,7 @@ Tareas programadas con GitHub Actions integradas en el repositorio:
 
 | Tarea | Hora (Beijing) | Descripcion |
 |-------|---------------|-------------|
-| Embudo + Reporte IA + Rebalanceo | Dom-Jue 18:25 | Totalmente automatico; resultados enviados a Feishu / Telegram |
+| Embudo + Reporte IA + Rebalanceo | Dom-Jue 17:17 | Totalmente automatico; resultados enviados a Feishu / Telegram |
 | Estrategia de compra al cierre | Lun-Vie 13:50 | Puntuacion por reglas + revision LLM |
 | Riesgo pre-mercado | Lun-Vie 08:20 | Alerta A50 + VIX |
 | Resumen de limit-up | Lun-Vie 19:25 | Revision de acciones con alza diaria >= 8 % |

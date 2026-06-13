@@ -635,7 +635,7 @@ signal_pending (pending/confirmed)
 | **CI** (`ci.yml`) | push/PR | pytest + compile + dry-run |
 | **盘前风控** (`premarket_risk.yml`) | 周一-周五 08:20 | A50 + VIX 预警 |
 | **港股漏斗筛选** (`wyckoff_funnel_hk.yml`) | 周一-周五 16:35 | `market_funnel_job.py --market hk` |
-| **A 股漏斗筛选 + AI 研报 + 决策** (`wyckoff_funnel.yml`) | 周一-周五 17:17 | `daily_job.py` Step2→3→4，日频写入 `theme_radar_snapshot` |
+| **A 股漏斗筛选 + AI 研报 + 决策** (`wyckoff_funnel.yml`) | 周日-周四 17:17 | `daily_job.py` Step2→3→4，若次日非 A 股交易日则跳过，日频写入 `theme_radar_snapshot` |
 | **涨停复盘** (`review_list_replay.yml`) | 周一-周五 19:25 | 当日涨幅 ≥ 8% 回溯 |
 | **主线雷达周报** (`theme_radar.yml`) | 周五 21:10 | `theme_radar_job.py --with-news`，周频新闻增强复盘 |
 | **形态复盘重定价** (`recommendation_tracking_reprice.yml`) | 周一-周五 23:00 | 同步收盘价、计算收益 |

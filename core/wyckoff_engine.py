@@ -11,6 +11,7 @@ Layer 4: 威科夫狙击（Spring / SOS / LPS / Effort vs Result）
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -266,6 +267,88 @@ class FunnelResult(NamedTuple):
     markup_symbols: list[str]  # 已进入 Markup 的股票
     exit_signals: dict[str, dict]  # code -> {"signal": "stop_loss|distribution_warning", "price": xxx, "reason": xxx}
     channel_map: dict[str, str]
+
+
+def _trigger_codes_by_score(
+    triggers: dict[str, list[tuple[str, float]]],
+    signal_type: str,
+    *,
+    reverse: bool = True,
+) -> list[str]:
+    rows = triggers.get(signal_type, []) or []
+    return [
+        str(code).strip()
+        for code, _score in sorted(
+            rows,
+            key=lambda item: float(item[1] if item[1] is not None else 0.0),
+            reverse=reverse,
+        )
+        if str(code).strip()
+    ]
+
+
+def _append_scored_codes(
+    candidates: list[tuple[str, float, bool]],
+    codes: list[str],
+    score_fn: Callable[[str], float],
+) -> None:
+    existing = {code for code, _score, _is_fill in candidates}
+    for code in codes:
+        code_s = str(code).strip()
+        if code_s and code_s not in existing:
+            candidates.append((code_s, score_fn(code_s), False))
+            existing.add(code_s)
+
+
+def _build_candidate_priority_scorer(
+    result: FunnelResult,
+    hit_sets: dict[str, set[str]],
+    signal_weight: Callable[[str], float],
+) -> Callable[[str, bool], float]:
+    markup_set = set(result.markup_symbols)
+    sos_hits = hit_sets.get("sos", set())
+    spring_hits = hit_sets.get("spring", set())
+    lps_hits = hit_sets.get("lps", set())
+    evr_hits = hit_sets.get("evr", set())
+    compression_hits = hit_sets.get("compression", set())
+    trend_pb_hits = hit_sets.get("trend_pullback", set())
+    other_hits = spring_hits | lps_hits | evr_hits | compression_hits | trend_pb_hits
+
+    def score(code: str, is_trend_side: bool) -> float:
+        value = 0.0
+        stage_name = result.stage_map.get(code, "")
+        if code in markup_set:
+            value += 100.0
+        if stage_name == "Accum_C":
+            value += 15.0 if not is_trend_side else 5.0
+        elif stage_name == "Accum_B":
+            value += 8.0 if not is_trend_side else 3.0
+        elif stage_name == "Accum_A":
+            value += 3.0 if not is_trend_side else 0.0
+        if code in sos_hits:
+            value += (50.0 if code in other_hits else 15.0) * signal_weight("sos")
+        if code in spring_hits:
+            value += 45.0 * signal_weight("spring")
+        if code in lps_hits:
+            value += 40.0 * signal_weight("lps")
+        if code in evr_hits:
+            value += 25.0 * signal_weight("evr")
+        if code in compression_hits:
+            value += 22.0 * signal_weight("compression")
+        if code in trend_pb_hits:
+            value += 45.0 * signal_weight("trend_pullback")
+        if is_trend_side and (code in sos_hits or code in evr_hits or code in trend_pb_hits):
+            value += 10.0 * max(signal_weight("sos"), signal_weight("evr"), signal_weight("trend_pullback"))
+        if (not is_trend_side) and (code in spring_hits or code in lps_hits or code in compression_hits):
+            value += 10.0 * max(signal_weight("spring"), signal_weight("lps"), signal_weight("compression"))
+        exit_sig = result.exit_signals.get(code, {})
+        if exit_sig.get("signal") == "stop_loss":
+            value -= 100.0
+        elif exit_sig.get("signal") == "distribution_warning":
+            value -= 20.0
+        return value
+
+    return score
 
 
 def fit_ai_candidate_quotas(
@@ -2004,13 +2087,15 @@ def allocate_ai_candidates(
                 out.append(c)
         return out
 
-    sos_hit_set = {str(c).strip() for c, _ in result.triggers.get("sos", [])}
-    spring_hit_set = {str(c).strip() for c, _ in result.triggers.get("spring", [])}
-    lps_hit_set = {str(c).strip() for c, _ in result.triggers.get("lps", [])}
-    evr_hit_set = {str(c).strip() for c, _ in result.triggers.get("evr", [])}
-    compression_hit_set = {str(c).strip() for c, _ in result.triggers.get("compression", [])}
-    trend_pb_hit_set = {str(c).strip() for c, _ in result.triggers.get("trend_pullback", [])}
-    other_trigger_set = spring_hit_set | lps_hit_set | evr_hit_set | compression_hit_set | trend_pb_hit_set
+    hit_sets = {
+        "sos": {str(c).strip() for c, _ in result.triggers.get("sos", [])},
+        "spring": {str(c).strip() for c, _ in result.triggers.get("spring", [])},
+        "lps": {str(c).strip() for c, _ in result.triggers.get("lps", [])},
+        "evr": {str(c).strip() for c, _ in result.triggers.get("evr", [])},
+        "compression": {str(c).strip() for c, _ in result.triggers.get("compression", [])},
+        "trend_pullback": {str(c).strip() for c, _ in result.triggers.get("trend_pullback", [])},
+    }
+    sos_hit_set = hit_sets["sos"]
     blocked_exit_signals = {"stop_loss", "distribution_warning"}
 
     def _stage_name(code: str) -> str:
@@ -2030,68 +2115,24 @@ def allocate_ai_candidates(
     def _signal_weight(signal_type: str) -> float:
         return max(float(weights.get(signal_type, 1.0) or 0.0), 0.0)
 
-    def _calc_priority_score(code: str, is_trend_side: bool) -> float:
-        score = 0.0
-        stage_name = _stage_name(code)
-
-        if code in result.markup_symbols:
-            score += 100.0
-        if stage_name == "Accum_C":
-            score += 15.0 if not is_trend_side else 5.0  # 回测显示 Accum 胜率仅 31.8%，降权
-        elif stage_name == "Accum_B":
-            score += 8.0 if not is_trend_side else 3.0
-        elif stage_name == "Accum_A":
-            score += 3.0 if not is_trend_side else 0.0
-
-        if code in sos_hit_set:
-            score += (50.0 if code in other_trigger_set else 15.0) * _signal_weight("sos")
-        if code in spring_hit_set:
-            score += 45.0 * _signal_weight("spring")
-        if code in lps_hit_set:
-            score += 40.0 * _signal_weight("lps")
-        if code in trend_pb_hit_set:
-            score += 45.0 * _signal_weight("trend_pullback")
-        if is_trend_side and (code in sos_hit_set or code in trend_pb_hit_set):
-            score += 10.0 * max(_signal_weight("sos"), _signal_weight("trend_pullback"))
-        if (not is_trend_side) and (code in spring_hit_set or code in lps_hit_set):
-            score += 10.0 * max(_signal_weight("spring"), _signal_weight("lps"))
-
-        exit_sig = result.exit_signals.get(code, {})
-        if exit_sig.get("signal") == "stop_loss":
-            score -= 100.0
-        elif exit_sig.get("signal") == "distribution_warning":
-            score -= 20.0
-
-        return score
+    score_candidate = _build_candidate_priority_scorer(result, hit_sets, _signal_weight)
 
     trend_candidates_with_score: list[tuple[str, float, bool]] = []
     accum_candidates_with_score: list[tuple[str, float, bool]] = []
 
     markup_trend_candidates = [c for c in result.markup_symbols if _is_trend_track(c) or c in sos_hit_set]
     for code in _dedup_order(markup_trend_candidates):
-        trend_candidates_with_score.append((code, _calc_priority_score(code, True), False))
+        trend_candidates_with_score.append((code, score_candidate(code, True), False))
 
-    sos_hit_codes = [
-        str(c).strip()
-        for c, _ in sorted(result.triggers.get("sos", []), key=lambda x: -float(x[1] if x[1] is not None else 0.0))
-        if str(c).strip()
-    ]
-    for code in _dedup_order(sos_hit_codes):
-        if code not in [c[0] for c in trend_candidates_with_score]:
-            trend_candidates_with_score.append((code, _calc_priority_score(code, True), False))
-
-    trend_pb_codes = [
-        str(c).strip()
-        for c, _ in sorted(
-            result.triggers.get("trend_pullback", []),
-            key=lambda x: float(x[1] if x[1] is not None else 0.0),
-            reverse=True,
-        )
-        if str(c).strip()
-    ]
-    for code in _dedup_order(trend_pb_codes):
-        if code not in [c[0] for c in trend_candidates_with_score]:
-            trend_candidates_with_score.append((code, _calc_priority_score(code, True), False))
+    _append_scored_codes(
+        trend_candidates_with_score,
+        _dedup_order(
+            _trigger_codes_by_score(result.triggers, "sos")
+            + _trigger_codes_by_score(result.triggers, "trend_pullback")
+            + _trigger_codes_by_score(result.triggers, "evr")
+        ),
+        lambda code: score_candidate(code, True),
+    )
 
     # Compute `sorted_codes` implicitly from triggers like funnel does
     all_triggers = []
@@ -2106,16 +2147,24 @@ def allocate_ai_candidates(
         if code in [c[0] for c in trend_candidates_with_score]:
             continue
         if code in result.markup_symbols or code in sos_hit_set:
-            trend_candidates_with_score.append((code, _calc_priority_score(code, True), False))
+            trend_candidates_with_score.append((code, score_candidate(code, True), False))
             continue
         # 移除 L3 filler 逻辑: 宁缺毋滥，如果只有几个好标的，就只送这几个给 AI
 
-    accum_hit_candidates = result.triggers.get("spring", []) + result.triggers.get("lps", [])
-    for code, _ in sorted(accum_hit_candidates, key=lambda x: -float(x[1] if x[1] is not None else 0.0)):
-        code = str(code).strip()
-        if _is_blocked_exit(code):
-            continue
-        accum_candidates_with_score.append((code, _calc_priority_score(code, False), False))
+    accum_hit_codes = [
+        str(code).strip()
+        for code, _score in sorted(
+            result.triggers.get("spring", []) + result.triggers.get("lps", []),
+            key=lambda item: -float(item[1] if item[1] is not None else 0.0),
+        )
+        if str(code).strip()
+    ]
+    accum_hit_codes += _trigger_codes_by_score(result.triggers, "compression", reverse=False)
+    _append_scored_codes(
+        accum_candidates_with_score,
+        [code for code in _dedup_order(accum_hit_codes) if not _is_blocked_exit(code)],
+        lambda code: score_candidate(code, False),
+    )
 
     for code in _dedup_order(l3_ranked_symbols):
         if not _is_accum_track(code) or _is_blocked_exit(code):
@@ -2123,7 +2172,7 @@ def allocate_ai_candidates(
         if code in [c[0] for c in accum_candidates_with_score]:
             continue
         if _stage_name(code) == "Accum_C":
-            accum_candidates_with_score.append((code, _calc_priority_score(code, False), False))
+            accum_candidates_with_score.append((code, score_candidate(code, False), False))
             continue
         # 移除 L3 filler 逻辑: 宁缺毋滥
 

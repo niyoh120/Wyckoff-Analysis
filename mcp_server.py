@@ -7,6 +7,8 @@ from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
+from tools.funnel_public import public_funnel_details
+
 mcp = FastMCP("wyckoff")
 
 
@@ -329,7 +331,7 @@ def run_funnel_simulation(board: Literal["all", "main_chinext"] = "all") -> dict
         "success": True,
         "candidates": symbols,
         "regime": bench_ctx,
-        "details": details,
+        "details": public_funnel_details(details),
     }
 
 

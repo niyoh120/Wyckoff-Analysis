@@ -37,7 +37,15 @@ def test_run_funnel_simulation_maps_main_chinext_and_restores_env(monkeypatch):
         captured_env["mode"] = os.environ.get("FUNNEL_POOL_MODE")
         captured_env["board"] = os.environ.get("FUNNEL_POOL_BOARD")
         captured_env["executor"] = os.environ.get("FUNNEL_EXECUTOR_MODE")
-        return True, [{"code": "000001"}], {"regime": "NEUTRAL"}, {"metrics": {}}
+        return (
+            True,
+            [{"code": "000001"}],
+            {"regime": "NEUTRAL"},
+            {
+                "metrics": {"layer1": 1, "all_df_map": {"000001": object()}},
+                "all_df_map": {"000001": object()},
+            },
+        )
 
     fake_funnel = ModuleType("scripts.wyckoff_funnel")
     fake_funnel.run = fake_run
@@ -50,6 +58,7 @@ def test_run_funnel_simulation_maps_main_chinext_and_restores_env(monkeypatch):
 
     assert result["success"] is True
     assert captured_env == {"mode": "board", "board": "all", "executor": "thread"}
+    assert result["details"] == {"metrics": {"layer1": 1}}
     assert os.environ["FUNNEL_POOL_MODE"] == "manual"
     assert os.environ["FUNNEL_POOL_BOARD"] == "chinext"
     assert os.environ["FUNNEL_EXECUTOR_MODE"] == "process"

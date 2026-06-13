@@ -2,8 +2,8 @@ name: Wyckoff Funnel
 
 on:
   schedule:
-    # 北京时间周一到周五 17:17（UTC 9:17），避开 GitHub Actions 整点调度高峰。
-    - cron: '17 9 * * 1-5'
+    # 北京时间周日到周四 17:17（UTC 9:17），为下一交易日做盘后准备。
+    - cron: '17 9 * * 0-4'
   workflow_dispatch:
     inputs:
       end_calendar_day:
@@ -92,7 +92,7 @@ jobs:
       FUNNEL_AI_RISK_OFF_TREND: "1"
       FUNNEL_AI_RISK_OFF_ACCUM: "0"
       FUNNEL_AI_NEUTRAL_TREND: "2"
-      FUNNEL_AI_NEUTRAL_ACCUM: "0"
+      FUNNEL_AI_NEUTRAL_ACCUM: "1"
       FUNNEL_L2_BYPASS_AI_ENABLED: "0"
       FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP: "2"
       FUNNEL_THEME_RADAR_PROMOTE_CAP: "2"

@@ -12,6 +12,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from tools.funnel_public import public_funnel_metrics
+
 
 def _sanitize(obj: Any) -> Any:
     if obj is None or isinstance(obj, (str, int, float, bool)):
@@ -88,7 +90,7 @@ def _run_funnel_screen(request_id: str, payload: dict[str, Any]) -> dict[str, An
         notify=False,
         return_details=True,
     )
-    metrics = details.get("metrics", {}) or {}
+    metrics = public_funnel_metrics(details.get("metrics", {}) or {})
     triggers = details.get("triggers", {}) or {}
     name_map = details.get("name_map", {}) or {}
     sector_map = details.get("sector_map", {}) or {}

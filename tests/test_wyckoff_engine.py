@@ -6,11 +6,13 @@ import pandas as pd
 
 from core.wyckoff_engine import (
     FunnelConfig,
+    FunnelResult,
     _compute_stop_loss,
     _detect_compression,
     _is_holiday_grace,
     _latest_trade_date,
     _sorted_if_needed,
+    allocate_ai_candidates,
     layer1_filter,
     layer3_sector_resonance,
 )
@@ -174,6 +176,39 @@ class TestDetectCompression:
         )
         result = _detect_compression(df, cfg)
         assert result is None
+
+
+class TestAllocateAiCandidates:
+    def test_evr_and_compression_only_hits_enter_quota_tracks(self):
+        result = FunnelResult(
+            layer1_symbols=["000001", "000002"],
+            layer2_symbols=["000001", "000002"],
+            layer3_symbols=["000001", "000002"],
+            top_sectors=[],
+            triggers={"evr": [("000001", 2.0)], "compression": [("000002", 0.4)]},
+            stage_map={},
+            markup_symbols=[],
+            exit_signals={},
+            channel_map={},
+        )
+
+        trend, accum, scores = allocate_ai_candidates(
+            result,
+            [],
+            "NEUTRAL",
+            policy_override={
+                "total_cap": 2,
+                "trend_quota": 1,
+                "accum_quota": 1,
+                "max_trend_l3_fill": 0,
+                "max_accum_l3_fill": 0,
+            },
+        )
+
+        assert trend == ["000001"]
+        assert accum == ["000002"]
+        assert scores["000001"] > 0
+        assert scores["000002"] > 0
 
 
 class TestSectorHeatBypass:

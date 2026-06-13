@@ -589,7 +589,9 @@ def _cmd_screen(args):
             for code, score in items[:10]:
                 print(f"    {code}  score={score:.2f}")
     if metrics:
-        print(f"\n  指标: {json.dumps(metrics, ensure_ascii=False)}")
+        from tools.funnel_public import public_funnel_metrics
+
+        print(f"\n  指标: {json.dumps(public_funnel_metrics(metrics), ensure_ascii=False, default=str)}")
 
 
 # ---------------------------------------------------------------------------

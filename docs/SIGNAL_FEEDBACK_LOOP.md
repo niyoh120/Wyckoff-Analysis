@@ -21,7 +21,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  subgraph F["T 日 18:25：A 股漏斗"]
+  subgraph F["T 日 17:17：A 股漏斗"]
     A["wyckoff_funnel.yml<br/>定时或手动触发"] --> B["scripts/daily_job.py"]
     B --> C["Step2: run_funnel"]
     C --> D["读取上一轮<br/>signal_health_daily / signal_registry"]
