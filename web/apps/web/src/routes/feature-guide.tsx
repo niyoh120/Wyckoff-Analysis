@@ -96,7 +96,7 @@ const capabilityCopy = {
 
 const capabilityGaps = {
   'zh-CN': [
-    ['全市场漏斗任务', 'A股、港股、美股每日全市场扫描、L1-L4 分层、信号写库与飞书推送仍主要跑在 GitHub Actions。'],
+    ['全市场漏斗任务', 'A股保留完整 AI/通知链路；港股、美股每日扫描只写跟踪表并产出 Actions artifact。'],
     ['LLM 输入预览与飞书产物', '每日审核输入、完整报告、文件/文档分发更适合由 Actions 产出，Web 只承接查询和轻量分析。'],
     ['回测与参数网格', '牛熊周期、TopN、止损/止盈/持仓天数等批量计算适合后台长任务，Web 目前只展示部分结果。'],
     ['信号生命周期与补价回刷', 'pending/confirmed/expired、推荐表现回刷、30 个交易日保留、MFE/MAE 统计都在后台维护。'],
@@ -105,7 +105,7 @@ const capabilityGaps = {
     ['维护与数据库任务', '缓存清理、RLS/服务端密钥操作、日志 artifact、全量清库/回刷属于运维能力，Web 只保留安全入口。'],
   ],
   'en-US': [
-    ['Full-market funnel jobs', 'A-share, HK, and US market scans, L1-L4 layering, signal writes, and Feishu pushes mainly run in GitHub Actions.'],
+    ['Full-market funnel jobs', 'A-share scans run the full AI/notification pipeline; HK and US scans write tracking tables and artifacts only.'],
     ['LLM input previews and Feishu artifacts', 'Daily review inputs, full reports, and file/doc distribution fit Actions better; the web UI handles querying and lightweight analysis.'],
     ['Backtests and parameter grids', 'Bull/bear windows, TopN, stop-loss, take-profit, and holding-day grids are long-running backend workloads.'],
     ['Signal lifecycle and repricing', 'pending/confirmed/expired updates, recommendation repricing, 30-trading-day retention, and MFE/MAE stats run in background jobs.'],

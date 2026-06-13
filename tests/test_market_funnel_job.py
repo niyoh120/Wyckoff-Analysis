@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pandas as pd
-import pytest
 
 import scripts.market_funnel_job as market_job
-from scripts.market_funnel_job import _candidate_rows, _upsert_funnel_to_tracking, run_market_funnel
+from scripts.market_funnel_job import _candidate_rows, run_market_funnel
 
 
 def _daily_frame(rows: int = 230) -> pd.DataFrame:
@@ -33,6 +31,16 @@ def _daily_frame(rows: int = 230) -> pd.DataFrame:
 
 def test_run_layers_passes_l2_channel_map_to_l4(monkeypatch):
     captured: dict[str, object] = {}
+    bench = _daily_frame()
+    sector_map = {"AAPL.US": "Technology"}
+
+    def fake_layer2(symbols, _df_map, bench_df, *_args, **_kwargs):
+        captured["bench_df"] = bench_df
+        return (["AAPL.US"], {"AAPL.US": "趋势延续"}, [])
+
+    def fake_layer3(symbols, sectors, *_args, **_kwargs):
+        captured["sector_map"] = sectors
+        return (symbols, [("Technology", 1)])
 
     def fake_layer4(symbols, _df_map, _cfg, *, channel_map=None, **_kwargs):
         captured["symbols"] = symbols
@@ -40,37 +48,26 @@ def test_run_layers_passes_l2_channel_map_to_l4(monkeypatch):
         return {"trend_pullback": [(symbols[0], 0.25)]}
 
     monkeypatch.setattr(market_job, "layer1_filter", lambda symbols, *_args, **_kwargs: symbols)
-    monkeypatch.setattr(
-        market_job,
-        "layer2_strength_detailed",
-        lambda *_args, **_kwargs: (["AAPL.US"], {"AAPL.US": "趋势延续"}, []),
-    )
-    monkeypatch.setattr(market_job, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
+    monkeypatch.setattr(market_job, "layer2_strength_detailed", fake_layer2)
+    monkeypatch.setattr(market_job, "layer3_sector_resonance", fake_layer3)
     monkeypatch.setattr(market_job, "layer4_triggers", fake_layer4)
 
     triggers, metrics = market_job._run_layers(
         ["AAPL.US"],
         {"AAPL.US": "Apple"},
         {"AAPL.US": _daily_frame()},
-        market_job.RuntimeConfig(
-            spec=market_job.MARKET_SPECS["us"],
-            max_symbols=1,
-            quote_batch_size=1,
-            quote_batch_sleep=0.0,
-            kline_count=230,
-            kline_batch_size=1,
-            kline_batch_sleep=0.0,
-            min_quote_amount=0.0,
-            min_avg_amount=0.0,
-            min_history_rows=220,
-            output_path=None,
-            symbol_path=Path("symbols.txt"),
-        ),
+        market_job._runtime_config("us", None),
+        bench_df=bench,
+        sector_map=sector_map,
     )
 
-    assert captured == {"symbols": ["AAPL.US"], "channel_map": {"AAPL.US": "趋势延续"}}
+    assert captured["bench_df"] is bench
+    assert captured["sector_map"] == sector_map
+    assert captured["symbols"] == ["AAPL.US"]
+    assert captured["channel_map"] == {"AAPL.US": "趋势延续"}
     assert triggers["trend_pullback"] == [("AAPL.US", 0.25)]
     assert metrics["by_trigger"] == {"trend_pullback": 1}
+    assert metrics["sector_coverage"] == 1
 
 
 def test_candidate_rows_keep_raw_trigger_strength():
@@ -89,86 +86,43 @@ def test_candidate_rows_keep_raw_trigger_strength():
     assert rows[0]["latest_trade_date"] == 20250101
 
 
-def test_notify_report_sends_feishu(monkeypatch):
-    captured: dict[str, str] = {}
-    monkeypatch.setenv("FEISHU_WEBHOOK_URL", "https://example.invalid/webhook")
-    monkeypatch.setattr(
-        market_job,
-        "send_feishu_notification",
-        lambda webhook, title, content: (
-            captured.update({"webhook": webhook, "title": title, "content": content}) or True
-        ),
+def test_rank_quotes_prefers_liquidity_not_absolute_change():
+    ranked = market_job._rank_quotes(
+        {
+            "SAFE.US": {"last_price": 20, "amount": 100, "volume": 1, "ext": {"change_pct": 0.5}},
+            "MOVE.US": {"last_price": 20, "amount": 90, "volume": 999, "ext": {"change_pct": -20}},
+        },
+        max_symbols=2,
+        min_quote_amount=0.0,
+        min_quote_price=1.0,
     )
 
-    market_job._notify_report({"label": "美股", "market": "us"}, "# report")
-
-    assert captured == {
-        "webhook": "https://example.invalid/webhook",
-        "title": "Wyckoff Funnel 美股 报告",
-        "content": "# report",
-    }
+    assert [row["symbol"] for row in ranked] == ["SAFE.US", "MOVE.US"]
 
 
-def test_upsert_funnel_to_tracking_uses_market_trade_date(monkeypatch):
-    captured: dict[str, object] = {}
-
-    def fake_upsert(recommend_date, rows, market):
-        captured["recommend_date"] = recommend_date
-        captured["rows"] = rows
-        captured["market"] = market
-        return True
-
-    monkeypatch.setattr("integrations.supabase_recommendation.upsert_global_recommendations", fake_upsert)
-
-    _upsert_funnel_to_tracking(
-        [
-            {
-                "symbol": "AAPL.US",
-                "name": "Apple",
-                "triggers": ["SOS"],
-                "score": 12.5,
-                "latest_close": 213.0,
-                "latest_trade_date": 20260514,
-            }
-        ],
-        "us",
+def test_rank_quotes_filters_low_price_symbols():
+    ranked = market_job._rank_quotes(
+        {
+            "PENNY.HK": {"last_price": 0.25, "amount": 99_000_000, "volume": 1_000_000},
+            "BLUE.HK": {"last_price": 10, "amount": 1_000_000, "volume": 100_000},
+        },
+        max_symbols=5,
+        min_quote_amount=0.0,
+        min_quote_price=1.0,
     )
 
-    assert captured["recommend_date"] == 20260514
-    assert captured["market"] == "us"
+    assert [row["symbol"] for row in ranked] == ["BLUE.HK"]
 
 
-def test_upsert_funnel_to_tracking_groups_by_trade_date(monkeypatch):
-    calls: list[tuple[int, list[dict[str, object]], str]] = []
+def test_market_regime_crash_caps_candidates_and_tightens_strength():
+    cfg = market_job.funnel_config_for_market("us", trading_days=230)
+    bench = _daily_frame()
+    bench.loc[bench.index[-1], "pct_chg"] = -4.0
+    context = market_job._market_regime_context(bench, cfg)
 
-    def fake_upsert(recommend_date, rows, market):
-        calls.append((recommend_date, rows, market))
-        return True
-
-    monkeypatch.setattr("integrations.supabase_recommendation.upsert_global_recommendations", fake_upsert)
-
-    _upsert_funnel_to_tracking(
-        [
-            {"symbol": "HALT.US", "latest_close": 10.0, "latest_trade_date": 20260513},
-            {"symbol": "AAPL.US", "latest_close": 213.0, "latest_trade_date": 20260514},
-        ],
-        "us",
-    )
-
-    assert [(date, [row["code"] for row in rows], market) for date, rows, market in calls] == [
-        (20260513, ["HALT.US"], "us"),
-        (20260514, ["AAPL.US"], "us"),
-    ]
-
-
-def test_upsert_funnel_to_tracking_requires_trade_date(monkeypatch):
-    def fake_upsert(recommend_date, rows, market):
-        raise AssertionError("upsert should not run without a trade date")
-
-    monkeypatch.setattr("integrations.supabase_recommendation.upsert_global_recommendations", fake_upsert)
-
-    with pytest.raises(ValueError, match="recommendation trade date"):
-        _upsert_funnel_to_tracking([{"symbol": "AAPL.US", "latest_close": 213.0}], "us")
+    assert context["regime"] == "CRASH"
+    assert context["candidate_cap"] == 0
+    assert cfg.rps_fast_min >= 85.0
 
 
 class FakeTickFlowClient:
@@ -203,6 +157,12 @@ class FakeTickFlowClient:
         assert adjust == "forward"
         return {symbol: _daily_frame() for symbol in symbols}
 
+    def get_klines(self, symbol, *, period, count, adjust):
+        assert period == "1d"
+        assert count == 230
+        assert adjust == "forward"
+        return _daily_frame()
+
 
 class ManyCandidateTickFlowClient:
     def __init__(self) -> None:
@@ -226,6 +186,12 @@ class ManyCandidateTickFlowClient:
         assert count == 230
         assert adjust == "forward"
         return {symbol: _daily_frame() for symbol in symbols}
+
+    def get_klines(self, symbol, *, period, count, adjust):
+        assert period == "1d"
+        assert count == 230
+        assert adjust == "forward"
+        return _daily_frame()
 
 
 def test_run_market_funnel_uses_quote_prefilter_and_batch_fetch(tmp_path, monkeypatch):
@@ -263,19 +229,20 @@ def test_run_market_funnel_uses_quote_prefilter_and_batch_fetch(tmp_path, monkey
     assert "| 股票池 | 3 |" in report
 
 
-def test_run_market_funnel_writes_all_candidates_to_db(tmp_path, monkeypatch):
+def test_run_market_funnel_writes_all_candidates_to_db_when_enabled(tmp_path, monkeypatch):
     symbols = [f"S{i:03d}.US" for i in range(105)]
     symbol_file = tmp_path / "us_symbols.txt"
     symbol_file.write_text("\n".join(symbols), encoding="utf-8")
     captured: dict[str, object] = {}
 
-    def fake_run_layers(fetched_symbols, name_map, df_map, runtime):
+    def fake_run_layers(fetched_symbols, name_map, df_map, runtime, **_kwargs):
         hits = [(symbol, float(index)) for index, symbol in enumerate(fetched_symbols, start=1)]
         return {"sos": hits}, {"total_hits": len(hits), "by_trigger": {"sos": len(hits)}}
 
     def fake_upsert(recommend_date, rows, market):
         captured["rows"] = rows
         captured["market"] = market
+        captured["recommend_date"] = recommend_date
         return True
 
     monkeypatch.setenv("MARKET_FUNNEL_SYMBOL_FILE", str(symbol_file))
@@ -286,11 +253,37 @@ def test_run_market_funnel_writes_all_candidates_to_db(tmp_path, monkeypatch):
     monkeypatch.setenv("MARKET_FUNNEL_MIN_QUOTE_AMOUNT", "0")
     monkeypatch.setenv("MARKET_FUNNEL_MIN_HISTORY_ROWS", "220")
     monkeypatch.setenv("MARKET_FUNNEL_WRITE_DB", "1")
+    monkeypatch.setenv("FEISHU_WEBHOOK_URL", "https://example.invalid/webhook")
     monkeypatch.setattr("scripts.market_funnel_job._run_layers", fake_run_layers)
     monkeypatch.setattr("integrations.supabase_recommendation.upsert_global_recommendations", fake_upsert)
 
     result = run_market_funnel("us", output=str(tmp_path / "us_result.json"), client=ManyCandidateTickFlowClient())
 
     assert len(result["top_candidates"]) == 100
+    assert result["metrics"]["total_hits"] == 105
     assert len(captured["rows"]) == 105
     assert captured["market"] == "us"
+    assert captured["recommend_date"] == 20251118
+
+
+def test_upsert_funnel_to_tracking_groups_by_trade_date(monkeypatch):
+    calls: list[tuple[int, list[dict[str, object]], str]] = []
+
+    def fake_upsert(recommend_date, rows, market):
+        calls.append((recommend_date, rows, market))
+        return True
+
+    monkeypatch.setattr("integrations.supabase_recommendation.upsert_global_recommendations", fake_upsert)
+
+    market_job._upsert_funnel_to_tracking(
+        [
+            {"symbol": "HALT.US", "latest_close": 10.0, "latest_trade_date": 20260513},
+            {"symbol": "AAPL.US", "latest_close": 213.0, "latest_trade_date": 20260514},
+        ],
+        "us",
+    )
+
+    assert [(date, [row["code"] for row in rows], market) for date, rows, market in calls] == [
+        (20260513, ["HALT.US"], "us"),
+        (20260514, ["AAPL.US"], "us"),
+    ]
