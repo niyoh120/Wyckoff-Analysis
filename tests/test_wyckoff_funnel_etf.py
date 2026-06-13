@@ -174,6 +174,24 @@ def test_split_selected_tracks_preserves_order_and_accum_only_hits():
     assert accum == ["000002", "000004"]
 
 
+def test_full_formal_ai_selection_respects_hard_cap(monkeypatch):
+    monkeypatch.setattr(funnel, "FUNNEL_FULL_FORMAL_L4_MAX", 2)
+
+    selected, trend, accum, score_map, policy = funnel._full_formal_ai_selection(
+        ["000001", "000002", "000003"],
+        {"000001": 3.0, "000002": 2.0, "000003": 1.0},
+        {"000001": ["sos"], "000002": ["lps"], "000003": ["spring"]},
+    )
+
+    assert selected == ["000001", "000002"]
+    assert trend == ["000001"]
+    assert accum == ["000002"]
+    assert score_map == {"000001": 3.0, "000002": 2.0}
+    assert policy["total_cap"] == 2
+    assert policy["formal_l4_total"] == 3
+    assert policy["formal_l4_cap"] == 2
+
+
 def test_merge_trigger_maps_keeps_bypass_l4_hits():
     merged = _merge_trigger_maps(
         {"lps": [("000001", 1.0)], "evr": [("000002", 2.0)]},

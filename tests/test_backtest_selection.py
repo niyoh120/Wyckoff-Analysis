@@ -32,6 +32,35 @@ def test_all_formal_l4_selection_excludes_stage_only_candidates() -> None:
     assert track_map == {"000001": "Trend"}
 
 
+def test_all_formal_l4_selection_respects_hard_cap(monkeypatch) -> None:
+    from scripts import backtest_runner
+
+    monkeypatch.setattr(backtest_runner, "BACKTEST_FULL_FORMAL_L4_MAX", 2)
+    result = FunnelResult(
+        layer1_symbols=["000001", "000002", "000003"],
+        layer2_symbols=["000001", "000002", "000003"],
+        layer3_symbols=["000001", "000002", "000003"],
+        top_sectors=[],
+        triggers={"sos": [("000001", 3.0), ("000002", 2.0), ("000003", 1.0)]},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={"000001": "点火破局", "000002": "点火破局", "000003": "点火破局"},
+    )
+
+    codes, score_map, track_map = backtest_runner._select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="NEUTRAL",
+        selection_mode="all_formal_l4",
+    )
+
+    assert codes == ["000001", "000002"]
+    assert score_map == {"000001": 3.0, "000002": 2.0}
+    assert track_map == {"000001": "Trend", "000002": "Trend"}
+
+
 def test_tradeable_l4_selection_uses_quota_and_loss_guard() -> None:
     result = FunnelResult(
         layer1_symbols=[],

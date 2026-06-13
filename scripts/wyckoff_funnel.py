@@ -125,6 +125,11 @@ FUNNEL_EXPORT_FULL_FETCH = os.getenv("FUNNEL_EXPORT_FULL_FETCH", "0").strip().lo
 }
 FUNNEL_EXPORT_DIR = os.getenv("FUNNEL_EXPORT_DIR", "data/funnel_snapshots").strip() or "data/funnel_snapshots"
 FUNNEL_AI_SELECTION_MODE = os.getenv("FUNNEL_AI_SELECTION_MODE", "tradeable_l4").strip().lower()
+try:
+    FUNNEL_FULL_FORMAL_L4_MAX = max(int(float(os.getenv("FUNNEL_FULL_FORMAL_L4_MAX", "25"))), 0)
+except Exception:
+    logger.debug("FUNNEL_FULL_FORMAL_L4_MAX parse failed, using default", exc_info=True)
+    FUNNEL_FULL_FORMAL_L4_MAX = 25
 FUNNEL_DEFENSIVE_FORCE_QUOTA = os.getenv("FUNNEL_DEFENSIVE_FORCE_QUOTA", "1").strip().lower() in {
     "1",
     "true",
@@ -1305,22 +1310,26 @@ def _full_formal_ai_selection(
     code_to_best_score: dict[str, float],
     code_to_trigger_keys: dict[str, list[str]],
 ) -> tuple[list[str], list[str], list[str], dict[str, float], dict]:
-    selected_for_ai = list(formal_sorted_codes)
+    cap = int(FUNNEL_FULL_FORMAL_L4_MAX)
+    selected_for_ai = list(formal_sorted_codes if cap <= 0 else formal_sorted_codes[:cap])
     trend_selected, accum_selected = _split_selected_tracks(selected_for_ai, code_to_trigger_keys)
     ai_policy = {
-        "total_cap": len(formal_sorted_codes),
+        "total_cap": len(selected_for_ai),
         "trend_quota": len(trend_selected),
         "accum_quota": len(accum_selected),
         "requested_trend_quota": len(trend_selected),
         "requested_accum_quota": len(accum_selected),
         "quota_family": "FULL_FORMAL_L4",
+        "formal_l4_total": len(formal_sorted_codes),
+        "formal_l4_cap": cap,
         "max_trend_l3_fill": 0,
         "max_accum_l3_fill": 0,
     }
-    score_map = {c: float(code_to_best_score.get(c, 0.0)) for c in formal_sorted_codes}
+    score_map = {c: float(code_to_best_score.get(c, 0.0)) for c in selected_for_ai}
     print(
         f"[funnel] AI候选分配完成(full_formal_l4): "
-        f"Trend={len(trend_selected)}, Accum={len(accum_selected)}, total={len(selected_for_ai)}"
+        f"Trend={len(trend_selected)}, Accum={len(accum_selected)}, total={len(selected_for_ai)}, "
+        f"formal_total={len(formal_sorted_codes)}, cap={'unlimited' if cap <= 0 else cap}"
     )
     return selected_for_ai, trend_selected, accum_selected, score_map, ai_policy
 

@@ -100,6 +100,10 @@ REGIME_POSITION_RATIO: dict[str, float] = {
     "BLACK_SWAN": 0.0,
 }
 FUNNEL_AI_SELECTION_MODE = os.getenv("FUNNEL_AI_SELECTION_MODE", "tradeable_l4").strip().lower()
+try:
+    BACKTEST_FULL_FORMAL_L4_MAX = max(int(float(os.getenv("FUNNEL_FULL_FORMAL_L4_MAX", "25"))), 0)
+except Exception:
+    BACKTEST_FULL_FORMAL_L4_MAX = 25
 _TRADEABLE_L4_SELECTION_MODES = {
     "tradeable_l4",
 }
@@ -587,7 +591,10 @@ def _select_ai_input_codes(
         return selected_codes, score_map, _track_map_for_hits(selected_codes, result.triggers)
 
     if selection_mode in _FORMAL_L4_SELECTION_MODES or selection_mode in _LEGACY_SELECTION_MODES:
-        return sorted_hit_codes, hit_score_map, _track_map_for_hits(sorted_hit_codes, result.triggers)
+        cap = int(BACKTEST_FULL_FORMAL_L4_MAX)
+        selected_codes = sorted_hit_codes if cap <= 0 else sorted_hit_codes[:cap]
+        score_map = {code: hit_score_map.get(code, 0.0) for code in selected_codes}
+        return selected_codes, score_map, _track_map_for_hits(selected_codes, result.triggers)
 
     sector_rotation = analyze_sector_rotation(
         day_df_map,

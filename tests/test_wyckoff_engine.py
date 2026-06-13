@@ -14,6 +14,7 @@ from core.wyckoff_engine import (
     _sorted_if_needed,
     allocate_ai_candidates,
     layer1_filter,
+    layer2_strength_detailed,
     layer3_sector_resonance,
     resolve_ai_candidate_policy,
 )
@@ -177,6 +178,76 @@ class TestDetectCompression:
         )
         result = _detect_compression(df, cfg)
         assert result is None
+
+    def test_rejects_downtrend_compression(self):
+        cfg = FunnelConfig()
+        n = 60
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        closes = [12.0 - i * 0.03 for i in range(n)]
+        highs = [c + (0.45 if i < 40 else 0.45 * (0.7 ** (i - 40))) for i, c in enumerate(closes)]
+        lows = [c - (0.45 if i < 40 else 0.45 * (0.7 ** (i - 40))) for i, c in enumerate(closes)]
+        vols = [1_000_000 if i < 40 else int(600_000 * (0.9 ** (i - 40))) for i in range(n)]
+        df = pd.DataFrame(
+            {
+                "date": dates,
+                "open": closes,
+                "close": closes,
+                "high": highs,
+                "low": lows,
+                "volume": vols,
+                "pct_chg": [0.0] * n,
+            }
+        )
+
+        assert _detect_compression(df, cfg) is None
+
+    def test_sos_bypass_requires_minimum_slow_rps(self):
+        cfg = FunnelConfig()
+        cfg.enable_ambush_channel = False
+        cfg.enable_accumulation_channel = False
+        cfg.enable_dry_vol_channel = False
+        cfg.enable_rs_divergence_channel = False
+        cfg.enable_trend_cont_channel = False
+        cfg.enable_breakout_accel_channel = False
+        cfg.enable_pre_ignition_watch = False
+        cfg.sos_bypass_rps_slow_min = 75.0
+        dates = pd.date_range("2024-01-01", periods=220, freq="B")
+        weak_close = [10.0] * 219 + [10.7]
+        strong_close = [10.0 + i * 0.08 for i in range(220)]
+
+        weak = pd.DataFrame(
+            {
+                "date": dates,
+                "open": [10.0] * 220,
+                "close": weak_close,
+                "high": [10.1] * 219 + [10.8],
+                "low": [9.9] * 219 + [10.0],
+                "volume": [1_000_000] * 219 + [4_000_000],
+                "pct_chg": [0.0] * 219 + [7.0],
+            }
+        )
+        strong = pd.DataFrame(
+            {
+                "date": dates,
+                "open": strong_close,
+                "close": strong_close,
+                "high": [c * 1.01 for c in strong_close],
+                "low": [c * 0.99 for c in strong_close],
+                "volume": [1_000_000] * 220,
+                "pct_chg": [0.5] * 220,
+            }
+        )
+
+        passed, channel_map, _ = layer2_strength_detailed(
+            ["LOW"],
+            {"LOW": weak, "HIGH": strong},
+            None,
+            cfg,
+            rps_universe=["LOW", "HIGH"],
+        )
+
+        assert passed == []
+        assert channel_map == {}
 
 
 class TestAllocateAiCandidates:

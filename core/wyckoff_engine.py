@@ -152,6 +152,7 @@ class FunnelConfig:
     trend_cont_rps_slow_min: float = 75.0  # RPS120 >= 此值
     trend_cont_max_drawdown_pct: float = 20.0  # 近 N 日最大回撤 < 此值
     trend_cont_drawdown_window: int = 60  # 回撤计算窗口（交易日）
+    trend_cont_vol_ratio_min: float = 0.70  # 近5日均量 / 20日均量，过滤缩量趋势末端
 
     # Layer 2 加速突破通道（Breakout Acceleration Channel）
     # 从底部结构刚起步：价格站上 MA50 但 MA50 尚未上穿 MA200，短期动量已爆发。
@@ -208,6 +209,7 @@ class FunnelConfig:
     compression_atr_window: int = 20
     compression_atr_quantile: float = 0.20
     compression_vol_decline_ratio: float = 0.60  # 统一"量能枯竭"标准为 0.6倍
+    compression_require_direction: bool = True  # 压缩必须处于非下降结构，避免阴跌缩量误判
 
     # Layer 4 - Trend Pullback (趋势回踩)
     enable_trend_pullback_trigger: bool = True
@@ -226,6 +228,7 @@ class FunnelConfig:
     sos_vol_window: int = 20  # 计算点火爆量时的参考窗口
     sos_breakout_window: int = 60  # 把突破箱体延长到 60天 (约3个月)，拒绝 10日小打小闹
     sos_breakout_tolerance: float = 0.01  # 改为 0.01：突破容差 1%（从 2% 改为 1%）
+    sos_bypass_rps_slow_min: float = 30.0  # L2 点火破局旁路的最低 RPS120 门槛
     # SOS 动态极值爆量
     sos_vol_quantile_window: int = 60  # 计算量能分位数的滚动窗口
     sos_vol_quantile: float = 0.95  # 要求当日量能突破历史 N 日的 95% 分位数
@@ -874,6 +877,7 @@ def layer2_strength_detailed(
         if cfg.enable_trend_cont_channel and bullish_alignment and rps_filter_active:
             _tc_rps_ok = rps_slow is not None and rps_slow >= cfg.trend_cont_rps_slow_min
             _tc_dd_ok = False
+            _tc_vol_ok = True
             if _tc_rps_ok:
                 dd_window = max(int(cfg.trend_cont_drawdown_window), 10)
                 recent_close = close.tail(dd_window)
@@ -882,14 +886,23 @@ def layer2_strength_detailed(
                     drawdown = (recent_close - cum_max) / cum_max * 100.0
                     max_dd = float(drawdown.min())
                     _tc_dd_ok = abs(max_dd) < cfg.trend_cont_max_drawdown_pct
-            trend_cont_ok = _tc_rps_ok and _tc_dd_ok
+                vol_tc = pd.to_numeric(df_sorted.get("volume"), errors="coerce").dropna()
+                if len(vol_tc) >= 20:
+                    vol20 = float(vol_tc.tail(20).mean())
+                    vol5 = float(vol_tc.tail(5).mean())
+                    if vol20 > 0:
+                        _tc_vol_ok = (vol5 / vol20) >= float(cfg.trend_cont_vol_ratio_min)
+            trend_cont_ok = _tc_rps_ok and _tc_dd_ok and _tc_vol_ok
 
         # 点火破局通道（SOS Bypass）
-        # 如果当天爆发了放量大阳线，哪怕它此前 RPS 很低或者量能没萎缩，也直接送入 L4 让扳机去二次确认
+        # 如果当天爆发了放量大阳线，要求至少不处于长期相对弱势，避免垃圾股单日异动穿透 L2。
         sos_ok = False
         if hasattr(cfg, "sos_vol_ratio"):
             sos_score = _detect_sos(df_sorted, cfg)
-            if sos_score is not None:
+            sos_rps_ok = (not rps_filter_active) or (
+                rps_slow is not None and rps_slow >= float(cfg.sos_bypass_rps_slow_min)
+            )
+            if sos_score is not None and sos_rps_ok:
                 sos_ok = True
 
         if (
@@ -1467,6 +1480,23 @@ def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     volume = pd.to_numeric(df_s["volume"], errors="coerce")
     if close.isna().all() or high.isna().all() or low.isna().all():
         return None
+
+    if cfg.compression_require_direction:
+        direction_ok = False
+        if len(close) >= 25:
+            ma20 = close.rolling(20).mean()
+            ma20_last = ma20.iloc[-1]
+            ma20_prev = ma20.shift(5).iloc[-1]
+            if pd.notna(ma20_last) and pd.notna(ma20_prev) and float(ma20_last) >= float(ma20_prev):
+                direction_ok = True
+        if len(close) >= 50:
+            ma50 = close.rolling(50).mean()
+            ma50_last = ma50.iloc[-1]
+            close_last = close.iloc[-1]
+            if pd.notna(ma50_last) and pd.notna(close_last) and float(close_last) >= float(ma50_last):
+                direction_ok = True
+        if not direction_ok:
+            return None
 
     if len(close) >= 200:
         ma200 = close.rolling(200).mean()
