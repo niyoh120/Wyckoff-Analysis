@@ -8,6 +8,8 @@ from cli.sub_agents import (
     RESEARCH_AGENT,
     TRADING_AGENT,
     SubAgentToolProxy,
+    _delegate_result_policy,
+    delegate_to_analysis,
     run_sub_agent,
 )
 from cli.tools import TOOL_SCHEMAS
@@ -117,6 +119,8 @@ def test_run_sub_agent_basic():
     assert result["tool_calls"] == []
     assert not result["context_truncated"]
     assert not result["result_truncated"]
+    assert result["policy"]["next_action"] == "use_result"
+    assert result["policy"]["fallback_tools"] == []
 
 
 def test_run_sub_agent_with_tool_call():
@@ -219,6 +223,8 @@ def test_run_sub_agent_cancelled():
     assert result["status"] == "cancelled"
     assert result["result"] == ""
     assert "cancelled" in result["error"]
+    assert result["policy"]["next_action"] == "stop_and_report_cancelled"
+    assert result["policy"]["retryable"] is False
 
 
 def test_run_sub_agent_timeout():
@@ -242,3 +248,45 @@ def test_run_sub_agent_timeout():
     assert result["agent"] == "research"
     assert result["status"] == "timeout"
     assert "timeout" in result["error"]
+    assert result["policy"]["next_action"] == "fallback_to_direct_tools"
+    assert result["policy"]["retryable"] is True
+    assert "get_market_overview" in result["policy"]["fallback_tools"]
+
+
+def test_run_sub_agent_error_policy():
+    def failed_round(_messages, _tools, _system_prompt):
+        raise RuntimeError("provider failed")
+
+    provider = ScriptedProvider([failed_round])
+    registry = StubToolRegistry()
+
+    result = run_sub_agent(
+        ANALYSIS_AGENT,
+        task="诊断持仓",
+        context="",
+        provider=provider,
+        registry=registry,
+    )
+
+    assert result["agent"] == "analysis"
+    assert result["status"] == "error"
+    assert "provider failed" in result["error"]
+    assert result["policy"]["next_action"] == "fallback_to_direct_tools"
+    assert "analyze_stock" in result["policy"]["fallback_tools"]
+
+
+def test_empty_policy_uses_fallback_tools():
+    policy = _delegate_result_policy(TRADING_AGENT, "empty")
+
+    assert policy["next_action"] == "fallback_to_direct_tools"
+    assert policy["retryable"] is False
+    assert "generate_strategy_decision" in policy["fallback_tools"]
+
+
+def test_delegate_start_error_has_policy():
+    result = delegate_to_analysis("诊断持仓")
+
+    assert result["agent"] == "analysis"
+    assert result["status"] == "error"
+    assert "无法启动" in result["error"]
+    assert result["policy"]["next_action"] == "fallback_to_direct_tools"

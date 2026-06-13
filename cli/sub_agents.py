@@ -91,6 +91,20 @@ TRADING_AGENT = SubAgent(
     ),
 )
 
+_FALLBACK_TOOLS_BY_AGENT = {
+    "research": ("get_market_overview", "query_history", "check_background_tasks"),
+    "analysis": ("analyze_stock", "portfolio", "get_market_overview"),
+    "trading": ("portfolio", "generate_strategy_decision", "get_market_overview"),
+}
+
+_POLICY_BY_STATUS = {
+    "completed": ("use_result", False, "使用子 Agent 返回的结论。"),
+    "timeout": ("fallback_to_direct_tools", True, "不要反复委派；用 fallback_tools 做窄范围降级处理。"),
+    "error": ("fallback_to_direct_tools", True, "不要反复委派；用 fallback_tools 获取必要事实后降级回答。"),
+    "empty": ("fallback_to_direct_tools", False, "子 Agent 没有产出；用 fallback_tools 做最小可用回答。"),
+    "cancelled": ("stop_and_report_cancelled", False, "用户已中断任务，停止继续调用工具。"),
+}
+
 
 class SubAgentToolProxy:
     """限制 sub-agent 只能看到/调用指定工具子集。"""
@@ -298,7 +312,36 @@ def _sub_agent_result(
         "context_truncated": context_truncated,
         "result_truncated": result_truncated,
         "error": error,
+        "policy": _delegate_result_policy(sub, status),
     }
+
+
+def _delegate_result_policy(sub: SubAgent, status: str) -> dict[str, Any]:
+    next_action, retryable, instruction = _POLICY_BY_STATUS.get(
+        status,
+        ("fallback_to_direct_tools", False, "未知状态；用 fallback_tools 做保守降级。"),
+    )
+    fallback_tools = list(_FALLBACK_TOOLS_BY_AGENT.get(sub.name, ()))
+    if next_action in {"use_result", "stop_and_report_cancelled"}:
+        fallback_tools = []
+    return {
+        "next_action": next_action,
+        "retryable": retryable,
+        "fallback_tools": fallback_tools,
+        "instruction": instruction,
+    }
+
+
+def _sub_agent_start_error(sub: SubAgent) -> dict[str, Any]:
+    return _sub_agent_result(
+        sub,
+        "error",
+        {},
+        time.monotonic(),
+        [],
+        False,
+        error="provider/registry 未注入，无法启动 sub-agent",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +354,7 @@ def delegate_to_research(task: str, context: str = "", *, tool_context=None) -> 
     provider = getattr(tool_context, "provider", None)
     registry = getattr(tool_context, "registry", None)
     if not provider or not registry:
-        return {"error": "provider/registry 未注入，无法启动 sub-agent"}
+        return _sub_agent_start_error(RESEARCH_AGENT)
     on_progress = getattr(tool_context, "on_progress", None)
     cancel_check = getattr(tool_context, "cancel_check", None)
     return run_sub_agent(RESEARCH_AGENT, task, context, provider, registry, on_progress, cancel_check)
@@ -322,7 +365,7 @@ def delegate_to_analysis(task: str, context: str = "", *, tool_context=None) -> 
     provider = getattr(tool_context, "provider", None)
     registry = getattr(tool_context, "registry", None)
     if not provider or not registry:
-        return {"error": "provider/registry 未注入，无法启动 sub-agent"}
+        return _sub_agent_start_error(ANALYSIS_AGENT)
     on_progress = getattr(tool_context, "on_progress", None)
     cancel_check = getattr(tool_context, "cancel_check", None)
     return run_sub_agent(ANALYSIS_AGENT, task, context, provider, registry, on_progress, cancel_check)
@@ -333,7 +376,7 @@ def delegate_to_trading(task: str, context: str = "", *, tool_context=None) -> d
     provider = getattr(tool_context, "provider", None)
     registry = getattr(tool_context, "registry", None)
     if not provider or not registry:
-        return {"error": "provider/registry 未注入，无法启动 sub-agent"}
+        return _sub_agent_start_error(TRADING_AGENT)
     on_progress = getattr(tool_context, "on_progress", None)
     cancel_check = getattr(tool_context, "cancel_check", None)
     return run_sub_agent(TRADING_AGENT, task, context, provider, registry, on_progress, cancel_check)
