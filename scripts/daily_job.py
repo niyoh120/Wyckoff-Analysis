@@ -383,15 +383,15 @@ def _persist_external_seed_observations(step2_details: dict, logs_path: str | No
     if not rows:
         return
     if dry_run:
-        _log(f"预演模式: 跳过外部候选观察入库 rows={len(rows)}", logs_path)
+        _log(f"预演模式: 跳过外部观察入库 rows={len(rows)}", logs_path)
         return
     try:
         from integrations.supabase_external_seeds import upsert_external_seed_observations
 
         written = upsert_external_seed_observations(rows)
-        _log(f"外部候选观察入库: rows={len(rows)}, written={written}", logs_path)
+        _log(f"外部观察入库: rows={len(rows)}, written={written}", logs_path)
     except Exception as e:
-        _log(f"外部候选观察入库失败（已降级）: {e}", logs_path)
+        _log(f"外部观察入库失败（已降级）: {e}", logs_path)
 
 
 def _persist_signal_observations(

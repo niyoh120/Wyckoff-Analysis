@@ -691,7 +691,7 @@ tickflow                                        （1 分钟盘中数据，尾盘
 | `signal_health_daily` | 按信号聚合的健康度快照 |
 | `signal_registry` | 信号生命周期与启停状态 |
 | `signal_policy_shadow_runs` | 动态策略 shadow run 差异记录 |
-| `external_seed_observations` | 外部候选种子的 L1/L2/L4 通过情况、watch 状态与过期时间 |
+| `external_seed_observations` | 外部观察名单的 L1/L2/L4 通过情况、watch 状态与过期时间 |
 | `strategy_reflections` | Actions 生成的策略反思快照，仅 shadow/review |
 | `strategy_policy_candidates` | 待人工复盘的候选策略，不自动晋级生产 |
 

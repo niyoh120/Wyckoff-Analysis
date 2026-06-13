@@ -68,15 +68,13 @@ flowchart LR
 
 Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否真的比静态配额更聪明。
 
-### 外部候选观察
+### 外部观察验证
 
-人工关注、社区反馈或其它系统给出的股票可以通过 `external_seeds` 加入观察池。它们不会默认绕过漏斗直接推荐，而是先记录在 `external_seed_observations`：
+人工关注、社区反馈或其它系统给出的股票可以通过 `external_seeds` 加入观察池。它们不属于正式候选来源，不会进入 AI 推荐池，只记录在 `external_seed_observations`：
 
 - 通过 L1/L2：说明候选本身已经符合主路径。
 - L2 未过但 L4 确认：补写 `signal_observations`，`selection_mode=external_seed_shadow`，后续用 outcomes 验证。
 - 未确认：只进入 watch，有效期结束后由 maintenance 清理。
-
-只有打开 `FUNNEL_EXTERNAL_SEED_PROMOTE=true` 时，L4 确认的外部候选才允许进入 AI 候选池，并且仍受外部候选 cap 和总候选上限约束。
 
 ### 跨市场 universe
 

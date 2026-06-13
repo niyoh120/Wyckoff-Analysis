@@ -26,8 +26,6 @@ class ExternalSeedConfig:
     symbols_file: str = ""
     max_symbols: int = 30
     allow_l2_bypass_review: bool = True
-    promote_confirmed_to_ai: bool = False
-    ai_cap: int = 4
     watch_ttl_days: int = 10
     retention_days: int = 180
 
@@ -136,11 +134,6 @@ def load_external_seed_config() -> ExternalSeedConfig:
             _env_value("FUNNEL_EXTERNAL_SEED_L2_BYPASS") or section.get("allow_l2_bypass_review"),
             True,
         ),
-        promote_confirmed_to_ai=_bool_value(
-            _env_value("FUNNEL_EXTERNAL_SEED_PROMOTE") or section.get("promote_confirmed_to_ai"),
-            False,
-        ),
-        ai_cap=_int_value(_env_value("FUNNEL_EXTERNAL_SEED_AI_CAP") or section.get("ai_cap"), 4, minimum=0),
         watch_ttl_days=_int_value(
             _env_value("FUNNEL_EXTERNAL_SEED_WATCH_TTL_DAYS") or section.get("watch_ttl_days"),
             10,
@@ -225,7 +218,6 @@ def _external_seed_row(
         "expires_at": expires_at,
         "raw_payload": {
             "allow_l2_bypass_review": cfg.allow_l2_bypass_review,
-            "promote_confirmed_to_ai": cfg.promote_confirmed_to_ai,
             "watch_ttl_days": cfg.watch_ttl_days,
         },
     }

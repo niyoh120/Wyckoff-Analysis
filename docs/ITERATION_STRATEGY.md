@@ -8,7 +8,7 @@
 ```mermaid
 flowchart LR
   A["漏斗发现信号"] --> B["signal_observations<br/>记录样本"]
-  X["外部候选种子"] --> B
+  X["外部观察名单"] --> B
   X --> Y["external_seed_observations<br/>记录旁路观察"]
   B --> C["signal_feedback_job.py<br/>计算未来收益/回撤"]
   C --> D["signal_health_daily<br/>信号健康度"]
@@ -28,7 +28,7 @@ flowchart LR
 | 方向一：信号衰减监控 | 追踪 SOS / Spring / LPS / EVR / Compression 的后续表现 | `signal_observations` 记录样本，`signal_outcomes` 计算收益 / 回撤，`signal_health_daily` 聚合健康度 | 已落地一期 |
 | 方向二：多策略动态分配 | AI 候选配额从静态规则变为数据驱动 | `dynamic_policy.py` 根据信号权重调整 Trend / Accum 配额，支持 `off` / `shadow` / `on` | 已落地框架，待 shadow 复盘 |
 | 方向三：信号生命周期管理 | 新信号孵化、正式上线、观察、退役 | `signal_registry` 维护 `ACTIVE` / `WATCH` / `EXPERIMENTAL` / `RETIRED` | 已落地骨架，阈值待样本校准 |
-| 方向四：外部候选验证 | 验证人工/社区/其它系统给出的候选是否真有结构优势 | `external_seed_observations` 记录 L1/L2/L4 位置，L4 确认样本补写 `signal_observations` | 已落地 shadow 观察 |
+| 方向四：外部观察验证 | 验证人工/社区/其它系统关注的股票是否真有结构优势 | `external_seed_observations` 记录 L1/L2/L4 位置，L4 确认样本补写 `signal_observations` | 已落地 shadow 观察 |
 
 完整执行链路见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)。
 
@@ -79,10 +79,10 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 - `signal_weights`：触发这次差异的信号权重。
 - `registry_snapshot` / `health_snapshot`：当时策略状态快照。
 
-外部候选复盘重点看 `external_seed_observations`：
-- `watch_status`：候选是被 L1 拒绝、已过 L2、L4 确认，还是只适合继续观察。
-- `l4_trigger_tags`：外部候选是否真的出现 Spring / SOS / LPS / EVR / Compression。
-- `expires_at`：候选观察有效期，过期后由 maintenance 清理。
+外部观察复盘重点看 `external_seed_observations`：
+- `watch_status`：观察对象是被 L1 拒绝、已过 L2、L4 确认，还是只适合继续观察。
+- `l4_trigger_tags`：外部观察名单是否真的出现 Spring / SOS / LPS / EVR / Compression。
+- `expires_at`：观察有效期，过期后由 maintenance 清理。
 
 ## 方向三：信号生命周期管理
 

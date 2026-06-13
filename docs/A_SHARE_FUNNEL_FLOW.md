@@ -17,7 +17,7 @@ flowchart TB
         U4["前日反馈闭环<br/>signal_health_daily<br/>signal_registry"]
         U5["前日盘前风控<br/>premarket_risk → market_signal_daily"]
         U6["前日漏斗产出<br/>signal_pending 待确认信号"]
-        U7["外部候选种子<br/>profile / env / symbols_file"]
+        U7["外部观察名单<br/>profile / env / symbols_file"]
     end
 
     subgraph CORE["🔬 核心：daily_job.py"]
@@ -172,7 +172,7 @@ flowchart TD
         R8 -->|shadow| R10["静态出结果 + shadow 差异写库"]
         R8 -->|on| R11["读 signal_health/registry 动态配额"]
         R12["L2旁路 / 战略旁路 / 主线加权送审"]
-        R14["外部候选 Shadow<br/>可选 L4 确认后入 AI"]
+        R14["外部观察 Shadow<br/>只验证不入 AI"]
         R13["飞书推送漏斗报告"]
     end
 
@@ -198,14 +198,14 @@ flowchart TD
 | EVR | 放量不跌 | Trend |
 | Compression | 压缩蓄势 | 通用 |
 
-### 外部候选种子
+### 外部观察名单
 
-`external_seeds` 用于把人工关注、社区反馈或其它系统给出的股票加入同一套漏斗观察，而不是绕过风控直接推荐：
+`external_seeds` 用于把人工关注、社区反馈或其它系统给出的股票加入同一套漏斗观察，而不是作为正式候选来源：
 
 - 配置来源：`config/profiles/a_share_prod.yml`、`FUNNEL_EXTERNAL_SEED_SYMBOLS`、`FUNNEL_EXTRA_SYMBOLS` 或 `symbols_file`
 - 默认只做 shadow 观察：记录是否通过 L1/L2、是否在 L2 后触发 L4、是否过期
-- `promote_confirmed_to_ai=false` 时不会进入 AI；打开后也受 `ai_cap` 和总候选上限约束
-- 通过 L4 的外部候选会额外写入 `signal_observations`，`selection_mode=external_seed_shadow`
+- 外部观察名单固定为 shadow-only，不进入 `selected_for_ai`
+- 通过 L4 的外部观察对象会额外写入 `signal_observations`，`selection_mode=external_seed_shadow`
 
 ---
 
@@ -317,7 +317,7 @@ flowchart LR
         W2["theme_radar_snapshot"]
         W3["signal_pending<br/>待确认信号"]
         W4["recommendation_tracking<br/>形态复盘"]
-        W12["external_seed_observations<br/>外部候选观察"]
+        W12["external_seed_observations<br/>外部观察验证"]
     end
 
     subgraph STEP3_WRITE["Step3 写入"]
@@ -372,9 +372,7 @@ efinance
 | `FUNNEL_AI_TOTAL_CAP` | `5` | AI 总量硬上限；战略/主题补位也受此限制 |
 | `FUNNEL_DYNAMIC_POLICY` | `shadow` | 主流程用静态配额，同时记录动态策略差异 |
 | `FUNNEL_AI_NEUTRAL_TREND` / `FUNNEL_AI_NEUTRAL_ACCUM` | `2` / `1` | 中性市场保留 1 个 Accum 槽位给 Spring/LPS/Compression |
-| `FUNNEL_EXTERNAL_SEED_SYMBOLS` / `FUNNEL_EXTRA_SYMBOLS` | 空 | 临时追加外部候选；存在时自动启用 external seed |
-| `FUNNEL_EXTERNAL_SEED_PROMOTE` | `false` | 是否允许 L4 确认的外部候选进入 AI 候选池 |
-| `FUNNEL_EXTERNAL_SEED_AI_CAP` | `4` | 外部候选入 AI 的上限，仍受总量硬上限约束 |
+| `FUNNEL_EXTERNAL_SEED_SYMBOLS` / `FUNNEL_EXTRA_SYMBOLS` | 空 | 临时追加外部观察名单；存在时自动启用 external seed shadow |
 | `STEP4_BUY_HARD_STOP_PCT` | `9.0` | 硬止损 |
 | `STEP4_BUY_BLOCK_REGIMES` | `CRASH,BLACK_SWAN,RISK_OFF` | 极寒熔断 |
 

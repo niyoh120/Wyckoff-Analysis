@@ -1562,7 +1562,7 @@ def _build_external_seed_review(
     name_map: dict[str, str],
     sector_map: dict[str, str],
 ) -> dict:
-    empty = {"triggers": {}, "confirmed": [], "watch": [], "promoted": [], "rows": []}
+    empty = {"triggers": {}, "confirmed": [], "watch": [], "rows": []}
     if not seed_cfg.enabled:
         return empty
     l1_set, l2_set = set(l1_passed), set(l2_passed)
@@ -1580,9 +1580,8 @@ def _build_external_seed_review(
         name_map=name_map,
         sector_map=sector_map,
     )
-    promoted = confirmed if seed_cfg.promote_confirmed_to_ai else []
     watch = [c for c in review_codes if c not in set(confirmed)]
-    return {"triggers": triggers, "confirmed": confirmed, "watch": watch, "promoted": promoted, "rows": rows}
+    return {"triggers": triggers, "confirmed": confirmed, "watch": watch, "rows": rows}
 
 
 def _resolve_external_seed_pool(all_symbols: list[str]) -> tuple[ExternalSeedConfig, list[str], int]:
@@ -1590,9 +1589,9 @@ def _resolve_external_seed_pool(all_symbols: list[str]) -> tuple[ExternalSeedCon
     merged, added = append_external_symbols(all_symbols, seed_cfg)
     if seed_cfg.enabled:
         print(
-            "[funnel] 外部候选种子: "
+            "[funnel] 外部观察名单: "
             f"source={seed_cfg.source}, seeds={len(seed_cfg.symbols)}, "
-            f"added_to_pool={added}, promote={seed_cfg.promote_confirmed_to_ai}"
+            f"added_to_pool={added}, mode=shadow_only"
         )
     return seed_cfg, merged, added
 
@@ -1600,12 +1599,7 @@ def _resolve_external_seed_pool(all_symbols: list[str]) -> tuple[ExternalSeedCon
 def _log_external_seed_review(seed_cfg: ExternalSeedConfig, review: dict) -> None:
     if not seed_cfg.enabled:
         return
-    print(
-        "[funnel] 外部候选确认: "
-        f"L4={len(review.get('confirmed') or [])}, "
-        f"watch={len(review.get('watch') or [])}, "
-        f"promoted={len(review.get('promoted') or [])}"
-    )
+    print(f"[funnel] 外部观察确认: L4={len(review.get('confirmed') or [])}, watch={len(review.get('watch') or [])}")
 
 
 def _external_seed_metrics(
@@ -1626,12 +1620,9 @@ def _external_seed_metrics(
         "external_seed_l4_triggers": review.get("triggers") or {},
         "external_seed_l4_confirmed_codes": review.get("confirmed") or [],
         "external_seed_watch_codes": review.get("watch") or [],
-        "external_seed_promoted_pool": review.get("promoted") or [],
         "external_seed_observation_rows": review.get("rows") or [],
         "external_seed_watch_ttl_days": seed_cfg.watch_ttl_days,
         "external_seed_retention_days": seed_cfg.retention_days,
-        "external_seed_promote_confirmed_to_ai": seed_cfg.promote_confirmed_to_ai,
-        "external_seed_ai_cap": seed_cfg.ai_cap,
     }
 
 
@@ -1643,56 +1634,8 @@ def _external_seed_report_line(metrics: dict) -> str:
     confirmed = len(metrics.get("external_seed_l4_confirmed_codes") or [])
     watch = len(metrics.get("external_seed_watch_codes") or [])
     rejected = len(metrics.get("external_seed_rejected_l1_codes") or [])
-    promoted = len(metrics.get("external_seed_promoted_pool") or [])
     ttl = int(metrics.get("external_seed_watch_ttl_days") or 0)
-    return f"{source}: seeds={seed_count}, L4确认={confirmed}, WATCH={watch}, L1拒绝={rejected}, 入AI={promoted}, ttl={ttl}d"
-
-
-def _promote_external_seed_candidates(
-    selected_for_ai: list[str],
-    trend_selected: list[str],
-    accum_selected: list[str],
-    external_seed_set: set[str],
-    code_to_total_score: dict[str, float],
-    code_to_trigger_keys: dict[str, list[str]],
-    score_map: dict[str, float],
-    ai_policy: dict,
-    metrics: dict,
-) -> int:
-    return _promote_l2_bypass_for_ai(
-        selected_for_ai,
-        trend_selected,
-        accum_selected,
-        list(external_seed_set),
-        code_to_total_score,
-        code_to_trigger_keys,
-        score_map,
-        enabled=bool(external_seed_set),
-        cap=int(metrics.get("external_seed_ai_cap") or 0),
-        total_cap=int(ai_policy.get("total_cap") or 0),
-    )
-
-
-def _append_external_seed_report_section(
-    lines: list[str],
-    external_seed_ranked: list[str],
-    selected_for_ai: list[str],
-    metrics: dict,
-    name_map: dict[str, str],
-    code_to_trigger_keys: dict[str, list[str]],
-    display_score: Callable[[str], float],
-) -> None:
-    external_selected = [c for c in external_seed_ranked if c in set(selected_for_ai)]
-    if not external_selected:
-        return
-    lines.append(f"**【外部候选确认】{len(external_selected)} 只**")
-    source = str(metrics.get("external_seed_source") or "external")
-    lines.append(f"{source} 提供种子，已通过 L1 且 L4 确认；是否入生产由 promote 开关控制")
-    for code in external_selected:
-        name = name_map.get(code, code)
-        reasons = "+".join(TRIGGER_SHORT_LABELS.get(k, k) for k in code_to_trigger_keys.get(code, []))
-        lines.append(f"  {code} {name}  {reasons or 'L4确认'}  {display_score(code):.2f}")
-    lines.append("")
+    return f"{source}: seeds={seed_count}, L4确认={confirmed}, WATCH={watch}, L1拒绝={rejected}, ttl={ttl}d"
 
 
 def _append_extra_reasons(code_to_reasons: dict[str, list[str]], reason_map: dict[str, list[str]]) -> None:
@@ -2124,14 +2067,10 @@ def run(
     strategic_l2_bypass_reason_map = metrics.get("strategic_l2_bypass_reason_map", {}) or {}
     strategic_l2_bypass_stage_map = metrics.get("strategic_l2_bypass_stage_map", {}) or {}
     external_seed_triggers = metrics.get("external_seed_l4_triggers", {}) or {}
-    external_seed_promoted_pool = metrics.get("external_seed_promoted_pool", []) or []
     review_triggers = _merge_trigger_maps(triggers, bypass_triggers, strategic_l2_bypass_triggers)
-    if external_seed_promoted_pool:
-        review_triggers = _merge_trigger_maps(review_triggers, external_seed_triggers)
     formal_hit_set = {str(code).strip() for hits in triggers.values() for code, _ in hits if str(code).strip()}
     l2_bypass_set = set(l2_bypass_pool)
     strategic_l2_bypass_set = {str(c).strip() for c in strategic_l2_bypass_pool if str(c).strip()}
-    external_seed_set = {str(c).strip() for c in external_seed_promoted_pool if str(c).strip()}
     code_to_reasons: dict[str, list[str]] = {}
     code_to_trigger_keys: dict[str, list[str]] = {}
     code_to_total_score: dict[str, float] = {}
@@ -2149,15 +2088,7 @@ def run(
         code_to_reasons.setdefault(code, [])
         code_to_trigger_keys.setdefault(code, [])
         code_to_total_score.setdefault(code, 0.0)
-    for code in external_seed_set:
-        code_to_reasons.setdefault(code, [])
-        code_to_trigger_keys.setdefault(code, [])
-        code_to_total_score.setdefault(code, 0.0)
     _append_extra_reasons(code_to_reasons, strategic_l2_bypass_reason_map)
-    _append_extra_reasons(
-        code_to_reasons,
-        {code: [f"外部候选:{metrics.get('external_seed_source') or 'external'}"] for code in external_seed_set},
-    )
     _append_theme_reasons(code_to_reasons, theme_badge_map)
     _apply_theme_bonus_to_scores(code_to_total_score, theme_bonus_map)
     # 兼容旧变量名（下游可能引用）
@@ -2171,7 +2102,6 @@ def run(
     review_unique_count = len(sorted_codes)
     l2_bypass_ranked = _rank_l2_bypass_pool(l2_bypass_pool, code_to_total_score)
     strategic_l2_bypass_ranked = _rank_l2_bypass_pool(strategic_l2_bypass_pool, code_to_total_score)
-    external_seed_ranked = _rank_l2_bypass_pool(list(external_seed_set), code_to_total_score)
     use_full_formal_l4_selection = FUNNEL_AI_SELECTION_MODE in {
         "all_formal_l4",
         "all_l4",
@@ -2242,19 +2172,6 @@ def run(
         use_full_ai_selection,
         theme_bonus_map,
     )
-    external_seed_added = _promote_external_seed_candidates(
-        selected_for_ai,
-        trend_selected,
-        accum_selected,
-        external_seed_set,
-        code_to_total_score,
-        code_to_trigger_keys,
-        score_map,
-        ai_policy,
-        metrics,
-    )
-    if external_seed_added:
-        ai_policy["external_seed_added_count"] = external_seed_added
     selected_for_ai, trend_selected, accum_selected, loss_guard_dropped = _apply_loss_guard(
         selected_for_ai,
         trend_selected,
@@ -2341,7 +2258,7 @@ def run(
             "",
         ]
         if external_seed_line:
-            lines.insert(-1, f"**外部候选 Shadow**: {external_seed_line}")
+            lines.insert(-1, f"**外部观察 Shadow**: {external_seed_line}")
         _append_etf_section(lines, etf_metrics, etf_candidates)
         if etf_metrics or etf_candidates:
             lines.append("")
@@ -2470,9 +2387,7 @@ def run(
                 "priority_score": float(code_to_best_score.get(c, 0.0)),
                 "priority_rank": idx + 1,
                 "selection_source": (
-                    "external_seed"
-                    if c in external_seed_set
-                    else "strategic_l2_bypass"
+                    "strategic_l2_bypass"
                     if c in strategic_l2_bypass_set
                     else "l2_bypass"
                     if c in l2_bypass_set
@@ -2516,7 +2431,7 @@ def run(
                 "strategic_l2_bypass_selected": [c for c in selected_for_ai if c in strategic_l2_bypass_set],
                 "strategic_l2_bypass_budget": FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
                 "external_seed_triggers": external_seed_triggers,
-                "external_seed_selected": [c for c in selected_for_ai if c in external_seed_set],
+                "external_seed_selected": [],
                 "content": content,
                 "title": title,
                 "symbols_for_report": symbols_for_report,
@@ -2537,7 +2452,6 @@ def run(
     formal_event_count = sum(len(v) for v in triggers.values())
     bypass_selected_count = sum(1 for c in selected_for_ai if c in l2_bypass_set)
     strategic_bypass_selected_count = sum(1 for c in selected_for_ai if c in strategic_l2_bypass_set)
-    external_seed_selected_count = sum(1 for c in selected_for_ai if c in external_seed_set)
 
     def _stage_name(code: str) -> str:
         if code in markup_symbols:
@@ -2546,11 +2460,7 @@ def run(
 
     hit_selected_count = sum(1 for c in selected_for_ai if c in formal_hit_set)
     l3_only_count = max(
-        len(selected_for_ai)
-        - hit_selected_count
-        - bypass_selected_count
-        - strategic_bypass_selected_count
-        - external_seed_selected_count,
+        len(selected_for_ai) - hit_selected_count - bypass_selected_count - strategic_bypass_selected_count,
         0,
     )
     sector_rotation = metrics.get("sector_rotation", {}) or {}
@@ -2576,7 +2486,7 @@ def run(
         f"effective Accum={accum_quota}, 总上限={total_cap}, "
         f"l3_fill_limit Trend={max_trend_l3_fill}, Accum={max_accum_l3_fill}], "
         f"最终选入: Trend={len(trend_selected)}, Accum={len(accum_selected)}, "
-        f"战略旁路={strategic_bypass_selected_count}, 外部候选={external_seed_selected_count}, 总计={len(selected_for_ai)}"
+        f"战略旁路={strategic_bypass_selected_count}, 总计={len(selected_for_ai)}"
     )
 
     bench_line = "未知"
@@ -2617,15 +2527,14 @@ def run(
             f"(配额 {quota_family}: Trend {len(trend_selected)}/{trend_quota}, "
             f"Accum {len(accum_selected)}/{accum_quota}; "
             f"正式L4 {hit_selected_count} / L3补充{l3_only_count} / "
-            f"L2明珠 {bypass_selected_count} / 战略旁路 {strategic_bypass_selected_count} / "
-            f"外部候选 {external_seed_selected_count}; "
+            f"L2明珠 {bypass_selected_count} / 战略旁路 {strategic_bypass_selected_count}; "
             f"旁路预算 {FUNNEL_L2_BYPASS_AI_CAP or 'unlimited'})"
         ),
         f"**Top 行业**: {', '.join(metrics['top_sectors']) if metrics['top_sectors'] else '无'}",
         "",
     ]
     if external_seed_line:
-        lines.insert(-1, f"**外部候选 Shadow**: {external_seed_line}")
+        lines.insert(-1, f"**外部观察 Shadow**: {external_seed_line}")
     if ai_policy.get("shadow_table"):
         lines.insert(
             -1,
@@ -2655,10 +2564,7 @@ def run(
     fill_codes = [
         c
         for c in selected_for_ai
-        if c not in formal_hit_set
-        and c not in l2_bypass_set
-        and c not in strategic_l2_bypass_set
-        and c not in external_seed_set
+        if c not in formal_hit_set and c not in l2_bypass_set and c not in strategic_l2_bypass_set
     ]
     if fill_codes:
         lines.append(f"**【🧭 L3/阶段补位】{len(fill_codes)} 只**")
@@ -2673,16 +2579,6 @@ def run(
                 f"{_score_star(score)} {code} {name}  {score:.2f}" + (f"  {suffix}" if suffix else "") + theme_badge
             )
         lines.append("")
-
-    _append_external_seed_report_section(
-        lines,
-        external_seed_ranked,
-        selected_for_ai,
-        metrics,
-        name_map,
-        code_to_trigger_keys,
-        _display_score,
-    )
 
     if not selected_for_ai:
         lines.append("无")
@@ -2739,8 +2635,6 @@ def run(
     ok = True if not notify else send_feishu_notification(webhook_url, title, content)
 
     def _selection_source(code: str) -> str:
-        if code in external_seed_set:
-            return "external_seed"
         if code in strategic_l2_bypass_set:
             return "strategic_l2_bypass"
         if code in l2_bypass_set:
@@ -2758,7 +2652,7 @@ def run(
             "code": c,
             "name": name_map.get(c, c),
             "tag": (
-                f"{'外部候选' if c in external_seed_set else '战略L2旁路' if c in strategic_l2_bypass_set else 'L2旁路观察' if c in l2_bypass_set else str(l2_channel_map.get(c, '')).strip()} | "
+                f"{'战略L2旁路' if c in strategic_l2_bypass_set else 'L2旁路观察' if c in l2_bypass_set else str(l2_channel_map.get(c, '')).strip()} | "
                 f"{_candidate_reason_text(c, code_to_reasons, theme_badge_map)}"
             ).strip(" |"),
             "track": _selected_track(c),
@@ -2806,7 +2700,7 @@ def run(
             "strategic_l2_bypass_selected": [c for c in selected_for_ai if c in strategic_l2_bypass_set],
             "strategic_l2_bypass_budget": FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
             "external_seed_triggers": external_seed_triggers,
-            "external_seed_selected": [c for c in selected_for_ai if c in external_seed_set],
+            "external_seed_selected": [],
             "content": content,
             "title": title,
             "symbols_for_report": symbols_for_report,

@@ -6,12 +6,12 @@
 
 ## 一句话
 
-漏斗负责**发现机会并生产信号样本**，feedback 负责**盘后验收信号表现并更新策略状态**，动态策略在**下一轮漏斗**读取这些状态。外部候选种子只进入同一套观察闭环，不直接绕过风控。默认不是强同步链路，而是错峰运行的反馈闭环。
+漏斗负责**发现机会并生产信号样本**，feedback 负责**盘后验收信号表现并更新策略状态**，动态策略在**下一轮漏斗**读取这些状态。外部观察名单只进入同一套观察闭环，不作为正式候选来源。默认不是强同步链路，而是错峰运行的反馈闭环。
 
 ```mermaid
 flowchart LR
   A["本轮漏斗<br/>选股 + AI + OMS"] --> B["写 signal_observations"]
-  X["外部候选种子<br/>人工/社区/其它系统"] --> B
+  X["外部观察名单<br/>人工/社区/其它系统"] --> B
   X --> Y["写 external_seed_observations"]
   B --> C["盘后 feedback<br/>计算 outcomes"]
   C --> D["更新 health / registry"]
@@ -78,8 +78,7 @@ GitHub Actions 中建议用 Repository Variables 配置：
 | 配置项 | 推荐值 | 说明 |
 |--------|--------|------|
 | `FUNNEL_DYNAMIC_POLICY` | `shadow` | 非敏感配置，优先放 GitHub Variables；也兼容 Secrets。 |
-| `FUNNEL_EXTERNAL_SEED_SYMBOLS` / `FUNNEL_EXTRA_SYMBOLS` | 空 | 临时追加外部候选；存在时自动启用 external seed。 |
-| `FUNNEL_EXTERNAL_SEED_PROMOTE` | `false` | 是否允许 L4 确认的外部候选进入 AI，默认只观察不推荐。 |
+| `FUNNEL_EXTERNAL_SEED_SYMBOLS` / `FUNNEL_EXTRA_SYMBOLS` | 空 | 临时追加外部观察名单；存在时自动启用 external seed shadow。 |
 | `WYCKOFF_WRITE_CONTEXT` | `server_job` | 只有 Actions / server job 可写共享信号、推荐、策略表；CLI 默认只读云端。 |
 | `WYCKOFF_STRATEGY_REFLECTION` | `shadow` | 开启策略反思 shadow 写入，不自动晋级生产策略。 |
 | `SUPABASE_SERVICE_ROLE_KEY` | service role key | 定时任务写反馈表需要绕过 RLS。 |
@@ -100,20 +99,20 @@ uv run python scripts/signal_feedback_job.py
 | `signal_health_daily` | feedback job | 漏斗 | 按 signal / regime / horizon 聚合胜率、平均收益、样本数和权重。 |
 | `signal_registry` | feedback job | 漏斗 | 管理信号生命周期：`ACTIVE`、`WATCH`、`EXPERIMENTAL`、`RETIRED`。 |
 | `signal_policy_shadow_runs` | 漏斗 shadow 模式 | 人工复盘 | 比较静态策略和动态策略的候选差异。 |
-| `external_seed_observations` | 漏斗 | 人工复盘 / maintenance | 记录外部候选是否通过 L1/L2/L4、watch 状态和过期时间。 |
+| `external_seed_observations` | 漏斗 | 人工复盘 / maintenance | 记录外部观察名单是否通过 L1/L2/L4、watch 状态和过期时间。 |
 | `strategy_reflections` | strategy reflection job | 人工复盘 | 保存基于 outcomes / shadow 的策略反思快照。 |
 | `strategy_policy_candidates` | strategy reflection job | 人工复盘 | 保存 `READY_FOR_REVIEW` 候选策略，不自动切生产。 |
 
-## 外部候选 Shadow
+## 外部观察 Shadow
 
-`external_seed_observations` 解决的是“我额外关注的股票，为什么没被漏斗选中”的复盘问题。它记录外部候选在当天主漏斗里的真实位置：
+`external_seed_observations` 解决的是“我额外关注的股票，为什么没被漏斗选中”的复盘问题。它记录外部观察名单在当天主漏斗里的真实位置：
 
 - `REJECTED_L1`：基础流动性、ST、财务或股票池过滤未通过。
 - `PASSED_L2`：已经进入六通道主路径。
-- `L4_CONFIRMED`：没进 L2，但在外部候选旁路里出现 L4 触发。
+- `L4_CONFIRMED`：没进 L2，但在外部观察旁路里出现 L4 触发。
 - `WATCH`：通过 L1 但暂时没有 L2/L4 结构。
 
-当外部候选触发 L4 且没有进入正式候选时，系统会补写 `signal_observations`，`source=external_seed:<source>`，`selection_mode=external_seed_shadow`。这部分用于后续 outcome 复盘，但默认不影响真实推荐；只有 `FUNNEL_EXTERNAL_SEED_PROMOTE=true` 时才允许进入 AI 候选池。
+当外部观察名单触发 L4 且没有进入正式候选时，系统会补写 `signal_observations`，`source=external_seed:<source>`，`selection_mode=external_seed_shadow`。这部分只用于后续 outcome 复盘，不影响真实推荐和 AI 候选池。
 
 ## 信号生命周期
 

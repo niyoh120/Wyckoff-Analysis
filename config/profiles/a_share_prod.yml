@@ -8,7 +8,5 @@ external_seeds:
   symbols_file: ""
   max_symbols: 30
   allow_l2_bypass_review: true
-  promote_confirmed_to_ai: false
-  ai_cap: 4
   watch_ttl_days: 10
   retention_days: 180
