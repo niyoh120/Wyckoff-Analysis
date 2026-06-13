@@ -691,13 +691,14 @@ tickflow                                        （1 分钟盘中数据，尾盘
 | `signal_health_daily` | 按信号聚合的健康度快照 |
 | `signal_registry` | 信号生命周期与启停状态 |
 | `signal_policy_shadow_runs` | 动态策略 shadow run 差异记录 |
+| `external_seed_observations` | 外部候选种子的 L1/L2/L4 通过情况、watch 状态与过期时间 |
 | `strategy_reflections` | Actions 生成的策略反思快照，仅 shadow/review |
 | `strategy_policy_candidates` | 待人工复盘的候选策略，不自动晋级生产 |
 
 数据隔离：Web JWT → RLS，CLI access_token → RLS，脚本 service_role_key → 绕过 RLS。
 写入边界：GitHub Actions / server job 必须设置 `WYCKOFF_WRITE_CONTEXT=server_job` 才能写共享信号、推荐、策略表。CLI 默认只能读取云端表；除持仓增删改和现金更新外，其它 CLI 结果只写本地 SQLite。
 
-`scripts/db_maintenance.py` 负责清理过期数据：形态复盘按表内最新 30 个入选日期保留，订单/信号/净值等短周期表保留 10-30 日区间，避免数据库行数无限增长。
+`scripts/db_maintenance.py` 负责清理过期数据：形态复盘按表内最新 30 个入选日期保留，订单/信号/净值等短周期表保留 10-30 日区间，`external_seed_observations` 默认保留 180 日，避免数据库行数无限增长。
 
 ## CLI 命令
 

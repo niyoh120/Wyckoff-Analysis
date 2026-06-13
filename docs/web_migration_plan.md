@@ -1,6 +1,6 @@
 # Wyckoff Web 基建迭代计划（历史路线图）
 
-> 更新于 2026-05-04 | 当前状态：React Web 已承担主要交互入口；本文保留迁移路线与后续方向，不作为当前架构事实源。当前事实请看 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+> 更新于 2026-06-13 | 当前状态：React Web 已承担主要交互入口；Supabase 仍是 Auth、用户配置、持仓、推荐、信号反馈和策略观察的事实数据库。本文保留迁移路线与后续方向，不作为当前架构事实源。当前事实请看 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
 ## 当前架构
 
@@ -38,7 +38,9 @@ Supabase (Auth + PostgreSQL + RLS)        yfyivczvmorpqdyehfmn.supabase.co
 - **reasoning_content 回传** — 支持 DeepSeek R1 thinking 模式多步调用
 - **读盘室模型快捷切换** — 无需跳转设置页
 
-## 目标架构
+## 历史目标架构
+
+下面是 2026-05 的迁移设想，不代表当前已完成状态。当前路线是先减少 Supabase 中最重的行情缓存和大对象压力，核心业务表继续留在 Supabase，直到 D1 / KV / R2 的 RLS、同步和后台任务能力经过完整验证。
 
 ```
 React SPA (Cloudflare Pages)
@@ -51,7 +53,7 @@ Cloudflare Worker (Hono)
   ├─ /api/market/*      → TickFlow API proxy + R2 缓存
   └─ /api/export/*      → TickFlow + R2 缓存
   ↓
-Cloudflare D1 (主数据库)  ←  替代 Supabase PostgreSQL
+Cloudflare D1 (候选主数据库)  ←  仅在验证完成后才可能替代部分 Supabase PostgreSQL 表
 Cloudflare KV (配置缓存)
 Cloudflare R2 (文件/K线缓存)
 Supabase Auth (仅保留登录认证)
@@ -128,18 +130,18 @@ Supabase Auth (仅保留登录认证)
 - [ ] 性能优化：R2 缓存命中率、D1 查询索引、KV 读取延迟
 - [ ] 监控：Workers Analytics + 错误告警
 
-## 迁移后 Supabase 用量预估
+## 迁移后 Supabase 用量预估（历史假设）
 
 | 服务 | 迁移前 | 迁移后 |
 |------|--------|--------|
 | Auth | 登录认证 | 登录认证（保留） |
-| Database | 全部表 ~500MB | 仅 Auth 相关表 ~5MB |
-| Bandwidth | 高（前端直连） | 极低（仅 Auth 请求） |
+| Database | 全部业务表 | 理论上仅 Auth 相关表；当前未完成 |
+| Bandwidth | 高（前端直连） | 理论上极低；当前仍需按实际 Supabase 表读写评估 |
 
 ## 成本估算
 
 | 阶段 | 月成本 |
 |------|--------|
 | 当前（Supabase 全量） | 接近免费额度上限 |
-| Phase 3 完成后 | ¥0（全部 Cloudflare 免费层 + Supabase Auth 免费） |
+| Phase 3 完成后 | 历史假设：Cloudflare 免费层 + Supabase Auth 免费；当前不应按 ¥0 预算 |
 | 规模期（1000+ 用户） | ~$5/月（D1 付费层 $0.75/GB，按需） |

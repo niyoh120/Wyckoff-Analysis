@@ -68,6 +68,16 @@ flowchart LR
 
 Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否真的比静态配额更聪明。
 
+### 外部候选观察
+
+人工关注、社区反馈或其它系统给出的股票可以通过 `external_seeds` 加入观察池。它们不会默认绕过漏斗直接推荐，而是先记录在 `external_seed_observations`：
+
+- 通过 L1/L2：说明候选本身已经符合主路径。
+- L2 未过但 L4 确认：补写 `signal_observations`，`selection_mode=external_seed_shadow`，后续用 outcomes 验证。
+- 未确认：只进入 watch，有效期结束后由 maintenance 清理。
+
+只有打开 `FUNNEL_EXTERNAL_SEED_PROMOTE=true` 时，L4 确认的外部候选才允许进入 AI 候选池，并且仍受外部候选 cap 和总候选上限约束。
+
 ### 跨市场 universe
 
 A 股主漏斗仍使用本地股票池和行业映射；港股、美股、ETF 的代码与名称元数据维护在 `data/market_universes/*.json`。港股 / 美股漏斗使用 TickFlow 批量日线接口拉取 320 个交易日窗口，和 A 股主流程保持相同的结构识别口径，但不走 A 股专属的 Tushare 兜底。
