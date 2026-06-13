@@ -26,6 +26,29 @@ def _num(raw: Any) -> float | None:
         return None
 
 
+def _json_map(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _candidate_shadow_fields(obs: dict[str, Any]) -> dict[str, Any]:
+    features = _json_map(obs.get("features_json"))
+    shadow_score = _json_map(features.get("candidate_shadow_score"))
+    return {
+        "candidate_shadow_score": _num(shadow_score.get("score")),
+        "candidate_shadow_grade": str(shadow_score.get("grade") or "unknown").strip() or "unknown",
+        "candidate_shadow_positive_tags": shadow_score.get("positive_tags") or [],
+        "candidate_shadow_negative_tags": shadow_score.get("negative_tags") or [],
+    }
+
+
 def _fetch_all(client: Any, table: str, select: str, *, market: str, start: date, end: date) -> list[dict[str, Any]]:
     date_col = "trade_date" if table != "strategy_attribution_reports" else "report_date"
     rows: list[dict[str, Any]] = []
@@ -86,6 +109,7 @@ def _join_outcomes(outcomes: list[dict[str, Any]], observations: list[dict[str, 
             "springboard_met_count",
         ):
             item[key] = obs.get(key)
+        item.update(_candidate_shadow_fields(obs))
         joined.append(item)
     return joined
 
@@ -121,6 +145,26 @@ def _score_bucket_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict
     return result
 
 
+def _candidate_shadow_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result = _group_stats(rows, "candidate_shadow_grade", horizons)
+    grade_order = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4, "unknown": 5}
+    for horizon, stats_by_grade in list(result.items()):
+        result[horizon] = {
+            grade: stats
+            for grade, stats in sorted(
+                stats_by_grade.items(),
+                key=lambda item: grade_order.get(item[0], 99),
+            )
+        }
+    return result
+
+
+def _score_stats_json(joined: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    stats = _score_bucket_stats(joined, horizons)
+    stats["_candidate_shadow_grade"] = _candidate_shadow_stats(joined, horizons)
+    return stats
+
+
 def _ranked(rows: list[dict[str, Any]], horizon: int, *, reverse: bool) -> list[dict[str, Any]]:
     picked = [r for r in rows if int(r.get("horizon_days") or 0) == horizon and _num(r.get("return_pct")) is not None]
     ranked = sorted(picked, key=lambda r: _num(r.get("return_pct")) or 0, reverse=reverse)
@@ -134,6 +178,8 @@ def _ranked(rows: list[dict[str, Any]], horizon: int, *, reverse: bool) -> list[
         "return_pct",
         "max_drawdown_pct",
         "priority_score",
+        "candidate_shadow_score",
+        "candidate_shadow_grade",
     ]
     return [{key: row.get(key) for key in keys} for row in ranked[:20]]
 
@@ -226,7 +272,7 @@ def build_report(client: Any, market: str, days: int, horizons: list[int]) -> di
         "horizons": horizons,
         "summary_json": _group_stats(joined, "horizon_days", horizons),
         "signal_stats_json": _group_stats(joined, "signal_type", horizons),
-        "score_bucket_stats_json": _score_bucket_stats(joined, horizons),
+        "score_bucket_stats_json": _score_stats_json(joined, horizons),
         "shadow_diff_stats_json": _shadow_stats(shadow, joined, horizons),
         "top_winners_json": _ranked(joined, focus_horizon, reverse=True),
         "top_losers_json": _ranked(joined, focus_horizon, reverse=False),

@@ -15,6 +15,7 @@ interface AttributionReport {
   window_end: string
   horizons: number[]
   signal_stats_json: Record<string, Record<string, MetricStats>>
+  score_bucket_stats_json?: JsonMap
   shadow_diff_stats_json: JsonMap
   top_winners_json: StockOutcome[]
   top_losers_json: StockOutcome[]
@@ -29,6 +30,7 @@ interface MetricStats {
   win_rate_pct?: number
   big_win_rate_pct?: number
   big_loss_rate_pct?: number
+  avg_drawdown_pct?: number | null
 }
 
 interface StockOutcome {
@@ -38,6 +40,8 @@ interface StockOutcome {
   signal_type?: string
   track?: string
   return_pct?: number
+  candidate_shadow_score?: number | null
+  candidate_shadow_grade?: string | null
 }
 
 interface AttributionRecommendation {
@@ -102,10 +106,15 @@ export function AttributionPage() {
 
 function ReportView({ report }: { report: AttributionReport }) {
   const signalRows = useMemo(() => flattenSignalStats(report.signal_stats_json), [report.signal_stats_json])
+  const candidateShadowRows = useMemo(
+    () => flattenCandidateShadowStats(report.score_bucket_stats_json),
+    [report.score_bucket_stats_json],
+  )
   return (
     <div className="space-y-6">
       <Summary report={report} />
       <Recommendations rows={report.recommendations_json} />
+      <CandidateShadowStats rows={candidateShadowRows} />
       <SignalStats rows={signalRows} />
       <OutcomeTables winners={report.top_winners_json} losers={report.top_losers_json} />
       <ShadowBox data={report.shadow_diff_stats_json} />
@@ -137,6 +146,48 @@ function Recommendations({ rows }: { rows: AttributionRecommendation[] }) {
             <p className="mt-1 break-words text-xs text-muted-foreground">{row.reason}</p>
           </div>
         ))}
+      </div>
+    </Panel>
+  )
+}
+
+function CandidateShadowStats({ rows }: { rows: Array<{ horizon: string; grade: string; stats: MetricStats }> }) {
+  if (!rows.length) {
+    return <Panel title="候选影子分表现"><p className="text-sm text-muted-foreground">暂无候选影子分样本。</p></Panel>
+  }
+  return (
+    <Panel title="候选影子分表现">
+      <div className="overflow-auto">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="text-xs text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="py-2">周期</th>
+              <th>评级</th>
+              <th>样本</th>
+              <th>均值</th>
+              <th>中位数</th>
+              <th>胜率</th>
+              <th>大涨</th>
+              <th>大跌</th>
+              <th>平均回撤</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ horizon, grade, stats }) => (
+              <tr key={`${horizon}-${grade}`} className="border-b border-border/60">
+                <td className="py-2">{horizon}</td>
+                <td className="font-medium">{formatGrade(grade)}</td>
+                <td>{stats.count ?? 0}</td>
+                <td className={tone(stats.avg_return_pct)}>{fmtPct(stats.avg_return_pct)}</td>
+                <td className={tone(stats.median_return_pct)}>{fmtPct(stats.median_return_pct)}</td>
+                <td>{fmtPct(stats.win_rate_pct)}</td>
+                <td>{fmtPct(stats.big_win_rate_pct)}</td>
+                <td>{fmtPct(stats.big_loss_rate_pct)}</td>
+                <td className={tone(stats.avg_drawdown_pct)}>{fmtPct(stats.avg_drawdown_pct)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </Panel>
   )
@@ -196,7 +247,9 @@ function OutcomeTable({ title, rows }: { title: string; rows: StockOutcome[] }) 
           <div key={`${row.trade_date}-${row.code}-${row.signal_type}`} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-border bg-background p-3">
             <div>
               <div className="text-sm font-medium">{row.code} {row.name || ''}</div>
-              <div className="mt-1 text-xs text-muted-foreground">{row.trade_date} · {row.signal_type || '-'} · {row.track || '-'}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {row.trade_date} · {row.signal_type || '-'} · {row.track || '-'} · 影子分 {fmtScore(row.candidate_shadow_score)} · {formatGrade(row.candidate_shadow_grade)}
+              </div>
             </div>
             <div className={`text-right text-sm font-semibold ${tone(row.return_pct)}`}>{fmtPct(row.return_pct)}</div>
           </div>
@@ -265,8 +318,32 @@ function flattenSignalStats(data: AttributionReport['signal_stats_json']) {
   )
 }
 
+function flattenCandidateShadowStats(data: JsonMap | undefined) {
+  const raw = data?._candidate_shadow_grade
+  if (!raw || typeof raw !== 'object') return []
+  const gradeOrder: Record<string, number> = { S: 0, A: 1, B: 2, C: 3, D: 4, unknown: 5 }
+  return Object.entries(raw as Record<string, Record<string, MetricStats>>)
+    .flatMap(([horizon, stats]) =>
+      Object.entries(stats || {}).map(([grade, item]) => ({ horizon, grade, stats: item })),
+    )
+    .sort((a, b) => {
+      const horizonDiff = Number(a.horizon) - Number(b.horizon)
+      if (Number.isFinite(horizonDiff) && horizonDiff !== 0) return horizonDiff
+      return (gradeOrder[a.grade] ?? 99) - (gradeOrder[b.grade] ?? 99)
+    })
+}
+
 function fmtPct(raw: number | null | undefined) {
   return typeof raw === 'number' && Number.isFinite(raw) ? `${raw.toFixed(1)}%` : '-'
+}
+
+function fmtScore(raw: number | null | undefined) {
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw.toFixed(1) : '-'
+}
+
+function formatGrade(raw: string | null | undefined) {
+  const text = String(raw || '').trim()
+  return text && text !== 'unknown' ? text : '未评分'
 }
 
 function tone(raw: number | null | undefined) {

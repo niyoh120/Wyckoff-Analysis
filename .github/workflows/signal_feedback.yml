@@ -39,3 +39,6 @@ jobs:
 
       - name: Refresh signal feedback
         run: python -u scripts/signal_feedback_job.py
+
+      - name: Build strategy attribution report
+        run: python -u scripts/strategy_attribution_report.py --market cn --days 30 --horizons 1,3,5,10,20

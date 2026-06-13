@@ -1,0 +1,256 @@
+"""Shadow scoring for candidate selection review.
+
+The score is intentionally observational: it is persisted in
+signal_observations.features_json and should not change live candidate
+selection until outcome data proves that it helps.
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Any
+
+CANDIDATE_SHADOW_SCORE_VERSION = "candidate_shadow_score_v1"
+
+_ACCUM_SIGNALS = {"spring", "lps", "compression"}
+
+
+def _num(raw: Any, default: float = 0.0) -> float:
+    if raw is None or isinstance(raw, bool):
+        return default
+    if isinstance(raw, int | float):
+        value = float(raw)
+        return default if math.isnan(value) else value
+    text = str(raw).strip().replace(",", "")
+    if text.lower() in {"", "-", "--", "nan", "none"}:
+        return default
+    multiplier = 1.0
+    if "亿" in text:
+        multiplier = 100_000_000.0
+    elif "万" in text:
+        multiplier = 10_000.0
+    text = text.replace("%", "").replace("亿", "").replace("万", "")
+    try:
+        return float(text) * multiplier
+    except ValueError:
+        return default
+
+
+def _bounded100(raw: Any) -> float:
+    value = _num(raw)
+    return max(0.0, min(100.0, value))
+
+
+def _candidate_score100(raw: Any) -> float:
+    value = _num(raw)
+    if value <= 0:
+        return 0.0
+    if value <= 1.0:
+        value *= 100.0
+    elif value <= 20.0:
+        value *= 5.0
+    return max(0.0, min(100.0, value))
+
+
+def _points(score100: Any, max_points: float) -> float:
+    return round(_bounded100(score100) / 100.0 * max_points, 1)
+
+
+def _grade(score: float) -> str:
+    if score >= 85:
+        return "S"
+    if score >= 75:
+        return "A"
+    if score >= 65:
+        return "B"
+    if score >= 50:
+        return "C"
+    return "D"
+
+
+def _unique(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
+
+
+def _funnel_component(trigger_score: float, priority_score: float) -> tuple[float, list[str]]:
+    raw = priority_score if priority_score > 0 else trigger_score
+    normalized = _candidate_score100(raw)
+    component = _points(normalized, 30.0)
+    tags = []
+    if normalized >= 80:
+        tags.append("high_funnel_priority")
+    elif normalized >= 60:
+        tags.append("medium_funnel_priority")
+    return component, tags
+
+
+def _price_action_component(signal_type: str, footprint: dict[str, Any]) -> tuple[float, float, list[str], list[str]]:
+    if not footprint:
+        return 0.0, 0.0, [], []
+    absorption = _bounded100(footprint.get("absorption_score"))
+    dry_up = _bounded100(footprint.get("dry_up_score"))
+    breakout = _bounded100(footprint.get("breakout_quality_score"))
+    reclaim = _bounded100(footprint.get("reclaim_score"))
+    supply = _bounded100(footprint.get("supply_pressure_score"))
+    failed = _bounded100(footprint.get("failed_breakout_score"))
+
+    if str(signal_type or "").strip().lower() in _ACCUM_SIGNALS:
+        quality = absorption * 0.33 + dry_up * 0.27 + reclaim * 0.25 + breakout * 0.15
+    else:
+        quality = breakout * 0.35 + absorption * 0.25 + dry_up * 0.20 + reclaim * 0.20
+    component = _points(quality, 30.0)
+
+    positive = [str(tag) for tag in footprint.get("tags") or [] if str(tag).strip()]
+    if str(footprint.get("bias") or "").strip().lower() == "demand":
+        positive.append("demand_bias")
+    negative = [str(tag) for tag in footprint.get("negative_tags") or [] if str(tag).strip()]
+    if supply >= 70:
+        negative.append("supply_pressure")
+    if failed >= 60:
+        negative.append("failed_breakout")
+    penalty = min(20.0, _points(supply, 12.0) + _points(failed, 8.0) + (4.0 if "weak_close" in negative else 0.0))
+    return component, round(-penalty, 1), _unique(positive), _unique(negative)
+
+
+def _springboard_component(springboard: dict[str, Any]) -> tuple[float, list[str]]:
+    if not springboard:
+        return 0.0, []
+    met_count = max(0.0, min(3.0, _num(springboard.get("springboard_met_count"))))
+    bool_hits = sum(
+        1
+        for key in ("springboard_a", "springboard_b", "springboard_c")
+        if bool(springboard.get(key))
+    )
+    quality = max(met_count, float(bool_hits)) / 3.0 * 100.0
+    component = _points(quality, 18.0)
+    tags = []
+    grade = str(springboard.get("springboard_grade") or "").strip()
+    if grade and grade.lower() != "none":
+        tags.append(f"springboard:{grade}")
+    if max(met_count, float(bool_hits)) >= 2:
+        tags.append("springboard_confirmed")
+    return component, tags
+
+
+def _tail_component(intraday_tail: dict[str, Any]) -> tuple[float, list[str], list[str]]:
+    if not intraday_tail:
+        return 0.0, [], []
+    decision = str(intraday_tail.get("tail_decision") or "").strip().upper()
+    score = _points(intraday_tail.get("tail_score"), 14.0)
+    if decision == "BUY":
+        score = min(14.0, score + 2.0)
+    elif decision == "WATCH":
+        score = min(14.0, score + 0.8)
+    tags = []
+    negative = []
+    if decision == "BUY":
+        tags.append("tail_buy_confirmation")
+    elif decision == "WATCH":
+        tags.append("tail_watch_confirmation")
+    elif decision == "SKIP":
+        negative.append("tail_skip")
+    if "dist_vwap_pct" in intraday_tail:
+        if _num(intraday_tail.get("dist_vwap_pct")) >= 0:
+            tags.append("above_vwap")
+        else:
+            negative.append("below_vwap")
+    return round(score, 1), tags, negative
+
+
+def _external_capital_component(source_context: dict[str, Any]) -> tuple[float, list[str], list[str]]:
+    if not source_context:
+        return 0.0, [], []
+    score = 0.0
+    positive = []
+    negative = []
+
+    lhb = source_context.get("lhb") or {}
+    lhb_net = _num(lhb.get("net_buy")) if isinstance(lhb, dict) else 0.0
+    if lhb_net > 0:
+        score += 3.0
+        positive.append("lhb_net_buy")
+    elif lhb_net < 0:
+        negative.append("lhb_net_sell")
+
+    margin = source_context.get("margin") or {}
+    if isinstance(margin, dict):
+        margin_buy = _num(margin.get("margin_buy"))
+        margin_repay = _num(margin.get("margin_repay"))
+        if margin_buy > 0 and margin_buy > margin_repay:
+            score += 1.5
+            positive.append("margin_buying")
+        if _num(margin.get("short_sell")) > _num(margin.get("short_repay")) > 0:
+            negative.append("short_selling_pressure")
+
+    block_trade = source_context.get("block_trade") or {}
+    if isinstance(block_trade, dict) and _num(block_trade.get("total_amount")) > 0:
+        score += 1.0
+        if "avg_discount_pct" in block_trade:
+            discount = _num(block_trade.get("avg_discount_pct"))
+            if discount >= 0:
+                score += 0.5
+                positive.append("block_trade_premium")
+            elif discount <= -3:
+                negative.append("block_trade_discount")
+
+    tick = source_context.get("tick_large_order") or {}
+    tick_net = _num(tick.get("large_net_amount_yuan")) if isinstance(tick, dict) else 0.0
+    if tick_net > 0:
+        score += 2.0
+        positive.append("large_order_net_buy")
+    elif tick_net < 0:
+        negative.append("large_order_net_sell")
+
+    return round(min(score, 8.0), 1), positive, negative
+
+
+def score_candidate_shadow(
+    *,
+    signal_type: str,
+    trigger_score: float,
+    priority_score: float = 0.0,
+    footprint: dict[str, Any] | None = None,
+    springboard: dict[str, Any] | None = None,
+    intraday_tail: dict[str, Any] | None = None,
+    source_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a compact, deterministic candidate-quality score."""
+
+    positive: list[str] = []
+    negative: list[str] = []
+    funnel_score, funnel_tags = _funnel_component(trigger_score, priority_score)
+    price_action, risk_penalty, pa_tags, pa_negative = _price_action_component(signal_type, footprint or {})
+    springboard_score, spring_tags = _springboard_component(springboard or {})
+    tail_score, tail_tags, tail_negative = _tail_component(intraday_tail or {})
+    external_score, external_tags, external_negative = _external_capital_component(source_context or {})
+
+    positive.extend(funnel_tags + pa_tags + spring_tags + tail_tags + external_tags)
+    negative.extend(pa_negative + tail_negative + external_negative)
+    components = {
+        "funnel": funnel_score,
+        "price_action": price_action,
+        "springboard": springboard_score,
+        "tail_confirmation": tail_score,
+        "external_capital": external_score,
+        "risk_penalty": risk_penalty,
+    }
+    total = round(max(0.0, min(100.0, sum(components.values()))), 1)
+    return {
+        "version": CANDIDATE_SHADOW_SCORE_VERSION,
+        "score": total,
+        "grade": _grade(total),
+        "components": components,
+        "positive_tags": _unique(positive),
+        "negative_tags": _unique(negative),
+        "score_inputs": {
+            "trigger_score": round(float(trigger_score or 0.0), 4),
+            "priority_score": round(float(priority_score or 0.0), 4),
+        },
+    }

@@ -166,6 +166,23 @@ registry 只负责控制动态策略是否使用信号；原始 observations 仍
 
 这部分只作为外部资金痕迹解释和 outcome 复盘特征，不改变主漏斗候选、AI 候选池、loss guard 或 Step4。
 
+## Candidate Shadow Score
+
+`signal_observations.features_json.candidate_shadow_score` 记录候选影子评分。它把主漏斗优先级、量价痕迹、起跳板质量、尾盘确认、外部资金佐证和风险扣分合成 0-100 分，用来复盘“哪些候选更像真机会”：
+
+- `score` / `grade`：总分和 S/A/B/C/D 评级。
+- `components.funnel`：主漏斗触发分或优先级分。
+- `components.price_action`：承接、缩量、突破质量和支撑收回等量价痕迹加分。
+- `components.springboard`：ABC 起跳板确认加分。
+- `components.tail_confirmation`：尾盘 VWAP、尾盘规则评分和 BUY/WATCH 确认加分。
+- `components.external_capital`：龙虎榜净买、融资买入、大宗交易和大单净买等资金佐证加分。
+- `components.risk_penalty`：派发压力、失败突破、弱收盘、尾盘跌破 VWAP 等扣分。
+- `positive_tags` / `negative_tags`：可解释的正负证据标签。
+
+这部分只做 shadow 复盘，不新增候选表，也不改变正式候选、AI 候选池或 Step4。只有当后续 `signal_outcomes` 证明它能提高胜率或降低回撤时，才考虑把总分升成结构化列或用于真实排序。
+
+`strategy_attribution_report.py` 会把 `candidate_shadow_score.grade` 聚合进 `score_bucket_stats_json._candidate_shadow_grade`，Web 端策略归因页展示 S/A/B/C/D 各档在不同持有周期下的胜率、平均收益、大涨率、大跌率和平均回撤。
+
 ## Shadow 复盘怎么看
 
 Shadow 模式不会影响真实推荐。它的价值是回答三个问题：

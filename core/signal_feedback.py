@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from statistics import mean, median
 from typing import Any
 
+from core.candidate_selection_score import score_candidate_shadow
+
 SIGNAL_TRACK: dict[str, str] = {
     "sos": "Trend",
     "evr": "Trend",
@@ -97,6 +99,9 @@ def _source_context_fields(
 
 
 def _features_json(
+    signal_type: str,
+    trigger_score: float,
+    priority_score: float,
     footprint: dict[str, Any],
     springboard: dict[str, Any],
     intraday_tail: dict[str, Any],
@@ -111,6 +116,15 @@ def _features_json(
         out["intraday_tail_confirmation"] = intraday_tail
     if source_context:
         out["source_context"] = source_context
+    out["candidate_shadow_score"] = score_candidate_shadow(
+        signal_type=signal_type,
+        trigger_score=trigger_score,
+        priority_score=priority_score,
+        footprint=footprint,
+        springboard=springboard,
+        intraday_tail=intraday_tail,
+        source_context=source_context,
+    )
     return out
 
 
@@ -139,6 +153,7 @@ def _signal_observation_row(
     footprint = _footprint_fields(signal_type, code, ctx["footprint_map"])
     intraday_tail = _intraday_tail_fields(signal_type, code, ctx["intraday_tail_map"])
     source_context = _source_context_fields(signal_type, code, ctx["source_context_map"])
+    priority_score = _float(ctx["score_map"].get(code))
     return {
         "market": market,
         "trade_date": trade_date,
@@ -157,12 +172,20 @@ def _signal_observation_row(
         "policy_version": ctx["policy_version"],
         "candidate_rank": ctx["rank_map"].get(code),
         "trigger_score": trigger_score,
-        "priority_score": _float(ctx["score_map"].get(code)),
+        "priority_score": priority_score,
         "entry_price": _float(ctx["latest_close_map"].get(code), default=0.0),
         "selected_for_ai": code in ctx["selected"],
         "ai_recommended": code in ctx["recommended"],
         "source": ctx["source_map"].get(code, "funnel"),
-        "features_json": _features_json(footprint, springboard, intraday_tail, source_context),
+        "features_json": _features_json(
+            signal_type,
+            trigger_score,
+            priority_score,
+            footprint,
+            springboard,
+            intraday_tail,
+            source_context,
+        ),
         "lifecycle_status": "ACTIVE",
         "updated_at": now_iso,
         **springboard,

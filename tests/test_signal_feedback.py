@@ -175,6 +175,12 @@ def test_build_signal_observations_marks_selection_and_source():
     assert first["features_json"]["intraday_tail_confirmation"]["smart_money_score"] == 3.4
     assert first["features_json"]["source_context"]["lhb"]["net_buy"] == 123.0
     assert first["features_json"]["source_context"]["margin"]["margin_balance"] == 456.0
+    shadow_score = first["features_json"]["candidate_shadow_score"]
+    assert shadow_score["version"] == "candidate_shadow_score_v1"
+    assert shadow_score["components"]["funnel"] == 26.4
+    assert shadow_score["components"]["springboard"] == 12.0
+    assert "springboard_confirmed" in shadow_score["positive_tags"]
+    assert "tail_buy_confirmation" in shadow_score["positive_tags"]
     assert second["track"] == "Accum"
     assert second["source"] == "l2_bypass"
     assert second["springboard_grade"] == "C"
