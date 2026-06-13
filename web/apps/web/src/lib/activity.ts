@@ -1,4 +1,5 @@
 import { supabase as defaultSupabase } from '@/lib/supabase'
+import { APP_VERSION } from '@/lib/app-version'
 
 type SupabaseLike = Pick<typeof defaultSupabase, 'from'>
 
@@ -72,7 +73,7 @@ export async function recordActivity(input: ActivityInput, deps: ActivityDeps = 
     route: input.route,
     success: input.success ?? true,
     duration_ms: input.durationMs ?? null,
-    app_version: String(import.meta.env.VITE_APP_VERSION || ''),
+    app_version: APP_VERSION,
     metadata: input.metadata ?? {},
     client_ts: nowIso,
   }

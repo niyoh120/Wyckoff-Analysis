@@ -1,0 +1,47 @@
+/version.json
+  Cache-Control: no-store, max-age=0
+
+/
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/login
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/chat
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/portfolio
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/tracking
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/attribution
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/analysis
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/battle
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/history
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/tail-buy
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/export
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/guide
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/settings
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/market-data/*
+  Cache-Control: public, max-age=300

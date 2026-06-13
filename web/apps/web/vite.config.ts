@@ -19,6 +19,8 @@ const MARKET_DATA_FILES = new Set([
 ])
 const REPO_DATA_DIR = path.resolve(__dirname, '../../..', 'data')
 const MARKET_UNIVERSE_DIR = path.join(REPO_DATA_DIR, 'market_universes')
+const BUILD_VERSION = process.env.CF_PAGES_COMMIT_SHA || process.env.VITE_APP_VERSION || `local-${new Date().toISOString()}`
+const BUILD_TIME = new Date().toISOString()
 
 function sourceForMarketDataFile(file: string): string {
   return file === 'stock_list_cache.json'
@@ -130,8 +132,28 @@ function marketDataPlugin(): Plugin {
   }
 }
 
+function appVersionPlugin(): Plugin {
+  let outDir = path.resolve(__dirname, 'dist')
+  return {
+    name: 'app-version',
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir)
+    },
+    async writeBundle() {
+      await fs.mkdir(outDir, { recursive: true })
+      await fs.writeFile(
+        path.join(outDir, 'version.json'),
+        JSON.stringify({ version: BUILD_VERSION, buildTime: BUILD_TIME }, null, 2),
+      )
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), llmProxyPlugin(), marketDataPlugin()],
+  plugins: [react(), tailwindcss(), llmProxyPlugin(), marketDataPlugin(), appVersionPlugin()],
+  define: {
+    __APP_VERSION__: JSON.stringify(BUILD_VERSION),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
