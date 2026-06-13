@@ -398,7 +398,7 @@ def _build_export(df: pd.DataFrame, sector: str) -> pd.DataFrame:
     return out
 
 
-def _normalize_symbols(symbols: list[str]) -> list[str]:
+def normalize_symbols(symbols: list[str]) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for raw in symbols:
@@ -412,6 +412,9 @@ def _normalize_symbols(symbols: list[str]) -> list[str]:
         seen.add(s)
         out.append(s)
     return out
+
+
+_normalize_symbols = normalize_symbols
 
 
 def _write_two_csv(symbol: str, name: str, df_hist: pd.DataFrame, out_dir: str, sector: str) -> tuple[str, str]:

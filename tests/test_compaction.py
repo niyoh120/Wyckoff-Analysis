@@ -204,6 +204,22 @@ class TestCompactMessages:
         assert not compacted
         assert result is msgs
 
+    def test_failed_compaction_does_not_rewrite_original_tool_results(self):
+        class FailProvider:
+            def chat_stream(self, messages, tools, system_prompt):
+                raise RuntimeError("LLM unavailable")
+
+        large_tool_content = json.dumps({"payload": "x" * 5000})
+        msgs = [{"role": "user", "content": "历史问题 " + "很长" * 1000}]
+        msgs.append({"role": "tool", "name": "portfolio", "content": large_tool_content, "tool_call_id": "tc_old"})
+        msgs.extend(self._make_messages(10))
+
+        result, compacted = compact_messages(msgs, FailProvider(), "deepseek", context_window=8_000)
+
+        assert not compacted
+        assert result is msgs
+        assert msgs[1]["content"] == large_tool_content
+
     def test_tool_call_refs_preserved(self):
         """tail 中 tool 消息引用的 call_id 对应 assistant 也被保留。"""
         msgs = self._make_messages(20)

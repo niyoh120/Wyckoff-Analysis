@@ -15,6 +15,7 @@ if __name__ == "__main__" or not __package__:
 
 from core.constants import (
     TABLE_DAILY_NAV,
+    TABLE_EXTERNAL_SEED_OBSERVATIONS,
     TABLE_MARKET_SIGNAL_DAILY,
     TABLE_RECOMMENDATION_TRACKING,
     TABLE_RECOMMENDATION_TRACKING_HK,
@@ -24,6 +25,17 @@ from core.constants import (
     TABLE_TRADE_ORDERS,
 )
 from integrations.supabase_base import create_admin_client
+
+
+def _int_env(name: str, default: int, *, minimum: int = 1) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(int(float(raw)), minimum)
+    except (TypeError, ValueError):
+        return default
+
 
 # (table, date_column, ttl_days, cutoff_kind)
 # cutoff_kind:
@@ -35,6 +47,7 @@ CLEANUP_RULES: list[tuple[str, str, int, str]] = [
     (TABLE_MARKET_SIGNAL_DAILY, "trade_date", 30, "iso_date"),
     (TABLE_DAILY_NAV, "trade_date", 15, "iso_date"),
     (TABLE_TAIL_BUY_HISTORY, "run_date", 10, "iso_date"),
+    (TABLE_EXTERNAL_SEED_OBSERVATIONS, "trade_date", _int_env("FUNNEL_EXTERNAL_SEED_RETENTION_DAYS", 180), "iso_date"),
 ]
 RECOMMENDATION_KEEP_DATES = 30
 RECOMMENDATION_DATE_PAGE_SIZE = 1000

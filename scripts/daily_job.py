@@ -279,10 +279,15 @@ def _observation_context(step2_details: dict) -> tuple[dict, dict, dict, dict, d
 
 
 def _signal_observation_source_map(step2_details: dict) -> dict[str, str]:
+    metrics = step2_details.get("metrics", {}) or {}
     bypass_codes = {str(c).strip() for c in step2_details.get("l2_bypass_selected", []) if str(c).strip()}
     strategic_codes = {str(c).strip() for c in step2_details.get("strategic_l2_bypass_selected", []) if str(c).strip()}
+    external_codes = {str(c).strip() for c in step2_details.get("external_seed_selected", []) if str(c).strip()}
     source_map = {code: "l2_bypass" for code in bypass_codes}
     source_map.update({code: "strategic_l2_bypass" for code in strategic_codes})
+    source_map.update(
+        {code: f"external_seed:{metrics.get('external_seed_source') or 'external'}" for code in external_codes}
+    )
     return source_map
 
 
@@ -340,6 +345,55 @@ def _build_shadow_observation_rows(step2_details: dict, regime: str) -> list[dic
     )
 
 
+def _build_external_seed_signal_rows(step2_details: dict, regime: str) -> list[dict]:
+    from core.signal_feedback import build_signal_observations
+
+    metrics, name_map, sector_map, stage_map, channel_map, close_map, springboard_map = _observation_context(
+        step2_details
+    )
+    selected = {str(code).strip() for code in step2_details.get("selected_for_ai", []) if str(code).strip()}
+    triggers = {
+        signal_type: [(code, score) for code, score in hits if str(code).strip() not in selected]
+        for signal_type, hits in (metrics.get("external_seed_l4_triggers") or {}).items()
+    }
+    triggers = {signal_type: hits for signal_type, hits in triggers.items() if hits}
+    if not triggers:
+        return []
+    source = f"external_seed:{metrics.get('external_seed_source') or 'external'}"
+    source_map = {str(code): source for hits in triggers.values() for code, _score in hits}
+    return build_signal_observations(
+        _latest_trade_date_str(),
+        triggers,
+        regime=regime,
+        name_map=name_map,
+        sector_map=sector_map,
+        score_map=step2_details.get("priority_score_map", {}) or {},
+        stage_map=stage_map,
+        channel_map=channel_map,
+        latest_close_map=close_map,
+        source_map=source_map,
+        springboard_map=springboard_map,
+        selection_mode="external_seed_shadow",
+        policy_version=f"external_seed:{metrics.get('external_seed_source') or 'external'}",
+    )
+
+
+def _persist_external_seed_observations(step2_details: dict, logs_path: str | None, *, dry_run: bool = False) -> None:
+    rows = (step2_details.get("metrics", {}) or {}).get("external_seed_observation_rows") or []
+    if not rows:
+        return
+    if dry_run:
+        _log(f"预演模式: 跳过外部候选观察入库 rows={len(rows)}", logs_path)
+        return
+    try:
+        from integrations.supabase_external_seeds import upsert_external_seed_observations
+
+        written = upsert_external_seed_observations(rows)
+        _log(f"外部候选观察入库: rows={len(rows)}, written={written}", logs_path)
+    except Exception as e:
+        _log(f"外部候选观察入库失败（已降级）: {e}", logs_path)
+
+
 def _persist_signal_observations(
     step2_details: dict,
     benchmark_context: dict,
@@ -359,6 +413,7 @@ def _persist_signal_observations(
         regime = str((benchmark_context or {}).get("regime") or "NEUTRAL")
         rows = _build_signal_observation_rows(step2_details, regime, ai_codes)
         rows.extend(_build_shadow_observation_rows(step2_details, regime))
+        rows.extend(_build_external_seed_signal_rows(step2_details, regime))
         written = upsert_signal_observations(rows)
         _log(f"信号观察样本入库: rows={len(rows)}, written={written}", logs_path)
         return True
@@ -776,6 +831,7 @@ def main() -> int:
         _persist_benchmark_context(benchmark_context, logs_path, dry_run=preview_only)
     if step2_ok and step2_details:
         _persist_theme_radar(step2_details, logs_path, dry_run=preview_only)
+        _persist_external_seed_observations(step2_details, logs_path, dry_run=preview_only)
 
     # Step2.5: 信号确认（pending → confirmed/expired）— 必须在推荐写入前执行，
     # 使 confirmed 信号能沉淀进 recommendation_tracking

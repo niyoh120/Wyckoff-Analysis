@@ -11,7 +11,7 @@ from typing import Any
 
 from cli.scratchpad import wyckoff_home
 
-MAX_TOOL_RESULT_CHARS = 50_000
+INLINE_TOOL_RESULT_MAX_CHARS = 8_000
 PREVIEW_CHARS = 2_000
 
 _SAFE_RE = re.compile(r"[^a-zA-Z0-9_.-]+")
@@ -102,12 +102,12 @@ def format_tool_result_for_context(
     tool_call_id: str,
     result: Any,
     *,
-    max_chars: int = MAX_TOOL_RESULT_CHARS,
+    max_chars: int = INLINE_TOOL_RESULT_MAX_CHARS,
 ) -> str:
     """Return a context-safe tool message body.
 
-    Small results stay inline. Large results are written to disk and replaced
-    with a preview plus a path the agent can read back if needed.
+    Results above the inline budget are written to disk and replaced with a
+    stable preview plus a path the agent can read back if needed.
     """
 
     content = serialize_tool_result(result)

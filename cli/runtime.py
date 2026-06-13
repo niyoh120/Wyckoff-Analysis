@@ -22,7 +22,7 @@ class AgentCancelled(Exception):
     """Agent 运行被用户主动取消。"""
 
 
-from cli.compaction import compact_messages, shrink_stale_tool_results
+from cli.compaction import compact_messages
 from cli.loop_guard import (
     MAX_INCOMPLETE_TOOL_RETRIES,
     MAX_TOOL_ROUNDS,
@@ -184,8 +184,6 @@ class AgentRuntime:
         model_name = getattr(self.provider, "name", "")
 
         for round_idx in range(self.max_tool_rounds):
-            if round_idx > 0:
-                shrink_stale_tool_results(messages)
             messages, event = self._compact_if_needed(messages, model_name, self._provider_context_window())
             if event:
                 yield event

@@ -56,6 +56,15 @@ on:
         description: "分钟线入场时间，仅 entry_price_mode=tail_1455 生效"
         required: true
         default: "14:55"
+      entry_price_fallback:
+        description: "tail_1455 缺分钟线时的处理：close=回退日收盘, skip=跳过, error=失败"
+        required: true
+        type: choice
+        options:
+          - "close"
+          - "skip"
+          - "error"
+        default: "close"
       initial_cash:
         description: "现金账户初始资金"
         required: true
@@ -82,6 +91,7 @@ env:
   BT_TRAILING_STOP: ${{ inputs.trailing_stop || '0' }}
   BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'tail_1455' }}
   BT_ENTRY_PRICE_TIME: ${{ inputs.entry_price_time || '14:55' }}
+  BACKTEST_ENTRY_PRICE_FALLBACK: ${{ inputs.entry_price_fallback || 'close' }}
   BT_INITIAL_CASH: ${{ inputs.initial_cash || '100000' }}
   BT_MAX_POSITIONS: ${{ inputs.max_positions || '4' }}
   BT_COMMISSION_RATE: "0.0002"

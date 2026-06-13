@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from cli.scratchpad import AgentScratchpad
-from cli.tool_results import format_tool_result_for_context
+from cli.tool_results import INLINE_TOOL_RESULT_MAX_CHARS, format_tool_result_for_context
 
 
 def test_scratchpad_records_jsonl_and_redacts_secrets(tmp_path):
@@ -40,3 +40,13 @@ def test_large_tool_result_is_persisted_with_preview(tmp_path, monkeypatch):
     assert json.loads(stored[0].read_text(encoding="utf-8"))["rows"][0] == "x" * 1000
     index_lines = (tmp_path / "tool-results" / "index.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(index_lines[0])["tool_call_id"] == "call_1"
+
+
+def test_default_tool_result_budget_offloads_medium_json(tmp_path, monkeypatch):
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    result = {"rows": ["x" * 1000 for _ in range((INLINE_TOOL_RESULT_MAX_CHARS // 1000) + 2)]}
+
+    content = format_tool_result_for_context("screen_stocks", "call_2", result)
+
+    assert "result_ref:" in content
+    assert len(list((tmp_path / "tool-results").glob("*.json"))) == 1

@@ -80,17 +80,25 @@ DEFAULT_CASH_PORTFOLIO_SMALL_TRADE_THRESHOLD = 10_000.0
 DEFAULT_CASH_PORTFOLIO_SMALL_TRADE_FEE = 5.0
 DEFAULT_CASH_PORTFOLIO_LOT_SIZE = 100
 DEFAULT_ENTRY_PRICE_TIME = "14:55"
+DEFAULT_ENTRY_PRICE_FALLBACK = os.getenv("BACKTEST_ENTRY_PRICE_FALLBACK", "close").strip().lower() or "close"
 CN_ZONE = ZoneInfo("Asia/Shanghai")
 
 # ── 大盘水温仓位控制：根据 regime 调节每日候选上限，减少逆势开仓。 ──
 REGIME_POSITION_RATIO: dict[str, float] = {
-    "NEUTRAL": 1.0,  # 震荡市 → 全仓
-    "RISK_ON": 0.2,  # 热点追涨期反转率高 → 轻仓试探
-    "PANIC_REPAIR": 0.5,  # 恐慌修复 → 半仓试探
-    "RISK_OFF": 0.2,  # 避险 → 轻仓（回测 Sharpe -0.48）
+    "NEUTRAL": 0.5,  # 震荡市 → 半仓，避免弱市噪声补满 TopN
+    "RISK_ON": 0.5,  # 风险偏好期 → 半仓，防止反弹误判时满仓追高
+    "PANIC_REPAIR": 0.0,  # 恐慌修复 → 暂停新开仓
+    "RISK_OFF": 0.0,  # 避险 → 暂停新开仓
     "CRASH": 0.0,  # 崩盘 → 不开仓
+    "BLACK_SWAN": 0.0,
 }
 FUNNEL_AI_SELECTION_MODE = os.getenv("FUNNEL_AI_SELECTION_MODE", "legacy_full_hits").strip().lower()
+_FORMAL_L4_SELECTION_MODES = {
+    "all_formal_l4",
+    "all_l4",
+    "full_formal_l4",
+    "full_l4",
+}
 _LEGACY_SELECTION_MODES = {
     "legacy_full_hits",
     "legacy_hits",
@@ -383,6 +391,25 @@ def _dedup_order(codes: list[str]) -> list[str]:
     return out
 
 
+def _track_map_for_hits(
+    codes: list[str],
+    triggers: dict[str, list[tuple[str, float]]],
+) -> dict[str, str]:
+    sos_hit_set = {str(c).strip() for c, _ in triggers.get("sos", [])}
+    evr_hit_set = {str(c).strip() for c, _ in triggers.get("evr", [])}
+    spring_hit_set = {str(c).strip() for c, _ in triggers.get("spring", [])}
+    lps_hit_set = {str(c).strip() for c, _ in triggers.get("lps", [])}
+    track_map = {}
+    for code in codes:
+        if code in sos_hit_set or code in evr_hit_set:
+            track_map[code] = "Trend"
+        elif code in spring_hit_set or code in lps_hit_set:
+            track_map[code] = "Accum"
+        else:
+            track_map[code] = "Trend"
+    return track_map
+
+
 def _select_ai_input_codes(
     *,
     result: FunnelResult,
@@ -404,21 +431,8 @@ def _select_ai_input_codes(
         key=lambda c: -hit_score_map.get(c, 0.0),
     )
 
-    sos_hit_set = {str(c).strip() for c, _ in result.triggers.get("sos", [])}
-    evr_hit_set = {str(c).strip() for c, _ in result.triggers.get("evr", [])}
-    spring_hit_set = {str(c).strip() for c, _ in result.triggers.get("spring", [])}
-    lps_hit_set = {str(c).strip() for c, _ in result.triggers.get("lps", [])}
-
-    if selection_mode in _LEGACY_SELECTION_MODES:
-        track_map = {}
-        for code in sorted_hit_codes:
-            if code in sos_hit_set or code in evr_hit_set:
-                track_map[code] = "Trend"
-            elif code in spring_hit_set or code in lps_hit_set:
-                track_map[code] = "Accum"
-            else:
-                track_map[code] = "Trend"
-        return sorted_hit_codes, hit_score_map, track_map
+    if selection_mode in _FORMAL_L4_SELECTION_MODES or selection_mode in _LEGACY_SELECTION_MODES:
+        return sorted_hit_codes, hit_score_map, _track_map_for_hits(sorted_hit_codes, result.triggers)
 
     sector_rotation = analyze_sector_rotation(
         day_df_map,
@@ -450,6 +464,26 @@ def _select_ai_input_codes(
     track_map = dict.fromkeys(trend_sel, "Trend")
     track_map.update(dict.fromkeys(accum_sel, "Accum"))
     return selected_codes, priority_score_map, track_map
+
+
+def _apply_regime_position_filter(ranked_codes: list[str], regime: str) -> list[str]:
+    if not ranked_codes:
+        return []
+    regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
+    ratio = REGIME_POSITION_RATIO.get(regime_norm, REGIME_POSITION_RATIO["NEUTRAL"])
+    if ratio <= 0:
+        return []
+    if ratio >= 1.0:
+        return ranked_codes
+    keep_n = max(1, int(len(ranked_codes) * ratio + 0.5))
+    return ranked_codes[:keep_n]
+
+
+def _entry_price_source_counts(trades_df: pd.DataFrame) -> dict[str, int]:
+    if trades_df.empty or "entry_price_source" not in trades_df.columns:
+        return {}
+    counts = trades_df["entry_price_source"].value_counts(dropna=False).to_dict()
+    return {str(k): int(v) for k, v in counts.items()}
 
 
 def _close_on_date(df: pd.DataFrame, d: date) -> float | None:
@@ -584,6 +618,7 @@ def _entry_on_or_after(
     *,
     mode: str,
     entry_time: str,
+    fallback: str,
     intraday_cache: dict,
     skip_limit_up: bool = True,
 ) -> tuple[float | None, date | None, str]:
@@ -596,6 +631,10 @@ def _entry_on_or_after(
             price = _resolve_tickflow_entry_price(code, hit_date, entry_time, intraday_cache)
             if price is not None and price > 0:
                 return price, hit_date, f"tickflow_1m_{entry_time}"
+            if fallback == "error":
+                raise RuntimeError(f"{code} {hit_date} {entry_time} 分钟线入场价缺失")
+            if fallback == "skip":
+                return None, None, "tail_1455_missing_skip"
             close_v = pd.to_numeric(pd.Series([row_s.get("close")]), errors="coerce").dropna()
             if not close_v.empty:
                 return float(close_v.iloc[0]), hit_date, "daily_close_fallback"
@@ -742,6 +781,7 @@ def run_backtest(
     abc_filter: bool = False,
     entry_price_mode: str = "open",
     entry_price_time: str = DEFAULT_ENTRY_PRICE_TIME,
+    entry_price_fallback: str = DEFAULT_ENTRY_PRICE_FALLBACK,
     cash_portfolio: bool = False,
     initial_cash: float = DEFAULT_CASH_PORTFOLIO_INITIAL_CASH,
     max_positions: int = DEFAULT_CASH_PORTFOLIO_MAX_POSITIONS,
@@ -752,10 +792,13 @@ def run_backtest(
 ) -> tuple[pd.DataFrame, dict]:
     metrics_engine = str(metrics_engine or "legacy").strip().lower()
     entry_price_mode = str(entry_price_mode or "open").strip().lower()
+    entry_price_fallback = str(entry_price_fallback or DEFAULT_ENTRY_PRICE_FALLBACK).strip().lower()
     if metrics_engine not in {"legacy", "auto", "both", "wbt"}:
         raise ValueError("metrics_engine 必须是 legacy / auto / both / wbt")
     if entry_price_mode not in {"open", "tail_1455"}:
         raise ValueError("entry_price_mode 必须是 open 或 tail_1455")
+    if entry_price_fallback not in {"close", "skip", "error"}:
+        raise ValueError("entry_price_fallback 必须是 close / skip / error")
     if pending_mode not in {"off", "only", "both"}:
         raise ValueError("pending_mode 必须是 off / only / both")
     if pending_merge_order not in {"funnel_first", "confirmed_first"}:
@@ -900,6 +943,7 @@ def run_backtest(
     eval_days = 0
     ohlc_lookup_cache: dict[str, dict[date, tuple[float, float, float, float]]] = {}
     intraday_entry_cache: dict = {}
+    entry_price_missing_skipped = 0
 
     pending_pool = PendingPool() if pending_mode != "off" else None
     pending_confirmed_total = 0
@@ -954,6 +998,7 @@ def run_backtest(
         confirmed_codes: list[str] = []
         confirmed_score_map: dict[str, float] = {}
         confirmed_track_map: dict[str, str] = {}
+        confirmed_trigger_map: dict[str, str] = {}
         if pending_pool is not None:
             pending_pool.write(signal_date_str, result.triggers, day_df_map, regime, name_map, sector_map, day_cfg)
             for cs in pending_pool.tick(day_df_map, signal_date_str):
@@ -962,6 +1007,7 @@ def run_backtest(
                     confirmed_codes.append(c)
                     confirmed_score_map[c] = float(cs.get("score", 0))
                     confirmed_track_map[c] = str(cs.get("track", "Trend"))
+                    confirmed_trigger_map[c] = str(cs.get("signal_type", "confirmed"))
             pending_confirmed_total += len(confirmed_codes)
 
         selected_for_ai, p_score_map, track_map = _select_ai_input_codes(
@@ -997,12 +1043,9 @@ def run_backtest(
             ranked_codes = selected_for_ai if int(top_n) <= 0 else selected_for_ai[:top_n]
 
         if regime_filter and ranked_codes:
-            ratio = REGIME_POSITION_RATIO.get(regime, 1.0)
-            if ratio <= 0:
+            ranked_codes = _apply_regime_position_filter(ranked_codes, str(regime))
+            if not ranked_codes:
                 continue
-            if ratio < 1.0:
-                keep_n = max(1, int(len(ranked_codes) * ratio + 0.5))
-                ranked_codes = ranked_codes[:keep_n]
 
         if abc_filter and ranked_codes:
             ranked_codes = _apply_abc_filter(ranked_codes, day_df_map, result.triggers)
@@ -1011,6 +1054,8 @@ def run_backtest(
 
         # Only needed for string names
         name_score_map = _combine_trigger_scores(result.triggers)
+        for code, signal_type in confirmed_trigger_map.items():
+            name_score_map.setdefault(code, (confirmed_score_map.get(code, 0.0), f"{signal_type}(确认)"))
 
         signal_days += 1
         for code in ranked_codes:
@@ -1025,10 +1070,13 @@ def run_backtest(
                 entry_target_date,
                 mode=entry_price_mode,
                 entry_time=entry_price_time,
+                fallback=entry_price_fallback,
                 intraday_cache=intraday_entry_cache,
                 skip_limit_up=(board != "us"),
             )
             if entry_close is None or entry_close <= 0 or actual_entry_date is None:
+                if entry_price_source == "tail_1455_missing_skip":
+                    entry_price_missing_skipped += 1
                 continue
 
             # 根据实际成交日推算退出锚点和市场窗口（停牌股的实际入场日可能晚于 entry_target_date）
@@ -1285,6 +1333,9 @@ def run_backtest(
         "pending_confirmed_total": pending_confirmed_total,
         "entry_price_mode": entry_price_mode,
         "entry_price_time": entry_price_time if entry_price_mode == "tail_1455" else "",
+        "entry_price_fallback": entry_price_fallback if entry_price_mode == "tail_1455" else "",
+        "entry_price_missing_skipped": entry_price_missing_skipped,
+        "entry_price_source_counts": _entry_price_source_counts(trades_df),
         "cash_portfolio_enabled": bool(cash_portfolio),
         "cash_portfolio_commission_rate": float(commission_rate),
         "cash_portfolio_small_trade_threshold": float(small_trade_threshold),
@@ -1827,6 +1878,20 @@ def _generate_strategy_advice(summary: dict) -> list[str]:
     return advice
 
 
+def _entry_price_note(summary: dict) -> str:
+    entry_mode = str(summary.get("entry_price_mode") or "open")
+    if entry_mode != "tail_1455":
+        return "- 入场口径：信号日收盘后出信号，T+1 开盘价买入（跳过一字涨停日）。"
+    counts = summary.get("entry_price_source_counts") or {}
+    parts = [f"{k}={v}" for k, v in sorted(counts.items())]
+    skipped = int(summary.get("entry_price_missing_skipped") or 0)
+    if skipped:
+        parts.append(f"missing_skip={skipped}")
+    source_text = "；实际来源：" + "，".join(parts) if parts else ""
+    fallback = str(summary.get("entry_price_fallback") or "close")
+    return f"- 入场口径：信号日收盘后出信号，T+1 14:55 分钟线价格买入（跳过一字涨停日，fallback={fallback}{source_text}）。"
+
+
 def _build_summary_md(summary: dict) -> str:
     use_current_meta = bool(summary.get("use_current_meta"))
     meta_mode = (
@@ -1834,8 +1899,6 @@ def _build_summary_md(summary: dict) -> str:
         if use_current_meta
         else "disabled_current_snapshot_filters (bias-reduced)"
     )
-    entry_mode = str(summary.get("entry_price_mode") or "open")
-    entry_desc = "T+1 14:55 分钟线价格买入" if entry_mode == "tail_1455" else "T+1 开盘价买入"
     cost_note = (
         "- 现金账户口径：买卖双边佣金率 "
         f"{_fmt_metric(float(summary.get('cash_portfolio_commission_rate') or 0) * 10000, 2)} / 万，"
@@ -1847,7 +1910,7 @@ def _build_summary_md(summary: dict) -> str:
     )
     notes = [
         "- 该回测使用日线数据（qfq），含 T+1 与涨跌停成交约束（一字板不可成交）。",
-        f"- 入场口径：信号日收盘后出信号，{entry_desc}（跳过一字涨停日）。",
+        _entry_price_note(summary),
         cost_note,
         "- ⚠️ 仍存在幸存者偏差：股票池来自当前在市样本，未包含历史退市股票。",
     ]

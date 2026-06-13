@@ -29,6 +29,7 @@ TABLE_STRATEGY_REFLECTIONS = "strategy_reflections"
 TABLE_STRATEGY_POLICY_CANDIDATES = "strategy_policy_candidates"
 TABLE_STRATEGY_ATTRIBUTION_REPORTS = "strategy_attribution_reports"
 TABLE_THEME_RADAR_SNAPSHOT = "theme_radar_snapshot"
+TABLE_EXTERNAL_SEED_OBSERVATIONS = "external_seed_observations"
 
 # Local SQLite DB path
 from pathlib import Path as _Path

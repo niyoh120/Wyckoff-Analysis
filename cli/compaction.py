@@ -430,7 +430,9 @@ def compact_messages(
     # 压缩前先提取持久偏好到记忆
     flush_memory_before_compaction(head, provider)
 
-    head_text = serialize_messages_for_compaction(head)
+    head_for_summary = [dict(m) for m in head]
+    shrink_stale_tool_results(head_for_summary)
+    head_text = serialize_messages_for_compaction(head_for_summary)
 
     try:
         chunks = list(

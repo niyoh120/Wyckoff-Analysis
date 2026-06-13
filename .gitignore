@@ -2,6 +2,8 @@
 .idea/
 .vscode/
 .pnpm-store/
+.codex/
+.agents/
 
 .venv/
 venv/
@@ -36,11 +38,48 @@ data/funnel_snapshots/*
 !data/funnel_snapshots/.gitkeep
 data/strategy_shadow/
 logs/
+artifacts/
 tmp/
 *.csv
 *.xlsx
 *.xls
+
+# Local secrets and machine-specific config. Keep templates such as
+# .env.example and *.example.yml tracked for open-source setup.
 .env
+.env.*
+!.env.example
+.envrc
+*.local
+*.local.json
+*.local.yml
+*.local.yaml
+*.secret
+*.secret.json
+*.secret.yml
+*.secret.yaml
+*.secrets
+*.secrets.json
+*.secrets.yml
+*.secrets.yaml
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+wyckoff.json
+wyckoff.local.json
+config/private/
+config/secrets/
+config/profiles/*.local.yml
+config/profiles/*.local.yaml
+config/profiles/*private*.yml
+config/profiles/*private*.yaml
+
+# Local runtime state and personal workspaces.
+*.db
+*.sqlite
+*.sqlite3
+.wyckoff/
 .claude/settings.local.json
 
 # 回测产物与快照缓存（体积大，本地生成即可）

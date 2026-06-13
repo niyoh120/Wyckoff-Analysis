@@ -68,6 +68,34 @@ def test_runtime_passes_provider_context_window_to_compaction(monkeypatch):
     assert events[-1]["type"] == "done"
 
 
+def test_runtime_does_not_rewrite_inline_tool_result_between_rounds():
+    payload = "x" * 1200
+
+    def second_round(messages, _tools, _system_prompt):
+        tool_message = next(m for m in messages if m.get("role") == "tool" and m.get("name") == "portfolio")
+        assert payload in tool_message["content"]
+        return [{"type": "text_delta", "text": "已基于原始工具结果继续。"}]
+
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "view"}}],
+                    "text": "",
+                }
+            ],
+            second_round,
+        ]
+    )
+    tools = StubToolRegistry(tool_results={"portfolio": {"positions": [], "payload": payload}})
+    messages = [{"role": "user", "content": "看一下持仓"}]
+
+    events = list(AgentRuntime(provider, tools).run_stream(messages))
+
+    assert events[-1]["text"] == "已基于原始工具结果继续。"
+
+
 def test_runtime_emits_retry_event_when_required_tool_is_skipped():
     provider = ScriptedProvider(
         rounds=[
