@@ -39,6 +39,15 @@ const TOOL_TONES: Record<string, string> = {
   execute_portfolio_update: 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100',
 }
 
+const STRUCTURED_TOOL_NAMES = new Set(['screen_stocks', 'analyze_stock', 'generate_strategy_decision'])
+const ACTION_TOOL_NAMES = new Set(['plan_portfolio_update', 'execute_portfolio_update'])
+const MARKET_INDEX_LABELS: Record<string, string> = {
+  sse: '上证',
+  csi300: '沪深300',
+  szse: '深成指',
+  chinext: '创业板',
+}
+
 type MessagePart = UIMessage['parts'][number] & Record<string, unknown>
 type ToolPart = MessagePart & {
   type: `tool-${string}` | 'dynamic-tool'
@@ -49,6 +58,11 @@ type ToolPart = MessagePart & {
   errorText?: string
   approval?: { id: string; approved?: boolean; reason?: string }
 }
+
+type AssistantRenderItem =
+  | { type: 'text'; content: string; key: string }
+  | { type: 'tool'; part: ToolPart; key: string }
+  | { type: 'tool-group'; parts: ToolPart[]; key: string }
 
 interface ChatConfig {
   configured: boolean
@@ -89,7 +103,7 @@ export function ChatPage() {
   }, [chat, loading])
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <ChatHeader config={config} hasUser={Boolean(user)} onNewChat={handleNewChat} />
       <ChatMessages chat={chat} loading={loading} scrollRef={scrollRef} onPick={setInput} />
       <ErrorBanner message={localError || chat.error?.message || ''} />
@@ -130,7 +144,7 @@ function useAutoScroll(ref: React.RefObject<HTMLDivElement | null>, messages: UI
 function ChatHeader({ config, hasUser, onNewChat }: { config: ChatConfig; hasUser: boolean; onNewChat: () => void }) {
   const { t } = usePreferences()
   return (
-    <div className="flex items-center justify-between border-b border-border px-6 py-3">
+    <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-3">
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-semibold">{t('chat.title')}</h1>
         {config.model && <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200">{config.model}</span>}
@@ -151,11 +165,11 @@ function ChatMessages({ chat, loading, scrollRef, onPick }: {
   onPick: (value: string) => void
 }) {
   return (
-    <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4">
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-6 py-4">
       {chat.messages.length === 0 && !loading ? (
         <EmptyChat onPick={onPick} />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 pb-2">
           {chat.messages.map((message) => <MessageBubble key={message.id} message={message} approve={(id) => void chat.addToolApprovalResponse({ id, approved: true })} deny={(id) => void chat.addToolApprovalResponse({ id, approved: false })} />)}
           {loading && <ThinkingBubble />}
         </div>
@@ -166,7 +180,7 @@ function ChatMessages({ chat, loading, scrollRef, onPick }: {
 
 function ErrorBanner({ message }: { message: string }) {
   if (!message) return null
-  return <div className="mx-6 mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-200">{message}</div>
+  return <div className="mx-6 mb-2 shrink-0 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-200">{message}</div>
 }
 
 const MessageBubble = memo(function MessageBubble({
@@ -189,16 +203,42 @@ const MessageBubble = memo(function MessageBubble({
 })
 
 function AssistantParts({ message, approve, deny }: { message: UIMessage; approve: (id: string) => void; deny: (id: string) => void }) {
+  const items = buildAssistantRenderItems(message.parts)
   return (
     <>
-      {message.parts.map((part, index) => {
-        const item = part as MessagePart
-        if (item.type === 'text') return <MarkdownContent key={index} content={String(item.text || '')} />
-        if (isToolPart(item)) return <ToolPartCard key={`${item.toolCallId}-${index}`} part={item} approve={approve} deny={deny} />
+      {items.map((item) => {
+        if (item.type === 'text') return <MarkdownContent key={item.key} content={item.content} />
+        if (item.type === 'tool-group') return <ToolRunSummary key={item.key} parts={item.parts} />
+        if (item.type === 'tool') return <ToolPartCard key={item.key} part={item.part} approve={approve} deny={deny} />
         return null
       })}
     </>
   )
+}
+
+function buildAssistantRenderItems(parts: UIMessage['parts']): AssistantRenderItem[] {
+  const items: AssistantRenderItem[] = []
+  let pending: ToolPart[] = []
+  const flush = () => {
+    if (!pending.length) return
+    items.push({ type: 'tool-group', parts: pending, key: `tools-${items.length}` })
+    pending = []
+  }
+  parts.forEach((part, index) => appendAssistantPart(items, pending, flush, part as MessagePart, index))
+  flush()
+  return items
+}
+
+function appendAssistantPart(items: AssistantRenderItem[], pending: ToolPart[], flush: () => void, item: MessagePart, index: number) {
+  if (item.type === 'text') {
+    flush()
+    items.push({ type: 'text', content: String(item.text || ''), key: `text-${index}` })
+  } else if (isToolPart(item) && shouldRenderStandaloneTool(item)) {
+    flush()
+    items.push({ type: 'tool', part: item, key: `${item.toolCallId}-${index}` })
+  } else if (isToolPart(item)) {
+    pending.push(item)
+  }
 }
 
 function UserText({ message }: { message: UIMessage }) {
@@ -235,6 +275,27 @@ function ToolPartCard({ part, approve, deny }: { part: ToolPart; approve: (id: s
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+function ToolRunSummary({ parts }: { parts: ToolPart[] }) {
+  const { t } = usePreferences()
+  const labels = uniqueToolLabels(parts, t)
+  const hasFailure = parts.some((part) => part.state === 'output-error')
+  return (
+    <div className="my-2 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-[12px] text-muted-foreground">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">
+          <Wrench size={12} className="shrink-0 text-primary" />
+          <span className="truncate">{toolGroupTitle(parts, t)}</span>
+        </span>
+        <span className="shrink-0 text-[10px]">{toolGroupState(parts, t)}</span>
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {labels.map((label) => <span key={label} className="rounded-full bg-muted px-2 py-0.5 text-[11px]">{label}</span>)}
+      </div>
+      {hasFailure && <p className="mt-1.5 text-[11px] text-amber-700 dark:text-amber-200">{t('chat.toolPartialFailure')}</p>}
     </div>
   )
 }
@@ -294,7 +355,7 @@ function ChatComposer(props: {
 }) {
   const { t } = usePreferences()
   return (
-    <div className="border-t border-border px-6 py-3">
+    <div className="shrink-0 border-t border-border bg-background px-6 py-3">
       <form onSubmit={props.onSubmit} className="flex items-center gap-2">
         <input
           type="text"
@@ -322,7 +383,7 @@ function ChatComposer(props: {
 function EmptyChat({ onPick }: { onPick: (value: string) => void }) {
   const { t } = usePreferences()
   return (
-    <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+    <div className="flex min-h-full flex-col items-center justify-center text-muted-foreground">
       <div className="mb-4 rounded-full border border-border bg-muted/40 p-3 text-primary">
         <Activity size={28} />
       </div>
@@ -402,6 +463,54 @@ function toolStateLabel(part: ToolPart, t: (key: TranslationKey) => string): str
   if (part.state === 'output-available') return t('chat.toolDone')
   if (part.state === 'output-error') return t('chat.requestFailed')
   return t('chat.toolRunning')
+}
+
+function shouldRenderStandaloneTool(part: ToolPart): boolean {
+  const toolName = getToolName(part)
+  if (ACTION_TOOL_NAMES.has(toolName)) return true
+  if (part.state === 'approval-requested' || part.state === 'output-denied') return true
+  return STRUCTURED_TOOL_NAMES.has(toolName) && part.state === 'output-available'
+}
+
+function toolGroupTitle(parts: ToolPart[], t: (key: TranslationKey) => string): string {
+  const names = new Set(parts.map(getToolName))
+  if (names.has('market_overview') || names.has('market_history')) return t('chat.toolGroupMarketData')
+  return t('chat.toolGroupDataLookup')
+}
+
+function toolGroupState(parts: ToolPart[], t: (key: TranslationKey) => string): string {
+  if (parts.some(isRunningTool)) return t('chat.toolRunning')
+  if (parts.some((part) => part.state === 'output-error')) return t('chat.toolGroupPartial')
+  return t('chat.toolDone')
+}
+
+function isRunningTool(part: ToolPart): boolean {
+  return !['output-available', 'output-error', 'output-denied', 'approval-responded'].includes(part.state)
+}
+
+function uniqueToolLabels(parts: ToolPart[], t: (key: TranslationKey) => string): string[] {
+  const labels: string[] = []
+  for (const part of parts) {
+    const label = toolChipLabel(part, t)
+    if (!labels.includes(label)) labels.push(label)
+  }
+  return labels.slice(0, 5)
+}
+
+function toolChipLabel(part: ToolPart, t: (key: TranslationKey) => string): string {
+  const toolName = getToolName(part)
+  const inputLabel = toolInputLabel(toolName, part.input)
+  const base = formatToolName(toolName, t)
+  return inputLabel ? `${base} · ${inputLabel}` : base
+}
+
+function toolInputLabel(toolName: string, input: unknown): string {
+  if (toolName !== 'market_history') return ''
+  const value = asRecord(input)
+  const index = String(value?.index || 'sse')
+  const days = typeof value?.days === 'number' ? `${value.days}日` : ''
+  const label = MARKET_INDEX_LABELS[index] || index
+  return days ? `${label}/${days}` : label
 }
 
 function isScreenResult(value: unknown): value is ScreenResult {

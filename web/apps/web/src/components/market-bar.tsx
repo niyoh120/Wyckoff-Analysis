@@ -109,7 +109,7 @@ export function MarketBar() {
   const fmtDate = (d: string) => d ? d.slice(5).replace('-', '/') : ''
 
   return (
-    <div className="border-b border-border bg-background px-6 py-2.5">
+    <div className="shrink-0 border-b border-border bg-background px-6 py-2.5">
       <div className="flex flex-wrap items-center gap-4">
         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${tone.className}`}>
           {t(tone.labelKey)}

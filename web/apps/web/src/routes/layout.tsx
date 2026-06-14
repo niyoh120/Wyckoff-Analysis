@@ -121,16 +121,16 @@ export function AppLayout() {
   useRouteActivity(user?.id, location)
 
   return (
-    <div className="flex h-screen">
-      <aside className="flex w-56 flex-col border-r border-border bg-sidebar">
-        <div className="px-5 py-5">
+    <div className="flex h-dvh overflow-hidden">
+      <aside className="flex h-full w-56 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar">
+        <div className="shrink-0 px-5 py-5">
           <h2 className="bg-gradient-to-r from-primary to-cyan-500 bg-clip-text text-xl font-bold tracking-tight text-transparent">
             Wyckoff
           </h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground">{t('app.subtitle')}</p>
         </div>
 
-        <nav className="flex-1 space-y-0.5 px-3">
+        <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
           {navItems.map(({ to, icon: Icon, labelKey }) => (
             <Link
               key={to}
@@ -150,9 +150,9 @@ export function AppLayout() {
         <SidebarFooter email={user?.email || 'dev@preview'} onLogout={handleLogout} />
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <MarketBar />
-        <main className="flex-1 overflow-auto bg-background">
+        <main className="min-h-0 flex-1 overflow-auto bg-background">
           <Outlet />
         </main>
       </div>
