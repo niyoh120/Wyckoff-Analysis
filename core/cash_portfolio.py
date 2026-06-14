@@ -89,8 +89,21 @@ def _position_limit(config: CashPortfolioConfig) -> int:
     return max(1, int(config.max_positions))
 
 
-def _portfolio_equity(cash: float, active: list[dict[str, Any]]) -> float:
-    return float(cash) + sum(float(pos["shares"]) * float(pos["entry_price"]) for pos in active)
+def _portfolio_equity(
+    cash: float,
+    active: list[dict[str, Any]],
+    day: date | None = None,
+    mark_price_fn: Callable[[str, date], float | None] | None = None,
+) -> float:
+    value = float(cash)
+    for pos in active:
+        price = float(pos["entry_price"])
+        if day is not None and mark_price_fn is not None:
+            mark = mark_price_fn(str(pos["code"]), day)
+            if mark is not None and mark > 0:
+                price = float(mark)
+        value += float(pos["shares"]) * price
+    return value
 
 
 def _code_exposure(active: list[dict[str, Any]], code: str) -> float:
@@ -423,6 +436,7 @@ def _new_skipped() -> dict[str, int]:
 
 def _portfolio_summary(
     closed_df: pd.DataFrame,
+    nav_df: pd.DataFrame,
     cash: float,
     config: CashPortfolioConfig,
     skipped: dict[str, int],
@@ -442,6 +456,7 @@ def _portfolio_summary(
         "cash_portfolio_initial_cash": float(config.initial_cash),
         "cash_portfolio_final_cash": float(cash),
         "cash_portfolio_total_return_pct": (float(cash) / float(config.initial_cash) - 1.0) * 100.0,
+        "cash_portfolio_max_drawdown_pct": _cash_nav_max_drawdown_pct(nav_df, float(config.initial_cash)),
         "cash_portfolio_trades": int(len(ret)),
         "cash_portfolio_win_rate_pct": float((ret > 0).mean() * 100.0) if len(ret) else None,
         "cash_portfolio_avg_profit_pct": float(wins.mean()) if len(wins) else None,
@@ -464,6 +479,20 @@ def _portfolio_summary(
     }
 
 
+def _cash_nav_max_drawdown_pct(nav_df: pd.DataFrame, initial_cash: float) -> float | None:
+    if initial_cash <= 0:
+        return None
+    if nav_df is None or nav_df.empty or "equity" not in nav_df.columns:
+        return 0.0
+    equity = pd.to_numeric(nav_df["equity"], errors="coerce").dropna()
+    if equity.empty:
+        return 0.0
+    nav = pd.concat([pd.Series([initial_cash], dtype=float), equity.reset_index(drop=True)], ignore_index=True)
+    peak = nav.cummax()
+    drawdown = nav / peak - 1.0
+    return float(drawdown.min() * 100.0)
+
+
 def simulate_cash_portfolio(
     trades_df: pd.DataFrame,
     config: CashPortfolioConfig | None = None,
@@ -472,7 +501,8 @@ def simulate_cash_portfolio(
     cfg = config or CashPortfolioConfig()
     df = _normalize_trade_dates(trades_df)
     if df.empty:
-        return pd.DataFrame(), pd.DataFrame(), _portfolio_summary(pd.DataFrame(), cfg.initial_cash, cfg, _new_skipped())
+        empty = pd.DataFrame()
+        return empty, empty, _portfolio_summary(empty, empty, cfg.initial_cash, cfg, _new_skipped())
 
     cash = float(cfg.initial_cash)
     active: list[dict[str, Any]] = []
@@ -489,7 +519,7 @@ def simulate_cash_portfolio(
         equity_rows.append(
             {
                 "date": day,
-                "equity": _portfolio_equity(cash, active),
+                "equity": _portfolio_equity(cash, active, day, mark_price_fn),
                 "cash": cash,
                 "positions": len(_active_codes(active)),
             }
@@ -500,7 +530,7 @@ def simulate_cash_portfolio(
         equity_rows.append(
             {
                 "date": day,
-                "equity": _portfolio_equity(cash, active),
+                "equity": _portfolio_equity(cash, active, day, mark_price_fn),
                 "cash": cash,
                 "positions": len(_active_codes(active)),
             }
@@ -511,7 +541,7 @@ def simulate_cash_portfolio(
     nav_df = pd.DataFrame(equity_rows)
     if not nav_df.empty:
         nav_df = nav_df.drop_duplicates(subset=["date"], keep="last")
-    return closed_df, nav_df, _portfolio_summary(closed_df, cash, cfg, skipped)
+    return closed_df, nav_df, _portfolio_summary(closed_df, nav_df, cash, cfg, skipped)
 
 
 def _apply_style(

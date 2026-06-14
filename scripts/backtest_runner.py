@@ -2063,8 +2063,8 @@ def _build_cash_style_table(summary: dict) -> list[str]:
     lines = [
         "## 交易风格对比",
         "",
-        "| 风格ID | 风格 | 最终现金 | 总收益 | 成交 | 胜率 | 平均盈利 | 平均亏损 | 加仓 | 换股 | 观察未确认 | 跳过 |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| 风格ID | 风格 | 最终现金 | 总收益 | 现金回撤 | 成交 | 胜率 | 平均盈利 | 平均亏损 | 加仓 | 换股 | 观察未确认 | 跳过 |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         skipped = _cash_style_skipped(row)
@@ -2076,6 +2076,7 @@ def _build_cash_style_table(summary: dict) -> list[str]:
                     _style_display(row),
                     _fmt_metric(row.get("cash_portfolio_final_cash"), 2),
                     f"{_fmt_metric(row.get('cash_portfolio_total_return_pct'), 2)}%",
+                    f"{_fmt_metric(row.get('cash_portfolio_max_drawdown_pct'), 2)}%",
                     _fmt_metric(row.get("cash_portfolio_trades"), 0),
                     f"{_fmt_metric(row.get('cash_portfolio_win_rate_pct'), 2)}%",
                     f"{_fmt_metric(row.get('cash_portfolio_avg_profit_pct'), 3)}%",
@@ -2237,6 +2238,7 @@ def _build_summary_md(summary: dict) -> str:
                 f"- 最多持仓: {_fmt_metric(summary.get('cash_portfolio_max_positions'), 0)}",
                 f"- 最终现金: {_fmt_metric(summary.get('cash_portfolio_final_cash'), 2)}",
                 f"- 总收益: {_fmt_metric(summary.get('cash_portfolio_total_return_pct'), 2)}%",
+                f"- 现金最大回撤: {_fmt_metric(summary.get('cash_portfolio_max_drawdown_pct'), 2)}%",
                 f"- 成交笔数: {_fmt_metric(summary.get('cash_portfolio_trades'), 0)}",
                 f"- 胜率: {_fmt_metric(summary.get('cash_portfolio_win_rate_pct'), 2)}%",
                 f"- 平均盈利: {_fmt_metric(summary.get('cash_portfolio_avg_profit_pct'), 3)}%",

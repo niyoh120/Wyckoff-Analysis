@@ -51,6 +51,7 @@ def test_cash_portfolio_limits_positions_and_lot_size() -> None:
     assert summary["cash_portfolio_skipped_full"] == 1
     assert summary["cash_portfolio_win_rate_pct"] == 100.0
     assert summary["cash_portfolio_final_cash"] > 109_000
+    assert summary["cash_portfolio_max_drawdown_pct"] <= 0
     assert not nav.empty
 
 
@@ -60,7 +61,39 @@ def test_cash_portfolio_accepts_empty_trade_frame() -> None:
     assert closed.empty
     assert nav.empty
     assert summary["cash_portfolio_final_cash"] == 100_000
+    assert summary["cash_portfolio_max_drawdown_pct"] == 0.0
     assert summary["cash_portfolio_trades"] == 0
+
+
+def test_cash_portfolio_drawdown_uses_mark_price() -> None:
+    rows = [
+        {
+            "code": "000001",
+            "name": "S1",
+            "signal_date": "2026-01-02",
+            "entry_date": "2026-01-05",
+            "exit_date": "2026-01-20",
+            "entry_close": 10.0,
+            "exit_close": 10.0,
+        },
+        {
+            "code": "000002",
+            "name": "S2",
+            "signal_date": "2026-01-03",
+            "entry_date": "2026-01-06",
+            "exit_date": "2026-01-20",
+            "entry_close": 10.0,
+            "exit_close": 10.0,
+        },
+    ]
+
+    _closed, _nav, summary = simulate_cash_portfolio(
+        pd.DataFrame(rows),
+        CashPortfolioConfig(initial_cash=100_000, max_positions=2),
+        mark_price_fn=lambda code, day: 8.0 if code == "000001" and day == date(2026, 1, 6) else 10.0,
+    )
+
+    assert summary["cash_portfolio_max_drawdown_pct"] < -9.0
 
 
 def test_portfolio_style_probe_add_allows_same_stock_addon() -> None:

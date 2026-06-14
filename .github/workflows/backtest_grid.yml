@@ -603,6 +603,7 @@ jobs:
                   '风格': '等额四仓',
                   '最终现金': extract_text(content, '最终现金'),
                   '总收益': extract_text(content, '总收益'),
+                  '现金回撤': extract_text(content, '现金最大回撤'),
                   '成交': extract_text(content, '成交笔数'),
                   '胜率': extract_text(content, '胜率'),
               }]
@@ -614,6 +615,7 @@ jobs:
                       'style_label': style_label(style, style_row.get('风格', '')),
                       'cash_final': parse_num(style_row.get('最终现金')),
                       'cash_return': parse_num(style_row.get('总收益')),
+                      'cash_mdd': parse_num(style_row.get('现金回撤')),
                       'cash_trades': parse_num(style_row.get('成交')),
                       'cash_win': parse_num(style_row.get('胜率')),
                   })
@@ -639,7 +641,7 @@ jobs:
               cash_ret = c.get('cash_return')
               s = c.get('sharpe')
               avg = c.get('avg')
-              mdd = c.get('mdd')
+              mdd = c.get('cash_mdd') if c.get('cash_mdd') is not None else c.get('mdd')
               notes = []
               if cash_ret is not None and cash_ret < 0:
                   notes.append('现金账户亏损')
@@ -726,7 +728,8 @@ jobs:
               return (
                   f'{idx}. {mark}{combo} | 现金 {fmt(c.get("cash_return"), "+.2f")}% | '
                   f'终值 {fmt(c.get("cash_final"), ",.0f")} | 夏普 {fmt(c.get("sharpe"), ".3f")} | '
-                  f'回撤 {fmt(c.get("mdd"), ".1f")}% | 样本 {int(c.get("trades") or 0)}笔'
+                  f'现金回撤 {fmt(c.get("cash_mdd") if c.get("cash_mdd") is not None else c.get("mdd"), ".1f")}% | '
+                  f'样本 {int(c.get("trades") or 0)}笔'
               )
 
           def split_ranking_cards(ranked, best, periods, template, max_bytes=85000):
@@ -826,7 +829,7 @@ jobs:
                       ('**最终现金**', f'{fmt(best.get("cash_final"), ",.2f")}'),
                       ('**现金成交**', f'{int(best.get("cash_trades") or 0)}笔'),
                       ('**夏普**', f'{sharp_flag(best.get("sharpe"))} {fmt(best.get("sharpe"), ".3f")}'),
-                      ('**回撤**', f'{fmt(best.get("mdd"), ".1f")}%'),
+                      ('**现金回撤**', f'{fmt(best.get("cash_mdd") if best.get("cash_mdd") is not None else best.get("mdd"), ".1f")}%'),
                       ('**样本**', f'{int(best.get("trades") or 0)}笔'),
                   ]
                   elements.append({'tag': 'column_set', 'flex_mode': 'stretch',

@@ -71,6 +71,7 @@ class GridCell:
     cash_total_return: float | None
     cash_trades: int | None
     cash_commission_total: float | None
+    cash_max_drawdown: float | None
     wbt_sharpe: float | None
     wbt_max_drawdown: float | None
     wbt_daily_win_rate: float | None
@@ -210,6 +211,7 @@ def _fallback_cash_style_rows(content: str) -> list[dict[str, str]]:
             "风格": raw_style.split("(", 1)[0].strip() or "等额四仓",
             "最终现金": _extract_line_value(content, "最终现金") or "",
             "总收益": _extract_line_value(content, "总收益") or "",
+            "现金回撤": _extract_line_value(content, "现金最大回撤") or "",
             "成交": _extract_line_value(content, "成交笔数") or "",
             "胜率": _extract_line_value(content, "胜率") or "",
             "佣金": _extract_line_value(content, "佣金合计") or "",
@@ -267,6 +269,7 @@ def _grid_cell_from_style(
         cash_total_return=_coalesce(_to_float(style_row.get("总收益")), _extract_float(content, "总收益")),
         cash_trades=_coalesce(_to_int(style_row.get("成交")), _extract_int(content, "成交笔数")),
         cash_commission_total=_coalesce(_to_float(style_row.get("佣金")), _extract_float(content, "佣金合计")),
+        cash_max_drawdown=_coalesce(_to_float(style_row.get("现金回撤")), _extract_float(content, "现金最大回撤")),
         wbt_sharpe=_extract_float(content, "wbt 夏普比"),
         wbt_max_drawdown=_extract_float(content, "wbt 最大回撤"),
         wbt_daily_win_rate=_extract_float(content, "wbt 日胜率"),
@@ -377,6 +380,10 @@ def _cash_sort_key(cell: GridCell) -> float:
     return _cell_sort_key(cell)
 
 
+def _cash_drawdown(cell: GridCell) -> float | None:
+    return cell.cash_max_drawdown if cell.cash_max_drawdown is not None else cell.max_drawdown
+
+
 def _robust_param_key(cell: GridCell) -> tuple[str, int, int, int, int]:
     return (cell.portfolio_style or "slot_equal_4", cell.hold, cell.stop_loss, cell.take_profit, cell.trailing_stop)
 
@@ -444,7 +451,7 @@ def _build_period_best_table(cells: list[GridCell]) -> list[str]:
         "",
         "## 各周期最佳",
         "",
-        "| 周期 | 区间 | 最佳参数 | 现金收益 | 最终现金 | 夏普 | 回撤 | 单元 |",
+        "| 周期 | 区间 | 最佳参数 | 现金收益 | 最终现金 | 夏普 | 现金回撤 | 单元 |",
         "|---|---|---|---:|---:|---:|---:|---:|",
     ]
     for key in sorted(groups, key=_period_sort_key):
@@ -462,7 +469,7 @@ def _build_period_best_table(cells: list[GridCell]) -> list[str]:
                     _fmt_signed(best.cash_total_return, 2, "%"),
                     _fmt_num(best.cash_final, 2),
                     _fmt_num(best.sharpe, 3),
-                    _fmt_num(best.max_drawdown, 1, "%"),
+                    _fmt_num(_cash_drawdown(best), 1, "%"),
                     str(len(group)),
                 ]
             )
@@ -482,7 +489,7 @@ def _build_style_best_table(cells: list[GridCell]) -> list[str]:
         "",
         "## 各交易风格最佳",
         "",
-        "| 风格 | 最佳周期 | 最佳参数 | 现金收益 | 最终现金 | 夏普 | 回撤 | 单元 |",
+        "| 风格 | 最佳周期 | 最佳参数 | 现金收益 | 最终现金 | 夏普 | 现金回撤 | 单元 |",
         "|---|---|---|---:|---:|---:|---:|---:|",
     ]
     for key in sorted(groups, key=_style_sort_key):
@@ -498,7 +505,7 @@ def _build_style_best_table(cells: list[GridCell]) -> list[str]:
                     _fmt_signed(best.cash_total_return, 2, "%"),
                     _fmt_num(best.cash_final, 2),
                     _fmt_num(best.sharpe, 3),
-                    _fmt_num(best.max_drawdown, 1, "%"),
+                    _fmt_num(_cash_drawdown(best), 1, "%"),
                     str(len(group)),
                 ]
             )
@@ -700,7 +707,7 @@ def _build_conclusion_lines(
         "",
         f"- 稳健参数（跨周期惩罚）: **{_fmt_param(best)}**",
         f"- 代表单元: 夏普 **{_fmt_num(best.sharpe, 3)}**；胜率 **{_fmt_num(best.win_rate, 1, '%')}**；单笔均收 **{_fmt_signed(best.avg_ret, 2, '%')}**；最大回撤 **{_fmt_num(best.max_drawdown, 1, '%')}**；样本 **{best.trades or 0}** 笔",
-        f"- 代表现金账户: 初始 **{_fmt_num(best.cash_initial, 2)}**；最终 **{_fmt_num(best.cash_final, 2)}**；盈亏 **{_fmt_signed(_cash_pnl(best), 2)}**；收益 **{_fmt_signed(best.cash_total_return, 2, '%')}**；现金成交 **{best.cash_trades or 0}** 笔",
+        f"- 代表现金账户: 初始 **{_fmt_num(best.cash_initial, 2)}**；最终 **{_fmt_num(best.cash_final, 2)}**；盈亏 **{_fmt_signed(_cash_pnl(best), 2)}**；收益 **{_fmt_signed(best.cash_total_return, 2, '%')}**；现金回撤 **{_fmt_num(_cash_drawdown(best), 1, '%')}**；现金成交 **{best.cash_trades or 0}** 笔",
         f"- wbt 校验: 夏普 {_fmt_num(best.wbt_sharpe, 3)}，最大回撤 {_fmt_num(best.wbt_max_drawdown, 2, '%')}，日胜率 {_fmt_num(best.wbt_daily_win_rate, 2, '%')}；绩效引擎 `{best.metrics_engine or '-'}`",
         f"- 参数观察: {_best_per_hold_comment(cells)}",
     ]
@@ -751,7 +758,7 @@ def _build_ranked_table(ranked: list[GridCell], best: GridCell) -> list[str]:
         "",
         "## 参数梯队（按现金收益）",
         "",
-        "| 排名 | 参数组合 | 夏普 | 胜率 | 均收 | 回撤 | 最终现金 | 现金收益 | 样本 |",
+        "| 排名 | 参数组合 | 夏普 | 胜率 | 均收 | 现金回撤 | 最终现金 | 现金收益 | 样本 |",
         "|---:|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for idx, cell in enumerate(ranked, 1):
@@ -765,7 +772,7 @@ def _build_ranked_table(ranked: list[GridCell], best: GridCell) -> list[str]:
                     f"{_fmt_num(cell.sharpe, 3)}{marker}",
                     _fmt_num(cell.win_rate, 1, "%"),
                     _fmt_signed(cell.avg_ret, 2, "%"),
-                    _fmt_num(cell.max_drawdown, 1, "%"),
+                    _fmt_num(_cash_drawdown(cell), 1, "%"),
                     _fmt_num(cell.cash_final, 2),
                     _fmt_signed(cell.cash_total_return, 2, "%"),
                     str(cell.trades or 0),
