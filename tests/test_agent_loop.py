@@ -399,27 +399,26 @@ class TestToolConfirm:
         result = registry.execute("exec_command", {"command": "echo hi"})
         assert "error" not in result or "拒绝" not in result.get("error", "")
 
-    def test_high_risk_blocked_without_ask_user_confirm(self):
+    def test_high_risk_blocked_without_user_question_confirm(self):
         registry = ToolRegistry()
         # Without messages context, high-risk command should be blocked
         result = registry.execute("exec_command", {"command": "echo hi"})
         assert "error" in result
         assert "已被拦截" in result["error"]
-        assert "ask_user" in result["error"]
+        assert "ask_user_question" in result["error"]
 
-        # With messages context but no confirm result, it should still be blocked
+        # Old ask_user tool messages are no longer accepted as confirmation.
         messages = [
             {"role": "user", "content": "run echo hi"},
-            {"role": "tool", "name": "ask_user", "content": "用户回复: no"},
+            {"role": "tool", "name": "ask_user", "content": "用户已答复: 确认继续"},
         ]
         result = registry.execute("exec_command", {"command": "echo hi"}, messages=messages)
         assert "error" in result
         assert "已被拦截" in result["error"]
 
-        # With messages containing a positive confirm result from ask_user, it should execute successfully
         messages_confirmed = [
             {"role": "user", "content": "run echo hi"},
-            {"role": "tool", "name": "ask_user", "content": "用户已答复: 确认继续"},
+            {"role": "tool", "name": "ask_user_question", "content": "用户已答复: 确认继续"},
         ]
         result_confirmed = registry.execute("exec_command", {"command": "echo hi"}, messages=messages_confirmed)
         assert "error" not in result_confirmed

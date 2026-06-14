@@ -2016,10 +2016,10 @@ def run_backtest(
     start: str = "",
     end: str = "",
     hold_days: int = 10,
-    top_n: int = 3,
+    top_n: int = 4,
     board: str = "main_chinext",
-    stop_loss_pct: float = -7.0,
-    take_profit_pct: float = 18.0,
+    stop_loss_pct: float = -8.0,
+    take_profit_pct: float = 0.0,
     tool_context: ToolContext = None,
 ) -> dict:
     """回测威科夫五层漏斗策略的历史表现。耗时较长（3-10分钟），会在后台执行。
@@ -2031,10 +2031,10 @@ def run_backtest(
         start: 开始日期（YYYY-MM-DD），默认 6 个月前
         end: 结束日期（YYYY-MM-DD），默认昨天
         hold_days: 最大持仓天数（5/10/15/30），默认 10
-        top_n: 每日最大候选数（0=不限），默认 3
+        top_n: 每日最大候选数（0=不限），默认 4
         board: 股票池 'main_chinext'/'main'/'chinext'/'all'
-        stop_loss_pct: 止损百分比（负数），默认 -7.0
-        take_profit_pct: 止盈百分比，默认 18.0
+        stop_loss_pct: 止损百分比（负数），默认 -8.0
+        take_profit_pct: 止盈百分比，默认 0.0
 
     Returns:
         回测结果摘要：胜率、Sharpe、最大回撤、交易笔数等。
@@ -2066,6 +2066,10 @@ def run_backtest(
             exit_mode="sltp",
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
+            cash_portfolio=True,
+            initial_cash=100_000.0,
+            max_positions=4,
+            portfolio_styles="confirmation_only",
         )
 
         return {
@@ -2084,6 +2088,11 @@ def run_backtest(
             "portfolio_total_ret_pct": summary.get("portfolio_total_ret_pct"),
             "portfolio_ann_ret_pct": summary.get("portfolio_ann_ret_pct"),
             "max_consecutive_losses": summary.get("max_consecutive_losses"),
+            "cash_final": summary.get("cash_portfolio_final_cash"),
+            "cash_return_pct": summary.get("cash_portfolio_total_return_pct"),
+            "cash_max_drawdown_pct": summary.get("cash_portfolio_max_drawdown_pct"),
+            "cash_trades": summary.get("cash_portfolio_trades"),
+            "cash_style": summary.get("cash_portfolio_style"),
         }
     except Exception as e:
         logger.exception("run_backtest error")

@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,6 +28,7 @@ DECISION_BUY = "BUY"
 DECISION_WATCH = "WATCH"
 DECISION_SKIP = "SKIP"
 VALID_DECISIONS = {DECISION_BUY, DECISION_WATCH, DECISION_SKIP}
+_TRUE_TEXTS = {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -80,6 +82,26 @@ def _infer_session_vwap(close: pd.Series, total_volume: float, total_amount: flo
 def _normalize_status(raw: Any) -> str:
     text = str(raw or "").strip().lower()
     return text if text else "pending"
+
+
+def _confirmed_only_buy_enabled() -> bool:
+    return os.getenv("TAIL_BUY_CONFIRMED_ONLY_BUY", "1").strip().lower() in _TRUE_TEXTS
+
+
+def _apply_unconfirmed_buy_gate(candidate: TailBuyCandidate) -> TailBuyCandidate:
+    if not _confirmed_only_buy_enabled() or _normalize_status(candidate.status) == "confirmed":
+        return candidate
+    if candidate.rule_decision == DECISION_BUY:
+        candidate.rule_decision = DECISION_WATCH
+        candidate.rule_reasons.append("未二次确认，尾盘只观察不买入")
+    if candidate.final_decision == DECISION_BUY:
+        candidate.final_decision = DECISION_WATCH
+        candidate.llm_reason = (
+            f"{candidate.llm_reason}；未二次确认，降级观察" if candidate.llm_reason else "未二次确认，降级观察"
+        )
+    if candidate.final_decision == DECISION_WATCH:
+        candidate.priority_score = candidate.rule_score + 3.0
+    return candidate
 
 
 def _normalize_signal_date(raw: Any) -> str:
@@ -417,6 +439,9 @@ def score_tail_features(
         decision = DECISION_WATCH
     else:
         decision = DECISION_SKIP
+    if decision == DECISION_BUY and _confirmed_only_buy_enabled() and _normalize_status(status) != "confirmed":
+        decision = DECISION_WATCH
+        reasons.append("未二次确认，尾盘只观察不买入")
     return score, decision, reasons
 
 
@@ -449,7 +474,7 @@ def evaluate_rule_decision(
     candidate.final_decision = decision
     candidate.priority_score = score
     candidate.summary_5m = build_5m_summary(df_1m, max_bars=12)
-    return candidate
+    return _apply_unconfirmed_buy_gate(candidate)
 
 
 def build_5m_summary(df_1m: pd.DataFrame, *, max_bars: int = 12) -> str:
@@ -627,6 +652,7 @@ def merge_rule_and_llm(
         else:
             item.final_decision = item.rule_decision
             item.priority_score = item.rule_score + decision_bonus.get(item.rule_decision, 0.0)
+        item = _apply_unconfirmed_buy_gate(item)
         out.append(item)
     out.sort(key=lambda x: (-x.priority_score, -x.rule_score, x.code))
     return out

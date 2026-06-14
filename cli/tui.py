@@ -18,6 +18,7 @@ from typing import Any
 
 from rich.highlighter import Highlighter
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.text import Text
 from textual import events, work
 from textual.app import App, ComposeResult
@@ -117,8 +118,9 @@ _patch_driver_no_kitty()
 # ---------------------------------------------------------------------------
 # Widget
 # ---------------------------------------------------------------------------
-from cli.runtime import AgentCancelled, AgentRuntime
+from cli.runtime import AgentCancelled
 from cli.scratchpad import AgentScratchpad
+from cli.workflows.dispatch import build_turn_runtime
 from core.prompts import with_current_time
 
 
@@ -500,10 +502,13 @@ class AskUserScreen(ModalScreen[str]):
         border: thick $accent;
         padding: 1 2;
     }
-    #ask-question {
+    #ask-title {
         text-style: bold;
         margin-bottom: 1;
+    }
+    #ask-question {
         height: auto;
+        margin-bottom: 1;
     }
     #ask-options {
         height: auto;
@@ -517,33 +522,48 @@ class AskUserScreen(ModalScreen[str]):
 
     BINDINGS = [Binding("escape", "cancel", show=False)]
 
-    def __init__(self, question: str, options: list[str] | None = None):
+    def __init__(
+        self,
+        question: str,
+        options: list[str] | None = None,
+        *,
+        allow_free_text: bool = True,
+        default_answer: str = "",
+    ):
         super().__init__()
         self.question = question
         self.options = options or []
+        self.allow_free_text = allow_free_text or not self.options
+        self.default_answer = default_answer
 
     def compose(self) -> ComposeResult:
         with Vertical(id="ask-box"):
-            yield Static(f"💬 [bold]Agent 提问：[/bold]\n{self.question}", id="ask-question")
+            yield Static("需要你确认/补充", id="ask-title")
+            yield Static(self.question, id="ask-question")
             if self.options:
                 yield OptionList(
                     *[Option(opt, id=f"opt_{i}") for i, opt in enumerate(self.options)],
                     id="ask-options",
                 )
-            yield Input(
-                placeholder="在此输入您的回答并按 Enter..." if not self.options else "或者在此处输入自定义回答...",
-                id="ask-input",
-            )
+            if self.allow_free_text:
+                yield Input(value=self.default_answer, placeholder=self._input_placeholder(), id="ask-input")
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         selected_option = event.option.prompt
         self.dismiss(str(selected_option))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value)
+        self.dismiss(event.value or self.default_answer)
 
     def action_cancel(self) -> None:
         self.dismiss("已取消回答")
+
+    def _input_placeholder(self) -> str:
+        if self.options:
+            return "也可以在此输入自定义回答..."
+        if self.default_answer:
+            return "直接回车使用默认回答"
+        return "在此输入回答并按 Enter..."
 
 
 # ---------------------------------------------------------------------------
@@ -637,7 +657,7 @@ class WyckoffTUI(App):
         if self._tools:
             self._tools.set_background_manager(self._bg_manager, self._on_bg_complete)
             self._tools.set_confirm_callback(self._request_tool_confirm)
-            self._tools.set_ask_user_callback(self._request_user_question)
+            self._tools.set_ask_user_question_callback(self._request_user_question)
         # 交互式输入状态
         self._input_mode = _InputState.NONE
         self._input_buf: dict[str, str] = {}
@@ -724,7 +744,13 @@ class WyckoffTUI(App):
         event.wait(timeout=120)
         return result[0] or {"action": "deny"}
 
-    def _request_user_question(self, question: str, options: list[str] | None = None) -> str:
+    def _request_user_question(
+        self,
+        question: str,
+        options: list[str] | None = None,
+        allow_free_text: bool = True,
+        default_answer: str = "",
+    ) -> str:
         """从 worker 线程调用，阻塞并向用户提问，返回用户的回答。"""
         event = threading.Event()
         result: list[str] = [""]
@@ -734,11 +760,17 @@ class WyckoffTUI(App):
             event.set()
 
         def _show() -> None:
-            self.push_screen(AskUserScreen(question, options), _on_dismiss)
+            screen = AskUserScreen(
+                question,
+                options,
+                allow_free_text=allow_free_text,
+                default_answer=default_answer,
+            )
+            self.push_screen(screen, _on_dismiss)
 
         self.call_from_thread(_show)
         event.wait(timeout=300)  # 等待最长 5 分钟
-        return result[0] or "已超时未作答"
+        return result[0] or default_answer or "已超时未作答"
 
     # ----- 快捷键动作 -----
 
@@ -822,6 +854,9 @@ class WyckoffTUI(App):
 
     def action_show_prompt_templates(self) -> None:
         self._show_prompt_templates()
+
+    def action_show_workflows(self) -> None:
+        self._show_workflows()
 
     def action_switch_theme(self) -> None:
         """打开主题切换器并保存选择。"""
@@ -945,6 +980,7 @@ class WyckoffTUI(App):
                     "  /token   — Token 用量\n"
                     "  /changelog— 版本更新日志\n"
                     "  /prompt  — Prompt 模板（list/show/<name>）\n"
+                    "  /workflow— 最近动态 workflow\n"
                     "  /schedule— 定时任务（list/add/rm/on/off）\n"
                     "  /resume  — 恢复历史对话\n"
                     "  /fork    — 分叉当前会话\n"
@@ -1011,6 +1047,8 @@ class WyckoffTUI(App):
             self._show_changelog(log)
         elif cmd == "/prompt":
             self._handle_prompt_cmd(raw, log)
+        elif cmd in ("/workflow", "/wf"):
+            self._handle_workflow_cmd(raw, log)
         elif cmd == "/resume":
             parts = raw.strip().split(maxsplit=1)
             if len(parts) > 1:
@@ -1077,6 +1115,39 @@ class WyckoffTUI(App):
         self._execute_skill(name)
 
     # ----- Prompt Templates -----
+
+    def _handle_workflow_cmd(self, raw: str, log) -> None:
+        parts = raw.strip().split(maxsplit=2)
+        if len(parts) >= 3 and parts[1] == "resume":
+            self._resume_workflow(parts[2].strip(), log)
+            return
+        self._show_workflows()
+
+    def _resume_workflow(self, run_id: str, log) -> None:
+        from cli.workflows.resume import build_resume_prompt
+        from cli.workflows.store import get_workflow_run
+
+        run = get_workflow_run(run_id)
+        if not run:
+            log.write(Text.from_markup(f"[red]未找到 workflow: {escape(run_id)}[/red]"))
+            return
+        self._send_message(build_resume_prompt(run))
+
+    def _show_workflows(self) -> None:
+        from cli.workflows.store import list_workflow_runs
+
+        log = self.query_one("#chat-log", ChatLog)
+        rows = list_workflow_runs(limit=8)
+        if not rows:
+            log.write(Text.from_markup("[dim]暂无 workflow 记录[/dim]"))
+            return
+        lines = ["\n[bold]最近 workflow[/bold]"]
+        for row in rows:
+            lines.append(
+                f"  [cyan]{row['run_id']}[/cyan] {row['status']} {row['label']} "
+                f"[dim]{str(row.get('user_text', ''))[:48]}[/dim]"
+            )
+        log.write(Text.from_markup("\n".join(lines)))
 
     def _show_prompt_templates(self) -> None:
         from cli.prompt_templates import load_prompt_templates
@@ -1709,6 +1780,8 @@ class WyckoffTUI(App):
         # 记录用户输入
         _turn_user_index, _user_text = self._prepare_turn_memory_context()
         _scratchpad = self._create_scratchpad(_user_text)
+        _workflow_run_id = ""
+        _workflow_name = ""
         _model_name = getattr(self._provider, "name", "") if self._provider else ""
         _provider_name = self._state.get("provider_name", "") if self._state else ""
         executed_tool_summaries: list[dict[str, object]] = []
@@ -1795,6 +1868,32 @@ class WyckoffTUI(App):
                 _write(Text.from_markup(f"  [green]✓ {display}[/green] [dim]{elapsed_s:.1f}s[/dim]"))
             _scroll()
 
+        def _display_workflow_plan(event: dict[str, Any]) -> None:
+            nonlocal _workflow_run_id, _workflow_name
+            _workflow_run_id = str(event.get("run_id", ""))
+            _workflow_name = str(event.get("workflow", ""))
+            label = str(event.get("label") or _workflow_name)
+            steps = event.get("plan", {}).get("steps", [])
+            _write(
+                Text.from_markup(
+                    f"  [bold cyan]workflow[/bold cyan] [dim]{escape(label)} · {escape(_workflow_run_id)}[/dim]"
+                )
+            )
+            for idx, step in enumerate(steps, start=1):
+                title = escape(str(step.get("title", "")))
+                _write(Text.from_markup(f"    [dim]{idx}.[/dim] {title} [dim]pending[/dim]"))
+            _scroll()
+
+        def _display_workflow_step(event: dict[str, Any]) -> None:
+            step = event.get("step", {})
+            status = step.get("status", "")
+            mark = {"running": "→", "completed": "✓", "failed": "✗", "skipped": "·"}.get(status, "·")
+            color = {"running": "yellow", "completed": "green", "failed": "red", "skipped": "dim"}.get(status, "dim")
+            title = escape(str(step.get("title", "")))
+            summary = escape(str(step.get("summary", "")))
+            _write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{summary}[/dim]"))
+            _scroll()
+
         def _build_rounds_detail(rounds: int) -> list[dict[str, object]]:
             details: list[dict[str, object]] = []
             for round_number in range(1, rounds + 1):
@@ -1853,9 +1952,15 @@ class WyckoffTUI(App):
             self._tools._tool_context.on_progress = _on_sub_agent_progress
             self._tools._tool_context.cancel_check = self._cancel_event.is_set
 
-            runtime = AgentRuntime(
-                self._provider, self._tools, scratchpad=_scratchpad, cancel_check=self._cancel_event.is_set
+            runtime, workflow_context = build_turn_runtime(
+                self._provider,
+                self._tools,
+                session_id=self._session_id,
+                user_text=_user_text,
+                scratchpad=_scratchpad,
+                cancel_check=self._cancel_event.is_set,
             )
+            _workflow_name = "" if workflow_context.is_general else workflow_context.name
             for event in runtime.run_stream(self._messages, with_current_time(self._system_prompt)):
                 if self._cancel_event.is_set():
                     _spinner_stop()
@@ -1871,6 +1976,17 @@ class WyckoffTUI(App):
                 event_type = event.get("type")
                 round_number = int(event.get("round") or 0)
                 _ensure_round(round_number)
+
+                if event_type == "workflow_plan":
+                    _display_workflow_plan(event)
+                    continue
+
+                if event_type in {"workflow_step_start", "workflow_step_done"}:
+                    _display_workflow_step(event)
+                    continue
+
+                if event_type == "workflow_done":
+                    continue
 
                 if event_type == "compaction":
                     before, after = event["before_messages"], event["after_messages"]
@@ -2016,6 +2132,8 @@ class WyckoffTUI(App):
                         "system_prompt": self._system_prompt,
                         "tools": self._tools.schemas() if self._tools else [],
                         "scratchpad_path": str(_scratchpad.path) if _scratchpad else "",
+                        "workflow": _workflow_name,
+                        "workflow_run_id": _workflow_run_id,
                     }
                     _chatlog_save(
                         "assistant",

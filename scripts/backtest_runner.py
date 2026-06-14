@@ -69,10 +69,10 @@ from tools.funnel_config import apply_funnel_cfg_overrides as _shared_apply_funn
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HOLD_DAYS = 30
+DEFAULT_HOLD_DAYS = 10
 DEFAULT_EXIT_MODE = "sltp"
-DEFAULT_STOP_LOSS_PCT = -7.0
-DEFAULT_TAKE_PROFIT_PCT = 18.0
+DEFAULT_STOP_LOSS_PCT = -8.0
+DEFAULT_TAKE_PROFIT_PCT = 0.0
 DEFAULT_TRAILING_STOP_PCT = 0.0  # 0 = 不启用移动止盈；如 -5.0 表示从最高点回撤 5% 卖出
 DEFAULT_TRAILING_ACTIVATE_PCT = 0.0  # 移动止盈激活门槛(%)，如 10.0 表示浮盈 ≥10% 后才启用移动止盈
 
@@ -94,7 +94,9 @@ DEFAULT_CASH_PORTFOLIO_COMMISSION_RATE = 0.0002
 DEFAULT_CASH_PORTFOLIO_SMALL_TRADE_THRESHOLD = 10_000.0
 DEFAULT_CASH_PORTFOLIO_SMALL_TRADE_FEE = 5.0
 DEFAULT_CASH_PORTFOLIO_LOT_SIZE = 100
-DEFAULT_CASH_PORTFOLIO_STYLES = os.getenv("BACKTEST_PORTFOLIO_STYLES", "slot_equal_4").strip() or "slot_equal_4"
+DEFAULT_CASH_PORTFOLIO_STYLES = (
+    os.getenv("BACKTEST_PORTFOLIO_STYLES", "confirmation_only").strip() or "confirmation_only"
+)
 DEFAULT_ENTRY_PRICE_TIME = "14:55"
 DEFAULT_ENTRY_PRICE_FALLBACK = os.getenv("BACKTEST_ENTRY_PRICE_FALLBACK", "close").strip().lower() or "close"
 CN_ZONE = ZoneInfo("Asia/Shanghai")

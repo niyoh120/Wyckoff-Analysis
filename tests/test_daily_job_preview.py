@@ -95,6 +95,14 @@ def test_non_trading_skip_message_skips_holiday_before_next_trade(monkeypatch):
     assert msg == "📅 明日 2026-05-31 非 A 股交易日，任务跳过"
 
 
+def test_step4_candidate_confirmation_gate_accepts_only_confirmed():
+    import scripts.daily_job as daily_job
+
+    assert daily_job._is_confirmed_step4_candidate({"tag": "SOS(确认)"})
+    assert daily_job._is_confirmed_step4_candidate({"status": "confirmed"})
+    assert not daily_job._is_confirmed_step4_candidate({"tag": "SOS（量价点火）"})
+
+
 def test_signal_confirmation_dry_run_does_not_write(monkeypatch):
     import integrations.supabase_signal_pending as signal_pending
 

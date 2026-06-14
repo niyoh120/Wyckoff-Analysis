@@ -138,7 +138,26 @@ def test_evaluate_rule_decision_buy_and_skip_split():
     assert weak_out.rule_decision == DECISION_SKIP
 
 
-def test_merge_rule_and_llm_keeps_non_top_symbols_on_rule_decision():
+def test_pending_strong_tail_signal_stays_watch_by_default():
+    candidate = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="pending",
+        signal_type="sos",
+        signal_score=6.0,
+    )
+    strong_df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.8, tail_volume_mult=2.0)
+
+    out = evaluate_rule_decision(candidate, strong_df, style="hybrid")
+
+    assert out.rule_score >= 72.0
+    assert out.rule_decision == DECISION_WATCH
+    assert out.final_decision == DECISION_WATCH
+    assert "未二次确认" in "；".join(out.rule_reasons)
+
+
+def test_merge_rule_and_llm_keeps_pending_buy_as_watch():
     c1 = TailBuyCandidate(
         code="301090",
         name="华润材料",
@@ -190,7 +209,9 @@ def test_merge_rule_and_llm_keeps_non_top_symbols_on_rule_decision():
     merged = merge_rule_and_llm([c1, c2, c3], llm_map)
     by_code = {x.code: x for x in merged}
 
-    assert by_code["002217"].final_decision == DECISION_BUY
+    assert by_code["002217"].llm_decision == DECISION_BUY
+    assert by_code["002217"].final_decision == DECISION_WATCH
+    assert "未二次确认" in by_code["002217"].llm_reason
     assert by_code["301090"].final_decision == DECISION_WATCH
     assert by_code["600000"].final_decision == DECISION_SKIP
     assert by_code["600000"].llm_decision is None

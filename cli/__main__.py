@@ -621,6 +621,8 @@ def _cmd_backtest(args):
             sample_size=0,
             trading_days=60,
             max_workers=4,
+            cash_portfolio=True,
+            portfolio_styles="confirmation_only",
         )
     except Exception as e:
         print(f"✗ 回测失败: {e}")
@@ -909,6 +911,79 @@ def _cmd_log(args):
         tag = {"user": "❯", "assistant": "◆", "tool": "⚙"}.get(role, "·")
         sid = entry.get("session_id", "")[:8]
         print(f"  {tag} [{ts}] ({sid}) {content}")
+
+
+# ---------------------------------------------------------------------------
+# wyckoff workflow — 动态 workflow 状态
+# ---------------------------------------------------------------------------
+
+
+def _cmd_workflow(args):
+    sub = args.workflow_cmd or "list"
+    if sub == "list":
+        _cmd_workflow_list(args.limit)
+        return
+    run_id = args.run_id
+    if not run_id:
+        print("用法: wyckoff workflow show <run_id>")
+        sys.exit(1)
+    if sub == "events":
+        _cmd_workflow_events(run_id, args.limit)
+        return
+    if sub == "resume":
+        _cmd_workflow_resume(run_id)
+        return
+    _cmd_workflow_show(run_id)
+
+
+def _cmd_workflow_list(limit: int) -> None:
+    from cli.workflows.store import list_workflow_runs
+
+    runs = list_workflow_runs(limit=limit)
+    if not runs:
+        print("暂无 workflow 记录")
+        return
+    print(f"最近 workflow ({len(runs)} 条)")
+    for run in runs:
+        print(
+            f"  {run['run_id']}  {run['status']}  {run['label']}  "
+            f"{run.get('updated_at', '')[:19]}  {str(run.get('user_text', ''))[:50]}"
+        )
+
+
+def _cmd_workflow_show(run_id: str) -> None:
+    from cli.workflows.store import get_workflow_run
+
+    run = get_workflow_run(run_id)
+    if not run:
+        print(f"未找到 workflow: {run_id}")
+        return
+    print(f"{run['run_id']}  {run['status']}  {run['label']}")
+    print(f"用户输入: {run.get('user_text', '')}")
+    for idx, step in enumerate(run.get("plan", {}).get("steps", []), start=1):
+        print(f"  {idx}. [{step.get('status', '')}] {step.get('title', '')}  {step.get('summary', '')}")
+
+
+def _cmd_workflow_events(run_id: str, limit: int) -> None:
+    from cli.workflows.store import load_workflow_events
+
+    rows = load_workflow_events(run_id, limit=limit)
+    if not rows:
+        print(f"暂无 workflow 事件: {run_id}")
+        return
+    for row in rows:
+        print(f"  {row.get('created_at', '')[:19]}  {row.get('event_type', '')}  {row.get('payload', {})}")
+
+
+def _cmd_workflow_resume(run_id: str) -> None:
+    from cli.workflows.resume import build_resume_prompt
+    from cli.workflows.store import get_workflow_run
+
+    run = get_workflow_run(run_id)
+    if not run:
+        print(f"未找到 workflow: {run_id}")
+        return
+    print(build_resume_prompt(run))
 
 
 # ---------------------------------------------------------------------------
@@ -1337,6 +1412,8 @@ def _dispatch_command(args) -> None:
         _cmd_memory(args)
     elif args.cmd == "log":
         _cmd_log(args)
+    elif args.cmd in ("workflow", "wf"):
+        _cmd_workflow(args)
     elif args.cmd in ("session", "sess"):
         _cmd_session(args)
     elif args.cmd == "trace":
@@ -1418,9 +1495,9 @@ def main():
 
     # wyckoff backtest
     p_bt = sub.add_parser("backtest", help="策略历史回测", aliases=["bt"])
-    p_bt.add_argument("--hold-days", type=int, default=15, help="持有天数 (默认 15)")
+    p_bt.add_argument("--hold-days", type=int, default=10, help="持有天数 (默认 10)")
     p_bt.add_argument("--months", type=int, default=18, help="回测月数 (默认 18)")
-    p_bt.add_argument("--top-n", type=int, default=5, help="每批取前N只 (默认 5)")
+    p_bt.add_argument("--top-n", type=int, default=4, help="每批取前N只 (默认 4)")
 
     # wyckoff report
     p_report = sub.add_parser("report", help="AI 深度研报")
@@ -1435,6 +1512,12 @@ def main():
     p_log = sub.add_parser("log", help="查看对话日志")
     p_log.add_argument("--session", default="", help="指定会话 ID")
     p_log.add_argument("-n", "--limit", type=int, default=30, help="返回条数")
+
+    # wyckoff workflow
+    p_wf = sub.add_parser("workflow", help="查看动态 workflow", aliases=["wf"])
+    p_wf.add_argument("workflow_cmd", nargs="?", default="list", help="list/show/events/resume")
+    p_wf.add_argument("run_id", nargs="?", default="", help="workflow run id")
+    p_wf.add_argument("-n", "--limit", type=int, default=20, help="返回条数")
 
     # wyckoff session
     p_session = sub.add_parser("session", help="会话列表 / 导出 / 分叉", aliases=["sess"])

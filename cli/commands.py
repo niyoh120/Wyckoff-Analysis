@@ -35,6 +35,7 @@ class WyckoffCommands(Provider):
                 ("退出登录", "do_logout", "退出当前账号"),
                 ("Token 用量", "show_token", "查看本次会话 Token 用量"),
                 ("Prompt 模板", "show_prompt_templates", "查看可复用投研 Prompt 模板"),
+                ("Workflow 记录", "show_workflows", "查看最近动态 workflow"),
                 ("切换主题", "switch_theme", "切换终端配色主题"),
                 ("退出", "quit", "退出程序"),
             ]
@@ -67,6 +68,7 @@ class WyckoffCommands(Provider):
                 ("切换主题", "switch_theme", ""),
                 ("Token 用量", "show_token", "/token"),
                 ("Prompt 模板", "show_prompt_templates", "/prompt"),
+                ("Workflow 记录", "show_workflows", "/workflow"),
                 ("退出", "quit", "Ctrl+Q"),
             ]
             + _skill_commands()

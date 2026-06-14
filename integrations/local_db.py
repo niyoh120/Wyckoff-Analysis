@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 
-_SCHEMA_VERSION = 11
+_SCHEMA_VERSION = 12
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -168,6 +168,28 @@ CREATE TABLE IF NOT EXISTS theme_radar_snapshot (
     synced_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS workflow_run (
+    run_id TEXT PRIMARY KEY,
+    session_id TEXT DEFAULT '',
+    workflow TEXT NOT NULL,
+    label TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'running',
+    user_text TEXT DEFAULT '',
+    plan_json TEXT NOT NULL DEFAULT '{}',
+    current_step INTEGER DEFAULT 0,
+    result_summary TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS workflow_event (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_rec_date ON recommendation_tracking(recommend_date);
 CREATE INDEX IF NOT EXISTS idx_sig_status ON signal_pending(status);
 CREATE INDEX IF NOT EXISTS idx_mem_type ON agent_memory(memory_type);
@@ -179,6 +201,9 @@ CREATE INDEX IF NOT EXISTS idx_tail_decision ON tail_buy_history(final_decision)
 CREATE INDEX IF NOT EXISTS idx_bg_task_session ON background_task_result(session_id);
 CREATE INDEX IF NOT EXISTS idx_bg_task_created ON background_task_result(created_at);
 CREATE INDEX IF NOT EXISTS idx_theme_radar_synced ON theme_radar_snapshot(synced_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_session ON workflow_run(session_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_updated ON workflow_run(updated_at);
+CREATE INDEX IF NOT EXISTS idx_workflow_event_run ON workflow_event(run_id, id);
 
 -- FTS5 全文检索索引（记忆系统 hybrid search）
 CREATE VIRTUAL TABLE IF NOT EXISTS agent_memory_fts USING fts5(
@@ -1235,12 +1260,17 @@ def cleanup_old_records(days: int = 30) -> dict[str, int]:
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     deleted: dict[str, int] = {}
     with conn:
-        for table in ("chat_log", "background_task_result"):
+        for table in ("chat_log", "background_task_result", "workflow_run"):
             cur = conn.execute(
                 f"DELETE FROM {table} WHERE created_at < ?",
                 (cutoff,),
             )
             deleted[table] = cur.rowcount
+        cur = conn.execute(
+            """DELETE FROM workflow_event
+               WHERE run_id NOT IN (SELECT run_id FROM workflow_run)""",
+        )
+        deleted["workflow_event"] = cur.rowcount
         cur = conn.execute(
             """DELETE FROM agent_memory
                WHERE created_at < ? AND memory_type NOT IN ('preference', 'persona')""",

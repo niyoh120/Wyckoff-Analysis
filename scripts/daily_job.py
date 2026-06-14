@@ -61,6 +61,13 @@ def _env_flag(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_flag_default(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _now() -> str:
     return datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -674,10 +681,17 @@ def _run_signal_confirmation(
             )
             suffix = "（preview dry-run，不写库）" if dry_run else ""
             _log(f"Step2.5 信号确认{suffix}: confirmed={len(confirmed_extra)}", logs_path)
-            existing_codes = {str(s.get("code", "")).strip() for s in symbols_info}
+            existing_by_code = {str(s.get("code", "")).strip(): s for s in symbols_info if isinstance(s, dict)}
             for cs in confirmed_extra:
-                if str(cs.get("code", "")).strip() not in existing_codes:
+                code = str(cs.get("code", "")).strip()
+                if not code:
+                    continue
+                existing = existing_by_code.get(code)
+                if existing is not None:
+                    existing.update({k: v for k, v in cs.items() if v not in (None, "")})
+                else:
                     symbols_info.append(cs)
+                    existing_by_code[code] = cs
     except Exception as e:
         _log(f"Step2.5 信号确认失败（已降级）: {e}", logs_path)
 
@@ -754,6 +768,19 @@ def _build_springboard_map(step2_details: dict) -> dict[str, dict]:
     return out
 
 
+def _is_confirmed_step4_candidate(item: dict) -> bool:
+    values = [
+        item.get("status"),
+        item.get("signal_status"),
+        item.get("confirm_status"),
+        item.get("source_type"),
+        item.get("tag"),
+        item.get("recommend_reason"),
+    ]
+    text = " ".join(str(v or "").strip().lower() for v in values)
+    return "confirmed" in text or "确认" in text
+
+
 def _run_step4_holdings_diagnosis(portfolio_id: str, logs_path: str | None) -> str:
     tickflow_api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
     if not tickflow_api_key:
@@ -818,6 +845,8 @@ def _run_step4_pipeline(
     user_id = str(step4_target.get("user_id", "") or "").strip()
     portfolio_id = str(step4_target.get("portfolio_id", "") or "").strip()
     step4_candidate_meta: list[dict] = []
+    require_confirmed = _env_flag_default("STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE", True)
+    blocked_unconfirmed = 0
     if step3_springboard_codes:
         allowed_set = set(step3_springboard_codes)
         for item in symbols_info:
@@ -825,8 +854,16 @@ def _run_step4_pipeline(
                 continue
             code = str(item.get("code", "")).strip()
             if code in allowed_set:
+                if require_confirmed and not _is_confirmed_step4_candidate(item):
+                    blocked_unconfirmed += 1
+                    continue
                 step4_candidate_meta.append(item)
-    _log(f"Step4 私人再平衡: 候选收口为 Step3 起跳板 {len(step4_candidate_meta)} 只", logs_path)
+    _log(
+        "Step4 私人再平衡: 候选收口为 "
+        f"Step3 起跳板 {len(step4_candidate_meta)} 只"
+        + (f"，未二次确认拦截 {blocked_unconfirmed} 只" if require_confirmed else "，确认闸门关闭"),
+        logs_path,
+    )
 
     holdings_diag_text = _run_step4_holdings_diagnosis(portfolio_id, logs_path)
 
@@ -835,7 +872,7 @@ def _run_step4_pipeline(
     step4_err = None
     try:
         step4_ok, step4_reason = run_step4(
-            external_report=step3_report_text,
+            external_report=step3_report_text if step4_candidate_meta else "",
             benchmark_context=benchmark_context,
             api_key=api_key,
             model=model,

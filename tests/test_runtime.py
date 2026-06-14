@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from cli.runtime import AgentRuntime, partition_tool_calls
+from cli.workflows.router import WORKFLOWS
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
 
@@ -180,3 +181,60 @@ def test_runtime_answers_all_tool_calls_when_doom_loop_aborts_round():
     }
     assert answered_ids == tool_call_ids
     assert any(e["type"] == "tool_error" and e["tool_call_id"] == "tc4" for e in events)
+
+
+def test_runtime_filters_tools_for_workflow_scope():
+    provider = ScriptedProvider(rounds=[[{"type": "text_delta", "text": "ok"}]])
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "portfolio", "description": "p", "parameters": {"type": "object", "properties": {}}},
+            {"name": "run_backtest", "description": "b", "parameters": {"type": "object", "properties": {}}},
+            {
+                "name": "ask_user_question",
+                "description": "q",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        ]
+    )
+
+    events = list(
+        AgentRuntime(provider, tools, workflow=WORKFLOWS["portfolio_review"]).run_stream(
+            [{"role": "user", "content": "我的持仓怎么样"}]
+        )
+    )
+
+    exposed = {schema["name"] for schema in provider.calls[0]["tools"]}
+    assert "portfolio" in exposed
+    assert "ask_user_question" in exposed
+    assert "run_backtest" not in exposed
+    assert events[0]["type"] == "workflow_start"
+
+
+def test_runtime_blocks_tool_outside_workflow_scope():
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_bt", "name": "run_backtest", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "已拒绝越权工具。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "portfolio", "description": "p", "parameters": {"type": "object", "properties": {}}},
+            {"name": "run_backtest", "description": "b", "parameters": {"type": "object", "properties": {}}},
+        ]
+    )
+
+    events = list(
+        AgentRuntime(provider, tools, workflow=WORKFLOWS["portfolio_review"]).run_stream(
+            [{"role": "user", "content": "我的持仓怎么样"}]
+        )
+    )
+
+    assert tools.calls == []
+    assert any(e["type"] == "tool_error" and "workflow" in e["error"] for e in events)

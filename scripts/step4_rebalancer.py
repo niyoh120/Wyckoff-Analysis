@@ -1669,7 +1669,7 @@ def _build_user_message(
         + "TRIM: 只在逼近止损、放量跌破关键位、上涨后出现派发/滞涨时使用；不能只因为浮亏或持有天数而减仓。\n"
         + "HOLD: 默认动作。结构未破坏、止损未触发、无更强替代候选时必须继续持有。\n"
         + "PROBE/ATTACK加仓: 只允许已有持仓浮盈、止损已上移、且当前结构明显强于原买点时使用；禁止亏损补仓。\n"
-        + "新开仓: 只有候选明显强于现有最弱持仓且不挤占风控预算时才允许。\n\n"
+        + "新开仓: 只允许二次确认候选；候选还必须明显强于现有最弱持仓且不挤占风控预算。\n\n"
         + "[内部持仓量价切片]\n"
         + (positions_payload if positions_payload else "当前无持仓，仅现金。")
         + "\n\n[漏斗候选量价切片]\n"
@@ -1753,6 +1753,7 @@ def run(
     candidate_codes: list[str] = []
     seen_candidate_codes: set[str] = set()
     candidate_items: list[dict] = []
+    allow_external_report_candidates = candidate_meta is None
     for item in candidate_meta or []:
         if not isinstance(item, dict):
             continue
@@ -1764,11 +1765,12 @@ def run(
         seen_candidate_codes.add(code)
         candidate_codes.append(code)
         candidate_items.append(dict(item))
-    for code in _extract_stock_codes(external_report):
-        if code in position_code_set or code in seen_candidate_codes:
-            continue
-        seen_candidate_codes.add(code)
-        candidate_codes.append(code)
+    if allow_external_report_candidates:
+        for code in _extract_stock_codes(external_report):
+            if code in position_code_set or code in seen_candidate_codes:
+                continue
+            seen_candidate_codes.add(code)
+            candidate_codes.append(code)
     allowed_codes = set(position_codes + candidate_codes)
     candidate_meta_map = _build_candidate_meta_map(candidate_meta, portfolio.positions)
     name_map = {p.code: p.name for p in portfolio.positions}

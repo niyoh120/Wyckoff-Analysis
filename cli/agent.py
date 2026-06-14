@@ -16,6 +16,7 @@ from cli.providers.base import LLMProvider
 from cli.runtime import AgentRuntime, RuntimeEvent
 from cli.scratchpad import AgentScratchpad
 from cli.tools import ToolRegistry
+from cli.workflows.dispatch import build_turn_runtime
 
 
 def run(
@@ -27,6 +28,7 @@ def run(
     on_tool_result: callable = None,
     console=None,
     scratchpad: AgentScratchpad | None = None,
+    workflow=None,
 ) -> dict[str, Any]:
     """
     执行一次完整的 Agent 循环。
@@ -36,7 +38,7 @@ def run(
     {"text": str, "usage": {"input_tokens": int, "output_tokens": int}, "elapsed": float}
     """
 
-    runtime = AgentRuntime(provider, tools, scratchpad=scratchpad)
+    runtime = _build_runtime(provider, tools, messages, scratchpad, workflow)
     final: dict[str, Any] | None = None
 
     for event in runtime.run_stream(messages, system_prompt):
@@ -72,3 +74,19 @@ def _dispatch_legacy_callbacks(
         return
     if event_type in {"tool_result", "tool_error"} and on_tool_result and "result" in event:
         on_tool_result(event["name"], event["result"])
+
+
+def _build_runtime(provider, tools, messages, scratchpad, workflow):
+    if workflow is None:
+        return AgentRuntime(provider, tools, scratchpad=scratchpad)
+    user_text = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+    workflow_context = workflow if hasattr(workflow, "name") else None
+    runtime, _ = build_turn_runtime(
+        provider,
+        tools,
+        session_id="",
+        user_text=str(user_text),
+        scratchpad=scratchpad,
+        workflow_context=workflow_context,
+    )
+    return runtime

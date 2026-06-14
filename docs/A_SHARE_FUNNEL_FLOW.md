@@ -304,7 +304,7 @@ sequenceDiagram
 | **23:00 日–四** | `recommendation_tracking_reprice.yml` | 下游：复盘重定价 |
 | **23:05** | `db_maintenance.yml` | 下游：清理过期数据 |
 | **23:30** | `signal_feedback.yml` | **下游反馈**：刷新 health / registry |
-| **次日 13:50** | `tail_buy_1420.yml` | **下游执行**：读 `signal_pending` 尾盘策略 |
+| **次日 13:50** | `tail_buy_1420.yml` | **下游执行**：读 `signal_pending` 尾盘策略；pending 只观察，confirmed 才可 BUY |
 
 ---
 
@@ -368,12 +368,14 @@ efinance
 
 | 变量 | 当前值 | 作用 |
 |------|--------|------|
-| `FUNNEL_AI_SELECTION_MODE` | `quota` | 按市场水温和信号轨道收口 Step3 候选 |
-| `FUNNEL_AI_TOTAL_CAP` | `5` | AI 总量硬上限；战略/主题补位也受此限制 |
+| `FUNNEL_AI_SELECTION_MODE` | `tradeable_l4` | 只把可交易 L4 结构送入 Step3，减少裸 SOS/EVR 追高噪声 |
+| `FUNNEL_AI_TOTAL_CAP` | `8` | AI 总量硬上限；战略/主题补位也受此限制 |
 | `FUNNEL_DYNAMIC_POLICY` | `shadow` | 主流程用静态配额，同时记录动态策略差异 |
-| `FUNNEL_AI_NEUTRAL_TREND` / `FUNNEL_AI_NEUTRAL_ACCUM` | `2` / `1` | 中性市场保留 1 个 Accum 槽位给 Spring/LPS/Compression |
+| `FUNNEL_AI_NEUTRAL_TREND` / `FUNNEL_AI_NEUTRAL_ACCUM` | `2` / `3` | 中性市场保留更多 Accum 槽位给 Spring/LPS/Compression |
 | `FUNNEL_EXTERNAL_SEED_SYMBOLS` / `FUNNEL_EXTRA_SYMBOLS` | 空 | 临时追加外部观察名单；存在时自动启用 external seed shadow |
-| `STEP4_BUY_HARD_STOP_PCT` | `9.0` | 硬止损 |
+| `STEP4_BUY_HARD_STOP_PCT` | `8.0` | 新开仓硬止损 |
+| `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` | `1` | Step4 新开仓只允许二次确认候选；未确认候选只观察 |
+| `TAIL_BUY_CONFIRMED_ONLY_BUY` | `1` | 尾盘买入只对二次确认候选输出 BUY |
 | `STEP4_BUY_BLOCK_REGIMES` | `CRASH,BLACK_SWAN,RISK_OFF` | 极寒熔断 |
 
 ---

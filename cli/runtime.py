@@ -36,6 +36,7 @@ from cli.providers.base import LLMProvider
 from cli.scratchpad import AgentScratchpad
 from cli.tool_results import format_tool_result_for_context
 from cli.tools import ToolRegistry
+from cli.workflows.router import build_workflow_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,8 @@ class AgentRuntime:
         max_tool_rounds: int = MAX_TOOL_ROUNDS,
         cancel_check: Callable[[], bool] | None = None,
         stream_chunk_timeout: float = STREAM_CHUNK_TIMEOUT,
+        allowed_tools: set[str] | tuple[str, ...] | None = None,
+        workflow: Any | None = None,
     ) -> None:
         self.provider = provider
         self.tools = tools
@@ -153,6 +156,10 @@ class AgentRuntime:
         self.max_tool_rounds = max_tool_rounds
         self.cancel_check = cancel_check
         self.stream_chunk_timeout = stream_chunk_timeout
+        workflow_tools = getattr(workflow, "allowed_tools", ()) if workflow else ()
+        tool_scope = tuple(allowed_tools or workflow_tools or ())
+        self.allowed_tools = set(tool_scope) if tool_scope else None
+        self.workflow = workflow
 
     def run_stream(
         self,
@@ -161,27 +168,13 @@ class AgentRuntime:
     ) -> Iterator[RuntimeEvent]:
         """Run the agent loop and yield normalized runtime events."""
 
-        from cli.skills import load_skills
-
-        try:
-            skills = load_skills()
-            if skills:
-                skills_text = "\n".join(f"- {s.name}: {s.description}" for s in skills.values())
-                skills_block = (
-                    "\n\n<system-reminder>\n"
-                    "The following skills are available for use with the execute_skill tool:\n\n"
-                    f"{skills_text}\n\n"
-                    "When a skill matches the user's intent, you should call the execute_skill tool first "
-                    "to retrieve the detailed instructions, and then follow them to accomplish the task.\n"
-                    "</system-reminder>"
-                )
-                system_prompt = system_prompt + skills_block
-        except Exception:
-            logger.debug("Failed to load/inject skills into system prompt", exc_info=True)
-
+        system_prompt = self._prepare_system_prompt(system_prompt)
         state = RunState(started_at=time.monotonic())
         expectation = resolve_turn_expectation(messages)
         model_name = getattr(self.provider, "name", "")
+        workflow_event = self._workflow_start_event()
+        if workflow_event:
+            yield workflow_event
 
         for round_idx in range(self.max_tool_rounds):
             messages, event = self._compact_if_needed(messages, model_name, self._provider_context_window())
@@ -239,6 +232,31 @@ class AgentRuntime:
             return None
         return window if window > 0 else None
 
+    def _prepare_system_prompt(self, system_prompt: str) -> str:
+        system_prompt += build_workflow_system_prompt(self.workflow)
+        try:
+            return self._append_skills_prompt(system_prompt)
+        except Exception:
+            logger.debug("Failed to load/inject skills into system prompt", exc_info=True)
+            return system_prompt
+
+    def _append_skills_prompt(self, system_prompt: str) -> str:
+        from cli.skills import load_skills
+
+        skills = load_skills()
+        if not skills or not self._tool_allowed_for_prompt("execute_skill"):
+            return system_prompt
+        skills_text = "\n".join(f"- {s.name}: {s.description}" for s in skills.values())
+        return (
+            system_prompt
+            + "\n\n<system-reminder>\n"
+            + "The following skills are available for use with the execute_skill tool:\n\n"
+            + f"{skills_text}\n\n"
+            + "When a skill matches the user's intent, you should call the execute_skill tool first "
+            + "to retrieve the detailed instructions, and then follow them to accomplish the task.\n"
+            + "</system-reminder>"
+        )
+
     def _collect_model_round(
         self,
         messages: list[dict[str, Any]],
@@ -246,7 +264,7 @@ class AgentRuntime:
         round_number: int,
     ) -> Iterator[RuntimeEvent | RoundState]:
         round_state = RoundState()
-        stream = self.provider.chat_stream(messages, self.tools.schemas(), system_prompt)
+        stream = self.provider.chat_stream(messages, self._tool_schemas(), system_prompt)
         for chunk in _iter_with_timeout(stream, self.stream_chunk_timeout, self.cancel_check):
             event = self._consume_model_chunk(round_state, chunk, round_number)
             if event:
@@ -520,6 +538,13 @@ class AgentRuntime:
     ) -> dict[str, Any]:
         t_tool = time.monotonic()
         status = "ok"
+        if self.allowed_tools is not None and call["name"] not in self.allowed_tools:
+            return {
+                "call": call,
+                "result": {"error": f"工具 {call['name']} 不在当前 workflow 允许范围内"},
+                "status": "error",
+                "elapsed_ms": 0,
+            }
         try:
             result = self.tools.execute(call["name"], call["args"], messages=messages)
             if isinstance(result, dict) and result.get("error"):
@@ -532,6 +557,29 @@ class AgentRuntime:
             "result": result,
             "status": status,
             "elapsed_ms": int((time.monotonic() - t_tool) * 1000),
+        }
+
+    def _tool_schemas(self) -> list[dict[str, Any]]:
+        try:
+            return self.tools.schemas(self.allowed_tools)
+        except TypeError:
+            schemas = self.tools.schemas()
+            if self.allowed_tools is None:
+                return schemas
+            return [schema for schema in schemas if schema.get("name") in self.allowed_tools]
+
+    def _tool_allowed_for_prompt(self, name: str) -> bool:
+        return self.allowed_tools is None or name in self.allowed_tools
+
+    def _workflow_start_event(self) -> RuntimeEvent | None:
+        workflow = self.workflow
+        if not workflow or getattr(workflow, "is_general", False):
+            return None
+        return {
+            "type": "workflow_start",
+            "workflow": getattr(workflow, "name", ""),
+            "label": getattr(workflow, "label", ""),
+            "allowed_tools": sorted(self.allowed_tools or []),
         }
 
     def _is_doom_loop(self, name: str, args: dict[str, Any], state: RunState) -> bool:

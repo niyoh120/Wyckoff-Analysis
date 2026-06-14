@@ -88,8 +88,12 @@ class StubToolRegistry:
         )
         self.calls: list[dict[str, Any]] = []
 
-    def schemas(self) -> list[dict[str, Any]]:
-        return deepcopy(self._schemas)
+    def schemas(self, allowed_tools: set[str] | tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+        schemas = deepcopy(self._schemas)
+        if not allowed_tools:
+            return schemas
+        allowed = set(allowed_tools)
+        return [schema for schema in schemas if schema["name"] in allowed]
 
     def execute(self, name: str, args: dict[str, Any], messages: list[dict[str, Any]] | None = None) -> Any:
         self.calls.append({"name": name, "args": deepcopy(args)})

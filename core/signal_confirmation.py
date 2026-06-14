@@ -278,6 +278,22 @@ def build_today_ohlcv(df: pd.DataFrame) -> dict[str, float]:
     }
 
 
+def _confirmed_symbol_info(sig: dict, code_str: str, today: dict[str, float]) -> dict:
+    signal_type = sig["signal_type"]
+    return {
+        "code": code_str,
+        "name": sig.get("name", code_str),
+        "tag": f"{signal_type.upper()}(确认)",
+        "track": "Accum" if signal_type in ("spring", "lps") else "Trend",
+        "initial_price": today["close"],
+        "score": sig.get("signal_score", 0),
+        "signal_type": signal_type,
+        "status": "confirmed",
+        "signal_status": "confirmed",
+        "signal_date": str(sig["signal_date"]),
+    }
+
+
 def run_confirmation_cycle(
     pending_signals: list[dict],
     df_map: dict[str, pd.DataFrame],
@@ -310,18 +326,7 @@ def run_confirmation_cycle(
         }
         if new_status == "confirmed":
             update["confirm_date"] = trade_date
-            confirmed_symbols.append(
-                {
-                    "code": code_str,
-                    "name": sig.get("name", code_str),
-                    "tag": f"{sig['signal_type'].upper()}(确认)",
-                    "track": "Accum" if sig["signal_type"] in ("spring", "lps") else "Trend",
-                    "initial_price": today["close"],
-                    "score": sig.get("signal_score", 0),
-                    "signal_type": sig["signal_type"],
-                    "signal_date": str(sig["signal_date"]),
-                }
-            )
+            confirmed_symbols.append(_confirmed_symbol_info(sig, code_str, today))
         elif new_status == "expired":
             update["expire_date"] = trade_date
         updates.append(update)
