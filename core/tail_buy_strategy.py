@@ -75,6 +75,10 @@ def _safe_float(raw: Any, default: float = 0.0) -> float:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    return _safe_float(os.getenv(name), default)
+
+
 def _infer_session_vwap(close: pd.Series, total_volume: float, total_amount: float) -> tuple[float, float]:
     return infer_session_vwap(close, total_volume, total_amount)
 
@@ -165,94 +169,151 @@ def _ensure_intraday_df(df: pd.DataFrame) -> pd.DataFrame:
     return ensure_intraday_df(df)
 
 
-def compute_tail_features(df_1m: pd.DataFrame, daily_context: dict[str, Any] | None = None) -> dict[str, Any]:
-    df = _ensure_intraday_df(df_1m)
-    if df.empty:
-        return {"bars": 0}
+def _support_guard_features(
+    *,
+    last_close: float,
+    day_low: float,
+    daily_context: dict[str, Any] | None,
+) -> dict[str, Any]:
+    support = _safe_float((daily_context or {}).get("support_level"), 0.0)
+    if support <= 0:
+        return {
+            "support_level": 0.0,
+            "close_vs_support_pct": 0.0,
+            "day_low_vs_support_pct": 0.0,
+            "close_below_support": False,
+            "day_low_breached_support": False,
+        }
+    tolerance_pct = max(_env_float("TAIL_BUY_SUPPORT_BREACH_TOLERANCE_PCT", 0.3), 0.0)
+    support_floor = support * (1.0 - tolerance_pct / 100.0)
+    return {
+        "support_level": support,
+        "close_vs_support_pct": (last_close / support - 1.0) * 100.0,
+        "day_low_vs_support_pct": (day_low / support - 1.0) * 100.0,
+        "close_below_support": bool(last_close < support_floor),
+        "day_low_breached_support": bool(day_low < support_floor),
+    }
 
-    close = df["close"].ffill()
-    high = df["high"].fillna(close)
-    low = df["low"].fillna(close)
-    volume = df["volume"].fillna(0.0)
-    amount = df["amount"].fillna(close * volume)
 
-    bars = int(len(df))
-    first_open = _safe_float(df["open"].iloc[0] if "open" in df.columns else close.iloc[0], close.iloc[0])
-    last_close = _safe_float(close.iloc[-1], 0.0)
-    day_high = _safe_float(high.max(), last_close)
-    day_low = _safe_float(low.min(), last_close)
-    day_range = max(day_high - day_low, 1e-8)
+def _is_tail_blowoff_reversal(features: dict[str, Any]) -> bool:
+    high_ret = _safe_float(features.get("intraday_high_ret_pct"), 0.0)
+    drop = _safe_float(features.get("drop_from_high_pct"), 0.0)
+    close_pos = _safe_float(features.get("close_pos"), 0.0)
+    tail_share = _safe_float(features.get("tail30_volume_share"), 0.0)
+    return (
+        high_ret >= _env_float("TAIL_BUY_BLOWOFF_HIGH_RET_PCT", 5.0)
+        and drop <= -abs(_env_float("TAIL_BUY_BLOWOFF_DROP_FROM_HIGH_PCT", 2.2))
+        and close_pos <= _env_float("TAIL_BUY_BLOWOFF_CLOSE_POS_MAX", 0.58)
+        and tail_share >= _env_float("TAIL_BUY_BLOWOFF_TAIL_VOLUME_SHARE", 0.45)
+    )
 
-    total_volume = float(volume.sum())
-    total_amount = float(amount.sum())
-    vwap, vwap_volume_scale = _infer_session_vwap(close, total_volume, total_amount)
-    close_pos = max(0.0, min(1.0, (last_close - day_low) / day_range))
 
-    def _ret_pct(series: pd.Series, lookback: int) -> float:
-        if len(series) <= lookback:
-            return 0.0
-        base = _safe_float(series.iloc[-(lookback + 1)], 0.0)
-        now = _safe_float(series.iloc[-1], 0.0)
-        if base <= 0:
-            return 0.0
-        return (now / base - 1.0) * 100.0
+def _tail_hard_veto_reasons(features: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    support = _safe_float(features.get("support_level"), 0.0)
+    if support > 0 and bool(features.get("day_low_breached_support")):
+        reasons.append(f"当天跌破确认支撑{support:.2f}，尾盘不买")
+    elif support > 0 and bool(features.get("close_below_support")):
+        reasons.append(f"尾盘收在确认支撑{support:.2f}下方")
+    if bool(features.get("tail_blowoff_reversal")):
+        reasons.append("极端放量冲高回落，疑似派发")
+    return reasons
 
-    last30_ret_pct = _ret_pct(close, 30)
-    last15_ret_pct = _ret_pct(close, 15)
-    day_ret_pct = ((last_close / first_open - 1.0) * 100.0) if first_open > 0 else 0.0
-    tail30_volume_share = float(volume.tail(min(30, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
-    tail15_volume_share = float(volume.tail(min(15, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
-    drop_from_high_pct = (last_close / day_high - 1.0) * 100.0 if day_high > 0 else 0.0
-    dist_vwap_pct = (last_close / vwap - 1.0) * 100.0 if vwap > 0 else 0.0
 
+def _ret_pct(series: pd.Series, lookback: int) -> float:
+    if len(series) <= lookback:
+        return 0.0
+    base = _safe_float(series.iloc[-(lookback + 1)], 0.0)
+    now = _safe_float(series.iloc[-1], 0.0)
+    return 0.0 if base <= 0 else (now / base - 1.0) * 100.0
+
+
+def _tail_volume_share(volume: pd.Series, total_volume: float, lookback: int) -> float:
+    return float(volume.tail(min(lookback, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
+
+
+def _reclaim_vwap(close: pd.Series, *, last_close: float, vwap: float) -> bool:
     history_window = min(90, max(len(close) - 1, 1))
     history_before_tail = close.iloc[: -min(20, len(close))] if len(close) > 20 else close.iloc[:-1]
     if history_before_tail.empty:
         history_before_tail = close.iloc[:-1]
     min_before_tail = _safe_float(history_before_tail.tail(history_window).min(), last_close)
-    reclaim_vwap = bool(last_close >= vwap * 1.001 and min_before_tail < vwap * 0.998)
+    return bool(last_close >= vwap * 1.001 and min_before_tail < vwap * 0.998)
 
-    if len(high) > 35:
-        prev_peak = _safe_float(high.iloc[:-30].max(), day_high)
-        breakout_tail = bool(last_close >= prev_peak * 0.998)
-    else:
-        breakout_tail = bool(last_close >= day_high * 0.98)
 
-    slope_10 = 0.0
-    if len(close) >= 10:
-        base = _safe_float(close.iloc[-10], 0.0)
-        if base > 0:
-            slope_10 = (_safe_float(close.iloc[-1], 0.0) / base - 1.0) * 100.0
+def _breakout_tail(high: pd.Series, *, last_close: float, day_high: float) -> bool:
+    if len(high) <= 35:
+        return bool(last_close >= day_high * 0.98)
+    prev_peak = _safe_float(high.iloc[:-30].max(), day_high)
+    return bool(last_close >= prev_peak * 0.998)
 
-    vpc = compute_vol_price_corr(df)
-    evr = compute_effort_vs_result(df)
-    sms = compute_smart_money_score(df)
-    spring_q = compute_spring_quality(df, daily_context) if daily_context else None
 
+def _slope_pct(close: pd.Series, lookback: int) -> float:
+    if len(close) < lookback:
+        return 0.0
+    base = _safe_float(close.iloc[-lookback], 0.0)
+    return 0.0 if base <= 0 else (_safe_float(close.iloc[-1], 0.0) / base - 1.0) * 100.0
+
+
+def _base_tail_features(df: pd.DataFrame) -> dict[str, Any]:
+    close = df["close"].ffill()
+    high = df["high"].fillna(close)
+    low = df["low"].fillna(close)
+    volume = df["volume"].fillna(0.0)
+    amount = df["amount"].fillna(close * volume)
+    first_open = _safe_float(df["open"].iloc[0] if "open" in df.columns else close.iloc[0], close.iloc[0])
+    last_close = _safe_float(close.iloc[-1], 0.0)
+    day_high = _safe_float(high.max(), last_close)
+    day_low = _safe_float(low.min(), last_close)
+    total_volume = float(volume.sum())
+    vwap, vwap_volume_scale = _infer_session_vwap(close, total_volume, float(amount.sum()))
+    day_range = max(day_high - day_low, 1e-8)
     return {
-        "bars": bars,
+        "bars": int(len(df)),
         "last_close": last_close,
         "first_open": first_open,
         "day_high": day_high,
         "day_low": day_low,
         "vwap": vwap,
         "vwap_volume_scale": vwap_volume_scale,
-        "close_pos": close_pos,
-        "day_ret_pct": day_ret_pct,
-        "last30_ret_pct": last30_ret_pct,
-        "last15_ret_pct": last15_ret_pct,
-        "tail30_volume_share": tail30_volume_share,
-        "tail15_volume_share": tail15_volume_share,
-        "drop_from_high_pct": drop_from_high_pct,
-        "dist_vwap_pct": dist_vwap_pct,
-        "reclaim_vwap": reclaim_vwap,
-        "breakout_tail": breakout_tail,
-        "slope_10_pct": slope_10,
-        "vol_price_corr": vpc,
-        "effort_vs_result": evr,
-        "smart_money_score": sms,
-        "spring_quality": spring_q,
+        "close_pos": max(0.0, min(1.0, (last_close - day_low) / day_range)),
+        "day_ret_pct": ((last_close / first_open - 1.0) * 100.0) if first_open > 0 else 0.0,
+        "intraday_high_ret_pct": ((day_high / first_open - 1.0) * 100.0) if first_open > 0 else 0.0,
+        "last30_ret_pct": _ret_pct(close, 30),
+        "last15_ret_pct": _ret_pct(close, 15),
+        "tail30_volume_share": _tail_volume_share(volume, total_volume, 30),
+        "tail15_volume_share": _tail_volume_share(volume, total_volume, 15),
+        "drop_from_high_pct": (last_close / day_high - 1.0) * 100.0 if day_high > 0 else 0.0,
+        "dist_vwap_pct": (last_close / vwap - 1.0) * 100.0 if vwap > 0 else 0.0,
+        "reclaim_vwap": _reclaim_vwap(close, last_close=last_close, vwap=vwap),
+        "breakout_tail": _breakout_tail(high, last_close=last_close, day_high=day_high),
+        "slope_10_pct": _slope_pct(close, 10),
     }
+
+
+def compute_tail_features(df_1m: pd.DataFrame, daily_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    df = _ensure_intraday_df(df_1m)
+    if df.empty:
+        return {"bars": 0}
+
+    features = _base_tail_features(df)
+    features.update(
+        {
+            "vol_price_corr": compute_vol_price_corr(df),
+            "effort_vs_result": compute_effort_vs_result(df),
+            "smart_money_score": compute_smart_money_score(df),
+            "spring_quality": compute_spring_quality(df, daily_context) if daily_context else None,
+        }
+    )
+    features.update(
+        _support_guard_features(
+            last_close=_safe_float(features.get("last_close"), 0.0),
+            day_low=_safe_float(features.get("day_low"), 0.0),
+            daily_context=daily_context,
+        )
+    )
+    features["tail_blowoff_reversal"] = _is_tail_blowoff_reversal(features)
+    return features
 
 
 _SIGNAL_TYPE_STYLE: dict[str, str] = {
@@ -285,46 +346,32 @@ def _normalize_signal_score(signal_score: float, signal_type: str) -> float:
     return min(max(normalized, 0.0), 10.0)
 
 
-def score_tail_features(
-    features: dict[str, Any],
-    *,
-    signal_score: float = 0.0,
-    signal_type: str = "",
-    status: str = "pending",
-    style: str = "hybrid",
-) -> tuple[float, str, list[str]]:
-    """
-    规则评分：输出 (分数, BUY/WATCH/SKIP, 理由列表)。
-    style 支持 trend / pullback / hybrid；传空则按 signal_type 自动选择。
-    """
-    bars = int(_safe_float(features.get("bars"), 0))
-    if bars < 60:
-        return 5.0, DECISION_SKIP, ["分时数据不足（<60根1m）"]
-
+def _tail_style_bias(signal_type: str, style: str) -> tuple[str, float, float]:
     st_lower = signal_type.strip().lower()
     style_norm = str(style or "").strip().lower()
     if not style_norm or style_norm == "auto":
         style_norm = _SIGNAL_TYPE_STYLE.get(st_lower, "hybrid")
-    trend_bias = 1.0
-    pullback_bias = 1.0
     if style_norm == "trend":
-        trend_bias, pullback_bias = 1.2, 0.8
-    elif style_norm in {"pullback", "reclaim"}:
-        trend_bias, pullback_bias = 0.8, 1.2
+        return st_lower, 1.2, 0.8
+    if style_norm in {"pullback", "reclaim"}:
+        return st_lower, 0.8, 1.2
+    return st_lower, 1.0, 1.0
 
+
+def _score_signal_context(signal_score: float, st_lower: str, status: str, reasons: list[str]) -> float:
     score = 35.0
-    reasons: list[str] = []
-
-    norm_score = _normalize_signal_score(signal_score, st_lower)
-    sig_boost = norm_score * 1.6
+    sig_boost = _normalize_signal_score(signal_score, st_lower) * 1.6
     if sig_boost > 0:
         score += sig_boost
         reasons.append(f"漏斗信号加分({st_lower or '?'}) +{sig_boost:.1f}")
-
     if str(status).lower() == "confirmed":
         score += 6.0
         reasons.append("确认信号加分 +6.0")
+    return score
 
+
+def _score_tail_position(features: dict[str, Any], trend_bias: float, reasons: list[str]) -> float:
+    score = 0.0
     dist_vwap_pct = _safe_float(features.get("dist_vwap_pct"), 0.0)
     if dist_vwap_pct >= 0.8:
         score += 16.0 * trend_bias
@@ -346,7 +393,17 @@ def score_tail_features(
     elif close_pos < 0.45:
         score -= 12.0
         reasons.append("收位偏低")
+    return score
 
+
+def _score_tail_momentum(
+    features: dict[str, Any],
+    *,
+    trend_bias: float,
+    pullback_bias: float,
+    reasons: list[str],
+) -> float:
+    score = 0.0
     last30_ret_pct = _safe_float(features.get("last30_ret_pct"), 0.0)
     if last30_ret_pct >= 1.0:
         score += 12.0 * trend_bias
@@ -365,7 +422,16 @@ def score_tail_features(
     elif last15_ret_pct >= 0.4:
         score += 4.0
         reasons.append("最后15分钟维持抬升")
+    return score + _score_tail_volume_and_breakout(features, trend_bias, pullback_bias, reasons)
 
+
+def _score_tail_volume_and_breakout(
+    features: dict[str, Any],
+    trend_bias: float,
+    pullback_bias: float,
+    reasons: list[str],
+) -> float:
+    score = 0.0
     tail30_share = _safe_float(features.get("tail30_volume_share"), 0.0)
     if 0.14 <= tail30_share <= 0.45:
         score += 8.0
@@ -376,26 +442,29 @@ def score_tail_features(
     elif tail30_share > 0.6:
         score -= 4.0
         reasons.append("尾段放量过猛，波动风险上升")
-
     if bool(features.get("reclaim_vwap")):
         score += 10.0 * pullback_bias
         reasons.append("出现回踩后再站上VWAP")
-
     if bool(features.get("breakout_tail")):
         score += 7.0 * trend_bias
         reasons.append("尾盘刷新前高/关键位")
-
-    drop_from_high = _safe_float(features.get("drop_from_high_pct"), 0.0)
-    if drop_from_high <= -2.2:
+    if _safe_float(features.get("drop_from_high_pct"), 0.0) <= -2.2:
         score -= 10.0
         reasons.append("收盘距日高回撤过大")
+    return score + _score_slope(features)
 
+
+def _score_slope(features: dict[str, Any]) -> float:
     slope_10 = _safe_float(features.get("slope_10_pct"), 0.0)
     if slope_10 >= 0.7:
-        score += 4.0
-    elif slope_10 <= -0.5:
-        score -= 4.0
+        return 4.0
+    if slope_10 <= -0.5:
+        return -4.0
+    return 0.0
 
+
+def _score_tail_indicators(features: dict[str, Any], reasons: list[str]) -> float:
+    score = 0.0
     vpc = _safe_float(features.get("vol_price_corr"), 0.0)
     if vpc > 0.3:
         score += 8.0
@@ -403,7 +472,13 @@ def score_tail_features(
     elif vpc < -0.3:
         score -= 8.0
         reasons.append("量价背离（涨时缩量跌时放量）")
+    score += _score_effort_and_money(features, reasons)
+    score += _score_spring_quality(features, reasons)
+    return score
 
+
+def _score_effort_and_money(features: dict[str, Any], reasons: list[str]) -> float:
+    score = 0.0
     evr = _safe_float(features.get("effort_vs_result"), 0.0)
     if evr > 30:
         score += 6.0
@@ -411,7 +486,6 @@ def score_tail_features(
     elif evr < -30:
         score -= 6.0
         reasons.append("缩量大波动（虚假波动风险）")
-
     sms = _safe_float(features.get("smart_money_score"), 0.0)
     if sms > 1.0:
         score += 5.0
@@ -419,19 +493,26 @@ def score_tail_features(
     elif sms < -1.0:
         score -= 5.0
         reasons.append("尾盘聪明钱撤退（放量下跌）")
+    return score
 
+
+def _score_spring_quality(features: dict[str, Any], reasons: list[str]) -> float:
     spring_q = features.get("spring_quality")
-    if spring_q is not None:
-        if spring_q >= 70:
-            score += 10.0
-            reasons.append(f"分钟线Spring验证通过（{spring_q:.0f}分，快速收回支撑）")
-        elif spring_q >= 50:
-            score += 5.0
-            reasons.append(f"分钟线Spring部分确认（{spring_q:.0f}分）")
-        elif spring_q <= 20:
-            score -= 5.0
-            reasons.append(f"分钟线Spring失败（{spring_q:.0f}分，跌破未收回）")
+    if spring_q is None:
+        return 0.0
+    if spring_q >= 70:
+        reasons.append(f"分钟线Spring验证通过（{spring_q:.0f}分，快速收回支撑）")
+        return 10.0
+    if spring_q >= 50:
+        reasons.append(f"分钟线Spring部分确认（{spring_q:.0f}分）")
+        return 5.0
+    if spring_q <= 20:
+        reasons.append(f"分钟线Spring失败（{spring_q:.0f}分，跌破未收回）")
+        return -5.0
+    return 0.0
 
+
+def _decision_from_score(score: float, status: str, reasons: list[str]) -> tuple[float, str, list[str]]:
     score = max(0.0, min(100.0, score))
     if score >= 72:
         decision = DECISION_BUY
@@ -443,6 +524,35 @@ def score_tail_features(
         decision = DECISION_WATCH
         reasons.append("未二次确认，尾盘只观察不买入")
     return score, decision, reasons
+
+
+def score_tail_features(
+    features: dict[str, Any],
+    *,
+    signal_score: float = 0.0,
+    signal_type: str = "",
+    status: str = "pending",
+    style: str = "hybrid",
+) -> tuple[float, str, list[str]]:
+    """
+    规则评分：输出 (分数, BUY/WATCH/SKIP, 理由列表)。
+    style 支持 trend / pullback / hybrid；传空则按 signal_type 自动选择。
+    """
+    bars = int(_safe_float(features.get("bars"), 0))
+    if bars < 60:
+        return 5.0, DECISION_SKIP, ["分时数据不足（<60根1m）"]
+
+    hard_veto_reasons = _tail_hard_veto_reasons(features)
+    if hard_veto_reasons:
+        return 20.0, DECISION_SKIP, hard_veto_reasons
+
+    reasons: list[str] = []
+    st_lower, trend_bias, pullback_bias = _tail_style_bias(signal_type, style)
+    score = _score_signal_context(signal_score, st_lower, status, reasons)
+    score += _score_tail_position(features, trend_bias, reasons)
+    score += _score_tail_momentum(features, trend_bias=trend_bias, pullback_bias=pullback_bias, reasons=reasons)
+    score += _score_tail_indicators(features, reasons)
+    return _decision_from_score(score, status, reasons)
 
 
 def _build_daily_context(snap: dict[str, Any]) -> dict[str, Any] | None:
@@ -514,6 +624,7 @@ def build_llm_prompt(
     system_prompt = (
         "你是A股尾盘买入策略二判助手。"
         "你只能在 BUY/WATCH/SKIP 中选择一个结论，且必须返回 JSON。"
+        "若 day_low_breached_support=true 或 tail_blowoff_reversal=true，必须选择 SKIP。"
         "禁止输出投资建议免责声明，禁止输出 markdown。"
     )
     user_prompt = (
@@ -527,6 +638,11 @@ def build_llm_prompt(
         f"- last30_ret_pct={_safe_float(f.get('last30_ret_pct')):.3f}\n"
         f"- last15_ret_pct={_safe_float(f.get('last15_ret_pct')):.3f}\n"
         f"- tail30_volume_share={_safe_float(f.get('tail30_volume_share')):.3f}\n"
+        f"- support_level={_safe_float(f.get('support_level')):.3f}\n"
+        f"- day_low_vs_support_pct={_safe_float(f.get('day_low_vs_support_pct')):.3f}\n"
+        f"- day_low_breached_support={bool(f.get('day_low_breached_support'))}\n"
+        f"- intraday_high_ret_pct={_safe_float(f.get('intraday_high_ret_pct')):.3f}\n"
+        f"- tail_blowoff_reversal={bool(f.get('tail_blowoff_reversal'))}\n"
         f"- reclaim_vwap={bool(f.get('reclaim_vwap'))}\n"
         f"- breakout_tail={bool(f.get('breakout_tail'))}\n"
         f"- drop_from_high_pct={_safe_float(f.get('drop_from_high_pct')):.3f}\n"
@@ -628,6 +744,14 @@ def merge_rule_and_llm(
     out: list[TailBuyCandidate] = []
     for item in candidates or []:
         code = normalize_cn_code(item.code)
+        hard_veto_reasons = _tail_hard_veto_reasons(item.features)
+        if hard_veto_reasons:
+            item.llm_decision = None
+            item.final_decision = DECISION_SKIP
+            item.priority_score = min(item.rule_score, 20.0) - 20.0
+            item.rule_reasons = hard_veto_reasons
+            out.append(item)
+            continue
         llm = llm_result_by_code.get(code) or {}
         llm_decision = str(llm.get("decision", "") or "").strip().upper()
         if llm_decision in VALID_DECISIONS:

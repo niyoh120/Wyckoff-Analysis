@@ -157,6 +157,47 @@ def test_pending_strong_tail_signal_stays_watch_by_default():
     assert "未二次确认" in "；".join(out.rule_reasons)
 
 
+def test_confirmed_tail_signal_skips_after_breaking_confirm_support():
+    candidate = TailBuyCandidate(
+        code="301090",
+        name="华润材料",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="spring",
+        signal_score=6.0,
+        snap={"snap_support": 10.0},
+    )
+    df = _make_intraday_df(start=10.1, end=10.8, tail_boost=0.3, tail_volume_mult=1.5)
+    df.loc[20, "low"] = 9.95
+
+    out = evaluate_rule_decision(candidate, df, style="hybrid")
+
+    assert out.rule_decision == DECISION_SKIP
+    assert out.features["day_low_breached_support"] is True
+    assert "跌破确认支撑" in "；".join(out.rule_reasons)
+
+
+def test_confirmed_tail_signal_skips_blowoff_reversal():
+    candidate = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=6.0,
+        snap={"snap_support": 9.5},
+    )
+    df = _make_intraday_df(start=10.0, end=10.4, tail_boost=-0.2, tail_volume_mult=8.0)
+    df.loc[80, "high"] = 11.2
+    df["amount"] = df["close"] * df["volume"]
+
+    out = evaluate_rule_decision(candidate, df, style="hybrid")
+
+    assert out.rule_decision == DECISION_SKIP
+    assert out.features["tail_blowoff_reversal"] is True
+    assert "冲高回落" in "；".join(out.rule_reasons)
+
+
 def test_merge_rule_and_llm_keeps_pending_buy_as_watch():
     c1 = TailBuyCandidate(
         code="301090",
@@ -216,6 +257,36 @@ def test_merge_rule_and_llm_keeps_pending_buy_as_watch():
     assert by_code["600000"].final_decision == DECISION_SKIP
     assert by_code["600000"].llm_decision is None
     assert by_code["002217"].llm_model_used.startswith("nvidia-kimi")
+
+
+def test_merge_rule_and_llm_cannot_override_tail_hard_veto():
+    item = TailBuyCandidate(
+        code="301090",
+        name="华润材料",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="spring",
+        signal_score=6.0,
+        rule_score=20.0,
+        rule_decision=DECISION_SKIP,
+        final_decision=DECISION_SKIP,
+        features={"tail_blowoff_reversal": True},
+    )
+
+    merged = merge_rule_and_llm(
+        [item],
+        {
+            "301090": {
+                "decision": DECISION_BUY,
+                "reason": "模型误判",
+                "confidence": 0.9,
+            }
+        },
+    )
+
+    assert merged[0].final_decision == DECISION_SKIP
+    assert merged[0].llm_decision is None
+    assert "冲高回落" in "；".join(merged[0].rule_reasons)
 
 
 def test_compute_tail_features_handles_volume_lot_unit_for_vwap():
