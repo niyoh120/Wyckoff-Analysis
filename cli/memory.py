@@ -8,6 +8,7 @@ import logging
 import re
 from hashlib import sha256
 from json import dumps, loads
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -24,12 +25,13 @@ _SESSION_SUMMARY_PROMPT = """从以下对话中提取值得跨会话记忆的信
 - 当前市场状态（行情每天变）
 - 工具调用细节
 
+如果记忆只针对某只股票，必须在内容里保留股票代码或股票名称；如果是全局交易纪律，不要绑定具体股票。
 每条一行，前缀标注 [偏好] 或 [决策]。最多输出3条，只写从对话中无法自动推断的洞察，没有则回复"无"。"""
 
 _LAYER_REFRESH_PROMPT = """请基于以下偏好和决策记忆，生成更高层的长期记忆：
 - [画像] 用户稳定偏好/风险边界/操作习惯，最多3条
-- [场景] 可复用的决策模式/场景，最多3条
-每条一行，保留条件和结论，不要编造。"""
+- [剧本] 条件化交易执行模式，最多3条；必须包含适用条件、动作、硬性禁忌或退出条件
+只保留可复用交易原则，不要写具体持仓、临时行情、个股即时观点或工具过程，不要编造。"""
 
 _CODE_RE = re.compile(r"(?<!\d)(\d{6})(?!\d)")
 _CJK_RE = re.compile(r"[一-鿿]{2,4}")
@@ -52,6 +54,18 @@ _STOPWORDS = frozenset(
         "我的",
         "你的",
         "现在",
+        "我想",
+        "想建",
+        "建仓",
+        "买入",
+        "卖出",
+        "加仓",
+        "减仓",
+        "补仓",
+        "清仓",
+        "持仓",
+        "止盈",
+        "止损",
     ]
 )
 
@@ -62,7 +76,10 @@ _SUMMARY_TYPES = {
 
 _LAYER_TYPES = {
     "画像": ("persona", "L3"),
-    "场景": ("scenario", "L2"),
+    "剧本": ("playbook", "L2"),
+    "交易剧本": ("playbook", "L2"),
+    # 兼容旧提示词/旧测试输出；新写入统一归为 playbook。
+    "场景": ("playbook", "L2"),
 }
 
 DEFAULT_MAX_CHARS_PER_MEMORY = 200
@@ -70,13 +87,56 @@ DEFAULT_MAX_TOTAL_RECALL_CHARS = 1200
 _RECALL_TRUNCATION_SUFFIX = "…（已截断，可用 wyckoff memory trace 查看来源）"
 _LAYER_SOURCE_LIMIT = 30
 _LAYER_MIN_ATOMS = 3
-_LAYER_VERSION = 2
+_LAYER_VERSION = 3
 _LAYER_NEW_ATOMS_THRESHOLD = 3
-_SESSION_SUMMARY_VERSION = 2
+_SESSION_SUMMARY_VERSION = 3
+_PLAYBOOK_MEMORY_TYPES = {"playbook", "scenario"}
+_STOCK_NAME_CODE_CACHE: dict[str, str] | None = None
 
 
 def extract_stock_codes(text: str) -> list[str]:
     return list(dict.fromkeys(_CODE_RE.findall(text)))
+
+
+def _stock_name_code_map() -> dict[str, str]:
+    global _STOCK_NAME_CODE_CACHE
+    if _STOCK_NAME_CODE_CACHE is not None:
+        return _STOCK_NAME_CODE_CACHE
+    path = Path(__file__).resolve().parent.parent / "data" / "stock_list_cache.json"
+    result: dict[str, str] = {}
+    try:
+        data = loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = []
+    if isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("code", "")).strip()
+            name = str(item.get("name", "")).strip()
+            if len(code) == 6 and code.isdigit() and len(name) >= 2:
+                result[name] = code
+    _STOCK_NAME_CODE_CACHE = result
+    return result
+
+
+def resolve_stock_codes(text: str) -> list[str]:
+    codes = extract_stock_codes(text)
+    compact = re.sub(r"\s+", "", str(text or ""))
+    by_name = sorted(_stock_name_code_map().items(), key=lambda item: len(item[0]), reverse=True)
+    for name, code in by_name:
+        if name in compact:
+            codes.append(code)
+    return list(dict.fromkeys(codes))
+
+
+def _memory_codes(memory: dict) -> set[str]:
+    return set(extract_stock_codes(str(memory.get("codes", "") or "")))
+
+
+def _memory_matches_codes(memory: dict, codes: list[str]) -> bool:
+    mem_codes = _memory_codes(memory)
+    return not mem_codes or bool(mem_codes & set(codes))
 
 
 def _extract_keywords(text: str) -> list[str]:
@@ -269,7 +329,7 @@ def _find_duplicate(memory_type: str, content: str, provider: Any | None) -> int
     raise ValueError("dedup duplicate id not found")
 
 
-def _save_summary_memories(summary: str, codes: str, source_ref: str, dedup_provider: Any) -> int:
+def _save_summary_memories(summary: str, source_ref: str, dedup_provider: Any) -> int:
     from integrations.local_db import save_memory
 
     saved = 0
@@ -287,9 +347,9 @@ def _save_summary_memories(summary: str, codes: str, source_ref: str, dedup_prov
                 save_memory(
                     memory_type,
                     content,
-                    codes=codes,
+                    codes=",".join(resolve_stock_codes(content)[:20]),
                     source_ref=source_ref,
-                    metadata={"extractor": "session_summary"},
+                    metadata={"extractor": "session_summary", "summary_version": _SESSION_SUMMARY_VERSION},
                 )
             )
         )
@@ -329,8 +389,13 @@ def _layer_refresh_records() -> list[dict]:
     from integrations.local_db import get_recent_memories
 
     rows = get_recent_memories(memory_type="persona", limit=5)
+    rows.extend(get_recent_memories(memory_type="playbook", limit=20))
     rows.extend(get_recent_memories(memory_type="scenario", limit=20))
-    return [m for m in rows if _metadata(m).get("extractor") == "layer_refresh"]
+    return [
+        m
+        for m in rows
+        if _metadata(m).get("extractor") == "layer_refresh" and _metadata(m).get("layer_version") == _LAYER_VERSION
+    ]
 
 
 def _should_refresh_layers(atoms: list[dict]) -> tuple[bool, list[int], str]:
@@ -369,7 +434,7 @@ def refresh_memory_layers(provider: Any) -> int:
     metadata = _layer_metadata(source_ids, source_hash)
     saved = 0
     for memory_type, level, content in _layer_memories(layered):
-        codes = ",".join(extract_stock_codes(content)[:20])
+        codes = ",".join(resolve_stock_codes(content)[:20])
         saved += int(bool(save_memory(memory_type, content, codes=codes, memory_level=level, metadata=metadata)))
     return saved
 
@@ -439,12 +504,12 @@ def _append_profile_lines(lines: list[str], personas: list[dict], prefs: list[di
             lines.append(f"- {_truncate_text(content, max_chars)}")
 
 
-def _append_scenario_lines(lines: list[str], memories: list[dict], max_chars: int) -> None:
-    scenarios = [m for m in memories if m.get("memory_type") == "scenario"]
-    if not scenarios:
+def _append_playbook_lines(lines: list[str], memories: list[dict], max_chars: int) -> None:
+    playbooks = [m for m in memories if m.get("memory_type") in _PLAYBOOK_MEMORY_TYPES]
+    if not playbooks:
         return
-    lines.append("# 相关场景")
-    lines.extend(_memory_line(m, max_chars=max_chars) for m in scenarios[:3])
+    lines.append("# 交易剧本")
+    lines.extend(_memory_line(m, max_chars=max_chars) for m in playbooks[:3])
 
 
 def _append_atom_lines(lines: list[str], memories: list[dict], max_chars: int) -> None:
@@ -466,12 +531,16 @@ def _filter_seen(memories: list[dict], seen_ids: set[int]) -> list[dict]:
     return filtered
 
 
+def _filter_by_codes(memories: list[dict], codes: list[str]) -> list[dict]:
+    return [m for m in memories if _memory_matches_codes(m, codes)]
+
+
 def _build_recall_lines(memories: list[dict], personas: list[dict], prefs: list[dict], max_chars: int) -> list[str]:
     lines: list[str] = []
     _append_profile_lines(lines, personas, prefs, max_chars)
     seen_ids = {int(m["id"]) for m in personas + prefs if m.get("id") is not None}
     filtered = _filter_seen(memories, seen_ids)
-    _append_scenario_lines(lines, filtered, max_chars)
+    _append_playbook_lines(lines, filtered, max_chars)
     _append_atom_lines(lines, filtered, max_chars)
     return lines
 
@@ -496,11 +565,8 @@ def save_session_summary(
                 _mark_summary_processed(source_ref, summary_hash)
             return
 
-        all_text = " ".join(m.get("content", "") or "" for m in messages)
-        codes = extract_stock_codes(all_text)
-        codes_str = ",".join(codes[:20])
         dedup_provider = _get_dedup_provider() or provider
-        saved = _save_summary_memories(summary, codes_str, source_ref, dedup_provider)
+        saved = _save_summary_memories(summary, source_ref, dedup_provider)
         _mark_summary_processed(source_ref, summary_hash)
         if saved:
             if not skip_layers:
@@ -521,7 +587,7 @@ def build_memory_context(
             search_memory_hybrid,
         )
 
-        codes = extract_stock_codes(user_message)
+        codes = resolve_stock_codes(user_message)
         keywords = _extract_keywords(user_message)
 
         # Hybrid search: FTS5 + 代码 + 关键词 + 时间衰减
@@ -530,12 +596,12 @@ def build_memory_context(
             codes=codes or None,
             keywords=keywords or None,
             limit=8,
-            decay_half_life_days=30.0,
+            strict_code_scope=True,
         )
 
         # 高层画像和偏好始终置顶（hybrid search 已包含，但确保完整性）
-        personas = get_recent_memories(memory_type="persona", limit=1)
-        prefs = get_recent_memories(memory_type="preference", limit=5)
+        personas = _filter_by_codes(get_recent_memories(memory_type="persona", limit=3), codes)[:1]
+        prefs = _filter_by_codes(get_recent_memories(memory_type="preference", limit=10), codes)[:5]
 
         if not memories and not prefs and not personas:
             return ""

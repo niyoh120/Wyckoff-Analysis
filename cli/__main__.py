@@ -874,7 +874,7 @@ def _add_memory_parser(sub) -> None:
     p_mem.add_argument("keyword", nargs="?", default="", help="搜索关键词 (search 时)")
     p_mem.add_argument("memory_id", nargs="?", default="", help="记忆 ID (delete 时)")
     p_mem.add_argument(
-        "--type", default="", help="过滤类型 (preference/persona/scenario/stock_opinion/decision/market_view)"
+        "--type", default="", help="过滤类型 (preference/playbook/persona/scenario/decision/market_view)"
     )
     p_mem.add_argument("--level", default="", help="过滤层级 (L1/L2/L3)")
     p_mem.add_argument("--since", default="", help="仅显示该时间之后的记忆，支持 ISO 或 7d/24h/30m")
