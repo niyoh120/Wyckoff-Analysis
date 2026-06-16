@@ -10,6 +10,7 @@ import pandas as pd
 STRUCTURAL_L4_TRIGGERS = {"spring", "lps", "compression", "compress", "trend_pullback"}
 NAKED_RIGHT_SIDE_TRIGGERS = {"sos", "evr"}
 DEFENSIVE_REGIMES = {"RISK_OFF", "BEAR_REBOUND", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}
+WEAK_PULLBACK_REGIMES = DEFENSIVE_REGIMES | {"RISK_ON"}
 DEFAULT_POSITION_RATIO_BY_REGIME: dict[str, float] = {
     "NEUTRAL": 0.5,
     "RISK_ON": 0.25,
@@ -149,9 +150,11 @@ def loss_guard_reason(
     regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
     if "lps" in keys and not (keys & {"sos", "evr", "spring"}):
         return _pure_lps_reason(regime_norm, trigger_score)
-    if "trend_pullback" in keys and regime_norm in DEFENSIVE_REGIMES | {"RISK_ON"}:
-        if trigger_score < _env_float("FUNNEL_LOSS_GUARD_LOW_SCORE", "1.0"):
-            return f"{regime_norm}低分回踩"
+    if keys == {"trend_pullback"}:
+        return _pure_trend_pullback_reason(regime_norm, trigger_score)
+    if "trend_pullback" in keys and regime_norm in WEAK_PULLBACK_REGIMES:
+        if trigger_score < _env_float("FUNNEL_LOSS_GUARD_MIX_TRENDPB_MIN_SCORE", "12.0"):
+            return f"{regime_norm}弱趋势回踩"
     if keys and keys <= NAKED_RIGHT_SIDE_TRIGGERS:
         reason = _naked_right_side_reason(regime_norm, keys, trigger_score, channel, df_map.get(code))
         if reason:
@@ -160,10 +163,18 @@ def loss_guard_reason(
 
 
 def _pure_lps_reason(regime_norm: str, trigger_score: float) -> str:
-    if trigger_score < _env_float("FUNNEL_LOSS_GUARD_LOW_SCORE", "1.0"):
+    if trigger_score < _env_float("FUNNEL_LOSS_GUARD_PURE_LPS_MIN_SCORE", "6.0"):
         return "低分LPS"
     if regime_norm in DEFENSIVE_REGIMES | {"RISK_ON"}:
         return f"{regime_norm}禁用LPS"
+    return ""
+
+
+def _pure_trend_pullback_reason(regime_norm: str, trigger_score: float) -> str:
+    if trigger_score < _env_float("FUNNEL_LOSS_GUARD_PURE_TRENDPB_MIN_SCORE", "14.0"):
+        return "低分TrendPB"
+    if regime_norm in WEAK_PULLBACK_REGIMES:
+        return f"{regime_norm}禁用TrendPB"
     return ""
 
 
@@ -178,7 +189,8 @@ def _naked_right_side_reason(
         return f"{regime_norm}纯趋势追涨"
     if "sos" in keys and trigger_score < _env_float("FUNNEL_LOSS_GUARD_PURE_SOS_MIN_SCORE", "4.0"):
         return "低分SOS"
-    if keys == {"evr"} and trigger_score < _env_float("FUNNEL_LOSS_GUARD_PURE_EVR_MIN_SCORE", "2.0"):
+    evr_min_score = "5.0" if regime_norm in {"RISK_ON", "BEAR_REBOUND"} else "3.0"
+    if keys == {"evr"} and trigger_score < _env_float("FUNNEL_LOSS_GUARD_PURE_EVR_MIN_SCORE", evr_min_score):
         return "低分EVR"
     if regime_norm in {"RISK_ON", "BEAR_REBOUND"} and _recent_overheat(df):
         return f"{regime_norm}短期过热"

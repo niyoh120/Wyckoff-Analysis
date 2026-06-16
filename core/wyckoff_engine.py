@@ -333,13 +333,13 @@ def _build_candidate_priority_scorer(
         if code in spring_hits:
             value += 45.0 * signal_weight("spring")
         if code in lps_hits:
-            value += 40.0 * signal_weight("lps")
+            value += 30.0 * signal_weight("lps")
         if code in evr_hits:
-            value += 25.0 * signal_weight("evr")
+            value += 12.0 * signal_weight("evr")
         if code in compression_hits:
             value += 22.0 * signal_weight("compression")
         if code in trend_pb_hits:
-            value += 45.0 * signal_weight("trend_pullback")
+            value += 34.0 * signal_weight("trend_pullback")
         if is_trend_side and (code in sos_hits or code in evr_hits or code in trend_pb_hits):
             value += 10.0 * max(signal_weight("sos"), signal_weight("evr"), signal_weight("trend_pullback"))
         if (not is_trend_side) and (code in spring_hits or code in lps_hits or code in compression_hits):

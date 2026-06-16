@@ -326,6 +326,42 @@ def test_loss_guard_keeps_neutral_point_ignition():
     assert dropped == {}
 
 
+def test_loss_guard_bear_rebound_bans_pure_lps_even_with_score():
+    kept, trend_kept, accum_kept, dropped = funnel._apply_loss_guard(
+        ["000001"],
+        [],
+        ["000001"],
+        regime="BEAR_REBOUND",
+        code_to_trigger_keys={"000001": ["lps"]},
+        code_to_total_score={"000001": 8.0},
+        channel_map={},
+        df_map={},
+    )
+
+    assert kept == []
+    assert trend_kept == []
+    assert accum_kept == []
+    assert dropped == {"BEAR_REBOUND禁用LPS": 1}
+
+
+def test_loss_guard_risk_on_bans_pure_trend_pullback():
+    kept, trend_kept, accum_kept, dropped = funnel._apply_loss_guard(
+        ["000001"],
+        ["000001"],
+        [],
+        regime="RISK_ON",
+        code_to_trigger_keys={"000001": ["trend_pullback"]},
+        code_to_total_score={"000001": 18.0},
+        channel_map={"000001": "趋势延续"},
+        df_map={},
+    )
+
+    assert kept == []
+    assert trend_kept == []
+    assert accum_kept == []
+    assert dropped == {"RISK_ON禁用TrendPB": 1}
+
+
 def test_signal_report_fields_fallback_for_strategic_review():
     fields = funnel._signal_report_fields("000001", {}, "Trend", "crash", 0.0)
 
