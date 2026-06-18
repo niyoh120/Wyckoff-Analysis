@@ -121,6 +121,31 @@ class TestReportBuilder:
         codes = extract_operation_pool_codes(report, ["600056"])
         assert codes == ["600056"]
 
+    def test_extract_operation_pool_springboards_reads_gate_line(self):
+        from tools.report_builder import extract_operation_pool_springboards
+
+        report = (
+            "# \u5904\u4e8e\u8d77\u8df3\u677f\n"
+            "603373 \u5b89\u90a6\u62a4\u536b\n"
+            "\u6ee1\u8db3\u7684\u786c\u95e8\u69db\uff1a A+C\n"
+            "Plan A: \u6b21\u65e5\u7f29\u91cf\u56de\u8e29\u3002\n"
+            "\n"
+            "301348 \u84dd\u7bad\u7535\u5b50\n"
+            "\u6ee1\u8db3\u7684\u786c\u95e8\u69db\uff1a C + \u677f\u5757\u5171\u632f\u66ff\u4ee3A\n"
+            "# \u903b\u8f91\u7834\u4ea7\n"
+            "000001 \u5e73\u5b89\u94f6\u884c\n"
+            "\u6ee1\u8db3\u7684\u786c\u95e8\u69db\uff1a A+B+C\n"
+        )
+
+        result = extract_operation_pool_springboards(report, ["603373", "301348", "000001"])
+
+        assert result["603373"]["springboard_combo"] == "A+C"
+        assert result["603373"]["springboard_a"] is True
+        assert result["603373"]["springboard_c"] is True
+        assert result["301348"]["springboard_combo"] == "A+C"
+        assert result["301348"]["springboard_evidence"]["llm_hard_gates"] == "C + \u677f\u5757\u5171\u632f\u66ff\u4ee3A"
+        assert "000001" not in result
+
 
 # ── tools/candidate_ranker ──
 

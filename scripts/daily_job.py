@@ -233,6 +233,7 @@ def _write_recommendation_backup(
 def _mark_step3_recommendations(
     recommend_trade_date_int: int | None,
     step3_springboard_codes: list[str],
+    step3_springboard_updates: dict[str, dict] | None,
     logs_path: str | None,
     *,
     dry_run: bool = False,
@@ -246,6 +247,7 @@ def _mark_step3_recommendations(
         ai_mark_ok = mark_ai_recommendations(
             recommend_date=recommend_trade_date_int,
             ai_codes=step3_springboard_codes,
+            springboard_updates=step3_springboard_updates,
         )
         _log(
             "推荐记录AI标记: "
@@ -254,6 +256,16 @@ def _mark_step3_recommendations(
         )
     except Exception as e:
         _log(f"推荐记录AI标记失败: {e}", logs_path)
+
+
+def _apply_step3_springboard_updates(payload: list[dict], updates: dict[str, dict]) -> None:
+    if not payload or not updates:
+        return
+    for row in payload:
+        digits = "".join(ch for ch in str(row.get("code", "")) if ch.isdigit())
+        code = digits[-6:].zfill(6) if digits else ""
+        if code in updates:
+            row.update(updates[code])
 
 
 def _shadow_observation_inputs(step2_details: dict) -> tuple[dict[str, list[tuple[str, float]]], dict[str, str], dict]:
@@ -1040,6 +1052,7 @@ def main() -> int:
 
     from core.batch_report import (
         extract_operation_pool_codes,
+        extract_operation_pool_springboards,
         run_step3,
     )
     from core.funnel_pipeline import run_funnel as run_step2
@@ -1112,6 +1125,7 @@ def main() -> int:
     step3_ok = True
     step3_err = None
     step3_springboard_codes: list[str] = []
+    step3_springboard_updates: dict[str, dict] = {}
     _regime_for_step3 = (benchmark_context.get("regime") or "").strip().upper() if benchmark_context else ""
     if symbols_info:
         t0 = datetime.now(TZ)
@@ -1140,9 +1154,17 @@ def main() -> int:
                     report=step3_report_text,
                     allowed_codes=allowed_codes,
                 )
+                step3_springboard_updates = extract_operation_pool_springboards(
+                    report=step3_report_text,
+                    allowed_codes=allowed_codes,
+                )
                 step3_springboard_codes, blocked_unconfirmed = _filter_confirmed_step3_codes(
                     step3_springboard_codes, symbols_info
                 )
+                confirmed_set = set(step3_springboard_codes)
+                step3_springboard_updates = {
+                    code: fields for code, fields in step3_springboard_updates.items() if code in confirmed_set
+                }
                 if blocked_unconfirmed:
                     _log(
                         "Step3 批量研报: 未二次确认起跳板已拦截 "
@@ -1151,6 +1173,7 @@ def main() -> int:
                     )
             except Exception as e:
                 step3_springboard_codes = []
+                step3_springboard_updates = {}
                 _log(f"Step3 批量研报: 起跳板解析失败，已降级为空。err={e}", logs_path)
         elapsed3 = (datetime.now(TZ) - t0).total_seconds()
         summary.append(
@@ -1168,8 +1191,15 @@ def main() -> int:
             f"Step3 批量研报: 起跳板代码={len(step3_springboard_codes)} ({preview_codes})",
             logs_path,
         )
-        _mark_step3_recommendations(recommend_trade_date_int, step3_springboard_codes, logs_path, dry_run=preview_only)
+        _mark_step3_recommendations(
+            recommend_trade_date_int,
+            step3_springboard_codes,
+            step3_springboard_updates,
+            logs_path,
+            dry_run=preview_only,
+        )
         if recommend_trade_date_int and recommendation_payload:
+            _apply_step3_springboard_updates(recommendation_payload, step3_springboard_updates)
             _write_recommendation_backup(
                 recommend_trade_date_int,
                 recommendation_payload,

@@ -81,6 +81,18 @@ RECOMMENDATION_BACKUP_COLUMNS = (
     *RECOMMENDATION_ATTRIBUTION_COLUMNS,
     "updated_at",
 )
+SPRINGBOARD_AI_UPDATE_COLUMNS = (
+    "springboard_a",
+    "springboard_b",
+    "springboard_c",
+    "springboard_combo",
+    "springboard_grade",
+    "springboard_met_count",
+    "springboard_support",
+    "springboard_touch_count",
+    "springboard_evidence",
+    "springboard_scored",
+)
 
 
 def _fetch_all_tracking_records(client, select_expr: str = "*", page_size: int = 1000) -> list[dict[str, Any]]:
@@ -709,7 +721,31 @@ def write_recommendation_backup_artifact(
     return [str(json_path), str(sql_path)]
 
 
-def mark_ai_recommendations(recommend_date: int, ai_codes: list[str]) -> bool:
+def _ai_code_ints(ai_codes: list[str]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for code in ai_codes or []:
+        code_digits = "".join(ch for ch in str(code) if ch.isdigit())
+        if not code_digits:
+            continue
+        code6 = code_digits[-6:].zfill(6)
+        try:
+            out[code6] = int(code6)
+        except Exception:
+            continue
+    return out
+
+
+def _springboard_ai_payload(fields: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(fields, dict):
+        return {}
+    return {col: _clean_backup_value(fields[col]) for col in SPRINGBOARD_AI_UPDATE_COLUMNS if col in fields}
+
+
+def mark_ai_recommendations(
+    recommend_date: int,
+    ai_codes: list[str],
+    springboard_updates: dict[str, dict[str, Any]] | None = None,
+) -> bool:
     """
     将某个推荐日的记录标记为是否 AI 推荐（可操作池）。
     ai_codes 传入 6 位代码字符串列表。
@@ -725,20 +761,21 @@ def mark_ai_recommendations(recommend_date: int, ai_codes: list[str]) -> bool:
             "recommend_date", recommend_date
         ).execute()
 
-        code_ints: list[int] = []
-        for code in ai_codes or []:
-            code_digits = "".join(ch for ch in str(code) if ch.isdigit())
-            if not code_digits:
-                continue
-            try:
-                code_ints.append(int(code_digits))
-            except Exception:
-                continue
-        code_ints = sorted(set(code_ints))
-        if code_ints:
+        code_map = _ai_code_ints(ai_codes)
+        if code_map:
+            code_ints = sorted(set(code_map.values()))
             client.table(TABLE_RECOMMENDATION_TRACKING).update({"is_ai_recommended": True, "updated_at": now_iso}).eq(
                 "recommend_date", recommend_date
             ).in_("code", code_ints).execute()
+        updates = springboard_updates or {}
+        for code6, code_int in code_map.items():
+            payload = _springboard_ai_payload(updates.get(code6))
+            if not payload:
+                continue
+            payload.update({"is_ai_recommended": True, "updated_at": now_iso})
+            client.table(TABLE_RECOMMENDATION_TRACKING).update(payload).eq("recommend_date", recommend_date).eq(
+                "code", code_int
+            ).execute()
         return True
     except Exception as e:
         msg = str(e)

@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from integrations.supabase_recommendation import upsert_recommendations, write_recommendation_backup_artifact
+from integrations.supabase_recommendation import (
+    mark_ai_recommendations,
+    upsert_recommendations,
+    write_recommendation_backup_artifact,
+)
 
 
 class FakeSupabaseClient:
@@ -11,6 +15,7 @@ class FakeSupabaseClient:
         self.rows = rows or []
         self.fail_select = fail_select
         self.upserts: list[list[dict]] = []
+        self.updates: list[dict] = []
 
     def table(self, _name: str):
         return FakeSupabaseQuery(self)
@@ -21,6 +26,8 @@ class FakeSupabaseQuery:
         self.client = client
         self.kind = ""
         self.payload: list[dict] = []
+        self.filters_eq: dict[str, object] = {}
+        self.filters_in: dict[str, list[object]] = {}
 
     def select(self, *_args, **_kwargs):
         self.kind = "select"
@@ -37,11 +44,28 @@ class FakeSupabaseQuery:
         self.payload = list(payload)
         return self
 
+    def update(self, payload, **_kwargs):
+        self.kind = "update"
+        self.payload = dict(payload)
+        return self
+
+    def eq(self, key, value):
+        self.filters_eq[str(key)] = value
+        return self
+
+    def in_(self, key, values):
+        self.filters_in[str(key)] = list(values)
+        return self
+
     def execute(self):
         if self.kind == "select":
             if self.client.fail_select:
                 raise RuntimeError("transient fetch failure")
             return SimpleNamespace(data=self.client.rows)
+        if self.kind == "update":
+            record = {"payload": self.payload, "eq": self.filters_eq, "in": self.filters_in}
+            self.client.updates.append(record)
+            return SimpleNamespace(data=[record])
         self.client.upserts.append(self.payload)
         return SimpleNamespace(data=self.payload)
 
@@ -180,3 +204,32 @@ def test_write_recommendation_backup_artifact_marks_ai_and_sql(tmp_path):
     assert "array['sos', 'lps']::text[]" in sql
     assert '\'{"c_support": {"touch_dates": ["2026-05-24"]}}\'::jsonb' in sql
     assert "'O''Reilly setup'" in sql
+
+
+def test_mark_ai_recommendations_updates_step3_springboard_fields(monkeypatch):
+    client = FakeSupabaseClient()
+    _enable_fake_supabase(monkeypatch, client)
+
+    ok = mark_ai_recommendations(
+        20260617,
+        ["603373"],
+        springboard_updates={
+            "603373": {
+                "springboard_a": True,
+                "springboard_b": False,
+                "springboard_c": True,
+                "springboard_combo": "A+C",
+                "springboard_grade": "A+C",
+                "springboard_met_count": 2,
+                "springboard_evidence": {"source": "step3_report"},
+                "springboard_scored": True,
+            }
+        },
+    )
+
+    assert ok is True
+    assert client.updates[0]["payload"]["is_ai_recommended"] is False
+    assert client.updates[1]["payload"]["is_ai_recommended"] is True
+    assert client.updates[2]["eq"] == {"recommend_date": 20260617, "code": 603373}
+    assert client.updates[2]["payload"]["springboard_combo"] == "A+C"
+    assert client.updates[2]["payload"]["springboard_met_count"] == 2

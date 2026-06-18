@@ -188,6 +188,65 @@ def _extract_ops_codes_from_markdown(
     return ops_codes
 
 
+def _springboard_gate_fields(raw_text: str) -> dict[str, object] | None:
+    text = str(raw_text or "").strip()
+    gates = {gate for gate in re.findall(r"(?<![A-Za-z])[ABC](?![A-Za-z])", text.upper())}
+    ordered = [gate for gate in ("A", "B", "C") if gate in gates]
+    if not ordered:
+        return None
+    combo = "+".join(ordered)
+    return {
+        "springboard_a": "A" in gates,
+        "springboard_b": "B" in gates,
+        "springboard_c": "C" in gates,
+        "springboard_combo": combo,
+        "springboard_grade": combo,
+        "springboard_met_count": len(ordered),
+        "springboard_evidence": {
+            "source": "step3_report",
+            "llm_hard_gates": text,
+        },
+        "springboard_scored": True,
+    }
+
+
+def extract_operation_pool_springboards(
+    report: str,
+    allowed_codes: list[str] | set[str] | tuple[str, ...],
+) -> dict[str, dict[str, object]]:
+    """从 Step3 起跳板章节提取 LLM 最终给出的 A/B/C 硬门槛组合。"""
+    allowed_set = {str(c).strip() for c in allowed_codes if re.fullmatch(r"\d{6}", str(c).strip())}
+    if not allowed_set:
+        return {}
+    lines = str(report or "").splitlines()
+    in_ops_section = False
+    current_code = ""
+    out: dict[str, dict[str, object]] = {}
+    stop_tokens = ("\u903b\u8f91\u7834\u4ea7", "\u50a8\u5907\u8425\u5730")
+    start_tokens = ("\u5904\u4e8e\u8d77\u8df3\u677f",)
+
+    for raw_line in lines:
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            if any(token in line for token in start_tokens):
+                in_ops_section = True
+            elif any(token in line for token in stop_tokens):
+                in_ops_section = False
+        if not in_ops_section:
+            continue
+        for code in re.findall(r"\b\d{6}\b", line):
+            if code in allowed_set:
+                current_code = code
+        match = re.search(r"满足的硬门槛\s*[:：]\s*(.+)", line)
+        if match and current_code in allowed_set:
+            fields = _springboard_gate_fields(match.group(1))
+            if fields:
+                out[current_code] = fields
+    return out
+
+
 def extract_operation_pool_codes(
     report: str,
     allowed_codes: list[str] | set[str] | tuple[str, ...],

@@ -132,6 +132,26 @@ def test_step3_codes_filter_keeps_only_confirmed_candidates():
     assert blocked == ["000002"]
 
 
+def test_step3_springboard_updates_patch_recommendation_payload():
+    import scripts.daily_job as daily_job
+
+    payload = [
+        {"code": 603373, "springboard_combo": "none", "springboard_scored": False},
+        {"code": 301348, "springboard_combo": "none", "springboard_scored": False},
+    ]
+
+    daily_job._apply_step3_springboard_updates(
+        payload,
+        {
+            "603373": {"springboard_combo": "A+C", "springboard_scored": True},
+            "301348": {"springboard_combo": "A+C", "springboard_scored": True},
+        },
+    )
+
+    assert [row["springboard_combo"] for row in payload] == ["A+C", "A+C"]
+    assert all(row["springboard_scored"] for row in payload)
+
+
 def test_signal_confirmation_dry_run_does_not_write(monkeypatch):
     import integrations.supabase_signal_pending as signal_pending
 
