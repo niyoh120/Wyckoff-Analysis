@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
+from cli.context_archive import create_context_archive
 from cli.model_metadata import UNKNOWN_MODEL_CONTEXT_WINDOW, infer_context_window
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,21 @@ DEFAULT_RECENT_KEEP_TOKENS = 20_000
 MIN_RECENT_KEEP_TOKENS = 4_000
 
 _CODE_RE = re.compile(r"\d{6}")
+_FILE_RE = re.compile(r"(?:[\w.-]+/)+[\w.-]+")
+_IMPORTANT_TERMS = (
+    "失败",
+    "报错",
+    "止损",
+    "止盈",
+    "持仓",
+    "建仓",
+    "提交",
+    "回测",
+    "supabase",
+    "sqlite",
+    "todo",
+    "error",
+)
 
 
 def resolve_context_window(model_name: str = "", context_window: int | None = None) -> int:
@@ -204,6 +221,100 @@ def serialize_messages_for_compaction(messages: list[dict[str, Any]]) -> str:
             content = m.get("content", "") or ""
             lines.append(f"[{role}] {content}")
     return "\n".join(lines)
+
+
+def score_message_importance(message: dict[str, Any], index: int, total: int) -> float:
+    content = str(message.get("content", "") or "")
+    role = str(message.get("role", ""))
+    score = index / max(total, 1)
+    if role == "user":
+        score += 3.0
+    if role == "tool":
+        score += 1.0
+    if message.get("tool_calls"):
+        score += 1.5
+    if _CODE_RE.search(content):
+        score += 2.0
+    if _FILE_RE.search(content):
+        score += 1.5
+    if any(term in content.lower() for term in _IMPORTANT_TERMS):
+        score += 2.0
+    return score
+
+
+def select_anchor_messages(messages: list[dict[str, Any]], *, max_items: int = 6) -> list[dict[str, Any]]:
+    scored = [
+        (score_message_importance(message, idx, len(messages)), idx, message)
+        for idx, message in enumerate(messages)
+        if str(message.get("content", "") or "").strip()
+    ]
+    top = sorted(scored, key=lambda item: item[0], reverse=True)[:max_items]
+    anchors: list[dict[str, Any]] = []
+    for _score, idx, message in sorted(top, key=lambda item: item[1]):
+        content = str(message.get("content", "") or "").strip()
+        anchors.append({"index": idx, "role": message.get("role", ""), "content": content[:220]})
+    return anchors
+
+
+def _format_compacted_summary(summary: str, archive_meta: dict[str, Any] | None, anchors: list[dict[str, Any]]) -> str:
+    lines = ["[对话摘要]", summary.strip()]
+    if anchors:
+        lines.append("\n[动态保留片段]")
+        for item in anchors[:6]:
+            lines.append(f"- #{item['index']} {item['role']}: {item['content']}")
+    if archive_meta:
+        ref = archive_meta.get("archive_ref", "")
+        codes = ", ".join((archive_meta.get("codes") or [])[:8])
+        lines.append("\n[可恢复归档]")
+        lines.append(f"- {ref}")
+        if codes:
+            lines.append(f"- 涉及标的：{codes}")
+    return "\n".join(lines)
+
+
+def _compact_return(messages, compacted: bool, metadata: dict[str, Any] | None, include_metadata: bool):
+    if include_metadata:
+        return messages, compacted, metadata
+    return messages, compacted
+
+
+def _build_summary_input(head: list[dict[str, Any]]) -> str:
+    head_for_summary = [dict(m) for m in head]
+    shrink_stale_tool_results(head_for_summary)
+    return serialize_messages_for_compaction(head_for_summary)
+
+
+def _run_compaction_summary(provider: Any, head_text: str) -> str:
+    chunks = list(
+        provider.chat_stream(
+            [{"role": "user", "content": head_text}],
+            [],
+            COMPACTION_PROMPT,
+        )
+    )
+    return "".join(c.get("text", "") for c in chunks if c.get("type") == "text_delta")
+
+
+def _create_archive_safely(
+    head: list[dict[str, Any]],
+    summary: str,
+    session_id: str,
+    archive_dir: str | Path | None,
+    tail_start: int,
+    anchors: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    try:
+        return create_context_archive(
+            head,
+            summary,
+            session_id=session_id,
+            archive_dir=archive_dir,
+            tail_start=tail_start,
+            anchors=anchors,
+        )
+    except Exception:
+        logger.debug("context archive write failed", exc_info=True)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -411,45 +522,40 @@ def compact_messages(
     provider: Any,
     model_name: str = "",
     context_window: int | None = None,
-) -> tuple[list[dict[str, Any]], bool]:
+    *,
+    session_id: str = "",
+    archive_dir: str | Path | None = None,
+    include_metadata: bool = False,
+) -> tuple[list[dict[str, Any]], bool] | tuple[list[dict[str, Any]], bool, dict[str, Any] | None]:
     """检查并执行上下文压缩。
 
     Returns (messages, compacted) — 如果未压缩则原样返回。
     """
     threshold = get_compact_threshold(model_name, context_window)
     if len(messages) <= TAIL_KEEP + 2 or estimate_tokens(messages) <= threshold:
-        return messages, False
+        return _compact_return(messages, False, None, include_metadata)
 
     tail_start = find_tail_start_by_token_budget(messages, get_recent_keep_tokens(model_name, context_window))
     if tail_start <= 2:
-        return messages, False
+        return _compact_return(messages, False, None, include_metadata)
 
     head = messages[:tail_start]
     tail = messages[tail_start:]
+    anchors = select_anchor_messages(head)
 
-    # 压缩前先提取持久偏好到记忆
     flush_memory_before_compaction(head, provider)
-
-    head_for_summary = [dict(m) for m in head]
-    shrink_stale_tool_results(head_for_summary)
-    head_text = serialize_messages_for_compaction(head_for_summary)
+    head_text = _build_summary_input(head)
 
     try:
-        chunks = list(
-            provider.chat_stream(
-                [{"role": "user", "content": head_text}],
-                [],
-                COMPACTION_PROMPT,
-            )
-        )
-        summary = "".join(c.get("text", "") for c in chunks if c.get("type") == "text_delta")
+        summary = _run_compaction_summary(provider, head_text)
         if summary and len(summary) >= 20:
+            archive_meta = _create_archive_safely(head, summary, session_id, archive_dir, tail_start, anchors)
             compacted = [
-                {"role": "user", "content": f"[对话摘要]\n{summary}"},
+                {"role": "user", "content": _format_compacted_summary(summary, archive_meta, anchors)},
                 {"role": "assistant", "content": "好的，我已了解之前的对话上下文，请继续。"},
             ] + tail
-            return compacted, True
+            return _compact_return(compacted, True, archive_meta, include_metadata)
     except Exception:
         logger.debug("compaction LLM call failed", exc_info=True)
 
-    return messages, False
+    return _compact_return(messages, False, None, include_metadata)

@@ -589,6 +589,7 @@ def build_memory_context(
 
         codes = resolve_stock_codes(user_message)
         keywords = _extract_keywords(user_message)
+        from cli.context_archive import archive_recall_lines
 
         # Hybrid search: FTS5 + 代码 + 关键词 + 时间衰减
         memories = search_memory_hybrid(
@@ -602,11 +603,15 @@ def build_memory_context(
         # 高层画像和偏好始终置顶（hybrid search 已包含，但确保完整性）
         personas = _filter_by_codes(get_recent_memories(memory_type="persona", limit=3), codes)[:1]
         prefs = _filter_by_codes(get_recent_memories(memory_type="preference", limit=10), codes)[:5]
+        archives = archive_recall_lines(user_message, max_items=2)
 
-        if not memories and not prefs and not personas:
+        if not memories and not prefs and not personas and not archives:
             return ""
 
         lines = _build_recall_lines(memories, personas, prefs, max_chars_per_memory)
+        if archives:
+            lines.append("# 压缩归档")
+            lines.extend(archives)
         return _wrap_recall_context(_budget_recall_lines(lines, max_total_chars))
     except Exception:
         return ""

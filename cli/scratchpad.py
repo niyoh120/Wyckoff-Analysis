@@ -119,15 +119,22 @@ class AgentScratchpad:
             entry["durationMs"] = duration_ms
         self.append(entry)
 
-    def record_compaction(self, *, before_messages: int, after_messages: int) -> None:
-        self.append(
-            {
-                "type": "compaction",
-                "timestamp": _timestamp(),
-                "beforeMessages": before_messages,
-                "afterMessages": after_messages,
-            }
-        )
+    def record_compaction(
+        self,
+        *,
+        before_messages: int,
+        after_messages: int,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        entry = {
+            "type": "compaction",
+            "timestamp": _timestamp(),
+            "beforeMessages": before_messages,
+            "afterMessages": after_messages,
+        }
+        if metadata:
+            entry["contextArchive"] = metadata
+        self.append(entry)
 
     def record_final(
         self,

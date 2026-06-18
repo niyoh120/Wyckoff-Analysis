@@ -55,9 +55,9 @@ def test_runtime_emits_tool_events_and_done():
 def test_runtime_passes_provider_context_window_to_compaction(monkeypatch):
     captured: dict[str, int | None] = {}
 
-    def fake_compact_messages(messages, provider, model_name="", context_window=None):
+    def fake_compact_messages(messages, provider, model_name="", context_window=None, **_kwargs):
         captured["context_window"] = context_window
-        return messages, False
+        return messages, False, None
 
     monkeypatch.setattr("cli.runtime.compact_messages", fake_compact_messages)
     provider = ScriptedProvider(rounds=[[{"type": "text_delta", "text": "ok"}]])

@@ -213,16 +213,28 @@ class AgentRuntime:
         context_window: int | None,
     ) -> tuple[list[dict[str, Any]], RuntimeEvent | None]:
         prev_len = len(messages)
-        compacted_messages, compacted = compact_messages(messages, self.provider, model_name, context_window)
+        compacted_messages, compacted, metadata = compact_messages(
+            messages,
+            self.provider,
+            model_name,
+            context_window,
+            session_id=self._session_id(),
+            include_metadata=True,
+        )
         if not compacted:
             return compacted_messages, None
         messages[:] = compacted_messages
         if self.scratchpad:
-            self.scratchpad.record_compaction(before_messages=prev_len, after_messages=len(compacted_messages))
+            self.scratchpad.record_compaction(
+                before_messages=prev_len,
+                after_messages=len(compacted_messages),
+                metadata=metadata,
+            )
         return messages, {
             "type": "compaction",
             "before_messages": prev_len,
             "after_messages": len(compacted_messages),
+            "archive_ref": metadata.get("archive_ref") if metadata else "",
         }
 
     def _provider_context_window(self) -> int | None:
@@ -231,6 +243,11 @@ class AgentRuntime:
         except (TypeError, ValueError):
             return None
         return window if window > 0 else None
+
+    def _session_id(self) -> str:
+        if self.scratchpad and getattr(self.scratchpad, "session_id", ""):
+            return str(self.scratchpad.session_id)
+        return ""
 
     def _prepare_system_prompt(self, system_prompt: str) -> str:
         system_prompt += build_workflow_system_prompt(self.workflow)

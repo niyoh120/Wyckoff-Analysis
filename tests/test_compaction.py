@@ -16,8 +16,11 @@ from cli.compaction import (
     get_compact_threshold,
     get_recent_keep_tokens,
     resolve_context_window,
+    score_message_importance,
+    select_anchor_messages,
     serialize_messages_for_compaction,
 )
+from cli.context_archive import archive_recall_lines, restore_context_archive, search_context_archives
 from cli.model_metadata import infer_context_window
 
 
@@ -159,6 +162,22 @@ class TestTailBudget:
         assert "高位震荡" in summary
 
 
+class TestDynamicAnchors:
+    def test_importance_scores_codes_and_user_requests(self):
+        normal = {"role": "assistant", "content": "普通回复"}
+        important = {"role": "user", "content": "帮我看 603373 的回测失败原因 cli/compaction.py"}
+
+        assert score_message_importance(important, 0, 2) > score_message_importance(normal, 1, 2)
+
+    def test_select_anchor_messages_keeps_high_value_old_content(self):
+        msgs = [{"role": "assistant", "content": "普通内容"} for _ in range(8)]
+        msgs[1] = {"role": "user", "content": "603373 安邦护卫写库失败，检查 integrations/supabase.py"}
+
+        anchors = select_anchor_messages(msgs, max_items=2)
+
+        assert any("603373" in item["content"] for item in anchors)
+
+
 class TestCompactMessages:
     class FakeProvider:
         def chat_stream(self, messages, tools, system_prompt):
@@ -249,6 +268,30 @@ class TestCompactMessages:
             if m.get("role") == "tool" and m.get("tool_call_id"):
                 call_ids_referenced.add(m["tool_call_id"])
         assert call_ids_referenced <= call_ids_defined
+
+    def test_compaction_writes_recoverable_archive(self, tmp_path):
+        msgs = self._make_messages(30)
+        msgs[3]["content"] += " 603373 安邦护卫 integrations/supabase_recommendation.py"
+
+        result, compacted, meta = compact_messages(
+            msgs,
+            self.FakeProvider(),
+            "deepseek",
+            context_window=16_000,
+            session_id="s1",
+            archive_dir=tmp_path,
+            include_metadata=True,
+        )
+
+        assert compacted
+        assert meta is not None
+        assert meta["archive_ref"].startswith("archive://s1/")
+        assert "603373" in result[0]["content"]
+        assert "动态保留片段" in result[0]["content"]
+        restored = restore_context_archive(meta["archive_ref"], archive_dir=tmp_path)
+        assert any("603373" in row["message"].get("content", "") for row in restored)
+        assert search_context_archives("603373", archive_dir=tmp_path)[0]["archive_ref"] == meta["archive_ref"]
+        assert meta["archive_ref"] in archive_recall_lines("603373", max_items=1, archive_dir=tmp_path)[0]
 
 
 class TestExpandTailForToolRefs:

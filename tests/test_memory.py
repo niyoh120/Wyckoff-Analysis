@@ -79,6 +79,22 @@ class TestExtractKeywords:
         codes_in_kw = [k for k in kw if k.isdigit()]
         assert len(codes_in_kw) == 0
 
+
+def test_build_memory_context_includes_context_archive(monkeypatch, tmp_path):
+    local_db = _init_tmp_db(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "cli.context_archive.archive_recall_lines",
+        lambda *_args, **_kwargs: ["- archive://s1/ctx_1：603373 写库问题"],
+    )
+
+    try:
+        context = build_memory_context("603373 的写库问题是什么")
+    finally:
+        _close_tmp_db(local_db)
+
+    assert "# 压缩归档" in context
+    assert "archive://s1/ctx_1" in context
+
     def test_filters_generic_trade_words(self):
         kw = _extract_keywords("我想建仓比亚迪")
         assert "建仓" not in kw

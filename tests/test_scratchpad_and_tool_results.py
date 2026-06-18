@@ -14,15 +14,21 @@ def test_scratchpad_records_jsonl_and_redacts_secrets(tmp_path):
         {"ok": True, "token": "secret-token"},
         duration_ms=12,
     )
+    scratchpad.record_compaction(
+        before_messages=12,
+        after_messages=5,
+        metadata={"archive_ref": "archive://session_x/ctx_1", "messages_path": "/tmp/ctx.jsonl"},
+    )
     scratchpad.record_final("完成", input_tokens=10, output_tokens=5, elapsed_s=0.5)
 
     lines = [json.loads(line) for line in scratchpad.path.read_text(encoding="utf-8").splitlines()]
 
-    assert [line["type"] for line in lines] == ["init", "tool_result", "final"]
+    assert [line["type"] for line in lines] == ["init", "tool_result", "compaction", "final"]
     tool_entry = lines[1]
     assert tool_entry["args"]["api_key"] == "***REDACTED***"
     assert tool_entry["result"]["token"] == "***REDACTED***"
     assert tool_entry["durationMs"] == 12
+    assert lines[2]["contextArchive"]["archive_ref"] == "archive://session_x/ctx_1"
 
 
 def test_large_tool_result_is_persisted_with_preview(tmp_path, monkeypatch):
