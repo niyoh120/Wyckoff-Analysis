@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 const MD_COMPONENTS: Components = {
   h1: ({ children }) => <h1 className="mt-5 mb-2 text-lg font-bold">{children}</h1>,
@@ -13,10 +14,12 @@ const MD_COMPONENTS: Components = {
     <code className="rounded bg-black/5 px-1 py-0.5 text-xs font-mono dark:bg-white/10">{children}</code>
   ),
   table: ({ children }) => (
-    <table className="my-2 w-full border-collapse text-sm">{children}</table>
+    <div className="my-3 overflow-x-auto rounded-lg border border-border/60 bg-background/70">
+      <table className="w-full border-collapse text-sm">{children}</table>
+    </div>
   ),
-  td: ({ children }) => <td className="border border-border/50 px-2 py-1">{children}</td>,
-  th: ({ children }) => <th className="border border-border/50 px-2 py-1 font-medium">{children}</th>,
+  td: ({ children }) => <td className="border-t border-border/50 px-2.5 py-2 align-top">{children}</td>,
+  th: ({ children }) => <th className="bg-muted/55 px-2.5 py-2 text-left font-medium">{children}</th>,
   a: ({ href, children }) => {
     const safe = href && /^https?:\/\//i.test(href)
     return safe ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{children}</a> : <span>{children}</span>
@@ -34,7 +37,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 }) {
   return (
     <div className={className}>
-      <ReactMarkdown components={MD_COMPONENTS}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{content}</ReactMarkdown>
     </div>
   )
 })

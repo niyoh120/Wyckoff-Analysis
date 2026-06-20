@@ -352,5 +352,27 @@ function normalizeStreamError(error: unknown): string {
   if (/Tool results? (are|is) missing for tool calls?/i.test(message)) {
     return '上一次工具调用被中断，请重新发送当前问题。'
   }
+  const statusCode = providerStatusCode(error)
+  if (statusCode === 503 || /Service temporarily unavailable/i.test(message)) {
+    return '模型服务暂时不可用（上游 503）。请稍后重试，或在设置里切换到其他可用模型。'
+  }
+  if (statusCode === 401 || statusCode === 403) {
+    return '模型服务鉴权失败，请检查设置页里的模型 API Key。'
+  }
+  if (statusCode === 404) {
+    return '模型服务找不到当前模型，请检查设置页里的模型名称。'
+  }
   return message
+}
+
+function providerStatusCode(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null
+  const direct = Number((error as { statusCode?: unknown }).statusCode)
+  if (Number.isFinite(direct)) return direct
+  const lastError = (error as { lastError?: unknown }).lastError
+  if (lastError && typeof lastError === 'object') {
+    const nested = Number((lastError as { statusCode?: unknown }).statusCode)
+    if (Number.isFinite(nested)) return nested
+  }
+  return null
 }
