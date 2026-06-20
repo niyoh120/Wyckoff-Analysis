@@ -23,7 +23,8 @@ import requests
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from integrations.supabase_market_signal import upsert_market_signal_daily
+from core.premarket_public_brief import generate_public_premarket_brief
+from integrations.supabase_market_signal import load_latest_market_signal_daily, upsert_market_signal_daily
 from utils.feishu import send_feishu_notification
 from utils.trading_clock import is_a_share_trading_day
 
@@ -99,6 +100,14 @@ def _log(msg: str, logs_path: str | None = None) -> None:
         os.makedirs(os.path.dirname(logs_path) or ".", exist_ok=True)
         with open(logs_path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
+
+
+def _load_public_market_signal(logs_path: str | None = None) -> dict:
+    try:
+        return load_latest_market_signal_daily() or {}
+    except Exception as exc:
+        _log(f"读取市场上下文失败，公共简报降级: {exc}", logs_path)
+        return {}
 
 
 def _safe_float(v) -> float | None:
@@ -479,12 +488,28 @@ def main() -> int:
     _log(f"A50: {json.dumps(a50, ensure_ascii=False)}", logs_path)
     _log(f"VIX: {json.dumps(vix, ensure_ascii=False)}", logs_path)
     _log(f"风控结论: regime={regime}, reasons={reasons}", logs_path)
+    market_signal = _load_public_market_signal(logs_path)
+    public_brief = generate_public_premarket_brief(
+        a50=a50,
+        vix=vix,
+        regime=regime,
+        reasons=reasons,
+        market_signal=market_signal,
+    )
+    _log(
+        "公共盘前简报: "
+        f"llm_used={public_brief.get('llm_used')}, provider={public_brief.get('provider')}, "
+        f"model={public_brief.get('model')}, title={public_brief.get('banner_title')}",
+        logs_path,
+    )
     action_lines = _build_action_matrix(regime)
     _log("盘前动作开关: " + " | ".join(action_lines[1:]), logs_path)
 
     content_parts = [
         f"**当前北京时间**: {_now()}",
         f"**结论**: `{regime}`",
+        f"**公共总结**: {public_brief.get('banner_title')}",
+        str(public_brief.get("banner_message") or ""),
         f"**触发原因**: {'；'.join(reasons)}",
         "",
         f"**A50** ({a50.get('source')}): date={a50.get('date')}, close={a50.get('close')}, pct={a50.get('pct_chg')}",
@@ -528,10 +553,19 @@ def main() -> int:
                 "vix_pct_chg": vix.get("pct_chg"),
                 "premarket_regime": regime,
                 "premarket_reasons": reasons,
+                "banner_title": public_brief.get("banner_title"),
+                "banner_message": public_brief.get("banner_message"),
+                "banner_tone": public_brief.get("banner_tone"),
                 "source_jobs": {
                     "premarket_risk_job": {
                         "updated_at": datetime.now(TZ).isoformat(),
                         "writer": "a50_vix_risk",
+                        "public_brief": {
+                            "llm_used": public_brief.get("llm_used"),
+                            "provider": public_brief.get("provider"),
+                            "model": public_brief.get("model"),
+                            "validation_reasons": public_brief.get("validation_reasons") or [],
+                        },
                     }
                 },
             },

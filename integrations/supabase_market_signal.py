@@ -129,6 +129,7 @@ STRUCTURED_MARKET_SIGNAL_FIELDS = {
     "water_phrase",
     "action_phrase",
 }
+CUSTOM_BANNER_FIELDS = ("banner_title", "banner_message", "banner_tone")
 
 
 MARKET_BANNER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
@@ -345,6 +346,15 @@ def _deep_merge_source_jobs(base: Any, patch: Any) -> dict[str, Any]:
     return merged
 
 
+def _custom_banner_fields(row: dict[str, Any] | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key in CUSTOM_BANNER_FIELDS:
+        text = str((row or {}).get(key) or "").strip()
+        if text:
+            out[key] = text
+    return out
+
+
 def _normalize_row_for_upsert(row: dict[str, Any]) -> dict[str, Any]:
     out = dict(row)
     if "trade_date" in out:
@@ -408,7 +418,9 @@ def upsert_market_signal_daily(trade_date: date | str, patch: dict[str, Any]) ->
             existing.get("source_jobs"),
             patch.get("source_jobs") if isinstance(patch, dict) else None,
         )
+        custom_banner = _custom_banner_fields(patch)
         merged.update(compose_market_banner(merged))
+        merged.update(custom_banner)
         merged["updated_at"] = datetime.now(UTC).isoformat()
         try:
             client.table(TABLE_MARKET_SIGNAL_DAILY).upsert(
@@ -515,8 +527,9 @@ def load_latest_market_signal_daily(client: Client | None = None) -> dict[str, A
                 for key in ("vix_value_date", "vix_source", "vix_close", "vix_pct_chg"):
                     merged[key] = vix_row.get(key)
 
-            # 用合并后的“最新可用分组数据”重算文案
+            custom_banner = _custom_banner_fields(merged)
             merged.update(compose_market_banner(merged))
+            merged.update(custom_banner)
             return merged
         except Exception:
             continue
