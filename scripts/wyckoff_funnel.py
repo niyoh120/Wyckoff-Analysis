@@ -44,6 +44,7 @@ from core.wyckoff_engine import (
     FunnelResult,
     allocate_ai_candidates,
     detect_accum_stage,
+    detect_leader_radar,
     detect_markup_stage,
     layer1_filter,
     layer2_strength_detailed,
@@ -149,6 +150,11 @@ try:
 except Exception:
     logger.debug("FUNNEL_BYPASS_DISPLAY_LIMIT parse failed, using default", exc_info=True)
     FUNNEL_BYPASS_DISPLAY_LIMIT = 20
+try:
+    FUNNEL_LEADER_RADAR_DISPLAY_LIMIT = max(int(float(os.getenv("FUNNEL_LEADER_RADAR_DISPLAY_LIMIT", "20"))), 0)
+except Exception:
+    logger.debug("FUNNEL_LEADER_RADAR_DISPLAY_LIMIT parse failed, using default", exc_info=True)
+    FUNNEL_LEADER_RADAR_DISPLAY_LIMIT = 20
 FUNNEL_L2_BYPASS_AI_ENABLED = os.getenv("FUNNEL_L2_BYPASS_AI_ENABLED", "0").strip().lower() in {
     "1",
     "true",
@@ -643,6 +649,33 @@ def _append_etf_section(lines: list[str], etf_metrics: dict, etf_candidates: lis
         lines.append(f"  ... 另 {omitted} 只略")
 
 
+def _append_leader_radar_section(lines: list[str], rows: list[dict], name_map: dict[str, str]) -> None:
+    if not rows:
+        return
+    lines.append("")
+    lines.append(f"**【🚀 龙头雷达】{len(rows)} 只**")
+    lines.append("独立主升观察池，不计入正式L4买点；适合跟踪强者恒强与回踩机会")
+    display = rows if FUNNEL_LEADER_RADAR_DISPLAY_LIMIT <= 0 else rows[:FUNNEL_LEADER_RADAR_DISPLAY_LIMIT]
+    for row in display:
+        code = str(row.get("code", "") or "").strip()
+        name = name_map.get(code, code)
+        parts = [
+            f"分{float(row.get('score', 0.0) or 0.0):.2f}",
+            f"20日{_fmt_pct(row.get('ret20'))}",
+            f"60日{_fmt_pct(row.get('ret60'))}",
+            f"120日{_fmt_pct(row.get('ret120'))}",
+            f"量{_fmt_ratio(row.get('vol_ratio_5_20'))}",
+            str(row.get("risk", "") or "主升跟踪"),
+        ]
+        sector = str(row.get("sector", "") or "")
+        channel = str(row.get("channel", "") or "")
+        suffix = " / ".join(x for x in [sector, channel] if x)
+        lines.append(f"  {code} {name}  {' | '.join(parts)}" + (f"  [{suffix}]" if suffix else ""))
+    omitted = len(rows) - len(display)
+    if omitted > 0:
+        lines.append(f"  ... 另 {omitted} 只略")
+
+
 def _merge_trigger_maps(*trigger_maps: dict[str, list[tuple[str, float]]]) -> dict[str, list[tuple[str, float]]]:
     merged: dict[str, list[tuple[str, float]]] = {key: [] for key in TRIGGER_LABELS}
     seen: set[tuple[str, str]] = set()
@@ -868,6 +901,8 @@ def _candidate_result(metrics: dict, triggers: dict[str, list[tuple[str, float]]
         markup_symbols=metrics.get("markup_symbols", []) or [],
         exit_signals=metrics.get("exit_signals", {}) or {},
         channel_map=metrics.get("layer2_channel_map", {}) or {},
+        leader_radar_symbols=metrics.get("leader_radar_symbols", []) or [],
+        leader_radar_rows=metrics.get("leader_radar_rows", []) or [],
     )
 
 
@@ -1816,6 +1851,8 @@ def run_funnel_job(
     # Layer 4 (Wyckoff Triggers)
     # L4 需要 l2_df_map，这里直接用 all_df_map 即可，因为 key 都在里面
     triggers = layer4_triggers(l3_passed, all_df_map, cfg, channel_map=l2_channel_map, market_cap_map=market_cap_map)
+    leader_radar_rows = detect_leader_radar(l1_passed, all_df_map, sector_map, l2_channel_map, cfg)
+    leader_radar_symbols = [str(row.get("code", "")).strip() for row in leader_radar_rows if row.get("code")]
     theme_radar_current = _safe_build_theme_radar(
         trade_date=window.end_trade_date.isoformat(),
         concept_heat=concept_heat,
@@ -1962,6 +1999,9 @@ def run_funnel_job(
         "layer3_score_map": l3_score_map,
         "total_hits": total_hits,
         "by_trigger": {k: len(v) for k, v in triggers.items()},
+        "leader_radar": len(leader_radar_rows),
+        "leader_radar_symbols": leader_radar_symbols,
+        "leader_radar_rows": leader_radar_rows,
         "benchmark_context": benchmark_context,
         "latest_close_map": latest_close_map,
         "min_funnel_score": float(getattr(cfg, "min_funnel_score", 0.0) or 0.0),
@@ -2008,7 +2048,8 @@ def run_funnel_job(
         f"(主升={l2_momentum}, 潜伏={l2_ambush}, 吸筹={l2_accum}, 地量={l2_dry_vol}, 护盘={l2_rs_div}, 趋势={l2_trend_cont}, 点火={l2_sos}), "
         f"L3={metrics['layer3']}, 命中={total_hits}, "
         f"Top板块={top_sectors}, 主线={hot_concepts[:3] if hot_concepts else []}, "
-        f"战略旁路={len(strategic_l2_bypass_pool)}, 各触发={metrics['by_trigger']}"
+        f"战略旁路={len(strategic_l2_bypass_pool)}, 龙头雷达={len(leader_radar_rows)}, "
+        f"各触发={metrics['by_trigger']}"
     )
     print(f"[funnel] 主题雷达({theme_radar_source}): {summarize_theme_radar(theme_radar)}")
     report_progress("筛选完成", f"命中={total_hits}只", 1.0)
@@ -2054,6 +2095,8 @@ def run(
     strategic_l2_bypass_triggers = metrics.get("strategic_l2_bypass_triggers", {}) or {}
     strategic_l2_bypass_reason_map = metrics.get("strategic_l2_bypass_reason_map", {}) or {}
     strategic_l2_bypass_stage_map = metrics.get("strategic_l2_bypass_stage_map", {}) or {}
+    leader_radar_rows = metrics.get("leader_radar_rows", []) or []
+    leader_radar_symbols = {str(row.get("code", "")).strip() for row in leader_radar_rows if row.get("code")}
     external_seed_triggers = metrics.get("external_seed_l4_triggers", {}) or {}
     review_triggers = _merge_trigger_maps(triggers, bypass_triggers, strategic_l2_bypass_triggers)
     formal_hit_set = {str(code).strip() for hits in triggers.values() for code, _ in hits if str(code).strip()}
@@ -2219,6 +2262,7 @@ def run(
             f"**大盘量价推演**: {pv_line}",
             f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
             f"**中长线主线**: {summarize_theme_radar(metrics.get('theme_radar') or {})} ({theme_radar_source})",
+            f"**龙头雷达**: {len(leader_radar_rows)}只（独立观察，不计入正式L4）",
             (
                 f"**战略主线联动**: 观察池{len(theme_candidate_map)}只 / "
                 f"正式L4命中{theme_l4_count}只 / 战略L2旁路{len(strategic_l2_bypass_pool)}只 / "
@@ -2238,6 +2282,7 @@ def run(
         _append_etf_section(lines, etf_metrics, etf_candidates)
         if etf_metrics or etf_candidates:
             lines.append("")
+        _append_leader_radar_section(lines, leader_radar_rows, name_map)
 
         # 1) 多信号共振组（置顶）
         multi_signal = [
@@ -2406,6 +2451,8 @@ def run(
                 "strategic_l2_bypass_triggers": strategic_l2_bypass_triggers,
                 "strategic_l2_bypass_selected": [c for c in selected_for_ai if c in strategic_l2_bypass_set],
                 "strategic_l2_bypass_budget": FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
+                "leader_radar_rows": leader_radar_rows,
+                "leader_radar_symbols": sorted(leader_radar_symbols),
                 "external_seed_triggers": external_seed_triggers,
                 "external_seed_selected": [],
                 "content": content,
@@ -2481,6 +2528,7 @@ def run(
         f"**大盘量价推演**: {pv_line}",
         f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
         f"**中长线主线**: {summarize_theme_radar(metrics.get('theme_radar') or {})} ({theme_radar_source})",
+        f"**龙头雷达**: {len(leader_radar_rows)}只（独立观察，不计入正式L4）",
         (
             f"**战略主线联动**: 观察池{len(theme_candidate_map)}只 / "
             f"正式L4命中{theme_l4_count}只 / 战略L2旁路{len(strategic_l2_bypass_pool)}只 / "
@@ -2509,6 +2557,7 @@ def run(
     _append_etf_section(lines, etf_metrics, etf_candidates)
     if etf_metrics or etf_candidates:
         lines.append("")
+    _append_leader_radar_section(lines, leader_radar_rows, name_map)
 
     def _display_score(code: str) -> float:
         trigger_score = float(code_to_total_score.get(code, 0.0) or 0.0)
@@ -2664,6 +2713,8 @@ def run(
             "strategic_l2_bypass_triggers": strategic_l2_bypass_triggers,
             "strategic_l2_bypass_selected": [c for c in selected_for_ai if c in strategic_l2_bypass_set],
             "strategic_l2_bypass_budget": FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
+            "leader_radar_rows": leader_radar_rows,
+            "leader_radar_symbols": sorted(leader_radar_symbols),
             "external_seed_triggers": external_seed_triggers,
             "external_seed_selected": [],
             "content": content,

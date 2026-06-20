@@ -23,6 +23,7 @@ if __name__ == "__main__" or not __package__:
 
 from core.wyckoff_engine import (
     FunnelConfig,
+    detect_leader_radar,
     layer1_filter,
     layer2_strength_detailed,
     layer3_sector_resonance,
@@ -437,12 +438,16 @@ def _run_layers(
     sector_map = sector_map or {}
     layer3, top_sectors = layer3_sector_resonance(layer2, sector_map, funnel_cfg, base_symbols=layer1, df_map=df_map)
     triggers = layer4_triggers(layer3, df_map, funnel_cfg, channel_map=channel_map)
+    leader_rows = detect_leader_radar(layer1, df_map, sector_map, channel_map, funnel_cfg)
     metrics = {
         "layer1": len(layer1),
         "layer2": len(layer2),
         "layer3": len(layer3),
         "total_hits": sum(len(items) for items in triggers.values()),
         "by_trigger": {key: len(items) for key, items in triggers.items()},
+        "leader_radar": len(leader_rows),
+        "leader_radar_rows": leader_rows,
+        "leader_radar_symbols": [str(row["code"]) for row in leader_rows],
         "top_sectors": top_sectors,
         "layer2_channel_map": channel_map,
         "benchmark": benchmark_context,
@@ -531,6 +536,25 @@ def _fmt_float(value: Any, digits: int = 2) -> str:
         return "-"
 
 
+def _leader_radar_markdown_block(metrics: dict[str, Any]) -> list[str]:
+    rows = []
+    for index, item in enumerate((metrics.get("leader_radar_rows") or [])[:30], start=1):
+        rows.append(
+            "| "
+            f"{index} | {item.get('code', '-')} | {_fmt_float(item.get('score'))} | "
+            f"{_fmt_float(item.get('ret20'))}% | {_fmt_float(item.get('ret60'))}% | "
+            f"{_fmt_float(item.get('ret120'))}% | {item.get('risk', '-')} |"
+        )
+    return [
+        "## 龙头雷达",
+        "独立主升观察池，不计入正式 L4 买点。",
+        "| # | 代码 | 分数 | 20日 | 60日 | 120日 | 风险 |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | --- |",
+        *(rows or ["| - | - | - | - | - | - | 本次无主升雷达候选 |"]),
+        "",
+    ]
+
+
 def _render_markdown_report(result: dict[str, Any]) -> str:
     metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
     rows = [
@@ -555,7 +579,6 @@ def _render_markdown_report(result: dict[str, Any]) -> str:
             f"{index} | {item.get('symbol', '-')} | {item.get('name', '-')} | "
             f"{_fmt_float(item.get('score'))} | {_fmt_float(item.get('latest_close'), 3)} | {triggers} |"
         )
-
     blocks = [
         f"# Wyckoff Funnel {result.get('label', result.get('market', ''))} 最终报告",
         "## 漏斗概览",
@@ -573,6 +596,7 @@ def _render_markdown_report(result: dict[str, Any]) -> str:
         "| ---: | --- | --- | ---: | ---: | --- |",
         *(candidate_rows or ["| - | - | - | - | - | 本次无 L4 触发候选 |"]),
         "",
+        *_leader_radar_markdown_block(metrics),
         "## 运行参数",
         f"- 股票池文件: `{result.get('symbol_file', '-')}`",
         f"- 实时行情: `{result.get('limits', {}).get('quote_batch_size', '-')}` 标的/批, "
@@ -678,6 +702,7 @@ def _build_funnel_result(
         "fetch_stats": fetch_stats,
         "metrics": metrics,
         "top_candidates": candidates[:100],
+        "top_leader_radar": (metrics.get("leader_radar_rows") or [])[:100],
         "limits": {
             "max_symbols": runtime.max_symbols,
             "quote_batch_size": runtime.quote_batch_size,

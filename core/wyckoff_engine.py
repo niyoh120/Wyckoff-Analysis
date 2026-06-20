@@ -4,6 +4,7 @@ Wyckoff Funnel 5 层漏斗筛选引擎
 Layer 1: 剥离垃圾（ST / 北交所 / 市值 / 成交额）
 Layer 2: 七通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/点火破局）
 Layer 2.5: Markup 加速检测
+Layer 2.7: 龙头雷达（独立主升观察池，不计入正式 L4）
 Layer 3: 板块共振（行业分布 Top-N + RPS 动量）
 Layer 4: 威科夫狙击（Spring / SOS / LPS / Effort vs Result）
 """
@@ -13,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -248,6 +249,18 @@ class FunnelConfig:
     markup_ma_angle_min: float = 2.0  # MA50 的角度（% per 5 days），用于确认上升趋势强度
     markup_rs_positive_min: float = 0.5  # RS_short 需要保持正值且持续增强
 
+    # Leader Radar：独立主升观察池。只标注龙头跟踪，不改写 L4 买点。
+    enable_leader_radar: bool = True
+    leader_radar_limit: int = 50
+    leader_radar_min_score: float = 0.68
+    leader_radar_ret20_min: float = 12.0
+    leader_radar_ret60_min: float = 35.0
+    leader_radar_ret120_min: float = 60.0
+    leader_radar_new_high_window: int = 120
+    leader_radar_new_high_days_min: int = 3
+    leader_radar_pullback_max_pct: float = 28.0
+    leader_radar_vol_ratio_min: float = 0.75
+
     # Accumulation ABC 细化（Layer 2 增强）
     enable_accum_abc_detail: bool = True
     accum_b_test_count: int = 3  # B 阶段需要测试底部至少 N 次
@@ -282,6 +295,8 @@ class FunnelResult(NamedTuple):
     markup_symbols: list[str]  # 已进入 Markup 的股票
     exit_signals: dict[str, dict]  # code -> {"signal": "stop_loss|distribution_warning", "price": xxx, "reason": xxx}
     channel_map: dict[str, str]
+    leader_radar_symbols: list[str]
+    leader_radar_rows: list[dict[str, Any]]
 
 
 def _trigger_codes_by_score(
@@ -1822,6 +1837,145 @@ def detect_markup_stage(
     return markup
 
 
+def _close_return_pct(close: pd.Series, lookback: int) -> float | None:
+    s = pd.to_numeric(close, errors="coerce").dropna()
+    lb = max(int(lookback), 1)
+    if len(s) <= lb:
+        return None
+    start = float(s.iloc[-lb - 1])
+    end = float(s.iloc[-1])
+    return None if start <= 0 else (end / start - 1.0) * 100.0
+
+
+def _leader_feature_row(
+    code: str,
+    df: pd.DataFrame,
+    sector_map: dict[str, str],
+    channel_map: dict[str, str],
+    cfg: FunnelConfig,
+) -> dict[str, Any] | None:
+    df_s = _sorted_if_needed(df)
+    close = pd.to_numeric(df_s.get("close"), errors="coerce").dropna()
+    if len(close) < 80:
+        return None
+    ret20 = _close_return_pct(close, 20)
+    ret60 = _close_return_pct(close, 60)
+    ret120 = _close_return_pct(close, 120)
+    if ret20 is None or ret60 is None:
+        return None
+    high_window = min(max(int(cfg.leader_radar_new_high_window), 20), len(close))
+    recent = close.tail(high_window)
+    high_close = float(recent.max())
+    last_close = float(close.iloc[-1])
+    ma20 = float(close.rolling(20).mean().iloc[-1]) if len(close) >= 20 else None
+    ma50 = float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else None
+    ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
+    drawdown = ((recent / recent.cummax()) - 1.0).min() * 100.0
+    vol = pd.to_numeric(df_s.get("volume"), errors="coerce").dropna()
+    vol_ratio = None
+    if len(vol) >= 20:
+        vol20 = float(vol.tail(20).mean())
+        vol_ratio = float(vol.tail(5).mean() / vol20) if vol20 > 0 else None
+    return {
+        "code": code,
+        "sector": sector_map.get(code, ""),
+        "channel": channel_map.get(code, ""),
+        "ret20": float(ret20),
+        "ret60": float(ret60),
+        "ret120": None if ret120 is None else float(ret120),
+        "new_high_count": int((recent >= high_close * 0.995).sum()),
+        "near_high_pct": (last_close / high_close - 1.0) * 100.0 if high_close > 0 else None,
+        "drawdown_pct": float(drawdown),
+        "vol_ratio_5_20": vol_ratio,
+        "above_ma20": bool(ma20 is not None and last_close >= ma20),
+        "above_ma50": bool(ma50 is not None and last_close >= ma50),
+        "bias200_pct": None if ma200 is None or ma200 <= 0 else (last_close / ma200 - 1.0) * 100.0,
+    }
+
+
+def _percentile_map(rows: list[dict[str, Any]], key: str) -> dict[str, float]:
+    values = [(str(r["code"]), float(r[key])) for r in rows if r.get(key) is not None]
+    if not values:
+        return {}
+    ranked = pd.Series({code: value for code, value in values}).rank(pct=True, method="average")
+    return {code: float(value) for code, value in ranked.items()}
+
+
+def _leader_risk(row: dict[str, Any]) -> str:
+    bias = row.get("bias200_pct")
+    ret20 = float(row.get("ret20") or 0.0)
+    near_high = float(row.get("near_high_pct") or 0.0)
+    if bias is not None and float(bias) >= 150.0:
+        return "高乖离观察"
+    if ret20 >= 60.0:
+        return "短线过热"
+    if near_high <= -18.0:
+        return "回撤跟踪"
+    return "主升跟踪"
+
+
+def _leader_reason(row: dict[str, Any]) -> str:
+    parts = [f"20日{float(row['ret20']):.1f}%", f"60日{float(row['ret60']):.1f}%"]
+    if row.get("ret120") is not None:
+        parts.append(f"120日{float(row['ret120']):.1f}%")
+    if int(row.get("new_high_count") or 0) > 0:
+        parts.append(f"新高密度{int(row['new_high_count'])}")
+    if row.get("vol_ratio_5_20") is not None:
+        parts.append(f"量比{float(row['vol_ratio_5_20']):.2f}")
+    return " / ".join(parts)
+
+
+def detect_leader_radar(
+    symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    sector_map: dict[str, str],
+    channel_map: dict[str, str] | None,
+    cfg: FunnelConfig,
+) -> list[dict[str, Any]]:
+    if not cfg.enable_leader_radar:
+        return []
+    rows = [
+        row
+        for code in symbols
+        if (df := df_map.get(code)) is not None and not df.empty
+        if (row := _leader_feature_row(code, df, sector_map, channel_map or {}, cfg)) is not None
+    ]
+    q20 = _percentile_map(rows, "ret20")
+    q60 = _percentile_map(rows, "ret60")
+    q120 = _percentile_map(rows, "ret120")
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        code = str(row["code"])
+        vol_score = min(max((float(row.get("vol_ratio_5_20") or 0.0) - cfg.leader_radar_vol_ratio_min) / 1.0, 0.0), 1.0)
+        high_score = min(float(row["new_high_count"]) / max(float(cfg.leader_radar_new_high_days_min), 1.0), 1.0)
+        trend_score = 1.0 if row["above_ma20"] and row["above_ma50"] else 0.5 if row["above_ma50"] else 0.0
+        score = 0.18 * q20.get(code, 0.0) + 0.32 * q60.get(code, 0.0) + 0.24 * q120.get(code, 0.0)
+        score += 0.12 * high_score + 0.07 * vol_score + 0.07 * trend_score
+        if _leader_radar_keep(row, score, q60.get(code, 0.0), q120.get(code, 0.0), cfg):
+            row.update({"score": round(score, 4), "risk": _leader_risk(row), "reason": _leader_reason(row)})
+            out.append(row)
+    limit = max(int(cfg.leader_radar_limit), 0)
+    return sorted(out, key=lambda item: (-float(item["score"]), -float(item["ret60"]), str(item["code"])))[:limit]
+
+
+def _leader_radar_keep(row: dict[str, Any], score: float, q60: float, q120: float, cfg: FunnelConfig) -> bool:
+    ret120 = float(row.get("ret120") or 0.0)
+    momentum = (
+        float(row["ret20"]) >= cfg.leader_radar_ret20_min
+        or float(row["ret60"]) >= cfg.leader_radar_ret60_min
+        or ret120 >= cfg.leader_radar_ret120_min
+    )
+    rank_ok = q60 >= 0.88 or q120 >= 0.88
+    trend_ok = bool(row["above_ma20"] or row["above_ma50"])
+    pullback_ok = float(row["drawdown_pct"]) >= -float(cfg.leader_radar_pullback_max_pct)
+    vol_ok = row.get("vol_ratio_5_20") is None or float(row["vol_ratio_5_20"]) >= cfg.leader_radar_vol_ratio_min
+    return score >= cfg.leader_radar_min_score and momentum and rank_ok and trend_ok and pullback_ok and vol_ok
+
+
+def _prepare_df_map(df_map: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    return {sym: _sorted_if_needed(df) for sym, df in df_map.items() if df is not None and not df.empty}
+
+
 # Layer 2 增强: Accumulation ABC 细化
 
 
@@ -2098,9 +2252,7 @@ def run_funnel(
         cfg = FunnelConfig()
 
     # 预先整理时序，避免各层重复 sort/copy 产生大量临时对象。
-    prepared_df_map: dict[str, pd.DataFrame] = {
-        sym: _sorted_if_needed(df) for sym, df in df_map.items() if df is not None and not df.empty
-    }
+    prepared_df_map = _prepare_df_map(df_map)
 
     l1 = layer1_filter(all_symbols, name_map, market_cap_map, prepared_df_map, cfg)
     l2, channel_map, _pre_ign = layer2_strength_detailed(
@@ -2110,18 +2262,13 @@ def run_funnel(
         cfg,
         rps_universe=list(prepared_df_map.keys()),
     )
-    l3, top_sectors = layer3_sector_resonance(
-        l2,
-        sector_map,
-        cfg,
-        base_symbols=l1,
-        df_map=prepared_df_map,
-    )
+    l3, top_sectors = layer3_sector_resonance(l2, sector_map, cfg, base_symbols=l1, df_map=prepared_df_map)
     triggers = layer4_triggers(l3, prepared_df_map, cfg, channel_map=channel_map, market_cap_map=market_cap_map)
 
     # 阶段识别和退出信号
     markup_symbols = detect_markup_stage(l3, prepared_df_map, cfg)
     accum_stage_map = detect_accum_stage(l2, prepared_df_map, cfg)  # 对 L2 做细化分析
+    leader_radar_rows = detect_leader_radar(l1, prepared_df_map, sector_map, channel_map, cfg)
 
     # 构建完整的 stage_map（包括 Markup）
     stage_map: dict[str, str] = accum_stage_map.copy()
@@ -2141,6 +2288,8 @@ def run_funnel(
         markup_symbols=markup_symbols,
         exit_signals=exit_signals,
         channel_map=channel_map,
+        leader_radar_symbols=[str(row["code"]) for row in leader_radar_rows],
+        leader_radar_rows=leader_radar_rows,
     )
 
 

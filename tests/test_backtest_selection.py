@@ -17,6 +17,8 @@ def test_all_formal_l4_selection_excludes_stage_only_candidates() -> None:
         markup_symbols=["000002"],
         exit_signals={},
         channel_map={"000001": "点火破局", "000002": "主升通道"},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
     )
 
     codes, score_map, track_map = _select_ai_input_codes(
@@ -46,6 +48,8 @@ def test_all_formal_l4_selection_respects_hard_cap(monkeypatch) -> None:
         markup_symbols=[],
         exit_signals={},
         channel_map={"000001": "点火破局", "000002": "点火破局", "000003": "点火破局"},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
     )
 
     codes, score_map, track_map = backtest_runner._select_ai_input_codes(
@@ -83,6 +87,8 @@ def test_tradeable_l4_selection_uses_quota_and_loss_guard() -> None:
             "000005": "吸筹通道",
             "000006": "吸筹通道",
         },
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
     )
 
     codes, score_map, _ = _select_ai_input_codes(

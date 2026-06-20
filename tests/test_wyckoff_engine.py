@@ -14,6 +14,7 @@ from core.wyckoff_engine import (
     _latest_trade_date,
     _sorted_if_needed,
     allocate_ai_candidates,
+    detect_leader_radar,
     layer1_filter,
     layer2_strength_detailed,
     layer3_sector_resonance,
@@ -173,6 +174,30 @@ class TestComputeStopLoss:
         assert "吸筹底线" in reason
 
 
+class TestLeaderRadar:
+    def test_detects_independent_markup_watchlist(self):
+        cfg = FunnelConfig()
+        dates = pd.date_range("2024-01-01", periods=140, freq="B")
+        strong_closes = [5.0 + i * 0.08 for i in range(140)]
+        flat_closes = [10.0] * 140
+        strong = _make_df(
+            dates.strftime("%Y-%m-%d").tolist(), strong_closes, volumes=[1_000_000] * 135 + [1_200_000] * 5
+        )
+        flat = _make_df(dates.strftime("%Y-%m-%d").tolist(), flat_closes)
+
+        rows = detect_leader_radar(
+            ["000001", "000002"],
+            {"000001": strong, "000002": flat},
+            {"000001": "机器人"},
+            {"000001": "主升通道"},
+            cfg,
+        )
+
+        assert [row["code"] for row in rows] == ["000001"]
+        assert rows[0]["risk"] == "主升跟踪"
+        assert "60日" in rows[0]["reason"]
+
+
 class TestDetectCompression:
     def _build_compression_df(self):
         n = 60
@@ -320,6 +345,8 @@ class TestAllocateAiCandidates:
             markup_symbols=[],
             exit_signals={},
             channel_map={},
+            leader_radar_symbols=[],
+            leader_radar_rows=[],
         )
 
         trend, accum, scores = allocate_ai_candidates(
@@ -351,6 +378,8 @@ class TestAllocateAiCandidates:
             markup_symbols=[],
             exit_signals={},
             channel_map={"000001": "点火破局", "000002": "趋势延续"},
+            leader_radar_symbols=[],
+            leader_radar_rows=[],
         )
 
         _trend, _accum, scores = allocate_ai_candidates(
