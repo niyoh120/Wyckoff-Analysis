@@ -65,7 +65,7 @@ def test_all_formal_l4_selection_respects_hard_cap(monkeypatch) -> None:
     assert track_map == {"000001": "Trend", "000002": "Trend"}
 
 
-def test_tradeable_l4_selection_uses_quota_and_loss_guard() -> None:
+def test_tradeable_l4_selection_uses_formal_l4_without_l3_fallback() -> None:
     result = FunnelResult(
         layer1_symbols=[],
         layer2_symbols=[],
@@ -99,12 +99,8 @@ def test_tradeable_l4_selection_uses_quota_and_loss_guard() -> None:
         selection_mode="tradeable_l4",
     )
 
-    assert "000001" not in codes
-    assert "000003" in codes
-    assert "000004" not in codes
-    assert "000005" in codes
-    assert "000006" in codes
-    assert score_map["000003"] > 0
+    assert codes == ["000004", "000005", "000006"]
+    assert score_map == {"000004": 2.0, "000005": 1.5, "000006": 1.0}
 
 
 def test_regime_position_filter_blocks_defensive_regimes() -> None:

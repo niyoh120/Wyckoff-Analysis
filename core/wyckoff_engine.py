@@ -71,6 +71,8 @@ class FunnelConfig:
     require_cn_main_or_chinext: bool = True  # 兼容旧字段名：仅保留主板/创业板/科创板，排除北交所等
     min_market_cap_yi: float = 35.0
     min_avg_amount_wan: float = 5000.0
+    l1_min_close_price: float = 2.0
+    l1_delist_risk_cap_floor_yi: float = 10.0
     l1_cap_bypass_amount_wan: float = 8000.0  # 市值不足但日均额 >= 此值可放行
     amount_avg_window: int = 20
     amount_skew_check_enabled: bool = True
@@ -88,6 +90,13 @@ class FunnelConfig:
     rs_window_short: int = 3
     rs_min_long: float = 2.0  # 10 日 RS 至少跑赢大盘 2%（原 0.0 形同虚设）
     rs_min_short: float = 1.0  # 3 日 RS 至少跑赢大盘 1%
+    rs_dynamic_relax_enabled: bool = True
+    rs_bench_surge_long_pct: float = 4.0
+    rs_bench_surge_short_pct: float = 2.0
+    rs_surge_relax_factor: float = 0.35
+    rs_structural_bypass_enabled: bool = True
+    rs_structural_bypass_rps_slow_min: float = 65.0
+    rs_structural_bypass_ret20_floor: float = -4.0
     enable_rs_filter: bool = True
     enable_rps_filter: bool = True
     rps_window_fast: int = 50
@@ -522,6 +531,35 @@ def _amount_liquidity_ok(
     return not (spike_distorted and (median_weak or pass_days_weak))
 
 
+def _latest_close_ok(df_sorted: pd.DataFrame, cfg: FunnelConfig) -> bool:
+    close = pd.to_numeric(df_sorted.get("close"), errors="coerce").dropna()
+    if close.empty:
+        return True
+    return float(close.iloc[-1]) >= float(cfg.l1_min_close_price)
+
+
+def _market_cap_floor_ok(cap: float, cfg: FunnelConfig) -> bool:
+    return float(cap or 0.0) >= float(cfg.l1_delist_risk_cap_floor_yi)
+
+
+def _market_cap_ok(
+    sym: str, market_cap_map: dict[str, float], df_map: dict[str, pd.DataFrame], cfg: FunnelConfig
+) -> bool:
+    if not market_cap_map:
+        return True
+    cap = market_cap_map.get(sym, 0.0)
+    if not _market_cap_floor_ok(cap, cfg):
+        return False
+    if cap >= cfg.min_market_cap_yi:
+        return True
+    df = df_map.get(sym)
+    return bool(
+        df is not None
+        and not df.empty
+        and _amount_liquidity_ok(_sorted_if_needed(df), cfg, min_avg_amount_wan=cfg.l1_cap_bypass_amount_wan)
+    )
+
+
 def layer1_filter(
     symbols: list[str],
     name_map: dict[str, str],
@@ -536,7 +574,6 @@ def layer1_filter(
     market_cap_map 单位：亿元。若 market_cap_map 为空则跳过市值过滤。
     financial_map 来自 TickFlow，可选；有则追加 ROE / 资产负债率硬过滤。
     """
-    cap_available = bool(market_cap_map)
     fin_available = bool(financial_map)
     passed: list[str] = []
     l1_roe_negative = 0
@@ -547,24 +584,14 @@ def layer1_filter(
         name = name_map.get(sym, "")
         if "ST" in name.upper():
             continue
-        if cap_available:
-            cap = market_cap_map.get(sym, 0.0)
-            if cap < cfg.min_market_cap_yi:
-                df_tmp = df_map.get(sym)
-                if (
-                    df_tmp is None
-                    or df_tmp.empty
-                    or not _amount_liquidity_ok(
-                        _sorted_if_needed(df_tmp),
-                        cfg,
-                        min_avg_amount_wan=cfg.l1_cap_bypass_amount_wan,
-                    )
-                ):
-                    continue
+        if not _market_cap_ok(sym, market_cap_map, df_map, cfg):
+            continue
         df = df_map.get(sym)
         if df is None or df.empty:
             continue
         df_sorted = _sorted_if_needed(df)
+        if not _latest_close_ok(df_sorted, cfg):
+            continue
         if not _amount_liquidity_ok(df_sorted, cfg):
             continue
         if fin_available:
@@ -585,6 +612,61 @@ def layer1_filter(
 
 
 # Layer 2: 强弱甄别
+
+
+def _effective_rs_thresholds(
+    cfg: FunnelConfig,
+    bench_long_ret: float | None,
+    bench_short_ret: float | None,
+) -> tuple[float, float]:
+    long_min = float(cfg.rs_min_long)
+    short_min = float(cfg.rs_min_short)
+    if not cfg.rs_dynamic_relax_enabled:
+        return long_min, short_min
+    long_hot = bench_long_ret is not None and bench_long_ret >= float(cfg.rs_bench_surge_long_pct)
+    short_hot = bench_short_ret is not None and bench_short_ret >= float(cfg.rs_bench_surge_short_pct)
+    if not (long_hot or short_hot):
+        return long_min, short_min
+    factor = max(0.0, min(float(cfg.rs_surge_relax_factor), 1.0))
+    return long_min * factor, short_min * factor
+
+
+def _max_drawdown_pct(close: pd.Series, window: int) -> float | None:
+    recent = pd.to_numeric(close, errors="coerce").dropna().tail(max(int(window), 2))
+    if len(recent) < 2:
+        return None
+    drawdown = (recent - recent.cummax()) / recent.cummax() * 100.0
+    return abs(float(drawdown.min()))
+
+
+def _rs_structural_bypass_ok(
+    *,
+    close: pd.Series,
+    df_sorted: pd.DataFrame,
+    last_close: float,
+    last_ma_short: float,
+    last_ma_long: float,
+    rps_slow: float | None,
+    cfg: FunnelConfig,
+) -> bool:
+    if not cfg.rs_structural_bypass_enabled or rps_slow is None:
+        return False
+    if rps_slow < float(cfg.rs_structural_bypass_rps_slow_min):
+        return False
+    if not (pd.notna(last_ma_short) and pd.notna(last_ma_long) and last_ma_short > last_ma_long > 0):
+        return False
+    ret20 = _close_return_pct(close, 20)
+    if ret20 is None or ret20 < float(cfg.rs_structural_bypass_ret20_floor):
+        return False
+    bias50 = abs(last_close / float(last_ma_short) - 1.0)
+    dd = _max_drawdown_pct(close, int(cfg.trend_cont_drawdown_window))
+    vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce").dropna()
+    vol_ok = True
+    if len(vol) >= 20:
+        vol20 = float(vol.tail(20).mean())
+        vol5 = float(vol.tail(5).mean())
+        vol_ok = vol20 <= 0 or vol5 / vol20 <= 1.8
+    return bias50 <= 0.12 and (dd is None or dd <= 18.0) and vol_ok
 
 
 def layer2_strength_detailed(
@@ -621,23 +703,26 @@ def layer2_strength_detailed(
             return None
         return (end - start) / start * 100.0
 
-    def _calc_rs(stock_df: pd.DataFrame, bench_sorted_df: pd.DataFrame) -> tuple[float | None, float | None]:
+    def _calc_rs(
+        stock_df: pd.DataFrame,
+        bench_sorted_df: pd.DataFrame,
+    ) -> tuple[float | None, float | None, float | None, float | None]:
         stock_p = stock_df[["date", "pct_chg"]].copy()
         bench_p = bench_sorted_df[["date", "pct_chg"]].copy()
         merged = stock_p.merge(bench_p, on="date", how="inner", suffixes=("_s", "_b"))
         if merged.empty:
-            return (None, None)
+            return (None, None, None, None)
         w_long = max(int(cfg.rs_window_long), 1)
         w_short = max(int(cfg.rs_window_short), 1)
         if len(merged) < max(w_long, w_short):
-            return (None, None)
+            return (None, None, None, None)
         s_long = _cum_return_pct_from_series(merged["pct_chg_s"].tail(w_long))
         b_long = _cum_return_pct_from_series(merged["pct_chg_b"].tail(w_long))
         s_short = _cum_return_pct_from_series(merged["pct_chg_s"].tail(w_short))
         b_short = _cum_return_pct_from_series(merged["pct_chg_b"].tail(w_short))
         if s_long is None or b_long is None or s_short is None or b_short is None:
-            return (None, None)
-        return (s_long - b_long, s_short - b_short)
+            return (None, None, None, None)
+        return (s_long - b_long, s_short - b_short, b_long, b_short)
 
     bench_dropping = False
     bench_sorted: pd.DataFrame | None = None
@@ -711,13 +796,16 @@ def layer2_strength_detailed(
         ambush_rs_ok = True
         rs_long = None
         rs_short = None
+        bench_long_ret = None
+        bench_short_ret = None
         if cfg.enable_rs_filter and bench_sorted is not None and not bench_sorted.empty:
-            rs_long, rs_short = _calc_rs(df_sorted, bench_sorted)
+            rs_long, rs_short, bench_long_ret, bench_short_ret = _calc_rs(df_sorted, bench_sorted)
             if rs_long is None or rs_short is None:
                 momentum_rs_ok = False
                 ambush_rs_ok = False
             else:
-                momentum_rs_ok = rs_long >= cfg.rs_min_long and rs_short >= cfg.rs_min_short
+                rs_long_min, rs_short_min = _effective_rs_thresholds(cfg, bench_long_ret, bench_short_ret)
+                momentum_rs_ok = rs_long >= rs_long_min and rs_short >= rs_short_min
                 ambush_rs_ok = rs_long >= cfg.ambush_rs_long_min and rs_short >= cfg.ambush_rs_short_min
 
         rps_fast = rps_fast_map.get(sym)
@@ -769,6 +857,17 @@ def layer2_strength_detailed(
                 and rps_fast <= cfg.ambush_rps_fast_max
                 and rps_slow >= cfg.ambush_rps_slow_min
             )
+
+        if not momentum_rs_ok and _rs_structural_bypass_ok(
+            close=close,
+            df_sorted=df_sorted,
+            last_close=float(last_close),
+            last_ma_short=float(last_ma_short),
+            last_ma_long=float(last_ma_long),
+            rps_slow=rps_slow,
+            cfg=cfg,
+        ):
+            momentum_rs_ok = True
 
         momentum_bias_ok = True
         if pd.notna(last_ma_long) and float(last_ma_long) > 0 and pd.notna(last_close):

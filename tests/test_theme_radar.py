@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from core.theme_radar import ThemeRadarConfig, build_theme_radar_snapshot, summarize_theme_radar
+from core.theme_radar import ThemeRadarConfig, build_theme_radar_snapshot, normalize_theme_name, summarize_theme_radar
 
 
 def _trend_frame(start: float, step: float, days: int = 280) -> pd.DataFrame:
@@ -85,6 +85,12 @@ def test_theme_radar_filters_non_actionable_index_noise() -> None:
     theme_names = {item["theme"] for item in snapshot["themes"]}
     assert "日经225" not in theme_names
     assert "芯片半导体" in theme_names
+
+
+def test_theme_radar_normalizes_defensive_value_aliases() -> None:
+    assert normalize_theme_name("高股息央企红利") == "红利低波"
+    assert normalize_theme_name("银行保险走强") == "大金融"
+    assert normalize_theme_name("火电公用事业") == "公用事业"
 
 
 def test_theme_radar_snapshot_round_trip_local_db(tmp_path, monkeypatch) -> None:

@@ -241,6 +241,32 @@ def _reclaim_vwap(close: pd.Series, *, last_close: float, vwap: float) -> bool:
     return bool(last_close >= vwap * 1.001 and min_before_tail < vwap * 0.998)
 
 
+def _strong_hold_vwap_ratio(
+    close: pd.Series,
+    low: pd.Series,
+    volume: pd.Series,
+    amount: pd.Series,
+    volume_scale: float,
+) -> float:
+    if len(close) < 60:
+        return 0.0
+    scaled_volume = (volume.fillna(0.0) * max(volume_scale, 1e-9)).clip(lower=0.0)
+    cum_vol = scaled_volume.cumsum()
+    dynamic_vwap = amount.fillna(0.0).cumsum() / cum_vol.replace(0.0, pd.NA)
+    valid = dynamic_vwap.dropna()
+    if valid.empty:
+        return 0.0
+    start = min(max(len(close) // 6, 15), 40)
+    close_tail = close.iloc[start:]
+    low_tail = low.iloc[start:]
+    vwap_tail = dynamic_vwap.iloc[start:]
+    if close_tail.empty:
+        return 0.0
+    close_above = close_tail >= vwap_tail * 0.998
+    low_breach = low_tail < vwap_tail * 0.993
+    return float(close_above.mean() - low_breach.mean() * 0.5)
+
+
 def _breakout_tail(high: pd.Series, *, last_close: float, day_high: float) -> bool:
     if len(high) <= 35:
         return bool(last_close >= day_high * 0.98)
@@ -268,6 +294,13 @@ def _base_tail_features(df: pd.DataFrame) -> dict[str, Any]:
     total_volume = float(volume.sum())
     vwap, vwap_volume_scale = _infer_session_vwap(close, total_volume, float(amount.sum()))
     day_range = max(day_high - day_low, 1e-8)
+    close_pos = max(0.0, min(1.0, (last_close - day_low) / day_range))
+    day_ret_pct = ((last_close / first_open - 1.0) * 100.0) if first_open > 0 else 0.0
+    drop_from_high_pct = (last_close / day_high - 1.0) * 100.0 if day_high > 0 else 0.0
+    hold_vwap_ratio = _strong_hold_vwap_ratio(close, low, volume, amount, vwap_volume_scale)
+    strong_hold_vwap = (
+        hold_vwap_ratio >= 0.82 and close_pos >= 0.72 and day_ret_pct >= 0.5 and drop_from_high_pct >= -1.8
+    )
     return {
         "bars": int(len(df)),
         "last_close": last_close,
@@ -276,15 +309,17 @@ def _base_tail_features(df: pd.DataFrame) -> dict[str, Any]:
         "day_low": day_low,
         "vwap": vwap,
         "vwap_volume_scale": vwap_volume_scale,
-        "close_pos": max(0.0, min(1.0, (last_close - day_low) / day_range)),
-        "day_ret_pct": ((last_close / first_open - 1.0) * 100.0) if first_open > 0 else 0.0,
+        "close_pos": close_pos,
+        "day_ret_pct": day_ret_pct,
         "intraday_high_ret_pct": ((day_high / first_open - 1.0) * 100.0) if first_open > 0 else 0.0,
         "last30_ret_pct": _ret_pct(close, 30),
         "last15_ret_pct": _ret_pct(close, 15),
         "tail30_volume_share": _tail_volume_share(volume, total_volume, 30),
         "tail15_volume_share": _tail_volume_share(volume, total_volume, 15),
-        "drop_from_high_pct": (last_close / day_high - 1.0) * 100.0 if day_high > 0 else 0.0,
+        "drop_from_high_pct": drop_from_high_pct,
         "dist_vwap_pct": (last_close / vwap - 1.0) * 100.0 if vwap > 0 else 0.0,
+        "hold_vwap_ratio": hold_vwap_ratio,
+        "strong_hold_vwap": bool(strong_hold_vwap),
         "reclaim_vwap": _reclaim_vwap(close, last_close=last_close, vwap=vwap),
         "breakout_tail": _breakout_tail(high, last_close=last_close, day_high=day_high),
         "slope_10_pct": _slope_pct(close, 10),
@@ -445,6 +480,9 @@ def _score_tail_volume_and_breakout(
     if bool(features.get("reclaim_vwap")):
         score += 10.0 * pullback_bias
         reasons.append("出现回踩后再站上VWAP")
+    if bool(features.get("strong_hold_vwap")):
+        score += 10.0 * trend_bias
+        reasons.append("全天强势守VWAP")
     if bool(features.get("breakout_tail")):
         score += 7.0 * trend_bias
         reasons.append("尾盘刷新前高/关键位")
@@ -643,6 +681,7 @@ def build_llm_prompt(
         f"- day_low_breached_support={bool(f.get('day_low_breached_support'))}\n"
         f"- intraday_high_ret_pct={_safe_float(f.get('intraday_high_ret_pct')):.3f}\n"
         f"- tail_blowoff_reversal={bool(f.get('tail_blowoff_reversal'))}\n"
+        f"- strong_hold_vwap={bool(f.get('strong_hold_vwap'))}, hold_vwap_ratio={_safe_float(f.get('hold_vwap_ratio')):.3f}\n"
         f"- reclaim_vwap={bool(f.get('reclaim_vwap'))}\n"
         f"- breakout_tail={bool(f.get('breakout_tail'))}\n"
         f"- drop_from_high_pct={_safe_float(f.get('drop_from_high_pct')):.3f}\n"

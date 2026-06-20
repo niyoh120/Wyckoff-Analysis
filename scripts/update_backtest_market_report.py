@@ -682,7 +682,7 @@ def _build_execution_context_lines(
         "",
         "## 执行上下文",
         "",
-        "- 回测脚本: `python -m scripts.backtest_runner`（由 `.github/workflows/backtest_grid.yml` 每周期以精简参数网格并发执行）",
+        "- 回测脚本: `python -m scripts.backtest_runner`（由 `.github/workflows/backtest_grid.yml` 手动触发精简参数网格并发执行）",
         f"- 回测区间: {_format_backtest_ranges(cells)}",
         f"- 市场周期: {current_cycle}",
         f"- 周期说明: {cycle_detail}",
@@ -748,7 +748,7 @@ def _build_followup_lines(regime_stats: list[dict[str, object]], trigger_stats: 
             f"- 纯 SOS 信号本轮均收 {_fmt_signed(pure_sos['avg'], 2, '%')}，建议后续测试 `SOS+EVR/Spring/LPS` 或次日跟随确认，避免宽口径突破噪音。"
         )
     lines.append(
-        "- 后续每次 Backtest Grid 完成后，本文件会被 workflow 自动刷新；若 Actions token 有写权限，会提交到仓库，否则仍会作为 artifact 留存。"
+        "- 后续每次手动 Backtest Grid 完成后，本文件会被 workflow 刷新；若 Actions token 有写权限，会提交到仓库，否则仍会作为 artifact 留存。"
     )
     return lines
 

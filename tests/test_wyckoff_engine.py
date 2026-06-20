@@ -120,6 +120,22 @@ class TestLayer1Filter:
 
         assert result == ["000001"]
 
+    def test_rejects_low_price_and_hard_market_cap_floor(self):
+        cfg = FunnelConfig()
+        dates = pd.date_range("2024-01-01", periods=20, freq="B")
+        normal = _make_df(dates.strftime("%Y-%m-%d").tolist(), [3.0] * 20)
+        low_price = _make_df(dates.strftime("%Y-%m-%d").tolist(), [1.8] * 20)
+
+        result = layer1_filter(
+            ["000001", "000002", "000003"],
+            {"000001": "正常股", "000002": "低价股", "000003": "硬市值风险"},
+            {"000001": 40.0, "000002": 40.0, "000003": 8.0},
+            {"000001": normal, "000002": low_price, "000003": normal.copy()},
+            cfg,
+        )
+
+        assert result == ["000001"]
+
 
 class TestIsHolidayGrace:
     def test_normal_day_no_grace(self):

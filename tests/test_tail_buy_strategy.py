@@ -138,6 +138,24 @@ def test_evaluate_rule_decision_buy_and_skip_split():
     assert weak_out.rule_decision == DECISION_SKIP
 
 
+def test_strong_intraday_trend_gets_hold_vwap_feature():
+    candidate = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=6.0,
+    )
+    df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.2, tail_volume_mult=1.2)
+
+    out = evaluate_rule_decision(candidate, df, style="trend")
+
+    assert out.features["strong_hold_vwap"] is True
+    assert out.features["hold_vwap_ratio"] >= 0.82
+    assert "全天强势守VWAP" in "；".join(out.rule_reasons)
+
+
 def test_pending_strong_tail_signal_stays_watch_by_default():
     candidate = TailBuyCandidate(
         code="002217",

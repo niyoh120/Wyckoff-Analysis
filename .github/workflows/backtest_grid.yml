@@ -1,9 +1,6 @@
 name: Backtest Grid
 
 on:
-  schedule:
-    # 每月 1 号和 15 号 UTC 20:00（北京时间次日 04:00）自动回测
-    - cron: "0 20 1,15 * *"
   workflow_dispatch:
     inputs:
       period:
@@ -388,7 +385,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 -u - <<'PYEOF'
-          import os, glob, json, re, requests
+          import csv, os, glob, json, re, requests
 
           webhook = os.environ.get('FEISHU_WEBHOOK_URL', '').strip()
           if not webhook:
@@ -512,6 +509,58 @@ jobs:
           def style_sort_key(style):
               return (style_order.get(style, 99), style)
 
+          def find_cash_trades_path(summary_path, style):
+              base_dir = os.path.dirname(summary_path)
+              matches = sorted(glob.glob(os.path.join(base_dir, f'cash_trades_{style}_*.csv')))
+              return matches[0] if matches else ''
+
+          def read_cash_trades(path):
+              if not path or not os.path.exists(path):
+                  return []
+              with open(path, newline='', encoding='utf-8-sig') as f:
+                  return list(csv.DictReader(f))
+
+          def fmt_trade_price(raw):
+              value = parse_num(raw)
+              return f'{value:.2f}' if value is not None else '-'
+
+          def fmt_trade_pct(raw):
+              value = parse_num(raw)
+              return f'{value:+.1f}%' if value is not None else '-'
+
+          def trade_line(idx, row):
+              entry_date = str(row.get('entry_date') or row.get('signal_date') or '')[5:]
+              exit_date = str(row.get('exit_date') or '')[5:]
+              code = str(row.get('code') or '-')
+              name = str(row.get('name') or '')[:6]
+              trigger = str(row.get('trigger') or '-').replace('、', '+')
+              reason = str(row.get('exit_reason') or '-')
+              shares = parse_num(row.get('shares')) or 0
+              return (
+                  f'{idx}. {entry_date}->{exit_date} {code} {name} '
+                  f'{fmt_trade_pct(row.get("ret_pct"))} {fmt_trade_price(row.get("entry_price"))}'
+                  f'→{fmt_trade_price(row.get("exit_price"))} {int(shares)}股 {trigger}/{reason}'
+              )
+
+          def split_text_cards(title, lines, template, max_bytes=85000):
+              cards = []
+              current = []
+              for line in lines:
+                  candidate = current + [line]
+                  candidate_elements = [{'tag': 'div', 'text': {'tag': 'lark_md', 'content': title + '\n' + '\n'.join(candidate)}}]
+                  if current and payload_size(card_payload('📊 Backtest Grid 交易记录', template, candidate_elements)) > max_bytes:
+                      cards.append(current)
+                      current = [line]
+                  else:
+                      current = candidate
+              if current:
+                  cards.append(current)
+              total = len(cards)
+              return [
+                  [{'tag': 'div', 'text': {'tag': 'lark_md', 'content': f'{title} {idx}/{total}\n' + '\n'.join(batch)}}]
+                  for idx, batch in enumerate(cards, 1)
+              ]
+
           cells = []
           for sf in summaries:
               dirname = os.path.basename(os.path.dirname(sf))
@@ -525,6 +574,7 @@ jobs:
                   content = f.read()
               start, end = parse_range(content)
               base_cell = {
+                  'summary_path': sf,
                   'period': parse_period(dirname, start, end),
                   'start': start,
                   'end': end,
@@ -555,6 +605,7 @@ jobs:
                   cell.update({
                       'style': style,
                       'style_label': style_label(style, style_row.get('风格', '')),
+                      'cash_trades_path': find_cash_trades_path(sf, style),
                       'cash_final': parse_num(style_row.get('最终现金')),
                       'cash_return': parse_num(style_row.get('总收益')),
                       'cash_mdd': parse_num(style_row.get('现金回撤')),
@@ -706,6 +757,7 @@ jobs:
 
           elements = []
           ranking_cards = []
+          trade_cards = []
           run_url = os.environ.get('RUN_URL', '')
           bt_start = os.environ.get('BT_START', '?')
           bt_end = os.environ.get('BT_END', '?')
@@ -790,6 +842,18 @@ jobs:
                       elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
                           'content': f'**跨周期稳健性**: 正收益周期 {rb["positive"]}/{len(rb["values"])}，最差周期 {fmt(min(rb["values"]), "+.2f")}%，稳健分 {fmt(rb["score"], ".2f")}'}})
 
+                  best_trade_rows = read_cash_trades(best.get('cash_trades_path'))
+                  if best_trade_rows:
+                      best_trade_rows = sorted(
+                          best_trade_rows,
+                          key=lambda row: (str(row.get('entry_date') or ''), str(row.get('code') or '')),
+                      )
+                      trade_lines = [trade_line(idx, row) for idx, row in enumerate(best_trade_rows, 1)]
+                      title = f'**最优组合完整交易记录**（{len(best_trade_rows)}笔 · {style_label(best.get("style", ""), best.get("style_label", ""))}）'
+                      trade_cards = split_text_cards(title, trade_lines, 'blue')
+                      elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
+                          'content': f'**交易记录**: 最优组合 {len(best_trade_rows)} 笔，已拆成 {len(trade_cards)} 张高密明细卡发送。'}})
+
                   if len(periods) > 1:
                       elements.append({'tag': 'hr'})
                       lines = ['**各周期最优（按现金收益）**']
@@ -864,6 +928,8 @@ jobs:
 
           template = 'blue' if (best and (rank_value(best) or 0) > 0) else 'orange' if cells else 'red'
           ok = post_card('📊 Backtest Grid 回测完成', template, elements)
+          for idx, card_elements in enumerate(trade_cards, 1):
+              ok = post_card(f'📊 Backtest Grid 最优交易记录 {idx}/{len(trade_cards)}', 'blue', card_elements) and ok
           for idx, card_elements in enumerate(ranking_cards, 1):
               ok = post_card(f'📊 Backtest Grid 参数梯队 {idx}/{len(ranking_cards)}', 'blue', card_elements) and ok
           if not ok:

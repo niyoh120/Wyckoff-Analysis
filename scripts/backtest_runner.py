@@ -480,7 +480,7 @@ def _select_l4_mode_codes(
     hit_score_map: dict[str, float],
     selection_mode: str,
 ) -> tuple[list[str], dict[str, float], dict[str, str]] | None:
-    if selection_mode in _STRICT_L4_SELECTION_MODES:
+    if selection_mode in _STRICT_L4_SELECTION_MODES or selection_mode in _TRADEABLE_L4_SELECTION_MODES:
         trigger_sets = trigger_sets_by_code(result.triggers)
         selected_codes = [
             code for code in sorted_hit_codes if is_tradeable_l4_trigger_combo(trigger_sets.get(code, set()))
