@@ -198,7 +198,7 @@ export function FeatureGuidePage() {
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {workflows.map(({ icon: Icon, titleKey, descKey }) => (
-            <article key={titleKey} className="rounded-lg border border-border bg-card p-4 shadow-[0_2px_2px_rgba(0,0,0,0.04)]">
+            <article key={titleKey} className="rounded-lg border border-border bg-background p-4 shadow-sm shadow-primary/5">
               <Icon className="mb-3 text-primary" size={20} />
               <h3 className="text-sm font-semibold">{t(titleKey)}</h3>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">{t(descKey)}</p>
@@ -266,10 +266,10 @@ export function FeatureGuidePage() {
 function CapabilityBoundarySection({ locale }: { locale: Locale }) {
   const copy = capabilityCopy[locale]
   return (
-    <section id="capability-boundary" className="scroll-mt-6 overflow-hidden rounded-xl border border-border bg-card p-5">
+    <section id="capability-boundary" className="scroll-mt-6 overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-sidebar via-background to-primary/5 p-5 shadow-sm">
       <div className="mb-5 max-w-3xl">
-        <p className="text-xs font-semibold uppercase text-muted-foreground">{copy.eyebrow}</p>
-        <h2 className="mt-2 text-2xl font-semibold">{copy.title}</h2>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">{copy.eyebrow}</p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight">{copy.title}</h2>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">{copy.intro}</p>
       </div>
       <CapabilityLaunchBanner locale={locale} />
@@ -288,27 +288,28 @@ function CapabilityBoundarySection({ locale }: { locale: Locale }) {
 function CapabilityLaunchBanner({ locale }: { locale: Locale }) {
   const copy = capabilityLaunch[locale]
   return (
-    <article className="mb-5 overflow-hidden rounded-xl border border-border bg-background p-5">
+    <article className="relative mb-5 overflow-hidden rounded-2xl border border-amber-300/50 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.26),transparent_36%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(88,28,135,0.85)_48%,rgba(180,83,9,0.88))] p-5 text-white shadow-lg shadow-amber-900/10">
+      <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full border border-white/20 bg-white/10 blur-sm" />
       <div className="relative grid gap-5 lg:grid-cols-[1fr_300px] lg:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold text-foreground">
+            <span className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/15 px-3 py-1 text-xs font-semibold backdrop-blur">
               <Rocket size={13} />
               {copy.kicker}
             </span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-300 px-3 py-1 text-xs font-bold text-slate-950">
               <CalendarDays size={13} />
               {copy.date}
             </span>
           </div>
-          <h3 className="mt-4 text-2xl font-semibold">{copy.title}</h3>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{copy.desc}</p>
-          <p className="mt-3 flex max-w-3xl items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-5 text-warning">
+          <h3 className="mt-4 text-2xl font-semibold tracking-tight">{copy.title}</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/90">{copy.desc}</p>
+          <p className="mt-3 flex max-w-3xl items-start gap-2 rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-xs leading-5 text-white/85">
             <AlertTriangle className="mt-0.5 shrink-0" size={14} />
             <span>{copy.note}</span>
           </p>
         </div>
-        <div className="flex flex-col items-center gap-4 rounded-lg border border-border bg-muted/40 p-4 sm:flex-row lg:flex-col lg:items-center">
+        <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur flex flex-col items-center gap-4 sm:flex-row lg:flex-col lg:items-center">
           <div className="w-full">
             <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
               <Users size={16} />
@@ -316,15 +317,15 @@ function CapabilityLaunchBanner({ locale }: { locale: Locale }) {
             </div>
             <div className="flex flex-wrap gap-1.5 mb-1">
               {copy.tags.map((tag) => (
-                <span key={tag} className="rounded-full border border-border bg-background px-2.5 py-0.5 text-xs text-muted-foreground">
+                <span key={tag} className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs text-white/90">
                   {tag}
                 </span>
               ))}
             </div>
           </div>
-          <div className="flex w-48 shrink-0 flex-col items-center rounded-lg border border-border bg-background p-2">
+          <div className="flex flex-col items-center rounded-xl bg-white p-2 shadow-md shrink-0 w-48 transition-transform hover:scale-[1.03] duration-200">
             <img src="/zsxq_qr.jpg" alt="Knowledge Planet QR" className="w-full h-auto object-contain rounded-lg" />
-            <span className="mt-2 text-xs font-semibold text-foreground">微信扫码 加入星球</span>
+            <span className="mt-2 text-xs font-bold text-slate-800">微信扫码 加入星球</span>
           </div>
         </div>
       </div>
@@ -334,8 +335,8 @@ function CapabilityLaunchBanner({ locale }: { locale: Locale }) {
 
 function CapabilityWebCard({ copy }: { copy: (typeof capabilityCopy)[Locale] }) {
   return (
-    <article className="rounded-lg border border-border bg-background p-4">
-      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-success">
+    <article className="rounded-xl border border-primary/20 bg-primary/10 p-4">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-primary">
         <CheckCircle2 size={17} />
         {copy.webTitle}
       </div>
@@ -348,14 +349,14 @@ function CapabilityWebCard({ copy }: { copy: (typeof capabilityCopy)[Locale] }) 
 
 function CapabilityGapCard({ title, locale }: { title: string; locale: Locale }) {
   return (
-    <article className="rounded-lg border border-border bg-background p-4">
+    <article className="rounded-xl border border-border bg-background/80 p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
         <CloudCog size={17} className="text-primary" />
         {title}
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         {capabilityGaps[locale].map(([name, desc]) => (
-          <div key={name} className="rounded-md border border-border bg-muted/45 p-3">
+          <div key={name} className="rounded-lg border border-border bg-sidebar/70 p-3">
             <h3 className="text-sm font-semibold">{name}</h3>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{desc}</p>
           </div>
@@ -367,7 +368,7 @@ function CapabilityGapCard({ title, locale }: { title: string; locale: Locale })
 
 function CapabilityListCard({ icon: Icon, title, items, costLinkText, tone }: { icon: LucideIcon; title: string; items: string[]; costLinkText: string; tone: 'warning' }) {
   return (
-    <article className="rounded-lg border border-border bg-background p-4">
+    <article className="rounded-xl border border-border bg-background/80 p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
         <Icon size={17} className={tone === 'warning' ? 'text-warning' : 'text-primary'} />
         {title}
@@ -376,7 +377,7 @@ function CapabilityListCard({ icon: Icon, title, items, costLinkText, tone }: { 
         {items.map((item) => <li key={item}>• {item}</li>)}
       </ul>
       <a
-        className="mt-3 inline-flex items-center gap-1 rounded-md border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning transition-colors hover:bg-warning/15"
+        className="mt-3 inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning transition hover:bg-warning/15"
         href="https://github.com/YoungCan-Wang/WyckoffTradingAgent/blob/main/docs/COST_MODEL.md"
         rel="noreferrer"
         target="_blank"

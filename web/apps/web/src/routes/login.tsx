@@ -64,10 +64,10 @@ function LoginToolbar() {
 
   return (
     <div className="absolute right-4 top-4 flex gap-2">
-      <button type="button" onClick={toggleTheme} className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('prefs.theme')}>
+      <button type="button" onClick={toggleTheme} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('prefs.theme')}>
         <ThemeIcon size={16} />
       </button>
-      <button type="button" onClick={() => setLocale(locale === 'zh-CN' ? 'en-US' : 'zh-CN')} className="flex h-9 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('prefs.language')}>
+      <button type="button" onClick={() => setLocale(locale === 'zh-CN' ? 'en-US' : 'zh-CN')} className="flex h-9 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('prefs.language')}>
         <Languages size={15} />
         {locale === 'zh-CN' ? 'EN' : '中文'}
       </button>
@@ -79,7 +79,7 @@ function LoginPageHeader() {
   const { t } = usePreferences()
   return (
     <div className="mb-8 text-center">
-      <h1 className="text-3xl font-semibold text-foreground">
+      <h1 className="bg-gradient-to-r from-primary to-cyan-500 bg-clip-text text-3xl font-bold text-transparent">
         Wyckoff
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">{t('app.subtitle')}</p>
@@ -101,13 +101,13 @@ function LoginFields(props: {
     <>
       <div>
         <label className="mb-1.5 block text-sm font-medium text-foreground">{t('login.email')}</label>
-        <input type="email" value={props.email} onChange={(e) => props.onEmail(e.target.value)} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm outline-none transition-colors hover:border-muted-foreground/40" placeholder="your@email.com" autoComplete="email" required />
+        <input type="email" value={props.email} onChange={(e) => props.onEmail(e.target.value)} className="w-full rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-sm outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="your@email.com" autoComplete="email" required />
       </div>
       <div>
         <label className="mb-1.5 block text-sm font-medium text-foreground">{t('login.password')}</label>
-        <input type="password" value={props.password} onChange={(e) => props.onPassword(e.target.value)} className="w-full rounded-md border border-border bg-background px-4 py-2.5 text-sm outline-none transition-colors hover:border-muted-foreground/40" placeholder="••••••••" autoComplete={props.isRegister ? 'new-password' : 'current-password'} required minLength={6} />
+        <input type="password" value={props.password} onChange={(e) => props.onPassword(e.target.value)} className="w-full rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-sm outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="••••••••" autoComplete={props.isRegister ? 'new-password' : 'current-password'} required minLength={6} />
       </div>
-      <label className="flex items-start gap-2.5 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
+      <label className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/20 px-3 py-2.5 text-sm text-muted-foreground">
         <input type="checkbox" checked={props.rememberEmail} onChange={(e) => props.onRememberEmail(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
         <span>
           <span className="block font-medium text-foreground">{t('login.rememberAccount')}</span>
@@ -123,7 +123,7 @@ function LoginSubmit(props: { loading: boolean; isRegister: boolean; error: stri
   return (
     <>
       {props.error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-200">{props.error}</p>}
-      <button type="submit" disabled={props.loading} className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground">
+      <button type="submit" disabled={props.loading} className="w-full rounded-xl bg-gradient-to-r from-primary to-cyan-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30 disabled:opacity-50">
         {props.loading ? t('login.processing') : props.isRegister ? t('login.register') : t('login.submit')}
       </button>
     </>
@@ -178,7 +178,7 @@ export function LoginPage() {
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-background px-4">
       <LoginToolbar />
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-[0_2px_2px_rgba(0,0,0,0.04)]">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-8 shadow-xl shadow-primary/5">
         <LoginPageHeader />
         <form onSubmit={handleSubmit} className="space-y-4">
           <LoginFields email={email} password={password} rememberEmail={rememberEmail} isRegister={isRegister} onEmail={setEmail} onPassword={setPassword} onRememberEmail={setRememberEmail} />
