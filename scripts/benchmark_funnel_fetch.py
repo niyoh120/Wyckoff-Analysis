@@ -51,7 +51,8 @@ def _latest_date(df: pd.DataFrame | None) -> str:
 def _build_universe(sample: int) -> list[str]:
     main = [str(x.get("code", "")).strip() for x in get_stocks_by_board("main")]
     chinext = [str(x.get("code", "")).strip() for x in get_stocks_by_board("chinext")]
-    merged = _normalize_symbols(main + chinext)
+    star = [str(x.get("code", "")).strip() for x in get_stocks_by_board("star")]
+    merged = _normalize_symbols(main + chinext + star)
     if sample <= 0 or sample >= len(merged):
         return merged
     step = len(merged) / max(sample, 1)

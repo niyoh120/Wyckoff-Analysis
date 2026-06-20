@@ -6,7 +6,7 @@
 
 - 工作流：`.github/workflows/backtest_grid.yml`
 - 回测脚本：`python -m scripts.backtest_runner`
-- 股票池：`main_chinext`，主板 + 创业板，剔除 ST
+- 股票池：`all`，主板 + 创业板 + 科创板，剔除 ST / 北交所等非目标板块
 - 默认资金：`100000`
 - 最大持仓：`4`
 - 买入：T 日收盘后产生信号，T+1 开盘价买入

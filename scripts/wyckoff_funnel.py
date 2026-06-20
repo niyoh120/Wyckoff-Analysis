@@ -1,7 +1,7 @@
 """
 Wyckoff Funnel 定时任务：5 层漏斗筛选 → 多渠道推送
 
-Layer 1: 剥离垃圾（ST/北交所/科创板/市值/成交额）
+Layer 1: 剥离垃圾（ST/北交所/市值/成交额）
 Layer 2: 七通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/点火破局）
 Layer 2.5: Markup 加速检测
 Layer 3: 板块共振（行业 Top-N）
@@ -1563,12 +1563,14 @@ def run_funnel_job(
     external_seed_cfg, all_symbols, external_added_to_pool = _resolve_external_seed_pool(all_symbols)
     main_items = [None] * int(pool_stats.get("pool_main", 0) or 0)
     chinext_items = [None] * int(pool_stats.get("pool_chinext", 0) or 0)
+    star_items = [None] * int(pool_stats.get("pool_star", 0) or 0)
     merged_symbols = list(pool_name_map.keys())
     st_symbols = [None] * int(pool_stats.get("pool_st_excluded", 0) or 0)
     total_batches = (len(all_symbols) + BATCH_SIZE - 1) // BATCH_SIZE if all_symbols else 0
     print(
         "[funnel] 股票池统计: "
         f"mode={pool_stats.get('pool_mode')}, main={len(main_items)}, chinext={len(chinext_items)}, "
+        f"star={len(star_items)}, "
         f"merged={len(merged_symbols)}, st_excluded={len(st_symbols)}, "
         f"final={len(all_symbols)}, limit={pool_stats.get('pool_limit', 0)}, batches={total_batches} (batch_size={BATCH_SIZE})"
     )
@@ -1838,6 +1840,7 @@ def run_funnel_job(
         "pool_mode": str(pool_stats.get("pool_mode", "") or ""),
         "pool_main": len(main_items),
         "pool_chinext": len(chinext_items),
+        "pool_star": len(star_items),
         "pool_merged": len(merged_symbols),
         "pool_st_excluded": len(st_symbols),
         "pool_batches": total_batches,
@@ -2134,6 +2137,7 @@ def run(
         lines = [
             (
                 f"**股票池**: 主板{metrics['pool_main']} + 创业板{metrics['pool_chinext']} "
+                f"+ 科创板{metrics['pool_star']} "
                 f"-> 去重{metrics['pool_merged']} -> 去ST{metrics['pool_st_excluded']} "
                 f"= {metrics['total_symbols']} (共{metrics['pool_batches']}批)"
             ),
@@ -2407,6 +2411,7 @@ def run(
     lines = [
         (
             f"**股票池**: 主板{metrics['pool_main']} + 创业板{metrics['pool_chinext']} "
+            f"+ 科创板{metrics['pool_star']} "
             f"-> 去重{metrics['pool_merged']} -> 去ST{metrics['pool_st_excluded']} "
             f"= {metrics['total_symbols']} (共{metrics['pool_batches']}批)"
         ),

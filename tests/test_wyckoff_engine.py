@@ -9,6 +9,7 @@ from core.wyckoff_engine import (
     FunnelResult,
     _compute_stop_loss,
     _detect_compression,
+    _effective_entry_max_bias_200,
     _is_holiday_grace,
     _latest_trade_date,
     _sorted_if_needed,
@@ -78,6 +79,22 @@ class TestLayer1Filter:
 
         result = layer1_filter(["000001", "000002"], name_map, mcap, df_map, cfg)
         assert "000002" not in result  # ST 被剔除
+
+    def test_accepts_star_board_but_rejects_bse(self):
+        cfg = FunnelConfig()
+        dates = pd.date_range("2024-01-01", periods=100, freq="B")
+        closes = [10 + i * 0.01 for i in range(100)]
+        df = _make_df(dates.strftime("%Y-%m-%d").tolist(), closes)
+
+        name_map = {"688001": "华兴源创", "689009": "科创样本", "830001": "北交样本"}
+        mcap = {code: 100.0 for code in name_map}
+        df_map = {code: df.copy() for code in name_map}
+
+        result = layer1_filter(list(name_map), name_map, mcap, df_map, cfg)
+
+        assert "688001" in result
+        assert "689009" in result
+        assert "830001" not in result
 
 
 class TestIsHolidayGrace:
@@ -200,6 +217,13 @@ class TestDetectCompression:
         )
 
         assert _detect_compression(df, cfg) is None
+
+    def test_effective_bias_limit_uses_star_and_trend_overrides(self):
+        cfg = FunnelConfig()
+
+        assert _effective_entry_max_bias_200("000001", "", cfg) == 25.0
+        assert _effective_entry_max_bias_200("688001", "", cfg) == 40.0
+        assert _effective_entry_max_bias_200("000001", "趋势延续", cfg) == 35.0
 
     def test_sos_bypass_requires_minimum_slow_rps(self):
         cfg = FunnelConfig()

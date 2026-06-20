@@ -374,6 +374,69 @@ class TestSymbolPool:
 
         assert callable(_stock_name_map)
 
+    def test_default_pool_includes_star_board(self, monkeypatch):
+        from tools import symbol_pool
+
+        boards = {
+            "main": [{"code": "000001", "name": "平安银行"}],
+            "chinext": [{"code": "300001", "name": "特锐德"}],
+            "star": [{"code": "688001", "name": "华兴源创"}],
+        }
+
+        monkeypatch.delenv("FUNNEL_POOL_MODE", raising=False)
+        monkeypatch.delenv("FUNNEL_POOL_BOARD", raising=False)
+        monkeypatch.delenv("FUNNEL_POOL_LIMIT_COUNT", raising=False)
+        monkeypatch.setattr(symbol_pool, "get_stocks_by_board", lambda board: boards[board])
+
+        symbols, name_map, stats = symbol_pool.resolve_symbol_pool_from_env()
+
+        assert symbols == ["000001", "300001", "688001"]
+        assert name_map["688001"] == "华兴源创"
+        assert stats["pool_star"] == 1
+
+    def test_board_pool_accepts_star(self, monkeypatch):
+        from tools import symbol_pool
+
+        monkeypatch.setenv("FUNNEL_POOL_MODE", "board")
+        monkeypatch.setenv("FUNNEL_POOL_BOARD", "star")
+        monkeypatch.delenv("FUNNEL_POOL_LIMIT_COUNT", raising=False)
+        monkeypatch.setattr(
+            symbol_pool,
+            "get_stocks_by_board",
+            lambda board: [{"code": "688001", "name": "华兴源创"}] if board == "star" else [],
+        )
+
+        symbols, _name_map, stats = symbol_pool.resolve_symbol_pool_from_env()
+
+        assert symbols == ["688001"]
+        assert stats["pool_star"] == 1
+
+    def test_main_chinext_alias_uses_all_target_boards(self, monkeypatch):
+        from tools import symbol_pool
+
+        boards = {
+            "all": [
+                {"code": "000001", "name": "平安银行"},
+                {"code": "300001", "name": "特锐德"},
+                {"code": "688001", "name": "华兴源创"},
+            ],
+            "main": [{"code": "000001", "name": "平安银行"}],
+            "chinext": [{"code": "300001", "name": "特锐德"}],
+            "star": [{"code": "688001", "name": "华兴源创"}],
+        }
+
+        monkeypatch.setenv("FUNNEL_POOL_MODE", "board")
+        monkeypatch.setenv("FUNNEL_POOL_BOARD", "main_chinext")
+        monkeypatch.delenv("FUNNEL_POOL_LIMIT_COUNT", raising=False)
+        monkeypatch.setattr(symbol_pool, "get_stocks_by_board", lambda board: boards[board])
+
+        symbols, _name_map, stats = symbol_pool.resolve_symbol_pool_from_env()
+
+        assert symbols == ["000001", "300001", "688001"]
+        assert stats["pool_main"] == 1
+        assert stats["pool_chinext"] == 1
+        assert stats["pool_star"] == 1
+
     def test_screen_stocks_accepts_mcp_main_chinext_alias(self, monkeypatch):
         from agents import chat_tools
 

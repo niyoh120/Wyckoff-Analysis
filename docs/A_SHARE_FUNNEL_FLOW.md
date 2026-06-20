@@ -118,7 +118,7 @@ flowchart TD
 flowchart TD
     subgraph PREP["阶段 0：数据准备"]
         P0["解析交易日窗口<br/>320 个交易日"]
-        P1["加载股票池<br/>主板 + 创业板 → 去 ST"]
+        P1["加载股票池<br/>主板 + 创业板 + 科创板 → 去 ST"]
         P2["加载元数据<br/>行业 / 概念 / 概念热度 / 市值 / 名称"]
         P3["TickFlow 财务指标<br/>financial_map"]
         P4["拉取基准指数<br/>000001 + 小盘指数"]

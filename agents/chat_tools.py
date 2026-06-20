@@ -1208,11 +1208,14 @@ def get_market_history(days: int = 100, index: str = "sse", tool_context: ToolCo
 # Tool 6: Wyckoff 漏斗筛选
 # ---------------------------------------------------------------------------
 
-_VALID_BOARDS = {"all", "main", "chinext"}
+_VALID_BOARDS = {"all", "main", "chinext", "star"}
 _BOARD_ALIAS = {
     "gem": "chinext",
     "创业板": "chinext",
     "主板": "main",
+    "科创板": "star",
+    "科创": "star",
+    "star": "star",
     "全部": "all",
     "main_chinext": "all",
     "main-chinext": "all",
@@ -1227,7 +1230,7 @@ def screen_stocks(board: str = "all", tool_context: ToolContext = None) -> dict:
     整个过程可能需要几分钟时间。
 
     Args:
-        board: 股票池板块，可选 "all"（全部主板+创业板）、"main"（仅主板）、"chinext"（仅创业板）
+        board: 股票池板块，可选 "all"（主板+创业板+科创板）、"main"、"chinext"、"star"
 
     Returns:
         筛选结果 dict，包含各层统计和最终候选股票列表。
@@ -1238,7 +1241,7 @@ def screen_stocks(board: str = "all", tool_context: ToolContext = None) -> dict:
         board = str(board or "all").strip().lower()
         board = _BOARD_ALIAS.get(board, board)
         if board not in _VALID_BOARDS:
-            return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext"}
+            return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star"}
 
         # 保存并设置环境变量（调用后恢复）
         prev_mode = os.environ.get("FUNNEL_POOL_MODE")
@@ -2082,7 +2085,7 @@ def run_backtest(
     end: str = "",
     hold_days: int = 10,
     top_n: int = 4,
-    board: str = "main_chinext",
+    board: str = "all",
     stop_loss_pct: float = -8.0,
     take_profit_pct: float = 0.0,
     tool_context: ToolContext = None,
@@ -2097,7 +2100,7 @@ def run_backtest(
         end: 结束日期（YYYY-MM-DD），默认昨天
         hold_days: 最大持仓天数（5/10/15/30），默认 10
         top_n: 每日最大候选数（0=不限），默认 4
-        board: 股票池 'main_chinext'/'main'/'chinext'/'all'
+        board: 股票池 'all'/'main_chinext'/'main_chinext_star'/'main'/'chinext'/'star'
         stop_loss_pct: 止损百分比（负数），默认 -8.0
         take_profit_pct: 止盈百分比，默认 0.0
 
@@ -2124,7 +2127,7 @@ def run_backtest(
             end_dt=end_dt,
             hold_days=hold_days,
             top_n=top_n,
-            board=str(board or "main_chinext").strip(),
+            board=str(board or "all").strip(),
             sample_size=0,
             trading_days=320,
             max_workers=8,

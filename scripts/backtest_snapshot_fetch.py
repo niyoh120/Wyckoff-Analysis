@@ -23,8 +23,8 @@ def _as_yyyymmdd(text: str) -> str:
 
 def _normalize_board(board: str) -> str:
     b = str(board or "").strip().lower()
-    if b in {"", "all"}:
-        return "main_chinext"
+    if b in {"", "all", "main_chinext", "main_chinext_star"}:
+        return "all"
     return b
 
 
@@ -169,7 +169,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Backtest Grid snapshot fetcher")
     parser.add_argument("--start", required=True, help="YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD")
-    parser.add_argument("--board", default="main_chinext")
+    parser.add_argument("--board", default="all")
     parser.add_argument("--sample-size", type=int, default=0)
     parser.add_argument("--trading-days", type=int, default=320)
     parser.add_argument("--output-dir", default="snapshot_data")

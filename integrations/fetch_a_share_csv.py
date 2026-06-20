@@ -295,8 +295,9 @@ def get_stocks_by_board(board_name: str = "all") -> list[dict[str, str]]:
     Filter stocks by board.
     Args:
         board_name:
-        - "all": 全市场（与历史行为保持兼容）
-        - "main_chinext": 主板+创业板（不含科创板/北交所）
+        - "all": 主板+创业板+科创板（不含北交所）
+        - "main_chinext": 主板+创业板+科创板（旧入口同义）
+        - "main_chinext_star": 主板+创业板+科创板（不含北交所）
         - "main": 主板
         - "chinext": 创业板
         - "star": 科创板
@@ -304,14 +305,12 @@ def get_stocks_by_board(board_name: str = "all") -> list[dict[str, str]]:
     """
     all_stocks = get_all_stocks()
     board = str(board_name or "all").strip().lower()
-    if board == "all":
-        return all_stocks
-
-    if board == "main_chinext":
+    if board in {"all", "main_chinext", "main_chinext_star"}:
+        prefixes = ("600", "601", "603", "605", "000", "001", "002", "003", "300", "301", "688", "689")
         out = []
         for s in all_stocks:
             code = s["code"]
-            if code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301")):
+            if code.startswith(prefixes):
                 out.append(s)
         return out
 
@@ -319,7 +318,7 @@ def get_stocks_by_board(board_name: str = "all") -> list[dict[str, str]]:
     for s in all_stocks:
         code = s["code"]
         if board == "star":  # 科创板
-            if code.startswith("688"):
+            if code.startswith(("688", "689")):
                 out.append(s)
         elif board == "chinext":  # 创业板
             if code.startswith(("300", "301")):

@@ -214,7 +214,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "end": {"type": "string", "description": "结束日期 YYYY-MM-DD，默认昨天"},
                 "hold_days": {"type": "integer", "description": "最大持仓天数（5/10/15/30），默认 10"},
                 "top_n": {"type": "integer", "description": "每日最大候选数，默认 4"},
-                "board": {"type": "string", "description": "股票池：'main_chinext'/'main'/'chinext'/'all'"},
+                "board": {"type": "string", "description": "股票池：'all'/'main'/'chinext'/'star'"},
                 "stop_loss_pct": {"type": "number", "description": "止损百分比（负数），默认 -8.0"},
                 "take_profit_pct": {"type": "number", "description": "止盈百分比，默认 0.0"},
             },

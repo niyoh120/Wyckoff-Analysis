@@ -191,7 +191,7 @@ def load_rps_universe_histories(
 ) -> dict[str, pd.DataFrame]:
     if spec.market != "cn":
         return {}
-    items = get_stocks_by_board("main_chinext")
+    items = get_stocks_by_board("main_chinext_star")
     symbols = [str(s["code"]).strip() for s in items if s.get("code")]
     symbols = [s for s in symbols if s and s != spec.symbol]
     if not symbols:
@@ -378,7 +378,7 @@ def _safe_ratio(num: float | None, den: float | None) -> float | None:
 def _l1_reason(spec: SymbolSpec, df: pd.DataFrame, ctx: ReplayContext, cfg: FunnelConfig) -> str:
     name = ctx.name_map.get(spec.symbol, "")
     if cfg.require_cn_main_or_chinext and spec.market == "cn" and not spec.symbol.startswith(("0", "3", "6")):
-        return "非主板/创业板/沪市主板标的，不在 A 股漏斗股票池"
+        return "非主板/创业板/科创板标的，不在 A 股漏斗股票池"
     if "ST" in name.upper():
         return "名称包含 ST，被 Layer1 硬过滤"
     avg_amount = _day_metrics(df)["amount_avg_wan"]
@@ -477,7 +477,7 @@ def build_report(spec: SymbolSpec, rows: list[DayDiagnostic], summary: dict[str,
         f"- 首次/最后选中: {summary['first_selected'] or '-'} / {summary['last_selected'] or '-'}",
         f"- 层级分布: {_fmt_counts(summary['counts'])}",
         "",
-        "> 注：RPS 已基于全市场截面排名（主板+创业板）；板块热度属于全市场依赖，报告中按单票上下文近似。",
+        "> 注：RPS 已基于全市场截面排名（主板+创业板+科创板）；板块热度属于全市场依赖，报告中按单票上下文近似。",
         "",
         "## 每日明细",
         "",

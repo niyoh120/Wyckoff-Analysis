@@ -256,7 +256,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Wyckoff 参数敏感性分析")
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
-    parser.add_argument("--board", default="main_chinext")
+    parser.add_argument("--board", default="all")
     parser.add_argument("--sample-size", type=int, default=300)
     parser.add_argument("--trading-days", type=int, default=320)
     parser.add_argument("--workers", type=int, default=8)

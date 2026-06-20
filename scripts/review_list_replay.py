@@ -30,8 +30,8 @@ TODAY_OPEN_MAX_PCT = 4.0
 PREVIOUS_REVIEW_MAX_PCT = 6.0
 
 
-def _is_main_or_chinext(code: str) -> bool:
-    return str(code).startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301"))
+def _is_target_cn_board(code: str) -> bool:
+    return str(code).startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301", "688", "689"))
 
 
 def _build_layer2_context(
@@ -52,8 +52,8 @@ def _explain_l1_fail(
     df_map: dict[str, pd.DataFrame],
 ) -> str:
     name = str(name_map.get(code, ""))
-    if not _is_main_or_chinext(code):
-        return "非主板/创业板代码"
+    if not _is_target_cn_board(code):
+        return "非主板/创业板/科创板代码"
     if "ST" in name.upper():
         return "ST股票"
     if market_cap_map:
@@ -149,7 +149,7 @@ def _find_big_gainers(
 ) -> list[str]:
     codes: list[str] = []
     for code, df in df_map.items():
-        if not _is_main_or_chinext(code):
+        if not _is_target_cn_board(code):
             continue
         if "ST" in str(name_map.get(code, "")).upper():
             continue
@@ -174,14 +174,14 @@ def _find_big_gainers_from_spot(
     threshold: float = TODAY_REVIEW_MIN_PCT,
     open_max: float = TODAY_OPEN_MAX_PCT,
 ) -> tuple[list[str], int]:
-    """从全市场实时快照中找出涨幅 >= threshold% 且开盘涨幅 <= open_max% 的主板+创业板非ST股票。"""
+    """从全市场实时快照中找出涨幅达标且开盘受控的主板+创业板+科创板非ST股票。"""
     codes: list[str] = []
     usable = 0
     for code, snap in (spot_map or {}).items():
         code = str(code).strip()
         if code not in name_map:
             continue
-        if not _is_main_or_chinext(code):
+        if not _is_target_cn_board(code):
             continue
         if "ST" in str(name_map.get(code, "")).upper():
             continue
@@ -494,7 +494,7 @@ def main() -> int:
     previous_trade_date = previous_window.end_trade_date
 
     print(f"[review] 今日: {today}, 前一交易日: {previous_trade_date}")
-    stock_items = get_stocks_by_board("main_chinext")
+    stock_items = get_stocks_by_board("main_chinext_star")
     name_map_today = {
         str(item.get("code", "")).strip(): str(item.get("name", "")).strip()
         for item in stock_items
@@ -508,7 +508,7 @@ def main() -> int:
         send_feishu_notification(
             webhook,
             "🔍 涨停复盘",
-            f"交易日 {today}：今日无满足涨幅 ≥ 8% 且开盘 ≤ 4% 且前一日涨幅 ≤ 6% 的主板/创业板股票",
+            f"交易日 {today}：今日无满足涨幅 ≥ 8% 且开盘 ≤ 4% 且前一日涨幅 ≤ 6% 的主板/创业板/科创板股票",
         )
         return 0
     print(f"[review] 今日发现满足严格涨停复盘池股票 {len(review_codes)} 只: {', '.join(review_codes)}")
@@ -563,7 +563,7 @@ def main() -> int:
 
         if code not in all_symbol_set:
             stage = "池外"
-            reason = "不在当日主板+创业板去ST股票池"
+            reason = "不在当日主板+创业板+科创板去ST股票池"
         elif code not in df_map:
             stage = "数据失败"
             reason = "日线拉取失败/超时"

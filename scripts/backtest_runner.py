@@ -175,9 +175,8 @@ def _normalize_backtest_board(board: str) -> str:
     b = str(board or "").strip().lower()
     if b == "us":
         return "us"
-    # 回测统一口径：all 兼容映射到主板+创业板
-    if b in {"", "all"}:
-        return "main_chinext"
+    if b in {"", "all", "main_chinext", "main_chinext_star"}:
+        return "all"
     return b
 
 
@@ -189,6 +188,10 @@ def _is_chinext_code(code: str) -> bool:
     return str(code or "").startswith(("300", "301"))
 
 
+def _is_star_code(code: str) -> bool:
+    return str(code or "").startswith(("688", "689"))
+
+
 def _board_match(code: str, board: str) -> bool:
     b = _normalize_backtest_board(board)
     if b == "us":
@@ -198,8 +201,11 @@ def _board_match(code: str, board: str) -> bool:
         return _is_main_code(c)
     if b == "chinext":
         return _is_chinext_code(c)
-    # main_chinext（默认）以及未知值的兜底
-    return _is_main_code(c) or _is_chinext_code(c)
+    if b == "star":
+        return _is_star_code(c)
+    if b == "all":
+        return _is_main_code(c) or _is_chinext_code(c) or _is_star_code(c)
+    return _is_main_code(c) or _is_chinext_code(c) or _is_star_code(c)
 
 
 def _build_universe(board: str, sample_size: int) -> tuple[list[str], dict[str, str]]:
@@ -216,8 +222,10 @@ def _build_universe(board: str, sample_size: int) -> tuple[list[str], dict[str, 
         items = get_stocks_by_board("main")
     elif board_norm == "chinext":
         items = get_stocks_by_board("chinext")
+    elif board_norm == "star":
+        items = get_stocks_by_board("star")
     else:
-        items = get_stocks_by_board("main_chinext")
+        items = get_stocks_by_board("all")
 
     name_map = {
         str(x.get("code", "")).strip(): str(x.get("name", "")).strip() for x in items if str(x.get("code", "")).strip()
@@ -2359,8 +2367,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--board",
-        choices=["main_chinext", "all", "main", "chinext", "us"],
-        default="main_chinext",
+        choices=["all", "main_chinext", "main_chinext_star", "main", "chinext", "star", "us"],
+        default="all",
     )
     parser.add_argument("--benchmark", default="000001")
     parser.add_argument(

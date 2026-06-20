@@ -37,7 +37,7 @@ env:
   BT_START: ${{ inputs.start }}
   BT_END: ${{ inputs.end }}
   BT_TOP_N: "4"
-  BT_BOARD: "main_chinext"
+  BT_BOARD: "all"
   BT_SAMPLE_SIZE: "0"
   BT_TRADING_DAYS: "320"
   BT_ENTRY_PRICE_MODE: "open"

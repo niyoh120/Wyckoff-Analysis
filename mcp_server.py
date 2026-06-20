@@ -120,7 +120,7 @@ def get_market_overview() -> dict:
 
 
 @mcp.tool()
-def screen_stocks(board: Literal["all", "main_chinext"] = "all") -> dict:
+def screen_stocks(board: Literal["all", "main_chinext", "main", "chinext", "star"] = "all") -> dict:
     """运行 Wyckoff 五层漏斗筛选，从全市场筛选结构性机会股票。
 
     **调用时机**：用户说"帮我选股"、"今天有什么机会"、"跑一下漏斗"时调用。
@@ -136,7 +136,7 @@ def run_backtest(
     end: str = "",
     hold_days: int = 10,
     top_n: int = 3,
-    board: str = "main_chinext",
+    board: str = "all",
     stop_loss_pct: float = -7.0,
     take_profit_pct: float = 18.0,
 ) -> dict:
@@ -284,7 +284,7 @@ def intraday_rescue_check(code: str) -> dict:
 
 
 @mcp.tool()
-def run_funnel_simulation(board: Literal["all", "main_chinext"] = "all") -> dict:
+def run_funnel_simulation(board: Literal["all", "main_chinext", "main", "chinext", "star"] = "all") -> dict:
     """运行 Wyckoff 五层漏斗仿真，返回原始结构数据。
 
     **调用时机**：用户说"今天有什么机会"、"帮我复盘并推荐"时调用。与 screen_stocks 类似但返回更底层的原始数据。
@@ -297,8 +297,8 @@ def run_funnel_simulation(board: Literal["all", "main_chinext"] = "all") -> dict
     board_name = str(board or "all").strip().lower()
     if board_name == "main_chinext":
         board_name = "all"
-    if board_name not in {"all", "main", "chinext"}:
-        return {"error": f"不支持的 board 值 '{board}'，可选: all / main_chinext"}
+    if board_name not in {"all", "main", "chinext", "star"}:
+        return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star"}
 
     prev_mode = os.environ.get("FUNNEL_POOL_MODE")
     prev_board = os.environ.get("FUNNEL_POOL_BOARD")

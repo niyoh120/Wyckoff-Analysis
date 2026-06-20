@@ -1,7 +1,7 @@
 """
 Wyckoff Funnel 5 层漏斗筛选引擎
 
-Layer 1: 剥离垃圾（ST / 北交所 / 科创板 / 市值 / 成交额）
+Layer 1: 剥离垃圾（ST / 北交所 / 市值 / 成交额）
 Layer 2: 七通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/点火破局）
 Layer 2.5: Markup 加速检测
 Layer 3: 板块共振（行业分布 Top-N + RPS 动量）
@@ -67,7 +67,7 @@ class FunnelConfig:
     trading_days: int = 320
 
     # Layer 1
-    require_cn_main_or_chinext: bool = True
+    require_cn_main_or_chinext: bool = True  # 兼容旧字段名：仅保留主板/创业板/科创板，排除北交所等
     min_market_cap_yi: float = 35.0
     min_avg_amount_wan: float = 5000.0
     l1_cap_bypass_amount_wan: float = 8000.0  # 市值不足但日均额 >= 此值可放行
@@ -100,6 +100,8 @@ class FunnelConfig:
     momentum_bias_200_max: float = 0.25  # 防止主升通道选出离 200 日线太远的鱼尾老妖股
     # Global Anti-Overfitting Restriction
     global_entry_max_bias_200: float = 25.0  # 全局统一：凡偏离年线超 25% 的股票，一律拒绝买入（防高位接盘）
+    star_entry_max_bias_200: float = 40.0  # 科创板波动天然更高，保留独立上限
+    trend_entry_max_bias_200: float = 35.0  # 趋势/点火通道可接受更高乖离，但仍防止鱼尾追高
 
     # Layer 2 预点火观察池
     enable_pre_ignition_watch: bool = True
@@ -173,6 +175,9 @@ class FunnelConfig:
     use_concept_map: bool = True  # 启用概念模式（有 concept_map 时优先用概念聚合）
     theme_line_min_days: int = 3  # 主线判定最少连续天数
     theme_line_top_n: int = 20  # 每日取 Top N 概念计入热度历史
+    l3_keep_strength_min: float = 0.60
+    l3_leader_strength_min: float = 0.80
+    l3_hot_leader_strength_min: float = 0.55
 
     # Layer 4 - Spring
     spring_support_window: int = 60
@@ -463,8 +468,8 @@ def resolve_ai_candidate_policy(
 # Layer 1: 剥离垃圾
 
 
-def _is_main_or_chinext(code: str) -> bool:
-    return code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301"))
+def _is_supported_cn_board(code: str) -> bool:
+    return code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301", "688", "689"))
 
 
 def layer1_filter(
@@ -477,7 +482,7 @@ def layer1_filter(
     financial_map: dict[str, dict] | None = None,
 ) -> list[str]:
     """
-    硬过滤：剔除 ST、北交所/科创板、市值<阈值、近期均成交额<阈值。
+    硬过滤：剔除 ST、北交所等非目标板块、市值<阈值、近期均成交额<阈值。
     market_cap_map 单位：亿元。若 market_cap_map 为空则跳过市值过滤。
     financial_map 来自 TickFlow，可选；有则追加 ROE / 资产负债率硬过滤。
     """
@@ -487,7 +492,7 @@ def layer1_filter(
     l1_roe_negative = 0
     l1_high_debt = 0
     for sym in symbols:
-        if cfg.require_cn_main_or_chinext and not _is_main_or_chinext(sym):
+        if cfg.require_cn_main_or_chinext and not _is_supported_cn_board(sym):
             continue
         name = name_map.get(sym, "")
         if "ST" in name.upper():
@@ -1137,21 +1142,55 @@ def layer3_sector_resonance(
 
     top_sector_set = set(top_sectors)
     keep_sector_set = set(keep_sectors_sorted)
+    hot_set = set(hot_concepts or [])
     filtered: list[str] = []
     for sym in symbols:
         sym_secs = set(sym_sectors.get(sym, []))
         sym_strength = strength_map.get(sym, 0.0)
         if sym_secs & top_sector_set:
             filtered.append(sym)
-        elif sym_secs & keep_sector_set and sym_strength >= 0.60:
+        elif sym_secs & keep_sector_set and sym_strength >= cfg.l3_keep_strength_min:
             filtered.append(sym)
-        elif sym_strength >= 0.80:
+        elif sym_secs & hot_set and sym_strength >= cfg.l3_hot_leader_strength_min:
+            filtered.append(sym)
+        elif sym_strength >= cfg.l3_leader_strength_min:
             filtered.append(sym)
 
     if len(filtered) < 3:
         filtered = list(symbols)
 
     return filtered, top_sectors
+
+
+TREND_CHANNEL_TAGS = ("主升通道", "趋势延续", "点火破局", "加速突破")
+
+
+def _is_star_board(code: str) -> bool:
+    return str(code).startswith(("688", "689"))
+
+
+def _effective_entry_max_bias_200(code: str, channel: str, cfg: FunnelConfig) -> float:
+    limit = float(cfg.global_entry_max_bias_200)
+    if _is_star_board(code):
+        limit = max(limit, float(getattr(cfg, "star_entry_max_bias_200", limit)))
+    if any(tag in str(channel or "") for tag in TREND_CHANNEL_TAGS):
+        limit = max(limit, float(getattr(cfg, "trend_entry_max_bias_200", limit)))
+    return limit
+
+
+def _entry_bias_limit(cfg: FunnelConfig, max_bias_200: float | None) -> float:
+    return float(cfg.global_entry_max_bias_200 if max_bias_200 is None else max_bias_200)
+
+
+def _bias_200_exceeds_limit(close: pd.Series, cfg: FunnelConfig, max_bias_200: float | None) -> bool:
+    if len(close) < 200:
+        return False
+    ma200_last = close.rolling(200).mean().iloc[-1]
+    close_last = close.iloc[-1]
+    if pd.isna(ma200_last) or pd.isna(close_last) or float(ma200_last) <= 0:
+        return False
+    bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
+    return bias_200 > _entry_bias_limit(cfg, max_bias_200)
 
 
 # Layer 4: 威科夫狙击
@@ -1210,7 +1249,7 @@ def _is_trading_range_context(zone: pd.DataFrame, cfg: FunnelConfig, df_full: pd
     return not drift_pct > cfg.spring_tr_max_drift_pct
 
 
-def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
+def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
     """
     Spring（终极震仓）：允许"前一日或当日盘中"跌破近 N 日支撑位，且当日收盘收回并放量。
     返回 score（收回幅度%）或 None。
@@ -1227,16 +1266,8 @@ def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     prev = df_s.iloc[-2]
     last = df_s.iloc[-1]
 
-    # Global Bias Restriction: Prevent buying Spring at extreme highs
-    if len(df_s) >= 200:
-        close_series = pd.to_numeric(df_s["close"], errors="coerce")
-        ma200 = close_series.rolling(200).mean()
-        ma200_last = ma200.iloc[-1]
-        close_last = close_series.iloc[-1]
-        if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
-            bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
-            if bias_200 > float(getattr(cfg, "global_entry_max_bias_200", 25.0)):
-                return None
+    if _bias_200_exceeds_limit(pd.to_numeric(df_s["close"], errors="coerce"), cfg, max_bias_200):
+        return None
 
     # 允许单日盘中洗盘（长下影锤子线）：只要 prev/last 至少一日跌破即可。
     if (prev["low"] >= support_level) and (last["low"] >= support_level):
@@ -1256,7 +1287,7 @@ def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     return float(recovery)
 
 
-def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
+def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
     """
     LPS（最后支撑点缩量）：近 N 日回踩 MA20 且缩量。
     返回 score（缩量比）或 None。
@@ -1275,14 +1306,8 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if last_close < last_ma:
         return None
 
-    # Global Bias Restriction: Prevent buying LPS at extreme highs
-    if len(close) >= 200:
-        ma200 = close.rolling(200).mean()
-        ma200_last = ma200.iloc[-1]
-        if pd.notna(ma200_last) and pd.notna(last_close) and float(ma200_last) > 0:
-            bias_200 = (float(last_close) - float(ma200_last)) / float(ma200_last) * 100.0
-            if bias_200 > float(getattr(cfg, "global_entry_max_bias_200", 25.0)):
-                return None
+    if _bias_200_exceeds_limit(close, cfg, max_bias_200):
+        return None
 
     rising_offset = cfg.lps_lookback + cfg.lps_ma_rising_window
     if len(ma) > rising_offset:
@@ -1305,7 +1330,7 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     return float(vol_ratio)
 
 
-def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
+def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
     """
     Effort vs Result（努力无结果）：
     仅识别"相对低位的巨量滞涨/抗跌"，排除高位派发。
@@ -1323,14 +1348,9 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if close.isna().all() or low.isna().all() or volume.isna().all() or pct_chg.isna().all():
         return None
 
-    # 位阶保护：高位放量优先按派发处理，避免 EVR 误判
-    ma200 = close.rolling(200).mean()
-    ma200_last = ma200.iloc[-1]
     close_last = close.iloc[-1]
-    if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
-        bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
-        if bias_200 > float(cfg.global_entry_max_bias_200):
-            return None
+    if _bias_200_exceeds_limit(close, cfg, max_bias_200):
+        return None
 
     # 基准量能取"最近窗口但剔除最后两天"，避免当前异动污染基线
     vol_ref = volume.tail(cfg.evr_vol_window).iloc[:-2]
@@ -1387,7 +1407,7 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     return None
 
 
-def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
+def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
     """
     Sign of Strength (SOS) / Jump Across the Creek (JAC):
     点火标志。特征为低位脱盘、放量大阳线，破除重要阻力或近期高点。
@@ -1411,15 +1431,9 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if close.isna().all() or volume.isna().all() or pct_chg.isna().all():
         return None
 
-    # 位阶保护：高位爆量很大可能是 Buying Climax（派发），排除极大乖离
     close_last = close.iloc[-1]
-    if len(close) >= 200:
-        ma200 = close.rolling(200).mean()
-        ma200_last = ma200.iloc[-1]
-        if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
-            bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
-            if bias_200 > float(cfg.global_entry_max_bias_200):
-                return None
+    if _bias_200_exceeds_limit(close, cfg, max_bias_200):
+        return None
 
     # 只看当天（威科夫点火通常是当天的明显大阳线）
     day_pct = float(pct_chg.iloc[-1])
@@ -1498,15 +1512,8 @@ def _compression_direction_ok(close: pd.Series, cfg: FunnelConfig) -> bool:
     return direction_ok
 
 
-def _compression_bias_ok(close: pd.Series, cfg: FunnelConfig) -> bool:
-    if len(close) >= 200:
-        ma200 = close.rolling(200).mean()
-        ma200_last = ma200.iloc[-1]
-        if pd.notna(ma200_last) and float(ma200_last) > 0:
-            bias = (float(close.iloc[-1]) - float(ma200_last)) / float(ma200_last) * 100.0
-            if bias > cfg.global_entry_max_bias_200:
-                return False
-    return True
+def _compression_bias_ok(close: pd.Series, cfg: FunnelConfig, max_bias_200: float | None = None) -> bool:
+    return not _bias_200_exceeds_limit(close, cfg, max_bias_200)
 
 
 def _compression_atr_ratio(
@@ -1547,7 +1554,7 @@ def _compression_atr_ratio(
     return float(current_atr_avg / hist_atr_median) if hist_atr_median > 0 else None
 
 
-def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
+def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
     """压缩蓄势：连续N日ATR收窄+缩量，爆发前夜形态。返回压缩比或None。"""
     lookback = cfg.compression_lookback
     atr_w = cfg.compression_atr_window
@@ -1557,7 +1564,7 @@ def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if ohlcv is None:
         return None
     close, high, low, volume = ohlcv
-    if not _compression_direction_ok(close, cfg) or not _compression_bias_ok(close, cfg):
+    if not _compression_direction_ok(close, cfg) or not _compression_bias_ok(close, cfg, max_bias_200):
         return None
     return _compression_atr_ratio(close, high, low, volume, cfg)
 
@@ -1610,6 +1617,7 @@ def _detect_trend_pullback(
     df: pd.DataFrame,
     cfg: FunnelConfig,
     market_cap_yi: float = 0.0,
+    max_bias_200: float | None = None,
 ) -> float | None:
     """趋势回踩：上升趋势中缩量回调后企稳。返回 score (0~1, 越大越好)。"""
     lookback = cfg.trend_pb_lookback
@@ -1622,15 +1630,9 @@ def _detect_trend_pullback(
     if close.isna().all() or volume.isna().all():
         return None
 
-    # Global Bias Restriction: Prevent buying Trend Pullbacks at extreme highs
-    if len(close) >= 200:
-        ma200 = close.rolling(200).mean()
-        ma200_last = ma200.iloc[-1]
-        close_last = close.iloc[-1]
-        if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
-            bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
-            if bias_200 > float(getattr(cfg, "trend_pb_max_bias_200", cfg.global_entry_max_bias_200)):
-                return None
+    fallback = float(getattr(cfg, "trend_pb_max_bias_200", cfg.global_entry_max_bias_200))
+    if _bias_200_exceeds_limit(close, cfg, fallback if max_bias_200 is None else max_bias_200):
+        return None
 
     peak_idx = _trend_pullback_peak_idx(close, cfg)
     if peak_idx is None:
@@ -1660,7 +1662,6 @@ def layer4_triggers(
     market_cap_map: dict[str, float] | None = None,
 ) -> dict[str, list[tuple[str, float]]]:
     """在最终候选集上运行 Spring / LPS / EVR / Compression / SOS / TrendPullback 检测。"""
-    trend_channel_tags = {"主升通道", "趋势延续", "点火破局", "加速突破"}
     results: dict[str, list[tuple[str, float]]] = {
         "sos": [],
         "spring": [],
@@ -1677,28 +1678,29 @@ def layer4_triggers(
         df = df_map.get(sym)
         if df is None or df.empty:
             continue
-        score = _detect_spring(df, cfg)
+        channel = channel_map.get(sym, "")
+        max_bias_200 = _effective_entry_max_bias_200(sym, channel, cfg)
+        score = _detect_spring(df, cfg, max_bias_200=max_bias_200)
         if score is not None:
             results["spring"].append((sym, score))
-        score = _detect_lps(df, cfg)
+        score = _detect_lps(df, cfg, max_bias_200=max_bias_200)
         if score is not None:
             results["lps"].append((sym, score))
         if cfg.enable_evr_trigger:
-            score = _detect_evr(df, cfg)
+            score = _detect_evr(df, cfg, max_bias_200=max_bias_200)
             if score is not None:
                 results["evr"].append((sym, score))
         if cfg.enable_compression_trigger:
-            score = _detect_compression(df, cfg)
+            score = _detect_compression(df, cfg, max_bias_200=max_bias_200)
             if score is not None:
                 results["compression"].append((sym, score))
-        score = _detect_sos(df, cfg)
+        score = _detect_sos(df, cfg, max_bias_200=max_bias_200)
         if score is not None:
             results["sos"].append((sym, score))
         if cfg.enable_trend_pullback_trigger:
-            ch = channel_map.get(sym, "")
-            if any(t in ch for t in trend_channel_tags):
+            if any(t in channel for t in TREND_CHANNEL_TAGS):
                 cap_yi = float(cap_map.get(sym, 0.0) or 0.0)
-                score = _detect_trend_pullback(df, cfg, market_cap_yi=cap_yi)
+                score = _detect_trend_pullback(df, cfg, market_cap_yi=cap_yi, max_bias_200=max_bias_200)
                 if score is not None:
                     results["trend_pullback"].append((sym, score))
     return results
