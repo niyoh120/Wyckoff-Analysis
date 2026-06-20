@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import pandas as pd
 
@@ -41,6 +42,9 @@ MONEY_FLOW_LOOKBACK = int(os.getenv("FUNNEL_MONEY_FLOW_LOOKBACK", "20"))
 MONEY_FLOW_EXPAND_RATIO = float(os.getenv("FUNNEL_MONEY_FLOW_EXPAND_RATIO", "1.10"))
 MONEY_FLOW_CONTRACT_RATIO = float(os.getenv("FUNNEL_MONEY_FLOW_CONTRACT_RATIO", "0.85"))
 MONEY_FLOW_DOMINANCE_RATIO = float(os.getenv("FUNNEL_MONEY_FLOW_DOMINANCE_RATIO", "1.20"))
+AMOUNT_DISTRIBUTION_LOOKBACK = int(os.getenv("FUNNEL_AMOUNT_DISTRIBUTION_LOOKBACK", "20"))
+AMOUNT_DISTRIBUTION_SKEW_THRESHOLD = float(os.getenv("FUNNEL_AMOUNT_DISTRIBUTION_SKEW_THRESHOLD", "2.5"))
+AMOUNT_DISTRIBUTION_THIN_PASS_RATIO = float(os.getenv("FUNNEL_AMOUNT_DISTRIBUTION_THIN_PASS_RATIO", "0.35"))
 
 _PV_OUTLOOK_FALLBACK: dict[str, str] = {
     "RISK_ON": "次日推演：若量能维持在20日均量0.95x上方且不破MA50，偏强震荡延续；若放量跌破MA50，需转入防守。",
@@ -321,19 +325,227 @@ def calc_market_money_flow(
     }
 
 
-def analyze_benchmark_and_tune_cfg(
-    bench_df: pd.DataFrame | None,
-    smallcap_df: pd.DataFrame | None,
-    cfg: FunnelConfig,
-    breadth: dict | None = None,
-    money_flow: dict | None = None,
+def _symbol_avg_amount(df: pd.DataFrame, lookback: int) -> float | None:
+    if df is None or df.empty or "amount" not in df.columns:
+        return None
+    work = _sorted_daily_frame(df)
+    amount = pd.to_numeric(work.get("amount"), errors="coerce").dropna()
+    amount = amount[amount > 0].tail(max(int(lookback), 2))
+    if amount.empty:
+        return None
+    return float(amount.mean())
+
+
+def _empty_amount_distribution() -> dict:
+    return {
+        "state": "unknown",
+        "summary": "成交额分布：样本不足，暂不判断流动性偏度。",
+        "sample_size": 0,
+        "lookback": AMOUNT_DISTRIBUTION_LOOKBACK,
+        "mean_amount_yi": None,
+        "median_amount_yi": None,
+        "median_mean_ratio": None,
+        "p80_p20_ratio": None,
+        "skewness": None,
+        "pass_ratio_pct": None,
+        "dry_ratio_pct": None,
+    }
+
+
+def _amount_distribution_summary(state: str, sample: int, skew: float, pass_ratio: float, median_mean: float) -> str:
+    state_label = {"healthy": "健康", "concentrated": "集中", "thin": "偏弱"}.get(state, "未知")
+    return (
+        f"成交额分布{state_label}：样本{sample}只，偏度{skew:.2f}，"
+        f"达标占比{pass_ratio * 100:.1f}%，中位/均值{median_mean:.2f}。"
+    )
+
+
+def calc_amount_distribution_health(
+    df_map: dict[str, pd.DataFrame],
+    min_avg_amount_wan: float,
+    lookback: int = AMOUNT_DISTRIBUTION_LOOKBACK,
 ) -> dict:
-    """
-    Step 0：大盘总闸
-    - 输出宏观水温（RISK_ON / BEAR_REBOUND / NEUTRAL / RISK_OFF / CRASH / PANIC_REPAIR）
-    - 在 RISK_OFF 时动态收紧个股过滤阈值
-    """
-    context = {
+    """检查全市场成交额是否过度集中，避免均值被少数龙头抬高。"""
+    values = [
+        value
+        for value in (_symbol_avg_amount(df, lookback) for df in df_map.values())
+        if value is not None and value > 0
+    ]
+    if not values:
+        return _empty_amount_distribution()
+    series = pd.Series(values, dtype=float)
+    threshold = float(min_avg_amount_wan) * 10000
+    mean_amount = float(series.mean())
+    median_amount = float(series.median())
+    skewness = float(series.skew()) if len(series) >= 3 else 0.0
+    pass_ratio = float((series >= threshold).mean())
+    dry_ratio = float((series < threshold * 0.5).mean())
+    median_mean = _safe_ratio(median_amount, mean_amount) or 0.0
+    p20 = float(series.quantile(0.2))
+    p80 = float(series.quantile(0.8))
+    p80_p20 = _safe_ratio(p80, p20)
+    state = "healthy"
+    if pass_ratio < AMOUNT_DISTRIBUTION_THIN_PASS_RATIO or median_mean < 0.35:
+        state = "thin"
+    elif skewness >= AMOUNT_DISTRIBUTION_SKEW_THRESHOLD and median_mean < 0.55:
+        state = "concentrated"
+    return {
+        "state": state,
+        "summary": _amount_distribution_summary(state, len(series), skewness, pass_ratio, median_mean),
+        "sample_size": len(series),
+        "lookback": max(int(lookback), 2),
+        "mean_amount_yi": round(mean_amount / 1e8, 3),
+        "median_amount_yi": round(median_amount / 1e8, 3),
+        "median_mean_ratio": round(median_mean, 3),
+        "p80_p20_ratio": None if p80_p20 is None else round(p80_p20, 3),
+        "skewness": round(skewness, 3),
+        "pass_ratio_pct": round(pass_ratio * 100.0, 2),
+        "dry_ratio_pct": round(dry_ratio * 100.0, 2),
+    }
+
+
+def _latest_trade_gap_days(df: pd.DataFrame | None) -> int:
+    if df is None or df.empty or "date" not in df.columns:
+        return 0
+    dates = pd.to_datetime(df["date"], errors="coerce").dropna().sort_values()
+    if len(dates) < 2:
+        return 0
+    return int((dates.iloc[-1].date() - dates.iloc[-2].date()).days)
+
+
+def _resolve_holiday_grace_dynamic(
+    cfg: FunnelConfig,
+    regime: str,
+    money_flow: dict,
+    gap_days: int,
+) -> dict:
+    result = {
+        "enabled": bool(cfg.exit_holiday_grace_dynamic_enabled),
+        "gap_days": gap_days,
+        "extended": False,
+        "exit_holiday_grace_days": int(cfg.exit_holiday_grace_days),
+        "reason": "",
+    }
+    if not cfg.exit_holiday_grace_dynamic_enabled or gap_days < 3:
+        result["reason"] = "not_holiday_gap"
+        return result
+    score = float(money_flow.get("score") or 0.0)
+    trend = str(money_flow.get("trend") or "neutral")
+    if regime in {"CRASH", "RISK_OFF"} or trend == "retreat" or score < cfg.exit_holiday_grace_min_money_flow_score:
+        result["reason"] = f"no_extend: regime={regime}, trend={trend}, score={score:.1f}"
+        return result
+    old_days = int(cfg.exit_holiday_grace_days)
+    cfg.exit_holiday_grace_days = max(old_days, int(cfg.exit_holiday_grace_max_days))
+    result.update(
+        {
+            "extended": cfg.exit_holiday_grace_days > old_days,
+            "exit_holiday_grace_days": int(cfg.exit_holiday_grace_days),
+            "reason": f"money_flow={trend}, score={score:.1f}",
+        }
+    )
+    return result
+
+
+def _split_pv_conditions(outlook: str) -> list[dict[str, str]]:
+    text = str(outlook or "").replace("次日推演：", "").replace("次日推演:", "").strip()
+    conditions: list[dict[str, str]] = []
+    for part in re.split(r"[；;]", text):
+        item = part.strip(" ，,。")
+        if not item:
+            continue
+        match = re.match(r"若(.+?)[，,](.+)", item)
+        conditions.append({"if": match.group(1).strip(), "then": match.group(2).strip()} if match else {"text": item})
+    return conditions
+
+
+def derive_market_pv_policy_shadow(
+    *,
+    outlook: str,
+    regime: str,
+    price_zone: str,
+    volume_state: str,
+    money_flow: dict,
+    cfg: FunnelConfig,
+) -> dict:
+    text = str(outlook or "")
+    flow_trend = str((money_flow or {}).get("trend") or "neutral")
+    defensive_words = ("防守", "收缩", "失守", "跌破", "回避追高", "冲高回落")
+    offensive_words = ("偏强", "放量站稳", "继续修复", "突破", "主力进场")
+    defensive = regime in {"CRASH", "RISK_OFF", "BEAR_REBOUND"} or flow_trend == "retreat"
+    offensive = regime == "RISK_ON" and flow_trend == "entry"
+    if any(word in text for word in defensive_words):
+        defensive = True
+    if any(word in text for word in offensive_words):
+        offensive = True
+    overrides: dict[str, float | bool] = {}
+    candidate_policy: dict[str, int] = {}
+    risk_bias = "neutral"
+    if defensive:
+        risk_bias = "defensive"
+        overrides = {
+            "min_avg_amount_wan": max(float(cfg.min_avg_amount_wan), RISK_OFF_MIN_AVG_AMOUNT_WAN),
+            "rps_fast_min": max(float(cfg.rps_fast_min), 80.0),
+            "rps_slow_min": max(float(cfg.rps_slow_min), 75.0),
+        }
+        candidate_policy = {"ai_total_cap_delta": -2}
+    elif offensive:
+        risk_bias = "offensive"
+        overrides = {
+            "rps_fast_min": min(float(cfg.rps_fast_min), 70.0),
+            "rps_slow_min": min(float(cfg.rps_slow_min), 60.0),
+        }
+        candidate_policy = {"ai_total_cap_delta": 1}
+    return {
+        "mode": "shadow",
+        "source": "market_pv_outlook",
+        "risk_bias": risk_bias,
+        "regime": regime,
+        "price_zone": price_zone,
+        "volume_state": volume_state,
+        "money_flow_trend": flow_trend,
+        "conditions": _split_pv_conditions(text),
+        "funnel_config_overrides": overrides,
+        "candidate_policy_overrides": candidate_policy,
+    }
+
+
+def _base_tuned_context(cfg: FunnelConfig) -> dict:
+    return {
+        "min_avg_amount_wan": cfg.min_avg_amount_wan,
+        "rs_min_long": cfg.rs_min_long,
+        "rs_min_short": cfg.rs_min_short,
+        "rps_fast_min": cfg.rps_fast_min,
+        "rps_slow_min": cfg.rps_slow_min,
+        "exit_holiday_grace_days": cfg.exit_holiday_grace_days,
+    }
+
+
+def _base_breadth_context() -> dict:
+    return {
+        "ratio_pct": None,
+        "prev_ratio_pct": None,
+        "delta_pct": None,
+        "sample_size": 0,
+        "ma_window": BREADTH_MA_WINDOW,
+    }
+
+
+def _base_holiday_grace_context(cfg: FunnelConfig) -> dict:
+    return {
+        "enabled": bool(cfg.exit_holiday_grace_dynamic_enabled),
+        "gap_days": 0,
+        "extended": False,
+        "exit_holiday_grace_days": int(cfg.exit_holiday_grace_days),
+        "reason": "",
+    }
+
+
+def _base_benchmark_context(
+    cfg: FunnelConfig,
+    money_flow_context: dict,
+    amount_distribution_context: dict,
+) -> dict:
+    return {
         "regime": "UNKNOWN",
         "main_code": "000001",
         "close": None,
@@ -353,22 +565,31 @@ def analyze_benchmark_and_tune_cfg(
         "repair_reasons": [],
         "bear_rebound_triggered": False,
         "bear_rebound_reasons": [],
-        "tuned": {
-            "min_avg_amount_wan": cfg.min_avg_amount_wan,
-            "rs_min_long": cfg.rs_min_long,
-            "rs_min_short": cfg.rs_min_short,
-            "rps_fast_min": cfg.rps_fast_min,
-            "rps_slow_min": cfg.rps_slow_min,
-        },
-        "breadth": {
-            "ratio_pct": None,
-            "prev_ratio_pct": None,
-            "delta_pct": None,
-            "sample_size": 0,
-            "ma_window": BREADTH_MA_WINDOW,
-        },
-        "money_flow": money_flow or calc_market_money_flow({}, breadth),
+        "tuned": _base_tuned_context(cfg),
+        "breadth": _base_breadth_context(),
+        "money_flow": money_flow_context,
+        "amount_distribution": amount_distribution_context,
+        "holiday_grace_dynamic": _base_holiday_grace_context(cfg),
+        "market_pv_policy_shadow": {},
     }
+
+
+def analyze_benchmark_and_tune_cfg(
+    bench_df: pd.DataFrame | None,
+    smallcap_df: pd.DataFrame | None,
+    cfg: FunnelConfig,
+    breadth: dict | None = None,
+    money_flow: dict | None = None,
+    amount_distribution: dict | None = None,
+) -> dict:
+    """
+    Step 0：大盘总闸
+    - 输出宏观水温（RISK_ON / BEAR_REBOUND / NEUTRAL / RISK_OFF / CRASH / PANIC_REPAIR）
+    - 在 RISK_OFF 时动态收紧个股过滤阈值
+    """
+    money_flow_context = money_flow or calc_market_money_flow({}, breadth)
+    amount_distribution_context = amount_distribution or calc_amount_distribution_health({}, cfg.min_avg_amount_wan)
+    context = _base_benchmark_context(cfg, money_flow_context, amount_distribution_context)
     close = None
     ma50 = None
     ma200 = None
@@ -577,6 +798,13 @@ def analyze_benchmark_and_tune_cfg(
         cfg.rps_fast_min = min(cfg.rps_fast_min, 70.0)
         cfg.rps_slow_min = min(cfg.rps_slow_min, 60.0)
 
+    holiday_grace_dynamic = _resolve_holiday_grace_dynamic(
+        cfg,
+        regime,
+        money_flow_context,
+        _latest_trade_gap_days(bench_df),
+    )
+
     price_zone = "结构待确认"
     if close is not None and ma50 is not None and ma200 is not None:
         if close > ma50 > ma200:
@@ -601,6 +829,14 @@ def analyze_benchmark_and_tune_cfg(
         volume_state=main_volume_state,
         recent3_cum=recent3_cum,
     )
+    market_pv_policy_shadow = derive_market_pv_policy_shadow(
+        outlook=market_pv_outlook,
+        regime=regime,
+        price_zone=price_zone,
+        volume_state=main_volume_state,
+        money_flow=money_flow_context,
+        cfg=cfg,
+    )
 
     context.update(
         {
@@ -618,6 +854,7 @@ def analyze_benchmark_and_tune_cfg(
             "main_volume_state": main_volume_state,
             "market_pv_summary": market_pv_summary,
             "market_pv_outlook": market_pv_outlook,
+            "market_pv_policy_shadow": market_pv_policy_shadow,
             "smallcap_close": small_close,
             "smallcap_recent3_pct": small_recent3_list,
             "smallcap_recent3_cum_pct": small_recent3_cum,
@@ -635,6 +872,7 @@ def analyze_benchmark_and_tune_cfg(
                 "rps_fast_min": cfg.rps_fast_min,
                 "rps_slow_min": cfg.rps_slow_min,
                 "enable_evr_trigger": bool(cfg.enable_evr_trigger),
+                "exit_holiday_grace_days": cfg.exit_holiday_grace_days,
             },
             "breadth": {
                 "ratio_pct": breadth_ratio,
@@ -643,7 +881,9 @@ def analyze_benchmark_and_tune_cfg(
                 "sample_size": breadth_sample,
                 "ma_window": BREADTH_MA_WINDOW,
             },
-            "money_flow": money_flow or context["money_flow"],
+            "money_flow": money_flow_context,
+            "amount_distribution": amount_distribution_context,
+            "holiday_grace_dynamic": holiday_grace_dynamic,
         }
     )
     return context

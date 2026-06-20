@@ -188,9 +188,15 @@ class TestCandidateRanker:
 
 class TestMarketRegime:
     def test_imports_callable(self):
-        from tools.market_regime import analyze_benchmark_and_tune_cfg, calc_market_breadth, calc_market_money_flow
+        from tools.market_regime import (
+            analyze_benchmark_and_tune_cfg,
+            calc_amount_distribution_health,
+            calc_market_breadth,
+            calc_market_money_flow,
+        )
 
         assert callable(analyze_benchmark_and_tune_cfg)
+        assert callable(calc_amount_distribution_health)
         assert callable(calc_market_breadth)
         assert callable(calc_market_money_flow)
 
@@ -226,6 +232,59 @@ class TestMarketRegime:
         assert result["state"] == "主力撤退"
         assert result["trend"] == "retreat"
         assert result["down_amount_yi"] > result["up_amount_yi"]
+
+    def test_calc_amount_distribution_health_detects_thin_market(self):
+        from tools.market_regime import calc_amount_distribution_health
+
+        dates = pd.date_range("2026-01-01", periods=20, freq="D").strftime("%Y-%m-%d")
+        df_map = {f"000{i:03d}": pd.DataFrame({"date": dates, "amount": [8_000_000.0] * 20}) for i in range(9)}
+        df_map["000999"] = pd.DataFrame({"date": dates, "amount": [1_000_000_000.0] * 20})
+
+        result = calc_amount_distribution_health(df_map, min_avg_amount_wan=5000.0)
+
+        assert result["state"] == "thin"
+        assert result["skewness"] > 2.0
+        assert result["pass_ratio_pct"] < 35.0
+
+    def test_holiday_grace_extends_when_money_flow_is_not_retreat(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+        closes = list(pd.Series(range(220), dtype=float).map(lambda x: 100.0 + x * 0.2))
+        bench = _benchmark_df(closes)
+        prev_date = pd.to_datetime(bench.loc[len(bench) - 2, "date"])
+        bench.loc[len(bench) - 1, "date"] = (prev_date + pd.Timedelta(days=5)).strftime("%Y-%m-%d")
+        cfg = FunnelConfig()
+
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            bench,
+            None,
+            cfg,
+            breadth={"ratio_pct": 70.0, "delta_pct": 5.0, "sample_size": 100},
+            money_flow={"trend": "entry", "score": 25.0},
+        )
+
+        assert cfg.exit_holiday_grace_days == 2
+        assert result["holiday_grace_dynamic"]["extended"] is True
+
+    def test_market_pv_policy_shadow_structures_defensive_outlook(self):
+        from core.wyckoff_engine import FunnelConfig
+        from tools.market_regime import derive_market_pv_policy_shadow
+
+        cfg = FunnelConfig()
+        result = derive_market_pv_policy_shadow(
+            outlook="次日推演：若放量跌破MA50，需转入防守；若缩量反弹，回避追高。",
+            regime="RISK_ON",
+            price_zone="多头上方",
+            volume_state="放量",
+            money_flow={"trend": "neutral"},
+            cfg=cfg,
+        )
+
+        assert result["risk_bias"] == "defensive"
+        assert result["conditions"][0]["if"] == "放量跌破MA50"
+        assert result["funnel_config_overrides"]["rps_fast_min"] >= 80.0
 
     def test_breadth_risk_on_without_bull_structure_is_bear_rebound(self, monkeypatch):
         import tools.market_regime as market_regime

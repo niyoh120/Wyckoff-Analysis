@@ -72,6 +72,10 @@ class FunnelConfig:
     min_avg_amount_wan: float = 5000.0
     l1_cap_bypass_amount_wan: float = 8000.0  # 市值不足但日均额 >= 此值可放行
     amount_avg_window: int = 20
+    amount_skew_check_enabled: bool = True
+    amount_skew_max: float = 3.0
+    amount_median_min_ratio: float = 0.45
+    amount_pass_days_min_ratio: float = 0.35
 
     # Layer 2
     ma_short: int = 50
@@ -257,6 +261,9 @@ class FunnelConfig:
     exit_confirm_days: int = 2  # 洗盘过滤：连续 N 日收盘低于止损线才确认
     exit_vol_confirm_ratio: float = 0.8  # 确认期量比阈值（低于此值视为缩量洗盘不触发）
     exit_holiday_grace_days: int = 1  # 节后宽限期：跨 ≥3 自然日后跳过 N 个交易日止损
+    exit_holiday_grace_dynamic_enabled: bool = True
+    exit_holiday_grace_max_days: int = 2
+    exit_holiday_grace_min_money_flow_score: float = -5.0
 
     # Distribution 识别：高位缩量警告
     dist_high_threshold_pct: float = 30.0  # 相对 MA200 的高度（%）
@@ -472,6 +479,34 @@ def _is_supported_cn_board(code: str) -> bool:
     return code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301", "688", "689"))
 
 
+def _amount_liquidity_ok(
+    df_sorted: pd.DataFrame,
+    cfg: FunnelConfig,
+    *,
+    min_avg_amount_wan: float | None = None,
+) -> bool:
+    if "amount" not in df_sorted.columns:
+        return True
+    window = max(int(cfg.amount_avg_window), 1)
+    amount = pd.to_numeric(df_sorted["amount"], errors="coerce").dropna().tail(window)
+    if amount.empty:
+        return True
+    threshold = float(cfg.min_avg_amount_wan if min_avg_amount_wan is None else min_avg_amount_wan) * 10000
+    avg_amt = amount.mean()
+    if pd.notna(avg_amt) and avg_amt < threshold:
+        return False
+    if not cfg.amount_skew_check_enabled or len(amount) < 5:
+        return True
+    positive = amount[amount > 0]
+    if len(positive) < 5:
+        return True
+    skew = positive.skew()
+    median_weak = positive.median() < threshold * cfg.amount_median_min_ratio
+    pass_days_weak = float((positive >= threshold).mean()) < cfg.amount_pass_days_min_ratio
+    spike_distorted = pd.notna(skew) and float(skew) >= cfg.amount_skew_max
+    return not (spike_distorted and (median_weak or pass_days_weak))
+
+
 def layer1_filter(
     symbols: list[str],
     name_map: dict[str, str],
@@ -501,20 +536,22 @@ def layer1_filter(
             cap = market_cap_map.get(sym, 0.0)
             if cap < cfg.min_market_cap_yi:
                 df_tmp = df_map.get(sym)
-                if df_tmp is not None and not df_tmp.empty and "amount" in df_tmp.columns:
-                    avg_a = _sorted_if_needed(df_tmp)["amount"].tail(cfg.amount_avg_window).mean()
-                    if not (pd.notna(avg_a) and avg_a >= cfg.l1_cap_bypass_amount_wan * 10000):
-                        continue
-                else:
+                if (
+                    df_tmp is None
+                    or df_tmp.empty
+                    or not _amount_liquidity_ok(
+                        _sorted_if_needed(df_tmp),
+                        cfg,
+                        min_avg_amount_wan=cfg.l1_cap_bypass_amount_wan,
+                    )
+                ):
                     continue
         df = df_map.get(sym)
         if df is None or df.empty:
             continue
         df_sorted = _sorted_if_needed(df)
-        if "amount" in df_sorted.columns:
-            avg_amt = df_sorted["amount"].tail(cfg.amount_avg_window).mean()
-            if pd.notna(avg_amt) and avg_amt < cfg.min_avg_amount_wan * 10000:
-                continue
+        if not _amount_liquidity_ok(df_sorted, cfg):
+            continue
         if fin_available:
             metrics = financial_map.get(sym)
             if metrics:

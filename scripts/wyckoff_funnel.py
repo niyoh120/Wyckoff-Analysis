@@ -263,6 +263,9 @@ from tools.market_regime import (
     analyze_benchmark_and_tune_cfg as _analyze_benchmark_and_tune_cfg,
 )
 from tools.market_regime import (
+    calc_amount_distribution_health as _calc_amount_distribution_health,
+)
+from tools.market_regime import (
     calc_market_breadth as _calc_market_breadth,
 )
 from tools.market_regime import (
@@ -788,14 +791,29 @@ def _promote_l2_bypass_for_ai(
 
 def _load_dynamic_policy_context(regime: str, benchmark_context: dict) -> dict:
     mode = dynamic_policy_mode()
+    pv_policy_shadow = benchmark_context.get("market_pv_policy_shadow") or {}
     if mode == "off":
-        return {"mode": mode, "health": [], "registry": [], "weights": {}, "policy": None}
+        return {
+            "mode": mode,
+            "health": [],
+            "registry": [],
+            "weights": {},
+            "policy": None,
+            "pv_policy_shadow": pv_policy_shadow,
+        }
     try:
         health_rows = load_signal_health_snapshot(market="cn")
         registry_rows = load_signal_registry(market="cn")
     except Exception as exc:
         logger.warning("动态策略上下文加载失败，降级为静态: %s", exc)
-        return {"mode": "off", "health": [], "registry": [], "weights": {}, "policy": None}
+        return {
+            "mode": "off",
+            "health": [],
+            "registry": [],
+            "weights": {},
+            "policy": None,
+            "pv_policy_shadow": pv_policy_shadow,
+        }
     horizon = dynamic_policy_horizon()
     weights = build_signal_weight_map(health_rows, registry_rows, regime=regime, horizon_days=horizon)
     base_policy = resolve_ai_candidate_policy(regime)
@@ -818,6 +836,7 @@ def _load_dynamic_policy_context(regime: str, benchmark_context: dict) -> dict:
         "registry": registry_rows,
         "weights": weights,
         "policy": policy,
+        "pv_policy_shadow": pv_policy_shadow,
     }
 
 
@@ -830,6 +849,7 @@ def _attach_shadow_policy(ai_policy: dict, dynamic_ctx: dict) -> None:
     ai_policy["_signal_weights"] = dynamic_ctx.get("weights") or {}
     ai_policy["_registry_rows"] = dynamic_ctx.get("registry") or []
     ai_policy["_health_rows"] = dynamic_ctx.get("health") or []
+    ai_policy["_pv_policy_shadow"] = dynamic_ctx.get("pv_policy_shadow") or {}
     print(
         "[funnel] 动态策略shadow: "
         f"base Trend={ai_policy['trend_quota']}, Accum={ai_policy['accum_quota']} -> "
@@ -1330,6 +1350,93 @@ def _money_flow_report_line(benchmark_context: dict | None) -> str:
     return f"{state}，资金分 {score}，样本 {sample} 只。"
 
 
+def _amount_distribution_report_line(benchmark_context: dict | None) -> str:
+    if not benchmark_context:
+        return "暂无成交额分布"
+    amount_distribution = benchmark_context.get("amount_distribution") or {}
+    summary = str(amount_distribution.get("summary") or "").strip()
+    if summary:
+        return summary
+    state = str(amount_distribution.get("state") or "unknown").strip()
+    sample = int(amount_distribution.get("sample_size") or 0)
+    return f"成交额分布：{state}，样本 {sample} 只。"
+
+
+def _pv_policy_shadow_report_line(benchmark_context: dict | None) -> str:
+    if not benchmark_context:
+        return ""
+    shadow = benchmark_context.get("market_pv_policy_shadow") or {}
+    if not shadow:
+        return ""
+    bias = str(shadow.get("risk_bias") or "neutral")
+    cfg_overrides = shadow.get("funnel_config_overrides") or {}
+    candidate_overrides = shadow.get("candidate_policy_overrides") or {}
+    return f"{bias} | Funnel={cfg_overrides or '无'} | AI={candidate_overrides or '无'}"
+
+
+def _market_report_lines(benchmark_context: dict | None) -> tuple[str, str, str, str, str]:
+    bench_line = "未知"
+    pv_line = "暂无大盘量价推演"
+    money_line = _money_flow_report_line(benchmark_context)
+    amount_line = _amount_distribution_report_line(benchmark_context)
+    pv_shadow_line = _pv_policy_shadow_report_line(benchmark_context)
+    if not benchmark_context:
+        return bench_line, money_line, amount_line, pv_line, pv_shadow_line
+    close = float(benchmark_context.get("close") or 0)
+    ma50 = float(benchmark_context.get("ma50") or 0)
+    ma200 = float(benchmark_context.get("ma200") or 0)
+    cum3 = float(benchmark_context.get("recent3_cum_pct") or 0)
+    bench_line = (
+        f"{benchmark_context.get('regime')} | 收盘 {close:.2f} | MA50 {ma50:.2f} | "
+        f"MA200 {ma200:.2f} | 近3日 {cum3:+.2f}%"
+    )
+    pv_line = str(benchmark_context.get("market_pv_outlook") or benchmark_context.get("market_pv_summary") or pv_line)
+    return bench_line, money_line, amount_line, pv_line, pv_shadow_line
+
+
+def _print_benchmark_gate(benchmark_context: dict) -> None:
+    print(
+        "[funnel] 大盘总闸: "
+        f"regime={benchmark_context['regime']}, "
+        f"close={benchmark_context['close']}, ma50={benchmark_context['ma50']}, ma200={benchmark_context['ma200']}, "
+        f"ma50_slope_5d={benchmark_context['ma50_slope_5d']}, main_today={benchmark_context.get('main_today_pct')}, "
+        f"recent3={benchmark_context['recent3_pct']}, recent3_cum={benchmark_context['recent3_cum_pct']}, "
+        f"smallcap_code={benchmark_context.get('smallcap_code')}, "
+        f"smallcap_today={benchmark_context.get('smallcap_today_pct')}, "
+        f"breadth={benchmark_context.get('breadth')}, money_flow={benchmark_context.get('money_flow')}, "
+        f"amount_distribution={benchmark_context.get('amount_distribution')}, "
+        f"holiday_grace={benchmark_context.get('holiday_grace_dynamic')}, "
+        f"pv_policy_shadow={benchmark_context.get('market_pv_policy_shadow')}, "
+        f"panic_triggered={benchmark_context.get('panic_triggered')}, "
+        f"panic_reasons={benchmark_context.get('panic_reasons')}, "
+        f"repair_triggered={benchmark_context.get('repair_triggered')}, "
+        f"repair_reasons={benchmark_context.get('repair_reasons')}, tuned={benchmark_context['tuned']}"
+    )
+
+
+def _build_benchmark_context(
+    all_df_map: dict[str, pd.DataFrame],
+    bench_df: pd.DataFrame | None,
+    smallcap_df: pd.DataFrame | None,
+    cfg: FunnelConfig,
+) -> dict:
+    breadth_context = _calc_market_breadth(all_df_map, BREADTH_MA_WINDOW)
+    money_flow_context = _calc_market_money_flow(all_df_map, breadth_context)
+    amount_distribution_context = _calc_amount_distribution_health(
+        all_df_map, cfg.min_avg_amount_wan, cfg.amount_avg_window
+    )
+    benchmark_context = _analyze_benchmark_and_tune_cfg(
+        bench_df,
+        smallcap_df,
+        cfg,
+        breadth=breadth_context,
+        money_flow=money_flow_context,
+        amount_distribution=amount_distribution_context,
+    )
+    _print_benchmark_gate(benchmark_context)
+    return benchmark_context
+
+
 def _strategic_bypass_seed_codes(
     l1_symbols: list[str],
     l2_symbols: list[str],
@@ -1661,28 +1768,7 @@ def run_funnel_job(
         cfg, window, bench_df, sector_map, all_df_map, direct_source=direct_source
     )
 
-    breadth_context = _calc_market_breadth(all_df_map, BREADTH_MA_WINDOW)
-    money_flow_context = _calc_market_money_flow(all_df_map, breadth_context)
-    benchmark_context = _analyze_benchmark_and_tune_cfg(
-        bench_df,
-        smallcap_df,
-        cfg,
-        breadth=breadth_context,
-        money_flow=money_flow_context,
-    )
-    print(
-        "[funnel] 大盘总闸: "
-        f"regime={benchmark_context['regime']}, "
-        f"close={benchmark_context['close']}, ma50={benchmark_context['ma50']}, ma200={benchmark_context['ma200']}, "
-        f"ma50_slope_5d={benchmark_context['ma50_slope_5d']}, main_today={benchmark_context.get('main_today_pct')}, recent3={benchmark_context['recent3_pct']}, "
-        f"recent3_cum={benchmark_context['recent3_cum_pct']}, "
-        f"smallcap_code={benchmark_context.get('smallcap_code')}, smallcap_today={benchmark_context.get('smallcap_today_pct')}, "
-        f"breadth={benchmark_context.get('breadth')}, "
-        f"money_flow={benchmark_context.get('money_flow')}, "
-        f"panic_triggered={benchmark_context.get('panic_triggered')}, panic_reasons={benchmark_context.get('panic_reasons')}, "
-        f"repair_triggered={benchmark_context.get('repair_triggered')}, repair_reasons={benchmark_context.get('repair_reasons')}, "
-        f"tuned={benchmark_context['tuned']}"
-    )
+    benchmark_context = _build_benchmark_context(all_df_map, bench_df, smallcap_df, cfg)
 
     print("[funnel] 开始执行全量漏斗筛选...")
     report_progress("漏斗筛选", "L1~L4 计算中", 0.85)
@@ -2117,22 +2203,7 @@ def run(
     ai_policy.update(shadow_meta)
 
     if use_legacy_card and use_legacy_selection:
-        bench_line = "未知"
-        pv_line = "暂无大盘量价推演"
-        money_line = _money_flow_report_line(benchmark_context)
-        if benchmark_context:
-            _close = benchmark_context.get("close") or 0
-            _ma50 = benchmark_context.get("ma50") or 0
-            _ma200 = benchmark_context.get("ma200") or 0
-            _cum3 = benchmark_context.get("recent3_cum_pct") or 0
-            bench_line = (
-                f"{benchmark_context.get('regime')} | "
-                f"收盘 {float(_close):.2f} | MA50 {float(_ma50):.2f} | MA200 {float(_ma200):.2f} | "
-                f"近3日 {float(_cum3):+.2f}%"
-            )
-            pv_line = str(
-                benchmark_context.get("market_pv_outlook") or benchmark_context.get("market_pv_summary") or pv_line
-            )
+        bench_line, money_line, amount_line, pv_line, pv_shadow_line = _market_report_lines(benchmark_context)
 
         lines = [
             (
@@ -2144,7 +2215,9 @@ def run(
             f"**漏斗概览**: {metrics['total_symbols']}只 → L1:{metrics['layer1']} → L2:{metrics['layer2']} → L3:{metrics['layer3']} → 命中:{metrics['total_hits']}",
             f"**大盘水温**: {bench_line}",
             f"**大盘资金趋势**: {money_line}",
+            f"**成交额分布**: {amount_line}",
             f"**大盘量价推演**: {pv_line}",
+            f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
             f"**中长线主线**: {summarize_theme_radar(metrics.get('theme_radar') or {})} ({theme_radar_source})",
             (
                 f"**战略主线联动**: 观察池{len(theme_candidate_map)}只 / "
@@ -2392,21 +2465,7 @@ def run(
         f"战略旁路={strategic_bypass_selected_count}, 总计={len(selected_for_ai)}"
     )
 
-    bench_line = "未知"
-    pv_line = "暂无大盘量价推演"
-    money_line = _money_flow_report_line(benchmark_context)
-    if benchmark_context:
-        _close = benchmark_context.get("close") or 0
-        _ma50 = benchmark_context.get("ma50") or 0
-        _ma200 = benchmark_context.get("ma200") or 0
-        _cum3 = benchmark_context.get("recent3_cum_pct") or 0
-        bench_line = (
-            f"{benchmark_context.get('regime')} | 收盘 {float(_close):.2f} | "
-            f"MA50 {float(_ma50):.2f} | MA200 {float(_ma200):.2f} | 近3日 {float(_cum3):+.2f}%"
-        )
-        pv_line = str(
-            benchmark_context.get("market_pv_outlook") or benchmark_context.get("market_pv_summary") or pv_line
-        )
+    bench_line, money_line, amount_line, pv_line, pv_shadow_line = _market_report_lines(benchmark_context)
 
     lines = [
         (
@@ -2418,7 +2477,9 @@ def run(
         f"**漏斗概览**: {metrics['total_symbols']}只 → L1:{metrics['layer1']} → L2:{metrics['layer2']} → L3:{metrics['layer3']} → 正式L4:{unique_hit_count}",
         f"**大盘水温**: {bench_line}",
         f"**大盘资金趋势**: {money_line}",
+        f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",
+        f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
         f"**中长线主线**: {summarize_theme_radar(metrics.get('theme_radar') or {})} ({theme_radar_source})",
         (
             f"**战略主线联动**: 观察池{len(theme_candidate_map)}只 / "

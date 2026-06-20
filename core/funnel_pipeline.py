@@ -7,6 +7,7 @@ from tools.candidate_ranker import (  # noqa: F401
 )
 from tools.market_regime import (  # noqa: F401
     analyze_benchmark_and_tune_cfg,
+    calc_amount_distribution_health,
     calc_market_breadth,
     calc_market_money_flow,
 )
@@ -14,6 +15,7 @@ from tools.market_regime import (  # noqa: F401
 __all__ = [
     "TRIGGER_LABELS",
     "analyze_benchmark_and_tune_cfg",
+    "calc_amount_distribution_health",
     "calc_market_breadth",
     "calc_market_money_flow",
     "rank_l3_candidates",

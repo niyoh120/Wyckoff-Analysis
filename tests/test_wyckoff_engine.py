@@ -21,12 +21,13 @@ from core.wyckoff_engine import (
 )
 
 
-def _make_df(dates, closes, volumes=None) -> pd.DataFrame:
+def _make_df(dates, closes, volumes=None, amounts=None) -> pd.DataFrame:
     n = len(dates)
     opens = closes
     highs = [c * 1.01 for c in closes]
     lows = [c * 0.99 for c in closes]
     vols = volumes or [1_000_000] * n
+    amount = amounts if amounts is not None else [100_000_000] * n
     return pd.DataFrame(
         {
             "date": pd.to_datetime(dates),
@@ -35,6 +36,7 @@ def _make_df(dates, closes, volumes=None) -> pd.DataFrame:
             "high": highs,
             "low": lows,
             "volume": vols,
+            "amount": amount,
         }
     )
 
@@ -95,6 +97,27 @@ class TestLayer1Filter:
         assert "688001" in result
         assert "689009" in result
         assert "830001" not in result
+
+    def test_rejects_single_day_amount_spike_distortion(self):
+        cfg = FunnelConfig()
+        dates = pd.date_range("2024-01-01", periods=20, freq="B")
+        closes = [10.0] * 20
+        stable = _make_df(dates.strftime("%Y-%m-%d").tolist(), closes, amounts=[60_000_000] * 20)
+        distorted = _make_df(
+            dates.strftime("%Y-%m-%d").tolist(),
+            closes,
+            amounts=[1_000_000] * 19 + [1_000_000_000],
+        )
+
+        result = layer1_filter(
+            ["000001", "000002"],
+            {"000001": "稳定成交", "000002": "单日巨量"},
+            {},
+            {"000001": stable, "000002": distorted},
+            cfg,
+        )
+
+        assert result == ["000001"]
 
 
 class TestIsHolidayGrace:
