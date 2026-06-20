@@ -701,6 +701,7 @@ class WyckoffTUI(App):
         self.query_one("#chat-input", Input).focus()
         if self._schedules:
             self.set_interval(60.0, self._check_schedules)
+        self.call_after_refresh(self._check_auto_resume)
 
     def _build_status_text(self) -> str:
         from importlib.metadata import version as _ver
@@ -1661,6 +1662,76 @@ class WyckoffTUI(App):
                 log.write(Text.from_markup(f"  [green]✓ {sched_id} 已{'启用' if enable else '禁用'}[/green]"))
                 return
         log.write(Text.from_markup(f"  [red]未找到: {sched_id}[/red]"))
+
+    def _find_interrupted_scratchpad(self) -> tuple[str, str] | None:
+        try:
+            import glob
+            import os
+            from pathlib import Path
+
+            from cli.scratchpad import wyckoff_home
+
+            scratch_dir = wyckoff_home() / "scratchpad"
+            if not scratch_dir.exists():
+                return None
+
+            files = glob.glob(str(scratch_dir / "*.jsonl"))
+            if not files:
+                return None
+
+            files.sort(key=os.path.getmtime, reverse=True)
+            latest_file = Path(files[0])
+
+            # 2小时内有效，避免过于陈旧的任务被意外唤醒
+            if time.time() - latest_file.stat().st_mtime > 7200:
+                return None
+
+            init_entry = None
+            has_final = False
+            with latest_file.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    if not line.strip():
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        if entry.get("type") == "init":
+                            init_entry = entry
+                        elif entry.get("type") == "final":
+                            has_final = True
+                    except Exception:
+                        pass
+
+            if init_entry and not has_final:
+                session_id = init_entry.get("session_id")
+                query = init_entry.get("content")
+                if session_id and query:
+                    return session_id, query
+        except Exception:
+            pass
+        return None
+
+    def _check_auto_resume(self) -> None:
+        try:
+            res = self._find_interrupted_scratchpad()
+            if not res:
+                return
+            session_id, query = res
+            # 恢复该会话历史
+            self._resume_session(session_id)
+            log = self.query_one("#chat-log", ChatLog)
+            log.write(Text(""))
+            log.write(
+                Text.from_markup(
+                    f"[yellow]⚠ 检测到会话 [bold]#{session_id}[/bold] 上次执行中途异常中断（可能由于网络超时或崩溃）。[/yellow]"
+                )
+            )
+            log.write(
+                Text.from_markup(f'[yellow]正在自动恢复会话并重新提交任务: [bold]"{query}"[/bold][/yellow]\n')
+            )
+            # 自动发送消息重新执行
+            self._send_message(query)
+        except Exception:
+            logger.debug("auto resume check failed", exc_info=True)
 
     def _check_schedules(self) -> None:
         from datetime import datetime
