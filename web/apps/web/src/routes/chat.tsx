@@ -47,8 +47,10 @@ const MARKET_INDEX_LABELS: Record<string, string> = {
   szse: '深成指',
   chinext: '创业板',
 }
+const MAX_QUEUED_MESSAGES = 5
 
 type MessagePart = UIMessage['parts'][number] & Record<string, unknown>
+type ReadingRoomChat = ReturnType<typeof useChat<UIMessage>>
 type ToolPart = MessagePart & {
   type: `tool-${string}` | 'dynamic-tool'
   state: string
@@ -69,6 +71,17 @@ interface ChatConfig {
   model: string | null
 }
 
+interface QueuedMessage {
+  id: string
+  text: string
+}
+
+interface MessageQueue {
+  messages: QueuedMessage[]
+  enqueue: (text: string) => void
+  clear: () => void
+}
+
 export function ChatPage() {
   const session = useAuthStore((s) => s.session)
   const user = useAuthStore((s) => s.user)
@@ -80,34 +93,40 @@ export function ChatPage() {
   const config = useChatConfig(token)
   const chat = useReadingRoomChat(token, setLocalError, t)
   const loading = chat.status === 'submitted' || chat.status === 'streaming'
-  useAutoScroll(scrollRef, chat.messages, loading)
+  const queue = useMessageQueue(chat, loading, token, config.configured, setLocalError, t)
+  useAutoScroll(scrollRef, chat.messages, loading, queue.messages.length)
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault()
     const text = input.trim()
-    if (!text || loading) return
+    if (!text) return
     if (!token) { setLocalError(t('chat.requestFailed')); return }
     if (!config.configured) { setLocalError(t('chat.configureLLM')); return }
     setInput('')
     setLocalError('')
     chat.clearError()
+    if (loading) {
+      queue.enqueue(text)
+      return
+    }
     void chat.sendMessage({ text })
-  }, [chat, config.configured, input, loading, t, token])
+  }, [chat, config.configured, input, loading, queue, t, token])
 
   const handleNewChat = useCallback(() => {
     if (loading) void chat.stop()
+    queue.clear()
     chat.setMessages([])
     setInput('')
     setLocalError('')
     chat.clearError()
-  }, [chat, loading])
+  }, [chat, loading, queue])
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <ChatHeader config={config} hasUser={Boolean(user)} onNewChat={handleNewChat} />
-      <ChatMessages chat={chat} loading={loading} scrollRef={scrollRef} onPick={setInput} />
+      <ChatMessages chat={chat} loading={loading} queuedMessages={queue.messages} scrollRef={scrollRef} onPick={setInput} />
       <ErrorBanner message={localError || chat.error?.message || ''} />
-      <ChatComposer input={input} loading={loading} onInput={setInput} onSubmit={handleSubmit} onStop={() => void chat.stop()} />
+      <ChatComposer input={input} loading={loading} queuedCount={queue.messages.length} onClearQueue={queue.clear} onInput={setInput} onSubmit={handleSubmit} onStop={() => void chat.stop()} />
     </div>
   )
 }
@@ -135,10 +154,54 @@ function useChatConfig(token: string | undefined): ChatConfig {
   return config
 }
 
-function useAutoScroll(ref: React.RefObject<HTMLDivElement | null>, messages: UIMessage[], loading: boolean) {
+function useMessageQueue(
+  chat: ReadingRoomChat,
+  loading: boolean,
+  token: string | undefined,
+  configured: boolean,
+  setLocalError: (value: string) => void,
+  t: (key: TranslationKey) => string,
+): MessageQueue {
+  const [messages, setMessages] = useState<QueuedMessage[]>([])
+  const dispatchingRef = useRef('')
+  const enqueue = useCallback((text: string) => {
+    setMessages((items) => {
+      if (items.length >= MAX_QUEUED_MESSAGES) {
+        setLocalError(t('chat.queueFull'))
+        return items
+      }
+      return [...items, { id: createQueuedMessageId(), text }]
+    })
+  }, [setLocalError, t])
+  const clear = useCallback(() => setMessages([]), [])
+
+  useEffect(() => {
+    const next = messages[0]
+    if (!next || loading || !token || !configured || dispatchingRef.current) return
+    dispatchingRef.current = next.id
+    setMessages((items) => items[0]?.id === next.id ? items.slice(1) : items.filter((item) => item.id !== next.id))
+    setLocalError('')
+    chat.clearError()
+    void chat.sendMessage({ text: next.text })
+      .catch((error: unknown) => setLocalError(normalizeClientError(error, t)))
+      .finally(() => { dispatchingRef.current = '' })
+  }, [chat, configured, loading, messages, setLocalError, t, token])
+
+  return useMemo(() => ({ messages, enqueue, clear }), [clear, enqueue, messages])
+}
+
+function createQueuedMessageId(): string {
+  return `queued-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeClientError(error: unknown, t: (key: TranslationKey) => string): string {
+  return error instanceof Error ? error.message : t('chat.requestFailed')
+}
+
+function useAutoScroll(ref: React.RefObject<HTMLDivElement | null>, messages: UIMessage[], loading: boolean, queuedCount: number) {
   useEffect(() => {
     ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading, ref])
+  }, [messages, loading, queuedCount, ref])
 }
 
 function ChatHeader({ config, hasUser, onNewChat }: { config: ChatConfig; hasUser: boolean; onNewChat: () => void }) {
@@ -158,20 +221,23 @@ function ChatHeader({ config, hasUser, onNewChat }: { config: ChatConfig; hasUse
   )
 }
 
-function ChatMessages({ chat, loading, scrollRef, onPick }: {
-  chat: ReturnType<typeof useChat<UIMessage>>
+function ChatMessages({ chat, loading, queuedMessages, scrollRef, onPick }: {
+  chat: ReadingRoomChat
   loading: boolean
+  queuedMessages: QueuedMessage[]
   scrollRef: React.RefObject<HTMLDivElement | null>
   onPick: (value: string) => void
 }) {
   const activeAssistantId = loading ? lastAssistantId(chat.messages) : null
+  const isEmpty = chat.messages.length === 0 && !loading && queuedMessages.length === 0
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-6 py-4">
-      {chat.messages.length === 0 && !loading ? (
+      {isEmpty ? (
         <EmptyChat onPick={onPick} />
       ) : (
         <div className="space-y-4 pb-2">
           {chat.messages.map((message) => <MessageBubble key={message.id} message={message} isActive={message.id === activeAssistantId} approve={(id) => void chat.addToolApprovalResponse({ id, approved: true })} deny={(id) => void chat.addToolApprovalResponse({ id, approved: false })} />)}
+          {queuedMessages.map((message, index) => <QueuedMessageBubble key={message.id} message={message} index={index + 1} />)}
           {loading && <ThinkingBubble />}
         </div>
       )}
@@ -212,6 +278,20 @@ const MessageBubble = memo(function MessageBubble({
     </div>
   )
 })
+
+function QueuedMessageBubble({ message, index }: { message: QueuedMessage; index: number }) {
+  const { t } = usePreferences()
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[82%] rounded-2xl bg-primary/80 px-4 py-2.5 text-sm text-primary-foreground">
+        <div className="whitespace-pre-wrap">{message.text}</div>
+        <div className="mt-1 text-right text-[10px] opacity-80">
+          {t('chat.queued').replace('{index}', String(index))}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function AssistantParts({ message, isActive, approve, deny }: { message: UIMessage; isActive: boolean; approve: (id: string) => void; deny: (id: string) => void }) {
   const items = buildAssistantRenderItems(message.parts)
@@ -362,34 +442,70 @@ function StrategyResultCard({ data }: { data: StrategyDecisionResult }) {
 function ChatComposer(props: {
   input: string
   loading: boolean
+  queuedCount: number
+  onClearQueue: () => void
   onInput: (value: string) => void
   onSubmit: (e: React.FormEvent) => void
   onStop: () => void
 }) {
-  const { t } = usePreferences()
   return (
     <div className="shrink-0 border-t border-border bg-background px-6 py-3">
+      <QueueNotice count={props.queuedCount} onClear={props.onClearQueue} />
       <form onSubmit={props.onSubmit} className="flex items-center gap-2">
-        <input
-          type="text"
-          value={props.input}
-          onChange={(e) => props.onInput(e.target.value)}
-          placeholder={t('chat.placeholder')}
-          aria-label={t('chat.placeholder')}
-          className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring/20"
-        />
-        <button
-          type={props.loading ? 'button' : 'submit'}
-          onClick={props.loading ? props.onStop : undefined}
-          disabled={!props.loading && !props.input.trim()}
-          aria-label={props.loading ? t('chat.stop') : t('chat.placeholder')}
-          className={`flex h-10 w-10 items-center justify-center rounded-xl text-primary-foreground disabled:opacity-40 ${props.loading ? 'bg-rose-600 hover:bg-rose-700' : 'bg-primary'}`}
-        >
-          {props.loading ? <Square size={15} /> : <Send size={16} />}
-        </button>
+        <ComposerInput value={props.input} onInput={props.onInput} />
+        <ComposerActions input={props.input} loading={props.loading} onStop={props.onStop} />
       </form>
       <div className="mt-2 text-center"><AIDisclaimer /></div>
     </div>
+  )
+}
+
+function QueueNotice({ count, onClear }: { count: number; onClear: () => void }) {
+  const { t } = usePreferences()
+  if (count === 0) return null
+  return (
+    <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/45 px-3 py-1.5 text-xs text-muted-foreground">
+      <span>{t('chat.queueCount').replace('{count}', String(count))}</span>
+      <button type="button" onClick={onClear} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 hover:bg-background hover:text-foreground">
+        <X size={12} />
+        {t('chat.clearQueue')}
+      </button>
+    </div>
+  )
+}
+
+function ComposerInput({ value, onInput }: { value: string; onInput: (value: string) => void }) {
+  const { t } = usePreferences()
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onInput(e.target.value)}
+      placeholder={t('chat.placeholder')}
+      aria-label={t('chat.placeholder')}
+      className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+    />
+  )
+}
+
+function ComposerActions({ input, loading, onStop }: { input: string; loading: boolean; onStop: () => void }) {
+  const { t } = usePreferences()
+  if (!loading) return <SendButton disabled={!input.trim()} label={t('chat.placeholder')} />
+  return (
+    <>
+      <SendButton disabled={!input.trim()} label={t('chat.queueMessage')} />
+      <button type="button" onClick={onStop} aria-label={t('chat.stop')} className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-600 text-white hover:bg-rose-700">
+        <Square size={15} />
+      </button>
+    </>
+  )
+}
+
+function SendButton({ disabled, label }: { disabled: boolean; label: string }) {
+  return (
+    <button type="submit" disabled={disabled} aria-label={label} className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-40">
+      <Send size={16} />
+    </button>
   )
 }
 
