@@ -61,7 +61,7 @@ function PreferenceControls() {
         onClick={toggleTheme}
         title={theme === 'dark' ? t('prefs.light') : t('prefs.dark')}
         aria-label={t('prefs.theme')}
-        className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <ThemeIcon size={14} />
         {theme === 'dark' ? t('prefs.light') : t('prefs.dark')}
@@ -71,7 +71,7 @@ function PreferenceControls() {
         onClick={() => setLocale(nextLocale)}
         title={locale === 'zh-CN' ? t('prefs.switchToEnglish') : t('prefs.switchToChinese')}
         aria-label={t('prefs.language')}
-        className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <Languages size={14} />
         {locale === 'zh-CN' ? 'EN' : '中文'}
@@ -92,7 +92,7 @@ function SidebarFooter({ email, onLogout }: { email: string; onLogout: () => voi
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="mb-2 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="mb-2 flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <Icon size={14} />
           {t(labelKey)}
@@ -104,7 +104,7 @@ function SidebarFooter({ email, onLogout }: { email: string; onLogout: () => voi
       <div className="mb-2 truncate px-3 text-[11px] text-muted-foreground">{email}</div>
       <button
         onClick={onLogout}
-        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <LogOut size={15} />
         {t('action.logout')}
@@ -124,7 +124,7 @@ export function AppLayout() {
     <div className="flex h-dvh overflow-hidden">
       <aside className="flex h-full w-56 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar">
         <div className="shrink-0 px-5 py-5">
-          <h2 className="bg-gradient-to-r from-primary to-cyan-500 bg-clip-text text-xl font-bold tracking-tight text-transparent">
+          <h2 className="text-xl font-semibold text-foreground">
             Wyckoff
           </h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground">{t('app.subtitle')}</p>
@@ -135,9 +135,9 @@ export function AppLayout() {
             <Link
               key={to}
               to={to}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all ${
+              className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors ${
                 _navActive(location.pathname, location.hash, to)
-                  ? 'bg-primary/10 font-medium text-primary shadow-sm'
+                  ? 'bg-foreground font-medium text-background'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >
