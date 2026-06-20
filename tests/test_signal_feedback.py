@@ -154,6 +154,7 @@ def test_build_signal_observations_marks_selection_and_source():
                 "version": "external_capital_context_v1",
                 "lhb": {"net_buy": 123.0},
                 "margin": {"margin_balance": 456.0},
+                "source_status": {"lhb": "ok rows=10 matches=1", "margin_sse": "ok rows=20 matches=1"},
             }
         },
     )
@@ -175,6 +176,20 @@ def test_build_signal_observations_marks_selection_and_source():
     assert first["features_json"]["intraday_tail_confirmation"]["smart_money_score"] == 3.4
     assert first["features_json"]["source_context"]["lhb"]["net_buy"] == 123.0
     assert first["features_json"]["source_context"]["margin"]["margin_balance"] == 456.0
+    lineage = first["features_json"]["data_lineage"]
+    assert lineage["version"] == "candidate_evidence_lineage_v1"
+    assert lineage["coverage_score"] == 100.0
+    assert lineage["coverage_grade"] == "strong"
+    assert lineage["evidence_keys"] == [
+        "daily_signal",
+        "price_action",
+        "springboard",
+        "intraday_tail",
+        "external_capital",
+        "ai_review",
+    ]
+    assert lineage["sources"]["external_capital"]["providers"] == ["lhb", "margin"]
+    assert lineage["sources"]["selection"]["candidate_rank"] == 1
     shadow_score = first["features_json"]["candidate_shadow_score"]
     assert shadow_score["version"] == "candidate_shadow_score_v1"
     assert shadow_score["components"]["funnel"] == 26.4
@@ -185,6 +200,12 @@ def test_build_signal_observations_marks_selection_and_source():
     assert second["source"] == "l2_bypass"
     assert second["springboard_grade"] == "C"
     assert second["springboard_c"] is True
+    assert second["features_json"]["data_lineage"]["coverage_grade"] == "thin"
+    assert second["features_json"]["data_lineage"]["missing_keys"] == [
+        "price_action",
+        "intraday_tail",
+        "external_capital",
+    ]
 
 
 def test_daily_job_builds_intraday_tail_confirmation_map(monkeypatch):

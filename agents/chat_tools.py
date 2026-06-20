@@ -1466,19 +1466,23 @@ def query_history(
     run_date: str = "",
     decision: str = "",
     limit: int = 20,
+    query: str = "",
+    archive_ref: str = "",
     tool_context: ToolContext = None,
 ) -> dict:
-    """查询历史记录：形态复盘、信号确认池或尾盘买入记录。
+    """查询历史记录：形态复盘、信号确认池、尾盘买入记录，或上下文历史归档。
 
     Args:
-        source: "recommendation" 查形态复盘；"signal" 查信号确认池；"tail_buy" 查尾盘买入记录
+        source: "recommendation" 查形态复盘；"signal" 查信号确认池；"tail_buy" 查尾盘买入记录；"archive" 查历史归档
         status: 仅 signal 源使用，"all"/"pending"/"confirmed"/"expired"
         run_date: 仅 tail_buy 源使用，按日期过滤（YYYY-MM-DD）
         decision: 仅 tail_buy 源使用，按决策过滤（BUY/WATCH 等）
         limit: 返回记录数上限，默认 20
+        query: 仅 archive 源使用，搜索归档的关键词或股票代码
+        archive_ref: 仅 archive 源使用，恢复具体归档的引用链接（如 'archive://default/ctx_...'）
 
     Returns:
-        对应来源的历史记录列表。
+        对应来源的历史记录列表或归档查询/还原结果。
     """
     source = (source or "").strip().lower()
     if source == "recommendation":
@@ -1487,8 +1491,69 @@ def query_history(
         return _query_signal(status, limit, tool_context)
     elif source == "tail_buy":
         return _query_tail_buy(run_date, decision, limit, tool_context)
+    elif source == "archive":
+        return _query_archive(query, archive_ref, limit, tool_context)
     else:
-        return {"error": f"不支持的 source：{source}，请用 'recommendation'、'signal' 或 'tail_buy'"}
+        return {"error": f"不支持的 source：{source}，请用 'recommendation'、'signal'、'tail_buy' 或 'archive'"}
+
+
+def _query_archive(
+    query: str = "",
+    archive_ref: str = "",
+    limit: int = 5,
+    tool_context: ToolContext | None = None,
+) -> dict:
+    try:
+        from cli.context_archive import restore_context_archive, search_context_archives
+
+        if archive_ref:
+            return _restore_archive(archive_ref, restore_context_archive)
+        if not query:
+            return {"error": "查询归档时必须提供 query 或 archive_ref 参数"}
+        return _search_archive(query, limit, tool_context, search_context_archives)
+    except Exception as exc:
+        logger.exception("query_history(archive) error")
+        return {"error": str(exc)}
+
+
+def _archive_session_id(tool_context: ToolContext | None) -> str:
+    if tool_context and tool_context.state:
+        return tool_context.state.get("session_id", "")
+    return ""
+
+
+def _restore_archive(archive_ref: str, restore_context_archive) -> dict:
+    records = restore_context_archive(archive_ref)
+    if not records:
+        return {"error": f"未找到或无法还原归档: {archive_ref}"}
+    messages = [_archive_message(row) for row in records]
+    return {"archive_ref": archive_ref, "message_count": len(messages), "messages": messages}
+
+
+def _archive_message(row: dict) -> dict:
+    message = row.get("message", {})
+    return {
+        "role": message.get("role"),
+        "content": message.get("content"),
+        "name": message.get("name"),
+    }
+
+
+def _search_archive(query: str, limit: int, tool_context: ToolContext | None, search_context_archives) -> dict:
+    results = search_context_archives(query, session_id=_archive_session_id(tool_context), limit=limit)
+    if not results:
+        return {"message": f"未找到与 '{query}' 相关的历史对话归档", "results": []}
+    simplified = [
+        {
+            "archive_ref": row.get("archive_ref"),
+            "created_at": row.get("created_at"),
+            "summary": row.get("summary"),
+            "codes": row.get("codes"),
+            "message_count": row.get("message_count"),
+        }
+        for row in results
+    ]
+    return {"query": query, "total": len(simplified), "results": simplified}
 
 
 def _query_recommendation(limit: int, tool_context: ToolContext | None = None) -> dict:

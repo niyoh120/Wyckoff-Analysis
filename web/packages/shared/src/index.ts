@@ -1,5 +1,5 @@
 export type { UserSettings, PortfolioState, Position, TradeOrder } from './types'
-export { PROVIDERS, PROVIDER_LABELS, PROVIDER_BASE_URLS, TABLE_NAMES } from './constants'
+export { PROVIDERS, PROVIDER_LABELS, PROVIDER_BASE_URLS, PROVIDER_DEFAULT_MODELS, TABLE_NAMES } from './constants'
 export type { Provider } from './constants'
 export {
   normalizeGeminiChunk,

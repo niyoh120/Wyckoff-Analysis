@@ -38,6 +38,19 @@ def _json_map(raw: Any) -> dict[str, Any]:
     return {}
 
 
+def _str_list(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
+
+
 def _candidate_shadow_fields(obs: dict[str, Any]) -> dict[str, Any]:
     features = _json_map(obs.get("features_json"))
     shadow_score = _json_map(features.get("candidate_shadow_score"))
@@ -46,6 +59,18 @@ def _candidate_shadow_fields(obs: dict[str, Any]) -> dict[str, Any]:
         "candidate_shadow_grade": str(shadow_score.get("grade") or "unknown").strip() or "unknown",
         "candidate_shadow_positive_tags": shadow_score.get("positive_tags") or [],
         "candidate_shadow_negative_tags": shadow_score.get("negative_tags") or [],
+    }
+
+
+def _data_lineage_fields(obs: dict[str, Any]) -> dict[str, Any]:
+    features = _json_map(obs.get("features_json"))
+    lineage = _json_map(features.get("data_lineage"))
+    coverage_grade = str(lineage.get("coverage_grade") or "unknown").strip() or "unknown"
+    return {
+        "data_lineage_coverage_score": _num(lineage.get("coverage_score")),
+        "data_lineage_coverage_grade": coverage_grade,
+        "data_lineage_evidence_keys": _str_list(lineage.get("evidence_keys")),
+        "data_lineage_missing_keys": _str_list(lineage.get("missing_keys")),
     }
 
 
@@ -110,6 +135,7 @@ def _join_outcomes(outcomes: list[dict[str, Any]], observations: list[dict[str, 
         ):
             item[key] = obs.get(key)
         item.update(_candidate_shadow_fields(obs))
+        item.update(_data_lineage_fields(obs))
         joined.append(item)
     return joined
 
@@ -159,9 +185,68 @@ def _candidate_shadow_stats(rows: list[dict[str, Any]], horizons: list[int]) -> 
     return result
 
 
+def _coverage_grade_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result = _group_stats(rows, "data_lineage_coverage_grade", horizons)
+    grade_order = {"strong": 0, "medium": 1, "thin": 2, "weak": 3, "unknown": 4}
+    for horizon, stats_by_grade in list(result.items()):
+        result[horizon] = {
+            grade: stats
+            for grade, stats in sorted(
+                stats_by_grade.items(),
+                key=lambda item: grade_order.get(item[0], 99),
+            )
+        }
+    return result
+
+
+def _evidence_key_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for horizon in horizons:
+        horizon_rows = [r for r in rows if int(r.get("horizon_days") or 0) == horizon]
+        keys = sorted({key for row in horizon_rows for key in row.get("data_lineage_evidence_keys") or []})
+        result[str(horizon)] = {
+            key: _stats([row for row in horizon_rows if key in (row.get("data_lineage_evidence_keys") or [])])
+            for key in keys
+        }
+    return result
+
+
+def _coverage_summary(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for horizon in horizons:
+        horizon_rows = [r for r in rows if int(r.get("horizon_days") or 0) == horizon]
+        scores = [_num(r.get("data_lineage_coverage_score")) for r in horizon_rows]
+        scores = [s for s in scores if s is not None]
+        if not scores:
+            result[str(horizon)] = {"count": 0}
+            continue
+        result[str(horizon)] = {
+            "count": len(scores),
+            "avg_coverage_score": round(sum(scores) / len(scores), 1),
+            "strong_rate_pct": round(
+                sum(str(r.get("data_lineage_coverage_grade")) == "strong" for r in horizon_rows)
+                / len(horizon_rows)
+                * 100,
+                1,
+            )
+            if horizon_rows
+            else 0.0,
+        }
+    return result
+
+
+def _data_lineage_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    return {
+        "coverage_summary": _coverage_summary(rows, horizons),
+        "coverage_grade": _coverage_grade_stats(rows, horizons),
+        "evidence_key": _evidence_key_stats(rows, horizons),
+    }
+
+
 def _score_stats_json(joined: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
     stats = _score_bucket_stats(joined, horizons)
     stats["_candidate_shadow_grade"] = _candidate_shadow_stats(joined, horizons)
+    stats["_data_lineage"] = _data_lineage_stats(joined, horizons)
     return stats
 
 
@@ -180,6 +265,9 @@ def _ranked(rows: list[dict[str, Any]], horizon: int, *, reverse: bool) -> list[
         "priority_score",
         "candidate_shadow_score",
         "candidate_shadow_grade",
+        "data_lineage_coverage_score",
+        "data_lineage_coverage_grade",
+        "data_lineage_evidence_keys",
     ]
     return [{key: row.get(key) for key in keys} for row in ranked[:20]]
 

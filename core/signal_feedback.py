@@ -19,6 +19,7 @@ SIGNAL_TRACK: dict[str, str] = {
 }
 KNOWN_SIGNALS = set(SIGNAL_TRACK)
 BLOCKED_REGISTRY_STATUSES = {"EXPERIMENTAL", "RETIRED"}
+DATA_LINEAGE_VERSION = "candidate_evidence_lineage_v1"
 
 
 def normalize_signal_type(raw: Any) -> str:
@@ -98,6 +99,179 @@ def _source_context_fields(
     return dict(fields or {})
 
 
+def _coverage_grade(score: float) -> str:
+    if score >= 75:
+        return "strong"
+    if score >= 50:
+        return "medium"
+    if score >= 25:
+        return "thin"
+    return "weak"
+
+
+def _source_status(raw: Any) -> str:
+    text = str(raw or "").strip().lower()
+    if not text:
+        return "missing"
+    if text.startswith("ok"):
+        return "ok"
+    if text.startswith("error"):
+        return "error"
+    if text.startswith("skipped"):
+        return "skipped"
+    return "unknown"
+
+
+def _external_capital_lineage(source_context: dict[str, Any]) -> dict[str, Any]:
+    source_status = source_context.get("source_status") if isinstance(source_context.get("source_status"), dict) else {}
+    source_keys = ("lhb", "margin", "block_trade", "tick_large_order")
+    providers = [key for key in source_keys if isinstance(source_context.get(key), dict) and source_context.get(key)]
+    statuses = {str(key): _source_status(value) for key, value in source_status.items()}
+    errors = [key for key, value in statuses.items() if value == "error"]
+    if providers:
+        status = "ok" if not errors else "partial"
+    elif errors:
+        status = "error"
+    elif statuses:
+        status = "missing"
+    else:
+        status = "missing"
+    return {
+        "status": status,
+        "providers": providers,
+        "source_status": source_status,
+    }
+
+
+def _lineage_part(key: str, coverage: float, payload: dict[str, Any] | None) -> tuple[float, list[str], dict[str, Any]]:
+    if payload:
+        return coverage, [key], {key: {"status": "ok", **payload}}
+    return 0.0, [], {key: {"status": "missing"}}
+
+
+def _daily_signal_lineage(signal_type: str, trigger_score: float, priority_score: float):
+    return _lineage_part(
+        "daily_signal",
+        20.0,
+        {
+            "signal_type": signal_type,
+            "trigger_score": round(float(trigger_score or 0.0), 4),
+            "priority_score": round(float(priority_score or 0.0), 4),
+        },
+    )
+
+
+def _price_action_lineage(footprint: dict[str, Any]):
+    payload = (
+        {
+            "provider": "daily_kline",
+            "bias": footprint.get("bias"),
+            "tags": footprint.get("tags") or [],
+            "negative_tags": footprint.get("negative_tags") or [],
+        }
+        if footprint
+        else None
+    )
+    return _lineage_part("price_action", 20.0, payload)
+
+
+def _springboard_lineage(springboard: dict[str, Any]):
+    payload = (
+        {
+            "grade": springboard.get("springboard_grade"),
+            "met_count": springboard.get("springboard_met_count"),
+        }
+        if springboard
+        else None
+    )
+    return _lineage_part("springboard", 15.0, payload)
+
+
+def _intraday_tail_lineage(intraday_tail: dict[str, Any]):
+    payload = (
+        {
+            "provider": intraday_tail.get("source") or "tickflow_1m",
+            "tail_decision": intraday_tail.get("tail_decision"),
+            "tail_score": intraday_tail.get("tail_score"),
+        }
+        if intraday_tail
+        else None
+    )
+    return _lineage_part("intraday_tail", 20.0, payload)
+
+
+def _external_lineage(source_context: dict[str, Any]):
+    external = _external_capital_lineage(source_context)
+    keys = ["external_capital"] if external["providers"] else []
+    return 20.0 if keys else 0.0, keys, {"external_capital": external}
+
+
+def _merge_lineage_parts(
+    parts: list[tuple[float, list[str], dict[str, Any]]],
+) -> tuple[float, list[str], dict[str, Any]]:
+    coverage = 0.0
+    evidence_keys: list[str] = []
+    sources: dict[str, Any] = {}
+    for score, keys, source in parts:
+        coverage += score
+        evidence_keys.extend(keys)
+        sources.update(source)
+    return coverage, evidence_keys, sources
+
+
+def _selection_lineage(selection_source: str, selected_for_ai: bool, ai_recommended: bool, candidate_rank: int | None):
+    return {
+        "source": selection_source or "funnel",
+        "selected_for_ai": selected_for_ai,
+        "ai_recommended": ai_recommended,
+        "candidate_rank": candidate_rank,
+    }
+
+
+def _lineage_result(coverage: float, evidence_keys: list[str], sources: dict[str, Any]) -> dict[str, Any]:
+    missing_keys = [
+        key for key in ("price_action", "springboard", "intraday_tail", "external_capital") if key not in evidence_keys
+    ]
+    score = round(max(0.0, min(100.0, coverage)), 1)
+    return {
+        "version": DATA_LINEAGE_VERSION,
+        "coverage_score": score,
+        "coverage_grade": _coverage_grade(score),
+        "evidence_keys": evidence_keys,
+        "missing_keys": missing_keys,
+        "sources": sources,
+    }
+
+
+def _data_lineage(
+    signal_type: str,
+    trigger_score: float,
+    priority_score: float,
+    footprint: dict[str, Any],
+    springboard: dict[str, Any],
+    intraday_tail: dict[str, Any],
+    source_context: dict[str, Any],
+    *,
+    selected_for_ai: bool,
+    ai_recommended: bool,
+    selection_source: str,
+    candidate_rank: int | None,
+) -> dict[str, Any]:
+    parts = [
+        _daily_signal_lineage(signal_type, trigger_score, priority_score),
+        _price_action_lineage(footprint),
+        _springboard_lineage(springboard),
+        _intraday_tail_lineage(intraday_tail),
+        _external_lineage(source_context),
+    ]
+    coverage, evidence_keys, sources = _merge_lineage_parts(parts)
+    if selected_for_ai or ai_recommended:
+        coverage += 5.0
+        evidence_keys.append("ai_review")
+    sources["selection"] = _selection_lineage(selection_source, selected_for_ai, ai_recommended, candidate_rank)
+    return _lineage_result(coverage, evidence_keys, sources)
+
+
 def _features_json(
     signal_type: str,
     trigger_score: float,
@@ -106,6 +280,7 @@ def _features_json(
     springboard: dict[str, Any],
     intraday_tail: dict[str, Any],
     source_context: dict[str, Any],
+    data_lineage: dict[str, Any],
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if footprint:
@@ -116,6 +291,7 @@ def _features_json(
         out["intraday_tail_confirmation"] = intraday_tail
     if source_context:
         out["source_context"] = source_context
+    out["data_lineage"] = data_lineage
     out["candidate_shadow_score"] = score_candidate_shadow(
         signal_type=signal_type,
         trigger_score=trigger_score,
@@ -149,6 +325,22 @@ def _observation_feature_inputs(
     intraday_tail = _intraday_tail_fields(signal_type, code, ctx["intraday_tail_map"])
     source_context = _source_context_fields(signal_type, code, ctx["source_context_map"])
     priority_score = _float(ctx["score_map"].get(code))
+    selected_for_ai = code in ctx["selected"]
+    ai_recommended = code in ctx["recommended"]
+    candidate_rank = ctx["rank_map"].get(code)
+    data_lineage = _data_lineage(
+        signal_type,
+        trigger_score,
+        priority_score,
+        footprint,
+        springboard,
+        intraday_tail,
+        source_context,
+        selected_for_ai=selected_for_ai,
+        ai_recommended=ai_recommended,
+        selection_source=ctx["source_map"].get(code, "funnel"),
+        candidate_rank=candidate_rank,
+    )
     features = _features_json(
         signal_type,
         trigger_score,
@@ -157,6 +349,7 @@ def _observation_feature_inputs(
         springboard,
         intraday_tail,
         source_context,
+        data_lineage,
     )
     return priority_score, {"features_json": features, **springboard}
 
@@ -202,6 +395,34 @@ def _signal_observation_row(
     }
 
 
+def _derived_rank_map(selected_for_ai: list[str] | None, rank_map: dict[str, int] | None) -> dict[str, int]:
+    derived = {_code(code): idx + 1 for idx, code in enumerate(selected_for_ai or []) if _code(code)}
+    derived.update(rank_map or {})
+    return derived
+
+
+def _observation_context(triggers: dict[str, list[tuple[str, float]]], kwargs: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "selected": {_code(c) for c in kwargs["selected_for_ai"] or []},
+        "recommended": {_code(c) for c in kwargs["ai_recommended"] or []},
+        "trigger_tags": _trigger_tags_by_code(triggers),
+        "name_map": kwargs["name_map"] or {},
+        "sector_map": kwargs["sector_map"] or {},
+        "score_map": kwargs["score_map"] or {},
+        "stage_map": kwargs["stage_map"] or {},
+        "channel_map": kwargs["channel_map"] or {},
+        "latest_close_map": kwargs["latest_close_map"] or {},
+        "source_map": kwargs["source_map"] or {},
+        "springboard_map": kwargs["springboard_map"],
+        "footprint_map": kwargs["footprint_map"],
+        "intraday_tail_map": kwargs["intraday_tail_map"],
+        "source_context_map": kwargs["source_context_map"],
+        "selection_mode": kwargs["selection_mode"],
+        "policy_version": kwargs["policy_version"],
+        "rank_map": _derived_rank_map(kwargs["selected_for_ai"], kwargs["rank_map"]),
+    }
+
+
 def build_signal_observations(
     trade_date: str,
     triggers: dict[str, list[tuple[str, float]]],
@@ -225,25 +446,7 @@ def build_signal_observations(
     policy_version: str = "",
     rank_map: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
-    ctx = {
-        "selected": {_code(c) for c in selected_for_ai or []},
-        "recommended": {_code(c) for c in ai_recommended or []},
-        "trigger_tags": _trigger_tags_by_code(triggers),
-        "name_map": name_map or {},
-        "sector_map": sector_map or {},
-        "score_map": score_map or {},
-        "stage_map": stage_map or {},
-        "channel_map": channel_map or {},
-        "latest_close_map": latest_close_map or {},
-        "source_map": source_map or {},
-        "springboard_map": springboard_map,
-        "footprint_map": footprint_map,
-        "intraday_tail_map": intraday_tail_map,
-        "source_context_map": source_context_map,
-        "selection_mode": selection_mode,
-        "policy_version": policy_version,
-        "rank_map": rank_map or {},
-    }
+    ctx = _observation_context(triggers, locals())
     now_iso = datetime.now(UTC).isoformat()
     return [
         _signal_observation_row(trade_date, market, regime, now_iso, item, ctx) for item in _iter_trigger_rows(triggers)

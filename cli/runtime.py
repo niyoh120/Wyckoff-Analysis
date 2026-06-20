@@ -169,6 +169,8 @@ class AgentRuntime:
         """Run the agent loop and yield normalized runtime events."""
 
         system_prompt = self._prepare_system_prompt(system_prompt)
+        if self.tools and hasattr(self.tools, "_tool_context") and self.tools._tool_context:
+            self.tools._tool_context.state["session_id"] = self._session_id()
         state = RunState(started_at=time.monotonic())
         expectation = resolve_turn_expectation(messages)
         model_name = getattr(self.provider, "name", "")

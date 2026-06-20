@@ -20,6 +20,14 @@ export const PROVIDER_BASE_URLS: Record<Provider, string> = {
   anthropic: '',
 }
 
+export const PROVIDER_DEFAULT_MODELS: Record<Provider, string> = {
+  '1route': 'gpt-5.5',
+  gemini: 'gemini-2.0-flash',
+  openai: 'gpt-4o',
+  deepseek: 'deepseek-chat',
+  anthropic: 'claude-sonnet-4-20250514',
+}
+
 export const TABLE_NAMES = {
   USER_SETTINGS: 'user_settings',
   PORTFOLIOS: 'portfolios',

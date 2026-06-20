@@ -147,19 +147,24 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "query_history",
-        "description": "查询历史记录：形态复盘、信号确认池或尾盘买入记录。",
+        "description": "查询历史记录：形态复盘、信号确认池、尾盘买入记录，或历史上下文归档。",
         "parameters": {
             "type": "object",
             "properties": {
                 "source": {
                     "type": "string",
-                    "enum": ["recommendation", "signal", "tail_buy"],
-                    "description": "'recommendation' 形态复盘；'signal' 信号确认池；'tail_buy' 尾盘买入",
+                    "enum": ["recommendation", "signal", "tail_buy", "archive"],
+                    "description": "'recommendation' 形态复盘；'signal' 信号确认池；'tail_buy' 尾盘买入；'archive' 历史上下文归档",
                 },
                 "status": {"type": "string", "description": "仅 signal：'all'/'pending'/'confirmed'/'expired'"},
                 "run_date": {"type": "string", "description": "仅 tail_buy：按日期过滤 YYYY-MM-DD"},
                 "decision": {"type": "string", "description": "仅 tail_buy：按决策过滤 BUY/WATCH"},
                 "limit": {"type": "integer", "description": "返回记录数上限，默认 20"},
+                "query": {"type": "string", "description": "仅 archive：搜索归档的关键词或股票代码"},
+                "archive_ref": {
+                    "type": "string",
+                    "description": "仅 archive：要还原的具体归档引用链接（如 'archive://default/ctx_...'）",
+                },
             },
             "required": ["source"],
         },

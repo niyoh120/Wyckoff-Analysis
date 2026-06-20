@@ -1,5 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
-import { Activity, Check, RotateCcw, Send, Square, X, Wrench } from 'lucide-react'
+import {
+  Activity,
+  BarChart3,
+  BellPlus,
+  BookOpenCheck,
+  Check,
+  ClipboardList,
+  Compass,
+  Eye,
+  Gauge,
+  LineChart,
+  ListChecks,
+  Pin,
+  Plus,
+  RotateCcw,
+  Send,
+  ShieldAlert,
+  Sparkles,
+  Square,
+  Target,
+  Trash2,
+  WalletCards,
+  Wrench,
+  X,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react'
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -11,7 +37,7 @@ import { MarkdownContent } from '@/components/markdown'
 import { ScreenResultCard } from '@/components/screen-result-card'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
-import type { AnalyzeStockResult, ScreenResult, StrategyDecisionResult } from '@wyckoff/shared'
+import type { AnalyzeStockResult, ScreenResult, ScreenStockItem, StrategyDecisionResult } from '@wyckoff/shared'
 
 const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
   search_stock: 'tool.search_stock',
@@ -48,6 +74,85 @@ const MARKET_INDEX_LABELS: Record<string, string> = {
   chinext: '创业板',
 }
 const MAX_QUEUED_MESSAGES = 5
+const WATCHLIST_LIMIT = 18
+const WATCHLIST_STORAGE_VERSION = 'reading-room-watchlist-v1'
+
+const READING_ROOM_SCENARIOS: DeskScenario[] = [
+  {
+    id: 'premarket',
+    title: '盘前',
+    eyebrow: '市场先验',
+    description: '水温、持仓、候选池先排队。',
+    prompt: '做一次盘前读盘：先看市场水温和风险状态，再结合我的持仓、最新漏斗候选和威科夫形态复盘，给出今天只需要盯的 3 件事。',
+    Icon: Gauge,
+    toneClass: 'border-sky-200 bg-sky-50/75 text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100',
+  },
+  {
+    id: 'intraday',
+    title: '盘中',
+    eyebrow: '临场判断',
+    description: '先判断该进攻、等待还是防守。',
+    prompt: '做一次盘中读盘：先读取市场水温，再判断当前更适合进攻、等待还是防守；如果需要我补股票代码，请直接问我。',
+    Icon: Activity,
+    toneClass: 'border-emerald-200 bg-emerald-50/75 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100',
+  },
+  {
+    id: 'tail',
+    title: '尾盘',
+    eyebrow: '明日线索',
+    description: '把尾盘机会和漏斗候选合并看。',
+    prompt: '做一次尾盘机会筛选：读取尾盘记录和漏斗选股，按证据强弱列出明天值得观察的股票，并给出触发条件和失效条件。',
+    Icon: Zap,
+    toneClass: 'border-amber-200 bg-amber-50/80 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100',
+  },
+  {
+    id: 'review',
+    title: '复盘',
+    eyebrow: '信号归因',
+    description: '看哪些信号有效，哪些要降权。',
+    prompt: '做一次收盘复盘：回看最近威科夫形态复盘、策略归因和尾盘记录，告诉我哪些信号有效、哪些是噪音，明天应该降权或加权什么。',
+    Icon: BookOpenCheck,
+    toneClass: 'border-rose-200 bg-rose-50/75 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100',
+  },
+]
+
+const INTELLIGENCE_SHORTCUTS: DeskShortcut[] = [
+  {
+    title: '市场水温',
+    description: '大盘、A50、VIX 和风险状态。',
+    prompt: '先读取市场水温，告诉我今天的市场先验、风险级别和仓位倾向。',
+    Icon: BarChart3,
+    metric: '先验',
+  },
+  {
+    title: '持仓风险',
+    description: '把我的持仓按处理优先级排序。',
+    prompt: '查看我的持仓，并按“需要处理、继续观察、暂不操作”分组，给出每只票的风险点和下一步。',
+    Icon: WalletCards,
+    metric: '持仓',
+  },
+  {
+    title: '候选漏斗',
+    description: '高分候选先给交易条件。',
+    prompt: '运行漏斗选股，把结果按分数、形态阶段和证据强弱排序，并告诉我最值得盯的前 5 只。',
+    Icon: ListChecks,
+    metric: '候选',
+  },
+  {
+    title: '尾盘记录',
+    description: '只看尾盘确认和隔日线索。',
+    prompt: '读取尾盘记录，筛出有尾盘确认、次日仍值得观察的标的，并说明为什么。',
+    Icon: LineChart,
+    metric: '尾盘',
+  },
+  {
+    title: '策略归因',
+    description: '用近期结果校准信号权重。',
+    prompt: '读取策略归因报告，告诉我最近哪些信号贡献最好、哪些信号需要降权，并把结论用于今天读盘。',
+    Icon: ClipboardList,
+    metric: '归因',
+  },
+]
 
 type MessagePart = UIMessage['parts'][number] & Record<string, unknown>
 type ReadingRoomChat = ReturnType<typeof useChat<UIMessage>>
@@ -69,6 +174,7 @@ type AssistantRenderItem =
 interface ChatConfig {
   configured: boolean
   model: string | null
+  error?: string
 }
 
 interface QueuedMessage {
@@ -82,6 +188,59 @@ interface MessageQueue {
   clear: () => void
 }
 
+interface DeskScenario {
+  id: string
+  title: string
+  eyebrow: string
+  description: string
+  prompt: string
+  Icon: LucideIcon
+  toneClass: string
+}
+
+interface DeskShortcut {
+  title: string
+  description: string
+  prompt: string
+  Icon: LucideIcon
+  metric: string
+}
+
+interface WatchItem {
+  id: string
+  code: string
+  name: string
+  reason: string
+  source: string
+  trigger: string
+  invalidation: string
+  addedAt: string
+  updatedAt: string
+  score?: number | null
+  changePct?: number | null
+  phase?: string | null
+  action?: string | null
+}
+
+interface PinStockInput {
+  code: string
+  name?: string | null
+  reason: string
+  source: string
+  trigger?: string | null
+  invalidation?: string | null
+  score?: number | null
+  changePct?: number | null
+  phase?: string | null
+  action?: string | null
+}
+
+interface ReadingRoomWatchlist {
+  items: WatchItem[]
+  add: (item: PinStockInput) => void
+  remove: (code: string) => void
+}
+
 export function ChatPage() {
   const session = useAuthStore((s) => s.session)
   const user = useAuthStore((s) => s.user)
@@ -90,18 +249,18 @@ export function ChatPage() {
   const [localError, setLocalError] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const token = session?.access_token
-  const config = useChatConfig(token)
+  const config = useChatConfig(token, t)
   const chat = useReadingRoomChat(token, setLocalError, t)
   const loading = chat.status === 'submitted' || chat.status === 'streaming'
   const queue = useMessageQueue(chat, loading, token, config.configured, setLocalError, t)
+  const watchlist = useReadingRoomWatchlist(user?.id)
   useAutoScroll(scrollRef, chat.messages, loading, queue.messages.length)
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
-    e.preventDefault()
-    const text = input.trim()
+  const submitText = useCallback((rawText: string) => {
+    const text = rawText.trim()
     if (!text) return
     if (!token) { setLocalError(t('chat.requestFailed')); return }
-    if (!config.configured) { setLocalError(t('chat.configureLLM')); return }
+    if (!config.configured) { setLocalError(config.error || t('chat.configureLLM')); return }
     setInput('')
     setLocalError('')
     chat.clearError()
@@ -110,7 +269,12 @@ export function ChatPage() {
       return
     }
     void chat.sendMessage({ text })
-  }, [chat, config.configured, input, loading, queue, t, token])
+  }, [chat, config.configured, config.error, loading, queue, t, token])
+
+  const handleSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault()
+    submitText(input)
+  }, [input, submitText])
 
   const handleNewChat = useCallback(() => {
     if (loading) void chat.stop()
@@ -123,8 +287,18 @@ export function ChatPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <ChatHeader config={config} hasUser={Boolean(user)} onNewChat={handleNewChat} />
-      <ChatMessages chat={chat} loading={loading} queuedMessages={queue.messages} scrollRef={scrollRef} onPick={setInput} />
+      <ChatHeader config={config} hasUser={Boolean(user)} watchCount={watchlist.items.length} onNewChat={handleNewChat} />
+      <ChatMessages
+        chat={chat}
+        loading={loading}
+        queuedMessages={queue.messages}
+        scrollRef={scrollRef}
+        watchlist={watchlist.items}
+        onPick={setInput}
+        onPinStock={watchlist.add}
+        onRemoveWatchItem={watchlist.remove}
+        onStart={submitText}
+      />
       <ErrorBanner message={localError || chat.error?.message || ''} />
       <ChatComposer input={input} loading={loading} queuedCount={queue.messages.length} onClearQueue={queue.clear} onInput={setInput} onSubmit={handleSubmit} onStop={() => void chat.stop()} />
     </div>
@@ -141,16 +315,18 @@ function useReadingRoomChat(token: string | undefined, setLocalError: (value: st
   })
 }
 
-function useChatConfig(token: string | undefined): ChatConfig {
+function useChatConfig(token: string | undefined, t: (key: TranslationKey, vars?: Record<string, string>) => string): ChatConfig {
   const [config, setConfig] = useState<ChatConfig>({ configured: false, model: null })
   useEffect(() => {
     if (!token) return
     let cancelled = false
-    fetchChatConfig(token)
+    fetchChatConfig(token, t)
       .then((next) => { if (!cancelled) setConfig(next) })
-      .catch(() => { if (!cancelled) setConfig({ configured: false, model: null }) })
+      .catch(() => {
+        if (!cancelled) setConfig({ configured: false, model: null, error: t('chat.configUnreachable') })
+      })
     return () => { cancelled = true }
-  }, [token])
+  }, [t, token])
   return config
 }
 
@@ -190,6 +366,111 @@ function useMessageQueue(
   return useMemo(() => ({ messages, enqueue, clear }), [clear, enqueue, messages])
 }
 
+function useReadingRoomWatchlist(userId: string | undefined): ReadingRoomWatchlist {
+  const storageKey = useMemo(() => watchlistStorageKey(userId), [userId])
+  const [items, setItems] = useState<WatchItem[]>([])
+  const [loadedKey, setLoadedKey] = useState('')
+
+  useEffect(() => {
+    setItems(readWatchlist(storageKey))
+    setLoadedKey(storageKey)
+  }, [storageKey])
+
+  useEffect(() => {
+    if (loadedKey !== storageKey) return
+    writeWatchlist(storageKey, items)
+  }, [items, loadedKey, storageKey])
+
+  const add = useCallback((item: PinStockInput) => {
+    const code = normalizeStockCode(item.code)
+    if (!code) return
+    const now = new Date().toISOString()
+    setItems((current) => {
+      const existing = current.find((entry) => entry.code === code)
+      const nextItem: WatchItem = {
+        id: existing?.id || `watch-${code}`,
+        code,
+        name: sanitizeText(item.name) || existing?.name || '',
+        reason: item.reason || existing?.reason || '读盘室观察',
+        source: item.source || existing?.source || '读盘室',
+        trigger: sanitizeText(item.trigger) || existing?.trigger || '等放量突破或回踩确认',
+        invalidation: sanitizeText(item.invalidation) || existing?.invalidation || '跌破关键支撑或证据消失',
+        addedAt: existing?.addedAt || now,
+        updatedAt: now,
+        score: item.score ?? existing?.score ?? null,
+        changePct: item.changePct ?? existing?.changePct ?? null,
+        phase: sanitizeText(item.phase) || existing?.phase || null,
+        action: sanitizeText(item.action) || existing?.action || null,
+      }
+      return [nextItem, ...current.filter((entry) => entry.code !== code)].slice(0, WATCHLIST_LIMIT)
+    })
+  }, [])
+
+  const remove = useCallback((code: string) => {
+    const normalized = normalizeStockCode(code)
+    setItems((current) => current.filter((item) => item.code !== normalized))
+  }, [])
+
+  return useMemo(() => ({ items, add, remove }), [add, items, remove])
+}
+
+function watchlistStorageKey(userId: string | undefined): string {
+  return `wyckoff:${userId || 'guest'}:${WATCHLIST_STORAGE_VERSION}`
+}
+
+function readWatchlist(key: string): WatchItem[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || '[]') as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.map(normalizeWatchItem).filter(Boolean).slice(0, WATCHLIST_LIMIT) as WatchItem[]
+  } catch {
+    return []
+  }
+}
+
+function writeWatchlist(key: string, items: WatchItem[]) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, JSON.stringify(items.slice(0, WATCHLIST_LIMIT)))
+  } catch {
+    // localStorage may be disabled; the in-memory basket still works for this session.
+  }
+}
+
+function normalizeWatchItem(value: unknown): WatchItem | null {
+  const item = asRecord(value)
+  const code = normalizeStockCode(item?.code)
+  if (!item || !code) return null
+  return {
+    id: sanitizeText(item.id) || `watch-${code}`,
+    code,
+    name: sanitizeText(item.name),
+    reason: sanitizeText(item.reason) || '读盘室观察',
+    source: sanitizeText(item.source) || '读盘室',
+    trigger: sanitizeText(item.trigger) || '等放量突破或回踩确认',
+    invalidation: sanitizeText(item.invalidation) || '跌破关键支撑或证据消失',
+    addedAt: sanitizeText(item.addedAt) || new Date().toISOString(),
+    updatedAt: sanitizeText(item.updatedAt) || new Date().toISOString(),
+    score: nullableNumber(item.score),
+    changePct: nullableNumber(item.changePct),
+    phase: sanitizeText(item.phase) || null,
+    action: sanitizeText(item.action) || null,
+  }
+}
+
+function sanitizeText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeStockCode(value: unknown): string {
+  return sanitizeText(value).toUpperCase()
+}
+
+function nullableNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
 function createQueuedMessageId(): string {
   return `queued-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
@@ -204,14 +485,15 @@ function useAutoScroll(ref: React.RefObject<HTMLDivElement | null>, messages: UI
   }, [messages, loading, queuedCount, ref])
 }
 
-function ChatHeader({ config, hasUser, onNewChat }: { config: ChatConfig; hasUser: boolean; onNewChat: () => void }) {
+function ChatHeader({ config, hasUser, watchCount, onNewChat }: { config: ChatConfig; hasUser: boolean; watchCount: number; onNewChat: () => void }) {
   const { t } = usePreferences()
   return (
     <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-3">
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-semibold">{t('chat.title')}</h1>
         {config.model && <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200">{config.model}</span>}
-        {!config.configured && hasUser && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-200">{t('chat.noApiKey')}</span>}
+        {watchCount > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200"><Pin size={11} />观察 {watchCount}</span>}
+        {!config.configured && hasUser && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-200">{config.error ? t('chat.configErrorBadge') : t('chat.noApiKey')}</span>}
       </div>
       <button onClick={onNewChat} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted/50">
         <RotateCcw size={14} />
@@ -221,22 +503,45 @@ function ChatHeader({ config, hasUser, onNewChat }: { config: ChatConfig; hasUse
   )
 }
 
-function ChatMessages({ chat, loading, queuedMessages, scrollRef, onPick }: {
+function ChatMessages({
+  chat,
+  loading,
+  queuedMessages,
+  scrollRef,
+  watchlist,
+  onPick,
+  onPinStock,
+  onRemoveWatchItem,
+  onStart,
+}: {
   chat: ReadingRoomChat
   loading: boolean
   queuedMessages: QueuedMessage[]
   scrollRef: React.RefObject<HTMLDivElement | null>
+  watchlist: WatchItem[]
   onPick: (value: string) => void
+  onPinStock: (item: PinStockInput) => void
+  onRemoveWatchItem: (code: string) => void
+  onStart: (value: string) => void
 }) {
   const activeAssistantId = loading ? lastAssistantId(chat.messages) : null
   const isEmpty = chat.messages.length === 0 && !loading && queuedMessages.length === 0
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-6 py-4">
       {isEmpty ? (
-        <EmptyChat onPick={onPick} />
+        <ReadingRoomDashboard watchlist={watchlist} onPick={onPick} onRemoveWatchItem={onRemoveWatchItem} onStart={onStart} />
       ) : (
         <div className="space-y-4 pb-2">
-          {chat.messages.map((message) => <MessageBubble key={message.id} message={message} isActive={message.id === activeAssistantId} approve={(id) => void chat.addToolApprovalResponse({ id, approved: true })} deny={(id) => void chat.addToolApprovalResponse({ id, approved: false })} />)}
+          {chat.messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              isActive={message.id === activeAssistantId}
+              approve={(id) => void chat.addToolApprovalResponse({ id, approved: true })}
+              deny={(id) => void chat.addToolApprovalResponse({ id, approved: false })}
+              onPinStock={onPinStock}
+            />
+          ))}
           {queuedMessages.map((message, index) => <QueuedMessageBubble key={message.id} message={message} index={index + 1} />)}
           {loading && <ThinkingBubble />}
         </div>
@@ -263,17 +568,19 @@ const MessageBubble = memo(function MessageBubble({
   isActive,
   approve,
   deny,
+  onPinStock,
 }: {
   message: UIMessage
   isActive: boolean
   approve: (approvalId: string) => void
   deny: (approvalId: string) => void
+  onPinStock: (item: PinStockInput) => void
 }) {
   const isUser = message.role === 'user'
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[82%] rounded-2xl px-4 py-2.5 text-sm ${isUser ? 'bg-primary text-primary-foreground whitespace-pre-wrap' : 'bg-muted text-foreground'}`}>
-        {isUser ? <UserText message={message} /> : <AssistantParts message={message} isActive={isActive} approve={approve} deny={deny} />}
+        {isUser ? <UserText message={message} /> : <AssistantParts message={message} isActive={isActive} approve={approve} deny={deny} onPinStock={onPinStock} />}
       </div>
     </div>
   )
@@ -293,14 +600,26 @@ function QueuedMessageBubble({ message, index }: { message: QueuedMessage; index
   )
 }
 
-function AssistantParts({ message, isActive, approve, deny }: { message: UIMessage; isActive: boolean; approve: (id: string) => void; deny: (id: string) => void }) {
+function AssistantParts({
+  message,
+  isActive,
+  approve,
+  deny,
+  onPinStock,
+}: {
+  message: UIMessage
+  isActive: boolean
+  approve: (id: string) => void
+  deny: (id: string) => void
+  onPinStock: (item: PinStockInput) => void
+}) {
   const items = buildAssistantRenderItems(message.parts)
   return (
     <>
       {items.map((item) => {
         if (item.type === 'text') return <MarkdownContent key={item.key} content={item.content} />
         if (item.type === 'tool-group') return <ToolRunSummary key={item.key} parts={item.parts} isActive={isActive} />
-        if (item.type === 'tool') return <ToolPartCard key={item.key} part={item.part} approve={approve} deny={deny} />
+        if (item.type === 'tool') return <ToolPartCard key={item.key} part={item.part} approve={approve} deny={deny} onPinStock={onPinStock} />
         return null
       })}
     </>
@@ -339,7 +658,17 @@ function UserText({ message }: { message: UIMessage }) {
     .join('\n')
 }
 
-function ToolPartCard({ part, approve, deny }: { part: ToolPart; approve: (id: string) => void; deny: (id: string) => void }) {
+function ToolPartCard({
+  part,
+  approve,
+  deny,
+  onPinStock,
+}: {
+  part: ToolPart
+  approve: (id: string) => void
+  deny: (id: string) => void
+  onPinStock: (item: PinStockInput) => void
+}) {
   const { t } = usePreferences()
   const toolName = getToolName(part)
   const stateLabel = toolStateLabel(part, t)
@@ -352,7 +681,7 @@ function ToolPartCard({ part, approve, deny }: { part: ToolPart; approve: (id: s
         </span>
         <span className="shrink-0 text-[10px] opacity-75">{stateLabel}</span>
       </div>
-      <ToolStructuredOutput toolName={toolName} output={part.output} />
+      <ToolStructuredOutput toolName={toolName} input={part.input} output={part.output} onPinStock={onPinStock} />
       {part.errorText && <p className="mt-2 text-xs text-red-700 dark:text-red-200">{part.errorText}</p>}
       {part.state === 'approval-requested' && part.approval?.id && (
         <div className="mt-3 flex items-center gap-2">
@@ -393,50 +722,203 @@ function ToolRunSummary({ parts, isActive }: { parts: ToolPart[]; isActive: bool
   )
 }
 
-function ToolStructuredOutput({ toolName, output }: { toolName: string; output: unknown }) {
-  if (toolName === 'screen_stocks' && isScreenResult(output)) return <ScreenResultCard data={output} />
-  if (toolName === 'analyze_stock' && isAnalyzeResult(output)) return <AnalyzeResultCard data={output} />
-  if (toolName === 'generate_strategy_decision' && isStrategyResult(output)) return <StrategyResultCard data={output} />
+function ToolStructuredOutput({
+  toolName,
+  input,
+  output,
+  onPinStock,
+}: {
+  toolName: string
+  input: unknown
+  output: unknown
+  onPinStock: (item: PinStockInput) => void
+}) {
+  if (toolName === 'screen_stocks' && isScreenResult(output)) {
+    return <ScreenResultCard data={output} onPinStock={(stock) => onPinStock(pinFromScreenStock(stock))} />
+  }
+  if (toolName === 'analyze_stock' && isAnalyzeResult(output)) return <AnalyzeResultCard data={output} input={input} onPinStock={onPinStock} />
+  if (toolName === 'generate_strategy_decision' && isStrategyResult(output)) return <StrategyResultCard data={output} onPinStock={onPinStock} />
   if (output == null) return null
   return <p className="mt-1 line-clamp-2 text-[11px] opacity-80">{summarizeToolOutput(output)}</p>
 }
 
-function AnalyzeResultCard({ data }: { data: AnalyzeStockResult }) {
+function pinFromScreenStock(stock: ScreenStockItem): PinStockInput {
+  return {
+    code: stock.code,
+    name: stock.name,
+    reason: stock.funnel_score != null ? `漏斗分 ${stock.funnel_score.toFixed(2)} 的候选股` : '漏斗选股候选',
+    source: '漏斗选股',
+    trigger: '等待放量突破、缩量回踩或尾盘确认',
+    invalidation: '跌破形态关键支撑或后续证据转弱',
+    score: stock.funnel_score,
+    changePct: stock.change_pct,
+  }
+}
+
+function AnalyzeResultCard({
+  data,
+  input,
+  onPinStock,
+}: {
+  data: AnalyzeStockResult
+  input: unknown
+  onPinStock: (item: PinStockInput) => void
+}) {
+  const inputRecord = asRecord(input)
+  const code = normalizeStockCode(inputRecord?.code || inputRecord?.symbol || inputRecord?.ts_code)
+  const name = sanitizeText(inputRecord?.name)
+
   return (
-    <div className="mt-2 space-y-2">
-      <div className="flex flex-wrap gap-2 text-[11px]">
-        <span className="rounded-full bg-background/70 px-2 py-0.5">阶段 {data.phase}</span>
-        {data.confidence != null && <span className="rounded-full bg-background/70 px-2 py-0.5">置信 {data.confidence.toFixed(0)}</span>}
-        {data.support && <span className="rounded-full bg-background/70 px-2 py-0.5">支撑 {data.support}</span>}
-        {data.resistance && <span className="rounded-full bg-background/70 px-2 py-0.5">压力 {data.resistance}</span>}
+    <div className="mt-2 space-y-2 rounded-lg border border-border/50 bg-background/50 p-3">
+      <AnalyzeResultHeader data={data} code={code} name={name} onPinStock={onPinStock} />
+      <div className="grid gap-2 text-[11px] sm:grid-cols-3">
+        <DecisionMetric label="阶段" value={data.phase} />
+        <DecisionMetric label="动作" value={data.action} />
+        <DecisionMetric label="置信" value={data.confidence != null ? data.confidence.toFixed(0) : '--'} />
       </div>
-      <p className="text-xs font-medium">{data.action}</p>
+      <AnalyzeLevelBadges data={data} />
       <MarkdownContent content={data.markdown || data.summary} className="text-xs" />
     </div>
   )
 }
 
-function StrategyResultCard({ data }: { data: StrategyDecisionResult }) {
+function AnalyzeResultHeader({
+  data,
+  code,
+  name,
+  onPinStock,
+}: {
+  data: AnalyzeStockResult
+  code: string
+  name: string
+  onPinStock: (item: PinStockInput) => void
+}) {
   return (
-    <div className="mt-2 space-y-2 text-xs">
-      <p className="font-medium">{data.summary}</p>
-      <div className="flex flex-wrap gap-2 text-[11px]">
-        <span className="rounded-full bg-background/70 px-2 py-0.5">环境 {data.market_regime}</span>
-        <span className="rounded-full bg-background/70 px-2 py-0.5">仓位 {data.overall_position}</span>
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <div>
+        <div className="text-[11px] text-muted-foreground">个股决策卡</div>
+        <p className="text-sm font-semibold">{code ? `${code}${name ? ` ${name}` : ''}` : data.summary}</p>
       </div>
-      {data.position_actions.length > 0 && (
-        <div className="space-y-1">
-          {data.position_actions.map((item) => (
-            <div key={`${item.code}-${item.action}`} className="rounded border border-border/50 bg-background/40 px-2 py-1">
-              <div className="font-medium">{item.code} {item.name || ''} · {item.action}</div>
-              <div className="mt-0.5 opacity-80">{item.reason}</div>
-            </div>
-          ))}
-        </div>
-      )}
-      <p className="opacity-80">{data.risk}</p>
+      {code && <PinAnalyzeButton data={data} code={code} name={name} onPinStock={onPinStock} />}
     </div>
   )
+}
+
+function PinAnalyzeButton({ data, code, name, onPinStock }: {
+  data: AnalyzeStockResult
+  code: string
+  name: string
+  onPinStock: (item: PinStockInput) => void
+}) {
+  return (
+    <button type="button" onClick={() => onPinStock(pinFromAnalyze(data, code, name))} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/70 hover:text-foreground">
+      <BellPlus size={12} />
+      观察
+    </button>
+  )
+}
+
+function pinFromAnalyze(data: AnalyzeStockResult, code: string, name: string): PinStockInput {
+  return {
+    code,
+    name,
+    reason: data.action || data.summary,
+    source: '个股诊断',
+    trigger: data.resistance ? `突破或站稳 ${data.resistance}` : '等待关键位确认',
+    invalidation: data.support ? `跌破 ${data.support}` : data.risk,
+    phase: data.phase,
+    action: data.action,
+  }
+}
+
+function AnalyzeLevelBadges({ data }: { data: AnalyzeStockResult }) {
+  return (
+    <div className="flex flex-wrap gap-2 text-[11px]">
+      {data.support && <span className="rounded-full bg-down/10 px-2 py-0.5 text-down">支撑 {data.support}</span>}
+      {data.resistance && <span className="rounded-full bg-up/10 px-2 py-0.5 text-up">压力 {data.resistance}</span>}
+      {data.risk && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-500/10 dark:text-amber-200">风险 {data.risk}</span>}
+    </div>
+  )
+}
+
+function DecisionMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border/50 bg-background/60 px-2 py-1.5">
+      <div className="text-muted-foreground">{label}</div>
+      <div className="mt-0.5 truncate font-medium text-foreground">{value || '--'}</div>
+    </div>
+  )
+}
+
+function StrategyResultCard({
+  data,
+  onPinStock,
+}: {
+  data: StrategyDecisionResult
+  onPinStock: (item: PinStockInput) => void
+}) {
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-border/50 bg-background/50 p-3 text-xs">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="text-[11px] text-muted-foreground">组合策略卡</div>
+          <p className="font-semibold">{data.summary}</p>
+        </div>
+        <ShieldAlert size={16} className="shrink-0 text-amber-600" />
+      </div>
+      <div className="grid gap-2 text-[11px] sm:grid-cols-2">
+        <DecisionMetric label="市场环境" value={data.market_regime} />
+        <DecisionMetric label="总仓位" value={data.overall_position} />
+      </div>
+      <StrategyActionList actions={data.position_actions} onPinStock={onPinStock} />
+      <p className="text-muted-foreground">组合风险：{data.risk}</p>
+    </div>
+  )
+}
+
+function StrategyActionList({ actions, onPinStock }: {
+  actions: StrategyDecisionResult['position_actions']
+  onPinStock: (item: PinStockInput) => void
+}) {
+  if (actions.length === 0) return null
+  return (
+    <div className="space-y-1.5">
+      {actions.map((item) => <StrategyActionCard key={`${item.code}-${item.action}`} item={item} onPinStock={onPinStock} />)}
+    </div>
+  )
+}
+
+function StrategyActionCard({ item, onPinStock }: {
+  item: StrategyDecisionResult['position_actions'][number]
+  onPinStock: (item: PinStockInput) => void
+}) {
+  return (
+    <div className="rounded-md border border-border/50 bg-background/60 px-2 py-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 font-medium">
+          <span className="font-mono">{item.code}</span> {item.name || ''} · {item.action}
+        </div>
+        <button type="button" onClick={() => onPinStock(pinFromStrategy(item))} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/70 hover:text-foreground">
+          <Plus size={12} />
+          观察
+        </button>
+      </div>
+      <div className="mt-0.5 text-muted-foreground">{item.reason}</div>
+      {item.risk && <div className="mt-0.5 text-amber-700 dark:text-amber-200">风险：{item.risk}</div>}
+    </div>
+  )
+}
+
+function pinFromStrategy(item: StrategyDecisionResult['position_actions'][number]): PinStockInput {
+  return {
+    code: item.code,
+    name: item.name,
+    reason: item.reason,
+    source: '策略建议',
+    trigger: item.action,
+    invalidation: item.risk,
+    action: item.action,
+  }
 }
 
 function ChatComposer(props: {
@@ -509,29 +991,290 @@ function SendButton({ disabled, label }: { disabled: boolean; label: string }) {
   )
 }
 
-function EmptyChat({ onPick }: { onPick: (value: string) => void }) {
+function ReadingRoomDashboard({
+  watchlist,
+  onPick,
+  onRemoveWatchItem,
+  onStart,
+}: {
+  watchlist: WatchItem[]
+  onPick: (value: string) => void
+  onRemoveWatchItem: (code: string) => void
+  onStart: (value: string) => void
+}) {
+  const watchlistPrompt = buildWatchlistReviewPrompt(watchlist)
+
+  return (
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 pb-6">
+      <ReadingRoomHero watchCount={watchlist.length} />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.85fr)]">
+        <ScenarioPanel onStart={onStart} />
+        <WatchlistPanel watchlist={watchlist} watchlistPrompt={watchlistPrompt} onRemove={onRemoveWatchItem} onStart={onStart} />
+      </div>
+      <ShortcutPanel onStart={onStart} />
+      <PromptPanel onPick={onPick} />
+    </div>
+  )
+}
+
+function ReadingRoomHero({ watchCount }: { watchCount: number }) {
   const { t } = usePreferences()
   return (
-    <div className="flex min-h-full flex-col items-center justify-center text-muted-foreground">
-      <div className="mb-4 rounded-full border border-border bg-muted/40 p-3 text-primary">
-        <Activity size={28} />
+    <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="max-w-2xl">
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <Compass size={12} />
+            READING DESK
+          </div>
+          <h2 className="text-2xl font-semibold text-foreground">{t('chat.title')}</h2>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {t('chat.emptyTitle')}。先定市场先验，再把持仓、候选、尾盘和归因串成一张当日操作清单。
+          </p>
+        </div>
+        <div className="grid min-w-[260px] grid-cols-3 gap-2 rounded-lg border border-border bg-background p-2 text-center">
+          <DeskStat label="场景" value="4" Icon={Sparkles} />
+          <DeskStat label="情报" value="5" Icon={Target} />
+          <DeskStat label="观察" value={String(watchCount)} Icon={Eye} />
+        </div>
       </div>
-      <p className="text-sm font-medium">{t('chat.emptyTitle')}</p>
-      <p className="mt-2 text-xs text-muted-foreground">{t('chat.tryAsk')}</p>
-      <div className="mt-3 flex flex-wrap justify-center gap-2">
-        {[t('chat.prompt.portfolio'), t('chat.prompt.market'), t('chat.prompt.recent'), t('chat.prompt.search'), t('chat.prompt.screen'), t('chat.prompt.strategy')].map((q) => (
-          <button key={q} onClick={() => onPick(q)} className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted/50">
-            {q}
-          </button>
-        ))}
+    </section>
+  )
+}
+
+function ScenarioPanel({ onStart }: { onStart: (value: string) => void }) {
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">今日读盘场景</h3>
+          <p className="mt-1 text-xs text-muted-foreground">盘前、盘中、尾盘、复盘都能一键开局。</p>
+        </div>
+        <button type="button" onClick={() => onStart('帮我从市场水温、持仓风险、漏斗候选和尾盘记录四个角度，生成今天的读盘清单。')} className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:opacity-90">
+          <Zap size={13} />
+          全量读盘
+        </button>
       </div>
-      <div className="mt-8 rounded-lg border border-dashed border-border/60 px-4 py-2.5 text-center">
-        <p className="text-[11px] text-muted-foreground/70">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {READING_ROOM_SCENARIOS.map((scenario) => <ScenarioButton key={scenario.id} scenario={scenario} onStart={onStart} />)}
+      </div>
+    </section>
+  )
+}
+
+function ShortcutPanel({ onStart }: { onStart: (value: string) => void }) {
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">情报入口</h3>
+          <p className="mt-1 text-xs text-muted-foreground">这些入口会直接调用读盘室工具，不只是一句静态提示。</p>
+        </div>
+        <Gauge size={16} className="text-muted-foreground" />
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {INTELLIGENCE_SHORTCUTS.map((shortcut) => <ShortcutButton key={shortcut.title} shortcut={shortcut} onStart={onStart} />)}
+      </div>
+    </section>
+  )
+}
+
+function PromptPanel({ onPick }: { onPick: (value: string) => void }) {
+  const { t } = usePreferences()
+  return (
+    <section className="rounded-lg border border-dashed border-border/70 bg-background px-4 py-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-xs font-medium text-foreground">{t('chat.tryAsk')}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {chatPromptSuggestions(t).map((q) => (
+              <button key={q} type="button" onClick={() => onPick(q)} className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground">
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="max-w-xl text-[11px] leading-5 text-muted-foreground/75">
           {t('chat.fullVersionPrefix')} · <code className="rounded bg-muted px-1 py-0.5 text-[10px]">curl -fsSL https://raw.githubusercontent.com/YoungCan-Wang/Wyckoff-Analysis/main/install.sh | bash</code> {t('chat.unlockFull')}
         </p>
       </div>
+    </section>
+  )
+}
+
+function chatPromptSuggestions(t: (key: TranslationKey) => string): string[] {
+  return [
+    t('chat.prompt.portfolio'),
+    t('chat.prompt.market'),
+    t('chat.prompt.recent'),
+    t('chat.prompt.search'),
+    t('chat.prompt.screen'),
+    t('chat.prompt.strategy'),
+  ]
+}
+
+function DeskStat({ label, value, Icon }: { label: string; value: string; Icon: LucideIcon }) {
+  return (
+    <div className="rounded-md bg-muted/50 px-2 py-2">
+      <Icon size={14} className="mx-auto text-muted-foreground" />
+      <div className="mt-1 text-base font-semibold">{value}</div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
     </div>
   )
+}
+
+function ScenarioButton({ scenario, onStart }: { scenario: DeskScenario; onStart: (value: string) => void }) {
+  const { Icon } = scenario
+  return (
+    <button
+      type="button"
+      onClick={() => onStart(scenario.prompt)}
+      className={`group flex min-h-[132px] flex-col justify-between rounded-lg border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${scenario.toneClass}`}
+    >
+      <span className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-2">
+          <span className="rounded-md bg-background/75 p-1.5">
+            <Icon size={16} />
+          </span>
+          <span className="text-[11px] font-medium opacity-75">{scenario.eyebrow}</span>
+        </span>
+        <Send size={13} className="opacity-45 transition group-hover:translate-x-0.5 group-hover:opacity-90" />
+      </span>
+      <span>
+        <span className="block text-lg font-semibold">{scenario.title}</span>
+        <span className="mt-1 block text-xs leading-5 opacity-75">{scenario.description}</span>
+      </span>
+    </button>
+  )
+}
+
+function ShortcutButton({ shortcut, onStart }: { shortcut: DeskShortcut; onStart: (value: string) => void }) {
+  const { Icon } = shortcut
+  return (
+    <button
+      type="button"
+      onClick={() => onStart(shortcut.prompt)}
+      className="flex min-h-[118px] flex-col justify-between rounded-lg border border-border bg-background p-3 text-left transition hover:border-muted-foreground/35 hover:bg-muted/35"
+    >
+      <span className="flex items-center justify-between gap-2">
+        <Icon size={16} className="text-primary" />
+        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{shortcut.metric}</span>
+      </span>
+      <span>
+        <span className="block text-sm font-semibold">{shortcut.title}</span>
+        <span className="mt-1 block text-xs leading-5 text-muted-foreground">{shortcut.description}</span>
+      </span>
+    </button>
+  )
+}
+
+function WatchlistPanel({
+  watchlist,
+  watchlistPrompt,
+  onRemove,
+  onStart,
+}: {
+  watchlist: WatchItem[]
+  watchlistPrompt: string
+  onRemove: (code: string) => void
+  onStart: (value: string) => void
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">观察篮</h3>
+          <p className="mt-1 text-xs text-muted-foreground">从候选、诊断和策略卡里沉淀标的。</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onStart(watchlistPrompt)}
+          disabled={watchlist.length === 0}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          <Pin size={13} />
+          复盘观察篮
+        </button>
+      </div>
+
+      {watchlist.length === 0 ? (
+        <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-border/75 bg-background px-4 text-center">
+          <div className="rounded-full bg-muted p-3 text-muted-foreground">
+            <BellPlus size={22} />
+          </div>
+          <p className="mt-3 text-sm font-medium">还没有观察标的</p>
+          <p className="mt-1 max-w-[260px] text-xs leading-5 text-muted-foreground">漏斗选股、个股诊断和策略建议会提供“观察”按钮。</p>
+        </div>
+      ) : (
+        <div className="max-h-[360px] space-y-2 overflow-auto pr-1">
+          {watchlist.map((item) => (
+            <WatchItemCard key={item.id} item={item} onRemove={onRemove} onStart={onStart} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function WatchItemCard({ item, onRemove, onStart }: { item: WatchItem; onRemove: (code: string) => void; onStart: (value: string) => void }) {
+  return (
+    <div className="rounded-lg border border-border bg-background p-3">
+      <div className="flex items-start justify-between gap-2">
+        <button type="button" onClick={() => onStart(buildStockReviewPrompt(item))} className="min-w-0 text-left">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="font-mono text-sm font-semibold">{item.code}</span>
+            {item.name && <span className="truncate text-sm font-medium">{item.name}</span>}
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.reason}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => onRemove(item.code)}
+          aria-label={`移除 ${item.code}`}
+          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+        <span className="rounded-full bg-muted px-2 py-0.5">{item.source}</span>
+        {item.phase && <span className="rounded-full bg-muted px-2 py-0.5">{item.phase}</span>}
+        {item.score != null && <span className="rounded-full bg-muted px-2 py-0.5">分数 {item.score.toFixed(2)}</span>}
+        {item.changePct != null && <span className={`rounded-full px-2 py-0.5 ${item.changePct >= 0 ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}>{formatSignedPct(item.changePct)}</span>}
+        <span className="rounded-full bg-muted px-2 py-0.5">{formatWatchDate(item.updatedAt)}</span>
+      </div>
+      <div className="mt-2 grid gap-1.5 text-[11px] sm:grid-cols-2">
+        <div className="rounded-md bg-muted/45 px-2 py-1">
+          <div className="text-muted-foreground">触发</div>
+          <div className="mt-0.5 line-clamp-2 text-foreground">{item.trigger}</div>
+        </div>
+        <div className="rounded-md bg-muted/45 px-2 py-1">
+          <div className="text-muted-foreground">失效</div>
+          <div className="mt-0.5 line-clamp-2 text-foreground">{item.invalidation}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function buildWatchlistReviewPrompt(items: WatchItem[]): string {
+  if (items.length === 0) return '帮我先运行漏斗选股，生成一个值得观察的股票清单。'
+  const lines = items.slice(0, 10).map((item) => `${item.code}${item.name ? ` ${item.name}` : ''}：${item.reason}；触发=${item.trigger}；失效=${item.invalidation}`)
+  return `复盘我的读盘室观察篮，按优先级排序并给出今天怎么盯：\n${lines.join('\n')}`
+}
+
+function buildStockReviewPrompt(item: WatchItem): string {
+  return `重点读一下 ${item.code}${item.name ? ` ${item.name}` : ''}：来源=${item.source}，观察理由=${item.reason}，触发条件=${item.trigger}，失效条件=${item.invalidation}。请结合最新市场水温和个股数据判断现在是继续观察、等待确认、试仓还是回避。`
+}
+
+function formatWatchDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '刚刚更新'
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function formatSignedPct(value: number): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
 }
 
 function ThinkingBubble() {
@@ -555,11 +1298,16 @@ function buildChatTransport(token: string | undefined) {
   })
 }
 
-async function fetchChatConfig(token: string): Promise<ChatConfig> {
-  const response = await fetch(apiUrl('/api/chat/config'), {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) return { configured: false, model: null }
+async function fetchChatConfig(token: string, t: (key: TranslationKey, vars?: Record<string, string>) => string): Promise<ChatConfig> {
+  let response: Response
+  try {
+    response = await fetch(apiUrl('/api/chat/config'), {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  } catch {
+    return { configured: false, model: null, error: t('chat.configUnreachable') }
+  }
+  if (!response.ok) return { configured: false, model: null, error: t('chat.configHttpError', { status: String(response.status) }) }
   return await response.json() as ChatConfig
 }
 

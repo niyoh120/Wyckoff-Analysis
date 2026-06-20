@@ -323,3 +323,69 @@ class TestExpandTailForToolRefs:
         ]
         # tail_start=1 → assistant with tool_call already in tail
         assert _expand_tail_for_tool_refs(msgs, 1) == 1
+
+
+def test_query_history_archive_recall(tmp_path):
+    from agents.chat_tools import ToolContext, query_history
+    from cli.compaction import compact_messages
+
+    class FakeProvider:
+        def chat_stream(self, messages, tools, system_prompt):
+            yield {"type": "text_delta", "text": "这是一个测试摘要内容。涉及标的：000001"}
+
+    # 1. 构造足够长的消息触发压缩，并带有一些关键词
+    msgs = [{"role": "user", "content": "历史记录 " + "长文" * 4000}]
+    msgs.append({"role": "user", "content": "今天查了平安银行 000001 并执行了回测。"})
+    msgs.append({"role": "assistant", "content": "好的。"})
+    msgs.append({"role": "user", "content": "新消息1 " + "填充" * 1200})
+    msgs.append({"role": "assistant", "content": "好的"})
+    msgs.append({"role": "user", "content": "新消息2"})
+    msgs.append({"role": "assistant", "content": "好的"})
+    msgs.append({"role": "user", "content": "新消息3"})
+    msgs.append({"role": "assistant", "content": "好的"})
+
+    # 2. 执行压缩
+    result, compacted, meta = compact_messages(
+        msgs,
+        FakeProvider(),
+        "deepseek",
+        context_window=8_000,
+        session_id="test_sess_recall",
+        archive_dir=tmp_path,
+        include_metadata=True,
+    )
+
+    assert compacted
+    assert meta is not None
+    archive_ref = meta["archive_ref"]
+
+    # 3. 测试通过 query_history 搜索归档 (Query)
+    ctx = ToolContext(state={"session_id": "test_sess_recall"})
+
+    # 临时覆盖 archive_root
+    import cli.context_archive
+
+    orig_root_fn = cli.context_archive.archive_root
+    cli.context_archive.archive_root = lambda archive_dir=None: tmp_path
+
+    try:
+        # 搜索测试
+        search_res = query_history(source="archive", query="000001", tool_context=ctx)
+        assert "results" in search_res
+        assert len(search_res["results"]) > 0
+        assert search_res["results"][0]["archive_ref"] == archive_ref
+
+        # 还原测试
+        restore_res = query_history(source="archive", archive_ref=archive_ref, tool_context=ctx)
+        assert "messages" in restore_res
+        assert restore_res["archive_ref"] == archive_ref
+        assert restore_res["message_count"] > 0
+        # 检查是否还原了原始信息
+        content_concatenated = "".join(m.get("content", "") for m in restore_res["messages"])
+        assert "000001" in content_concatenated or "平安银行" in content_concatenated
+
+        # 测试无效参数
+        err_res = query_history(source="archive", tool_context=ctx)
+        assert "error" in err_res
+    finally:
+        cli.context_archive.archive_root = orig_root_fn

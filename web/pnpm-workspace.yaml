@@ -3,7 +3,7 @@ packages:
   - 'packages/*'
 overrides:
   '@babel/core': 7.29.6
-  esbuild: 0.28.1
+  esbuild: 0.25.12
   ws: 8.21.0
 allowBuilds:
   esbuild: true

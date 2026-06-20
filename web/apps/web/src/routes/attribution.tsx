@@ -42,6 +42,9 @@ interface StockOutcome {
   return_pct?: number
   candidate_shadow_score?: number | null
   candidate_shadow_grade?: string | null
+  data_lineage_coverage_score?: number | null
+  data_lineage_coverage_grade?: string | null
+  data_lineage_evidence_keys?: string[] | null
 }
 
 interface AttributionRecommendation {
@@ -110,11 +113,16 @@ function ReportView({ report }: { report: AttributionReport }) {
     () => flattenCandidateShadowStats(report.score_bucket_stats_json),
     [report.score_bucket_stats_json],
   )
+  const dataLineageRows = useMemo(
+    () => flattenDataLineageStats(report.score_bucket_stats_json),
+    [report.score_bucket_stats_json],
+  )
   return (
     <div className="space-y-6">
       <Summary report={report} />
       <Recommendations rows={report.recommendations_json} />
       <CandidateShadowStats rows={candidateShadowRows} />
+      <DataLineageStats rows={dataLineageRows} />
       <SignalStats rows={signalRows} />
       <OutcomeTables winners={report.top_winners_json} losers={report.top_losers_json} />
       <ShadowBox data={report.shadow_diff_stats_json} />
@@ -193,6 +201,89 @@ function CandidateShadowStats({ rows }: { rows: Array<{ horizon: string; grade: 
   )
 }
 
+interface DataLineageRows {
+  coverage: Array<{ horizon: string; grade: string; stats: MetricStats }>
+  evidence: Array<{ horizon: string; evidence: string; stats: MetricStats }>
+}
+
+function DataLineageStats({ rows }: { rows: DataLineageRows }) {
+  if (!rows.coverage.length && !rows.evidence.length) {
+    return <Panel title="证据覆盖表现"><p className="text-sm text-muted-foreground">暂无证据覆盖样本。</p></Panel>
+  }
+  return (
+    <Panel title="证据覆盖表现">
+      <div className="grid gap-5 xl:grid-cols-2">
+        <CoverageTable rows={rows.coverage} />
+        <EvidenceTable rows={rows.evidence} />
+      </div>
+    </Panel>
+  )
+}
+
+function CoverageTable({ rows }: { rows: DataLineageRows['coverage'] }) {
+  return (
+    <div className="overflow-auto">
+      <div className="mb-2 text-xs font-medium text-muted-foreground">按覆盖等级</div>
+      <table className="w-full min-w-[700px] text-left text-sm">
+        <DataLineageTableHead label="覆盖" />
+        <tbody>
+          {rows.map(({ horizon, grade, stats }) => (
+            <DataLineageRow key={`${horizon}-${grade}`} horizon={horizon} label={formatCoverageGrade(grade)} stats={stats} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function EvidenceTable({ rows }: { rows: DataLineageRows['evidence'] }) {
+  return (
+    <div className="overflow-auto">
+      <div className="mb-2 text-xs font-medium text-muted-foreground">按证据项</div>
+      <table className="w-full min-w-[700px] text-left text-sm">
+        <DataLineageTableHead label="证据项" />
+        <tbody>
+          {rows.map(({ horizon, evidence, stats }) => (
+            <DataLineageRow key={`${horizon}-${evidence}`} horizon={horizon} label={formatEvidenceKey(evidence)} stats={stats} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function DataLineageTableHead({ label }: { label: string }) {
+  return (
+    <thead className="text-xs text-muted-foreground">
+      <tr className="border-b border-border">
+        <th className="py-2">周期</th>
+        <th>{label}</th>
+        <th>样本</th>
+        <th>均值</th>
+        <th>胜率</th>
+        <th>大涨</th>
+        <th>大跌</th>
+        <th>平均回撤</th>
+      </tr>
+    </thead>
+  )
+}
+
+function DataLineageRow({ horizon, label, stats }: { horizon: string; label: string; stats: MetricStats }) {
+  return (
+    <tr className="border-b border-border/60">
+      <td className="py-2">{horizon}</td>
+      <td className="font-medium">{label}</td>
+      <td>{stats.count ?? 0}</td>
+      <td className={tone(stats.avg_return_pct)}>{fmtPct(stats.avg_return_pct)}</td>
+      <td>{fmtPct(stats.win_rate_pct)}</td>
+      <td>{fmtPct(stats.big_win_rate_pct)}</td>
+      <td>{fmtPct(stats.big_loss_rate_pct)}</td>
+      <td className={tone(stats.avg_drawdown_pct)}>{fmtPct(stats.avg_drawdown_pct)}</td>
+    </tr>
+  )
+}
+
 function SignalStats({ rows }: { rows: Array<{ horizon: string; signal: string; stats: MetricStats }> }) {
   return (
     <Panel title="信号表现">
@@ -249,6 +340,10 @@ function OutcomeTable({ title, rows }: { title: string; rows: StockOutcome[] }) 
               <div className="text-sm font-medium">{row.code} {row.name || ''}</div>
               <div className="mt-1 text-xs text-muted-foreground">
                 {row.trade_date} · {row.signal_type || '-'} · {row.track || '-'} · 影子分 {fmtScore(row.candidate_shadow_score)} · {formatGrade(row.candidate_shadow_grade)}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                证据 {formatCoverageGrade(row.data_lineage_coverage_grade)} {fmtScore(row.data_lineage_coverage_score)}
+                {row.data_lineage_evidence_keys?.length ? ` · ${row.data_lineage_evidence_keys.map(formatEvidenceKey).join('/')}` : ''}
               </div>
             </div>
             <div className={`text-right text-sm font-semibold ${tone(row.return_pct)}`}>{fmtPct(row.return_pct)}</div>
@@ -333,6 +428,44 @@ function flattenCandidateShadowStats(data: JsonMap | undefined) {
     })
 }
 
+function flattenDataLineageStats(data: JsonMap | undefined) {
+  const raw = data?._data_lineage
+  if (!raw || typeof raw !== 'object') return { coverage: [], evidence: [] }
+  const lineage = raw as JsonMap
+  const coverageRaw = lineage.coverage_grade
+  const evidenceRaw = lineage.evidence_key
+  const coverageOrder: Record<string, number> = { strong: 0, medium: 1, thin: 2, weak: 3, unknown: 4 }
+  const evidenceOrder: Record<string, number> = {
+    daily_signal: 0,
+    price_action: 1,
+    springboard: 2,
+    intraday_tail: 3,
+    external_capital: 4,
+    ai_review: 5,
+  }
+  const coverage = (!coverageRaw || typeof coverageRaw !== 'object' ? [] :
+    Object.entries(coverageRaw as Record<string, Record<string, MetricStats>>)
+      .flatMap(([horizon, stats]) =>
+        Object.entries(stats || {}).map(([grade, item]) => ({ horizon, grade, stats: item })),
+      ))
+    .sort((a, b) => {
+      const horizonDiff = Number(a.horizon) - Number(b.horizon)
+      if (Number.isFinite(horizonDiff) && horizonDiff !== 0) return horizonDiff
+      return (coverageOrder[a.grade] ?? 99) - (coverageOrder[b.grade] ?? 99)
+    })
+  const evidence = (!evidenceRaw || typeof evidenceRaw !== 'object' ? [] :
+    Object.entries(evidenceRaw as Record<string, Record<string, MetricStats>>)
+      .flatMap(([horizon, stats]) =>
+        Object.entries(stats || {}).map(([evidence, item]) => ({ horizon, evidence, stats: item })),
+      ))
+    .sort((a, b) => {
+      const horizonDiff = Number(a.horizon) - Number(b.horizon)
+      if (Number.isFinite(horizonDiff) && horizonDiff !== 0) return horizonDiff
+      return (evidenceOrder[a.evidence] ?? 99) - (evidenceOrder[b.evidence] ?? 99)
+    })
+  return { coverage, evidence }
+}
+
 function fmtPct(raw: number | null | undefined) {
   return typeof raw === 'number' && Number.isFinite(raw) ? `${raw.toFixed(1)}%` : '-'
 }
@@ -344,6 +477,29 @@ function fmtScore(raw: number | null | undefined) {
 function formatGrade(raw: string | null | undefined) {
   const text = String(raw || '').trim()
   return text && text !== 'unknown' ? text : '未评分'
+}
+
+function formatCoverageGrade(raw: string | null | undefined) {
+  const text = String(raw || '').trim()
+  const labels: Record<string, string> = {
+    strong: '强覆盖',
+    medium: '中覆盖',
+    thin: '薄覆盖',
+    weak: '弱覆盖',
+  }
+  return labels[text] || '未知覆盖'
+}
+
+function formatEvidenceKey(raw: string) {
+  const labels: Record<string, string> = {
+    daily_signal: '日线信号',
+    price_action: '量价痕迹',
+    springboard: '起跳板',
+    intraday_tail: '尾盘确认',
+    external_capital: '外部资金',
+    ai_review: 'AI复核',
+  }
+  return labels[raw] || raw
 }
 
 function tone(raw: number | null | undefined) {

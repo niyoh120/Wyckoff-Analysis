@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { CheckCircle2, CircleAlert, ExternalLink } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
-import { PROVIDERS, PROVIDER_LABELS, PROVIDER_BASE_URLS } from '@wyckoff/shared'
+import { PROVIDERS, PROVIDER_LABELS, PROVIDER_BASE_URLS, PROVIDER_DEFAULT_MODELS } from '@wyckoff/shared'
 import type { Provider } from '@wyckoff/shared'
 import { usePreferences } from '@/lib/preferences'
 import { buildSettingsCapabilityRows, summarizeSettingsCapabilities } from '@/lib/settings-capabilities'
@@ -17,7 +17,7 @@ export function SettingsPage() {
   const user = useAuthStore((s) => s.user)
   const { t } = usePreferences()
   const [chatProvider, setChatProvider] = useState<Provider>('1route')
-  const [configs, setConfigs] = useState<Record<string, ProviderConfig>>({})
+  const [configs, setConfigs] = useState<Record<string, ProviderConfig>>(() => buildDefaultProviderConfigs())
   const [tickflowKey, setTickflowKey] = useState('')
   const [feishuWebhook, setFeishuWebhook] = useState('')
   const [wecomWebhook, setWecomWebhook] = useState('')
@@ -71,37 +71,37 @@ export function SettingsPage() {
       ? JSON.parse(data.custom_providers || '{}')
       : (data.custom_providers || {})
 
-    const cfgs: Record<string, ProviderConfig> = {}
+    const cfgs: Record<string, ProviderConfig> = buildDefaultProviderConfigs()
     for (const p of PROVIDERS) {
       if (p === 'gemini') {
         cfgs[p] = {
           api_key: data.gemini_api_key || '',
-          model: data.gemini_model || '',
-          base_url: data.gemini_base_url || '',
+          model: data.gemini_model || PROVIDER_DEFAULT_MODELS.gemini,
+          base_url: data.gemini_base_url || PROVIDER_BASE_URLS.gemini,
         }
       } else if (p === 'openai') {
         cfgs[p] = {
           api_key: data.openai_api_key || '',
-          model: data.openai_model || '',
+          model: data.openai_model || PROVIDER_DEFAULT_MODELS.openai,
           base_url: data.openai_base_url || PROVIDER_BASE_URLS.openai,
         }
       } else if (p === 'deepseek') {
         cfgs[p] = {
           api_key: data.deepseek_api_key || '',
-          model: data.deepseek_model || '',
+          model: data.deepseek_model || PROVIDER_DEFAULT_MODELS.deepseek,
           base_url: data.deepseek_base_url || PROVIDER_BASE_URLS.deepseek,
         }
       } else if (p === 'anthropic') {
         cfgs[p] = {
           api_key: data.anthropic_api_key || '',
-          model: data.anthropic_model || '',
-          base_url: data.anthropic_base_url || '',
+          model: data.anthropic_model || PROVIDER_DEFAULT_MODELS.anthropic,
+          base_url: data.anthropic_base_url || PROVIDER_BASE_URLS.anthropic,
         }
       } else {
         const info = custom[p] || {}
         cfgs[p] = {
           api_key: info.apikey || info.api_key || '',
-          model: info.model || '',
+          model: info.model || PROVIDER_DEFAULT_MODELS[p],
           base_url: info.baseurl || info.base_url || PROVIDER_BASE_URLS[p] || '',
         }
       }
@@ -125,7 +125,11 @@ export function SettingsPage() {
     for (const p of ['1route'] as const) {
       const c = configs[p]
       if (c) {
-        custom_providers[p] = { apikey: c.api_key, model: c.model, baseurl: c.base_url }
+        custom_providers[p] = {
+          apikey: c.api_key,
+          model: c.model || PROVIDER_DEFAULT_MODELS[p],
+          baseurl: c.base_url || PROVIDER_BASE_URLS[p],
+        }
       }
     }
 
@@ -133,17 +137,17 @@ export function SettingsPage() {
       user_id: user.id,
       chat_provider: chatProvider,
       gemini_api_key: configs.gemini?.api_key || '',
-      gemini_model: configs.gemini?.model || '',
-      gemini_base_url: configs.gemini?.base_url || '',
+      gemini_model: configs.gemini?.model || PROVIDER_DEFAULT_MODELS.gemini,
+      gemini_base_url: configs.gemini?.base_url || PROVIDER_BASE_URLS.gemini,
       openai_api_key: configs.openai?.api_key || '',
-      openai_model: configs.openai?.model || '',
-      openai_base_url: configs.openai?.base_url || '',
+      openai_model: configs.openai?.model || PROVIDER_DEFAULT_MODELS.openai,
+      openai_base_url: configs.openai?.base_url || PROVIDER_BASE_URLS.openai,
       deepseek_api_key: configs.deepseek?.api_key || '',
-      deepseek_model: configs.deepseek?.model || '',
-      deepseek_base_url: configs.deepseek?.base_url || '',
+      deepseek_model: configs.deepseek?.model || PROVIDER_DEFAULT_MODELS.deepseek,
+      deepseek_base_url: configs.deepseek?.base_url || PROVIDER_BASE_URLS.deepseek,
       anthropic_api_key: configs.anthropic?.api_key || '',
-      anthropic_model: configs.anthropic?.model || '',
-      anthropic_base_url: configs.anthropic?.base_url || '',
+      anthropic_model: configs.anthropic?.model || PROVIDER_DEFAULT_MODELS.anthropic,
+      anthropic_base_url: configs.anthropic?.base_url || PROVIDER_BASE_URLS.anthropic,
       custom_providers,
       tickflow_api_key: tickflowKey,
       feishu_webhook: feishuWebhook,
@@ -328,7 +332,7 @@ export function SettingsPage() {
                   label={t('settings.model')}
                   value={configs[p]?.model || ''}
                   onChange={(v) => updateConfig(p, 'model', v)}
-                  placeholder={p === '1route' ? 'gpt-5.5' : ''}
+                  placeholder={PROVIDER_DEFAULT_MODELS[p]}
                 />
                 <Input
                   label={t('settings.baseUrl')}
@@ -384,4 +388,12 @@ function Input({ label, value, onChange, type = 'text', placeholder = '' }: {
       />
     </div>
   )
+}
+
+function buildDefaultProviderConfigs(): Record<string, ProviderConfig> {
+  return Object.fromEntries(PROVIDERS.map((provider) => [provider, {
+    api_key: '',
+    model: PROVIDER_DEFAULT_MODELS[provider],
+    base_url: PROVIDER_BASE_URLS[provider] || '',
+  }]))
 }

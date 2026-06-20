@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { PROVIDER_BASE_URLS, PROVIDER_DEFAULT_MODELS, type Provider } from '@wyckoff/shared'
 
 export interface LLMConfig {
   api_key: string
@@ -211,29 +212,37 @@ export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
 
   if (provider === 'gemini') {
     api_key = data.gemini_api_key || ''
-    model = data.gemini_model || 'gemini-2.0-flash'
+    model = data.gemini_model || PROVIDER_DEFAULT_MODELS.gemini
     base_url = data.gemini_base_url || 'https://generativelanguage.googleapis.com/v1beta/openai'
   } else if (provider === 'openai') {
     api_key = data.openai_api_key || ''
-    model = data.openai_model || 'gpt-4o'
-    base_url = data.openai_base_url || 'https://api.openai.com/v1'
+    model = data.openai_model || PROVIDER_DEFAULT_MODELS.openai
+    base_url = data.openai_base_url || PROVIDER_BASE_URLS.openai
   } else if (provider === 'deepseek') {
     api_key = data.deepseek_api_key || ''
-    model = data.deepseek_model || 'deepseek-chat'
-    base_url = data.deepseek_base_url || 'https://api.deepseek.com/v1'
+    model = data.deepseek_model || PROVIDER_DEFAULT_MODELS.deepseek
+    base_url = data.deepseek_base_url || PROVIDER_BASE_URLS.deepseek
   } else if (provider === 'anthropic') {
     api_key = data.anthropic_api_key || ''
-    model = data.anthropic_model || 'claude-sonnet-4-20250514'
+    model = data.anthropic_model || PROVIDER_DEFAULT_MODELS.anthropic
     base_url = data.anthropic_base_url || 'https://api.anthropic.com'
     protocol = 'anthropic'
   } else {
     const custom = parseCustomProviders(data.custom_providers)
     const info = custom[provider] || {}
     api_key = info.apikey || info.api_key || ''
-    model = info.model || ''
-    base_url = info.baseurl || info.base_url || ''
+    model = info.model || defaultModelForProvider(provider)
+    base_url = info.baseurl || info.base_url || defaultBaseUrlForProvider(provider)
   }
 
   if (!api_key) return null
   return { api_key, model, base_url, protocol }
+}
+
+function defaultModelForProvider(provider: string): string {
+  return PROVIDER_DEFAULT_MODELS[provider as Provider] || ''
+}
+
+function defaultBaseUrlForProvider(provider: string): string {
+  return PROVIDER_BASE_URLS[provider as Provider] || ''
 }

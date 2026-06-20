@@ -18,7 +18,10 @@ import {
   execStrategyDecision,
   execViewPortfolio,
   normalizeGeminiStream,
+  PROVIDER_BASE_URLS,
+  PROVIDER_DEFAULT_MODELS,
   type LLMToolConfig,
+  type Provider,
   type ToolDeps,
 } from '@wyckoff/shared'
 import { consumeStream, convertToModelMessages, generateText, stepCountIs, streamText, tool, type UIMessage } from 'ai'
@@ -196,11 +199,11 @@ type UserSettingsRow = Record<string, string | Record<string, unknown> | null>
 function configForProvider(data: UserSettingsRow): (LLMToolConfig & { protocol?: 'openai' | 'anthropic' }) | null {
   const provider = String(data.chat_provider || '1route')
   if (['zhipu', 'minimax', 'qwen', 'volcengine'].includes(provider)) return null
-  if (provider === 'gemini') return knownProviderConfig(data, 'gemini', 'https://generativelanguage.googleapis.com/v1beta/openai', 'gemini-2.0-flash')
-  if (provider === 'openai') return knownProviderConfig(data, 'openai', 'https://api.openai.com/v1', 'gpt-4o')
-  if (provider === 'deepseek') return knownProviderConfig(data, 'deepseek', 'https://api.deepseek.com/v1', 'deepseek-chat')
+  if (provider === 'gemini') return knownProviderConfig(data, 'gemini', 'https://generativelanguage.googleapis.com/v1beta/openai', PROVIDER_DEFAULT_MODELS.gemini)
+  if (provider === 'openai') return knownProviderConfig(data, 'openai', PROVIDER_BASE_URLS.openai, PROVIDER_DEFAULT_MODELS.openai)
+  if (provider === 'deepseek') return knownProviderConfig(data, 'deepseek', PROVIDER_BASE_URLS.deepseek, PROVIDER_DEFAULT_MODELS.deepseek)
   if (provider === 'anthropic') {
-    const config = knownProviderConfig(data, 'anthropic', 'https://api.anthropic.com', 'claude-sonnet-4-20250514')
+    const config = knownProviderConfig(data, 'anthropic', 'https://api.anthropic.com', PROVIDER_DEFAULT_MODELS.anthropic)
     return config ? { ...config, protocol: 'anthropic' } : null
   }
   return customProviderConfig(data, provider)
@@ -217,9 +220,17 @@ function customProviderConfig(data: UserSettingsRow, provider: string): LLMToolC
   const custom = parseCustomProviders(data.custom_providers)
   const info = custom[provider] || {}
   const api_key = info.apikey || info.api_key || ''
-  const model = info.model || ''
-  const base_url = info.baseurl || info.base_url || ''
+  const model = info.model || defaultModelForProvider(provider)
+  const base_url = info.baseurl || info.base_url || defaultBaseUrlForProvider(provider)
   return api_key && model && ALLOWED_URL_RE.test(base_url) ? { api_key, model, base_url } : null
+}
+
+function defaultModelForProvider(provider: string): string {
+  return PROVIDER_DEFAULT_MODELS[provider as Provider] || ''
+}
+
+function defaultBaseUrlForProvider(provider: string): string {
+  return PROVIDER_BASE_URLS[provider as Provider] || ''
 }
 
 function parseCustomProviders(raw: unknown): Record<string, Record<string, string>> {
