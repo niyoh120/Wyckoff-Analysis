@@ -43,6 +43,7 @@ from core.wyckoff_engine import (
     FunnelConfig,
     FunnelResult,
     allocate_ai_candidates,
+    build_candidate_entries,
     detect_accum_stage,
     detect_leader_radar,
     detect_markup_stage,
@@ -903,6 +904,7 @@ def _candidate_result(metrics: dict, triggers: dict[str, list[tuple[str, float]]
         channel_map=metrics.get("layer2_channel_map", {}) or {},
         leader_radar_symbols=metrics.get("leader_radar_symbols", []) or [],
         leader_radar_rows=metrics.get("leader_radar_rows", []) or [],
+        candidate_entries=metrics.get("candidate_entries", []) or [],
     )
 
 
@@ -1935,6 +1937,20 @@ def run_funnel_job(
         accum_stage_map,
         cfg,
     )
+    candidate_entries = build_candidate_entries(
+        alpha_symbols=l1_passed,
+        df_map=all_df_map,
+        sector_map=sector_map,
+        channel_map=l2_channel_map,
+        triggers=triggers,
+        stage_map={**accum_stage_map, **{code: "Markup" for code in markup_symbols}},
+        exit_signals=exit_signals,
+        cfg=cfg,
+    )
+    candidate_entry_types: dict[str, int] = {}
+    for item in candidate_entries:
+        entry_type = str(item.get("entry_type", "") or "unknown")
+        candidate_entry_types[entry_type] = candidate_entry_types.get(entry_type, 0) + 1
 
     total_hits = sum(len(v) for v in triggers.values())
     latest_close_map: dict[str, float] = {}
@@ -2002,6 +2018,9 @@ def run_funnel_job(
         "leader_radar": len(leader_radar_rows),
         "leader_radar_symbols": leader_radar_symbols,
         "leader_radar_rows": leader_radar_rows,
+        "candidate_entries": candidate_entries,
+        "candidate_entry_count": len(candidate_entries),
+        "candidate_entry_types": candidate_entry_types,
         "benchmark_context": benchmark_context,
         "latest_close_map": latest_close_map,
         "min_funnel_score": float(getattr(cfg, "min_funnel_score", 0.0) or 0.0),
@@ -2048,7 +2067,8 @@ def run_funnel_job(
         f"(主升={l2_momentum}, 潜伏={l2_ambush}, 吸筹={l2_accum}, 地量={l2_dry_vol}, 护盘={l2_rs_div}, 趋势={l2_trend_cont}, 点火={l2_sos}), "
         f"L3={metrics['layer3']}, 命中={total_hits}, "
         f"Top板块={top_sectors}, 主线={hot_concepts[:3] if hot_concepts else []}, "
-        f"战略旁路={len(strategic_l2_bypass_pool)}, 龙头雷达={len(leader_radar_rows)}, "
+        f"战略旁路={len(strategic_l2_bypass_pool)}, Alpha候选={len(candidate_entries)}, "
+        f"龙头雷达={len(leader_radar_rows)}, "
         f"各触发={metrics['by_trigger']}"
     )
     print(f"[funnel] 主题雷达({theme_radar_source}): {summarize_theme_radar(theme_radar)}")
@@ -2097,6 +2117,10 @@ def run(
     strategic_l2_bypass_stage_map = metrics.get("strategic_l2_bypass_stage_map", {}) or {}
     leader_radar_rows = metrics.get("leader_radar_rows", []) or []
     leader_radar_symbols = {str(row.get("code", "")).strip() for row in leader_radar_rows if row.get("code")}
+    candidate_entries = metrics.get("candidate_entries", []) or []
+    candidate_entry_map = {
+        str(item.get("code", "")).strip(): item for item in candidate_entries if str(item.get("code", "")).strip()
+    }
     external_seed_triggers = metrics.get("external_seed_l4_triggers", {}) or {}
     review_triggers = _merge_trigger_maps(triggers, bypass_triggers, strategic_l2_bypass_triggers)
     formal_hit_set = {str(code).strip() for hits in triggers.values() for code, _ in hits if str(code).strip()}
@@ -2114,6 +2138,21 @@ def run(
             code_to_reasons[code].append(label)
             code_to_trigger_keys[code].append(key)
             code_to_total_score[code] += score
+
+    for code, item in candidate_entry_map.items():
+        signal_key = str(item.get("signal_key") or item.get("entry_type") or "alpha_candidate")
+        entry_type = str(item.get("entry_type") or signal_key)
+        reasons = [str(x).strip() for x in item.get("reasons", []) if str(x).strip()]
+        reason_text = f"{entry_type}: " + " / ".join(reasons[:3]) if reasons else entry_type
+        code_to_reasons.setdefault(code, [])
+        code_to_trigger_keys.setdefault(code, [])
+        code_to_total_score[code] = max(
+            float(code_to_total_score.get(code, 0.0) or 0.0), float(item.get("score", 0.0) or 0.0)
+        )
+        if reason_text not in code_to_reasons[code]:
+            code_to_reasons[code].append(reason_text)
+        if signal_key not in code_to_trigger_keys[code]:
+            code_to_trigger_keys[code].append(signal_key)
 
     for code in strategic_l2_bypass_set:
         code_to_reasons.setdefault(code, [])
@@ -2262,7 +2301,8 @@ def run(
             f"**大盘量价推演**: {pv_line}",
             f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
             f"**中长线主线**: {summarize_theme_radar(metrics.get('theme_radar') or {})} ({theme_radar_source})",
-            f"**龙头雷达**: {len(leader_radar_rows)}只（独立观察，不计入正式L4）",
+            f"**龙头雷达**: {len(leader_radar_rows)}只（强势证据，非唯一入口）",
+            f"**潜在大涨候选板**: {len(candidate_entries)}只 / 类型 {metrics.get('candidate_entry_types', {}) or {}}",
             (
                 f"**战略主线联动**: 观察池{len(theme_candidate_map)}只 / "
                 f"正式L4命中{theme_l4_count}只 / 战略L2旁路{len(strategic_l2_bypass_pool)}只 / "
@@ -2380,6 +2420,8 @@ def run(
         lps_hit_set = {str(c).strip() for c, _ in review_triggers.get("lps", [])}
 
         def _infer_track(code: str) -> str:
+            if code in candidate_entry_map:
+                return "Accum" if str(candidate_entry_map[code].get("track", "")).strip() == "accumulation" else "Trend"
             if code in sos_hit_set or code in evr_hit_set:
                 return "Trend"
             if code in spring_hit_set or code in lps_hit_set:
@@ -2387,6 +2429,10 @@ def run(
             return "Trend"
 
         def _legacy_stage(code: str) -> str:
+            if code in candidate_entry_map:
+                state = str(candidate_entry_map[code].get("state", "") or "").strip()
+                if state:
+                    return state
             if code in markup_symbols:
                 return "Markup"
             return str(accum_stage_map.get(code, "") or "").strip()
@@ -2408,7 +2454,9 @@ def run(
                 "priority_score": float(code_to_best_score.get(c, 0.0)),
                 "priority_rank": idx + 1,
                 "selection_source": (
-                    "strategic_l2_bypass"
+                    "alpha_candidate"
+                    if c in candidate_entry_map
+                    else "strategic_l2_bypass"
                     if c in strategic_l2_bypass_set
                     else "l2_bypass"
                     if c in l2_bypass_set
@@ -2477,6 +2525,10 @@ def run(
     strategic_bypass_selected_count = sum(1 for c in selected_for_ai if c in strategic_l2_bypass_set)
 
     def _stage_name(code: str) -> str:
+        if code in candidate_entry_map:
+            state = str(candidate_entry_map[code].get("state", "") or "").strip()
+            if state:
+                return state
         if code in markup_symbols:
             return "Markup"
         return str(accum_stage_map.get(code, "") or "").strip()
@@ -2528,7 +2580,8 @@ def run(
         f"**大盘量价推演**: {pv_line}",
         f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
         f"**中长线主线**: {summarize_theme_radar(metrics.get('theme_radar') or {})} ({theme_radar_source})",
-        f"**龙头雷达**: {len(leader_radar_rows)}只（独立观察，不计入正式L4）",
+        f"**龙头雷达**: {len(leader_radar_rows)}只（强势证据，非唯一入口）",
+        f"**潜在大涨候选板**: {len(candidate_entries)}只 / 类型 {metrics.get('candidate_entry_types', {}) or {}}",
         (
             f"**战略主线联动**: 观察池{len(theme_candidate_map)}只 / "
             f"正式L4命中{theme_l4_count}只 / 战略L2旁路{len(strategic_l2_bypass_pool)}只 / "
@@ -2649,6 +2702,8 @@ def run(
     ok = True if not notify else send_feishu_notification(webhook_url, title, content)
 
     def _selection_source(code: str) -> str:
+        if code in candidate_entry_map:
+            return "alpha_candidate"
         if code in strategic_l2_bypass_set:
             return "strategic_l2_bypass"
         if code in l2_bypass_set:
@@ -2715,6 +2770,7 @@ def run(
             "strategic_l2_bypass_budget": FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
             "leader_radar_rows": leader_radar_rows,
             "leader_radar_symbols": sorted(leader_radar_symbols),
+            "candidate_entries": candidate_entries,
             "external_seed_triggers": external_seed_triggers,
             "external_seed_selected": [],
             "content": content,

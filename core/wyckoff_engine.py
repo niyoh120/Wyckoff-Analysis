@@ -4,7 +4,7 @@ Wyckoff Funnel 5 层漏斗筛选引擎
 Layer 1: 剥离垃圾（ST / 北交所 / 市值 / 成交额）
 Layer 2: 七通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/点火破局）
 Layer 2.5: Markup 加速检测
-Layer 2.7: 龙头雷达（独立主升观察池，不计入正式 L4）
+Layer 2.7: Alpha 候选板（潜在大涨结构 + 龙头跟踪）
 Layer 3: 板块共振（行业分布 Top-N + RPS 动量）
 Layer 4: 威科夫狙击（Spring / SOS / LPS / Effort vs Result）
 """
@@ -269,6 +269,29 @@ class FunnelConfig:
     leader_radar_new_high_days_min: int = 3
     leader_radar_pullback_max_pct: float = 28.0
     leader_radar_vol_ratio_min: float = 0.75
+    alpha_board_enabled: bool = True
+    alpha_board_limit: int = 80
+    alpha_min_score: float = 42.0
+    alpha_breakout_recent_days: int = 5
+    alpha_breakout_prior_window: int = 60
+    alpha_breakout_day_pct_min: float = 5.0
+    alpha_breakout_mid_break_allow_pct: float = 2.0
+    alpha_breakout_close_drawdown_max_pct: float = 6.0
+    alpha_breakout_ret20_min: float = 10.0
+    alpha_breakout_ret20_max: float = 65.0
+    alpha_breakout_ret60_min: float = 15.0
+    alpha_breakout_vol_ratio_min: float = 1.05
+    alpha_launchpad_ret60_min: float = 18.0
+    alpha_launchpad_ret120_min: float = 25.0
+    alpha_launchpad_ret20_min: float = -8.0
+    alpha_launchpad_ret20_max: float = 28.0
+    alpha_tight_base_ret60_min: float = 25.0
+    alpha_tight_base_range20_max: float = 22.0
+    alpha_tight_base_near_high_min: float = -14.0
+    alpha_accum_price_from_low_max: float = 0.65
+    alpha_accum_range60_max: float = 45.0
+    alpha_bias200_soft_max: float = 95.0
+    alpha_ret20_overheat: float = 75.0
 
     # Accumulation ABC 细化（Layer 2 增强）
     enable_accum_abc_detail: bool = True
@@ -306,6 +329,7 @@ class FunnelResult(NamedTuple):
     channel_map: dict[str, str]
     leader_radar_symbols: list[str]
     leader_radar_rows: list[dict[str, Any]]
+    candidate_entries: list[dict[str, Any]] = []
 
 
 def _trigger_codes_by_score(
@@ -2071,6 +2095,425 @@ def _leader_radar_keep(row: dict[str, Any], score: float, q60: float, q120: floa
     return score >= cfg.leader_radar_min_score and momentum and rank_ok and trend_ok and pullback_ok and vol_ok
 
 
+def _rank_pct_map(rows: list[dict[str, Any]], key: str) -> dict[str, float]:
+    values = {str(row["code"]): float(row[key]) for row in rows if row.get(key) is not None}
+    if not values:
+        return {}
+    ranked = pd.Series(values).rank(pct=True, method="average")
+    return {str(code): float(value) for code, value in ranked.items()}
+
+
+def _range_pct(high: pd.Series, low: pd.Series, lookback: int) -> float | None:
+    h = pd.to_numeric(high, errors="coerce").tail(lookback).dropna()
+    l = pd.to_numeric(low, errors="coerce").tail(lookback).dropna()
+    if h.empty or l.empty:
+        return None
+    low_min = float(l.min())
+    return None if low_min <= 0 else (float(h.max()) / low_min - 1.0) * 100.0
+
+
+def _alpha_breakout_frame(df_s: pd.DataFrame) -> pd.DataFrame:
+    cols = [c for c in ["open", "high", "low", "close", "volume"] if c in df_s.columns]
+    work = df_s[cols].copy()
+    for col in cols:
+        work[col] = pd.to_numeric(work[col], errors="coerce")
+    return work.dropna(subset=["high", "low", "close", "volume"]).reset_index(drop=True)
+
+
+def _alpha_breakout_setup(df_s: pd.DataFrame, cfg: FunnelConfig) -> dict[str, float] | None:
+    work = _alpha_breakout_frame(df_s)
+    prior_window = max(int(cfg.alpha_breakout_prior_window), 20)
+    recent_days = max(int(cfg.alpha_breakout_recent_days), 1)
+    if len(work) < prior_window + 2:
+        return None
+    start = max(prior_window, len(work) - recent_days)
+    for idx in range(len(work) - 1, start - 1, -1):
+        setup = _alpha_breakout_setup_at(work, idx, prior_window, cfg)
+        if setup is not None:
+            setup["days_ago"] = float(len(work) - 1 - idx)
+            return setup
+    return None
+
+
+def _alpha_breakout_setup_at(
+    work: pd.DataFrame,
+    idx: int,
+    prior_window: int,
+    cfg: FunnelConfig,
+) -> dict[str, float] | None:
+    prior_high = float(work["high"].iloc[idx - prior_window : idx].max())
+    prev_close = float(work["close"].iloc[idx - 1])
+    row = work.iloc[idx]
+    close, high, low = float(row["close"]), float(row["high"]), float(row["low"])
+    if prior_high <= 0 or prev_close <= 0 or close < prior_high or prev_close >= prior_high * 1.01:
+        return None
+    day_pct = (close / prev_close - 1.0) * 100.0
+    bar_pos = (close - low) / (high - low) if high > low else 1.0
+    vol_ref = float(work["volume"].iloc[max(0, idx - 20) : idx].mean())
+    vol_ratio = float(row["volume"]) / vol_ref if vol_ref > 0 else 0.0
+    if day_pct < cfg.alpha_breakout_day_pct_min or bar_pos < 0.62 or vol_ratio < cfg.alpha_breakout_vol_ratio_min:
+        return None
+    return _alpha_breakout_support(work, idx, close, high, low, vol_ratio, day_pct, cfg)
+
+
+def _alpha_breakout_support(
+    work: pd.DataFrame,
+    idx: int,
+    close: float,
+    high: float,
+    low: float,
+    vol_ratio: float,
+    day_pct: float,
+    cfg: FunnelConfig,
+) -> dict[str, float] | None:
+    midpoint = (high + low) / 2.0
+    after = work.iloc[idx:]
+    min_low = float(after["low"].min())
+    last_close = float(work.iloc[-1]["close"])
+    support_gap = (min_low / midpoint - 1.0) * 100.0 if midpoint > 0 else -100.0
+    close_dd = (last_close / close - 1.0) * 100.0 if close > 0 else -100.0
+    if support_gap < -cfg.alpha_breakout_mid_break_allow_pct:
+        return None
+    if close_dd < -cfg.alpha_breakout_close_drawdown_max_pct:
+        return None
+    return {"day_pct": day_pct, "vol_ratio": vol_ratio, "support_gap": support_gap}
+
+
+def _alpha_feature_row(
+    code: str,
+    df: pd.DataFrame,
+    sector_map: dict[str, str],
+    channel_map: dict[str, str],
+    cfg: FunnelConfig,
+) -> dict[str, Any] | None:
+    df_s = _sorted_if_needed(df)
+    close = pd.to_numeric(df_s.get("close"), errors="coerce").dropna()
+    if len(close) < 120:
+        return None
+    high = pd.to_numeric(df_s.get("high"), errors="coerce")
+    low = pd.to_numeric(df_s.get("low"), errors="coerce")
+    volume = pd.to_numeric(df_s.get("volume"), errors="coerce").dropna()
+    ma20, ma50, ma200 = close.rolling(20).mean(), close.rolling(50).mean(), close.rolling(200).mean()
+    high120 = float(close.tail(min(120, len(close))).max())
+    low250 = float(close.tail(min(250, len(close))).min())
+    vol20 = float(volume.tail(20).mean()) if len(volume) >= 20 else 0.0
+    vol60_ref = float(volume.tail(80).iloc[:60].mean()) if len(volume) >= 80 else 0.0
+    last = float(close.iloc[-1])
+    ma50_slope = None
+    if len(ma50.dropna()) >= 21:
+        base = float(ma50.iloc[-21])
+        ma50_slope = None if base <= 0 else (float(ma50.iloc[-1]) / base - 1.0) * 100.0
+    return {
+        "code": code,
+        "sector": sector_map.get(code, ""),
+        "channel": channel_map.get(code, ""),
+        "ret20": _close_return_pct(close, 20),
+        "ret60": _close_return_pct(close, 60),
+        "ret120": _close_return_pct(close, 120),
+        "last_close": last,
+        "near_high120_pct": (last / high120 - 1.0) * 100.0 if high120 > 0 else None,
+        "price_from_low250_pct": (last / low250 - 1.0) * 100.0 if low250 > 0 else None,
+        "range20_pct": _range_pct(high, low, 20),
+        "range60_pct": _range_pct(high, low, 60),
+        "vol_ratio_5_20": float(volume.tail(5).mean() / vol20) if vol20 > 0 else None,
+        "vol_ratio_20_60": float(vol20 / vol60_ref) if vol60_ref > 0 else None,
+        "above_ma20": bool(pd.notna(ma20.iloc[-1]) and last >= float(ma20.iloc[-1])),
+        "above_ma50": bool(pd.notna(ma50.iloc[-1]) and last >= float(ma50.iloc[-1])),
+        "above_ma200": bool(pd.notna(ma200.iloc[-1]) and last >= float(ma200.iloc[-1])),
+        "bias200_pct": None
+        if pd.isna(ma200.iloc[-1]) or float(ma200.iloc[-1]) <= 0
+        else (last / float(ma200.iloc[-1]) - 1.0) * 100.0,
+        "ma50_slope20": ma50_slope,
+        "breakout_setup": _alpha_breakout_setup(df_s, cfg),
+    }
+
+
+def _alpha_risk_score(row: dict[str, Any], cfg: FunnelConfig) -> float:
+    risk = 0.0
+    bias = row.get("bias200_pct")
+    ret20 = float(row.get("ret20") or 0.0)
+    near_high = float(row.get("near_high120_pct") or 0.0)
+    vol_ratio = row.get("vol_ratio_5_20")
+    if bias is not None:
+        risk += max((float(bias) - float(cfg.alpha_bias200_soft_max)) / 120.0, 0.0)
+    risk += max((ret20 - float(cfg.alpha_ret20_overheat)) / 80.0, 0.0)
+    risk += max((-near_high - 25.0) / 50.0, 0.0)
+    if vol_ratio is not None and float(vol_ratio) >= 2.8 and ret20 <= 5.0:
+        risk += 0.25
+    if not row.get("above_ma50"):
+        risk += 0.18
+    return min(max(risk, 0.0), 1.0)
+
+
+def _alpha_entry_values(row: dict[str, Any]) -> dict[str, float]:
+    ret20 = float(row.get("ret20") or 0.0)
+    ret60 = float(row.get("ret60") or 0.0)
+    ret120 = float(row.get("ret120") or 0.0)
+    near_high_raw = row.get("near_high120_pct")
+    return {
+        "ret20": ret20,
+        "ret60": ret60,
+        "ret120": ret120,
+        "near_high": -100.0 if near_high_raw is None else float(near_high_raw),
+        "range20": float(row.get("range20_pct") or 999.0),
+        "range60": float(row.get("range60_pct") or 999.0),
+        "vol5": float(row.get("vol_ratio_5_20") or 1.0),
+        "vol20": float(row.get("vol_ratio_20_60") or 1.0),
+        "price_low": float(row.get("price_from_low250_pct") or 999.0),
+        "slope": float(row.get("ma50_slope20") or 0.0),
+    }
+
+
+def _alpha_breakout_option(
+    row: dict[str, Any], cfg: FunnelConfig, v: dict[str, float]
+) -> tuple[str, str, float, list[str]] | None:
+    setup = row.get("breakout_setup")
+    if (
+        setup
+        and row["above_ma50"]
+        and v["near_high"] >= -3
+        and cfg.alpha_breakout_ret20_min <= v["ret20"] <= cfg.alpha_breakout_ret20_max
+        and v["ret60"] >= cfg.alpha_breakout_ret60_min
+    ):
+        return (
+            "breakout",
+            "early_breakout",
+            0.84,
+            [
+                f"突破{int(float(setup['days_ago']))}日",
+                f"突破日{float(setup['day_pct']):.1f}%",
+                f"量比{float(setup['vol_ratio']):.1f}",
+                f"承接{float(setup['support_gap']):.1f}%",
+            ],
+        )
+    return None
+
+
+def _alpha_launchpad_option(
+    row: dict[str, Any], cfg: FunnelConfig, v: dict[str, float]
+) -> tuple[str, str, float, list[str]] | None:
+    if (
+        row["above_ma50"]
+        and cfg.alpha_launchpad_ret20_min <= v["ret20"] <= cfg.alpha_launchpad_ret20_max
+        and v["ret60"] >= cfg.alpha_launchpad_ret60_min
+        and v["ret120"] >= cfg.alpha_launchpad_ret120_min
+        and v["near_high"] >= -18
+        and v["slope"] >= 0
+    ):
+        return (
+            "future_leader",
+            "launchpad",
+            0.76,
+            [f"60日{v['ret60']:.1f}%", f"120日{v['ret120']:.1f}%", "均线抬升"],
+        )
+    return None
+
+
+def _alpha_tight_base_option(
+    row: dict[str, Any], cfg: FunnelConfig, v: dict[str, float]
+) -> tuple[str, str, float, list[str]] | None:
+    if (
+        row["above_ma50"]
+        and v["ret60"] >= cfg.alpha_tight_base_ret60_min
+        and -15 <= v["ret20"] <= 18
+        and v["range20"] <= cfg.alpha_tight_base_range20_max
+        and v["near_high"] >= cfg.alpha_tight_base_near_high_min
+    ):
+        return (
+            "future_leader",
+            "tight_base",
+            0.72,
+            [f"20日振幅{v['range20']:.1f}%", f"60日{v['ret60']:.1f}%", "强势横盘"],
+        )
+    return None
+
+
+def _alpha_accum_ready_option(
+    row: dict[str, Any], cfg: FunnelConfig, v: dict[str, float]
+) -> tuple[str, str, float, list[str]] | None:
+    if (
+        v["price_low"] <= cfg.alpha_accum_price_from_low_max * 100
+        and v["range60"] <= cfg.alpha_accum_range60_max
+        and row["above_ma50"]
+        and v["vol20"] <= 0.9
+        and v["slope"] >= -2.0
+    ):
+        return (
+            "accumulation",
+            "accumulation_ready",
+            0.68,
+            [f"距年低{v['price_low']:.1f}%", f"60日振幅{v['range60']:.1f}%", "低位转强"],
+        )
+    return None
+
+
+def _alpha_entry_options(row: dict[str, Any], cfg: FunnelConfig) -> list[tuple[str, str, float, list[str]]]:
+    values = _alpha_entry_values(row)
+    options = [
+        _alpha_breakout_option(row, cfg, values),
+        _alpha_launchpad_option(row, cfg, values),
+        _alpha_tight_base_option(row, cfg, values),
+        _alpha_accum_ready_option(row, cfg, values),
+    ]
+    return [item for item in options if item is not None]
+
+
+def _alpha_score(row: dict[str, Any], q60: float, q120: float, timing: float, risk: float) -> tuple[float, float]:
+    trend = 1.0 if row.get("above_ma20") and row.get("above_ma50") else 0.65 if row.get("above_ma50") else 0.25
+    near_high_raw = row.get("near_high120_pct")
+    near_high = -40.0 if near_high_raw is None else float(near_high_raw)
+    near = max(min((near_high + 25.0) / 25.0, 1.0), 0.0)
+    slope = max(min((float(row.get("ma50_slope20") or 0.0) + 3.0) / 10.0, 1.0), 0.0)
+    opportunity = 0.30 * q60 + 0.25 * q120 + 0.18 * trend + 0.14 * near + 0.13 * slope
+    score = 100.0 * (0.48 * opportunity + 0.37 * timing + 0.15 * (1.0 - risk))
+    return round(score, 4), round(opportunity, 4)
+
+
+def _alpha_candidate_entries(
+    symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    sector_map: dict[str, str],
+    channel_map: dict[str, str],
+    cfg: FunnelConfig,
+) -> list[dict[str, Any]]:
+    rows = [
+        row
+        for code in symbols
+        if (df := df_map.get(code)) is not None
+        if (row := _alpha_feature_row(code, df, sector_map, channel_map, cfg)) is not None
+    ]
+    q60_map = _rank_pct_map(rows, "ret60")
+    q120_map = _rank_pct_map(rows, "ret120")
+    entries: list[dict[str, Any]] = []
+    for row in rows:
+        options = _alpha_entry_options(row, cfg)
+        if not options:
+            continue
+        track, entry_type, timing, reasons = max(options, key=lambda item: item[2])
+        risk = _alpha_risk_score(row, cfg)
+        score, opportunity = _alpha_score(
+            row, q60_map.get(row["code"], 0.0), q120_map.get(row["code"], 0.0), timing, risk
+        )
+        if score >= cfg.alpha_min_score:
+            entries.append(
+                _candidate_entry(row["code"], track, "alpha", entry_type, score, opportunity, timing, risk, reasons)
+            )
+    return entries
+
+
+def _candidate_entry(
+    code: str,
+    track: str,
+    state: str,
+    entry_type: str,
+    score: float,
+    opportunity_score: float,
+    timing_score: float,
+    risk_score: float,
+    reasons: list[str],
+) -> dict[str, Any]:
+    return {
+        "code": str(code),
+        "track": track,
+        "state": state,
+        "entry_type": entry_type,
+        "signal_key": entry_type,
+        "score": round(float(score), 4),
+        "opportunity_score": round(float(opportunity_score), 4),
+        "timing_score": round(float(timing_score), 4),
+        "risk_score": round(float(risk_score), 4),
+        "reasons": [str(x) for x in reasons if str(x).strip()],
+    }
+
+
+def candidate_entry_sort_key(item: dict[str, Any]) -> tuple[int, float, str]:
+    priority = {
+        "launchpad": 0,
+        "tight_base": 1,
+        "early_breakout": 2,
+        "accumulation_ready": 3,
+        "spring": 4,
+        "lps": 5,
+        "compression": 6,
+        "trend_pullback": 7,
+        "sos": 8,
+        "evr": 9,
+    }
+    entry_type = str(item.get("entry_type", "") or item.get("signal_key", "")).strip()
+    return (priority.get(entry_type, 10), -float(item.get("score", 0.0) or 0.0), str(item.get("code", "")))
+
+
+def _formal_candidate_entries(
+    triggers: dict[str, list[tuple[str, float]]],
+    stage_map: dict[str, str],
+    exit_signals: dict[str, dict],
+) -> list[dict[str, Any]]:
+    track_map = {
+        "spring": "accumulation",
+        "lps": "accumulation",
+        "compression": "accumulation",
+        "trend_pullback": "trend",
+        "sos": "breakout",
+        "evr": "trend",
+    }
+    base_map = {"spring": 70.0, "lps": 64.0, "compression": 58.0, "trend_pullback": 66.0, "sos": 56.0, "evr": 52.0}
+    entries: list[dict[str, Any]] = []
+    for key, rows in (triggers or {}).items():
+        for code, raw_score in rows or []:
+            risk = 0.0
+            sig = str((exit_signals.get(str(code), {}) or {}).get("signal", "")).strip()
+            if sig == "stop_loss":
+                risk = 1.0
+            elif sig == "distribution_warning":
+                risk = 0.45
+            score = min(float(base_map.get(key, 50.0)) + float(raw_score or 0.0) * 5.0 - risk * 35.0, 100.0)
+            entries.append(
+                _candidate_entry(
+                    str(code),
+                    track_map.get(key, "trend"),
+                    stage_map.get(str(code), "formal_l4"),
+                    key,
+                    score,
+                    score / 100.0,
+                    0.78,
+                    risk,
+                    [key],
+                )
+            )
+    return entries
+
+
+def _dedup_candidate_entries(entries: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    best: dict[str, dict[str, Any]] = {}
+    for item in entries:
+        code = str(item.get("code", "")).strip()
+        if not code:
+            continue
+        prev = best.get(code)
+        if prev is None or float(item.get("score", 0.0)) > float(prev.get("score", 0.0)):
+            best[code] = item
+    ranked = sorted(best.values(), key=candidate_entry_sort_key)
+    return ranked if limit <= 0 else ranked[:limit]
+
+
+def build_candidate_entries(
+    *,
+    alpha_symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    sector_map: dict[str, str],
+    channel_map: dict[str, str],
+    triggers: dict[str, list[tuple[str, float]]],
+    stage_map: dict[str, str],
+    exit_signals: dict[str, dict],
+    cfg: FunnelConfig,
+) -> list[dict[str, Any]]:
+    formal = _formal_candidate_entries(triggers, stage_map, exit_signals)
+    alpha = (
+        _alpha_candidate_entries(alpha_symbols, df_map, sector_map, channel_map, cfg) if cfg.alpha_board_enabled else []
+    )
+    return _dedup_candidate_entries(formal + alpha, max(int(cfg.alpha_board_limit), 0))
+
+
 def _prepare_df_map(df_map: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     return {sym: _sorted_if_needed(df) for sym, df in df_map.items() if df is not None and not df.empty}
 
@@ -2376,6 +2819,16 @@ def run_funnel(
 
     # 退出信号针对 L2 和 Markup 股票
     exit_signals = layer5_exit_signals(l2 + markup_symbols, prepared_df_map, accum_stage_map, cfg)
+    candidate_entries = build_candidate_entries(
+        alpha_symbols=l1,
+        df_map=prepared_df_map,
+        sector_map=sector_map,
+        channel_map=channel_map,
+        triggers=triggers,
+        stage_map=stage_map,
+        exit_signals=exit_signals,
+        cfg=cfg,
+    )
 
     return FunnelResult(
         layer1_symbols=l1,
@@ -2389,6 +2842,7 @@ def run_funnel(
         channel_map=channel_map,
         leader_radar_symbols=[str(row["code"]) for row in leader_radar_rows],
         leader_radar_rows=leader_radar_rows,
+        candidate_entries=candidate_entries,
     )
 
 
@@ -2469,6 +2923,16 @@ def allocate_ai_candidates(
 
     trend_candidates_with_score: list[tuple[str, float, bool]] = []
     accum_candidates_with_score: list[tuple[str, float, bool]] = []
+    candidate_entries = sorted(result.candidate_entries or [], key=candidate_entry_sort_key)
+    for item in candidate_entries:
+        code = str(item.get("code", "")).strip()
+        if not code or _is_blocked_exit(code):
+            continue
+        score = float(item.get("score", 0.0) or 0.0)
+        if str(item.get("track", "")).strip() == "accumulation":
+            accum_candidates_with_score.append((code, score, False))
+        else:
+            trend_candidates_with_score.append((code, score, False))
 
     markup_trend_candidates = [c for c in result.markup_symbols if _is_trend_track(c) or c in sos_hit_set]
     for code in _dedup_order(markup_trend_candidates):

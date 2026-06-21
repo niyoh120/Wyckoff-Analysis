@@ -103,6 +103,105 @@ def test_tradeable_l4_selection_uses_formal_l4_without_l3_fallback() -> None:
     assert score_map == {"000004": 2.0, "000005": 1.5, "000006": 1.0}
 
 
+def test_tradeable_l4_selection_prefers_candidate_board_when_available() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={"sos": [("000001", 5.0)]},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {
+                "code": "000002",
+                "track": "future_leader",
+                "entry_type": "launchpad",
+                "score": 78.0,
+            }
+        ],
+    )
+
+    codes, score_map, track_map = _select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="NEUTRAL",
+        selection_mode="tradeable_l4",
+    )
+
+    assert codes == ["000002"]
+    assert score_map == {"000002": 78.0}
+    assert track_map == {"000002": "Trend"}
+
+
+def test_tradeable_l4_candidate_board_blocks_risk_on_early_breakout() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {"code": "000001", "track": "breakout", "entry_type": "early_breakout", "score": 92.0},
+            {"code": "000002", "track": "future_leader", "entry_type": "launchpad", "score": 78.0},
+        ],
+    )
+
+    codes, score_map, track_map = _select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="RISK_ON",
+        selection_mode="tradeable_l4",
+    )
+
+    assert codes == ["000002"]
+    assert score_map == {"000002": 78.0}
+    assert track_map == {"000002": "Trend"}
+
+
+def test_tradeable_l4_candidate_board_prioritizes_launchpad_over_formal_score() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {"code": "000001", "track": "accumulation", "entry_type": "spring", "score": 100.0},
+            {"code": "000002", "track": "future_leader", "entry_type": "launchpad", "score": 80.0},
+        ],
+    )
+
+    codes, _, track_map = _select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="NEUTRAL",
+        selection_mode="tradeable_l4",
+    )
+
+    assert codes == ["000002", "000001"]
+    assert track_map == {"000002": "Trend", "000001": "Accum"}
+
+
 def test_regime_position_filter_blocks_defensive_regimes() -> None:
     codes = ["A", "B", "C", "D"]
 

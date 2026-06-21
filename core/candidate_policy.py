@@ -148,6 +148,9 @@ def loss_guard_reason(
         return ""
     keys = _normalize_keys(trigger_keys)
     regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
+    if keys == {"early_breakout"} and regime_norm == "RISK_ON":
+        if _env_bool("FUNNEL_ALPHA_BLOCK_RISK_ON_EARLY_BREAKOUT", "1"):
+            return "RISK_ON禁用早期突破"
     if "lps" in keys and not (keys & {"sos", "evr", "spring"}):
         return _pure_lps_reason(regime_norm, trigger_score)
     if keys == {"trend_pullback"}:

@@ -14,6 +14,7 @@ from core.wyckoff_engine import (
     _latest_trade_date,
     _sorted_if_needed,
     allocate_ai_candidates,
+    build_candidate_entries,
     detect_leader_radar,
     layer1_filter,
     layer2_strength_detailed,
@@ -212,6 +213,56 @@ class TestLeaderRadar:
         assert [row["code"] for row in rows] == ["000001"]
         assert rows[0]["risk"] == "主升跟踪"
         assert "60日" in rows[0]["reason"]
+
+
+class TestAlphaCandidateBoard:
+    def test_builds_launchpad_candidate_before_extreme_overheat(self):
+        cfg = FunnelConfig()
+        dates = pd.date_range("2024-01-01", periods=150, freq="B")
+        launchpad_closes = [8.0 + i * 0.045 for i in range(90)] + [12.1 + i * 0.055 for i in range(60)]
+        flat_closes = [10.0] * 150
+        entries = build_candidate_entries(
+            alpha_symbols=["000001", "000002"],
+            df_map={
+                "000001": _make_df(dates.strftime("%Y-%m-%d").tolist(), launchpad_closes),
+                "000002": _make_df(dates.strftime("%Y-%m-%d").tolist(), flat_closes),
+            },
+            sector_map={"000001": "机器人"},
+            channel_map={"000001": "主升通道"},
+            triggers={},
+            stage_map={},
+            exit_signals={},
+            cfg=cfg,
+        )
+
+        assert [item["code"] for item in entries] == ["000001"]
+        assert entries[0]["entry_type"] == "launchpad"
+        assert entries[0]["track"] == "future_leader"
+
+    def test_builds_recent_supported_breakout_candidate(self):
+        cfg = FunnelConfig()
+        dates = pd.date_range("2024-01-01", periods=150, freq="B")
+        closes = [10.0 + i * 0.01 for i in range(90)]
+        closes += [11.0 + i * 0.035 for i in range(55)]
+        closes += [13.8, 13.7, 13.9, 13.75, 14.0]
+        volumes = [1_000_000] * 145 + [2_200_000, 1_200_000, 1_100_000, 1_100_000, 1_200_000]
+        df = _make_df(dates.strftime("%Y-%m-%d").tolist(), closes, volumes=volumes)
+        df.loc[df.index[145], "high"] = closes[145] * 1.002
+
+        entries = build_candidate_entries(
+            alpha_symbols=["000001"],
+            df_map={"000001": df},
+            sector_map={"000001": "机器人"},
+            channel_map={"000001": "点火破局"},
+            triggers={},
+            stage_map={},
+            exit_signals={},
+            cfg=cfg,
+        )
+
+        assert [item["code"] for item in entries] == ["000001"]
+        assert entries[0]["entry_type"] == "early_breakout"
+        assert any("承接" in reason for reason in entries[0]["reasons"])
 
 
 class TestDetectCompression:

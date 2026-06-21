@@ -39,6 +39,9 @@ from core.candidate_policy import (
     is_tradeable_l4_trigger_combo,
     trigger_sets_by_code,
 )
+from core.candidate_policy import (
+    loss_guard_reason as _loss_guard_reason,
+)
 from core.cash_portfolio import (
     STYLE_LABELS,
     CashPortfolioConfig,
@@ -60,6 +63,7 @@ from core.wyckoff_engine import (
     FunnelConfig,
     FunnelResult,
     allocate_ai_candidates,
+    candidate_entry_sort_key,
     normalize_hist_from_fetch,
     run_funnel,
 )
@@ -478,8 +482,28 @@ def _select_l4_mode_codes(
     result: FunnelResult,
     sorted_hit_codes: list[str],
     hit_score_map: dict[str, float],
+    day_df_map: dict[str, pd.DataFrame],
+    regime: str,
     selection_mode: str,
 ) -> tuple[list[str], dict[str, float], dict[str, str]] | None:
+    if selection_mode in _TRADEABLE_L4_SELECTION_MODES and result.candidate_entries:
+        entries = sorted(
+            [
+                item
+                for item in result.candidate_entries
+                if not _candidate_entry_loss_guard(item, result=result, day_df_map=day_df_map, regime=regime)
+            ],
+            key=candidate_entry_sort_key,
+        )
+        selected_codes = _dedup_order([str(item.get("code", "")).strip() for item in entries])
+        score_map = {str(item.get("code", "")).strip(): float(item.get("score", 0.0) or 0.0) for item in entries}
+        track_map = {
+            str(item.get("code", "")).strip(): (
+                "Accum" if str(item.get("track", "")).strip() == "accumulation" else "Trend"
+            )
+            for item in entries
+        }
+        return selected_codes, score_map, track_map
     if selection_mode in _STRICT_L4_SELECTION_MODES or selection_mode in _TRADEABLE_L4_SELECTION_MODES:
         trigger_sets = trigger_sets_by_code(result.triggers)
         selected_codes = [
@@ -492,6 +516,27 @@ def _select_l4_mode_codes(
         return None
     score_map = {code: hit_score_map.get(code, 0.0) for code in selected_codes}
     return selected_codes, score_map, _track_map_for_hits(selected_codes, result.triggers)
+
+
+def _candidate_entry_loss_guard(
+    item: dict[str, object],
+    *,
+    result: FunnelResult,
+    day_df_map: dict[str, pd.DataFrame],
+    regime: str,
+) -> str:
+    code = str(item.get("code", "")).strip()
+    if not code:
+        return "empty_code"
+    entry_type = str(item.get("entry_type", "") or item.get("signal_key", "")).strip()
+    return _loss_guard_reason(
+        code,
+        regime,
+        [entry_type],
+        float(item.get("score", 0.0) or 0.0),
+        str(result.channel_map.get(code, "") or ""),
+        day_df_map,
+    )
 
 
 def _select_ai_input_codes(
@@ -514,6 +559,8 @@ def _select_ai_input_codes(
         result=result,
         sorted_hit_codes=sorted_hit_codes,
         hit_score_map=hit_score_map,
+        day_df_map=day_df_map,
+        regime=regime,
         selection_mode=selection_mode,
     )
     if l4_selection is not None:
@@ -1160,6 +1207,12 @@ def run_backtest(
 
         # Only needed for string names
         name_score_map = _combine_trigger_scores(result.triggers)
+        for item in result.candidate_entries or []:
+            code = str(item.get("code", "")).strip()
+            if code:
+                name_score_map.setdefault(
+                    code, (float(item.get("score", 0.0) or 0.0), str(item.get("entry_type", "alpha")))
+                )
         for code, signal_type in confirmed_trigger_map.items():
             name_score_map.setdefault(code, (confirmed_score_map.get(code, 0.0), f"{signal_type}(确认)"))
 
