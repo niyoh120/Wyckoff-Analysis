@@ -180,7 +180,7 @@ class TestCandidateRanker:
         assert isinstance(TRIGGER_LABELS, dict)
         assert "sos" in TRIGGER_LABELS
         assert "spring" in TRIGGER_LABELS
-        assert len(TRIGGER_LABELS) == 6
+        assert len(TRIGGER_LABELS) == 10
 
 
 # ── tools/market_regime ──

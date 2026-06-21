@@ -13,12 +13,39 @@ const WYCKOFF_TERMS: Record<string, { bg: string; text: string; border: string }
   'st': { bg: 'bg-amber-500/10 dark:bg-amber-500/20', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-500/20 dark:border-amber-500/30' },
   'ar': { bg: 'bg-violet-500/10 dark:bg-violet-500/20', text: 'text-violet-700 dark:text-violet-400', border: 'border-violet-500/20 dark:border-violet-500/30' },
 
+  // Strategy / Funnel Triggers
+  'early_breakout': { bg: 'bg-indigo-500/10 dark:bg-indigo-500/20', text: 'text-indigo-700 dark:text-indigo-400', border: 'border-indigo-500/20 dark:border-indigo-500/30' },
+  'earlybo': { bg: 'bg-indigo-500/10 dark:bg-indigo-500/20', text: 'text-indigo-700 dark:text-indigo-400', border: 'border-indigo-500/20 dark:border-indigo-500/30' },
+  '早期突破': { bg: 'bg-indigo-500/10 dark:bg-indigo-500/20', text: 'text-indigo-700 dark:text-indigo-400', border: 'border-indigo-500/20 dark:border-indigo-500/30' },
+
+  'launchpad': { bg: 'bg-amber-500/10 dark:bg-amber-500/20', text: 'text-amber-700 dark:text-amber-450', border: 'border-amber-500/20 dark:border-amber-500/30' },
+  '主升预备': { bg: 'bg-amber-500/10 dark:bg-amber-500/20', text: 'text-amber-700 dark:text-amber-450', border: 'border-amber-500/20 dark:border-amber-500/30' },
+
+  'tight_base': { bg: 'bg-cyan-500/10 dark:bg-cyan-500/20', text: 'text-cyan-700 dark:text-cyan-400', border: 'border-cyan-500/20 dark:border-cyan-500/30' },
+  'tightbase': { bg: 'bg-cyan-500/10 dark:bg-cyan-500/20', text: 'text-cyan-700 dark:text-cyan-400', border: 'border-cyan-500/20 dark:border-cyan-500/30' },
+  '强势平台': { bg: 'bg-cyan-500/10 dark:bg-cyan-500/20', text: 'text-cyan-700 dark:text-cyan-400', border: 'border-cyan-500/20 dark:border-cyan-500/30' },
+
+  'accumulation_ready': { bg: 'bg-emerald-500/10 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-450', border: 'border-emerald-500/20 dark:border-emerald-500/30' },
+  'accumready': { bg: 'bg-emerald-500/10 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-450', border: 'border-emerald-500/20 dark:border-emerald-500/30' },
+  '低位转强': { bg: 'bg-emerald-500/10 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-450', border: 'border-emerald-500/20 dark:border-emerald-500/30' },
+
+  'evr': { bg: 'bg-purple-500/10 dark:bg-purple-500/20', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-500/20 dark:border-purple-500/30' },
+  '放量不跌': { bg: 'bg-purple-500/10 dark:bg-purple-500/20', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-500/20 dark:border-purple-500/30' },
+
+  'compression': { bg: 'bg-slate-500/10 dark:bg-slate-500/20', text: 'text-slate-700 dark:text-slate-400', border: 'border-slate-500/20 dark:border-slate-500/30' },
+  'compress': { bg: 'bg-slate-500/10 dark:bg-slate-500/20', text: 'text-slate-700 dark:text-slate-400', border: 'border-slate-500/20 dark:border-slate-500/30' },
+  '压缩蓄势': { bg: 'bg-slate-500/10 dark:bg-slate-500/20', text: 'text-slate-700 dark:text-slate-400', border: 'border-slate-500/20 dark:border-slate-500/30' },
+
+  'trend_pullback': { bg: 'bg-sky-500/10 dark:bg-sky-500/20', text: 'text-sky-700 dark:text-sky-400', border: 'border-sky-500/20 dark:border-sky-500/30' },
+  'trendpb': { bg: 'bg-sky-500/10 dark:bg-sky-500/20', text: 'text-sky-700 dark:text-sky-400', border: 'border-sky-500/20 dark:border-sky-500/30' },
+  '趋势回踩': { bg: 'bg-sky-500/10 dark:bg-sky-500/20', text: 'text-sky-700 dark:text-sky-400', border: 'border-sky-500/20 dark:border-sky-500/30' },
+
   // Negative markers / weakness
   'ut': { bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-400', border: 'border-rose-500/20 dark:border-rose-500/30' },
-  'utad': { bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-400', border: 'border-rose-500/20 dark:border-rose-500/30' },
+  'utad': { bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-450', border: 'border-rose-500/20 dark:border-rose-500/30' },
   'sow': { bg: 'bg-red-500/10 dark:bg-red-500/20', text: 'text-red-700 dark:text-red-400', border: 'border-red-500/20 dark:border-red-500/30' },
   'lpsy': { bg: 'bg-orange-500/10 dark:bg-orange-500/20', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-500/20 dark:border-orange-500/30' },
-  'bc': { bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-400', border: 'border-rose-500/20 dark:border-rose-500/30' },
+  'bc': { bg: 'bg-rose-500/10 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-450', border: 'border-rose-500/20 dark:border-rose-500/30' },
 
   // Phases
   'phase a': { bg: 'bg-cyan-500/10 dark:bg-cyan-500/20', text: 'text-cyan-700 dark:text-cyan-400', border: 'border-cyan-500/20 dark:border-cyan-500/30' },

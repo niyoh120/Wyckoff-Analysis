@@ -7,6 +7,8 @@ def test_generate_public_premarket_brief_uses_efficiency(monkeypatch):
     monkeypatch.setenv("EFFICIENCY_API_KEY", "eff-key")
     monkeypatch.setenv("EFFICIENCY_MODEL", "eff-model")
     monkeypatch.setenv("EFFICIENCY_BASE_URL", "https://eff.example/v1")
+    monkeypatch.setenv("PREMARKET_LLM_PROVIDER", "efficiency")
+    monkeypatch.setenv("DEFAULT_LLM_PROVIDER", "efficiency")
     monkeypatch.setattr(
         brief,
         "call_llm",
@@ -37,6 +39,8 @@ def test_generate_public_premarket_brief_rejects_private_or_action_terms(monkeyp
     monkeypatch.setenv("EFFICIENCY_API_KEY", "eff-key")
     monkeypatch.setenv("EFFICIENCY_MODEL", "eff-model")
     monkeypatch.setenv("EFFICIENCY_BASE_URL", "https://eff.example/v1")
+    monkeypatch.setenv("PREMARKET_LLM_PROVIDER", "efficiency")
+    monkeypatch.setenv("DEFAULT_LLM_PROVIDER", "efficiency")
     monkeypatch.setattr(
         brief,
         "call_llm",
