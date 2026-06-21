@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { CheckCircle2, CircleAlert, ExternalLink } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { ExternalLink, User, ShieldCheck, Database, Brain, Bell, ChevronDown, Eye, EyeOff } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { PROVIDERS, PROVIDER_LABELS, PROVIDER_BASE_URLS, PROVIDER_DEFAULT_MODELS } from '@wyckoff/shared'
@@ -26,6 +26,7 @@ export function SettingsPage() {
   const [tgChatId, setTgChatId] = useState('')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
+  const [activeTab, setActiveTab] = useState<'capability' | 'sources' | 'model' | 'notifications' | 'account'>('capability')
   const [toastKind, setToastKind] = useState<'success' | 'error'>('success')
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const activeModelConfig = configs[chatProvider]
@@ -35,25 +36,20 @@ export function SettingsPage() {
       modelProviderLabel: PROVIDER_LABELS[chatProvider],
       modelConfig: activeModelConfig,
     }),
-    [tickflowKey, chatProvider, activeModelConfig?.api_key, activeModelConfig?.model],
+    [tickflowKey, chatProvider, activeModelConfig],
   )
   const settingsCapabilitySummary = useMemo(
     () => summarizeSettingsCapabilities(settingsCapabilities),
     [settingsCapabilities],
   )
 
-  useEffect(() => {
-    if (!user) return
-    loadSettings()
-  }, [user])
-
   useEffect(() => () => clearTimeout(toastTimerRef.current), [])
 
-  async function loadSettings() {
+  const loadSettings = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from('user_settings')
       .select('*')
-      .eq('user_id', user!.id)
+      .eq('user_id', userId)
       .single()
 
     if (!data) return
@@ -107,7 +103,11 @@ export function SettingsPage() {
       }
     }
     setConfigs(cfgs)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (user?.id) void loadSettings(user.id)
+  }, [user?.id, loadSettings])
 
   function updateConfig(provider: string, field: keyof ProviderConfig, value: string) {
     setConfigs((prev) => {
@@ -165,205 +165,294 @@ export function SettingsPage() {
     toastTimerRef.current = setTimeout(() => setToast(''), 3000)
   }
 
+  const tabs = [
+    { id: 'capability', label: t('settings.capabilityCenter'), icon: ShieldCheck },
+    { id: 'sources', label: t('settings.dataSources'), icon: Database },
+    { id: 'model', label: t('settings.modelConfig'), icon: Brain },
+    { id: 'notifications', label: t('settings.notifications'), icon: Bell },
+    { id: 'account', label: t('settings.account'), icon: User },
+  ] as const
+  const canSaveActiveTab = activeTab === 'sources' || activeTab === 'model' || activeTab === 'notifications'
+
   return (
-    <div className="h-full overflow-auto p-6">
-      <div className="mx-auto max-w-2xl">
-      <h1 className="mb-6 text-xl font-semibold">{t('settings.title')}</h1>
+    <div className="h-full overflow-auto p-4 sm:p-6 bg-background/50">
+      <div className="mx-auto max-w-5xl">
+        <h1 className="mb-6 bg-gradient-to-r from-primary to-indigo-500 bg-clip-text text-2xl font-bold tracking-tight text-transparent">
+          {t('settings.title')}
+        </h1>
 
-      {toast && (
-        <div className={`mb-4 rounded-lg px-4 py-2 text-sm ${toastKind === 'error' ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200'}`}>
-          {toast}
-        </div>
-      )}
-
-      {user && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t('settings.account')}</h2>
-          <div className="space-y-2 rounded-lg border border-border px-4 py-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Email</span>
-              <span>{user.email}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">User ID</span>
-              <span className="font-mono text-xs select-all">{user.id}</span>
-            </div>
+        {toast && (
+          <div className={`mb-6 rounded-xl px-4 py-3 text-sm shadow-sm transition-all border ${
+            toastKind === 'error'
+              ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-200 dark:border-red-500/20'
+              : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-200 dark:border-indigo-500/20'
+          }`}>
+            {toast}
           </div>
-        </section>
-      )}
+        )}
 
-      <section className="mb-8">
-        <div className="rounded-lg border border-border">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5">
-            <div>
-              <div className="text-sm font-medium">{t('settings.capabilityCenter')}</div>
-              <div className="text-xs text-muted-foreground">
-                {t('settings.capabilitySummary', {
-                  ready: settingsCapabilitySummary.readyCount,
-                  total: settingsCapabilitySummary.totalCount,
-                })}
-              </div>
-            </div>
-            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium ${
-              settingsCapabilitySummary.missingCount === 0
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
-                : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'
-            }`}>
-              {settingsCapabilitySummary.readyCount}/{settingsCapabilitySummary.totalCount}
-            </span>
-          </div>
-          <div className="divide-y divide-border">
-            {settingsCapabilities.map((row) => {
-              const StatusIcon = row.isReady ? CheckCircle2 : CircleAlert
+        <div className="flex flex-col md:flex-row gap-6 items-start">
+          {/* Side tabs */}
+          <div className="flex w-full shrink-0 flex-row gap-1 overflow-auto border-b border-border pb-3 md:w-56 md:flex-col md:border-b-0 md:border-r md:pb-0 md:pr-4" role="tablist" aria-label={t('settings.title')}>
+            {tabs.map((tab) => {
+              const Icon = tab.icon
+              const active = activeTab === tab.id
               return (
-                <div key={row.id} className="grid gap-3 px-3 py-3 sm:grid-cols-[9rem_1fr_auto]">
-                  <div>
-                    <div className="text-sm font-medium">{row.name}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{t(row.priorityLabelKey)}</div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap gap-1">
-                      {row.badgeLabelKeys.map((key) => (
-                        <span key={key} className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                          {t(key)}
-                        </span>
-                      ))}
-                      {row.badgeLabels?.map((label) => (
-                        <span key={label} className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="mt-1.5 text-xs text-foreground">
-                      {row.capabilityLabelKeys.map((key) => t(key)).join(' · ')}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">{t(row.noteKey)}</div>
-                  </div>
-                  <div className={`flex h-7 items-center gap-1.5 self-start rounded-full border px-2 text-xs font-medium ${
-                    row.isReady
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
-                      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'
-                  }`}>
-                    <StatusIcon size={14} />
-                    <span>{t(row.statusLabelKey)}</span>
-                  </div>
-                </div>
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold rounded-xl transition-all whitespace-nowrap ${
+                    active
+                      ? 'bg-primary/10 text-primary shadow-sm'
+                      : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                  }`}
+                >
+                  <Icon size={15} />
+                  {tab.label}
+                </button>
               )
             })}
           </div>
-        </div>
-      </section>
 
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t('settings.dataSources')}</h2>
-        <div className="space-y-3">
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
-            {t('settings.tickflowPromo')}
-            <a
-              href="https://tickflow.org/auth/register?ref=5N4NKTCPL4"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ml-1 inline-flex items-center gap-1 font-medium text-emerald-900 hover:underline dark:text-emerald-100"
-            >
-              {t('settings.purchaseLink')}
-              <ExternalLink size={12} />
-            </a>
-          </div>
-          <Input label={t('settings.tickflowApiKey')} type="password" value={tickflowKey} onChange={setTickflowKey} placeholder="tf-..." />
-        </div>
-      </section>
+          {/* Configuration Form Panel */}
+          <div className="flex-1 min-w-0 w-full animate-fade-in-up">
+            {activeTab === 'account' && user && (
+              <section className="glass-panel rounded-2xl p-5">
+                <h2 className="mb-4 text-sm font-semibold text-foreground flex items-center gap-2 border-b border-border/60 pb-2">
+                  <User size={16} className="text-primary" />
+                  {t('settings.account')}
+                </h2>
+                <div className="space-y-4 text-sm">
+                  <div className="flex items-center justify-between border-b border-border/30 pb-2">
+                    <span className="text-muted-foreground">Email</span>
+                    <span className="font-medium">{user.email}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">User ID</span>
+                    <span className="font-mono text-xs select-all bg-muted px-2 py-1 rounded-md border border-border/40">{user.id}</span>
+                  </div>
+                </div>
+              </section>
+            )}
 
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t('settings.modelConfig')}</h2>
-        <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-200">
-          {t('settings.oneRoutePromo')}
-          <a
-            href="https://www.1route.dev/register?aff=359904261"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-1 inline-flex items-center gap-1 font-medium text-indigo-900 hover:underline dark:text-indigo-100"
-          >
-            {t('settings.purchaseLink')}
-            <ExternalLink size={12} />
-          </a>
-        </div>
-        <div className="mb-4">
-          <label className="mb-1.5 block text-sm font-medium">{t('settings.provider')}</label>
-          <select
-            value={chatProvider}
-            onChange={(e) => setChatProvider(e.target.value as Provider)}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          >
-            {PROVIDERS.map((p) => (
-              <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-            ))}
-          </select>
-        </div>
-        <div className="space-y-4">
-          {PROVIDERS.map((p) => (
-            <details key={p} className="rounded-lg border border-border">
-              <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">
-                {PROVIDER_LABELS[p]}
-                {configs[p]?.api_key && <span className="ml-2 text-indigo-600">●</span>}
-              </summary>
-              <div className="space-y-3 border-t border-border px-4 py-3">
-                {p === '1route' && (
-                  <div className="rounded-md bg-indigo-50 px-2.5 py-2 text-xs text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200">
-                    {t('settings.oneRouteNoAccount')}
+            {activeTab === 'capability' && (
+              <section className="space-y-4">
+                <div className="rounded-2xl border border-border bg-card/65 p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold">{t('settings.capabilityCenter')}</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t('settings.capabilitySummary', {
+                          ready: settingsCapabilitySummary.readyCount,
+                          total: settingsCapabilitySummary.totalCount,
+                        })}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                      settingsCapabilitySummary.missingCount === 0
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300'
+                        : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300'
+                    }`}>
+                      {settingsCapabilitySummary.readyCount}/{settingsCapabilitySummary.totalCount}
+                    </span>
+                  </div>
+                  <div className="mt-4 h-2 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-primary to-indigo-500 transition-all duration-500 rounded-full"
+                      style={{ width: `${(settingsCapabilitySummary.readyCount / settingsCapabilitySummary.totalCount) * 100}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {settingsCapabilities.map((row) => (
+                    <div key={row.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-border bg-card/40 p-4 hover:bg-card/75 transition-all">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-foreground">{row.name}</span>
+                          {row.badgeLabelKeys.map((key) => (
+                            <span key={key} className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {t(key)}
+                            </span>
+                          ))}
+                          {row.badgeLabels?.map((label) => (
+                            <span key={label} className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {label}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground font-medium">
+                          {row.capabilityLabelKeys.map((key) => t(key)).join(' · ')}
+                        </div>
+                        <div className="mt-1 text-[11px] text-muted-foreground/80 leading-relaxed">{t(row.noteKey)}</div>
+                      </div>
+                      <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                          row.isReady
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300'
+                            : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300'
+                        }`}>
+                          <span className={`pulse-dot ${row.isReady ? 'text-emerald-500 bg-emerald-500' : 'text-amber-500 bg-amber-500'}`} />
+                          <span>{t(row.statusLabelKey)}</span>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {activeTab === 'sources' && (
+              <section className="space-y-4">
+                <div className="rounded-2xl border border-emerald-200/50 bg-gradient-to-br from-emerald-50/70 to-emerald-50/30 dark:from-emerald-500/10 dark:to-transparent p-5 shadow-sm">
+                  <h3 className="text-sm font-bold text-emerald-950 dark:text-emerald-200 flex items-center gap-1.5">
+                    <Database size={15} />
+                    {t('settings.dataSources')}
+                  </h3>
+                  <p className="mt-2 text-xs leading-relaxed text-emerald-800 dark:text-emerald-300/95">
+                    {t('settings.tickflowPromo')}
+                    <a
+                      href="https://tickflow.org/auth/register?ref=5N4NKTCPL4"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-1 inline-flex items-center gap-0.5 font-semibold underline underline-offset-2 hover:opacity-80"
+                    >
+                      {t('settings.purchaseLink')}
+                      <ExternalLink size={11} />
+                    </a>
+                  </p>
+                </div>
+                <div className="glass-panel rounded-2xl p-5 space-y-4 shadow-sm">
+                  <Input label={t('settings.tickflowApiKey')} type="password" value={tickflowKey} onChange={setTickflowKey} placeholder="tf-..." />
+                </div>
+              </section>
+            )}
+
+            {activeTab === 'model' && (
+              <section className="space-y-5">
+                <div className="rounded-2xl border border-indigo-200/50 bg-gradient-to-br from-indigo-50/70 to-indigo-50/30 dark:from-indigo-500/10 dark:to-transparent p-5 shadow-sm">
+                  <h3 className="text-sm font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
+                    <Brain size={15} />
+                    {t('settings.modelConfig')}
+                  </h3>
+                  <p className="mt-2 text-xs leading-relaxed text-indigo-800 dark:text-indigo-300/95">
+                    {t('settings.oneRoutePromo')}
                     <a
                       href="https://www.1route.dev/register?aff=359904261"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="ml-1 inline-flex items-center gap-1 font-medium text-indigo-900 hover:underline dark:text-indigo-100"
+                      className="ml-1 inline-flex items-center gap-0.5 font-semibold underline underline-offset-2 hover:opacity-80"
                     >
-                      {t('settings.oneRouteInvite')}
-                      <ExternalLink size={12} />
+                      {t('settings.purchaseLink')}
+                      <ExternalLink size={11} />
                     </a>
+                  </p>
+                </div>
+
+                <div className="glass-panel rounded-2xl p-5 shadow-sm space-y-4">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{t('settings.provider')}</label>
+                    <select
+                      value={chatProvider}
+                      onChange={(e) => setChatProvider(e.target.value as Provider)}
+                      className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none transition focus:ring-2 focus:ring-primary/20 focus:border-primary font-medium"
+                    >
+                      {PROVIDERS.map((p) => (
+                        <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+                      ))}
+                    </select>
                   </div>
-                )}
-                <Input
-                  label={t('settings.apiKey')}
-                  type="password"
-                  value={configs[p]?.api_key || ''}
-                  onChange={(v) => updateConfig(p, 'api_key', v)}
-                  placeholder="sk-..."
-                />
-                <Input
-                  label={t('settings.model')}
-                  value={configs[p]?.model || ''}
-                  onChange={(v) => updateConfig(p, 'model', v)}
-                  placeholder={PROVIDER_DEFAULT_MODELS[p]}
-                />
-                <Input
-                  label={t('settings.baseUrl')}
-                  value={configs[p]?.base_url || ''}
-                  onChange={(v) => updateConfig(p, 'base_url', v)}
-                  placeholder={PROVIDER_BASE_URLS[p]}
-                />
+                </div>
+
+                <div className="space-y-3">
+                  {PROVIDERS.map((p) => {
+                    const hasKey = configs[p]?.api_key
+                    return (
+                      <details key={p} className="group rounded-2xl border border-border bg-card/45 overflow-hidden [&_summary::-webkit-details-marker]:hidden">
+                        <summary className="flex items-center justify-between cursor-pointer p-4 text-xs font-bold select-none hover:bg-muted/30 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span>{PROVIDER_LABELS[p]}</span>
+                            {hasKey && <span className="flex h-1.5 w-1.5 rounded-full bg-indigo-500 pulse-dot" />}
+                          </div>
+                          <span className="text-muted-foreground transition-transform duration-200 group-open:rotate-180">
+                            <ChevronDown size={14} />
+                          </span>
+                        </summary>
+                        <div className="space-y-4 border-t border-border/50 p-4 bg-muted/10">
+                          {p === '1route' && (
+                            <div className="rounded-xl bg-indigo-50/50 dark:bg-indigo-500/5 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-300 border border-indigo-100/50 dark:border-indigo-500/10 leading-relaxed">
+                              {t('settings.oneRouteNoAccount')}
+                              <a
+                                href="https://www.1route.dev/register?aff=359904261"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-1 inline-flex items-center gap-0.5 font-semibold underline hover:opacity-80"
+                              >
+                                {t('settings.oneRouteInvite')}
+                                <ExternalLink size={11} />
+                              </a>
+                            </div>
+                          )}
+                          <Input
+                            label={t('settings.apiKey')}
+                            type="password"
+                            value={configs[p]?.api_key || ''}
+                            onChange={(v) => updateConfig(p, 'api_key', v)}
+                            placeholder="sk-..."
+                          />
+                          <Input
+                            label={t('settings.model')}
+                            value={configs[p]?.model || ''}
+                            onChange={(v) => updateConfig(p, 'model', v)}
+                            placeholder={PROVIDER_DEFAULT_MODELS[p]}
+                          />
+                          <Input
+                            label={t('settings.baseUrl')}
+                            value={configs[p]?.base_url || ''}
+                            onChange={(v) => updateConfig(p, 'base_url', v)}
+                            placeholder={PROVIDER_BASE_URLS[p]}
+                          />
+                        </div>
+                      </details>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
+
+            {activeTab === 'notifications' && (
+              <section className="glass-panel rounded-2xl p-5 space-y-4 shadow-sm">
+                <h2 className="mb-2 text-sm font-semibold text-foreground flex items-center gap-2 border-b border-border/60 pb-2">
+                  <Bell size={16} className="text-primary" />
+                  {t('settings.notifications')}
+                </h2>
+                <div className="space-y-4">
+                  <Input label={t('settings.feishuWebhook')} type="password" value={feishuWebhook} onChange={setFeishuWebhook} />
+                  <Input label={t('settings.wecomWebhook')} type="password" value={wecomWebhook} onChange={setWecomWebhook} />
+                  <Input label={t('settings.dingtalkWebhook')} type="password" value={dingtalkWebhook} onChange={setDingtalkWebhook} />
+                  <Input label="Telegram Bot Token" type="password" value={tgBotToken} onChange={setTgBotToken} />
+                  <Input label="Telegram Chat ID" value={tgChatId} onChange={setTgChatId} />
+                </div>
+              </section>
+            )}
+
+            {canSaveActiveTab && (
+              <div className="mt-6 border-t border-border/60 pt-4">
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="w-full rounded-xl bg-gradient-to-r from-primary to-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-md shadow-primary/10 hover:shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {saving ? t('settings.saving') : t('settings.saveConfig')}
+                </button>
               </div>
-            </details>
-          ))}
+            )}
+          </div>
         </div>
-      </section>
-
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t('settings.notifications')}</h2>
-        <div className="space-y-3">
-          <Input label={t('settings.feishuWebhook')} type="password" value={feishuWebhook} onChange={setFeishuWebhook} />
-          <Input label={t('settings.wecomWebhook')} type="password" value={wecomWebhook} onChange={setWecomWebhook} />
-          <Input label={t('settings.dingtalkWebhook')} type="password" value={dingtalkWebhook} onChange={setDingtalkWebhook} />
-          <Input label="Telegram Bot Token" type="password" value={tgBotToken} onChange={setTgBotToken} />
-          <Input label="Telegram Chat ID" value={tgChatId} onChange={setTgChatId} />
-        </div>
-      </section>
-
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-      >
-        {saving ? t('settings.saving') : t('settings.saveConfig')}
-      </button>
       </div>
     </div>
   )
@@ -376,16 +465,32 @@ function Input({ label, value, onChange, type = 'text', placeholder = '' }: {
   type?: string
   placeholder?: string
 }) {
+  const [showPassword, setShowPassword] = useState(false)
+  const isPassword = type === 'password'
+  const inputType = isPassword ? (showPassword ? 'text' : 'password') : type
+
   return (
     <div>
-      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring/20"
-      />
+      <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{label}</label>
+      <div className="relative flex items-center">
+        <input
+          type={inputType}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded-xl border border-border bg-background/50 pl-3.5 pr-10 py-2.5 text-sm outline-none transition focus:ring-2 focus:ring-primary/20 focus:border-primary"
+        />
+        {isPassword && value && (
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            aria-label={showPassword ? '隐藏密码' : '显示密码'}
+            className="absolute right-3 text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

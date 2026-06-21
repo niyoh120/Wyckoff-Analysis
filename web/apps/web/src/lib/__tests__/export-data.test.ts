@@ -31,6 +31,23 @@ describe('export-data', () => {
     ])
   })
 
+  it('normalizes TickFlow second timestamps and compact trade dates', () => {
+    const rows = parseTickFlowToRows({
+      data: {
+        '603039.SH': {
+          timestamp: [1704067200, '20240621'],
+          open: [10, 11],
+          high: [11, 12],
+          low: [9, 10],
+          close: [10.5, 11.5],
+          volume: [1000, 1200],
+        },
+      },
+    })
+
+    expect(rows.map((row) => row.date)).toEqual(['2024-01-01', '2024-06-21'])
+  })
+
   it('builds enhanced OHLCV rows and escaped CSV', () => {
     const enhanced = buildEnhancedRows([{ date: '2026-05-18', open: 10, high: 11, low: 9, close: 10.5, volume: 1000, amount: 10500, sector: '银行,金融' }])
 

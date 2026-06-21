@@ -7,20 +7,40 @@ import { MarketBar } from '@/components/market-bar'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
 import { trackRouteActivity } from '@/lib/activity'
 
-const navItems = [
-  { to: '/chat', icon: MessageSquare, labelKey: 'nav.chat' },
-  { to: '/analysis', icon: BarChart3, labelKey: 'nav.analysis' },
-  { to: '/battle', icon: Swords, labelKey: 'nav.battle' },
-  { to: '/portfolio', icon: Briefcase, labelKey: 'nav.portfolio' },
-  { to: '/history', icon: History, labelKey: 'nav.history' },
-  { to: '/tracking', icon: TrendingUp, labelKey: 'nav.tracking' },
-  { to: '/attribution', icon: Microscope, labelKey: 'nav.attribution' },
-  { to: '/tail-buy', icon: Moon, labelKey: 'nav.tailBuy' },
-  { to: '/export', icon: FileDown, labelKey: 'nav.export' },
-  { to: '/guide', icon: BookOpen, labelKey: 'nav.guide' },
-  { to: '/guide#capability-boundary', icon: Map, labelKey: 'nav.capabilities' },
-  { to: '/settings', icon: Settings, labelKey: 'nav.settings' },
-] satisfies { to: string; icon: LucideIcon; labelKey: TranslationKey }[]
+const navGroups = [
+  {
+    titleKey: 'nav.group.core',
+    items: [
+      { to: '/chat', icon: MessageSquare, labelKey: 'nav.chat' },
+      { to: '/analysis', icon: BarChart3, labelKey: 'nav.analysis' },
+      { to: '/battle', icon: Swords, labelKey: 'nav.battle' },
+      { to: '/portfolio', icon: Briefcase, labelKey: 'nav.portfolio' },
+    ]
+  },
+  {
+    titleKey: 'nav.group.data',
+    items: [
+      { to: '/history', icon: History, labelKey: 'nav.history' },
+      { to: '/tail-buy', icon: Moon, labelKey: 'nav.tailBuy' },
+      { to: '/export', icon: FileDown, labelKey: 'nav.export' },
+    ]
+  },
+  {
+    titleKey: 'nav.group.models',
+    items: [
+      { to: '/tracking', icon: TrendingUp, labelKey: 'nav.tracking' },
+      { to: '/attribution', icon: Microscope, labelKey: 'nav.attribution' },
+    ]
+  },
+  {
+    titleKey: 'nav.group.system',
+    items: [
+      { to: '/guide', icon: BookOpen, labelKey: 'nav.guide' },
+      { to: '/guide#capability-boundary', icon: Map, labelKey: 'nav.capabilities' },
+      { to: '/settings', icon: Settings, labelKey: 'nav.settings' },
+    ]
+  }
+] as const
 
 const externalLinks = [
   { href: 'https://youngcan-wang.github.io/wyckoff-homepage/', icon: Home, labelKey: 'external.home' },
@@ -35,17 +55,15 @@ function GitHubStarBadge({ repo }: { repo: string }) {
       href={`https://github.com/${repo}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="mb-2 flex w-fit items-center overflow-hidden rounded-md border border-border text-xs transition-colors hover:border-muted-foreground/50"
+      className="mb-3 flex w-full items-center justify-between rounded-xl border border-border bg-muted/20 px-3 py-2 text-xs transition-all hover:bg-muted/50 hover:border-primary/30 group"
     >
-      <span className="flex items-center gap-1.5 bg-muted/60 px-2.5 py-1.5 font-medium text-foreground">
-        <Github size={14} />
+      <div className="flex items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
+        <Github size={15} className="group-hover:scale-110 transition-transform duration-200" />
+        <span className="font-semibold truncate">GitHub Repo</span>
+      </div>
+      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-200">
         Star
       </span>
-      <img
-        src={`https://img.shields.io/github/stars/${repo}?style=social&label=`}
-        alt="stars"
-        className="h-[26px] border-l border-border bg-background px-2"
-      />
     </a>
   )
 }
@@ -208,22 +226,33 @@ export function AppLayout() {
           </div>
         )}
 
-        <nav className={`min-h-0 flex-1 space-y-0.5 overflow-y-auto pb-3 ${sidebarCollapsed ? 'px-2' : 'px-3'}`}>
-          {navItems.map(({ to, icon: Icon, labelKey }) => (
-            <Link
-              key={to}
-              to={to}
-              title={sidebarCollapsed ? t(labelKey) : undefined}
-              aria-label={sidebarCollapsed ? t(labelKey) : undefined}
-              className={`flex items-center rounded-lg py-2.5 text-sm transition-all ${sidebarCollapsed ? 'justify-center px-2' : 'gap-3 px-3'} ${
-                _navActive(location.pathname, location.hash, to)
-                  ? 'bg-primary/10 font-medium text-primary shadow-sm'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              <Icon size={18} className="shrink-0" />
-              {!sidebarCollapsed && t(labelKey)}
-            </Link>
+        <nav className={`min-h-0 flex-1 overflow-y-auto pb-3 ${sidebarCollapsed ? 'px-2 space-y-0.5' : 'px-3 space-y-3'}`}>
+          {navGroups.map((group) => (
+            <div key={group.titleKey} className={sidebarCollapsed ? 'space-y-0.5' : 'space-y-1'}>
+              {!sidebarCollapsed && (
+                <div className="px-3 pt-3 pb-1 text-[9px] font-extrabold text-muted-foreground/60 uppercase tracking-widest select-none">
+                  {t(group.titleKey)}
+                </div>
+              )}
+              {group.items.map(({ to, icon: Icon, labelKey }) => (
+                <Link
+                  key={to}
+                  to={to}
+                  title={sidebarCollapsed ? t(labelKey) : undefined}
+                  aria-label={sidebarCollapsed ? t(labelKey) : undefined}
+                  className={`flex items-center py-2.5 text-sm transition-all border-l-2 ${
+                    sidebarCollapsed ? 'justify-center rounded-lg px-2 border-transparent' : 'gap-3 px-3 pl-3.5'
+                  } ${
+                    _navActive(location.pathname, location.hash, to)
+                      ? 'bg-primary/10 font-bold text-primary border-primary rounded-r-lg shadow-sm'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground font-medium border-transparent rounded-lg'
+                  }`}
+                >
+                  <Icon size={17} className="shrink-0" />
+                  {!sidebarCollapsed && t(labelKey)}
+                </Link>
+              ))}
+            </div>
           ))}
         </nav>
 

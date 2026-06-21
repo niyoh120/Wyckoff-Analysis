@@ -68,4 +68,66 @@
   .text-down { color: var(--color-down); }
   .bg-up\/10 { background-color: color-mix(in srgb, var(--color-up) 10%, transparent); }
   .bg-down\/10 { background-color: color-mix(in srgb, var(--color-down) 10%, transparent); }
+
+  /* Glassmorphism Panel */
+  .glass-panel {
+    background-color: color-mix(in srgb, var(--color-card) 75%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.04);
+  }
+
+  /* Segmented Control Track */
+  .segmented-track {
+    background-color: color-mix(in srgb, var(--color-muted) 60%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+    border-radius: 9999px;
+    padding: 2px;
+  }
+
+  /* Glowing Indicator */
+  .pulse-dot {
+    position: relative;
+    display: inline-flex;
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+  }
+  .pulse-dot::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: 9999px;
+    background-color: currentColor;
+    opacity: 0.4;
+    animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* Animations */
+  @keyframes pulse-ring {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 0.4;
+    }
+    50% {
+      transform: scale(1.6);
+      opacity: 0.05;
+    }
+  }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }

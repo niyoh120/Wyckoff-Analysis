@@ -36,7 +36,11 @@ export function MultiStockChart({ series, height = 420 }: MultiStockChartProps) 
 
   return (
     <div className="space-y-3">
-      <div ref={containerRef} className="h-[420px] w-full overflow-hidden rounded-lg border border-border bg-background sm:h-auto" />
+      <div
+        ref={containerRef}
+        className="w-full overflow-hidden rounded-lg border border-border bg-background"
+        style={{ height }}
+      />
       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
         {normalized.map((item, index) => <Legend key={item.code} color={chartColor(index)} label={item.label} />)}
       </div>
@@ -73,7 +77,7 @@ function useChartShell(
       chartRef.current = null
       seriesRefs.current = []
     }
-  }, [height])
+  }, [containerRef, chartRef, seriesRefs, height])
 }
 
 function useLineSeries(
@@ -97,7 +101,7 @@ function useLineSeries(
       return { line }
     })
     chart.timeScale().fitContent()
-  }, [normalized])
+  }, [chartRef, seriesRefs, normalized])
 }
 
 function normalizeSeries(item: ComparisonSeries) {

@@ -139,10 +139,11 @@ export function TrackingPage() {
   const [selectedWindow, setSelectedWindow] = useState<RecommendationWindow>(30)
 
   const user = useAuthStore((s) => s.user)
+  const userId = user?.id
   const whitelist = useQuery({
-    queryKey: ['whitelist', user?.id],
-    queryFn: () => checkWhitelist(user!.id),
-    enabled: !!user?.id,
+    queryKey: ['whitelist', userId],
+    queryFn: () => checkWhitelist(userId || ''),
+    enabled: !!userId,
   })
 
   const isWhitelisted = whitelist.data === true

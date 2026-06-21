@@ -83,7 +83,11 @@ export function KlineChart({ data, height = 400, wyckoffMarkers, tradingRange, s
   return (
     <div className="space-y-3">
       {structure && <StructureMetrics structure={structure} />}
-      <div ref={containerRef} className="h-[350px] w-full overflow-hidden rounded-lg border border-border bg-background sm:h-auto" />
+      <div
+        ref={containerRef}
+        className="w-full overflow-hidden rounded-lg border border-border bg-background"
+        style={{ height }}
+      />
       {showIndicators && <IndicatorBar indicators={indicators} setIndicators={setIndicators} />}
       {indicators.rsi && <RSISubChart closes={closes} dates={dates} />}
       {indicators.macd && <MACDSubChart closes={closes} dates={dates} />}
@@ -126,7 +130,7 @@ function useChartInit(
     window.addEventListener('resize', handleResize)
     handleResize()
     return () => { window.removeEventListener('resize', handleResize); chartRefs.current?.markers?.detach(); chart.remove(); chartRefs.current = null }
-  }, [height])
+  }, [containerRef, chartRefs, themeRef, height])
 }
 
 function useChartData(
@@ -155,7 +159,7 @@ function useChartData(
     refs.candle.priceLines().forEach((line) => refs.candle.removePriceLine(line))
     addPriceLines(refs.candle, tradingRange ?? buildPriceLevels(data), theme)
     refs.chart.timeScale().fitContent()
-  }, [data, wyckoffMarkers, tradingRange])
+  }, [chartRefs, themeRef, data, wyckoffMarkers, tradingRange])
 }
 
 function useBollingerOverlay(chartRefs: React.MutableRefObject<ChartRefs | null>, data: KlineData[], active: boolean) {
@@ -174,7 +178,7 @@ function useBollingerOverlay(chartRefs: React.MutableRefObject<ChartRefs | null>
       bollRefs.push(upper, mid, lower)
     }
     return () => { bollRefs.forEach((s) => refs.chart.removeSeries(s)) }
-  }, [data, active])
+  }, [chartRefs, data, active])
 }
 
 function StructureMetrics({ structure }: { structure: StructureSnapshot }) {

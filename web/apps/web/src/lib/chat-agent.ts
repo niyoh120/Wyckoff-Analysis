@@ -207,36 +207,49 @@ export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
 
   const provider = data.chat_provider || '1route'
   if (RETIRED_PROVIDERS.has(provider)) return null
-  let api_key = '', model = '', base_url = ''
-  let protocol: 'openai' | 'anthropic' = 'openai'
+  let config: LLMConfig
 
   if (provider === 'gemini') {
-    api_key = data.gemini_api_key || ''
-    model = data.gemini_model || PROVIDER_DEFAULT_MODELS.gemini
-    base_url = data.gemini_base_url || 'https://generativelanguage.googleapis.com/v1beta/openai'
+    config = {
+      api_key: data.gemini_api_key || '',
+      model: data.gemini_model || PROVIDER_DEFAULT_MODELS.gemini,
+      base_url: data.gemini_base_url || 'https://generativelanguage.googleapis.com/v1beta/openai',
+      protocol: 'openai',
+    }
   } else if (provider === 'openai') {
-    api_key = data.openai_api_key || ''
-    model = data.openai_model || PROVIDER_DEFAULT_MODELS.openai
-    base_url = data.openai_base_url || PROVIDER_BASE_URLS.openai
+    config = {
+      api_key: data.openai_api_key || '',
+      model: data.openai_model || PROVIDER_DEFAULT_MODELS.openai,
+      base_url: data.openai_base_url || PROVIDER_BASE_URLS.openai,
+      protocol: 'openai',
+    }
   } else if (provider === 'deepseek') {
-    api_key = data.deepseek_api_key || ''
-    model = data.deepseek_model || PROVIDER_DEFAULT_MODELS.deepseek
-    base_url = data.deepseek_base_url || PROVIDER_BASE_URLS.deepseek
+    config = {
+      api_key: data.deepseek_api_key || '',
+      model: data.deepseek_model || PROVIDER_DEFAULT_MODELS.deepseek,
+      base_url: data.deepseek_base_url || PROVIDER_BASE_URLS.deepseek,
+      protocol: 'openai',
+    }
   } else if (provider === 'anthropic') {
-    api_key = data.anthropic_api_key || ''
-    model = data.anthropic_model || PROVIDER_DEFAULT_MODELS.anthropic
-    base_url = data.anthropic_base_url || 'https://api.anthropic.com'
-    protocol = 'anthropic'
+    config = {
+      api_key: data.anthropic_api_key || '',
+      model: data.anthropic_model || PROVIDER_DEFAULT_MODELS.anthropic,
+      base_url: data.anthropic_base_url || 'https://api.anthropic.com',
+      protocol: 'anthropic',
+    }
   } else {
     const custom = parseCustomProviders(data.custom_providers)
     const info = custom[provider] || {}
-    api_key = info.apikey || info.api_key || ''
-    model = info.model || defaultModelForProvider(provider)
-    base_url = info.baseurl || info.base_url || defaultBaseUrlForProvider(provider)
+    config = {
+      api_key: info.apikey || info.api_key || '',
+      model: info.model || defaultModelForProvider(provider),
+      base_url: info.baseurl || info.base_url || defaultBaseUrlForProvider(provider),
+      protocol: 'openai',
+    }
   }
 
-  if (!api_key) return null
-  return { api_key, model, base_url, protocol }
+  if (!config.api_key) return null
+  return config
 }
 
 function defaultModelForProvider(provider: string): string {

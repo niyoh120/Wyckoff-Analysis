@@ -100,18 +100,40 @@ function LoginFields(props: {
   return (
     <>
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-foreground">{t('login.email')}</label>
-        <input type="email" value={props.email} onChange={(e) => props.onEmail(e.target.value)} className="w-full rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-sm outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="your@email.com" autoComplete="email" required />
+        <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{t('login.email')}</label>
+        <input
+          type="email"
+          value={props.email}
+          onChange={(e) => props.onEmail(e.target.value)}
+          className="w-full rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm outline-none transition-all duration-200 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-muted-foreground/50"
+          placeholder="your@email.com"
+          autoComplete="email"
+          required
+        />
       </div>
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-foreground">{t('login.password')}</label>
-        <input type="password" value={props.password} onChange={(e) => props.onPassword(e.target.value)} className="w-full rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-sm outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="••••••••" autoComplete={props.isRegister ? 'new-password' : 'current-password'} required minLength={6} />
+        <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{t('login.password')}</label>
+        <input
+          type="password"
+          value={props.password}
+          onChange={(e) => props.onPassword(e.target.value)}
+          className="w-full rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm outline-none transition-all duration-200 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-muted-foreground/50"
+          placeholder="••••••••"
+          autoComplete={props.isRegister ? 'new-password' : 'current-password'}
+          required
+          minLength={6}
+        />
       </div>
-      <label className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/20 px-3 py-2.5 text-sm text-muted-foreground">
-        <input type="checkbox" checked={props.rememberEmail} onChange={(e) => props.onRememberEmail(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
+      <label className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/10 hover:bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground transition-colors cursor-pointer">
+        <input
+          type="checkbox"
+          checked={props.rememberEmail}
+          onChange={(e) => props.onRememberEmail(e.target.checked)}
+          className="mt-0.5 h-4 w-4 accent-primary cursor-pointer"
+        />
         <span>
-          <span className="block font-medium text-foreground">{t('login.rememberAccount')}</span>
-          <span className="block text-xs">{t('login.passwordManagerHint')}</span>
+          <span className="block font-semibold text-foreground">{t('login.rememberAccount')}</span>
+          <span className="block text-[11px] mt-0.5 text-muted-foreground/80">{t('login.passwordManagerHint')}</span>
         </span>
       </label>
     </>
@@ -176,9 +198,10 @@ export function LoginPage() {
 
   if (checkingSession) return <LoadingSession />
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="relative flex min-h-screen items-center justify-center bg-background px-4 overflow-hidden">
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:24px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] pointer-events-none" />
       <LoginToolbar />
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-8 shadow-xl shadow-primary/5">
+      <div className="w-full max-w-sm rounded-3xl border border-border/80 bg-card/85 backdrop-blur-md p-8 shadow-2xl shadow-primary/5 hover:border-primary/20 transition-all duration-300 relative z-10 animate-fade-in-up">
         <LoginPageHeader />
         <form onSubmit={handleSubmit} className="space-y-4">
           <LoginFields email={email} password={password} rememberEmail={rememberEmail} isRegister={isRegister} onEmail={setEmail} onPassword={setPassword} onRememberEmail={setRememberEmail} />

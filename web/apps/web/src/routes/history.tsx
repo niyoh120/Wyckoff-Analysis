@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { BarChart3, Briefcase, Clock3, FileText, History, Search, Swords, Trash2, type LucideIcon } from 'lucide-react'
 import { MarkdownContent } from '@/components/markdown'
 import { KlineChart } from '@/components/kline-chart'
@@ -178,14 +178,14 @@ function useHistoryRecords(userId: string | undefined) {
   const [records, setRecords] = useState<HistoryRecord[]>([])
   const [loading, setLoading] = useState(true)
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true)
     try {
       setRecords(await listAllAnalysisHistory<HistoryPayload>(userId))
     } finally {
       setLoading(false)
     }
-  }
+  }, [userId])
 
   async function remove(id: string) {
     await deleteAnalysisHistory(id)
@@ -198,7 +198,7 @@ function useHistoryRecords(userId: string | undefined) {
     await refresh()
   }
 
-  useEffect(() => { void refresh() }, [userId])
+  useEffect(() => { void refresh() }, [refresh])
   return { records, loading, remove, clear }
 }
 

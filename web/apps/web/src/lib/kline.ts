@@ -83,11 +83,14 @@ export function normalizeTushareCode(code: string): string {
 }
 
 function formatTimestampDate(value: unknown): string {
-  const numeric = Number(value)
+  const raw = String(value || '').trim()
+  if (/^\d{8}$/.test(raw)) return raw.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')
+  const numeric = Number(raw)
   if (Number.isFinite(numeric) && numeric > 0) {
-    return new Date(numeric + 8 * 3600_000).toISOString().slice(0, 10)
+    const milliseconds = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+    return new Date(milliseconds + 8 * 3600_000).toISOString().slice(0, 10)
   }
-  return String(value || '').replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3').slice(0, 10)
+  return raw.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3').slice(0, 10)
 }
 
 function parseRowArray(rows: unknown[]): KlineData[] {

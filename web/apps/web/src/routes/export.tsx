@@ -55,7 +55,10 @@ export function ExportPage() {
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
 
   const activeDataset = datasets[activeIndex] || null
-  const activeRows = activeDataset ? (previewMode === 'enhanced' ? activeDataset.enhancedRows : activeDataset.rawRows) : []
+  const activeRows = useMemo(
+    () => activeDataset ? (previewMode === 'enhanced' ? activeDataset.enhancedRows : activeDataset.rawRows) : [],
+    [activeDataset, previewMode],
+  )
   const columns = useMemo(() => Object.keys(activeRows[0] || {}), [activeRows])
   const activeSelectedColumns = useMemo(() => selectedColumns.filter((column) => columns.includes(column)), [columns, selectedColumns])
   const columnSet = useMemo(() => new Set(activeSelectedColumns.length ? activeSelectedColumns : columns), [columns, activeSelectedColumns])
@@ -240,7 +243,10 @@ function selectColumns(rows: ExportRow[], columns: string[]): ExportRow[] {
 
 function toggleColumns(current: Set<string>, allColumns: string[], target: string[], checked: boolean): string[] {
   const next = new Set(current.size ? current : allColumns)
-  for (const column of target) checked ? next.add(column) : next.delete(column)
+  for (const column of target) {
+    if (checked) next.add(column)
+    else next.delete(column)
+  }
   return allColumns.filter((column) => next.has(column))
 }
 

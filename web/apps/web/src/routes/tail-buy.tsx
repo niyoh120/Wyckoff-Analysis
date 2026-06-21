@@ -124,10 +124,11 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
 
 export function TailBuyPage() {
   const user = useAuthStore((s) => s.user)
+  const userId = user?.id
   const whitelist = useQuery({
-    queryKey: ['whitelist', user?.id],
-    queryFn: () => checkWhitelist(user!.id),
-    enabled: !!user?.id,
+    queryKey: ['whitelist', userId],
+    queryFn: () => checkWhitelist(userId || ''),
+    enabled: !!userId,
   })
   const tailBuy = useQuery({
     queryKey: ['tail-buy'],

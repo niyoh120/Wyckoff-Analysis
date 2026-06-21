@@ -60,13 +60,13 @@ function shouldReload(remoteVersion: string | null): remoteVersion is string {
 }
 
 function reloadForVersion(remoteVersion: string): void {
-  let canReload = true
+  let shouldReload = true
   try {
     const marker = `${APP_VERSION}->${remoteVersion}`
-    canReload = window.sessionStorage.getItem(RELOAD_SESSION_KEY) !== marker
-    window.sessionStorage.setItem(RELOAD_SESSION_KEY, marker)
+    shouldReload = window.sessionStorage.getItem(RELOAD_SESSION_KEY) !== marker
+    if (shouldReload) window.sessionStorage.setItem(RELOAD_SESSION_KEY, marker)
   } catch {
-    canReload = true
+    // Keep the default reload path when sessionStorage is unavailable.
   }
-  if (canReload) window.location.reload()
+  if (shouldReload) window.location.reload()
 }

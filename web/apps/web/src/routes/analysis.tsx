@@ -196,18 +196,20 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
   const rafRef = useRef(0)
 
   async function handleAnalyze() {
+    const userId = user?.id
+    if (!userId) { setError(t('chat.requestFailed')); return }
     setStep('resolve')
     const resolved = await resolveAnalysisCode(search.symbol, search.selectedStock)
     if (!resolved) { setError(t('analysis.invalidStockCode')); setStep(null); return }
     const abort = startAnalysisRequest(abortRef, search, resolved, setError, setLoading, setResult, setStreamingReport, setEarlyKline)
     try {
-      const [config, dataKeys] = await Promise.all([loadLLMConfig(user!.id), getUserDataKeys(user!.id)])
+      const [config, dataKeys] = await Promise.all([loadLLMConfig(userId), getUserDataKeys(userId)])
       setHasModelConfig(Boolean(config?.api_key && config?.model))
       if (!config?.api_key || !config.model) throw new Error(t('analysis.missingPrefix', { items: t('analysis.modelRequirement') }))
       setStep('kline')
       const [stockInfoResult, klineData, valueSnapshot] = await Promise.all([
         fetchStockName(resolved.code),
-        fetchKline(resolved.code, dataKeys, user!.id),
+        fetchKline(resolved.code, dataKeys, userId),
         fetchValueSnapshot(resolved.code, dataKeys).catch((): ValueSnapshot => ({ symbol: resolved.code, source: 'none', metrics: null, reason: 'not-found' })),
       ])
       if (klineData.length === 0) throw new Error(t('analysis.noKlineData'))
@@ -313,9 +315,9 @@ function StockSearchBox({ search, onAnalyze, onClearError }: { search: SearchCon
   }
   return (
     <div className="relative min-w-[240px] flex-1 lg:max-w-3xl" onBlur={(e) => closeSearchOnOuterBlur(e, search.setSearchOpen)}>
-      <label className="mb-1.5 block text-sm font-medium">{t('common.stockCode')}</label>
+      <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{t('common.stockCode')}</label>
       <div className="relative">
-        <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
         <input
           type="text"
           value={search.symbol}
@@ -323,7 +325,7 @@ function StockSearchBox({ search, onAnalyze, onClearError }: { search: SearchCon
           onFocus={() => search.setSearchOpen(true)}
           placeholder={t('analysis.searchPlaceholder')}
           maxLength={28}
-          className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+          className="w-full rounded-xl border border-border bg-background/50 py-2.5 pl-10 pr-4 text-sm outline-none transition-all duration-200 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-muted-foreground/50 font-semibold"
           onKeyDown={(e) => handleSearchKeyDown(e, search, onAnalyze)}
           role="combobox"
           aria-expanded={search.searchOpen && search.suggestions.length > 0}
@@ -339,7 +341,7 @@ function SearchSuggestions({ search }: { search: SearchController }) {
   const { t } = usePreferences()
   if (!search.searchOpen || !search.symbol.trim()) return null
   return (
-    <div id="analysis-stock-search" className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-popover py-1 shadow-lg" role="listbox">
+    <div id="analysis-stock-search" className="absolute z-20 mt-2 max-h-72 w-full overflow-auto rounded-xl border border-border/80 bg-popover/95 backdrop-blur-md py-1.5 shadow-xl animate-fade-in-up" role="listbox">
       {search.searching && <LoadingSuggestion text={t('analysis.searching')} />}
       {!search.searching && search.suggestions.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">{t('analysis.noSearchResults')}</div>}
       {!search.searching && search.suggestions.map((item, index) => (
@@ -392,12 +394,12 @@ function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
           <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">{symbol} {name}</span>
         </div>
       )}
-      <div className={report ? 'min-h-0 flex-1 overflow-auto pr-1 xl:grid xl:gap-4 xl:overflow-hidden xl:pr-0 xl:grid-cols-[minmax(420px,0.9fr)_minmax(560px,1.1fr)] 2xl:grid-cols-[minmax(500px,0.85fr)_minmax(720px,1.15fr)]' : 'min-h-0 flex-1 overflow-auto pr-1'}>
-        <div className={report ? 'space-y-4 xl:min-h-0 xl:overflow-auto xl:pr-1' : 'space-y-6'}>
-          {kline && <KlineSection klineData={kline} compact={Boolean(report)} />}
-          {valueSnapshot && <ValueSection snapshot={valueSnapshot} compact={Boolean(report)} />}
+      <div className="min-h-0 flex-1 overflow-auto pr-1">
+        <div className="space-y-6">
+          {kline && <KlineSection klineData={kline} />}
+          {valueSnapshot && <ValueSection snapshot={valueSnapshot} />}
+          {report && <ReportSection report={report} />}
         </div>
-        {report && <ReportSection report={report} />}
       </div>
     </div>
   )
@@ -502,12 +504,12 @@ function ValueSection({ snapshot, compact = false }: { snapshot: ValueSnapshot; 
 function ReportSection({ report }: { report: string }) {
   const { t } = usePreferences()
   return (
-    <section className="flex min-h-[420px] min-w-0 flex-col rounded-lg border border-border bg-background xl:min-h-0">
-      <div className="shrink-0 border-b border-border/70 px-5 py-4">
+    <section className="min-w-0 rounded-lg border border-border bg-background">
+      <div className="border-b border-border/70 px-5 py-4">
         <h2 className="mb-3 text-base font-semibold">{t('analysis.reportTitle')}</h2>
         <AIDisclaimer />
       </div>
-      <article className="prose prose-base min-h-0 max-w-none flex-1 overflow-auto px-6 py-5 text-foreground">
+      <article className="prose prose-base max-w-none px-6 py-5 text-foreground">
         <MarkdownContent content={report} />
       </article>
     </section>
@@ -538,8 +540,12 @@ function AnalysisProgressBar({ step }: { step: AnalysisStep }) {
 function EmptyAnalysisState() {
   const { t } = usePreferences()
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
-      <div className="text-center"><div className="mb-3 text-4xl">📊</div><p className="text-sm">{t('analysis.emptyTitle')}</p><p className="mt-1 text-xs">{t('analysis.emptySubtitle')}</p></div>
+    <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground animate-fade-in-up">
+      <div className="w-full max-w-sm rounded-2xl border border-border/70 bg-card/45 p-8 text-center shadow-sm hover:border-primary/10 transition-colors">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-xl">📊</div>
+        <p className="text-sm font-semibold text-foreground">{t('analysis.emptyTitle')}</p>
+        <p className="mt-1.5 text-xs text-muted-foreground leading-relaxed">{t('analysis.emptySubtitle')}</p>
+      </div>
     </div>
   )
 }
