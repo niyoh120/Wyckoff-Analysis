@@ -245,8 +245,8 @@ flowchart TD
     IDEM -->|否| LLM["LLM 决策<br/>EXIT > TRIM > HOLD > PROBE/ATTACK"]
 
     LLM --> RISK{"风控门控"}
-    RISK -->|CRASH / BLACK_SWAN / RISK_OFF| BLOCK_BUY["冻结买入<br/>STEP4_BUY_BLOCK_REGIMES"]
-    RISK -->|NORMAL / CAUTION| ALLOW["允许按仓位上限执行"]
+    RISK -->|BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["冻结买入<br/>STEP4_BUY_BLOCK_REGIMES"]
+    RISK -->|RISK_ON / NEUTRAL / CAUTION| ALLOW["允许按交易模式限额执行"]
 
     ALLOW --> OMS["硬止损 -9%<br/>PROBE≤10% / ATTACK≤20%"]
     OMS --> TG["Telegram 推送决策"]
@@ -376,7 +376,7 @@ efinance
 | `STEP4_BUY_HARD_STOP_PCT` | `8.0` | 新开仓硬止损 |
 | `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` | `1` | Step4 新开仓只允许二次确认候选；未确认候选只观察 |
 | `TAIL_BUY_CONFIRMED_ONLY_BUY` | `1` | 尾盘买入只对二次确认候选输出 BUY |
-| `STEP4_BUY_BLOCK_REGIMES` | `CRASH,BLACK_SWAN,RISK_OFF` | 极寒熔断 |
+| `STEP4_BUY_BLOCK_REGIMES` | `BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN` | 弱市冻结新开仓 |
 
 ---
 

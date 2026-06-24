@@ -4,7 +4,8 @@ from types import SimpleNamespace
 import workflows.step4_results as step4_results
 from workflows import step4_portfolio
 from workflows import step4_rebalancer as step4
-from workflows.step4_models import DecisionItem, ExecutionTicket, PositionItem
+from workflows.step4_decision_parser import max_new_buy_names
+from workflows.step4_models import DecisionItem, ExecutionTicket, NewBuyLimits, PositionItem
 from workflows.step4_order_config import step4_order_config_from_env
 from workflows.step4_order_engine import WyckoffOrderEngine
 from workflows.step4_runtime_config import step4_runtime_config_from_env
@@ -131,6 +132,21 @@ def test_step4_order_config_from_env_normalizes_values(monkeypatch):
     assert cfg.probe_budget_limit == 0.0
     assert cfg.attack_budget_limit == 1.0
     assert cfg.buy_block_regimes == frozenset({"CRASH", "NEUTRAL"})
+
+
+def test_step4_order_config_default_blocks_weak_market_regimes(monkeypatch):
+    monkeypatch.delenv("STEP4_BUY_BLOCK_REGIMES", raising=False)
+
+    cfg = step4_order_config_from_env()
+
+    assert {"BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF", "CRASH", "BLACK_SWAN"} <= cfg.buy_block_regimes
+
+
+def test_max_new_buy_names_blocks_bear_rebound() -> None:
+    limits = NewBuyLimits(risk_on=2, caution=1, neutral=1, risk_off=0)
+
+    assert max_new_buy_names("BEAR_REBOUND", limits) == 0
+    assert max_new_buy_names("PANIC_REPAIR", limits) == 0
 
 
 def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):

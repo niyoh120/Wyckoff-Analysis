@@ -434,6 +434,62 @@ def test_loss_guard_bear_rebound_bans_pure_lps_even_with_score():
     assert dropped == {"BEAR_REBOUND禁用LPS": 1}
 
 
+def test_select_base_ai_candidates_blocks_observe_only_market():
+    selected, trend, accum, score_map, ai_policy, use_full = funnel_ai_selection.select_base_ai_candidates(
+        metrics={},
+        triggers={"sos": [("000001", 3.0)]},
+        l3_ranked_symbols=["000001"],
+        regime="BEAR_REBOUND",
+        sector_map={},
+        benchmark_context={},
+        formal_sorted_codes=["000001"],
+        code_to_best_score={"000001": 3.0},
+        code_to_trigger_keys={"000001": ["sos"]},
+        full_mode_enabled=True,
+    )
+
+    assert selected == []
+    assert trend == []
+    assert accum == []
+    assert score_map == {}
+    assert ai_policy["total_cap"] == 0
+    assert ai_policy["trade_mode"] == "observe_only"
+    assert use_full is False
+
+
+def test_promote_review_candidates_blocks_neutral_bypass(monkeypatch):
+    monkeypatch.setattr(funnel_ai_selection, "FUNNEL_L2_BYPASS_AI_ENABLED", True)
+    monkeypatch.setattr(funnel_ai_selection, "FUNNEL_STRATEGIC_L2_BYPASS_ENABLED", True)
+    monkeypatch.setattr(funnel_ai_selection, "FUNNEL_THEME_RADAR_PROMOTE_CAP", 2)
+    selected = ["000001"]
+    trend = ["000001"]
+    accum: list[str] = []
+
+    bypass_added, strategic_added, theme_added = funnel_ai_selection.promote_review_candidates(
+        selected,
+        trend,
+        accum,
+        {
+            "l2_bypass": ["000002"],
+            "strategic_l2_bypass": ["000003"],
+            "strategic_accum": {"000003"},
+            "formal_hit": {"000004"},
+        },
+        code_to_total_score={"000002": 2.0, "000003": 3.0, "000004": 4.0},
+        code_to_trigger_keys={"000002": ["sos"], "000003": ["spring"], "000004": ["sos"]},
+        score_map={"000001": 1.0},
+        ai_policy={"total_cap": 4},
+        use_full_ai_selection=False,
+        theme_bonus_map={"000004": 10.0},
+        regime="NEUTRAL",
+    )
+
+    assert (bypass_added, strategic_added, theme_added) == (0, 0, 0)
+    assert selected == ["000001"]
+    assert trend == ["000001"]
+    assert accum == []
+
+
 def test_loss_guard_risk_on_bans_pure_trend_pullback():
     kept, trend_kept, accum_kept, dropped = apply_loss_guard(
         ["000001"],

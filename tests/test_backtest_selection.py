@@ -251,7 +251,7 @@ def test_regime_position_filter_blocks_defensive_regimes() -> None:
     assert apply_regime_position_filter(codes, "RISK_OFF") == []
     assert apply_regime_position_filter(codes, "NEUTRAL") == ["A", "B"]
     assert apply_regime_position_filter(codes, "RISK_ON") == ["A"]
-    assert apply_regime_position_filter(codes, "BEAR_REBOUND") == ["A"]
+    assert apply_regime_position_filter(codes, "BEAR_REBOUND") == []
 
 
 def test_candidate_policy_config_overrides_regime_position_ratio() -> None:

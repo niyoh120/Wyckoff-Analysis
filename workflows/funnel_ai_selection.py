@@ -21,6 +21,7 @@ from core.dynamic_policy import (
 )
 from core.funnel_selection import promote_bypass_groups, should_force_quota_selection, split_selected_tracks
 from core.funnel_theme import apply_theme_bonus_to_scores, promote_theme_l4_for_ai
+from core.market_trade_mode import resolve_market_trade_mode
 from core.wyckoff_engine import FunnelResult
 from integrations.supabase_signal_feedback import (
     load_signal_health_snapshot,
@@ -66,14 +67,28 @@ def select_base_ai_candidates(
 ) -> tuple[list[str], list[str], list[str], dict[str, float], dict, bool]:
     dynamic_config = dynamic_policy_config_from_env()
     allocation_config = ai_candidate_allocation_config_from_env()
+    trade_mode = resolve_market_trade_mode(regime)
+    if not trade_mode.allow_ai_review:
+        ai_policy = resolve_ai_candidate_policy(regime, override_total_cap=0, config=allocation_config)
+        ai_policy.update(
+            {
+                "trade_mode": trade_mode.mode,
+                "trade_action": trade_mode.action,
+                "trade_gate_reason": trade_mode.reason,
+            }
+        )
+        print(f"[funnel] 市场交易闸门: {trade_mode.regime} -> {trade_mode.action}")
+        return [], [], [], {}, ai_policy, False
     force_quota = should_force_quota_selection(
         regime,
         full_mode_enabled,
         defensive_force_quota=FUNNEL_DEFENSIVE_FORCE_QUOTA,
     )
+    if full_mode_enabled and not trade_mode.allow_full_l4:
+        force_quota = True
     use_full_ai_selection = full_mode_enabled and not force_quota
     if force_quota:
-        print(f"[funnel] 防守市场 {regime}: 强制从 full_l4 切换为 quota 选股")
+        print(f"[funnel] 市场模式 {trade_mode.mode}: {regime} 强制从 full_l4 切换为 quota 选股")
     if use_full_ai_selection:
         result = full_formal_ai_selection(formal_sorted_codes, code_to_best_score, code_to_trigger_keys)
         if dynamic_policy_mode(dynamic_config) == "shadow":
@@ -108,6 +123,7 @@ def promote_review_candidates(
     theme_bonus_map: dict[str, float],
     regime: str,
 ) -> tuple[int, int, int]:
+    trade_mode = resolve_market_trade_mode(regime)
     if not use_full_ai_selection:
         apply_theme_bonus_to_scores(score_map, theme_bonus_map)
     ai_total_cap = int(ai_policy.get("total_cap") or 0)
@@ -120,24 +136,26 @@ def promote_review_candidates(
         code_to_trigger_keys,
         score_map,
         ai_total_cap=ai_total_cap,
-        bypass_enabled=FUNNEL_L2_BYPASS_AI_ENABLED,
+        bypass_enabled=FUNNEL_L2_BYPASS_AI_ENABLED and trade_mode.allow_bypass_review,
         bypass_cap=FUNNEL_L2_BYPASS_AI_CAP,
-        strategic_enabled=FUNNEL_STRATEGIC_L2_BYPASS_ENABLED,
+        strategic_enabled=FUNNEL_STRATEGIC_L2_BYPASS_ENABLED and trade_mode.allow_bypass_review,
         strategic_cap=FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
         regime=regime,
     )
-    theme_added = promote_theme_l4_for_ai(
-        selected_for_ai,
-        trend_selected,
-        accum_selected,
-        set(pools["formal_hit"]),
-        theme_bonus_map,
-        code_to_total_score,
-        code_to_trigger_keys,
-        score_map,
-        promotion_cap=FUNNEL_THEME_RADAR_PROMOTE_CAP,
-        total_cap=ai_total_cap,
-    )
+    theme_added = 0
+    if trade_mode.allow_theme_promotion:
+        theme_added = promote_theme_l4_for_ai(
+            selected_for_ai,
+            trend_selected,
+            accum_selected,
+            set(pools["formal_hit"]),
+            theme_bonus_map,
+            code_to_total_score,
+            code_to_trigger_keys,
+            score_map,
+            promotion_cap=FUNNEL_THEME_RADAR_PROMOTE_CAP,
+            total_cap=ai_total_cap,
+        )
     return bypass_added, strategic_added, theme_added
 
 

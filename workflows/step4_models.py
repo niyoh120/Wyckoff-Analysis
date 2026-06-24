@@ -102,7 +102,7 @@ class Step4OrderConfig:
     atr_slippage_factor: float = 0.25
     probe_budget_limit: float = 0.10
     attack_budget_limit: float = 0.20
-    buy_block_regimes: frozenset[str] = frozenset({"CRASH", "BLACK_SWAN"})
+    buy_block_regimes: frozenset[str] = frozenset({"BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF", "CRASH", "BLACK_SWAN"})
     chase_gap_pct_min: float = 1.2
     chase_gap_pct_max: float = 5.5
     chase_atr_mult_min: float = 0.8

@@ -46,9 +46,9 @@ def max_new_buy_names(market_regime: str, limits: NewBuyLimits) -> int:
     regime = clean_text(market_regime).upper() or "NEUTRAL"
     if regime == "RISK_ON":
         return limits.risk_on
-    if regime in {"CAUTION", "BEAR_REBOUND", "PANIC_REPAIR"}:
+    if regime == "CAUTION":
         return limits.caution
-    if regime == "RISK_OFF":
+    if regime in {"BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF"}:
         return limits.risk_off
     if regime in {"CRASH", "BLACK_SWAN"}:
         return 0

@@ -9,6 +9,7 @@ from typing import Any
 from core.candidate_ranker import TRIGGER_GROUP_ORDER, TRIGGER_GROUP_TITLES, TRIGGER_LABELS, TRIGGER_SHORT_LABELS
 from core.funnel_etf import append_etf_section
 from core.funnel_sections import append_formal_l4_sections, score_star
+from core.market_trade_mode import resolve_market_trade_mode
 from core.theme_radar import summarize_theme_radar
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_report_payload import (
@@ -129,6 +130,11 @@ def _market_report_lines(benchmark_context: dict | None) -> tuple[str, str, str,
     return bench_line, money_line, amount_line, pv_line, pv_shadow_line
 
 
+def _trade_mode_report_line(regime: str) -> str:
+    mode = resolve_market_trade_mode(regime)
+    return f"{mode.label} | {mode.action} | {mode.reason}"
+
+
 def _funnel_card_title() -> str:
     return f"🔬 Wyckoff Funnel {date.today().strftime('%Y-%m-%d')}"
 
@@ -229,6 +235,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         ),
         f"**漏斗概览**: {ctx.metrics['total_symbols']}只 → L1:{ctx.metrics['layer1']} → L2:{ctx.metrics['layer2']} → L3:{ctx.metrics['layer3']} → 命中:{ctx.metrics['total_hits']}",
         f"**大盘水温**: {bench_line}",
+        f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
         f"**大盘资金趋势**: {money_line}",
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",
@@ -303,6 +310,7 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         ),
         f"**漏斗概览**: {ctx.metrics['total_symbols']}只 → L1:{ctx.metrics['layer1']} → L2:{ctx.metrics['layer2']} → L3:{ctx.metrics['layer3']} → 正式L4:{ctx.unique_hit_count}",
         f"**大盘水温**: {bench_line}",
+        f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
         f"**大盘资金趋势**: {money_line}",
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",

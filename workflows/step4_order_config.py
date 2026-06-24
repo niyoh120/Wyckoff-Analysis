@@ -20,7 +20,10 @@ def step4_order_config_from_env() -> Step4OrderConfig:
         atr_slippage_factor=_env_float("STEP4_ATR_SLIPPAGE_FACTOR", 0.25),
         probe_budget_limit=_clamp01(_env_float("STEP4_PROBE_BUDGET_LIMIT", 0.10)),
         attack_budget_limit=_clamp01(_env_float("STEP4_ATTACK_BUDGET_LIMIT", 0.20)),
-        buy_block_regimes=_env_regime_set("STEP4_BUY_BLOCK_REGIMES", "CRASH,BLACK_SWAN"),
+        buy_block_regimes=_env_regime_set(
+            "STEP4_BUY_BLOCK_REGIMES",
+            "BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN",
+        ),
         chase_gap_pct_min=gap_min,
         chase_gap_pct_max=max(_env_float("STEP4_CHASE_GAP_PCT_MAX", 5.5), gap_min),
         chase_atr_mult_min=atr_min,

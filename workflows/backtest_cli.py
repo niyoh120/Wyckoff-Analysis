@@ -156,7 +156,7 @@ def _add_signal_args(parser: argparse.ArgumentParser) -> None:
         "--regime-filter",
         action="store_true",
         default=False,
-        help="启用大盘水温仓位控制: CRASH/RISK_OFF 不开仓, BEAR_REBOUND 低仓, RISK_ON/NEUTRAL 半仓",
+        help="启用大盘水温仓位控制: BEAR_REBOUND/PANIC_REPAIR/RISK_OFF/CRASH 不开仓, RISK_ON/NEUTRAL 限仓",
     )
     parser.add_argument(
         "--pending-mode",

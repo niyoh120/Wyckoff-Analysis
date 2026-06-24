@@ -24,6 +24,13 @@ class TestAllocateAiCandidates:
         assert policy["trend_quota"] == 1
         assert policy["accum_quota"] == 2
 
+    def test_bear_rebound_default_quota_blocks_ai_candidates(self):
+        policy = resolve_ai_candidate_policy("BEAR_REBOUND")
+
+        assert policy["quota_family"] == "BEAR_REBOUND"
+        assert policy["trend_quota"] == 0
+        assert policy["accum_quota"] == 0
+
     def test_allocation_env_loader_stays_in_workflow_layer(self, monkeypatch):
         monkeypatch.setenv("FUNNEL_AI_TOTAL_CAP", "6")
         monkeypatch.setenv("FUNNEL_AI_RISK_ON_TREND", "4")

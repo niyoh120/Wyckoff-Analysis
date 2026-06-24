@@ -6,6 +6,7 @@ from datetime import datetime
 
 import workflows.daily_job_persistence as daily_persistence
 import workflows.daily_signal_observations as signal_observations
+from core.market_trade_mode import resolve_market_trade_mode
 from workflows.daily_job_common import Step2StageResult, log_line
 from workflows.daily_job_runtime import DailyJobConfig
 from workflows.step4_pipeline import TZ, latest_trade_date_str
@@ -74,12 +75,28 @@ def persist_step2_outputs(step2: Step2StageResult, cfg: DailyJobConfig) -> tuple
     if step2.symbols_info and step2.details:
         scored = run_springboard_scoring(step2.symbols_info, step2.details)
         log_line(f"Step2.7 起跳板评分: scored={scored}/{len(step2.symbols_info)}", cfg.logs_path)
-        step2.details["step3_symbols_info"] = daily_persistence.recommendation_write_symbols(step2.symbols_info)
+        trade_mode = resolve_market_trade_mode((step2.benchmark_context or {}).get("regime"))
+        step2.details["trade_mode"] = {
+            "regime": trade_mode.regime,
+            "mode": trade_mode.mode,
+            "label": trade_mode.label,
+            "action": trade_mode.action,
+            "reason": trade_mode.reason,
+        }
+        step2.details["step3_symbols_info"] = (
+            daily_persistence.recommendation_write_symbols(step2.symbols_info)
+            if trade_mode.allow_recommendation_write
+            else []
+        )
         log_line(
             "Step2.8 AI研报输入收口: "
-            f"raw={len(step2.symbols_info)}, confirmed={len(step2.details['step3_symbols_info'])}",
+            f"raw={len(step2.symbols_info)}, confirmed={len(step2.details['step3_symbols_info'])}, "
+            f"trade_mode={trade_mode.mode}",
             cfg.logs_path,
         )
+        if not trade_mode.allow_recommendation_write:
+            log_line(f"Step2.8 市场闸门: {trade_mode.action}，跳过推荐写库", cfg.logs_path)
+            return None, []
     if step2.ok and step2.symbols_info:
         return daily_persistence.persist_recommendations(
             step2.symbols_info,

@@ -5,8 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from core.funnel_report import build_symbol_report_row, candidate_reason_text
+from core.market_trade_mode import resolve_market_trade_mode
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_settings import FUNNEL_L2_BYPASS_AI_CAP, FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP
+
+
+def context_regime(ctx: Any) -> str:
+    return str(getattr(ctx, "regime", "NEUTRAL") or "NEUTRAL")
 
 
 def legacy_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
@@ -34,7 +39,7 @@ def legacy_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
             priority_score=float(ctx.code_to_total_score.get(code, 0.0)),
             selection_source=legacy_selection_source(ctx, code),
             selection_is_fill=False,
-            market_regime=ctx.regime,
+            market_regime=context_regime(ctx),
             maps=ctx.report_maps,
         )
         for idx, code in enumerate(selection.selected_for_ai)
@@ -56,7 +61,7 @@ def modern_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
             priority_score=float(selection.score_map.get(code, 0.0)),
             selection_source=selection_source(ctx, code),
             selection_is_fill=selection_source(ctx, code) == "l3_fill",
-            market_regime=ctx.regime,
+            market_regime=context_regime(ctx),
             maps=ctx.report_maps,
         )
         for idx, code in enumerate(selection.selected_for_ai)
@@ -71,8 +76,18 @@ def funnel_run_details(
     title: str,
     symbols: list[dict],
 ) -> dict:
+    trade_mode = resolve_market_trade_mode(context_regime(ctx))
     return {
         "metrics": ctx.metrics,
+        "trade_mode": {
+            "regime": trade_mode.regime,
+            "mode": trade_mode.mode,
+            "label": trade_mode.label,
+            "action": trade_mode.action,
+            "reason": trade_mode.reason,
+            "allow_ai_review": trade_mode.allow_ai_review,
+            "allow_recommendation_write": trade_mode.allow_recommendation_write,
+        },
         "triggers": ctx.review_triggers,
         "review_triggers": ctx.review_triggers,
         "formal_triggers": ctx.formal_triggers,
