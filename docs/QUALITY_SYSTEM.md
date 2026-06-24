@@ -71,7 +71,7 @@
 ┌──────────────────────────────────────────────────┐
 │              AGENTS.md (Single Source of Truth)   │
 │  ┌──────────────────────────────────────────┐    │
-│  │ 规则: ≤50行, 无死代码, pass ruff, ...    │    │
+│  │ 规则: 50行设计目标, 分层硬上限, pass ruff │    │
 │  └──────────────────────────────────────────┘    │
 └───────────┬──────────────┬───────────────┬───────┘
             │              │               │
@@ -90,10 +90,11 @@
 **文件**: `AGENTS.md`（项目根目录）
 
 核心红线：
-- 单函数/方法 ≤ 50 行
-- 不留死代码、调试代码
+- 新函数以 50 行为设计目标；硬上限按代码层级区分
+- 不留死代码、临时调试代码
 - 注释只留终态
-- 新增代码必须通过 `ruff check` 和 `ruff format --check`
+- 新增代码必须通过 `ruff check`、`ruff format --check` 和函数长度门禁
+- 冗余抽象、无意义 wrapper、命名和职责边界属于 review 强约束，不作为机器硬判定
 
 ---
 
@@ -118,8 +119,8 @@
 │  │                                           │      │
 │  │ 扫描 Python (ast) + TS (regex)            │      │
 │  │      │                                    │      │
-│  │      ├── 新函数 > 50行?  → ❌ FAIL         │      │
-│  │      ├── 白名单函数变长? → ❌ FAIL         │      │
+│  │      ├── 新函数超过分层硬上限? → ❌ FAIL   │      │
+│  │      ├── 白名单函数变长?     → ❌ FAIL     │      │
 │  │      └── 全部 OK?        → ✅ PASS         │      │
 │  └───────────────────────────────────────────┘      │
 └─────────────────────────────────────────────────────┘
@@ -454,12 +455,15 @@ L2-L4 自动化 ── "机器强制执行"
 
 | 机制 | 说明 |
 |------|------|
-| 硬阻断 | 新增函数 > 50 行 → CI ERROR（exit 1，阻断合并） |
-| 白名单 | `.metrics/func_whitelist.json` 记录存量超标函数 |
-| 只降不升 | 白名单函数变长 → ERROR（必须拆分后才能提交） |
+| 设计目标 | 新函数优先控制在 50 行以内；超过 50 行必须说明它属于编排、报告或 UI glue，而不是业务规则混杂 |
+| 分层硬阻断 | 新函数超过 `scripts/quality_gate.py` 的层级上限 → CI ERROR（exit 1，阻断合并） |
+| 当前硬上限 | core/agents/tools/integrations/workflows/shared 默认 70 行；scripts/CLI 编排 100 行；React 组件/app glue 90 行；React route 120 行 |
+| 白名单 | `.metrics/func_whitelist.json` 记录历史存量超标函数 |
+| 遗留可见债务 | 白名单函数仍超限会输出 WARNING，用于指导后续架构拆分；白名单函数变长会失败，避免历史债务继续扩大 |
 | 棘轮更新 | `--snapshot` 取 min(旧值, 新值)，已消失的条目自动移除 |
+| Stale 白名单 | `--check-functions` 会提示 stale 条目；数量过多时输出 WARNING，但不阻断 |
 
-核心原则：50 行硬上限 + 存量只减不增。每个函数、变量、抽象层必须有存在的理由。
+核心原则：50 行是设计目标，不是机械硬墙。质量门禁真正拦截的是新增巨型函数、遗留巨型函数继续变长、格式/类型/测试失败；无意义抽象、冗余 wrapper、死代码、职责混杂由 review 和持续重构处理。遗留长函数进入可见债务清单，随架构重构逐步拆短。
 
 ---
 
@@ -468,8 +472,19 @@ L2-L4 自动化 ── "机器强制执行"
 | 指标 | 位置 |
 |------|------|
 | 基准 | `.metrics/loc.json`（Python + TypeScript 分模块行数） |
-| 阈值 | 总量增长 > 5% 时 CI 输出 WARNING |
-| 更新 | `python scripts/quality_gate.py --snapshot` |
+| 阈值 | 总量增长 > 5% 时 CI 输出 WARNING，不自动失败 |
+| 更新 | `.venv/bin/python scripts/quality_gate.py --snapshot` |
+
+---
+
+## Fast Gate / Full Gate
+
+| 层级 | 适用场景 | 命令集合 |
+|------|----------|----------|
+| Fast gate | 日常本地开发、提交前快速确认 | `.venv/bin/ruff check .`、`.venv/bin/ruff format --check .`、`.venv/bin/python scripts/quality_gate.py --check-functions`、相关 pytest/tsx 测试 |
+| Full gate | CI、发布、跨模块大改 | Fast gate + 全量 `pytest`、workspace TypeScript、web test/build、必要 dry-run job |
+
+原则：本地开发优先 fast gate 保持反馈速度；CI 和发布用 full gate 守住端到端契约。不要为了省时间把 full gate 的责任转嫁给 review，也不要因为 full gate 很重就放松 hard gate。
 
 ---
 
@@ -477,16 +492,16 @@ L2-L4 自动化 ── "机器强制执行"
 
 ```bash
 # Python lint + format
-ruff check . && ruff format --check .
+.venv/bin/ruff check . && .venv/bin/ruff format --check .
 
-# 函数长度检查
-python scripts/quality_gate.py --check-functions
+# Fast gate: 函数长度检查
+.venv/bin/python scripts/quality_gate.py --check-functions
 
-# 完整 CI 模式（函数 + LOC 趋势）
-python scripts/quality_gate.py --ci
+# Full/CI gate: 函数 + LOC 趋势
+.venv/bin/python scripts/quality_gate.py --ci
 
 # 更新基准（当有意增长后）
-python scripts/quality_gate.py --snapshot
+.venv/bin/python scripts/quality_gate.py --snapshot
 
 # TypeScript 类型检查
 cd web/apps/web && npx --package=typescript tsc --noEmit
@@ -495,7 +510,7 @@ cd web/apps/web && npx --package=typescript tsc --noEmit
 cd web/apps/web && pnpm test
 
 # Python 测试
-pytest tests/ -x -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest tests/ -x -q
 
 # Pre-commit（全量）
 pre-commit run --all-files
@@ -516,5 +531,5 @@ pre-commit run --all-files
 2. 在 `chat-agent.ts` 的 `buildTools` 中注册 tool schema
 3. 在 `__tests__/chat-tools.test.ts` 中添加至少一个契约测试
 4. 运行 `pnpm test` 确认通过
-5. 运行 `python scripts/quality_gate.py --check-functions` 确认无超标
+5. 运行 `.venv/bin/python scripts/quality_gate.py --check-functions` 确认无超标
 6. 如果涉及 Python 侧新模块，在 `tests/` 中添加对应测试

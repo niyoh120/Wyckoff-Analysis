@@ -19,12 +19,19 @@ import {
 
 type ExportMode = 'single' | 'batch'
 type PreviewMode = 'enhanced' | 'raw'
+type Translate = ReturnType<typeof usePreferences>['t']
 
 interface BatchResult {
   symbol: string
   status: 'ok' | 'failed'
   rows: number
   error: string
+}
+
+interface ExportFetchParams {
+  days: number
+  endOffset: number
+  adjust: ExportAdjust
 }
 
 async function getTickFlowKey(userId: string): Promise<string | null> {
@@ -39,6 +46,24 @@ async function getTickFlowKey(userId: string): Promise<string | null> {
 export function ExportPage() {
   const user = useAuthStore((s) => s.user)
   const { t } = usePreferences()
+  const state = useExportState(user?.id, t)
+
+  return (
+    <div className="flex h-full flex-col p-6">
+      <h1 className="mb-5 text-xl font-semibold">{t('export.title')}</h1>
+      <ExportControlPanel {...state.control} />
+      <ExportError error={state.error} />
+      {state.batchResults.length > 0 && <BatchStatus rows={state.batchResults} okText={t('export.ok')} failedText={t('export.failedStatus')} rowsText={t('common.rows')} />}
+      {state.activeDataset ? (
+        <DatasetPreviewPanel {...state.preview} />
+      ) : (
+        !state.loading && <EmptyState title={t('export.emptyTitle')} subtitle={t('export.emptySubtitle')} />
+      )}
+    </div>
+  )
+}
+
+function useExportState(userId: string | undefined, t: Translate) {
   const [mode, setMode] = useState<ExportMode>('single')
   const [symbol, setSymbol] = useState('')
   const [batchText, setBatchText] = useState('')
@@ -66,54 +91,23 @@ export function ExportPage() {
   const previewRows = useMemo(() => selectColumns(activeRows.slice(0, 10), columnsFromSet(columnSet, columns)), [activeRows, columnSet, columns])
 
   async function handleExport() {
-    const apiKey = user ? await getTickFlowKey(user.id) : null
+    const apiKey = userId ? await getTickFlowKey(userId) : null
     if (!apiKey) {
       setError(t('export.configureTickflow'))
       return
     }
-    const symbols = mode === 'single' ? [normalizeExportSymbol(symbol)] : parseExportSymbols(batchText)
-    if (symbols.some((value) => !value)) {
-      setError(t('export.invalidSymbol'))
+    const validation = resolveExportSymbols(mode, symbol, batchText, t)
+    if (validation.error) {
+      setError(validation.error)
       return
     }
-    if (symbols.length === 0) {
-      setError(t('export.batchEmpty'))
-      return
-    }
-    if (mode === 'batch' && symbols.length > 6) {
-      setError(t('export.batchTooMany', { count: symbols.length }))
-      return
-    }
-    await runExport(apiKey, symbols)
-  }
-
-  async function runExport(apiKey: string, symbols: string[]) {
-    resetOutput()
+    resetExportOutput(setError, setDatasets, setBatchResults, setActiveIndex, setSelectedColumns, setColumnFilter)
     setLoading(true)
-    const nextResults: BatchResult[] = []
-    const nextDatasets: ExportDataset[] = []
-    for (const item of symbols) {
-      try {
-        const dataset = await fetchDataset(apiKey, item, days, endOffset, adjust)
-        nextDatasets.push(dataset)
-        nextResults.push({ symbol: item, status: 'ok', rows: dataset.rawRows.length, error: '' })
-      } catch (err) {
-        nextResults.push({ symbol: item, status: 'failed', rows: 0, error: errorMessage(err) })
-      }
-    }
-    setDatasets(nextDatasets)
-    setBatchResults(nextResults)
-    setError(nextDatasets.length ? '' : t('export.failed'))
+    const result = await collectExportDatasets(apiKey, validation.symbols, { days, endOffset, adjust })
+    setDatasets(result.datasets)
+    setBatchResults(result.batchResults)
+    setError(result.datasets.length ? '' : t('export.failed'))
     setLoading(false)
-  }
-
-  function resetOutput() {
-    setError('')
-    setDatasets([])
-    setBatchResults([])
-    setActiveIndex(0)
-    setSelectedColumns([])
-    setColumnFilter('')
   }
 
   function downloadCurrent(kind: PreviewMode) {
@@ -133,84 +127,233 @@ export function ExportPage() {
     downloadBlob(createZipBlob(zipFiles(datasets)), `wyckoff_export_${formatStamp()}.zip`)
   }
 
+  return {
+    activeDataset,
+    batchResults,
+    error,
+    loading,
+    control: {
+      mode,
+      setMode,
+      symbol,
+      setSymbol,
+      batchText,
+      setBatchText,
+      days,
+      setDays,
+      endOffset,
+      setEndOffset,
+      adjust,
+      setAdjust,
+      loading,
+      onExport: handleExport,
+      t,
+    },
+    preview: {
+      datasets,
+      activeIndex,
+      setActiveIndex,
+      previewMode,
+      setPreviewMode,
+      columnFilter,
+      setColumnFilter,
+      visibleColumns,
+      columnSet,
+      setSelectedColumns,
+      columns,
+      previewRows,
+      downloadCurrent,
+      downloadSelected,
+      downloadZip,
+      t,
+    },
+  }
+}
+
+function ExportControlPanel(props: {
+  mode: ExportMode
+  setMode: (mode: ExportMode) => void
+  symbol: string
+  setSymbol: (value: string) => void
+  batchText: string
+  setBatchText: (value: string) => void
+  days: number
+  setDays: (value: number) => void
+  endOffset: number
+  setEndOffset: (value: number) => void
+  adjust: ExportAdjust
+  setAdjust: (value: ExportAdjust) => void
+  loading: boolean
+  onExport: () => void
+  t: Translate
+}) {
+  const disabled = props.loading || (props.mode === 'single' ? !props.symbol.trim() : !props.batchText.trim())
   return (
-    <div className="flex h-full flex-col p-6">
-      <h1 className="mb-5 text-xl font-semibold">{t('export.title')}</h1>
+    <section className="mb-5 rounded-lg border border-border p-4">
+      <div className="mb-4 flex flex-wrap gap-2">
+        <ModeButton active={props.mode === 'single'} onClick={() => props.setMode('single')}>{props.t('export.singleMode')}</ModeButton>
+        <ModeButton active={props.mode === 'batch'} onClick={() => props.setMode('batch')}>{props.t('export.batchMode')}</ModeButton>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[minmax(240px,1fr)_120px_120px_150px_auto] lg:items-end">
+        {props.mode === 'single' ? (
+          <TextField label={props.t('common.stockCode')} value={props.symbol} onChange={props.setSymbol} placeholder={props.t('export.symbolPlaceholder')} onEnter={props.onExport} />
+        ) : (
+          <TextArea label={props.t('export.batchSymbols')} value={props.batchText} onChange={props.setBatchText} placeholder="601318; 000001; 510300; AAPL.US; 00700.HK" />
+        )}
+        <NumberField label={props.t('export.days')} value={props.days} min={10} max={700} onChange={props.setDays} />
+        <NumberField label={props.t('export.endOffset')} value={props.endOffset} min={0} max={30} onChange={props.setEndOffset} />
+        <AdjustSelect value={props.adjust} onChange={props.setAdjust} t={props.t} />
+        <button onClick={props.onExport} disabled={disabled} className="flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
+          {props.loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+          {props.loading ? props.t('export.fetching') : props.t('export.fetch')}
+        </button>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">{props.t('export.batchHint')}</p>
+    </section>
+  )
+}
 
-      <section className="mb-5 rounded-lg border border-border p-4">
-        <div className="mb-4 flex flex-wrap gap-2">
-          <ModeButton active={mode === 'single'} onClick={() => setMode('single')}>{t('export.singleMode')}</ModeButton>
-          <ModeButton active={mode === 'batch'} onClick={() => setMode('batch')}>{t('export.batchMode')}</ModeButton>
-        </div>
+function resolveExportSymbols(mode: ExportMode, symbol: string, batchText: string, t: Translate): { symbols: string[]; error: string } {
+  const symbols = mode === 'single' ? [normalizeExportSymbol(symbol)] : parseExportSymbols(batchText)
+  if (symbols.some((value) => !value)) return { symbols, error: t('export.invalidSymbol') }
+  if (symbols.length === 0) return { symbols, error: t('export.batchEmpty') }
+  if (mode === 'batch' && symbols.length > 6) {
+    return { symbols, error: t('export.batchTooMany', { count: symbols.length }) }
+  }
+  return { symbols, error: '' }
+}
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(240px,1fr)_120px_120px_150px_auto] lg:items-end">
-          {mode === 'single' ? (
-            <TextField label={t('common.stockCode')} value={symbol} onChange={setSymbol} placeholder={t('export.symbolPlaceholder')} onEnter={handleExport} />
-          ) : (
-            <TextArea label={t('export.batchSymbols')} value={batchText} onChange={setBatchText} placeholder="601318; 000001; 510300; AAPL.US; 00700.HK" />
-          )}
-          <NumberField label={t('export.days')} value={days} min={10} max={700} onChange={setDays} />
-          <NumberField label={t('export.endOffset')} value={endOffset} min={0} max={30} onChange={setEndOffset} />
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">{t('export.adjust')}</label>
-            <select value={adjust} onChange={(e) => setAdjust(e.target.value as ExportAdjust)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
-              <option value="qfq">{t('export.qfq')}</option>
-              <option value="hfq">{t('export.hfq')}</option>
-              <option value="">{t('export.noneAdjust')}</option>
-            </select>
-          </div>
-          <button onClick={handleExport} disabled={loading || (mode === 'single' ? !symbol.trim() : !batchText.trim())} className="flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-            {loading ? t('export.fetching') : t('export.fetch')}
-          </button>
-        </div>
-        <p className="mt-3 text-xs text-muted-foreground">{t('export.batchHint')}</p>
-      </section>
+async function collectExportDatasets(apiKey: string, symbols: string[], params: ExportFetchParams) {
+  const batchResults: BatchResult[] = []
+  const datasets: ExportDataset[] = []
+  for (const item of symbols) {
+    try {
+      const dataset = await fetchDataset(apiKey, item, params.days, params.endOffset, params.adjust)
+      datasets.push(dataset)
+      batchResults.push({ symbol: item, status: 'ok', rows: dataset.rawRows.length, error: '' })
+    } catch (err) {
+      batchResults.push({ symbol: item, status: 'failed', rows: 0, error: errorMessage(err) })
+    }
+  }
+  return { batchResults, datasets }
+}
 
-      {error && <div className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200">{error}</div>}
+function resetExportOutput(
+  setError: (value: string) => void,
+  setDatasets: (value: ExportDataset[]) => void,
+  setBatchResults: (value: BatchResult[]) => void,
+  setActiveIndex: (value: number) => void,
+  setSelectedColumns: (value: string[]) => void,
+  setColumnFilter: (value: string) => void,
+) {
+  setError('')
+  setDatasets([])
+  setBatchResults([])
+  setActiveIndex(0)
+  setSelectedColumns([])
+  setColumnFilter('')
+}
 
-      {batchResults.length > 0 && <BatchStatus rows={batchResults} okText={t('export.ok')} failedText={t('export.failedStatus')} rowsText={t('common.rows')} />}
+function AdjustSelect({ value, onChange, t }: { value: ExportAdjust; onChange: (value: ExportAdjust) => void; t: Translate }) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-sm font-medium">{t('export.adjust')}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value as ExportAdjust)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+        <option value="qfq">{t('export.qfq')}</option>
+        <option value="hfq">{t('export.hfq')}</option>
+        <option value="">{t('export.noneAdjust')}</option>
+      </select>
+    </div>
+  )
+}
 
-      {activeDataset ? (
-        <section className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <DatasetSelect datasets={datasets} activeIndex={activeIndex} onChange={setActiveIndex} label={t('export.dataset')} />
-              <ModeButton active={previewMode === 'enhanced'} onClick={() => setPreviewMode('enhanced')}>{t('export.enhancedView')}</ModeButton>
-              <ModeButton active={previewMode === 'raw'} onClick={() => setPreviewMode('raw')}>{t('export.rawView')}</ModeButton>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <DownloadButton onClick={() => downloadCurrent('enhanced')} icon={<FileSpreadsheet size={15} />}>{t('export.enhancedCsv')}</DownloadButton>
-              <DownloadButton onClick={() => downloadCurrent('raw')} icon={<FileSpreadsheet size={15} />}>{t('export.rawCsv')}</DownloadButton>
-              <DownloadButton onClick={downloadSelected} icon={<Download size={15} />}>{t('export.selectedCsv')}</DownloadButton>
-              <DownloadButton onClick={downloadZip} icon={<Package size={15} />}>{t('export.zip')}</DownloadButton>
-            </div>
-          </div>
+function ExportError({ error }: { error: string }) {
+  if (!error) return null
+  return <div className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200">{error}</div>
+}
 
-          <div className="border-b border-border p-3">
-            <div className="mb-2 flex flex-wrap items-center gap-3">
-              <input value={columnFilter} onChange={(e) => setColumnFilter(e.target.value)} placeholder={t('export.columnFilter')} className="h-9 w-56 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20" />
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={visibleColumns.every((c) => columnSet.has(c))} onChange={(e) => setSelectedColumns(toggleColumns(columnSet, columns, visibleColumns, e.target.checked))} />
-                {t('export.selectAll')}
-              </label>
-              <span className="text-xs text-muted-foreground">{t('export.selectedCount', { count: columnSet.size })}</span>
-            </div>
-            <div className="flex max-h-20 flex-wrap gap-2 overflow-auto">
-              {visibleColumns.map((column) => (
-                <label key={column} className="flex items-center gap-1.5 rounded border border-border px-2 py-1 text-xs">
-                  <input type="checkbox" checked={columnSet.has(column)} onChange={(e) => setSelectedColumns(toggleColumns(columnSet, columns, [column], e.target.checked))} />
-                  {column}
-                </label>
-              ))}
-            </div>
-          </div>
+function DatasetPreviewPanel(props: {
+  datasets: ExportDataset[]
+  activeIndex: number
+  setActiveIndex: (index: number) => void
+  previewMode: PreviewMode
+  setPreviewMode: (mode: PreviewMode) => void
+  columnFilter: string
+  setColumnFilter: (filter: string) => void
+  visibleColumns: string[]
+  columnSet: Set<string>
+  setSelectedColumns: (columns: string[]) => void
+  columns: string[]
+  previewRows: ExportRow[]
+  downloadCurrent: (kind: PreviewMode) => void
+  downloadSelected: () => void
+  downloadZip: () => void
+  t: Translate
+}) {
+  return (
+    <section className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
+      <PreviewToolbar {...props} />
+      <ColumnPicker {...props} />
+      <PreviewTable rows={props.previewRows} />
+    </section>
+  )
+}
 
-          <PreviewTable rows={previewRows} />
-        </section>
-      ) : (
-        !loading && <EmptyState title={t('export.emptyTitle')} subtitle={t('export.emptySubtitle')} />
-      )}
+function PreviewToolbar(props: {
+  datasets: ExportDataset[]
+  activeIndex: number
+  setActiveIndex: (index: number) => void
+  previewMode: PreviewMode
+  setPreviewMode: (mode: PreviewMode) => void
+  downloadCurrent: (kind: PreviewMode) => void
+  downloadSelected: () => void
+  downloadZip: () => void
+  t: Translate
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <DatasetSelect datasets={props.datasets} activeIndex={props.activeIndex} onChange={props.setActiveIndex} label={props.t('export.dataset')} />
+        <ModeButton active={props.previewMode === 'enhanced'} onClick={() => props.setPreviewMode('enhanced')}>{props.t('export.enhancedView')}</ModeButton>
+        <ModeButton active={props.previewMode === 'raw'} onClick={() => props.setPreviewMode('raw')}>{props.t('export.rawView')}</ModeButton>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <DownloadButton onClick={() => props.downloadCurrent('enhanced')} icon={<FileSpreadsheet size={15} />}>{props.t('export.enhancedCsv')}</DownloadButton>
+        <DownloadButton onClick={() => props.downloadCurrent('raw')} icon={<FileSpreadsheet size={15} />}>{props.t('export.rawCsv')}</DownloadButton>
+        <DownloadButton onClick={props.downloadSelected} icon={<Download size={15} />}>{props.t('export.selectedCsv')}</DownloadButton>
+        <DownloadButton onClick={props.downloadZip} icon={<Package size={15} />}>{props.t('export.zip')}</DownloadButton>
+      </div>
+    </div>
+  )
+}
+
+function ColumnPicker(props: {
+  columnFilter: string
+  setColumnFilter: (filter: string) => void
+  visibleColumns: string[]
+  columnSet: Set<string>
+  setSelectedColumns: (columns: string[]) => void
+  columns: string[]
+  t: Translate
+}) {
+  return (
+    <div className="border-b border-border p-3">
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <input value={props.columnFilter} onChange={(e) => props.setColumnFilter(e.target.value)} placeholder={props.t('export.columnFilter')} className="h-9 w-56 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20" />
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={props.visibleColumns.every((c) => props.columnSet.has(c))} onChange={(e) => props.setSelectedColumns(toggleColumns(props.columnSet, props.columns, props.visibleColumns, e.target.checked))} />
+          {props.t('export.selectAll')}
+        </label>
+        <span className="text-xs text-muted-foreground">{props.t('export.selectedCount', { count: props.columnSet.size })}</span>
+      </div>
+      <div className="flex max-h-20 flex-wrap gap-2 overflow-auto">
+        {props.visibleColumns.map((column) => (
+          <label key={column} className="flex items-center gap-1.5 rounded border border-border px-2 py-1 text-xs">
+            <input type="checkbox" checked={props.columnSet.has(column)} onChange={(e) => props.setSelectedColumns(toggleColumns(props.columnSet, props.columns, [column], e.target.checked))} />
+            {column}
+          </label>
+        ))}
+      </div>
     </div>
   )
 }

@@ -19,9 +19,9 @@ def is_a_share_trading_day(d: date | None = None) -> bool:
     if d.weekday() >= 5:
         return False
     try:
-        from integrations.fetch_a_share_csv import _trade_dates_cached
+        from integrations.fetch_a_share_csv import cached_trade_dates
 
-        return d in set(_trade_dates_cached())
+        return d in set(cached_trade_dates())
     except Exception:
         return d.weekday() < 5
 
@@ -30,9 +30,9 @@ def next_trading_day(after: date | None = None) -> date | None:
     """返回 after 之后最近的交易日，找不到则返回 None。"""
     base = after or datetime.now(CN_TZ).date()
     try:
-        from integrations.fetch_a_share_csv import _trade_dates_cached
+        from integrations.fetch_a_share_csv import cached_trade_dates
 
-        dates = _trade_dates_cached()
+        dates = cached_trade_dates()
         idx = bisect_right(dates, base)
         return dates[idx] if idx < len(dates) else None
     except Exception:

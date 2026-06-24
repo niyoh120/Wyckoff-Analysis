@@ -1,22 +1,18 @@
 from __future__ import annotations
 
 
-def test_generate_public_premarket_brief_uses_efficiency(monkeypatch):
+def test_generate_public_premarket_brief_uses_efficiency():
     import core.premarket_public_brief as brief
 
-    monkeypatch.setenv("EFFICIENCY_API_KEY", "eff-key")
-    monkeypatch.setenv("EFFICIENCY_MODEL", "eff-model")
-    monkeypatch.setenv("EFFICIENCY_BASE_URL", "https://eff.example/v1")
-    monkeypatch.setenv("PREMARKET_LLM_PROVIDER", "efficiency")
-    monkeypatch.setenv("DEFAULT_LLM_PROVIDER", "efficiency")
-    monkeypatch.setattr(
-        brief,
-        "call_llm",
-        lambda **_kwargs: (
-            '{"banner_title":"隔夜扰动有限，盘前观察承接",'
-            '"banner_message":"昨日场内水温中性，隔夜外部波动未明显放大。今日重点观察开盘承接、量能变化与风险偏好是否同步修复。",'
-            '"banner_tone":"谨慎"}'
-        ),
+    config = brief.PublicBriefLlmConfig(
+        routes=(
+            {
+                "provider": "efficiency",
+                "model": "eff-model",
+                "api_key": "eff-key",
+                "base_url": "https://eff.example/v1",
+            },
+        )
     )
 
     result = brief.generate_public_premarket_brief(
@@ -25,6 +21,12 @@ def test_generate_public_premarket_brief_uses_efficiency(monkeypatch):
         regime="NORMAL",
         reasons=["A50/VIX 未触发风险阈值"],
         market_signal={"benchmark_regime": "NEUTRAL"},
+        llm_config=config,
+        llm_caller=lambda **_kwargs: (
+            '{"banner_title":"隔夜扰动有限，盘前观察承接",'
+            '"banner_message":"昨日场内水温中性，隔夜外部波动未明显放大。今日重点观察开盘承接、量能变化与风险偏好是否同步修复。",'
+            '"banner_tone":"谨慎"}'
+        ),
     )
 
     assert result["llm_used"] is True
@@ -33,20 +35,18 @@ def test_generate_public_premarket_brief_uses_efficiency(monkeypatch):
     assert "持仓" not in result["banner_message"]
 
 
-def test_generate_public_premarket_brief_rejects_private_or_action_terms(monkeypatch):
+def test_generate_public_premarket_brief_rejects_private_or_action_terms():
     import core.premarket_public_brief as brief
 
-    monkeypatch.setenv("EFFICIENCY_API_KEY", "eff-key")
-    monkeypatch.setenv("EFFICIENCY_MODEL", "eff-model")
-    monkeypatch.setenv("EFFICIENCY_BASE_URL", "https://eff.example/v1")
-    monkeypatch.setenv("PREMARKET_LLM_PROVIDER", "efficiency")
-    monkeypatch.setenv("DEFAULT_LLM_PROVIDER", "efficiency")
-    monkeypatch.setattr(
-        brief,
-        "call_llm",
-        lambda **_kwargs: (
-            '{"banner_title":"关注 600000","banner_message":"结合你的持仓，可以买入并设置止损。","banner_tone":"谨慎"}'
-        ),
+    config = brief.PublicBriefLlmConfig(
+        routes=(
+            {
+                "provider": "efficiency",
+                "model": "eff-model",
+                "api_key": "eff-key",
+                "base_url": "https://eff.example/v1",
+            },
+        )
     )
 
     result = brief.generate_public_premarket_brief(
@@ -55,6 +55,10 @@ def test_generate_public_premarket_brief_rejects_private_or_action_terms(monkeyp
         regime="RISK_OFF",
         reasons=["A50跌幅 -1.20% <= -1.00%"],
         market_signal={"benchmark_regime": "RISK_OFF"},
+        llm_config=config,
+        llm_caller=lambda **_kwargs: (
+            '{"banner_title":"关注 600000","banner_message":"结合你的持仓，可以买入并设置止损。","banner_tone":"谨慎"}'
+        ),
     )
 
     assert result["llm_used"] is False

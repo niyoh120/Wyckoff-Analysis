@@ -130,6 +130,22 @@ STRUCTURED_MARKET_SIGNAL_FIELDS = {
     "action_phrase",
 }
 CUSTOM_BANNER_FIELDS = ("banner_title", "banner_message", "banner_tone")
+BENCHMARK_MERGE_FIELDS = (
+    "trade_date",
+    "benchmark_regime",
+    "main_index_code",
+    "main_index_close",
+    "main_index_ma50",
+    "main_index_ma200",
+    "main_index_recent3_cum_pct",
+    "main_index_today_pct",
+    "smallcap_index_code",
+    "smallcap_close",
+    "smallcap_recent3_cum_pct",
+)
+PREMARKET_MERGE_FIELDS = ("premarket_regime", "premarket_reasons")
+A50_MERGE_FIELDS = ("a50_value_date", "a50_source", "a50_close", "a50_pct_chg")
+VIX_MERGE_FIELDS = ("vix_value_date", "vix_source", "vix_close", "vix_pct_chg")
 
 
 MARKET_BANNER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
@@ -355,6 +371,68 @@ def _custom_banner_fields(row: dict[str, Any] | None) -> dict[str, str]:
     return out
 
 
+def _is_non_empty(value: Any) -> bool:
+    if value is None:
+        return False
+    return str(value).strip() != ""
+
+
+def _pick_latest_with_fields(rows: list[dict[str, Any]], required_any: tuple[str, ...]) -> dict[str, Any] | None:
+    for row in rows:
+        if any(_is_non_empty(row.get(key)) for key in required_any):
+            return row
+    return None
+
+
+def _copy_market_signal_fields(target: dict[str, Any], source: dict[str, Any] | None, fields: tuple[str, ...]) -> None:
+    if not source:
+        return
+    for key in fields:
+        target[key] = source.get(key)
+
+
+def _latest_market_signal_rows(client: Client, limit: int = 120) -> list[dict[str, Any]]:
+    resp = (
+        client.table(TABLE_MARKET_SIGNAL_DAILY)
+        .select("*")
+        .order("trade_date", desc=True)
+        .order("updated_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return [dict(row) for row in (resp.data or []) if isinstance(row, dict)]
+
+
+def _merge_latest_market_signal_rows(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    merged = dict(rows[0])
+    _copy_market_signal_fields(
+        merged,
+        _pick_latest_with_fields(rows, ("benchmark_regime", "main_index_close", "main_index_ma50", "main_index_ma200")),
+        BENCHMARK_MERGE_FIELDS,
+    )
+    _copy_market_signal_fields(
+        merged,
+        _pick_latest_with_fields(rows, ("premarket_regime", "premarket_reasons")),
+        PREMARKET_MERGE_FIELDS,
+    )
+    _copy_market_signal_fields(
+        merged,
+        _pick_latest_with_fields(rows, ("a50_close", "a50_pct_chg", "a50_value_date")),
+        A50_MERGE_FIELDS,
+    )
+    _copy_market_signal_fields(
+        merged,
+        _pick_latest_with_fields(rows, ("vix_close", "vix_pct_chg", "vix_value_date")),
+        VIX_MERGE_FIELDS,
+    )
+    custom_banner = _custom_banner_fields(merged)
+    merged.update(compose_market_banner(merged))
+    merged.update(custom_banner)
+    return merged
+
+
 def _normalize_row_for_upsert(row: dict[str, Any]) -> dict[str, Any]:
     out = dict(row)
     if "trade_date" in out:
@@ -451,86 +529,13 @@ def load_market_signal_daily(trade_date: date | str, client: Client | None = Non
 
 
 def load_latest_market_signal_daily(client: Client | None = None) -> dict[str, Any] | None:
-    def _is_non_empty(value: Any) -> bool:
-        if value is None:
-            return False
-        text = str(value).strip()
-        return text != ""
-
-    def _pick_latest_with_fields(rows: list[dict[str, Any]], required_any: tuple[str, ...]) -> dict[str, Any] | None:
-        for r in rows:
-            if any(_is_non_empty(r.get(k)) for k in required_any):
-                return r
-        return None
-
     for sb in _iter_market_signal_clients(client):
         try:
             if sb is None:
                 continue
-            resp = (
-                sb.table(TABLE_MARKET_SIGNAL_DAILY)
-                .select("*")
-                .order("trade_date", desc=True)
-                .order("updated_at", desc=True)
-                .limit(120)
-                .execute()
-            )
-            rows = [dict(x) for x in (resp.data or []) if isinstance(x, dict)]
-            if not rows:
-                continue
-
-            # 基础记录：整体最新一条，用于兜底字段。
-            merged = dict(rows[0])
-
-            benchmark_row = _pick_latest_with_fields(
-                rows,
-                ("benchmark_regime", "main_index_close", "main_index_ma50", "main_index_ma200"),
-            )
-            premarket_row = _pick_latest_with_fields(
-                rows,
-                ("premarket_regime", "premarket_reasons"),
-            )
-            a50_row = _pick_latest_with_fields(
-                rows,
-                ("a50_close", "a50_pct_chg", "a50_value_date"),
-            )
-            vix_row = _pick_latest_with_fields(
-                rows,
-                ("vix_close", "vix_pct_chg", "vix_value_date"),
-            )
-
-            if benchmark_row:
-                for key in (
-                    "trade_date",
-                    "benchmark_regime",
-                    "main_index_code",
-                    "main_index_close",
-                    "main_index_ma50",
-                    "main_index_ma200",
-                    "main_index_recent3_cum_pct",
-                    "main_index_today_pct",
-                    "smallcap_index_code",
-                    "smallcap_close",
-                    "smallcap_recent3_cum_pct",
-                ):
-                    merged[key] = benchmark_row.get(key)
-
-            if premarket_row:
-                for key in ("premarket_regime", "premarket_reasons"):
-                    merged[key] = premarket_row.get(key)
-
-            if a50_row:
-                for key in ("a50_value_date", "a50_source", "a50_close", "a50_pct_chg"):
-                    merged[key] = a50_row.get(key)
-
-            if vix_row:
-                for key in ("vix_value_date", "vix_source", "vix_close", "vix_pct_chg"):
-                    merged[key] = vix_row.get(key)
-
-            custom_banner = _custom_banner_fields(merged)
-            merged.update(compose_market_banner(merged))
-            merged.update(custom_banner)
-            return merged
+            merged = _merge_latest_market_signal_rows(_latest_market_signal_rows(sb))
+            if merged:
+                return merged
         except Exception:
             continue
     return None

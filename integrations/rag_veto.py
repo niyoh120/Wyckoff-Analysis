@@ -74,6 +74,15 @@ class VetoResult:
     error: str | None = None
 
 
+@dataclass
+class SemanticDecision:
+    veto: bool
+    checked: bool = False
+    negative: bool | None = None
+    reason: str | None = None
+    error: str | None = None
+
+
 def is_rag_veto_enabled() -> bool:
     flag = os.getenv("RAG_VETO_ENABLED", "1").strip().lower()
     return flag in {"1", "true", "yes", "on"}
@@ -325,28 +334,7 @@ def _semantic_negative_via_llm(
         return (None, f"semantic_llm_err:{e}")
 
 
-def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
-    started = time.perf_counter()
-    search_source = "akshare"
-
-    try:
-        results = _fetch_news_akshare(code)
-    except Exception as e:
-        logger.debug("[rag_veto] akshare fetch failed for %s: %s", code, e)
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        return VetoResult(
-            code=code,
-            name=name,
-            veto=False,
-            hits=[],
-            evidence=[],
-            search_source=search_source,
-            raw_result_count=0,
-            relevant_result_count=0,
-            elapsed_ms=elapsed_ms,
-            error=f"akshare_err:{e}",
-        )
-
+def _news_scan_inputs(results: list[dict[str, str]]) -> tuple[list[str], list[str], list[str]]:
     text_parts: list[str] = []
     evidence: list[str] = []
     semantic_snippets: list[str] = []
@@ -359,14 +347,93 @@ def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
             semantic_snippets.append(merged)
         if title:
             evidence.append(title)
+    return text_parts, evidence, semantic_snippets
+
+
+def _prioritize_hit_evidence(evidence: list[str], hit_evidence: list[str]) -> list[str]:
+    if not hit_evidence:
+        return evidence
+    return hit_evidence + [item for item in evidence if item not in hit_evidence]
+
+
+def _semantic_veto_decision(code: str, name: str, hits: list[str], semantic_snippets: list[str]) -> SemanticDecision:
+    verdict, reason_or_err = _semantic_negative_via_llm(
+        code=code,
+        name=name,
+        hits=hits,
+        snippets=semantic_snippets,
+    )
+    if verdict is None:
+        return SemanticDecision(veto=True, error=reason_or_err)
+    return SemanticDecision(
+        veto=bool(verdict),
+        checked=True,
+        negative=bool(verdict),
+        reason=reason_or_err,
+    )
+
+
+def _build_veto_result(
+    *,
+    code: str,
+    name: str,
+    veto: bool,
+    hits: list[str],
+    evidence: list[str],
+    search_source: str,
+    raw_result_count: int,
+    relevant_result_count: int,
+    elapsed_ms: int,
+    semantic: SemanticDecision | None = None,
+    error: str | None = None,
+) -> VetoResult:
+    return VetoResult(
+        code=code,
+        name=name,
+        veto=veto,
+        hits=hits,
+        evidence=evidence[:3],
+        search_source=search_source,
+        raw_result_count=raw_result_count,
+        relevant_result_count=relevant_result_count,
+        elapsed_ms=elapsed_ms,
+        semantic_checked=semantic.checked if semantic else False,
+        semantic_negative=semantic.negative if semantic else None,
+        semantic_reason=semantic.reason if semantic else None,
+        error=semantic.error if semantic else error,
+    )
+
+
+def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
+    started = time.perf_counter()
+    search_source = "akshare"
+
+    try:
+        results = _fetch_news_akshare(code)
+    except Exception as e:
+        logger.debug("[rag_veto] akshare fetch failed for %s: %s", code, e)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return _build_veto_result(
+            code=code,
+            name=name,
+            veto=False,
+            hits=[],
+            evidence=[],
+            search_source=search_source,
+            raw_result_count=0,
+            relevant_result_count=0,
+            elapsed_ms=elapsed_ms,
+            error=f"akshare_err:{e}",
+        )
+
+    text_parts, evidence, semantic_snippets = _news_scan_inputs(results)
     relevant_count = len(results)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
 
     hits, hit_evidence = _extract_hits_strict(text_parts, keywords, code, name)
-    if hit_evidence:
-        evidence = hit_evidence + [e for e in evidence if e not in hit_evidence]
+    evidence = _prioritize_hit_evidence(evidence, hit_evidence)
     if not hits:
-        return VetoResult(
+        return _build_veto_result(
             code=code,
             name=name,
             veto=False,
@@ -378,40 +445,23 @@ def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
             elapsed_ms=elapsed_ms,
         )
 
-    # 关键词命中 → 语义二判
-    semantic_checked = False
-    semantic_negative: bool | None = None
-    semantic_reason: str | None = None
-    semantic_err: str | None = None
-    verdict, reason_or_err = _semantic_negative_via_llm(
+    semantic = _semantic_veto_decision(
         code=code,
         name=name,
         hits=hits,
-        snippets=semantic_snippets,
+        semantic_snippets=semantic_snippets,
     )
-    if verdict is not None:
-        semantic_checked = True
-        semantic_negative = bool(verdict)
-        semantic_reason = reason_or_err
-        veto = bool(verdict)
-    else:
-        veto = True
-        semantic_err = reason_or_err
-
-    return VetoResult(
+    return _build_veto_result(
         code=code,
         name=name,
-        veto=veto,
+        veto=semantic.veto,
         hits=hits,
         evidence=evidence[:3],
         search_source=search_source,
         raw_result_count=len(results),
         relevant_result_count=relevant_count,
         elapsed_ms=elapsed_ms,
-        semantic_checked=semantic_checked,
-        semantic_negative=semantic_negative,
-        semantic_reason=semantic_reason,
-        error=semantic_err,
+        semantic=semantic,
     )
 
 

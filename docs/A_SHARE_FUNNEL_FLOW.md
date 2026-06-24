@@ -21,12 +21,12 @@ flowchart TB
     end
 
     subgraph CORE["🔬 核心：daily_job.py"]
-        S2["Step2 Wyckoff Funnel<br/>scripts/wyckoff_funnel.py"]
+        S2["Step2 Wyckoff Funnel<br/>workflows/wyckoff_funnel.py"]
         S25["Step2.5 信号确认<br/>pending → confirmed"]
         S26["Step2.6 推荐写库<br/>recommendation_tracking"]
         S27["Step2.7 起跳板 A/B/C 评分"]
-        S3["Step3 批量 AI 研报<br/>scripts/step3_batch_report.py"]
-        S4["Step4 私人 OMS 再平衡<br/>scripts/step4_rebalancer.py"]
+        S3["Step3 批量 AI 研报<br/>workflows/step3_batch_report.py"]
+        S4["Step4 私人 OMS 再平衡<br/>workflows/step4_rebalancer.py"]
     end
 
     subgraph DOWNSTREAM["⬇️ 下游（漏斗运行后消费）"]
@@ -104,9 +104,9 @@ flowchart TD
 |------|------|----------|
 | 调度 | `wyckoff_funnel.yml` | GitHub Actions |
 | 编排 | `scripts/daily_job.py` | 主流程 |
-| Step2 | `scripts/wyckoff_funnel.py` | `core/wyckoff_engine.py` |
-| Step3 | `scripts/step3_batch_report.py` | `tools/report_builder.py` |
-| Step4 | `scripts/step4_rebalancer.py` | `core/strategy.py`（转发） |
+| Step2 | `workflows/wyckoff_funnel.py` | `core/wyckoff_engine.py` |
+| Step3 | `workflows/step3_batch_report.py` | `tools/report_builder.py` |
+| Step4 | `workflows/step4_rebalancer.py` | `core/holding_diagnostic.py` / `core/wyckoff_engine.py` |
 
 ---
 

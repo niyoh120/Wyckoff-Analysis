@@ -1,5 +1,5 @@
 """
-工具注册表 — 复用 agents/chat_tools.py 的工具函数，去除 ADK 依赖。
+工具注册表 — 按 Agent 工具族注册函数，去除 ADK 依赖。
 
 核心思路：
 1. ToolContext 用 shim 类替代（只需 .state 属性）
@@ -516,23 +516,16 @@ class ToolRegistry:
 
     def _register_tools(self) -> dict[str, callable]:
         """注册所有工具函数。"""
-        from agents.chat_tools import (
-            analyze_stock,
-            exec_command,
-            generate_ai_report,
-            generate_strategy_decision,
-            get_market_history,
-            get_market_overview,
-            portfolio,
-            query_history,
-            read_file,
-            run_backtest,
-            screen_stocks,
-            search_stock_by_name,
-            update_portfolio,
-            web_fetch,
-            write_file,
-        )
+        from agents.backtest_tools import run_backtest
+        from agents.diagnosis_tools import analyze_stock
+        from agents.history_tools import query_history
+        from agents.local_tools import exec_command, read_file, web_fetch, write_file
+        from agents.market_tools import get_market_history, get_market_overview
+        from agents.portfolio_tools import portfolio, update_portfolio
+        from agents.report_tools import generate_ai_report
+        from agents.screen_tools import screen_stocks
+        from agents.search_tools import search_stock_by_name
+        from agents.strategy_tools import generate_strategy_decision
         from cli.sub_agents import (
             delegate_to_analysis,
             delegate_to_research,

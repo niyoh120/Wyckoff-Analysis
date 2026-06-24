@@ -4,6 +4,7 @@ TickFlow 行情客户端（带重试与超时控制）。
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
@@ -20,6 +21,8 @@ from integrations.tickflow_notice import (
     is_tickflow_rate_limited_error,
     record_tickflow_limit_event,
 )
+
+logger = logging.getLogger(__name__)
 
 TICKFLOW_BASE_URL = "https://api.tickflow.org"
 TICKFLOW_TIMEOUT_SECONDS = max(int(os.getenv("TICKFLOW_TIMEOUT_SECONDS", "12")), 3)
@@ -56,7 +59,7 @@ _TICKFLOW_LOG_VERBOSE = os.getenv("TICKFLOW_LOG_VERBOSE", "0").strip().lower() i
 
 def _tf_log(msg: str, *, always: bool = False) -> None:
     if always or _TICKFLOW_LOG_VERBOSE:
-        print(f"[tickflow] {msg}", flush=True)
+        logger.info("%s", msg)
 
 
 def _summarize_params(params: dict[str, Any] | None) -> str:

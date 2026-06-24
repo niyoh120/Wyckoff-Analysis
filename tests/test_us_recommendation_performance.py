@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-from integrations.supabase_recommendation import (
-    _build_us_performance_updates,
-    _latest_market_records,
+from integrations.recommendation_performance import (
+    build_us_performance_updates,
+    latest_market_records,
     refresh_us_tracking_performance,
 )
 
@@ -20,7 +20,7 @@ def test_build_us_performance_updates_uses_entry_trade_date_window():
     )
     grouped = {"ABC.US": [{"id": 1, "code": "ABC.US", "recommend_date": 20260516, "initial_price": 10.0}]}
 
-    updates, codes_no_data, latest_td = _build_us_performance_updates(grouped, {"ABC.US": hist}, "now")
+    updates, codes_no_data, latest_td = build_us_performance_updates(grouped, {"ABC.US": hist}, "now")
 
     assert codes_no_data == 0
     assert latest_td == "20260518"
@@ -57,7 +57,7 @@ def test_build_us_performance_updates_reprices_stale_initial_price():
     )
     grouped = {"SPLT.US": [{"id": 1, "code": "SPLT.US", "recommend_date": 20260515, "initial_price": 100.0}]}
 
-    updates, _, _ = _build_us_performance_updates(grouped, {"SPLT.US": hist}, "now")
+    updates, _, _ = build_us_performance_updates(grouped, {"SPLT.US": hist}, "now")
 
     assert updates[0]["initial_price"] == 25.0
     assert updates[0]["current_price"] == 30.0
@@ -81,13 +81,13 @@ def test_refresh_us_tracking_performance_fetches_forward_adjusted_hist(monkeypat
 
     monkeypatch.setenv("TICKFLOW_API_KEY", "key")
     monkeypatch.setenv("WYCKOFF_WRITE_CONTEXT", "server_job")
-    monkeypatch.setattr("integrations.supabase_recommendation.is_supabase_configured", lambda: True)
-    monkeypatch.setattr("integrations.supabase_recommendation._get_supabase_admin_client", lambda: object())
+    monkeypatch.setattr("integrations.recommendation_performance.is_admin_configured", lambda: True)
+    monkeypatch.setattr("integrations.recommendation_performance.create_admin_client", lambda: object())
     monkeypatch.setattr(
-        "integrations.supabase_recommendation._fetch_records_from_table",
+        "integrations.recommendation_performance.fetch_records_from_table",
         lambda *_args: [{"id": 1, "code": "SPLT.US", "recommend_date": 20260515, "initial_price": 100.0}],
     )
-    monkeypatch.setattr("integrations.supabase_recommendation._upsert_to_table", lambda *_args: 1)
+    monkeypatch.setattr("integrations.recommendation_performance.upsert_to_table", lambda *_args: 1)
     monkeypatch.setattr("integrations.tickflow_client.TickFlowClient", FakeTickFlowClient)
 
     summary = refresh_us_tracking_performance(max_dates=1, kline_count=5)
@@ -104,4 +104,4 @@ def test_latest_market_records_keeps_latest_recommend_dates():
         {"code": "D.US", "recommend_date": 20260513},
     ]
 
-    assert _latest_market_records(rows, 2) == rows[1:]
+    assert latest_market_records(rows, 2) == rows[1:]

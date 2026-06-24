@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scripts.db_maintenance import cleanup_recommendation_table, cleanup_recommendation_tracking
+from workflows.db_maintenance import cleanup_recommendation_table, cleanup_recommendation_tracking
 
 
 @dataclass

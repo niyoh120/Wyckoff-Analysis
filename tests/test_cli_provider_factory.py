@@ -1,9 +1,9 @@
-from cli._provider_factory import _create_provider
+from cli.provider_factory import create_provider
 from cli.providers.openai import OpenAIProvider
 
 
 def test_openai_provider_accepts_minimax_compatible_endpoint():
-    provider, err = _create_provider(
+    provider, err = create_provider(
         "openai",
         "test-key",
         model="MiniMax-M3",

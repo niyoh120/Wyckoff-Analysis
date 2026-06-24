@@ -6,20 +6,18 @@ import pandas as pd
 
 from core.wyckoff_engine import (
     FunnelConfig,
-    FunnelResult,
     _compute_stop_loss,
     _detect_compression,
     _effective_entry_max_bias_200,
     _is_holiday_grace,
     _latest_trade_date,
-    _sorted_if_needed,
-    allocate_ai_candidates,
     build_candidate_entries,
+    detect_accum_stage,
     detect_leader_radar,
     layer1_filter,
     layer2_strength_detailed,
     layer3_sector_resonance,
-    resolve_ai_candidate_policy,
+    sort_by_date_if_needed,
 )
 
 
@@ -46,12 +44,12 @@ def _make_df(dates, closes, volumes=None, amounts=None) -> pd.DataFrame:
 class TestSortedIfNeeded:
     def test_already_sorted(self):
         df = _make_df(["2024-01-01", "2024-01-02", "2024-01-03"], [10, 11, 12])
-        result = _sorted_if_needed(df)
+        result = sort_by_date_if_needed(df)
         assert list(result["close"]) == [10, 11, 12]
 
     def test_reverse_sorted(self):
         df = _make_df(["2024-01-03", "2024-01-02", "2024-01-01"], [12, 11, 10])
-        result = _sorted_if_needed(df)
+        result = sort_by_date_if_needed(df)
         assert list(result["close"]) == [10, 11, 12]
 
 
@@ -189,6 +187,21 @@ class TestComputeStopLoss:
         price, reason = _compute_stop_loss(closes, lows, highs, "Accum_B", cfg)
         assert price is not None
         assert "吸筹底线" in reason
+
+
+class TestAccumStage:
+    def test_detects_accum_b_bottom_tests(self):
+        cfg = FunnelConfig()
+        dates = pd.date_range("2024-01-01", periods=260, freq="B")
+        close = [10.0] * 260
+        low = [9.9] * 200 + [9.8 if i % 10 in {0, 1, 2} else 9.95 for i in range(60)]
+        volume = [1_000_000] * 200 + [500_000] * 60
+        df = _make_df(dates.strftime("%Y-%m-%d").tolist(), close, volumes=volume)
+        df["low"] = low
+
+        result = detect_accum_stage(["000001"], {"000001": df}, cfg)
+
+        assert result["000001"] == "Accum_B"
 
 
 class TestLeaderRadar:
@@ -387,82 +400,6 @@ class TestDetectCompression:
 
         assert passed == []
         assert channel_map == {}
-
-
-class TestAllocateAiCandidates:
-    def test_bear_rebound_uses_defensive_quota_family(self, monkeypatch):
-        monkeypatch.setenv("FUNNEL_AI_TOTAL_CAP", "8")
-        monkeypatch.setenv("FUNNEL_AI_BEAR_REBOUND_TREND", "1")
-        monkeypatch.setenv("FUNNEL_AI_BEAR_REBOUND_ACCUM", "2")
-
-        policy = resolve_ai_candidate_policy("BEAR_REBOUND")
-
-        assert policy["quota_family"] == "BEAR_REBOUND"
-        assert policy["trend_quota"] == 1
-        assert policy["accum_quota"] == 2
-
-    def test_evr_and_compression_only_hits_enter_quota_tracks(self):
-        result = FunnelResult(
-            layer1_symbols=["000001", "000002"],
-            layer2_symbols=["000001", "000002"],
-            layer3_symbols=["000001", "000002"],
-            top_sectors=[],
-            triggers={"evr": [("000001", 2.0)], "compression": [("000002", 0.4)]},
-            stage_map={},
-            markup_symbols=[],
-            exit_signals={},
-            channel_map={},
-            leader_radar_symbols=[],
-            leader_radar_rows=[],
-        )
-
-        trend, accum, scores = allocate_ai_candidates(
-            result,
-            [],
-            "NEUTRAL",
-            policy_override={
-                "total_cap": 2,
-                "trend_quota": 1,
-                "accum_quota": 1,
-                "max_trend_l3_fill": 0,
-                "max_accum_l3_fill": 0,
-            },
-        )
-
-        assert trend == ["000001"]
-        assert accum == ["000002"]
-        assert scores["000001"] > 0
-        assert scores["000002"] > 0
-
-    def test_sos_outranks_evr_after_downweight_iteration(self):
-        result = FunnelResult(
-            layer1_symbols=["000001", "000002"],
-            layer2_symbols=["000001", "000002"],
-            layer3_symbols=["000001", "000002"],
-            top_sectors=[],
-            triggers={"sos": [("000001", 4.0)], "evr": [("000002", 4.0)]},
-            stage_map={},
-            markup_symbols=[],
-            exit_signals={},
-            channel_map={"000001": "点火破局", "000002": "趋势延续"},
-            leader_radar_symbols=[],
-            leader_radar_rows=[],
-        )
-
-        _trend, _accum, scores = allocate_ai_candidates(
-            result,
-            [],
-            "NEUTRAL",
-            policy_override={
-                "total_cap": 2,
-                "trend_quota": 2,
-                "accum_quota": 0,
-                "max_trend_l3_fill": 0,
-                "max_accum_l3_fill": 0,
-            },
-        )
-
-        assert scores["000001"] > scores["000002"]
 
 
 class TestSectorHeatBypass:

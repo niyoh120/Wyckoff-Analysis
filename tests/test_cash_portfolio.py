@@ -55,6 +55,25 @@ def test_cash_portfolio_limits_positions_and_lot_size() -> None:
     assert not nav.empty
 
 
+def test_cash_portfolio_preserves_trade_exit_reason() -> None:
+    rows = [
+        {
+            "code": "000001",
+            "name": "S1",
+            "signal_date": "2026-01-02",
+            "entry_date": "2026-01-05",
+            "exit_date": "2026-01-10",
+            "entry_close": 10.0,
+            "exit_close": 11.8,
+            "exit_reason": "take_profit",
+        }
+    ]
+
+    closed, _nav, _summary = simulate_cash_portfolio(pd.DataFrame(rows), CashPortfolioConfig(initial_cash=100_000))
+
+    assert closed.iloc[0]["exit_reason"] == "take_profit"
+
+
 def test_cash_portfolio_accepts_empty_trade_frame() -> None:
     closed, nav, summary = simulate_cash_portfolio(pd.DataFrame(), CashPortfolioConfig(initial_cash=100_000))
 

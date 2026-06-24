@@ -13,10 +13,10 @@ Streamlit is fully retired from `main`: do not add, restore, or maintain Streaml
 
 ```bash
 # Python
-python -m pytest tests/ -x -q           # run tests
-ruff check .                             # lint
-ruff format --check .                    # format check
-python scripts/quality_gate.py --ci      # function length + LOC trend
+.venv/bin/python -m pytest tests/ -x -q  # run tests
+.venv/bin/ruff check .                   # lint
+.venv/bin/ruff format --check .          # format check
+.venv/bin/python scripts/quality_gate.py --ci  # function length + LOC trend
 
 # Web (from web/ directory)
 pnpm dev                                 # dev server
@@ -26,11 +26,7 @@ pnpm -r exec tsc --noEmit                # typecheck
 
 ## Hard Rules (CI enforced, will block merge)
 
-1. **No redundant code** — Every function, variable, and abstraction must earn its existence. Forbidden patterns:
-   - Wrapper functions whose body is a single forwarded call
-   - Variables that are assigned once and immediately returned
-   - Intermediate abstractions with only one caller and no reuse prospect
-   - Re-exports or re-declarations that add no value
+1. **Pass quality gate** — `.venv/bin/python scripts/quality_gate.py --ci` must pass function-length hard limits. LOC growth warnings are review signals, not automatic failures.
 
 2. **Pass ruff check** — All Python code must pass `ruff check .` with the project config in `pyproject.toml`.
 
@@ -40,17 +36,24 @@ pnpm -r exec tsc --noEmit                # typecheck
 
 5. **Pass pytest** — All tests must pass. Tests must not make real network calls.
 
-## Soft Rules (quality expectations)
+## Review Rules (strong expectations, not mechanically CI-enforced)
 
-1. **Function length ≤ 50 lines (hard fail)** — New functions exceeding 50 lines block merge. Whitelisted legacy functions must not grow longer (also blocks merge). Legacy violations tracked in `.metrics/func_whitelist.json`; whitelist values only ratchet down, never up.
+1. **Function length target ≤ 50 lines; hard limits by layer** — 50 lines remains the design target, not a mechanical wall. New functions block merge only when they exceed the layer hard limit enforced by `scripts/quality_gate.py`: default/core/agents/tools/integrations/workflows/shared packages ≤70 lines, scripts/CLI orchestration ≤100 lines, React route pages ≤120 lines, React components/app glue ≤90 lines. Whitelisted legacy functions are tracked as visible debt in `.metrics/func_whitelist.json`; they may remain temporarily over limit, but must not grow longer.
 
-2. **No code bloat** — If 30 lines can do the job, don't write 50. Code volume is tracked in `.metrics/loc.json`; growth >5% without corresponding feature additions will be flagged.
+2. **No redundant code** — Every function, variable, and abstraction must earn its existence. Review aggressively for wrapper functions whose body is a single forwarded call, variables assigned once and immediately returned, one-off abstractions with no clear reuse/design value, and re-exports that add no boundary clarity.
 
-3. **No dead code** — Don't leave unused imports, commented-out blocks, or unreachable branches. Delete them.
+3. **No code bloat** — If 30 lines can do the job, don't write 50. Code volume is tracked in `.metrics/loc.json`; growth >5% without corresponding feature additions is a warning that must be explained or paid down.
 
-4. **Comments: only when WHY is non-obvious** — Don't explain what code does. Don't reference tickets or tasks. Only explain hidden constraints or surprising behavior.
+4. **No dead code** — Don't leave unused imports, commented-out blocks, or unreachable branches. Delete them.
 
-5. **No debug artifacts** — Don't commit console.log, print(), breakpoint(), or TODO/FIXME comments.
+5. **Comments: only when WHY is non-obvious** — Don't explain what code does. Don't reference tickets or tasks. Only explain hidden constraints or surprising behavior.
+
+6. **No debug artifacts** — Don't commit `console.log`, `breakpoint()`, `TODO/FIXME`, temporary dumps, or `print("debug")`-style traces. In `core/`, `integrations/`, `tools/`, and `agents/`, use logging instead of print-style diagnostics. In `scripts/` and `cli/`, user-facing progress/output via `print()` is allowed.
+
+## Gate Levels
+
+- **Fast gate (local/default)**: `.venv/bin/ruff check .`, `.venv/bin/ruff format --check .`, `.venv/bin/python scripts/quality_gate.py --check-functions`, and focused tests for touched code.
+- **Full gate (CI/release)**: fast gate plus full `pytest`, TypeScript strict mode, web tests/build, and dry-run jobs where relevant.
 
 ## Architecture Constraints
 
@@ -66,5 +69,5 @@ Use conventional prefixes: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chor
 ## Before Submitting Code
 
 ```bash
-ruff check . && ruff format --check . && python scripts/quality_gate.py --check-functions
+.venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python scripts/quality_gate.py --check-functions
 ```

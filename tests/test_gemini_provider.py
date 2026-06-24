@@ -11,7 +11,7 @@ from cli.providers.gemini import (
     function_call_part_from_tool_call,
     tool_call_dict_from_part,
 )
-from cli.providers.openai import _openai_tool_call_payload
+from cli.providers.openai import _extract_text_tool_calls, _openai_tool_call_payload
 
 
 def test_tool_call_dict_from_part_preserves_thought_signature():
@@ -80,6 +80,17 @@ def test_openai_tool_call_payload_preserves_extra_content():
         }
     )
     assert payload["extra_content"] == {"google": {"thought_signature": "abc"}}
+
+
+def test_extract_text_tool_calls_removes_tagged_payload():
+    text = 'before <tool_call>{"name":"view_portfolio","arguments":{}}</tool_call> after'
+
+    tool_map, cleaned = _extract_text_tool_calls(text)
+
+    assert cleaned == "before  after"
+    assert tool_map[0]["id"] == "text_tc_0"
+    assert tool_map[0]["name"] == "view_portfolio"
+    assert tool_map[0]["args_json"] == "{}"
 
 
 @pytest.mark.parametrize("thought_signature", [b"bytes-sig", "str-sig"])

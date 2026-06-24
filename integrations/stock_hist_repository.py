@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Literal
 
@@ -10,6 +11,7 @@ import pandas as pd
 from integrations.data_source import fetch_stock_hist as fetch_stock_hist_from_source
 
 AdjustType = Literal["", "qfq", "hfq"]
+logger = logging.getLogger(__name__)
 
 # ─── 纯工具函数（原 core/stock_cache.py，多文件依赖） ───
 
@@ -91,12 +93,8 @@ def get_stock_hist(
     start_date: str | date,
     end_date: str | date,
     adjust: AdjustType = "qfq",
-    **_kwargs,
 ) -> pd.DataFrame:
-    """
-    统一股票历史数据入口：直接从数据源拉取。
-    **_kwargs 吸收历史调用方传入的 context/cache_only/user_id 等已废弃参数，保持兼容。
-    """
+    """统一股票历史数据入口：直接从数据源拉取。"""
     start_d = _to_date(start_date)
     end_d = _to_date(end_date)
     if start_d > end_d:
@@ -112,5 +110,5 @@ def get_stock_hist(
     if hints:
         result.attrs["tickflow_limit_hints"] = hints
         result.attrs["tickflow_limit_hint"] = hints[0]
-        print(f"[stock_repo] ⚠️ {hints[0]}")
+        logger.warning("[stock_repo] %s", hints[0])
     return result

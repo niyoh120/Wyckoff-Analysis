@@ -4,7 +4,7 @@ import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { MarketBar } from '@/components/market-bar'
-import { usePreferences, type TranslationKey } from '@/lib/preferences'
+import { usePreferences, type Locale, type TranslationKey } from '@/lib/preferences'
 import { trackRouteActivity } from '@/lib/activity'
 
 const navGroups = [
@@ -69,93 +69,113 @@ function GitHubStarBadge({ repo }: { repo: string }) {
 }
 
 function PreferenceControls({ collapsed = false }: { collapsed?: boolean }) {
+  const controls = usePreferenceControlState()
+  return collapsed ? <CollapsedPreferenceControls {...controls} /> : <ExpandedPreferenceControls {...controls} />
+}
+
+function usePreferenceControlState() {
   const { locale, setLocale, theme, toggleTheme, t } = usePreferences()
-  const nextLocale = locale === 'zh-CN' ? 'en-US' : 'zh-CN'
+  const nextLocale: Locale = locale === 'zh-CN' ? 'en-US' : 'zh-CN'
   const ThemeIcon = theme === 'dark' ? Sun : Moon
+  return { locale, nextLocale, setLocale, theme, toggleTheme, t, ThemeIcon }
+}
 
-  if (collapsed) {
-    return (
-      <div className="mb-3 grid gap-2 px-1">
-        <button
-          type="button"
-          onClick={toggleTheme}
-          title={theme === 'dark' ? t('prefs.light') : t('prefs.dark')}
-          aria-label={t('prefs.theme')}
-          className="flex h-9 w-full items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <ThemeIcon size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setLocale(nextLocale)}
-          title={locale === 'zh-CN' ? t('prefs.switchToEnglish') : t('prefs.switchToChinese')}
-          aria-label={t('prefs.language')}
-          className="flex h-9 w-full items-center justify-center rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          {locale === 'zh-CN' ? 'EN' : '中'}
-        </button>
-      </div>
-    )
-  }
+type PreferenceControlState = ReturnType<typeof usePreferenceControlState>
 
+function CollapsedPreferenceControls(props: PreferenceControlState) {
   return (
-    <div className="mb-3 flex gap-2 px-3">
+    <div className="mb-3 grid gap-2 px-1">
       <button
         type="button"
-        onClick={toggleTheme}
-        title={theme === 'dark' ? t('prefs.light') : t('prefs.dark')}
-        aria-label={t('prefs.theme')}
-        className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        onClick={props.toggleTheme}
+        title={props.theme === 'dark' ? props.t('prefs.light') : props.t('prefs.dark')}
+        aria-label={props.t('prefs.theme')}
+        className="flex h-9 w-full items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        <ThemeIcon size={14} />
-        {theme === 'dark' ? t('prefs.light') : t('prefs.dark')}
+        <props.ThemeIcon size={15} />
       </button>
       <button
         type="button"
-        onClick={() => setLocale(nextLocale)}
-        title={locale === 'zh-CN' ? t('prefs.switchToEnglish') : t('prefs.switchToChinese')}
-        aria-label={t('prefs.language')}
-        className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        onClick={() => props.setLocale(props.nextLocale)}
+        title={props.locale === 'zh-CN' ? props.t('prefs.switchToEnglish') : props.t('prefs.switchToChinese')}
+        aria-label={props.t('prefs.language')}
+        className="flex h-9 w-full items-center justify-center rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        <Languages size={14} />
-        {locale === 'zh-CN' ? 'EN' : '中文'}
+        {props.locale === 'zh-CN' ? 'EN' : '中'}
       </button>
     </div>
   )
 }
 
-function SidebarFooter({ collapsed, email, onLogout }: { collapsed: boolean; email: string; onLogout: () => void }) {
+function ExpandedPreferenceControls(props: PreferenceControlState) {
+  return (
+    <div className="mb-3 flex gap-2 px-3">
+      <button
+        type="button"
+        onClick={props.toggleTheme}
+        title={props.theme === 'dark' ? props.t('prefs.light') : props.t('prefs.dark')}
+        aria-label={props.t('prefs.theme')}
+        className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <props.ThemeIcon size={14} />
+        {props.theme === 'dark' ? props.t('prefs.light') : props.t('prefs.dark')}
+      </button>
+      <button
+        type="button"
+        onClick={() => props.setLocale(props.nextLocale)}
+        title={props.locale === 'zh-CN' ? props.t('prefs.switchToEnglish') : props.t('prefs.switchToChinese')}
+        aria-label={props.t('prefs.language')}
+        className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <Languages size={14} />
+        {props.locale === 'zh-CN' ? 'EN' : '中文'}
+      </button>
+    </div>
+  )
+}
+
+interface SidebarFooterProps {
+  collapsed: boolean
+  email: string
+  onLogout: () => void
+}
+
+function SidebarFooter(props: SidebarFooterProps) {
+  return props.collapsed ? <CollapsedSidebarFooter onLogout={props.onLogout} /> : <ExpandedSidebarFooter email={props.email} onLogout={props.onLogout} />
+}
+
+function CollapsedSidebarFooter({ onLogout }: { onLogout: () => void }) {
   const { t } = usePreferences()
-
-  if (collapsed) {
-    return (
-      <div className="border-t border-border p-2">
-        <PreferenceControls collapsed />
-        {externalLinks.map(({ href, icon: Icon, labelKey }) => (
-          <a
-            key={href}
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={t(labelKey)}
-            aria-label={t(labelKey)}
-            className="mb-2 flex h-9 w-full items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <Icon size={16} />
-          </a>
-        ))}
-        <button
-          onClick={onLogout}
-          title={t('action.logout')}
-          aria-label={t('action.logout')}
-          className="flex h-9 w-full items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+  return (
+    <div className="border-t border-border p-2">
+      <PreferenceControls collapsed />
+      {externalLinks.map(({ href, icon: Icon, labelKey }) => (
+        <a
+          key={href}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={t(labelKey)}
+          aria-label={t(labelKey)}
+          className="mb-2 flex h-9 w-full items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          <LogOut size={16} />
-        </button>
-      </div>
-    )
-  }
+          <Icon size={16} />
+        </a>
+      ))}
+      <button
+        onClick={onLogout}
+        title={t('action.logout')}
+        aria-label={t('action.logout')}
+        className="flex h-9 w-full items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <LogOut size={16} />
+      </button>
+    </div>
+  )
+}
 
+function ExpandedSidebarFooter({ email, onLogout }: { email: string; onLogout: () => void }) {
+  const { t } = usePreferences()
   return (
     <div className="border-t border-border p-3">
       <PreferenceControls />
@@ -189,7 +209,6 @@ function SidebarFooter({ collapsed, email, onLogout }: { collapsed: boolean; ema
 export function AppLayout() {
   const location = useLocation()
   const user = useAuthStore((s) => s.user)
-  const { t } = usePreferences()
   const handleLogout = useLogoutHandler()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readBooleanStorage(APP_SIDEBAR_STORAGE_KEY, false))
   useRouteActivity(user?.id, location)
@@ -204,61 +223,13 @@ export function AppLayout() {
 
   return (
     <div className="flex h-dvh overflow-hidden">
-      <aside className={`flex h-full shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar transition-[width] duration-200 ${sidebarCollapsed ? 'w-16' : 'w-56'}`}>
-        {sidebarCollapsed ? (
-          <div className="flex shrink-0 flex-col items-center gap-2 px-2 py-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">W</div>
-            <button type="button" onClick={toggleSidebar} title="展开导航" aria-label="展开导航" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
-              <PanelLeftOpen size={16} />
-            </button>
-          </div>
-        ) : (
-          <div className="flex shrink-0 items-start justify-between gap-3 px-5 py-5">
-            <div className="min-w-0">
-              <h2 className="bg-gradient-to-r from-primary to-cyan-500 bg-clip-text text-xl font-bold tracking-tight text-transparent">
-                Wyckoff
-              </h2>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{t('app.subtitle')}</p>
-            </div>
-            <button type="button" onClick={toggleSidebar} title="收起导航" aria-label="收起导航" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
-              <PanelLeftClose size={16} />
-            </button>
-          </div>
-        )}
-
-        <nav className={`min-h-0 flex-1 overflow-y-auto pb-3 ${sidebarCollapsed ? 'px-2 space-y-0.5' : 'px-3 space-y-3'}`}>
-          {navGroups.map((group) => (
-            <div key={group.titleKey} className={sidebarCollapsed ? 'space-y-0.5' : 'space-y-1'}>
-              {!sidebarCollapsed && (
-                <div className="px-3 pt-3 pb-1 text-[9px] font-extrabold text-muted-foreground/60 uppercase tracking-widest select-none">
-                  {t(group.titleKey)}
-                </div>
-              )}
-              {group.items.map(({ to, icon: Icon, labelKey }) => (
-                <Link
-                  key={to}
-                  to={to}
-                  title={sidebarCollapsed ? t(labelKey) : undefined}
-                  aria-label={sidebarCollapsed ? t(labelKey) : undefined}
-                  className={`flex items-center py-2.5 text-sm transition-all border-l-2 ${
-                    sidebarCollapsed ? 'justify-center rounded-lg px-2 border-transparent' : 'gap-3 px-3 pl-3.5'
-                  } ${
-                    _navActive(location.pathname, location.hash, to)
-                      ? 'bg-primary/10 font-bold text-primary border-primary rounded-r-lg shadow-sm'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground font-medium border-transparent rounded-lg'
-                  }`}
-                >
-                  <Icon size={17} className="shrink-0" />
-                  {!sidebarCollapsed && t(labelKey)}
-                </Link>
-              ))}
-            </div>
-          ))}
-        </nav>
-
-        <SidebarFooter collapsed={sidebarCollapsed} email={user?.email || 'dev@preview'} onLogout={handleLogout} />
-      </aside>
-
+      <AppSidebar
+        collapsed={sidebarCollapsed}
+        email={user?.email || 'dev@preview'}
+        location={location}
+        onLogout={handleLogout}
+        onToggle={toggleSidebar}
+      />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {!hideMarketBar && <MarketBar />}
         <main className="min-h-0 flex-1 overflow-auto bg-background">
@@ -266,6 +237,94 @@ export function AppLayout() {
         </main>
       </div>
     </div>
+  )
+}
+
+function AppSidebar({
+  collapsed,
+  email,
+  location,
+  onLogout,
+  onToggle,
+}: {
+  collapsed: boolean
+  email: string
+  location: ReturnType<typeof useLocation>
+  onLogout: () => void
+  onToggle: () => void
+}) {
+  return (
+    <aside className={`flex h-full shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar transition-[width] duration-200 ${collapsed ? 'w-16' : 'w-56'}`}>
+      <SidebarHeader collapsed={collapsed} onToggle={onToggle} />
+      <SidebarNavigation collapsed={collapsed} location={location} />
+      <SidebarFooter collapsed={collapsed} email={email} onLogout={onLogout} />
+    </aside>
+  )
+}
+
+function SidebarHeader({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const { t } = usePreferences()
+  if (collapsed) {
+    return (
+      <div className="flex shrink-0 flex-col items-center gap-2 px-2 py-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">W</div>
+        <button type="button" onClick={onToggle} title="展开导航" aria-label="展开导航" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
+          <PanelLeftOpen size={16} />
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex shrink-0 items-start justify-between gap-3 px-5 py-5">
+      <div className="min-w-0">
+        <h2 className="bg-gradient-to-r from-primary to-cyan-500 bg-clip-text text-xl font-bold tracking-tight text-transparent">
+          Wyckoff
+        </h2>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{t('app.subtitle')}</p>
+      </div>
+      <button type="button" onClick={onToggle} title="收起导航" aria-label="收起导航" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
+        <PanelLeftClose size={16} />
+      </button>
+    </div>
+  )
+}
+
+function SidebarNavigation({ collapsed, location }: { collapsed: boolean; location: ReturnType<typeof useLocation> }) {
+  const { t } = usePreferences()
+  return (
+    <nav className={`min-h-0 flex-1 overflow-y-auto pb-3 ${collapsed ? 'px-2 space-y-0.5' : 'px-3 space-y-3'}`}>
+      {navGroups.map((group) => (
+        <div key={group.titleKey} className={collapsed ? 'space-y-0.5' : 'space-y-1'}>
+          {!collapsed && <div className="px-3 pt-3 pb-1 text-[9px] font-extrabold text-muted-foreground/60 uppercase tracking-widest select-none">{t(group.titleKey)}</div>}
+          {group.items.map((item) => <SidebarNavLink key={item.to} item={item} collapsed={collapsed} location={location} />)}
+        </div>
+      ))}
+    </nav>
+  )
+}
+
+function SidebarNavLink({
+  item,
+  collapsed,
+  location,
+}: {
+  item: (typeof navGroups)[number]['items'][number]
+  collapsed: boolean
+  location: ReturnType<typeof useLocation>
+}) {
+  const { t } = usePreferences()
+  const { to, icon: Icon, labelKey } = item
+  const active = _navActive(location.pathname, location.hash, to)
+  return (
+    <Link
+      to={to}
+      title={collapsed ? t(labelKey) : undefined}
+      aria-label={collapsed ? t(labelKey) : undefined}
+      className={`flex items-center py-2.5 text-sm transition-all border-l-2 ${collapsed ? 'justify-center rounded-lg px-2 border-transparent' : 'gap-3 px-3 pl-3.5'} ${active ? 'bg-primary/10 font-bold text-primary border-primary rounded-r-lg shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground font-medium border-transparent rounded-lg'}`}
+    >
+      <Icon size={17} className="shrink-0" />
+      {!collapsed && t(labelKey)}
+    </Link>
   )
 }
 

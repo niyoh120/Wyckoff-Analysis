@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from typing import Any
@@ -12,6 +13,8 @@ from integrations.supabase_base import create_admin_client as _admin
 from integrations.supabase_base import create_read_client as _read
 from integrations.supabase_base import is_admin_configured as _configured
 from integrations.supabase_base import require_server_write_context
+
+logger = logging.getLogger(__name__)
 
 _LEGACY_COLUMNS = {
     "code",
@@ -176,7 +179,7 @@ def save_tail_buy_to_supabase(rows: list[dict], user_id: str = "") -> int:
     require_server_write_context("upsert tail_buy_history")
     user_id = user_id.strip() or _get_user_id()
     if not user_id:
-        print("[tail_buy] user_id not provided and SUPABASE_USER_ID not set, skip")
+        logger.info("tail_buy write skipped: user_id not provided")
         return 0
     payload = [_payload_row(r, user_id) for r in rows]
     client = None
@@ -192,12 +195,12 @@ def save_tail_buy_to_supabase(rows: list[dict], user_id: str = "") -> int:
                     legacy_payload,
                     on_conflict="code,run_date,user_id",
                 ).execute()
-                print("[tail_buy] extended columns missing, wrote legacy payload")
+                logger.warning("tail_buy extended columns missing; wrote legacy payload")
                 return len(legacy_payload)
             except Exception as legacy_exc:
-                print(f"[tail_buy] legacy supabase write failed: {legacy_exc}")
+                logger.warning("tail_buy legacy supabase write failed: %s", legacy_exc)
                 return 0
-        print(f"[tail_buy] supabase write failed: {e}")
+        logger.warning("tail_buy supabase write failed: %s", e)
         return 0
 
 
@@ -263,7 +266,7 @@ def load_tail_buy_from_supabase(limit: int = 100, user_id: str = "", client=None
     """读取最近 N 条尾盘买入记录。"""
     user_id = user_id.strip() or _get_user_id()
     if not user_id:
-        print("[tail_buy] user_id not provided and SUPABASE_USER_ID not set, skip read")
+        logger.info("tail_buy read skipped: user_id not provided")
         return []
     try:
         client = client or _read()
@@ -271,5 +274,5 @@ def load_tail_buy_from_supabase(limit: int = 100, user_id: str = "", client=None
         resp = q.order("run_date", desc=True).limit(limit).execute()
         return resp.data or []
     except Exception as e:
-        print(f"[tail_buy] supabase read failed: {e}")
+        logger.warning("tail_buy supabase read failed: %s", e)
         return []

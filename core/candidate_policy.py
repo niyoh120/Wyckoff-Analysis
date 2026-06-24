@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -22,28 +22,34 @@ DEFAULT_POSITION_RATIO_BY_REGIME: dict[str, float] = {
 }
 
 
-def _env_bool(name: str, default: str = "1") -> bool:
-    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+@dataclass(frozen=True)
+class CandidatePolicyConfig:
+    loss_guard_enabled: bool = True
+    alpha_block_risk_on_early_breakout: bool = True
+    mix_trendpb_min_score: float = 12.0
+    pure_lps_min_score: float = 6.0
+    pure_trendpb_min_score: float = 14.0
+    pure_sos_min_score: float = 4.0
+    pure_evr_min_score_default: float = 3.0
+    pure_evr_min_score_hot: float = 5.0
+    risk_on_pre5_ret: float = 25.0
+    risk_on_range_pos: float = 85.0
+    risk_on_vol_ratio: float = 1.8
+    position_ratio_by_regime: Mapping[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_POSITION_RATIO_BY_REGIME)
+    )
+
+    def position_ratio(self, regime_norm: str) -> float:
+        default = DEFAULT_POSITION_RATIO_BY_REGIME["NEUTRAL"]
+        raw = self.position_ratio_by_regime.get(regime_norm, default)
+        return min(max(float(raw), 0.0), 1.0)
 
 
-def _env_float(name: str, default: str) -> float:
-    try:
-        return float(os.getenv(name, default))
-    except ValueError:
-        return float(default)
+DEFAULT_CANDIDATE_POLICY_CONFIG = CandidatePolicyConfig()
 
 
-def _position_ratio_for_regime(regime_norm: str) -> float:
-    default = DEFAULT_POSITION_RATIO_BY_REGIME.get(regime_norm, DEFAULT_POSITION_RATIO_BY_REGIME["NEUTRAL"])
-    for prefix in ("FUNNEL_REGIME", "BACKTEST_REGIME"):
-        raw = os.getenv(f"{prefix}_{regime_norm}_POSITION_RATIO")
-        if raw is None:
-            continue
-        try:
-            return min(max(float(raw), 0.0), 1.0)
-        except ValueError:
-            return default
-    return default
+def _policy_config(config: CandidatePolicyConfig | None) -> CandidatePolicyConfig:
+    return config or DEFAULT_CANDIDATE_POLICY_CONFIG
 
 
 def trigger_sets_by_code(triggers: dict[str, list[tuple[str, float]]]) -> dict[str, set[str]]:
@@ -68,11 +74,16 @@ def is_tradeable_l4_trigger_combo(trigger_keys: Iterable[str]) -> bool:
     return not keys <= NAKED_RIGHT_SIDE_TRIGGERS
 
 
-def apply_regime_position_filter(ranked_codes: list[str], regime: str) -> list[str]:
+def apply_regime_position_filter(
+    ranked_codes: list[str],
+    regime: str,
+    *,
+    config: CandidatePolicyConfig | None = None,
+) -> list[str]:
     if not ranked_codes:
         return []
     regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
-    ratio = _position_ratio_for_regime(regime_norm)
+    ratio = _policy_config(config).position_ratio(regime_norm)
     if ratio <= 0:
         return []
     if ratio >= 1.0:
@@ -107,7 +118,7 @@ def _is_pure_momentum_channel(channel: str) -> bool:
     return bool(tags <= {"主升通道", "趋势延续", "加速突破"})
 
 
-def _recent_overheat(df: pd.DataFrame | None) -> bool:
+def _recent_overheat(df: pd.DataFrame | None, config: CandidatePolicyConfig) -> bool:
     if df is None or df.empty or len(df) < 21:
         return False
     work = _numeric_ohlcv(df)
@@ -120,9 +131,9 @@ def _recent_overheat(df: pd.DataFrame | None) -> bool:
     vol20 = float(work["volume"].tail(20).mean())
     vol_ratio = float(work["volume"].tail(5).mean()) / vol20 if vol20 > 0 else 0.0
     return (
-        pre5_ret >= _env_float("FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET", "25.0")
-        and range_pos >= _env_float("FUNNEL_LOSS_GUARD_RISK_ON_RANGE_POS", "85.0")
-        and vol_ratio >= _env_float("FUNNEL_LOSS_GUARD_RISK_ON_VOL_RATIO", "1.8")
+        pre5_ret >= config.risk_on_pre5_ret
+        and range_pos >= config.risk_on_range_pos
+        and vol_ratio >= config.risk_on_vol_ratio
     )
 
 
@@ -143,38 +154,41 @@ def loss_guard_reason(
     trigger_score: float,
     channel: str,
     df_map: dict[str, pd.DataFrame],
+    *,
+    config: CandidatePolicyConfig | None = None,
 ) -> str:
-    if not _env_bool("FUNNEL_LOSS_GUARD_ENABLED", "1"):
+    policy = _policy_config(config)
+    if not policy.loss_guard_enabled:
         return ""
     keys = _normalize_keys(trigger_keys)
     regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
     if keys == {"early_breakout"} and regime_norm == "RISK_ON":
-        if _env_bool("FUNNEL_ALPHA_BLOCK_RISK_ON_EARLY_BREAKOUT", "1"):
+        if policy.alpha_block_risk_on_early_breakout:
             return "RISK_ON禁用早期突破"
     if "lps" in keys and not (keys & {"sos", "evr", "spring"}):
-        return _pure_lps_reason(regime_norm, trigger_score)
+        return _pure_lps_reason(regime_norm, trigger_score, policy)
     if keys == {"trend_pullback"}:
-        return _pure_trend_pullback_reason(regime_norm, trigger_score)
+        return _pure_trend_pullback_reason(regime_norm, trigger_score, policy)
     if "trend_pullback" in keys and regime_norm in WEAK_PULLBACK_REGIMES:
-        if trigger_score < _env_float("FUNNEL_LOSS_GUARD_MIX_TRENDPB_MIN_SCORE", "12.0"):
+        if trigger_score < policy.mix_trendpb_min_score:
             return f"{regime_norm}弱趋势回踩"
     if keys and keys <= NAKED_RIGHT_SIDE_TRIGGERS:
-        reason = _naked_right_side_reason(regime_norm, keys, trigger_score, channel, df_map.get(code))
+        reason = _naked_right_side_reason(regime_norm, keys, trigger_score, channel, df_map.get(code), policy)
         if reason:
             return reason
     return ""
 
 
-def _pure_lps_reason(regime_norm: str, trigger_score: float) -> str:
-    if trigger_score < _env_float("FUNNEL_LOSS_GUARD_PURE_LPS_MIN_SCORE", "6.0"):
+def _pure_lps_reason(regime_norm: str, trigger_score: float, config: CandidatePolicyConfig) -> str:
+    if trigger_score < config.pure_lps_min_score:
         return "低分LPS"
     if regime_norm in DEFENSIVE_REGIMES | {"RISK_ON"}:
         return f"{regime_norm}禁用LPS"
     return ""
 
 
-def _pure_trend_pullback_reason(regime_norm: str, trigger_score: float) -> str:
-    if trigger_score < _env_float("FUNNEL_LOSS_GUARD_PURE_TRENDPB_MIN_SCORE", "14.0"):
+def _pure_trend_pullback_reason(regime_norm: str, trigger_score: float, config: CandidatePolicyConfig) -> str:
+    if trigger_score < config.pure_trendpb_min_score:
         return "低分TrendPB"
     if regime_norm in WEAK_PULLBACK_REGIMES:
         return f"{regime_norm}禁用TrendPB"
@@ -187,15 +201,20 @@ def _naked_right_side_reason(
     trigger_score: float,
     channel: str,
     df: pd.DataFrame | None,
+    config: CandidatePolicyConfig,
 ) -> str:
     if regime_norm in {"RISK_ON", "BEAR_REBOUND"} and _is_pure_momentum_channel(channel):
         return f"{regime_norm}纯趋势追涨"
-    if "sos" in keys and trigger_score < _env_float("FUNNEL_LOSS_GUARD_PURE_SOS_MIN_SCORE", "4.0"):
+    if "sos" in keys and trigger_score < config.pure_sos_min_score:
         return "低分SOS"
-    evr_min_score = "5.0" if regime_norm in {"RISK_ON", "BEAR_REBOUND"} else "3.0"
-    if keys == {"evr"} and trigger_score < _env_float("FUNNEL_LOSS_GUARD_PURE_EVR_MIN_SCORE", evr_min_score):
+    evr_min_score = (
+        config.pure_evr_min_score_hot
+        if regime_norm in {"RISK_ON", "BEAR_REBOUND"}
+        else config.pure_evr_min_score_default
+    )
+    if keys == {"evr"} and trigger_score < evr_min_score:
         return "低分EVR"
-    if regime_norm in {"RISK_ON", "BEAR_REBOUND"} and _recent_overheat(df):
+    if regime_norm in {"RISK_ON", "BEAR_REBOUND"} and _recent_overheat(df, config):
         return f"{regime_norm}短期过热"
     return ""
 
@@ -210,6 +229,7 @@ def apply_loss_guard(
     code_to_total_score: dict[str, float],
     channel_map: dict[str, str],
     df_map: dict[str, pd.DataFrame],
+    config: CandidatePolicyConfig | None = None,
 ) -> tuple[list[str], list[str], list[str], dict[str, int]]:
     kept: list[str] = []
     dropped: dict[str, int] = {}
@@ -221,6 +241,7 @@ def apply_loss_guard(
             float(code_to_total_score.get(code, 0.0) or 0.0),
             str(channel_map.get(code, "") or ""),
             df_map,
+            config=config,
         )
         if reason:
             dropped[reason] = dropped.get(reason, 0) + 1

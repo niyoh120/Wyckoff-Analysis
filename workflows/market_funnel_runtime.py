@@ -1,0 +1,131 @@
+"""Runtime configuration for market funnel jobs."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class MarketSpec:
+    key: str
+    label: str
+    universe: str
+    symbol_file: str
+    benchmark_symbols: tuple[str, ...]
+    default_max_symbols: int
+    default_min_quote_amount: float
+    default_min_quote_price: float
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    spec: MarketSpec
+    max_symbols: int
+    quote_batch_size: int
+    quote_batch_sleep: float
+    kline_count: int
+    kline_batch_size: int
+    kline_batch_sleep: float
+    min_quote_amount: float
+    min_quote_price: float
+    min_avg_amount: float
+    min_history_rows: int
+    output_path: Path | None
+    symbol_path: Path
+    benchmark_symbols: tuple[str, ...]
+
+
+MARKET_SPECS = {
+    "hk": MarketSpec(
+        key="hk",
+        label="港股",
+        universe="HK_Equity",
+        symbol_file="hk.txt",
+        benchmark_symbols=("800000.HK", "HSI.HK", "^HSI", "HSI"),
+        default_max_symbols=600,
+        default_min_quote_amount=2_000_000.0,
+        default_min_quote_price=1.0,
+    ),
+    "us": MarketSpec(
+        key="us",
+        label="美股",
+        universe="US_Equity",
+        symbol_file="us.txt",
+        benchmark_symbols=("SPY.US", "QQQ.US"),
+        default_max_symbols=1500,
+        default_min_quote_amount=5_000_000.0,
+        default_min_quote_price=1.0,
+    ),
+    "etf": MarketSpec(
+        key="etf",
+        label="ETF",
+        universe="CN_Fund",
+        symbol_file="etf_cn.txt",
+        benchmark_symbols=(),
+        default_max_symbols=200,
+        default_min_quote_amount=500_000.0,
+        default_min_quote_price=0.0,
+    ),
+}
+
+
+def runtime_config_from_env(market: str, output: str | None) -> RuntimeConfig:
+    spec = MARKET_SPECS[market]
+    return RuntimeConfig(
+        spec=spec,
+        max_symbols=_int_env("MARKET_FUNNEL_MAX_SYMBOLS", spec.default_max_symbols, minimum=1),
+        quote_batch_size=_int_env("MARKET_FUNNEL_QUOTE_BATCH_SIZE", 500, minimum=1),
+        quote_batch_sleep=_float_env("MARKET_FUNNEL_QUOTE_BATCH_SLEEP", 0.25),
+        kline_count=_int_env("MARKET_FUNNEL_KLINE_COUNT", 320, minimum=220),
+        kline_batch_size=_int_env("MARKET_FUNNEL_KLINE_BATCH_SIZE", 200, minimum=1),
+        kline_batch_sleep=_float_env("MARKET_FUNNEL_KLINE_BATCH_SLEEP", 0.55),
+        min_quote_amount=_float_env("MARKET_FUNNEL_MIN_QUOTE_AMOUNT", spec.default_min_quote_amount),
+        min_quote_price=_float_env("MARKET_FUNNEL_MIN_QUOTE_PRICE", spec.default_min_quote_price),
+        min_avg_amount=_float_env("MARKET_FUNNEL_MIN_AVG_AMOUNT", 0.0),
+        min_history_rows=_int_env("MARKET_FUNNEL_MIN_HISTORY_ROWS", 220, minimum=80),
+        output_path=Path(output) if output else None,
+        symbol_path=market_symbol_path(market, spec),
+        benchmark_symbols=benchmark_symbols_for_market(spec),
+    )
+
+
+def market_symbol_path(market: str, spec: MarketSpec) -> Path:
+    symbol_file = (
+        os.getenv(f"MARKET_FUNNEL_{market.upper()}_SYMBOL_FILE", "").strip()
+        or os.getenv("MARKET_FUNNEL_SYMBOL_FILE", "").strip()
+    )
+    if symbol_file:
+        return Path(symbol_file)
+    return Path(__file__).resolve().parents[1] / "data" / "market_universes" / spec.symbol_file
+
+
+def benchmark_symbols_for_market(spec: MarketSpec) -> tuple[str, ...]:
+    raw = (
+        os.getenv(f"MARKET_FUNNEL_{spec.key.upper()}_BENCHMARK_SYMBOLS", "").strip()
+        or os.getenv("MARKET_FUNNEL_BENCHMARK_SYMBOLS", "").strip()
+    )
+    if not raw:
+        return spec.benchmark_symbols
+    return tuple(symbol.strip().upper() for symbol in raw.replace(";", ",").split(",") if symbol.strip())
+
+
+def _int_env(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return max(default, minimum)
+    try:
+        return max(int(raw), minimum)
+    except ValueError:
+        return max(default, minimum)
+
+
+def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return max(default, minimum)
+    try:
+        return max(float(raw), minimum)
+    except ValueError:
+        return max(default, minimum)

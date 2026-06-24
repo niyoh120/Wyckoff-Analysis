@@ -4,7 +4,7 @@ import pandas as pd
 
 
 def test_get_market_history_returns_tickflow_digest(monkeypatch):
-    import agents.chat_tools as ct
+    import agents.market_tools as mt
 
     calls = []
 
@@ -22,10 +22,10 @@ def test_get_market_history_returns_tickflow_digest(monkeypatch):
                 ]
             )
 
-    monkeypatch.setattr(ct, "_get_credential", lambda *_args, **_kwargs: "tf-key")
+    monkeypatch.setattr(mt, "get_credential", lambda *_args, **_kwargs: "tf-key")
     monkeypatch.setattr("integrations.tickflow_client.TickFlowClient", DummyTickFlowClient)
 
-    result = ct.get_market_history(days=3, index="上证")
+    result = mt.get_market_history(days=3, index="上证")
 
     assert result["ok"] is True
     assert result["source"] == "tickflow"

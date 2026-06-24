@@ -1,0 +1,377 @@
+"""Pure statistics for strategy attribution reports."""
+
+from __future__ import annotations
+
+import json
+import statistics
+from collections import defaultdict
+from datetime import date
+from typing import Any
+
+
+def build_strategy_attribution_payload(
+    *,
+    report_date: date,
+    market: str,
+    window_start: date,
+    window_end: date,
+    horizons: list[int],
+    observations: list[dict[str, Any]],
+    outcomes: list[dict[str, Any]],
+    shadow_runs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    joined = join_outcomes(outcomes, observations)
+    focus_horizon = 3 if 3 in horizons else horizons[0]
+    return {
+        "report_date": report_date.isoformat(),
+        "market": market,
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+        "horizons": horizons,
+        "summary_json": group_stats(joined, "horizon_days", horizons),
+        "signal_stats_json": group_stats(joined, "signal_type", horizons),
+        "score_bucket_stats_json": score_stats_json(joined, horizons),
+        "shadow_diff_stats_json": shadow_stats(shadow_runs, joined, horizons),
+        "top_winners_json": ranked_outcomes(joined, focus_horizon, reverse=True),
+        "top_losers_json": ranked_outcomes(joined, focus_horizon, reverse=False),
+        "recommendations_json": recommendations(joined, horizons),
+    }
+
+
+def join_outcomes(outcomes: list[dict[str, Any]], observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    obs_by_id = {row.get("id"): row for row in observations}
+    joined = []
+    for row in outcomes:
+        obs = obs_by_id.get(row.get("observation_id"), {})
+        item = dict(row)
+        for key in _OBSERVATION_FIELDS:
+            item[key] = obs.get(key)
+        item.update(_candidate_shadow_fields(obs))
+        item.update(_data_lineage_fields(obs))
+        joined.append(item)
+    return joined
+
+
+def group_stats(rows: list[dict[str, Any]], group_key: str, horizons: list[int]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for horizon in horizons:
+        horizon_rows = [row for row in rows if int(row.get("horizon_days") or 0) == horizon]
+        groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in horizon_rows:
+            groups[str(row.get(group_key) or "unknown")].append(row)
+        result[str(horizon)] = {key: stats(group_rows) for key, group_rows in sorted(groups.items())}
+    return result
+
+
+def score_stats_json(joined: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    score_stats = _score_bucket_stats(joined, horizons)
+    score_stats["_candidate_shadow_grade"] = _candidate_shadow_stats(joined, horizons)
+    score_stats["_data_lineage"] = _data_lineage_stats(joined, horizons)
+    return score_stats
+
+
+def ranked_outcomes(rows: list[dict[str, Any]], horizon: int, *, reverse: bool) -> list[dict[str, Any]]:
+    picked = [
+        row for row in rows if int(row.get("horizon_days") or 0) == horizon and num(row.get("return_pct")) is not None
+    ]
+    ranked = sorted(picked, key=lambda row: num(row.get("return_pct")) or 0, reverse=reverse)
+    return [{key: row.get(key) for key in _RANKED_KEYS} for row in ranked[:20]]
+
+
+def shadow_stats(
+    shadow_rows: list[dict[str, Any]],
+    outcome_rows: list[dict[str, Any]],
+    horizons: list[int],
+) -> dict[str, Any]:
+    if not shadow_rows:
+        return {"count": 0, "outcome_stats": {}}
+    added = sum(len(row.get("diff_added") or []) for row in shadow_rows)
+    removed = sum(len(row.get("diff_removed") or []) for row in shadow_rows)
+    return {
+        "count": len(shadow_rows),
+        "avg_added": round(added / len(shadow_rows), 2),
+        "avg_removed": round(removed / len(shadow_rows), 2),
+        "latest": shadow_rows[-1],
+        "outcome_stats": _shadow_outcome_stats(shadow_rows, outcome_rows, horizons),
+    }
+
+
+def recommendations(rows: list[dict[str, Any]], horizons: list[int]) -> list[dict[str, str]]:
+    signal_stats = group_stats(rows, "signal_type", horizons)
+    recs = []
+    for horizon, stats_by_signal in signal_stats.items():
+        recs.extend(_recommendation_rows(horizon, stats_by_signal))
+    return recs
+
+
+def stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    vals = [value for value in (num(row.get("return_pct")) for row in rows) if value is not None]
+    dds = [value for value in (num(row.get("max_drawdown_pct")) for row in rows) if value is not None]
+    if not vals:
+        return {"count": 0}
+    return {
+        "count": len(vals),
+        "avg_return_pct": round(sum(vals) / len(vals), 2),
+        "median_return_pct": round(statistics.median(vals), 2),
+        "win_rate_pct": round(sum(value > 0 for value in vals) / len(vals) * 100, 1),
+        "big_win_rate_pct": round(sum(value >= 5 for value in vals) / len(vals) * 100, 1),
+        "big_loss_rate_pct": round(sum(value <= -5 for value in vals) / len(vals) * 100, 1),
+        "avg_drawdown_pct": round(sum(dds) / len(dds), 2) if dds else None,
+        "best_return_pct": round(max(vals), 2),
+        "worst_return_pct": round(min(vals), 2),
+    }
+
+
+def num(raw: Any) -> float | None:
+    try:
+        if raw is None or str(raw).strip() == "":
+            return None
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+_OBSERVATION_FIELDS = (
+    "name",
+    "industry",
+    "source",
+    "channel",
+    "selected_for_ai",
+    "ai_recommended",
+    "priority_score",
+    "trigger_score",
+    "stage",
+    "springboard_grade",
+    "springboard_met_count",
+)
+
+_RANKED_KEYS = [
+    "trade_date",
+    "code",
+    "name",
+    "signal_type",
+    "track",
+    "regime",
+    "return_pct",
+    "max_drawdown_pct",
+    "priority_score",
+    "candidate_shadow_score",
+    "candidate_shadow_grade",
+    "data_lineage_coverage_score",
+    "data_lineage_coverage_grade",
+    "data_lineage_evidence_keys",
+]
+
+
+def _json_map(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _str_list(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
+
+
+def _candidate_shadow_fields(obs: dict[str, Any]) -> dict[str, Any]:
+    features = _json_map(obs.get("features_json"))
+    shadow_score = _json_map(features.get("candidate_shadow_score"))
+    return {
+        "candidate_shadow_score": num(shadow_score.get("score")),
+        "candidate_shadow_grade": str(shadow_score.get("grade") or "unknown").strip() or "unknown",
+        "candidate_shadow_positive_tags": shadow_score.get("positive_tags") or [],
+        "candidate_shadow_negative_tags": shadow_score.get("negative_tags") or [],
+    }
+
+
+def _data_lineage_fields(obs: dict[str, Any]) -> dict[str, Any]:
+    features = _json_map(obs.get("features_json"))
+    lineage = _json_map(features.get("data_lineage"))
+    coverage_grade = str(lineage.get("coverage_grade") or "unknown").strip() or "unknown"
+    return {
+        "data_lineage_coverage_score": num(lineage.get("coverage_score")),
+        "data_lineage_coverage_grade": coverage_grade,
+        "data_lineage_evidence_keys": _str_list(lineage.get("evidence_keys")),
+        "data_lineage_missing_keys": _str_list(lineage.get("missing_keys")),
+    }
+
+
+def _score_bucket_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for horizon in horizons:
+        horizon_rows = [
+            row
+            for row in rows
+            if int(row.get("horizon_days") or 0) == horizon and num(row.get("priority_score")) is not None
+        ]
+        result[str(horizon)] = _score_bucket_for_horizon(horizon_rows)
+    return result
+
+
+def _score_bucket_for_horizon(horizon_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    scores = sorted(num(row.get("priority_score")) for row in horizon_rows)
+    if not scores:
+        return {}
+    low_cut = scores[len(scores) // 3]
+    high_cut = scores[len(scores) * 2 // 3]
+    return {
+        "low": stats([row for row in horizon_rows if (num(row.get("priority_score")) or 0) <= low_cut]),
+        "mid": stats([row for row in horizon_rows if low_cut < (num(row.get("priority_score")) or 0) <= high_cut]),
+        "high": stats([row for row in horizon_rows if (num(row.get("priority_score")) or 0) > high_cut]),
+    }
+
+
+def _candidate_shadow_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result = group_stats(rows, "candidate_shadow_grade", horizons)
+    return _sort_grouped_stats(result, {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4, "unknown": 5})
+
+
+def _coverage_grade_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result = group_stats(rows, "data_lineage_coverage_grade", horizons)
+    return _sort_grouped_stats(result, {"strong": 0, "medium": 1, "thin": 2, "weak": 3, "unknown": 4})
+
+
+def _sort_grouped_stats(result: dict[str, Any], order: dict[str, int]) -> dict[str, Any]:
+    for horizon, stats_by_grade in list(result.items()):
+        result[horizon] = {
+            grade: grade_stats
+            for grade, grade_stats in sorted(stats_by_grade.items(), key=lambda item: order.get(item[0], 99))
+        }
+    return result
+
+
+def _evidence_key_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for horizon in horizons:
+        horizon_rows = [row for row in rows if int(row.get("horizon_days") or 0) == horizon]
+        keys = sorted({key for row in horizon_rows for key in row.get("data_lineage_evidence_keys") or []})
+        result[str(horizon)] = {
+            key: stats([row for row in horizon_rows if key in (row.get("data_lineage_evidence_keys") or [])])
+            for key in keys
+        }
+    return result
+
+
+def _coverage_summary(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for horizon in horizons:
+        horizon_rows = [row for row in rows if int(row.get("horizon_days") or 0) == horizon]
+        result[str(horizon)] = _coverage_summary_for_horizon(horizon_rows)
+    return result
+
+
+def _coverage_summary_for_horizon(horizon_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    scores = [
+        score for score in (num(row.get("data_lineage_coverage_score")) for row in horizon_rows) if score is not None
+    ]
+    if not scores:
+        return {"count": 0}
+    return {
+        "count": len(scores),
+        "avg_coverage_score": round(sum(scores) / len(scores), 1),
+        "strong_rate_pct": round(
+            sum(str(row.get("data_lineage_coverage_grade")) == "strong" for row in horizon_rows)
+            / len(horizon_rows)
+            * 100,
+            1,
+        )
+        if horizon_rows
+        else 0.0,
+    }
+
+
+def _data_lineage_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    return {
+        "coverage_summary": _coverage_summary(rows, horizons),
+        "coverage_grade": _coverage_grade_stats(rows, horizons),
+        "evidence_key": _evidence_key_stats(rows, horizons),
+    }
+
+
+def _outcome_by_code_date(
+    rows: list[dict[str, Any]],
+    horizons: list[int],
+) -> dict[tuple[str, str, int], dict[str, Any]]:
+    outcome_map: dict[tuple[str, str, int], dict[str, Any]] = {}
+    valid_horizons = {int(horizon) for horizon in horizons}
+    for row in rows:
+        horizon = int(row.get("horizon_days") or 0)
+        if horizon not in valid_horizons or num(row.get("return_pct")) is None:
+            continue
+        key = (str(row.get("trade_date") or "")[:10], str(row.get("code") or "").strip(), horizon)
+        outcome_map.setdefault(key, row)
+    return outcome_map
+
+
+def _shadow_side_stats(
+    shadow_rows: list[dict[str, Any]],
+    outcome_map: dict[tuple[str, str, int], dict[str, Any]],
+    *,
+    side: str,
+    horizon: int,
+) -> dict[str, Any]:
+    matched: list[dict[str, Any]] = []
+    total = 0
+    for row in shadow_rows:
+        trade_date = str(row.get("trade_date") or "")[:10]
+        for code in row.get(side) or []:
+            total += 1
+            outcome = outcome_map.get((trade_date, str(code).strip(), horizon))
+            if outcome:
+                matched.append(outcome)
+    side_stats = stats(matched)
+    side_stats.update(
+        {
+            "shadow_candidates": total,
+            "matched_outcomes": side_stats.get("count", 0),
+            "missing_outcomes": max(total - int(side_stats.get("count", 0)), 0),
+        }
+    )
+    return side_stats
+
+
+def _shadow_outcome_stats(
+    shadow_rows: list[dict[str, Any]],
+    outcome_rows: list[dict[str, Any]],
+    horizons: list[int],
+) -> dict[str, Any]:
+    outcome_map = _outcome_by_code_date(outcome_rows, horizons)
+    return {
+        str(horizon): {
+            "added": _shadow_side_stats(shadow_rows, outcome_map, side="diff_added", horizon=horizon),
+            "removed": _shadow_side_stats(shadow_rows, outcome_map, side="diff_removed", horizon=horizon),
+        }
+        for horizon in horizons
+    }
+
+
+def _recommendation_rows(horizon: str, stats_by_signal: dict[str, Any]) -> list[dict[str, str]]:
+    recs: list[dict[str, str]] = []
+    for signal, signal_stats in stats_by_signal.items():
+        if signal_stats.get("count", 0) < 10:
+            continue
+        if signal_stats.get("avg_return_pct", 0) < -3 or signal_stats.get("big_loss_rate_pct", 0) >= 50:
+            recs.append(
+                {
+                    "type": "downweight",
+                    "horizon": horizon,
+                    "target": signal,
+                    "reason": json.dumps(signal_stats, ensure_ascii=False),
+                }
+            )
+    return recs

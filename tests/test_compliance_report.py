@@ -101,25 +101,21 @@ def test_validate_compliance_report_blocks_codes_names_and_action_terms():
 
 
 def test_resolve_compliance_llm_uses_efficiency(monkeypatch):
-    from core.compliance_report import resolve_compliance_llm_config
+    from workflows.compliance_report_config import compliance_llm_config_from_env
 
     monkeypatch.setenv("EFFICIENCY_API_KEY", "eff-key")
     monkeypatch.setenv("EFFICIENCY_MODEL", "longcat")
     monkeypatch.setenv("EFFICIENCY_BASE_URL", "https://example.com/v1")
 
-    cfg = resolve_compliance_llm_config()
+    cfg = compliance_llm_config_from_env()
 
     assert cfg is not None
     assert cfg.provider == "efficiency"
     assert cfg.base_url == "https://example.com/v1"
 
 
-def test_generate_compliance_brief_fallback_has_no_stock_identifiers(monkeypatch):
+def test_generate_compliance_brief_fallback_has_no_stock_identifiers():
     from core.compliance_report import generate_compliance_brief
-
-    monkeypatch.delenv("EFFICIENCY_API_KEY", raising=False)
-    monkeypatch.delenv("EFFICIENCY_MODEL", raising=False)
-    monkeypatch.delenv("EFFICIENCY_BASE_URL", raising=False)
 
     text = generate_compliance_brief(
         benchmark_context={"regime": "RISK_OFF", "breadth": {"ratio_pct": 20}},
@@ -140,20 +136,25 @@ def test_generate_compliance_brief_fallback_has_no_stock_identifiers(monkeypatch
     assert "操作池" not in text
 
 
-def test_generate_compliance_brief_rejects_bad_llm_output(monkeypatch):
+def test_generate_compliance_brief_rejects_bad_llm_output():
     import core.compliance_report as cr
 
-    monkeypatch.setenv("EFFICIENCY_API_KEY", "eff-key")
-    monkeypatch.setenv("EFFICIENCY_MODEL", "mimo-v2.5-pro")
-    monkeypatch.setenv("EFFICIENCY_BASE_URL", "https://example.com/v1")
-    monkeypatch.setenv("STEP3_COMPLIANCE_MAX_RETRIES", "0")
-    monkeypatch.setattr(cr, "call_llm", lambda **kwargs: "600000 浦发银行 可以买入")
+    config = cr.ComplianceLLMConfig(
+        provider="efficiency",
+        api_key="eff-key",
+        model="mimo-v2.5-pro",
+        base_url="https://example.com/v1",
+        source="efficiency",
+        retries=0,
+    )
 
     text = cr.generate_compliance_brief(
         benchmark_context={"regime": "NEUTRAL"},
         selected_df=_sample_df(),
         ops_codes=["600000"],
         code_name={"600000": "浦发银行"},
+        llm_config=config,
+        llm_caller=lambda **_kwargs: "600000 浦发银行 可以买入",
     )
 
     assert "600000" not in text

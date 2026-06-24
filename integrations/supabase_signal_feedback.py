@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -16,6 +17,8 @@ from integrations.supabase_base import close_client as _close
 from integrations.supabase_base import create_admin_client as _admin
 from integrations.supabase_base import is_admin_configured as _configured
 from integrations.supabase_base import require_server_write_context
+
+logger = logging.getLogger(__name__)
 
 OPTIONAL_SIGNAL_OBSERVATION_COLUMNS = (
     "profile_tag",
@@ -68,7 +71,7 @@ def _execute_upsert(
             client.table(table).upsert(_drop_optional_columns(rows), on_conflict=conflict).execute()
         return len(rows)
     except Exception as exc:
-        print(f"[signal_feedback] upsert {table} failed: {exc}")
+        logger.warning("upsert %s failed: %s", table, exc)
         if raise_on_error:
             raise
         return 0
@@ -114,7 +117,7 @@ def load_recent_signal_observations(days: int = 90, limit: int = 5000, market: s
         )
         return resp.data or []
     except Exception as exc:
-        print(f"[signal_feedback] load observations failed: {exc}")
+        logger.warning("load observations failed: %s", exc)
         return []
     finally:
         if client is not None:
@@ -138,7 +141,7 @@ def load_recent_signal_outcomes(days: int = 180, limit: int = 20000, market: str
         )
         return resp.data or []
     except Exception as exc:
-        print(f"[signal_feedback] load outcomes failed: {exc}")
+        logger.warning("load outcomes failed: %s", exc)
         return []
     finally:
         if client is not None:
@@ -175,7 +178,7 @@ def load_signal_health_snapshot(market: str = "cn", limit: int = 1000) -> list[d
         )
         return _latest_rows(resp.data or [])
     except Exception as exc:
-        print(f"[signal_feedback] load health failed: {exc}")
+        logger.warning("load health failed: %s", exc)
         return []
     finally:
         if client is not None:
@@ -191,7 +194,7 @@ def load_signal_registry(market: str = "cn") -> list[dict[str, Any]]:
         resp = client.table(TABLE_SIGNAL_REGISTRY).select("*").eq("market", market).execute()
         return resp.data or []
     except Exception as exc:
-        print(f"[signal_feedback] load registry failed: {exc}")
+        logger.warning("load registry failed: %s", exc)
         return []
     finally:
         if client is not None:
@@ -215,7 +218,7 @@ def load_policy_shadow_runs(days: int = 30, limit: int = 1000, market: str = "cn
         )
         return resp.data or []
     except Exception as exc:
-        print(f"[signal_feedback] load policy shadow failed: {exc}")
+        logger.warning("load policy shadow failed: %s", exc)
         return []
     finally:
         if client is not None:

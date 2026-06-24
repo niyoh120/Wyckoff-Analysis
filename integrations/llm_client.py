@@ -113,6 +113,96 @@ def _env_enabled(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _validate_llm_request(provider: str, api_key: str) -> None:
+    if not api_key or not api_key.strip():
+        raise ValueError("API Key 未配置，请先在设置页录入。")
+    if provider not in SUPPORTED_PROVIDERS:
+        raise ValueError(f"不支持的供应商: {provider}，当前仅支持: {SUPPORTED_PROVIDERS}")
+
+
+def _litellm_enabled() -> bool:
+    return os.environ.get("LITELLM_ENABLED", "").strip() in ("1", "true", "yes")
+
+
+def _call_litellm_if_enabled(
+    provider: str,
+    model: str,
+    api_key: str,
+    system_prompt: str,
+    user_message: str,
+    *,
+    images: list | None,
+    base_url: str | None,
+    timeout: int,
+    max_output_tokens: int | None,
+    allow_truncated_text: bool,
+) -> str | None:
+    if not _litellm_enabled():
+        return None
+    if images:
+        logger.info("[llm] LITELLM_ENABLED=1 but images present, using native Gemini implementation")
+        return None
+    try:
+        from integrations.llm_adapter import call_llm_via_litellm
+
+        logger.info("[llm] LITELLM_ENABLED=1, routing to LiteLLM: provider=%s model=%s", provider, model)
+        return call_llm_via_litellm(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            base_url=base_url,
+            timeout=timeout,
+            max_output_tokens=max_output_tokens,
+            allow_truncated_text=allow_truncated_text,
+        )
+    except ImportError:
+        logger.warning("[llm] LiteLLM not installed, falling back to native implementation")
+        return None
+
+
+def _call_native_llm(
+    provider: str,
+    model: str,
+    api_key: str,
+    system_prompt: str,
+    user_message: str,
+    *,
+    images: list | None,
+    base_url: str | None,
+    timeout: int,
+    max_output_tokens: int | None,
+    allow_truncated_text: bool,
+) -> str:
+    if provider == "gemini":
+        return _call_gemini(
+            model=model,
+            api_key=api_key.strip(),
+            system_prompt=system_prompt,
+            user_message=user_message,
+            images=images,
+            timeout=timeout,
+            max_output_tokens=max_output_tokens,
+            allow_truncated_text=allow_truncated_text,
+            base_url=(base_url or "").strip(),
+        )
+    if provider in OPENAI_COMPATIBLE_BASE_URLS:
+        base = (base_url or OPENAI_COMPATIBLE_BASE_URLS.get(provider, "") or "").rstrip("/")
+        if not base:
+            raise ValueError(f"未配置 {provider} 的 base_url")
+        return _call_openai_compatible(
+            base_url=base,
+            api_key=api_key.strip(),
+            model=model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            timeout=timeout,
+            max_output_tokens=max_output_tokens,
+        )
+    raise ValueError(f"未实现的供应商: {provider}")
+
+
 def call_llm(
     provider: str,
     model: str,
@@ -147,63 +237,33 @@ def call_llm(
         ValueError: provider 不支持或参数无效。
         RuntimeError: 调用失败或返回为空。
     """
-    if not api_key or not api_key.strip():
-        raise ValueError("API Key 未配置，请先在设置页录入。")
-    if provider not in SUPPORTED_PROVIDERS:
-        raise ValueError(f"不支持的供应商: {provider}，当前仅支持: {SUPPORTED_PROVIDERS}")
-
-    # LiteLLM handles text-only provider routing; image payloads stay on the native Gemini path.
-    if os.environ.get("LITELLM_ENABLED", "").strip() in ("1", "true", "yes"):
-        if not images:
-            try:
-                from integrations.llm_adapter import call_llm_via_litellm
-
-                logger.info(
-                    "[llm] LITELLM_ENABLED=1, routing to LiteLLM: provider=%s model=%s",
-                    provider,
-                    model,
-                )
-                return call_llm_via_litellm(
-                    provider=provider,
-                    model=model,
-                    api_key=api_key,
-                    system_prompt=system_prompt,
-                    user_message=user_message,
-                    base_url=base_url,
-                    timeout=timeout,
-                    max_output_tokens=max_output_tokens,
-                    allow_truncated_text=allow_truncated_text,
-                )
-            except ImportError:
-                logger.warning("[llm] LiteLLM not installed, falling back to native implementation")
-        else:
-            logger.info("[llm] LITELLM_ENABLED=1 but images present, using native Gemini implementation")
-    if provider == "gemini":
-        return _call_gemini(
-            model=model,
-            api_key=api_key.strip(),
-            system_prompt=system_prompt,
-            user_message=user_message,
-            images=images,
-            timeout=timeout,
-            max_output_tokens=max_output_tokens,
-            allow_truncated_text=allow_truncated_text,
-            base_url=(base_url or "").strip(),
-        )
-    if provider in OPENAI_COMPATIBLE_BASE_URLS:
-        base = (base_url or OPENAI_COMPATIBLE_BASE_URLS.get(provider, "") or "").rstrip("/")
-        if not base:
-            raise ValueError(f"未配置 {provider} 的 base_url")
-        return _call_openai_compatible(
-            base_url=base,
-            api_key=api_key.strip(),
-            model=model,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            timeout=timeout,
-            max_output_tokens=max_output_tokens,
-        )
-    raise ValueError(f"未实现的供应商: {provider}")
+    _validate_llm_request(provider, api_key)
+    routed = _call_litellm_if_enabled(
+        provider,
+        model,
+        api_key,
+        system_prompt,
+        user_message,
+        images=images,
+        base_url=base_url,
+        timeout=timeout,
+        max_output_tokens=max_output_tokens,
+        allow_truncated_text=allow_truncated_text,
+    )
+    if routed is not None:
+        return routed
+    return _call_native_llm(
+        provider,
+        model,
+        api_key,
+        system_prompt,
+        user_message,
+        images=images,
+        base_url=base_url,
+        timeout=timeout,
+        max_output_tokens=max_output_tokens,
+        allow_truncated_text=allow_truncated_text,
+    )
 
 
 def _call_openai_compatible(
@@ -247,6 +307,90 @@ def _call_openai_compatible(
     return text
 
 
+def _gemini_http_options(timeout: int, base_url: str) -> dict:
+    opts: dict = {"timeout": timeout * 1000}
+    if base_url:
+        opts["base_url"] = base_url.rstrip("/")
+    return opts
+
+
+def _gemini_config(types, system_prompt: str, max_output_tokens: int | None):
+    resolved = int(max_output_tokens) if max_output_tokens is not None else GEMINI_MAX_OUTPUT_TOKENS_DEFAULT
+    return types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        temperature=0.4,
+        top_p=0.95,
+        top_k=40,
+        max_output_tokens=max(1024, resolved),
+    )
+
+
+def _gemini_contents(user_message: str, images: list | None) -> list:
+    contents = [user_message]
+    if images:
+        contents.extend(images)
+    return contents
+
+
+def _gemini_text(response) -> str:
+    text = getattr(response, "text", None) or ""
+    if text or not getattr(response, "candidates", None):
+        return text.strip()
+    parts = []
+    for candidate in response.candidates:
+        content = getattr(candidate, "content", None)
+        if not content:
+            continue
+        for part in getattr(content, "parts", []) or []:
+            part_text = getattr(part, "text", None)
+            if part_text:
+                parts.append(part_text)
+    return "".join(parts).strip()
+
+
+def _gemini_finish_reason(response) -> str:
+    if not getattr(response, "candidates", None):
+        return ""
+    if len(response.candidates) <= 0:
+        return ""
+    reason = getattr(response.candidates[0], "finish_reason", "")
+    if reason is None:
+        return ""
+    return getattr(reason, "name", str(reason))
+
+
+def _log_gemini_usage(model: str, finish_reason: str, response, max_output_tokens: int) -> None:
+    if not _env_enabled("LLM_LOG_USAGE", True):
+        return
+    usage = getattr(response, "usage_metadata", None)
+    prompt_tokens = getattr(usage, "prompt_token_count", None) if usage else None
+    completion_tokens = getattr(usage, "candidates_token_count", None) if usage else None
+    total_tokens = getattr(usage, "total_token_count", None) if usage else None
+    logger.info(
+        "gemini model=%s finish_reason=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s max_output_tokens=%s",
+        model,
+        finish_reason or "unknown",
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        max_output_tokens,
+    )
+
+
+def _handle_gemini_truncation(text: str, finish_reason: str, allow_truncated_text: bool) -> str | None:
+    if finish_reason.strip().upper() not in _GEMINI_TRUNCATION_REASONS:
+        return None
+    if allow_truncated_text and text.strip():
+        if _env_enabled("LLM_LOG_USAGE", True):
+            logger.warning("gemini truncation tolerated: using returned text because allow_truncated_text=1")
+        return text
+    raise RuntimeError(f"Gemini 输出被截断(finish_reason={finish_reason or 'unknown'})，请缩短输入或提升输出上限后重试")
+
+
+def _gemini_retry_sleep(attempt: int) -> float:
+    return min(GEMINI_RETRY_DELAY * (2 ** (attempt - 1)), 30.0)
+
+
 def _call_gemini(
     model: str,
     api_key: str,
@@ -261,26 +405,9 @@ def _call_gemini(
     from google import genai
     from google.genai import types
 
-    # 包含 timeout（+ 可选代理地址）的 HTTP 参数传入 Client
-    http_opts: dict = {"timeout": timeout * 1000}
-    if base_url:
-        http_opts["base_url"] = base_url.rstrip("/")
-    client = genai.Client(api_key=api_key, http_options=http_opts)
-
-    resolved_max_tokens = int(max_output_tokens) if max_output_tokens is not None else GEMINI_MAX_OUTPUT_TOKENS_DEFAULT
-
-    config = types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        temperature=0.4,
-        top_p=0.95,
-        top_k=40,
-        max_output_tokens=max(1024, resolved_max_tokens),
-    )
-
-    contents = [user_message]
-    if images:
-        contents.extend(images)
-
+    client = genai.Client(api_key=api_key, http_options=_gemini_http_options(timeout, base_url))
+    config = _gemini_config(types, system_prompt, max_output_tokens)
+    contents = _gemini_contents(user_message, images)
     last_err: Exception | None = None
     for attempt in range(1, GEMINI_MAX_RETRIES + 1):
         try:
@@ -292,62 +419,29 @@ def _call_gemini(
             if response is None:
                 raise RuntimeError("Gemini 返回空响应")
 
-            text = getattr(response, "text", None) or ""
-            if not text and getattr(response, "candidates", None):
-                parts = []
-                for c in response.candidates:
-                    content = getattr(c, "content", None)
-                    if not content:
-                        continue
-                    for p in getattr(content, "parts", []) or []:
-                        t = getattr(p, "text", None)
-                        if t:
-                            parts.append(t)
-                text = "".join(parts).strip()
-
+            text = _gemini_text(response)
             if not text:
                 raise RuntimeError("Gemini 返回内容为空")
 
-            finish_reason = ""
-            if getattr(response, "candidates", None) and len(response.candidates) > 0:
-                fr = getattr(response.candidates[0], "finish_reason", "")
-                if fr is not None:
-                    # 枚举处理
-                    finish_reason = getattr(fr, "name", str(fr))
-
-            usage = getattr(response, "usage_metadata", None)
-            prompt_tokens = getattr(usage, "prompt_token_count", None) if usage else None
-            completion_tokens = getattr(usage, "candidates_token_count", None) if usage else None
-            total_tokens = getattr(usage, "total_token_count", None) if usage else None
-            finish_reason_norm = finish_reason.strip().upper()
-            if _env_enabled("LLM_LOG_USAGE", True):
-                print(
-                    "[llm] gemini model={} finish_reason={} prompt_tokens={} completion_tokens={} total_tokens={} max_output_tokens={}".format(
-                        model,
-                        finish_reason or "unknown",
-                        prompt_tokens,
-                        completion_tokens,
-                        total_tokens,
-                        config.max_output_tokens,
-                    )
-                )
-            if finish_reason_norm in _GEMINI_TRUNCATION_REASONS:
-                if allow_truncated_text and text.strip():
-                    if _env_enabled("LLM_LOG_USAGE", True):
-                        print("[llm] gemini truncation tolerated: using returned text because allow_truncated_text=1")
-                    return text
-                raise RuntimeError(
-                    f"Gemini 输出被截断(finish_reason={finish_reason or 'unknown'})，请缩短输入或提升输出上限后重试"
-                )
+            finish_reason = _gemini_finish_reason(response)
+            _log_gemini_usage(model, finish_reason, response, config.max_output_tokens)
+            truncated = _handle_gemini_truncation(text, finish_reason, allow_truncated_text)
+            if truncated is not None:
+                return truncated
             return text
         except Exception as e:
             last_err = e
             if attempt >= GEMINI_MAX_RETRIES:
                 break
-            sleep_s = GEMINI_RETRY_DELAY * (2 ** (attempt - 1))
-            sleep_s = min(sleep_s, 30.0)
+            sleep_s = _gemini_retry_sleep(attempt)
             if _env_enabled("LLM_LOG_RETRY_ERRORS", True):
-                print(f"[llm] gemini attempt {attempt}/{GEMINI_MAX_RETRIES} failed: {e}; retry in {sleep_s:.1f}s")
+                logger.warning(
+                    "gemini attempt %s/%s failed: %s; retry in %.1fs",
+                    attempt,
+                    GEMINI_MAX_RETRIES,
+                    e,
+                    sleep_s,
+                )
             time.sleep(sleep_s)
 
     raise RuntimeError(f"Gemini 调用失败: {last_err}")

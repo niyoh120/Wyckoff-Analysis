@@ -5,9 +5,9 @@
 设计理念：日线级 + 结构化风控 + 人机协同。通过漏斗广域初筛、量化打分、AI 语义决策、OMS 风控，输出可执行的交易建议。
 
 覆盖模块：
-- Step2 漏斗选股：`core/wyckoff_engine.py`（L1-L5 筛选与打分）
-- Step3 AI 研报：`core/batch_report.py`（三阵营审判）
-- Step4 持仓决断：`core/strategy.py`（持仓管理与风控）
+- Step2 漏斗选股：`workflows/wyckoff_funnel.py` + `core/wyckoff_engine.py`（L1-L5 编排、筛选与打分）
+- Step3 AI 研报：`workflows/step3_batch_report.py`（三阵营审判）
+- Step4 持仓决断：`workflows/step4_rebalancer.py`（持仓管理、OMS 风控与 Telegram 工单）
 - 跨市场扫描：`scripts/market_funnel_job.py`（港股 / 美股独立 universe + TickFlow 日线）
 
 > 架构、数据表、定时任务见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。术语速查见 [GLOSSARY.md](GLOSSARY.md)。

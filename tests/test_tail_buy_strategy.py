@@ -4,19 +4,21 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-from core.tail_buy_strategy import (
+from core.tail_buy.reporting import build_tail_buy_markdown
+from core.tail_buy.strategy import (
     DECISION_BUY,
     DECISION_SKIP,
     DECISION_WATCH,
     TailBuyCandidate,
+    TailBuyStrategyConfig,
     _normalize_signal_score,
-    build_tail_buy_markdown,
     compute_tail_features,
     evaluate_rule_decision,
     merge_rule_and_llm,
     pick_tail_candidates,
     select_llm_overlay_candidates,
 )
+from workflows.tail_buy_config import tail_buy_strategy_config_from_env
 
 
 def _make_intraday_df(
@@ -79,6 +81,8 @@ def test_pick_tail_candidates_filters_prev_trade_day_and_status():
             "signal_score": 2.9,
             "status": "confirmed",
             "signal_date": "2026-04-20",
+            "regime": "RISK_ON",
+            "snap_support": 9.8,
         },
         {
             "code": "600000",
@@ -108,6 +112,8 @@ def test_pick_tail_candidates_filters_prev_trade_day_and_status():
     got = pick_tail_candidates(rows, cutoff_date="2026-04-20")
     assert [x.code for x in got] == ["301090", "002217"]
     assert got[0].status == "confirmed"
+    assert got[0].market_regime == "RISK_ON"
+    assert got[0].snap["snap_support"] == 9.8
 
 
 def test_evaluate_rule_decision_buy_and_skip_split():
@@ -118,6 +124,7 @@ def test_evaluate_rule_decision_buy_and_skip_split():
         status="confirmed",
         signal_type="spring",
         signal_score=6.0,
+        snap={"snap_support": 9.8},
     )
     weak = TailBuyCandidate(
         code="600000",
@@ -146,6 +153,7 @@ def test_strong_intraday_trend_gets_hold_vwap_feature():
         status="confirmed",
         signal_type="sos",
         signal_score=6.0,
+        snap={"snap_support": 9.8},
     )
     df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.2, tail_volume_mult=1.2)
 
@@ -164,6 +172,7 @@ def test_pending_strong_tail_signal_stays_watch_by_default():
         status="pending",
         signal_type="sos",
         signal_score=6.0,
+        snap={"snap_support": 9.8},
     )
     strong_df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.8, tail_volume_mult=2.0)
 
@@ -173,6 +182,30 @@ def test_pending_strong_tail_signal_stays_watch_by_default():
     assert out.rule_decision == DECISION_WATCH
     assert out.final_decision == DECISION_WATCH
     assert "未二次确认" in "；".join(out.rule_reasons)
+
+
+def test_pending_strong_tail_signal_can_buy_when_gate_disabled():
+    candidate = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="pending",
+        signal_type="sos",
+        signal_score=6.0,
+        snap={"snap_support": 9.8},
+    )
+    strong_df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.8, tail_volume_mult=2.0)
+
+    out = evaluate_rule_decision(
+        candidate,
+        strong_df,
+        style="hybrid",
+        config=TailBuyStrategyConfig(confirmed_only_buy=False),
+    )
+
+    assert out.rule_score >= 72.0
+    assert out.rule_decision == DECISION_BUY
+    assert "未二次确认" not in "；".join(out.rule_reasons)
 
 
 def test_confirmed_tail_signal_skips_after_breaking_confirm_support():
@@ -193,6 +226,43 @@ def test_confirmed_tail_signal_skips_after_breaking_confirm_support():
     assert out.rule_decision == DECISION_SKIP
     assert out.features["day_low_breached_support"] is True
     assert "跌破确认支撑" in "；".join(out.rule_reasons)
+
+
+def test_tail_buy_skips_when_support_anchor_is_missing():
+    candidate = TailBuyCandidate(
+        code="603039",
+        name="泛微网络",
+        signal_date="2026-06-11",
+        status="confirmed",
+        signal_type="evr",
+        signal_score=2.8,
+        market_regime="NEUTRAL",
+    )
+    df = _make_intraday_df(start=46.0, end=49.2, tail_boost=0.8, tail_volume_mult=2.0)
+
+    out = evaluate_rule_decision(candidate, df, style="hybrid")
+
+    assert out.rule_decision == DECISION_SKIP
+    assert "缺少确认支撑位" in "；".join(out.rule_reasons)
+
+
+def test_tail_buy_blocks_defensive_regime_single_evr():
+    candidate = TailBuyCandidate(
+        code="300581",
+        name="晨曦航空",
+        signal_date="2026-06-12",
+        status="confirmed",
+        signal_type="evr",
+        signal_score=2.7,
+        market_regime="RISK_OFF",
+        snap={"snap_support": 10.94},
+    )
+    df = _make_intraday_df(start=12.4, end=13.1, tail_boost=0.6, tail_volume_mult=2.0)
+
+    out = evaluate_rule_decision(candidate, df, style="hybrid")
+
+    assert out.rule_decision == DECISION_SKIP
+    assert "RISK_OFF单EVR只观察" in "；".join(out.rule_reasons)
 
 
 def test_confirmed_tail_signal_skips_blowoff_reversal():
@@ -275,6 +345,27 @@ def test_merge_rule_and_llm_keeps_pending_buy_as_watch():
     assert by_code["600000"].final_decision == DECISION_SKIP
     assert by_code["600000"].llm_decision is None
     assert by_code["002217"].llm_model_used.startswith("nvidia-kimi")
+
+
+def test_tail_buy_strategy_config_from_env_can_disable_confirmation_gate(monkeypatch):
+    monkeypatch.setenv("TAIL_BUY_CONFIRMED_ONLY_BUY", "0")
+    config = tail_buy_strategy_config_from_env()
+
+    item = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="pending",
+        signal_type="sos",
+        signal_score=4.0,
+        rule_score=80.0,
+        rule_decision=DECISION_BUY,
+        final_decision=DECISION_BUY,
+    )
+    merged = merge_rule_and_llm([item], {}, config=config)
+
+    assert config.confirmed_only_buy is False
+    assert merged[0].final_decision == DECISION_BUY
 
 
 def test_merge_rule_and_llm_cannot_override_tail_hard_veto():
@@ -476,6 +567,7 @@ def test_auto_style_selects_by_signal_type():
         status="confirmed",
         signal_type="spring",
         signal_score=5.0,
+        snap={"snap_support": 9.8},
     )
     sos_c = TailBuyCandidate(
         code="002217",
@@ -484,6 +576,7 @@ def test_auto_style_selects_by_signal_type():
         status="confirmed",
         signal_type="sos",
         signal_score=4.0,
+        snap={"snap_support": 9.8},
     )
     spring_out = evaluate_rule_decision(spring_c, strong_df)
     sos_out = evaluate_rule_decision(sos_c, strong_df)
@@ -492,7 +585,8 @@ def test_auto_style_selects_by_signal_type():
 
 
 def test_holding_tail_action_adds_clear_signal_even_if_losing(monkeypatch):
-    from scripts import tail_buy_intraday_job as job
+    from workflows import tail_buy_holding_portfolio, tail_buy_utils
+    from workflows import tail_buy_holdings as holdings_workflow
 
     class FakeTickFlow:
         def get_quotes(self, symbols):
@@ -505,7 +599,7 @@ def test_holding_tail_action_adds_clear_signal_even_if_losing(monkeypatch):
             return {symbol: df for symbol in chunk}
 
     monkeypatch.setattr(
-        job,
+        tail_buy_holding_portfolio,
         "load_portfolio_state",
         lambda _portfolio_id: {
             "state_signature": "sig",
@@ -521,17 +615,18 @@ def test_holding_tail_action_adds_clear_signal_even_if_losing(monkeypatch):
         signal_score=6.0,
     )
 
-    holdings, _limit_hit, _meta = job._analyze_holdings_actions(
+    holdings, _limit_hit, _meta = holdings_workflow.analyze_holdings_actions(
         tickflow_client=FakeTickFlow(),
         portfolio_id="USER_LIVE:test",
         signal_map={"000001": signal},
         style="auto",
         intraday_batch_size=20,
         hard_stop_pct=8.0,
-        deadline_at=datetime.now(job.TZ) + timedelta(seconds=60),
+        strategy_config=TailBuyStrategyConfig(),
+        deadline_at=datetime.now(tail_buy_utils.TZ) + timedelta(seconds=60),
     )
 
-    assert holdings[0].action == job.HOLDING_ACTION_ADD
+    assert holdings[0].action == holdings_workflow.HOLDING_ACTION_ADD
     assert "尾盘结构延续走强" in "；".join(holdings[0].reasons)
 
 

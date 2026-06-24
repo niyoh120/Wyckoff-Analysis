@@ -1,0 +1,242 @@
+"""Layer execution workflow for the A-share funnel job."""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
+
+import pandas as pd
+
+from core.funnel_theme import empty_theme_snapshot, select_linked_theme_radar
+from core.funnel_theme import theme_candidate_map as build_theme_candidate_map
+from core.sector_rotation import analyze_sector_rotation
+from core.theme_radar import build_theme_radar_snapshot
+from core.wyckoff_engine import (
+    FunnelConfig,
+    detect_leader_radar,
+    layer1_filter,
+    layer2_strength_detailed,
+    layer3_sector_resonance,
+    layer4_triggers,
+)
+from integrations.market_metadata import CONCEPT_HEAT_HISTORY
+from workflows.funnel_data import FunnelReferenceData
+from workflows.funnel_settings import (
+    FUNNEL_THEME_RADAR_ENABLED,
+    FUNNEL_THEME_RADAR_LINK_ENABLED,
+    FUNNEL_THEME_RADAR_MAX_AGE_DAYS,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FunnelLayerOutputs:
+    l1_passed: list[str]
+    l2_passed: list[str]
+    l2_channel_map: dict[str, str]
+    l2_counts: dict[str, int]
+    l3_passed: list[str]
+    top_sectors: list[str]
+    sector_rotation: dict
+    triggers: dict[str, list[tuple[str, float]]]
+    leader_radar_rows: list[dict]
+    leader_radar_symbols: list[str]
+    theme_radar_current: dict
+    theme_radar: dict
+    theme_radar_source: str
+    theme_candidate_map: dict
+
+
+def run_base_funnel_layers(
+    *,
+    all_df_map: dict[str, pd.DataFrame],
+    bench_df: pd.DataFrame | None,
+    window,
+    cfg: FunnelConfig,
+    ref_data: FunnelReferenceData,
+    etf_l2_passed: list[str],
+    etf_sector_map: dict[str, str],
+    etf_df_map: dict[str, pd.DataFrame],
+    benchmark_context: dict,
+) -> FunnelLayerOutputs:
+    print("[funnel] 开始执行全量漏斗筛选...")
+    _report_progress("漏斗筛选", "L1~L4 计算中", 0.85)
+    l1_input = list(all_df_map.keys())
+    l1_passed, l2_passed, l2_channel_map = _run_strength_layers(l1_input, all_df_map, bench_df, cfg, ref_data)
+    l3_passed, top_sectors, sector_rotation = _run_sector_layer(
+        l1_passed, l2_passed, all_df_map, cfg, ref_data, etf_l2_passed, etf_sector_map, etf_df_map
+    )
+    benchmark_context["sector_rotation"] = sector_rotation
+    triggers = layer4_triggers(
+        l3_passed, all_df_map, cfg, channel_map=l2_channel_map, market_cap_map=ref_data.market_cap_map
+    )
+    leader_rows = detect_leader_radar(l1_passed, all_df_map, ref_data.sector_map, l2_channel_map, cfg)
+    theme_current, theme_radar, theme_source = _build_theme_context(window, ref_data, all_df_map)
+    return FunnelLayerOutputs(
+        l1_passed=l1_passed,
+        l2_passed=l2_passed,
+        l2_channel_map=l2_channel_map,
+        l2_counts=_l2_channel_counts(l2_channel_map),
+        l3_passed=l3_passed,
+        top_sectors=top_sectors,
+        sector_rotation=sector_rotation,
+        triggers=triggers,
+        leader_radar_rows=leader_rows,
+        leader_radar_symbols=[str(row.get("code", "")).strip() for row in leader_rows if row.get("code")],
+        theme_radar_current=theme_current,
+        theme_radar=theme_radar,
+        theme_radar_source=theme_source,
+        theme_candidate_map=build_theme_candidate_map(theme_radar),
+    )
+
+
+def _run_strength_layers(
+    l1_input: list[str],
+    all_df_map: dict[str, pd.DataFrame],
+    bench_df: pd.DataFrame | None,
+    cfg: FunnelConfig,
+    ref_data: FunnelReferenceData,
+) -> tuple[list[str], list[str], dict[str, str]]:
+    l1_passed = layer1_filter(
+        l1_input, ref_data.name_map, ref_data.market_cap_map, all_df_map, cfg, financial_map=ref_data.financial_map
+    )
+    l2_passed, l2_channel_map, _pre_ignition = layer2_strength_detailed(
+        l1_passed,
+        all_df_map,
+        bench_df,
+        cfg,
+        rps_universe=l1_input,
+    )
+    return l1_passed, l2_passed, l2_channel_map
+
+
+def _run_sector_layer(
+    l1_passed: list[str],
+    l2_passed: list[str],
+    all_df_map: dict[str, pd.DataFrame],
+    cfg: FunnelConfig,
+    ref_data: FunnelReferenceData,
+    etf_l2_passed: list[str],
+    etf_sector_map: dict[str, str],
+    etf_df_map: dict[str, pd.DataFrame],
+) -> tuple[list[str], list[str], dict]:
+    etf_codes = set(etf_sector_map)
+    l3_raw, top_sectors = layer3_sector_resonance(
+        l2_passed + etf_l2_passed,
+        ref_data.sector_map,
+        cfg,
+        base_symbols=l1_passed + list(etf_codes & set(etf_df_map)),
+        df_map=all_df_map,
+        concept_map=ref_data.concept_map,
+        hot_concepts=ref_data.hot_concepts,
+    )
+    l3_passed = [s for s in l3_raw if s not in etf_codes]
+    sector_rotation = analyze_sector_rotation(
+        all_df_map,
+        ref_data.sector_map,
+        universe_symbols=list(all_df_map.keys()),
+        focus_sectors=top_sectors,
+    )
+    print(f"[funnel] 板块轮动温度计: {sector_rotation.get('headline', '无')}")
+    return l3_passed, top_sectors, sector_rotation
+
+
+def _build_theme_context(
+    window,
+    ref_data: FunnelReferenceData,
+    all_df_map: dict[str, pd.DataFrame],
+) -> tuple[dict, dict, str]:
+    trade_date = window.end_trade_date.isoformat()
+    current = _safe_build_theme_radar(
+        trade_date=trade_date,
+        concept_heat=ref_data.concept_heat,
+        concept_map=ref_data.concept_map,
+        sector_map=ref_data.sector_map,
+        df_map=all_df_map,
+        name_map=ref_data.name_map,
+    )
+    radar, source = _resolve_linked_theme_radar(current, trade_date)
+    return current, radar, source
+
+
+def _load_theme_radar_history() -> dict:
+    try:
+        from integrations.supabase_concept_heat import load_concept_heat_history_from_supabase
+
+        history = load_concept_heat_history_from_supabase()
+        if history:
+            return history
+    except Exception as exc:
+        logger.debug("theme radar supabase history unavailable: %s", exc)
+    try:
+        if CONCEPT_HEAT_HISTORY.exists():
+            with open(CONCEPT_HEAT_HISTORY, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        logger.debug("theme radar local history unavailable: %s", exc)
+    return {}
+
+
+def _safe_build_theme_radar(
+    *,
+    trade_date: str,
+    concept_heat: list[dict],
+    concept_map: dict[str, list[str]],
+    sector_map: dict[str, str],
+    df_map: dict[str, pd.DataFrame],
+    name_map: dict[str, str],
+) -> dict:
+    if not FUNNEL_THEME_RADAR_ENABLED:
+        return empty_theme_snapshot(trade_date)
+    try:
+        return build_theme_radar_snapshot(
+            trade_date=trade_date,
+            concept_heat=concept_heat,
+            concept_history=_load_theme_radar_history(),
+            concept_map=concept_map,
+            sector_map=sector_map,
+            df_map=df_map,
+            name_map=name_map,
+        )
+    except Exception as exc:
+        logger.warning("theme radar build failed: %s", exc)
+        return empty_theme_snapshot(trade_date)
+
+
+def _resolve_linked_theme_radar(current_snapshot: dict, trade_date: str) -> tuple[dict, str]:
+    persisted = None
+    if FUNNEL_THEME_RADAR_ENABLED and FUNNEL_THEME_RADAR_LINK_ENABLED:
+        try:
+            from integrations.theme_radar_storage import load_latest_theme_radar_snapshot
+
+            persisted = load_latest_theme_radar_snapshot()
+        except Exception as exc:
+            logger.debug("theme radar persisted snapshot unavailable: %s", exc)
+    return select_linked_theme_radar(
+        current_snapshot,
+        persisted,
+        trade_date,
+        enabled=FUNNEL_THEME_RADAR_ENABLED,
+        link_enabled=FUNNEL_THEME_RADAR_LINK_ENABLED,
+        max_age_days=FUNNEL_THEME_RADAR_MAX_AGE_DAYS,
+    )
+
+
+def _l2_channel_counts(channel_map: dict[str, str]) -> dict[str, int]:
+    return {
+        "momentum": sum(1 for v in channel_map.values() if "主升通道" in v),
+        "ambush": sum(1 for v in channel_map.values() if "潜伏通道" in v),
+        "accum": sum(1 for v in channel_map.values() if "吸筹通道" in v),
+        "dry_vol": sum(1 for v in channel_map.values() if "地量蓄势" in v),
+        "rs_div": sum(1 for v in channel_map.values() if "暗中护盘" in v),
+        "trend_cont": sum(1 for v in channel_map.values() if "趋势延续" in v),
+        "sos": sum(1 for v in channel_map.values() if "点火破局" in v),
+    }
+
+
+def _report_progress(stage: str, message: str, progress: float) -> None:
+    from utils.progress import report_progress
+
+    report_progress(stage, message, progress)

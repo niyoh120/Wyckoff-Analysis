@@ -326,7 +326,8 @@ class TestExpandTailForToolRefs:
 
 
 def test_query_history_archive_recall(tmp_path):
-    from agents.chat_tools import ToolContext, query_history
+    from agents.history_tools import query_history
+    from agents.tool_context import ToolContext
     from cli.compaction import compact_messages
 
     class FakeProvider:
@@ -363,10 +364,10 @@ def test_query_history_archive_recall(tmp_path):
     ctx = ToolContext(state={"session_id": "test_sess_recall"})
 
     # 临时覆盖 archive_root
-    import cli.context_archive
+    import utils.context_archive
 
-    orig_root_fn = cli.context_archive.archive_root
-    cli.context_archive.archive_root = lambda archive_dir=None: tmp_path
+    orig_root_fn = utils.context_archive.archive_root
+    utils.context_archive.archive_root = lambda archive_dir=None: tmp_path
 
     try:
         # 搜索测试
@@ -388,4 +389,4 @@ def test_query_history_archive_recall(tmp_path):
         err_res = query_history(source="archive", tool_context=ctx)
         assert "error" in err_res
     finally:
-        cli.context_archive.archive_root = orig_root_fn
+        utils.context_archive.archive_root = orig_root_fn

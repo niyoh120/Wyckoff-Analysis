@@ -12,21 +12,36 @@ Layer 4: 威科夫狙击（Spring / SOS / LPS / Effort vs Result）
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
 
+from core.ai_candidate_allocation import candidate_entry_sort_key
+from core.layer2_strength import (
+    build_benchmark_context,
+    build_rps_context,
+    evaluate_layer2_symbol,
+)
+
 logger = logging.getLogger(__name__)
+
+_HIST_COL_MAP = {
+    "日期": "date",
+    "开盘": "open",
+    "最高": "high",
+    "最低": "low",
+    "收盘": "close",
+    "成交量": "volume",
+    "成交额": "amount",
+    "涨跌幅": "pct_chg",
+}
 
 
 def normalize_hist_from_fetch(df: pd.DataFrame) -> pd.DataFrame:
-    """将 fetch_a_share_csv._fetch_hist 返回的 DataFrame 转为筛选器所需格式。"""
-    from integrations.stock_hist_repository import _COL_MAP
-
-    col_map = {**_COL_MAP, "换手率": "turnover", "换手": "turnover"}
+    """将 fetch_a_share_csv.fetch_hist 返回的 DataFrame 转为筛选器所需格式。"""
+    col_map = {**_HIST_COL_MAP, "换手率": "turnover", "换手": "turnover"}
     out = df.rename(columns=col_map)
     keep = [
         c
@@ -42,7 +57,7 @@ def normalize_hist_from_fetch(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _sorted_if_needed(df: pd.DataFrame) -> pd.DataFrame:
+def sort_by_date_if_needed(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty or "date" not in df.columns:
         return df
     try:
@@ -332,194 +347,6 @@ class FunnelResult(NamedTuple):
     candidate_entries: list[dict[str, Any]] = []
 
 
-def _trigger_codes_by_score(
-    triggers: dict[str, list[tuple[str, float]]],
-    signal_type: str,
-    *,
-    reverse: bool = True,
-) -> list[str]:
-    rows = triggers.get(signal_type, []) or []
-    return [
-        str(code).strip()
-        for code, _score in sorted(
-            rows,
-            key=lambda item: float(item[1] if item[1] is not None else 0.0),
-            reverse=reverse,
-        )
-        if str(code).strip()
-    ]
-
-
-def _append_scored_codes(
-    candidates: list[tuple[str, float, bool]],
-    codes: list[str],
-    score_fn: Callable[[str], float],
-) -> None:
-    existing = {code for code, _score, _is_fill in candidates}
-    for code in codes:
-        code_s = str(code).strip()
-        if code_s and code_s not in existing:
-            candidates.append((code_s, score_fn(code_s), False))
-            existing.add(code_s)
-
-
-def _build_candidate_priority_scorer(
-    result: FunnelResult,
-    hit_sets: dict[str, set[str]],
-    signal_weight: Callable[[str], float],
-) -> Callable[[str, bool], float]:
-    markup_set = set(result.markup_symbols)
-    sos_hits = hit_sets.get("sos", set())
-    spring_hits = hit_sets.get("spring", set())
-    lps_hits = hit_sets.get("lps", set())
-    evr_hits = hit_sets.get("evr", set())
-    compression_hits = hit_sets.get("compression", set())
-    trend_pb_hits = hit_sets.get("trend_pullback", set())
-    other_hits = spring_hits | lps_hits | evr_hits | compression_hits | trend_pb_hits
-
-    def score(code: str, is_trend_side: bool) -> float:
-        value = 0.0
-        stage_name = result.stage_map.get(code, "")
-        if code in markup_set:
-            value += 100.0
-        if stage_name == "Accum_C":
-            value += 15.0 if not is_trend_side else 5.0
-        elif stage_name == "Accum_B":
-            value += 8.0 if not is_trend_side else 3.0
-        elif stage_name == "Accum_A":
-            value += 3.0 if not is_trend_side else 0.0
-        if code in sos_hits:
-            value += (50.0 if code in other_hits else 15.0) * signal_weight("sos")
-        if code in spring_hits:
-            value += 45.0 * signal_weight("spring")
-        if code in lps_hits:
-            value += 30.0 * signal_weight("lps")
-        if code in evr_hits:
-            value += 12.0 * signal_weight("evr")
-        if code in compression_hits:
-            value += 22.0 * signal_weight("compression")
-        if code in trend_pb_hits:
-            value += 34.0 * signal_weight("trend_pullback")
-        if is_trend_side and (code in sos_hits or code in evr_hits or code in trend_pb_hits):
-            value += 10.0 * max(signal_weight("sos"), signal_weight("evr"), signal_weight("trend_pullback"))
-        if (not is_trend_side) and (code in spring_hits or code in lps_hits or code in compression_hits):
-            value += 10.0 * max(signal_weight("spring"), signal_weight("lps"), signal_weight("compression"))
-        exit_sig = result.exit_signals.get(code, {})
-        if exit_sig.get("signal") == "stop_loss":
-            value -= 100.0
-        elif exit_sig.get("signal") == "distribution_warning":
-            value -= 20.0
-        return value
-
-    return score
-
-
-def fit_ai_candidate_quotas(
-    total_cap: int,
-    trend_quota: int,
-    accum_quota: int,
-) -> tuple[int, int]:
-    """Fit requested Trend/Accum quotas into a global total cap."""
-    total_cap_local = max(int(total_cap), 0)
-    trend_quota_local = max(int(trend_quota), 0)
-    accum_quota_local = max(int(accum_quota), 0)
-    if total_cap_local <= 0:
-        return (0, 0)
-
-    requested_total = trend_quota_local + accum_quota_local
-    if requested_total <= total_cap_local:
-        return (trend_quota_local, accum_quota_local)
-    if requested_total <= 0:
-        return (0, 0)
-
-    trend_eff = min(
-        max(int(round(total_cap_local * (trend_quota_local / requested_total))), 0),
-        trend_quota_local,
-    )
-    accum_eff = min(accum_quota_local, max(total_cap_local - trend_eff, 0))
-    remaining = max(total_cap_local - trend_eff - accum_eff, 0)
-
-    if remaining > 0 and trend_eff < trend_quota_local:
-        take = min(remaining, trend_quota_local - trend_eff)
-        trend_eff += take
-        remaining -= take
-    if remaining > 0 and accum_eff < accum_quota_local:
-        take = min(remaining, accum_quota_local - accum_eff)
-        accum_eff += take
-
-    return (trend_eff, accum_eff)
-
-
-def _env_non_negative_int(name: str, default: str) -> int:
-    import os
-
-    return max(int(os.getenv(name, default)), 0)
-
-
-def _ai_candidate_quota_defaults() -> dict[str, tuple[int, int]]:
-    return {
-        "RISK_ON": (
-            _env_non_negative_int("FUNNEL_AI_RISK_ON_TREND", "3"),
-            _env_non_negative_int("FUNNEL_AI_RISK_ON_ACCUM", "5"),
-        ),
-        "BEAR_REBOUND": (
-            _env_non_negative_int("FUNNEL_AI_BEAR_REBOUND_TREND", "1"),
-            _env_non_negative_int("FUNNEL_AI_BEAR_REBOUND_ACCUM", "2"),
-        ),
-        "RISK_OFF": (
-            _env_non_negative_int("FUNNEL_AI_RISK_OFF_TREND", "0"),
-            _env_non_negative_int("FUNNEL_AI_RISK_OFF_ACCUM", "0"),
-        ),
-        "NEUTRAL": (
-            _env_non_negative_int("FUNNEL_AI_NEUTRAL_TREND", "2"),
-            _env_non_negative_int("FUNNEL_AI_NEUTRAL_ACCUM", "3"),
-        ),
-    }
-
-
-def resolve_ai_candidate_policy(
-    regime: str,
-    override_total_cap: int = -1,
-) -> dict[str, int | str]:
-    """
-    Central source of truth for AI allocation defaults.
-
-    CRASH / PANIC_REPAIR / BEAR_REBOUND / BLACK_SWAN all share the defensive quota family
-    instead of silently falling back to NEUTRAL.
-    """
-    total_cap = (
-        _env_non_negative_int("FUNNEL_AI_TOTAL_CAP", "8") if override_total_cap < 0 else max(int(override_total_cap), 0)
-    )
-
-    regime_norm = str(regime or "").strip().upper()
-    if regime_norm == "RISK_ON":
-        quota_family = "RISK_ON"
-    elif regime_norm in {"BEAR_REBOUND", "PANIC_REPAIR"}:
-        quota_family = "BEAR_REBOUND"
-    elif regime_norm in {"RISK_OFF", "CRASH", "BLACK_SWAN"}:
-        quota_family = "RISK_OFF"
-    else:
-        quota_family = "NEUTRAL"
-
-    requested_trend, requested_accum = _ai_candidate_quota_defaults()[quota_family]
-    trend_quota, accum_quota = fit_ai_candidate_quotas(
-        total_cap,
-        requested_trend,
-        requested_accum,
-    )
-    return {
-        "regime": regime_norm or "NEUTRAL",
-        "quota_family": quota_family,
-        "total_cap": total_cap,
-        "requested_trend_quota": requested_trend,
-        "requested_accum_quota": requested_accum,
-        "trend_quota": trend_quota,
-        "accum_quota": accum_quota,
-        "max_trend_l3_fill": _env_non_negative_int("FUNNEL_AI_MAX_TREND_L3_FILL", "0"),
-        "max_accum_l3_fill": _env_non_negative_int("FUNNEL_AI_MAX_ACCUM_L3_FILL", "0"),
-    }
-
-
 # Layer 1: 剥离垃圾
 
 
@@ -580,7 +407,7 @@ def _market_cap_ok(
     return bool(
         df is not None
         and not df.empty
-        and _amount_liquidity_ok(_sorted_if_needed(df), cfg, min_avg_amount_wan=cfg.l1_cap_bypass_amount_wan)
+        and _amount_liquidity_ok(sort_by_date_if_needed(df), cfg, min_avg_amount_wan=cfg.l1_cap_bypass_amount_wan)
     )
 
 
@@ -613,7 +440,7 @@ def layer1_filter(
         df = df_map.get(sym)
         if df is None or df.empty:
             continue
-        df_sorted = _sorted_if_needed(df)
+        df_sorted = sort_by_date_if_needed(df)
         if not _latest_close_ok(df_sorted, cfg):
             continue
         if not _amount_liquidity_ok(df_sorted, cfg):
@@ -631,66 +458,11 @@ def layer1_filter(
                     continue
         passed.append(sym)
     if fin_available and (l1_roe_negative or l1_high_debt):
-        print(f"[L1] 财务过滤: ROE<-10%={l1_roe_negative}, 负债率>85%={l1_high_debt}")
+        logger.info("[L1] 财务过滤: ROE<-10%%=%s, 负债率>85%%=%s", l1_roe_negative, l1_high_debt)
     return passed
 
 
 # Layer 2: 强弱甄别
-
-
-def _effective_rs_thresholds(
-    cfg: FunnelConfig,
-    bench_long_ret: float | None,
-    bench_short_ret: float | None,
-) -> tuple[float, float]:
-    long_min = float(cfg.rs_min_long)
-    short_min = float(cfg.rs_min_short)
-    if not cfg.rs_dynamic_relax_enabled:
-        return long_min, short_min
-    long_hot = bench_long_ret is not None and bench_long_ret >= float(cfg.rs_bench_surge_long_pct)
-    short_hot = bench_short_ret is not None and bench_short_ret >= float(cfg.rs_bench_surge_short_pct)
-    if not (long_hot or short_hot):
-        return long_min, short_min
-    factor = max(0.0, min(float(cfg.rs_surge_relax_factor), 1.0))
-    return long_min * factor, short_min * factor
-
-
-def _max_drawdown_pct(close: pd.Series, window: int) -> float | None:
-    recent = pd.to_numeric(close, errors="coerce").dropna().tail(max(int(window), 2))
-    if len(recent) < 2:
-        return None
-    drawdown = (recent - recent.cummax()) / recent.cummax() * 100.0
-    return abs(float(drawdown.min()))
-
-
-def _rs_structural_bypass_ok(
-    *,
-    close: pd.Series,
-    df_sorted: pd.DataFrame,
-    last_close: float,
-    last_ma_short: float,
-    last_ma_long: float,
-    rps_slow: float | None,
-    cfg: FunnelConfig,
-) -> bool:
-    if not cfg.rs_structural_bypass_enabled or rps_slow is None:
-        return False
-    if rps_slow < float(cfg.rs_structural_bypass_rps_slow_min):
-        return False
-    if not (pd.notna(last_ma_short) and pd.notna(last_ma_long) and last_ma_short > last_ma_long > 0):
-        return False
-    ret20 = _close_return_pct(close, 20)
-    if ret20 is None or ret20 < float(cfg.rs_structural_bypass_ret20_floor):
-        return False
-    bias50 = abs(last_close / float(last_ma_short) - 1.0)
-    dd = _max_drawdown_pct(close, int(cfg.trend_cont_drawdown_window))
-    vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce").dropna()
-    vol_ok = True
-    if len(vol) >= 20:
-        vol20 = float(vol.tail(20).mean())
-        vol5 = float(vol.tail(5).mean())
-        vol_ok = vol20 <= 0 or vol5 / vol20 <= 1.8
-    return bias50 <= 0.12 and (dd is None or dd <= 18.0) and vol_ok
 
 
 def layer2_strength_detailed(
@@ -709,82 +481,19 @@ def layer2_strength_detailed(
     - channel_map: code -> 通道标签
     - pre_ignition_list: 预点火观察池（未通过六通道但结构接近）
     """
-
-    def _cum_return_pct_from_series(pct_series: pd.Series) -> float | None:
-        s = pd.to_numeric(pct_series, errors="coerce").dropna()
-        if s.empty:
-            return None
-        return float(((s / 100.0 + 1.0).prod() - 1.0) * 100.0)
-
-    def _close_return_pct(close_series: pd.Series, lookback: int) -> float | None:
-        s = pd.to_numeric(close_series, errors="coerce").dropna()
-        lb = max(int(lookback), 1)
-        if len(s) <= lb:
-            return None
-        start = float(s.iloc[-lb - 1])
-        end = float(s.iloc[-1])
-        if start == 0:
-            return None
-        return (end - start) / start * 100.0
-
-    def _calc_rs(
-        stock_df: pd.DataFrame,
-        bench_sorted_df: pd.DataFrame,
-    ) -> tuple[float | None, float | None, float | None, float | None]:
-        stock_p = stock_df[["date", "pct_chg"]].copy()
-        bench_p = bench_sorted_df[["date", "pct_chg"]].copy()
-        merged = stock_p.merge(bench_p, on="date", how="inner", suffixes=("_s", "_b"))
-        if merged.empty:
-            return (None, None, None, None)
-        w_long = max(int(cfg.rs_window_long), 1)
-        w_short = max(int(cfg.rs_window_short), 1)
-        if len(merged) < max(w_long, w_short):
-            return (None, None, None, None)
-        s_long = _cum_return_pct_from_series(merged["pct_chg_s"].tail(w_long))
-        b_long = _cum_return_pct_from_series(merged["pct_chg_b"].tail(w_long))
-        s_short = _cum_return_pct_from_series(merged["pct_chg_s"].tail(w_short))
-        b_short = _cum_return_pct_from_series(merged["pct_chg_b"].tail(w_short))
-        if s_long is None or b_long is None or s_short is None or b_short is None:
-            return (None, None, None, None)
-        return (s_long - b_long, s_short - b_short, b_long, b_short)
-
-    bench_dropping = False
-    bench_sorted: pd.DataFrame | None = None
-    bench_latest_date = None
-    if bench_df is not None and not bench_df.empty:
-        bench_sorted = _sorted_if_needed(bench_df)
-        bench_latest_date = _latest_trade_date(bench_sorted)
-        if len(bench_sorted) >= cfg.bench_drop_days:
-            recent_bench = bench_sorted.tail(cfg.bench_drop_days)
-            bench_cum = (recent_bench["pct_chg"].dropna() / 100.0 + 1).prod() - 1
-            bench_dropping = bench_cum * 100 <= cfg.bench_drop_threshold
-
-    # 截面强弱：RPS50 / RPS120（欧奈尔思路）
-    # 使用全市场 universe 排名（如有），避免仅在 L1 子集内排名导致 RPS 偏高
-    rps_fast_map: dict[str, float] = {}
-    rps_slow_map: dict[str, float] = {}
-    rps_filter_active = False
-    _rps_pool = rps_universe if rps_universe else symbols
-    if cfg.enable_rps_filter and _rps_pool:
-        rows: list[tuple[str, float, float]] = []
-        for sym in _rps_pool:
-            df = df_map.get(sym)
-            if df is None or df.empty:
-                continue
-            df_sorted = _sorted_if_needed(df)
-            close = pd.to_numeric(df_sorted.get("close"), errors="coerce")
-            ret_fast = _close_return_pct(close, cfg.rps_window_fast)
-            ret_slow = _close_return_pct(close, cfg.rps_window_slow)
-            if ret_fast is None or ret_slow is None:
-                continue
-            rows.append((sym, ret_fast, ret_slow))
-        if rows:
-            rps_df = pd.DataFrame(rows, columns=["sym", "ret_fast", "ret_slow"])
-            rps_df["rps_fast"] = rps_df["ret_fast"].rank(pct=True, ascending=True, method="average") * 100.0
-            rps_df["rps_slow"] = rps_df["ret_slow"].rank(pct=True, ascending=True, method="average") * 100.0
-            rps_fast_map = rps_df.set_index("sym")["rps_fast"].astype(float).to_dict()
-            rps_slow_map = rps_df.set_index("sym")["rps_slow"].astype(float).to_dict()
-            rps_filter_active = True
+    bench_ctx = build_benchmark_context(
+        bench_df,
+        cfg,
+        sort_frame=sort_by_date_if_needed,
+        latest_trade_date=_latest_trade_date,
+    )
+    rps_ctx = build_rps_context(
+        symbols,
+        df_map,
+        cfg,
+        rps_universe=rps_universe,
+        sort_frame=sort_by_date_if_needed,
+    )
 
     passed: list[str] = []
     channel_map: dict[str, str] = {}
@@ -793,351 +502,26 @@ def layer2_strength_detailed(
         df = df_map.get(sym)
         if df is None or len(df) < cfg.ma_long:
             continue
-        df_sorted = _sorted_if_needed(df)
+        df_sorted = sort_by_date_if_needed(df)
         if (
             cfg.require_bench_latest_alignment
-            and bench_latest_date is not None
-            and _latest_trade_date(df_sorted) != bench_latest_date
+            and bench_ctx.latest_date is not None
+            and _latest_trade_date(df_sorted) != bench_ctx.latest_date
         ):
             continue
-        close = df_sorted["close"].astype(float)
-        ma_short = close.rolling(cfg.ma_short).mean()
-        ma_long = close.rolling(cfg.ma_long).mean()
-        last_ma_short = ma_short.iloc[-1]
-        last_ma_long = ma_long.iloc[-1]
-        last_close = close.iloc[-1]
-
-        bullish_alignment = pd.notna(last_ma_short) and pd.notna(last_ma_long) and last_ma_short > last_ma_long
-
-        holding_ma20 = False
-        if bench_dropping:
-            ma_hold = close.rolling(cfg.ma_hold).mean()
-            last_ma_hold = ma_hold.iloc[-1]
-            if pd.notna(last_ma_hold) and last_close >= last_ma_hold:
-                holding_ma20 = True
-
-        momentum_rs_ok = True
-        ambush_rs_ok = True
-        rs_long = None
-        rs_short = None
-        bench_long_ret = None
-        bench_short_ret = None
-        if cfg.enable_rs_filter and bench_sorted is not None and not bench_sorted.empty:
-            rs_long, rs_short, bench_long_ret, bench_short_ret = _calc_rs(df_sorted, bench_sorted)
-            if rs_long is None or rs_short is None:
-                momentum_rs_ok = False
-                ambush_rs_ok = False
-            else:
-                rs_long_min, rs_short_min = _effective_rs_thresholds(cfg, bench_long_ret, bench_short_ret)
-                momentum_rs_ok = rs_long >= rs_long_min and rs_short >= rs_short_min
-                ambush_rs_ok = rs_long >= cfg.ambush_rs_long_min and rs_short >= cfg.ambush_rs_short_min
-
-        rps_fast = rps_fast_map.get(sym)
-        rps_slow = rps_slow_map.get(sym)
-        momentum_rps_ok = True
-        ambush_rps_ok = True
-
-        # 计算 RPS 斜率：判断 RPS 是否还在上升
-        rps_slope_ok = True
-        rps_slope_val = 0.0
-        if cfg.enable_rps_filter and rps_filter_active and len(df_sorted) >= cfg.rps_slope_window:
-            close_series = pd.to_numeric(df_sorted["close"], errors="coerce")
-            rps_window = max(int(cfg.rps_slope_window), 2)
-
-            recent_closes = []
-            for i in range(-rps_window, 0):
-                if len(close_series) + i >= 0:
-                    recent_closes.append(float(close_series.iloc[i]))
-
-            if len(recent_closes) >= 2:
-                base_price = recent_closes[0]
-                if base_price > 0:
-                    cum_returns = [(p - base_price) / base_price * 100.0 for p in recent_closes]
-                    x = np.arange(len(cum_returns))
-                    y = np.array(cum_returns)
-                    rps_slope_val = float(np.polyfit(x, y, 1)[0])
-                    rps_slope_ok = rps_slope_val >= cfg.rps_slope_min
-
-        if cfg.enable_rps_filter and rps_filter_active:
-            _accel_bypass = (
-                rps_slope_val >= cfg.rps_slope_accel_bypass
-                and rps_fast is not None
-                and rps_slow is not None
-                and rps_fast >= cfg.rps_accel_fast_min
-                and rps_slow >= cfg.rps_accel_slow_min
-            )
-            momentum_rps_ok = (
-                rps_fast is not None
-                and rps_slow is not None
-                and (
-                    (rps_fast >= cfg.rps_fast_min and rps_slow >= cfg.rps_slow_min and rps_slope_ok)
-                    or (rps_slow >= cfg.rps_slow_strong_bypass and rps_fast >= cfg.rps_fast_bypass_min)
-                    or _accel_bypass
-                )
-            )
-            ambush_rps_ok = (
-                rps_fast is not None
-                and rps_slow is not None
-                and rps_fast <= cfg.ambush_rps_fast_max
-                and rps_slow >= cfg.ambush_rps_slow_min
-            )
-
-        if not momentum_rs_ok and _rs_structural_bypass_ok(
-            close=close,
-            df_sorted=df_sorted,
-            last_close=float(last_close),
-            last_ma_short=float(last_ma_short),
-            last_ma_long=float(last_ma_long),
-            rps_slow=rps_slow,
-            cfg=cfg,
-        ):
-            momentum_rs_ok = True
-
-        momentum_bias_ok = True
-        if pd.notna(last_ma_long) and float(last_ma_long) > 0 and pd.notna(last_close):
-            bias_200 = (float(last_close) - float(last_ma_long)) / float(last_ma_long)
-            momentum_bias_ok = bias_200 <= getattr(cfg, "momentum_bias_200_max", 0.25)
-
-        momentum_ok = (bullish_alignment or holding_ma20) and momentum_rs_ok and momentum_rps_ok and momentum_bias_ok
-
-        ambush_shape_ok = False
-        if cfg.enable_ambush_channel and pd.notna(last_ma_long) and float(last_ma_long) > 0 and pd.notna(last_close):
-            bias_200 = (float(last_close) - float(last_ma_long)) / float(last_ma_long)
-            ret20 = _close_return_pct(close, 20)
-            ambush_shape_ok = (
-                abs(bias_200) <= cfg.ambush_bias_200_abs_max and ret20 is not None and ret20 <= cfg.ambush_ret20_max
-            )
-        ambush_ok = cfg.enable_ambush_channel and ambush_shape_ok and ambush_rs_ok and ambush_rps_ok
-
-        # 低位吸筹通道（Wyckoff Accumulation Channel）
-        # 四个条件逐一检测，全通才标记。不依赖 RPS 排名。
-        accum_ok = False
-        if cfg.enable_accumulation_channel and len(df_sorted) >= max(
-            cfg.accum_lookback_days, cfg.accum_vol_dry_ref_window
-        ):
-            _c = close  # alias，避免遮蔽外层
-
-            # 条件 1：低位区——现价在年内低点 +X% 以内
-            lookback_w = max(int(cfg.accum_lookback_days), 2)
-            period_low = float(_c.tail(lookback_w).min())
-            accum_low_ok = period_low > 0 and float(last_close) <= period_low * (1.0 + cfg.accum_price_from_low_max)
-
-            # 条件 2：横盘振幅——近 N 日 high/low 振幅不超过阈值
-            accum_range_ok = False
-            if accum_low_ok:
-                rw = max(int(cfg.accum_range_window), 5)
-                zone = df_sorted.tail(rw)
-                _high = pd.to_numeric(zone.get("high"), errors="coerce")
-                _low = pd.to_numeric(zone.get("low"), errors="coerce")
-                if not _high.dropna().empty and not _low.dropna().empty:
-                    h_max = float(_high.max())
-                    l_min = float(_low.min())
-                    if l_min > 0:
-                        range_pct = (h_max - l_min) / l_min * 100.0
-                        accum_range_ok = range_pct <= cfg.accum_range_max_pct
-
-            # 条件 3：量能萎缩——近 N 日均量 / 参考均量 < 阈值
-            accum_vol_ok = False
-            if accum_range_ok:
-                vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce")
-                dw = max(int(cfg.accum_vol_dry_window), 2)
-                rfw = max(int(cfg.accum_vol_dry_ref_window), dw + 1)
-                recent_vol_mean = float(vol.tail(dw).mean()) if len(vol) >= dw else None
-                ref_vol_mean = float(vol.tail(rfw).iloc[:-dw].mean()) if len(vol) >= rfw else None
-                if recent_vol_mean is not None and ref_vol_mean is not None and ref_vol_mean > 0:
-                    accum_vol_ok = (recent_vol_mean / ref_vol_mean) < cfg.accum_vol_dry_ratio
-
-            # 条件 4：均线即将穿越——MA50 即将穿过或刚穿过 MA200（吸筹完成信号）
-            accum_ma_ok = False
-            if accum_vol_ok and pd.notna(last_ma_short) and pd.notna(last_ma_long) and float(last_ma_long) > 0:
-                # MA50 与 MA200 的差距百分比：允许在 ±accum_ma_gap_max 之间
-                # 即 MA50 可以在 MA200 下方 N% 以内（即将穿），或在上方 N% 以内（刚穿）
-                ma_gap_pct = (float(last_ma_short) - float(last_ma_long)) / float(last_ma_long) * 100.0
-                ma_gap_limit = cfg.accum_ma_gap_max * 100.0  # 配置值为小数（如 0.06 → 6%）
-                accum_ma_ok = -ma_gap_limit <= ma_gap_pct <= ma_gap_limit
-
-            accum_ok = accum_low_ok and accum_range_ok and accum_vol_ok and accum_ma_ok
-
-        # 地量蓄势通道（Dry Volume Channel）
-        # 低位区 + 近 N 日内出现了年内最低级别的单日成交量 → 卖压完全枯竭
-        dry_vol_ok = False
-        if cfg.enable_dry_vol_channel and len(df_sorted) >= cfg.dry_vol_ref_window:
-            vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce")
-            _c_dv = close
-            lookback_dv = max(int(cfg.dry_vol_ref_window), 2)
-            period_low_dv = float(_c_dv.tail(lookback_dv).min())
-            if period_low_dv > 0 and float(last_close) <= period_low_dv * (1.0 + cfg.dry_vol_price_from_low_max):
-                ref_vol = vol.tail(lookback_dv)
-                if len(ref_vol.dropna()) >= 50:
-                    vol_threshold = float(np.quantile(ref_vol.dropna().values, cfg.dry_vol_quantile))
-                    recent_vol = vol.tail(cfg.dry_vol_lookback)
-                    if float(recent_vol.min()) <= vol_threshold:
-                        dry_vol_ok = True
-
-        # 暗中护盘通道（RS Divergence Channel）
-        # 大盘近期在更大窗口内创了新低，但个股同期拒绝创新低（Higher Low）
-        # 加入成交量确认：大盘创新低时成交量放大，个股拒绝创新低时成交量缩小
-        rs_div_ok = False
-        if (
-            cfg.enable_rs_divergence_channel
-            and bench_sorted is not None
-            and not bench_sorted.empty
-            and len(df_sorted) >= cfg.rs_div_bench_ref_window
-        ):
-            bench_close = pd.to_numeric(bench_sorted.get("close"), errors="coerce")
-            if len(bench_close.dropna()) >= cfg.rs_div_bench_ref_window:
-                # 位阶保护
-                _c_rd = close
-                lookback_rd = max(int(cfg.dry_vol_ref_window), 250)
-                period_low_rd = float(_c_rd.tail(min(lookback_rd, len(_c_rd))).min())
-                if period_low_rd > 0 and float(last_close) <= period_low_rd * (1.0 + cfg.rs_div_price_from_low_max):
-                    # 大盘：近 N 日的最低收盘价 < 前 ref_window 日的最低收盘价（创新低）
-                    bench_recent = bench_close.tail(cfg.rs_div_bench_window)
-                    bench_ref = bench_close.tail(cfg.rs_div_bench_ref_window).iloc[: -cfg.rs_div_bench_window]
-                    if not bench_ref.dropna().empty and not bench_recent.dropna().empty:
-                        bench_recent_low = float(bench_recent.min())
-                        bench_ref_low = float(bench_ref.min())
-                        bench_made_lower_low = bench_recent_low < bench_ref_low
-
-                        if bench_made_lower_low:
-                            # 个股：近 N 日的最低收盘价 >= 前 ref_window 日的最低收盘价（Higher Low）
-                            stock_low_col = pd.to_numeric(df_sorted.get("low"), errors="coerce")
-                            stock_recent = stock_low_col.tail(cfg.rs_div_stock_window)
-                            stock_ref = stock_low_col.tail(cfg.rs_div_bench_ref_window).iloc[: -cfg.rs_div_stock_window]
-                            if not stock_ref.dropna().empty and not stock_recent.dropna().empty:
-                                stock_recent_low = float(stock_recent.min())
-                                stock_ref_low = float(stock_ref.min())
-                                if stock_recent_low >= stock_ref_low:
-                                    # 加入成交量确认
-                                    bench_vol = pd.to_numeric(bench_sorted.get("volume"), errors="coerce")
-                                    stock_vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce")
-
-                                    vol_confirm_ok = True
-                                    if not bench_vol.empty and not stock_vol.empty:
-                                        bench_recent_vol = bench_vol.tail(cfg.rs_div_bench_window).mean()
-                                        bench_ref_vol = (
-                                            bench_vol.tail(cfg.rs_div_bench_ref_window)
-                                            .iloc[: -cfg.rs_div_bench_window]
-                                            .mean()
-                                        )
-                                        stock_recent_vol = stock_vol.tail(cfg.rs_div_stock_window).mean()
-                                        stock_ref_vol = (
-                                            stock_vol.tail(cfg.rs_div_bench_ref_window)
-                                            .iloc[: -cfg.rs_div_stock_window]
-                                            .mean()
-                                        )
-
-                                        if bench_ref_vol > 0 and stock_ref_vol > 0:
-                                            # 大盘创新低时成交量放大，个股拒绝创新低时成交量缩小
-                                            bench_vol_expand = bench_recent_vol > bench_ref_vol * 1.2
-                                            stock_vol_shrink = stock_recent_vol < stock_ref_vol * 0.8
-                                            vol_confirm_ok = bench_vol_expand and stock_vol_shrink
-
-                                    if vol_confirm_ok:
-                                        rs_div_ok = True
-
-        # 加速突破通道（Breakout Acceleration Channel）
-        # 价格站上 MA50 但 MA50 尚未上穿 MA200，短期动量爆发 + 放量
-        breakout_accel_ok = False
-        if cfg.enable_breakout_accel_channel and rps_filter_active:
-            _ba_above_ma50 = pd.notna(last_ma_short) and float(last_close) > float(last_ma_short)
-            _ba_not_bullish = not bullish_alignment
-            _ba_rps_ok = rps_fast is not None and rps_fast >= cfg.breakout_accel_rps_fast_min
-            if _ba_above_ma50 and _ba_not_bullish and _ba_rps_ok:
-                _ba_ret = _close_return_pct(close, cfg.breakout_accel_ret_window)
-                if _ba_ret is not None and _ba_ret >= cfg.breakout_accel_ret_min:
-                    vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce")
-                    rw = cfg.breakout_accel_ret_window
-                    refw = cfg.breakout_accel_vol_ref_window
-                    if len(vol) >= refw:
-                        recent_vol = float(vol.tail(rw).mean())
-                        ref_vol = float(vol.tail(refw).iloc[:-rw].mean()) if len(vol) >= refw else 0
-                        if ref_vol > 0 and recent_vol / ref_vol >= cfg.breakout_accel_vol_ratio:
-                            breakout_accel_ok = True
-
-        # 趋势延续通道（Trend Continuation Channel）
-        # 已确认多头 + RPS120 极强 + 近期回撤可控 → 不受 bias_200 限制
-        trend_cont_ok = False
-        if cfg.enable_trend_cont_channel and bullish_alignment and rps_filter_active:
-            _tc_rps_ok = rps_slow is not None and rps_slow >= cfg.trend_cont_rps_slow_min
-            _tc_dd_ok = False
-            _tc_vol_ok = True
-            if _tc_rps_ok:
-                dd_window = max(int(cfg.trend_cont_drawdown_window), 10)
-                recent_close = close.tail(dd_window)
-                if len(recent_close) >= 10:
-                    cum_max = recent_close.cummax()
-                    drawdown = (recent_close - cum_max) / cum_max * 100.0
-                    max_dd = float(drawdown.min())
-                    _tc_dd_ok = abs(max_dd) < cfg.trend_cont_max_drawdown_pct
-                vol_tc = pd.to_numeric(df_sorted.get("volume"), errors="coerce").dropna()
-                if len(vol_tc) >= 20:
-                    vol20 = float(vol_tc.tail(20).mean())
-                    vol5 = float(vol_tc.tail(5).mean())
-                    if vol20 > 0:
-                        _tc_vol_ok = (vol5 / vol20) >= float(cfg.trend_cont_vol_ratio_min)
-            trend_cont_ok = _tc_rps_ok and _tc_dd_ok and _tc_vol_ok
-
-        # 点火破局通道（SOS Bypass）
-        # 如果当天爆发了放量大阳线，要求至少不处于长期相对弱势，避免垃圾股单日异动穿透 L2。
-        sos_ok = False
-        if hasattr(cfg, "sos_vol_ratio"):
-            sos_score = _detect_sos(df_sorted, cfg)
-            sos_rps_ok = (not rps_filter_active) or (
-                rps_slow is not None and rps_slow >= float(cfg.sos_bypass_rps_slow_min)
-            )
-            if sos_score is not None and sos_rps_ok:
-                sos_ok = True
-
-        if (
-            momentum_ok
-            or ambush_ok
-            or accum_ok
-            or dry_vol_ok
-            or rs_div_ok
-            or trend_cont_ok
-            or breakout_accel_ok
-            or sos_ok
-        ):
+        result = evaluate_layer2_symbol(
+            sym,
+            df_sorted,
+            cfg,
+            bench_ctx=bench_ctx,
+            rps_ctx=rps_ctx,
+            detect_sos=_detect_sos,
+        )
+        if result.passed:
             passed.append(sym)
-            labels: list[str] = []
-            if momentum_ok:
-                labels.append("主升通道")
-            if ambush_ok:
-                labels.append("潜伏通道")
-            if accum_ok:
-                labels.append("吸筹通道")
-            if dry_vol_ok:
-                labels.append("地量蓄势")
-            if rs_div_ok:
-                labels.append("暗中护盘")
-            if trend_cont_ok:
-                labels.append("趋势延续")
-            if breakout_accel_ok:
-                labels.append("加速突破")
-            if sos_ok:
-                labels.append("点火破局")
-
-            if not labels:
-                labels.append("点火破局")
-            channel_map[sym] = "+".join(labels)
-        elif cfg.enable_pre_ignition_watch:
-            _pre_ign = False
-            if pd.notna(last_ma_long) and float(last_ma_long) > 0 and pd.notna(last_close):
-                _bias = (float(last_close) - float(last_ma_long)) / float(last_ma_long)
-                _has_structure = (bullish_alignment or holding_ma20) and _bias <= cfg.pre_ignition_bias_max
-                _has_rps = rps_slow is not None and rps_slow >= cfg.pre_ignition_rps_slow_min
-                _has_vol = False
-                if len(df_sorted) >= 2 and "volume" in df_sorted.columns:
-                    vol_tail = df_sorted["volume"].tail(cfg.sos_vol_window)
-                    if len(vol_tail) > 1:
-                        prev_vol = float(df_sorted["volume"].iloc[-2])
-                        avg_vol = float(vol_tail.iloc[:-1].mean())
-                        if avg_vol > 0:
-                            _has_vol = (prev_vol / avg_vol) >= cfg.pre_ignition_vol_ratio_min
-                _pre_ign = _has_structure and _has_rps and _has_vol
-            if _pre_ign:
-                pre_ignition_list.append(sym)
+            channel_map[sym] = result.channel
+        elif result.pre_ignition:
+            pre_ignition_list.append(sym)
     return passed, channel_map, pre_ignition_list
 
 
@@ -1156,7 +540,7 @@ def _compute_sector_strength(
         df = df_map.get(sym)
         if df is None or df.empty:
             continue
-        s = _sorted_if_needed(df)
+        s = sort_by_date_if_needed(df)
         close = pd.to_numeric(s.get("close"), errors="coerce").dropna()
         if len(close) <= 20:
             continue
@@ -1431,7 +815,7 @@ def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | No
     """
     if len(df) < cfg.spring_support_window + 2:
         return None
-    df_s = _sorted_if_needed(df)
+    df_s = sort_by_date_if_needed(df)
     # 修正：支撑位不能包含正在进行跌破测试的前一日（prev）
     support_zone = df_s.iloc[-(cfg.spring_support_window + 2) : -2]
     # 调用时把历史前序 df_full 传进去计算 ATR
@@ -1469,7 +853,7 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     """
     if len(df) < max(cfg.lps_vol_ref_window, cfg.lps_ma) + cfg.lps_lookback:
         return None
-    df_s = _sorted_if_needed(df)
+    df_s = sort_by_date_if_needed(df)
     close = df_s["close"].astype(float)
     ma = close.rolling(cfg.lps_ma).mean()
     last_ma = ma.iloc[-1]
@@ -1505,6 +889,73 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     return float(vol_ratio)
 
 
+class _EvrSeries(NamedTuple):
+    frame: pd.DataFrame
+    close: pd.Series
+    low: pd.Series
+    volume: pd.Series
+    pct_chg: pd.Series
+
+
+def _evr_series(df: pd.DataFrame) -> _EvrSeries | None:
+    df_s = sort_by_date_if_needed(df)
+    series = _EvrSeries(
+        frame=df_s,
+        close=pd.to_numeric(df_s["close"], errors="coerce"),
+        low=pd.to_numeric(df_s["low"], errors="coerce"),
+        volume=pd.to_numeric(df_s["volume"], errors="coerce"),
+        pct_chg=pd.to_numeric(df_s["pct_chg"], errors="coerce"),
+    )
+    if (
+        series.close.isna().all()
+        or series.low.isna().all()
+        or series.volume.isna().all()
+        or series.pct_chg.isna().all()
+    ):
+        return None
+    return series
+
+
+def _evr_ref_volume_avg(volume: pd.Series, window: int) -> float | None:
+    vol_ref = volume.tail(window).iloc[:-2]
+    vol_ref_avg = float(vol_ref.mean()) if not vol_ref.empty else 0.0
+    return vol_ref_avg if vol_ref_avg > 0 else None
+
+
+def _evr_candidate_indexes(confirm_days: int) -> tuple[int, ...]:
+    return (-2,) if confirm_days > 0 else (-1, -2)
+
+
+def _evr_turnover_ok(frame: pd.DataFrame, idx: int, cfg: FunnelConfig) -> bool:
+    if "turnover" not in frame.columns or float(cfg.evr_min_turnover) <= 0:
+        return True
+    day_turnover = pd.to_numeric(frame["turnover"], errors="coerce").iloc[idx]
+    return bool(pd.isna(day_turnover) or float(day_turnover) >= float(cfg.evr_min_turnover))
+
+
+def _evr_structure_ok(close: pd.Series, close_last: float) -> bool:
+    if len(close) < 4:
+        return True
+    close_3d_ago = close.iloc[-4]
+    return bool(pd.isna(close_3d_ago) or float(close_last) >= float(close_3d_ago) * 0.98)
+
+
+def _evr_confirmation_ok(series: _EvrSeries, idx: int, confirm_days: int, cfg: FunnelConfig) -> bool:
+    if confirm_days <= 0:
+        return True
+    event_pos = len(series.frame) + idx
+    confirm_start = event_pos + 1
+    confirm_end = confirm_start + confirm_days
+    if confirm_end > len(series.frame):
+        return False
+    event_low = series.low.iloc[idx]
+    confirm_close = series.close.iloc[confirm_start:confirm_end]
+    if pd.isna(event_low) or confirm_close.empty or confirm_close.isna().all():
+        return False
+    allow_break = max(float(cfg.evr_confirm_allow_break_pct), 0.0) / 100.0
+    return bool(float(confirm_close.min()) >= float(event_low) * (1.0 - allow_break))
+
+
 def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
     """
     Effort vs Result（努力无结果）：
@@ -1514,72 +965,89 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     min_required = cfg.evr_vol_window + 2 + max(int(cfg.evr_confirm_days), 0)
     if len(df) < min_required:
         return None
-    df_s = _sorted_if_needed(df)
-
-    close = pd.to_numeric(df_s["close"], errors="coerce")
-    low = pd.to_numeric(df_s["low"], errors="coerce")
-    volume = pd.to_numeric(df_s["volume"], errors="coerce")
-    pct_chg = pd.to_numeric(df_s["pct_chg"], errors="coerce")
-    if close.isna().all() or low.isna().all() or volume.isna().all() or pct_chg.isna().all():
+    series = _evr_series(df)
+    if series is None:
         return None
 
-    close_last = close.iloc[-1]
-    if _bias_200_exceeds_limit(close, cfg, max_bias_200):
+    close_last = series.close.iloc[-1]
+    if _bias_200_exceeds_limit(series.close, cfg, max_bias_200):
         return None
 
-    # 基准量能取"最近窗口但剔除最后两天"，避免当前异动污染基线
-    vol_ref = volume.tail(cfg.evr_vol_window).iloc[:-2]
-    vol_ref_avg = float(vol_ref.mean()) if not vol_ref.empty else 0.0
-    if vol_ref_avg <= 0:
+    vol_ref_avg = _evr_ref_volume_avg(series.volume, cfg.evr_vol_window)
+    if vol_ref_avg is None:
         return None
 
     confirm_days = max(int(cfg.evr_confirm_days), 0)
-    candidate_idx = (-2,) if confirm_days > 0 else (-1, -2)
-
-    # 默认要求"放量滞涨"后至少 1 天确认，不再当日立即上报。
-    for idx in candidate_idx:
-        vol_ratio = float(volume.iloc[idx] / vol_ref_avg) if vol_ref_avg > 0 else 0.0
+    for idx in _evr_candidate_indexes(confirm_days):
+        vol_ratio = float(series.volume.iloc[idx] / vol_ref_avg) if vol_ref_avg > 0 else 0.0
         if vol_ratio < cfg.evr_vol_ratio:
             continue
 
-        day_pct = pct_chg.iloc[idx]
+        day_pct = series.pct_chg.iloc[idx]
         if pd.isna(day_pct):
             continue
 
-        # 结果约束：剔除大阴线/大阳线，保留"努力无结果"的滞涨/抗跌
         if float(day_pct) < -cfg.evr_max_drop or float(day_pct) > cfg.evr_max_rise:
             continue
 
-        # 换手率过滤：剔除全天死水里的相对放量假象，但阈值保持保守。
-        if "turnover" in df_s.columns and float(cfg.evr_min_turnover) > 0:
-            turnover_series = pd.to_numeric(df_s["turnover"], errors="coerce")
-            day_turnover = turnover_series.iloc[idx]
-            if pd.notna(day_turnover) and float(day_turnover) < float(cfg.evr_min_turnover):
-                continue
-
-        # 结构约束：最新收盘不能明显弱于三天前（防止下跌中继）
-        if len(close) >= 4:
-            close_3d_ago = close.iloc[-4]
-            if pd.notna(close_3d_ago) and float(close_last) < float(close_3d_ago) * 0.98:
-                continue
-
-        if confirm_days > 0:
-            event_pos = len(df_s) + idx
-            confirm_start = event_pos + 1
-            confirm_end = confirm_start + confirm_days
-            if confirm_end > len(df_s):
-                continue
-            event_low = low.iloc[idx]
-            confirm_close = close.iloc[confirm_start:confirm_end]
-            if pd.isna(event_low) or confirm_close.empty or confirm_close.isna().all():
-                continue
-            min_confirm_close = float(confirm_close.min())
-            allow_break = max(float(cfg.evr_confirm_allow_break_pct), 0.0) / 100.0
-            if min_confirm_close < float(event_low) * (1.0 - allow_break):
-                continue
+        if not _evr_turnover_ok(series.frame, idx, cfg):
+            continue
+        if not _evr_structure_ok(series.close, float(close_last)):
+            continue
+        if not _evr_confirmation_ok(series, idx, confirm_days, cfg):
+            continue
         return vol_ratio
 
     return None
+
+
+class _SosSeries(NamedTuple):
+    close: pd.Series
+    volume: pd.Series
+    pct_chg: pd.Series
+    high: pd.Series
+
+
+def _sos_series(df: pd.DataFrame) -> _SosSeries | None:
+    df_s = sort_by_date_if_needed(df)
+    series = _SosSeries(
+        close=pd.to_numeric(df_s["close"], errors="coerce"),
+        volume=pd.to_numeric(df_s["volume"], errors="coerce"),
+        pct_chg=pd.to_numeric(df_s["pct_chg"], errors="coerce"),
+        high=pd.to_numeric(df_s["high"], errors="coerce"),
+    )
+    if series.close.isna().all() or series.volume.isna().all() or series.pct_chg.isna().all():
+        return None
+    return series
+
+
+def _sos_volume_ratio(volume: pd.Series, cfg: FunnelConfig) -> float | None:
+    vol_window = getattr(cfg, "sos_vol_quantile_window", 60)
+    vol_ref = volume.tail(vol_window + 1).iloc[:-1]
+    if vol_ref.empty:
+        return None
+    vol_ref_avg = float(vol_ref.mean())
+    if vol_ref_avg <= 0:
+        return None
+    vol_ratio = float(volume.iloc[-1]) / vol_ref_avg
+    return vol_ratio if vol_ratio >= float(getattr(cfg, "sos_vol_ratio", 2.0)) else None
+
+
+def _sos_breakout_or_ma_cross(series: _SosSeries, cfg: FunnelConfig) -> bool:
+    close_last = series.close.iloc[-1]
+    ma50 = series.close.rolling(50).mean()
+    recent_highs = series.high.tail(cfg.sos_breakout_window + 1).iloc[:-1]
+    max_recent_high = float(recent_highs.max()) if not recent_highs.empty else float("inf")
+    breakout_tolerance = getattr(cfg, "sos_breakout_tolerance", 0.01)
+    is_breakout = float(close_last) >= max_recent_high * (1.0 - breakout_tolerance)
+
+    ma50_last = ma50.iloc[-1] if not ma50.empty else None
+    ma50_prev = ma50.iloc[-2] if len(ma50) >= 2 else None
+    is_ma_crossover = False
+    if ma50_last is not None and pd.notna(ma50_last) and ma50_prev is not None and pd.notna(ma50_prev):
+        prev_close = float(series.close.iloc[-2])
+        is_ma_crossover = bool(prev_close <= float(ma50_prev) and float(close_last) > float(ma50_last))
+    return bool(is_breakout or is_ma_crossover)
 
 
 def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
@@ -1596,71 +1064,29 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     if len(df) < max(cfg.sos_vol_window, cfg.sos_breakout_window) + 2:
         return None
 
-    df_s = _sorted_if_needed(df)
-
-    close = pd.to_numeric(df_s["close"], errors="coerce")
-    volume = pd.to_numeric(df_s["volume"], errors="coerce")
-    pct_chg = pd.to_numeric(df_s["pct_chg"], errors="coerce")
-    high = pd.to_numeric(df_s["high"], errors="coerce")
-
-    if close.isna().all() or volume.isna().all() or pct_chg.isna().all():
+    series = _sos_series(df)
+    if series is None:
         return None
 
-    close_last = close.iloc[-1]
-    if _bias_200_exceeds_limit(close, cfg, max_bias_200):
+    if _bias_200_exceeds_limit(series.close, cfg, max_bias_200):
         return None
 
-    # 只看当天（威科夫点火通常是当天的明显大阳线）
-    day_pct = float(pct_chg.iloc[-1])
+    day_pct = float(series.pct_chg.iloc[-1])
     if pd.isna(day_pct) or day_pct < cfg.sos_pct_min:
         return None
 
-    # === 替换 _detect_sos 中的量能判断逻辑 ===
-
-    # 量能要求：暴击量 (由绝对比例 2.0 改为滚动分位数极值验证)
-    vol_window = getattr(cfg, "sos_vol_quantile_window", 60)
-    vol_ref = volume.tail(vol_window + 1).iloc[:-1]
-
-    if vol_ref.empty:
+    vol_ratio = _sos_volume_ratio(series.volume, cfg)
+    if vol_ratio is None:
         return None
 
-    vol_ref_avg = float(vol_ref.mean())
-    if vol_ref_avg <= 0:
-        return None
-
-    vol_ratio = float(volume.iloc[-1]) / vol_ref_avg
-
-    # 取消 95% 分位数极值爆量约束，回到常识性简单的放量倍数判断
-    if vol_ratio < float(getattr(cfg, "sos_vol_ratio", 2.0)):
-        return None
-
-    # 结构突破要求：创N日新高，或强势穿透季线/半年线
-    ma50 = close.rolling(50).mean()
-    ma50_last = ma50.iloc[-1] if not ma50.empty else None
-
-    recent_highs = high.tail(cfg.sos_breakout_window + 1).iloc[:-1]
-    max_recent_high = float(recent_highs.max()) if not recent_highs.empty else float("inf")
-
-    # 改为 1% 容差（从 2% 改为 1%）
-    breakout_tolerance = getattr(cfg, "sos_breakout_tolerance", 0.01)
-    is_breakout = float(close_last) >= max_recent_high * (1.0 - breakout_tolerance)
-
-    is_ma_crossover = False
-    ma50_prev = ma50.iloc[-2] if len(ma50) >= 2 else None
-    if ma50_last is not None and pd.notna(ma50_last) and ma50_prev is not None and pd.notna(ma50_prev):
-        prev_close = float(close.iloc[-2])
-        # 修正：Lookahead 问题，昨天的收盘价比昨天的 MA50，今天收盘价比今天的 MA50
-        if prev_close <= float(ma50_prev) and float(close_last) > float(ma50_last):
-            is_ma_crossover = True
-
-    if not (is_breakout or is_ma_crossover):
+    if not _sos_breakout_or_ma_cross(series, cfg):
         return None
 
     return vol_ratio
 
 
 def _compression_ohlcv(df: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series] | None:
-    df_s = _sorted_if_needed(df)
+    df_s = sort_by_date_if_needed(df)
     close = pd.to_numeric(df_s["close"], errors="coerce")
     high = pd.to_numeric(df_s["high"], errors="coerce")
     low = pd.to_numeric(df_s["low"], errors="coerce")
@@ -1799,7 +1225,7 @@ def _detect_trend_pullback(
     ma_w = cfg.trend_pb_ma_window
     if len(df) < ma_w + lookback + 5:
         return None
-    df_s = _sorted_if_needed(df)
+    df_s = sort_by_date_if_needed(df)
     close = pd.to_numeric(df_s["close"], errors="coerce")
     volume = pd.to_numeric(df_s["volume"], errors="coerce")
     if close.isna().all() or volume.isna().all():
@@ -1892,7 +1318,7 @@ def _detect_markup_entry(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if len(df) < max(cfg.ma_long, cfg.markup_ma_crossover_confirm_days) + 5:
         return None
 
-    df_s = _sorted_if_needed(df)
+    df_s = sort_by_date_if_needed(df)
     close = df_s["close"].astype(float)
     ma_short = close.rolling(cfg.ma_short).mean()
     ma_long = close.rolling(cfg.ma_long).mean()
@@ -1977,7 +1403,7 @@ def _leader_feature_row(
     channel_map: dict[str, str],
     cfg: FunnelConfig,
 ) -> dict[str, Any] | None:
-    df_s = _sorted_if_needed(df)
+    df_s = sort_by_date_if_needed(df)
     close = pd.to_numeric(df_s.get("close"), errors="coerce").dropna()
     if len(close) < 80:
         return None
@@ -2186,7 +1612,7 @@ def _alpha_feature_row(
     channel_map: dict[str, str],
     cfg: FunnelConfig,
 ) -> dict[str, Any] | None:
-    df_s = _sorted_if_needed(df)
+    df_s = sort_by_date_if_needed(df)
     close = pd.to_numeric(df_s.get("close"), errors="coerce").dropna()
     if len(close) < 120:
         return None
@@ -2426,23 +1852,6 @@ def _candidate_entry(
     }
 
 
-def candidate_entry_sort_key(item: dict[str, Any]) -> tuple[int, float, str]:
-    priority = {
-        "launchpad": 0,
-        "tight_base": 1,
-        "early_breakout": 2,
-        "accumulation_ready": 3,
-        "spring": 4,
-        "lps": 5,
-        "compression": 6,
-        "trend_pullback": 7,
-        "sos": 8,
-        "evr": 9,
-    }
-    entry_type = str(item.get("entry_type", "") or item.get("signal_key", "")).strip()
-    return (priority.get(entry_type, 10), -float(item.get("score", 0.0) or 0.0), str(item.get("code", "")))
-
-
 def _formal_candidate_entries(
     triggers: dict[str, list[tuple[str, float]]],
     stage_map: dict[str, str],
@@ -2515,13 +1924,82 @@ def build_candidate_entries(
 
 
 def _prepare_df_map(df_map: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    return {sym: _sorted_if_needed(df) for sym, df in df_map.items() if df is not None and not df.empty}
+    return {sym: sort_by_date_if_needed(df) for sym, df in df_map.items() if df is not None and not df.empty}
 
 
 # Layer 2 增强: Accumulation ABC 细化
 
 
-def _analyze_accum_stage(df: pd.DataFrame, cfg: FunnelConfig) -> str | None:
+class _AccumSeries(NamedTuple):
+    frame: pd.DataFrame
+    close: pd.Series
+    low: pd.Series
+    volume: pd.Series
+
+
+class _AccumVolume(NamedTuple):
+    recent_mean: float
+    ref_mean: float
+
+
+def _accum_series(df: pd.DataFrame) -> _AccumSeries:
+    df_s = sort_by_date_if_needed(df)
+    return _AccumSeries(
+        frame=df_s,
+        close=pd.to_numeric(df_s["close"], errors="coerce"),
+        low=pd.to_numeric(df_s["low"], errors="coerce"),
+        volume=pd.to_numeric(df_s["volume"], errors="coerce"),
+    )
+
+
+def _accum_base_low(series: _AccumSeries, cfg: FunnelConfig) -> float | None:
+    lookback_w = max(int(cfg.accum_lookback_days), 2)
+    period_low = float(series.low.tail(lookback_w).min())
+    last_close = series.close.iloc[-1]
+    if period_low <= 0 or last_close > period_low * (1.0 + cfg.accum_price_from_low_max):
+        return None
+    return period_low
+
+
+def _accum_ma_gap_ok(close: pd.Series, cfg: FunnelConfig) -> bool:
+    ma_short = close.rolling(cfg.ma_short).mean()
+    ma_long = close.rolling(cfg.ma_long).mean()
+    last_ma_short = ma_short.iloc[-1]
+    last_ma_long = ma_long.iloc[-1]
+    if pd.isna(last_ma_short) or pd.isna(last_ma_long) or float(last_ma_long) <= 0:
+        return False
+    ma_gap_pct = (float(last_ma_short) - float(last_ma_long)) / float(last_ma_long) * 100.0
+    ma_gap_limit = cfg.accum_ma_gap_max * 100.0
+    return bool(-ma_gap_limit <= ma_gap_pct <= ma_gap_limit)
+
+
+def _accum_volume(series: _AccumSeries, cfg: FunnelConfig) -> _AccumVolume | None:
+    dw = max(int(cfg.accum_vol_dry_window), 2)
+    rfw = max(int(cfg.accum_vol_dry_ref_window), dw + 1)
+    recent_vol_mean = float(series.volume.tail(dw).mean()) if len(series.volume) >= dw else 0.0
+    ref_vol_mean = float(series.volume.tail(rfw).iloc[:-dw].mean()) if len(series.volume) >= rfw else 0.0
+    if ref_vol_mean <= 0 or recent_vol_mean / ref_vol_mean >= cfg.accum_vol_dry_ratio:
+        return None
+    return _AccumVolume(recent_mean=recent_vol_mean, ref_mean=ref_vol_mean)
+
+
+def _accum_zone_low(series: _AccumSeries, cfg: FunnelConfig) -> pd.Series:
+    rw = max(int(cfg.accum_range_window), 5)
+    return pd.to_numeric(series.frame.tail(rw).get("low"), errors="coerce")
+
+
+def _accum_b_test_count(zone_low: pd.Series, base_low: float) -> int:
+    return sum(1 for low_value in zone_low.dropna() if abs(low_value - base_low) / base_low <= 0.05)
+
+
+def _accum_c_ok(series: _AccumSeries, base_low: float, volume: _AccumVolume, cfg: FunnelConfig) -> bool:
+    recent_lookback = min(20, len(series.frame))
+    recent_low = pd.to_numeric(series.frame.tail(recent_lookback).get("low"), errors="coerce").min()
+    c_stage_ok = recent_low >= base_low * (1.0 - cfg.accum_c_max_drop_ratio)
+    return bool(c_stage_ok and volume.recent_mean < volume.ref_mean * cfg.accum_vol_dry_ratio)
+
+
+def analyze_accum_stage(df: pd.DataFrame, cfg: FunnelConfig) -> str | None:
     """
     分析 Accumulation 内部的三个子阶段：
     - A: 下跌停止，量能萎缩
@@ -2533,69 +2011,26 @@ def _analyze_accum_stage(df: pd.DataFrame, cfg: FunnelConfig) -> str | None:
     if len(df) < max(cfg.accum_lookback_days, cfg.accum_vol_dry_ref_window, cfg.accum_range_window):
         return None
 
-    df_s = _sorted_if_needed(df)
-    close = pd.to_numeric(df_s["close"], errors="coerce")
-    low = pd.to_numeric(df_s["low"], errors="coerce")
-    pd.to_numeric(df_s["high"], errors="coerce")
-    volume = pd.to_numeric(df_s["volume"], errors="coerce")
-
-    last_close = close.iloc[-1]
-
-    # 条件 1: 低位区——现价在年内低点 +35% 以内
-    lookback_w = max(int(cfg.accum_lookback_days), 2)
-    period_low = float(low.tail(lookback_w).min())
-    if period_low <= 0 or last_close > period_low * (1.0 + cfg.accum_price_from_low_max):
+    series = _accum_series(df)
+    accum_base_low = _accum_base_low(series, cfg)
+    if accum_base_low is None:
         return None
 
-    accum_base_low = period_low
-
-    # 条件 2: 均线即将穿越（MA50 在 MA200 上下 5% 以内）
-    ma_short = close.rolling(cfg.ma_short).mean()
-    ma_long = close.rolling(cfg.ma_long).mean()
-    last_ma_short = ma_short.iloc[-1]
-    last_ma_long = ma_long.iloc[-1]
-
-    if pd.isna(last_ma_short) or pd.isna(last_ma_long) or float(last_ma_long) <= 0:
+    if not _accum_ma_gap_ok(series.close, cfg):
         return None
 
-    ma_gap_pct = (float(last_ma_short) - float(last_ma_long)) / float(last_ma_long) * 100.0
-    ma_gap_limit = cfg.accum_ma_gap_max * 100.0  # 配置值为小数（如 0.06 → 6%）
-    if not (-ma_gap_limit <= ma_gap_pct <= ma_gap_limit):
+    volume = _accum_volume(series, cfg)
+    if volume is None:
         return None
 
-    # 条件 3: 量能萎缩
-    dw = max(int(cfg.accum_vol_dry_window), 2)
-    rfw = max(int(cfg.accum_vol_dry_ref_window), dw + 1)
-    recent_vol_mean = float(volume.tail(dw).mean()) if len(volume) >= dw else 0.0
-    ref_vol_mean = float(volume.tail(rfw).iloc[:-dw].mean()) if len(volume) >= rfw else 0.0
-
-    if ref_vol_mean <= 0 or recent_vol_mean / ref_vol_mean >= cfg.accum_vol_dry_ratio:
-        return None
-
-    # 现在确定是 A、B 还是 C
-    # B 阶段特征：近期有多次测试底部（高低点逐渐走高）
-    rw = max(int(cfg.accum_range_window), 5)
-    zone = df_s.tail(rw)
-    zone_high = pd.to_numeric(zone.get("high"), errors="coerce")
-    zone_low = pd.to_numeric(zone.get("low"), errors="coerce")
-
-    if zone_high.empty or zone_low.empty:
+    zone_low = _accum_zone_low(series, cfg)
+    if zone_low.empty:
         return "Accum_A"
 
-    # 分割测试：最近 N 日内，有多少天的低点接近底部（±5%）
-    test_count = sum(1 for l in zone_low.dropna() if abs(l - accum_base_low) / accum_base_low <= 0.05)
-
-    if test_count >= cfg.accum_b_test_count:
+    if _accum_b_test_count(zone_low, accum_base_low) >= cfg.accum_b_test_count:
         return "Accum_B"
 
-    # C 阶段：最近有小幅下跌但不破底，且量能再度萎缩
-    recent_lookback = min(20, len(df_s))
-    recent = df_s.tail(recent_lookback)
-    recent_low = pd.to_numeric(recent.get("low"), errors="coerce").min()
-
-    c_stage_ok = recent_low >= accum_base_low * (1.0 - cfg.accum_c_max_drop_ratio)
-
-    if c_stage_ok and recent_vol_mean < ref_vol_mean * cfg.accum_vol_dry_ratio:
+    if _accum_c_ok(series, accum_base_low, volume, cfg):
         return "Accum_C"
 
     return "Accum_A"
@@ -2617,7 +2052,7 @@ def detect_accum_stage(
         df = df_map.get(sym)
         if df is None or df.empty:
             continue
-        stage = _analyze_accum_stage(df, cfg)
+        stage = analyze_accum_stage(df, cfg)
         if stage is not None:
             result[sym] = stage
 
@@ -2637,7 +2072,7 @@ def _detect_distribution_start(df: pd.DataFrame, cfg: FunnelConfig) -> bool:
     if len(df) < max(cfg.ma_long, cfg.dist_confirm_days) + 20:
         return False
 
-    df_s = _sorted_if_needed(df)
+    df_s = sort_by_date_if_needed(df)
     close = df_s["close"].astype(float)
     volume = df_s["volume"].astype(float)
 
@@ -2724,7 +2159,7 @@ def layer5_exit_signals(
         if df is None or df.empty:
             continue
 
-        df_s = _sorted_if_needed(df)
+        df_s = sort_by_date_if_needed(df)
         close = pd.to_numeric(df_s["close"], errors="coerce")
         low = pd.to_numeric(df_s["low"], errors="coerce")
         high = pd.to_numeric(df_s["high"], errors="coerce")
@@ -2844,247 +2279,3 @@ def run_funnel(
         leader_radar_rows=leader_radar_rows,
         candidate_entries=candidate_entries,
     )
-
-
-def allocate_ai_candidates(
-    result: FunnelResult,
-    l3_ranked_symbols: list[str],
-    regime: str,
-    override_total_cap: int = -1,
-    sector_map: dict[str, str] | None = None,
-    max_per_sector: int = 2,
-    policy_override: dict[str, int | str] | None = None,
-    signal_weight_map: dict[str, float] | None = None,
-) -> tuple[list[str], list[str], dict[str, float]]:
-    """
-    根据大盘政权和各轨配额，计算优先级得分，输出 (trend_selected, accum_selected, score_map)
-    """
-    policy = policy_override or resolve_ai_candidate_policy(regime, override_total_cap=override_total_cap)
-    total_cap = int(policy["total_cap"])
-    trend_quota = int(policy["trend_quota"])
-    accum_quota = int(policy["accum_quota"])
-    max_trend_l3_fill = int(policy["max_trend_l3_fill"])
-    max_accum_l3_fill = int(policy["max_accum_l3_fill"])
-
-    trend_channel_tags = {"主升通道", "趋势延续", "点火破局", "加速突破"}
-    accum_channel_tags = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护盘"}
-
-    def _channel_tags(code: str) -> set[str]:
-        raw = str(result.channel_map.get(code, "")).strip()
-        if not raw:
-            return set()
-        return {x.strip() for x in raw.split("+") if x.strip()}
-
-    def _is_trend_track(code: str) -> bool:
-        return bool(_channel_tags(code) & trend_channel_tags)
-
-    def _is_accum_track(code: str) -> bool:
-        return bool(_channel_tags(code) & accum_channel_tags)
-
-    def _dedup_order(codes: list[str]) -> list[str]:
-        out = []
-        seen = set()
-        for c in codes:
-            c = str(c).strip()
-            if c and c not in seen:
-                seen.add(c)
-                out.append(c)
-        return out
-
-    hit_sets = {
-        "sos": {str(c).strip() for c, _ in result.triggers.get("sos", [])},
-        "spring": {str(c).strip() for c, _ in result.triggers.get("spring", [])},
-        "lps": {str(c).strip() for c, _ in result.triggers.get("lps", [])},
-        "evr": {str(c).strip() for c, _ in result.triggers.get("evr", [])},
-        "compression": {str(c).strip() for c, _ in result.triggers.get("compression", [])},
-        "trend_pullback": {str(c).strip() for c, _ in result.triggers.get("trend_pullback", [])},
-    }
-    sos_hit_set = hit_sets["sos"]
-    blocked_exit_signals = {"stop_loss", "distribution_warning"}
-
-    def _stage_name(code: str) -> str:
-        return result.stage_map.get(code, "")
-
-    def _is_blocked_exit(code: str) -> bool:
-        sig = str((result.exit_signals.get(code, {}) or {}).get("signal", "")).strip()
-        if sig == "stop_loss" and code in sos_hit_set:
-            return False
-        return sig in blocked_exit_signals
-
-    def _is_accum_stage_candidate(code: str) -> bool:
-        return _stage_name(code) in {"Accum_B", "Accum_C"}
-
-    weights = signal_weight_map or {}
-
-    def _signal_weight(signal_type: str) -> float:
-        return max(float(weights.get(signal_type, 1.0) or 0.0), 0.0)
-
-    score_candidate = _build_candidate_priority_scorer(result, hit_sets, _signal_weight)
-
-    trend_candidates_with_score: list[tuple[str, float, bool]] = []
-    accum_candidates_with_score: list[tuple[str, float, bool]] = []
-    candidate_entries = sorted(result.candidate_entries or [], key=candidate_entry_sort_key)
-    for item in candidate_entries:
-        code = str(item.get("code", "")).strip()
-        if not code or _is_blocked_exit(code):
-            continue
-        score = float(item.get("score", 0.0) or 0.0)
-        if str(item.get("track", "")).strip() == "accumulation":
-            accum_candidates_with_score.append((code, score, False))
-        else:
-            trend_candidates_with_score.append((code, score, False))
-
-    markup_trend_candidates = [c for c in result.markup_symbols if _is_trend_track(c) or c in sos_hit_set]
-    for code in _dedup_order(markup_trend_candidates):
-        trend_candidates_with_score.append((code, score_candidate(code, True), False))
-
-    _append_scored_codes(
-        trend_candidates_with_score,
-        _dedup_order(
-            _trigger_codes_by_score(result.triggers, "sos")
-            + _trigger_codes_by_score(result.triggers, "trend_pullback")
-            + _trigger_codes_by_score(result.triggers, "evr")
-        ),
-        lambda code: score_candidate(code, True),
-    )
-
-    # Compute `sorted_codes` implicitly from triggers like funnel does
-    all_triggers = []
-    for _k, v in result.triggers.items():
-        all_triggers.extend(v)
-    sorted_codes = [c for c, _ in sorted(all_triggers, key=lambda x: -float(x[1] if x[1] is not None else 0.0))]
-    sorted_codes = _dedup_order(sorted_codes)
-
-    for code in sorted_codes + l3_ranked_symbols:
-        if not _is_trend_track(code) or _is_blocked_exit(code):
-            continue
-        if code in [c[0] for c in trend_candidates_with_score]:
-            continue
-        if code in result.markup_symbols or code in sos_hit_set:
-            trend_candidates_with_score.append((code, score_candidate(code, True), False))
-            continue
-        # 移除 L3 filler 逻辑: 宁缺毋滥，如果只有几个好标的，就只送这几个给 AI
-
-    accum_hit_codes = [
-        str(code).strip()
-        for code, _score in sorted(
-            result.triggers.get("spring", []) + result.triggers.get("lps", []),
-            key=lambda item: -float(item[1] if item[1] is not None else 0.0),
-        )
-        if str(code).strip()
-    ]
-    accum_hit_codes += _trigger_codes_by_score(result.triggers, "compression", reverse=False)
-    _append_scored_codes(
-        accum_candidates_with_score,
-        [code for code in _dedup_order(accum_hit_codes) if not _is_blocked_exit(code)],
-        lambda code: score_candidate(code, False),
-    )
-
-    for code in _dedup_order(l3_ranked_symbols):
-        if not _is_accum_track(code) or _is_blocked_exit(code):
-            continue
-        if code in [c[0] for c in accum_candidates_with_score]:
-            continue
-        if _stage_name(code) == "Accum_C":
-            accum_candidates_with_score.append((code, score_candidate(code, False), False))
-            continue
-        # 移除 L3 filler 逻辑: 宁缺毋滥
-
-    trend_candidates_with_score.sort(key=lambda x: (-x[1], x[2]))
-    accum_candidates_with_score.sort(key=lambda x: (-x[1], x[2]))
-
-    trend_candidates = _dedup_order([c[0] for c in trend_candidates_with_score if not _is_blocked_exit(c[0])])
-    accum_candidates = _dedup_order([c[0] for c in accum_candidates_with_score if not _is_blocked_exit(c[0])])
-
-    if total_cap <= 0:
-        score_map = {}
-        for c, s, _ in trend_candidates_with_score:
-            score_map[c] = s
-        for c, s, _ in accum_candidates_with_score:
-            score_map[c] = max(score_map.get(c, -9999.0), s)
-        return ([], [], score_map)
-
-    selected_seen = set()
-    trend_selected = []
-    accum_selected = []
-    trend_l3_fill_used = 0
-    accum_l3_fill_used = 0
-    trend_fill_map = {code: is_fill for code, _, is_fill in trend_candidates_with_score}
-    accum_fill_map = {code: is_fill for code, _, is_fill in accum_candidates_with_score}
-
-    sector_counts: dict[str, int] = {}
-
-    def _add_to_selected(code: str, track_name: str) -> bool:
-        nonlocal trend_l3_fill_used, accum_l3_fill_used
-        if total_cap > 0 and len(selected_seen) >= total_cap:
-            return False
-        if code in selected_seen:
-            return False
-
-        sector = ""
-        if sector_map and max_per_sector > 0:
-            sector = sector_map.get(code, "").strip()
-            if sector and sector_counts.get(sector, 0) >= max_per_sector:
-                return False
-
-        if track_name == "Trend":
-            if trend_fill_map.get(code, False) and trend_l3_fill_used >= max_trend_l3_fill:
-                return False
-            if len(trend_selected) >= trend_quota:
-                return False
-            trend_selected.append(code)
-            if trend_fill_map.get(code, False):
-                trend_l3_fill_used += 1
-        else:
-            if accum_fill_map.get(code, False) and accum_l3_fill_used >= max_accum_l3_fill:
-                return False
-            if len(accum_selected) >= accum_quota:
-                return False
-            accum_selected.append(code)
-            if accum_fill_map.get(code, False):
-                accum_l3_fill_used += 1
-
-        if sector:
-            sector_counts[sector] = sector_counts.get(sector, 0) + 1
-        selected_seen.add(code)
-        return True
-
-    trend_idx = 0
-    accum_idx = 0
-
-    while (
-        len(selected_seen) < total_cap
-        and (len(trend_selected) < trend_quota or len(accum_selected) < accum_quota)
-        and (trend_idx < len(trend_candidates) or accum_idx < len(accum_candidates))
-    ):
-        progressed = False
-
-        while len(trend_selected) < trend_quota and trend_idx < len(trend_candidates):
-            code = trend_candidates[trend_idx]
-            trend_idx += 1
-            if code in selected_seen:
-                continue
-            progressed = _add_to_selected(code, "Trend") or progressed
-            break
-
-        if len(selected_seen) >= total_cap:
-            break
-
-        while len(accum_selected) < accum_quota and accum_idx < len(accum_candidates):
-            code = accum_candidates[accum_idx]
-            accum_idx += 1
-            if code in selected_seen:
-                continue
-            progressed = _add_to_selected(code, "Accum") or progressed
-            break
-
-        if not progressed:
-            break
-
-    score_map = {}
-    for c, s, _ in trend_candidates_with_score:
-        score_map[c] = s
-    for c, s, _ in accum_candidates_with_score:
-        score_map[c] = max(score_map.get(c, -9999.0), s)
-
-    return trend_selected, accum_selected, score_map

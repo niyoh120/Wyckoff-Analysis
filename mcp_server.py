@@ -18,7 +18,7 @@ mcp = FastMCP("wyckoff")
 
 
 def _build_ctx():
-    from cli.tools import ToolContext
+    from agents.tool_context import ToolContext
 
     state = {
         "user_id": os.getenv("SUPABASE_USER_ID", ""),
@@ -31,11 +31,11 @@ def _build_ctx():
         from contextlib import suppress
 
         with suppress(Exception):
-            from cli.auth import load_session
+            from integrations.local_auth import load_session
 
             sess = load_session()
             if sess:
-                state["user_id"] = sess.get("user", {}).get("id", "")
+                state["user_id"] = sess.get("user_id") or sess.get("user", {}).get("id", "")
                 state["access_token"] = sess.get("access_token", "")
                 state["refresh_token"] = sess.get("refresh_token", "")
 
@@ -49,7 +49,7 @@ _ctx = _build_ctx()
 # Tier 1: 无需凭证 — 纯本地 SQLite 读取
 # ---------------------------------------------------------------------------
 
-from agents.chat_tools import query_history as _query_history
+from agents.history_tools import query_history as _query_history
 
 
 @mcp.tool()
@@ -72,21 +72,13 @@ def query_history(
 # Tier 2: 需 TUSHARE_TOKEN（env 注入）
 # ---------------------------------------------------------------------------
 
-from agents.chat_tools import (
-    analyze_stock as _analyze_stock,
-)
-from agents.chat_tools import (
+from agents.backtest_tools import run_backtest as _run_backtest
+from agents.diagnosis_tools import analyze_stock as _analyze_stock
+from agents.market_tools import (
     get_market_overview as _get_market_overview,
 )
-from agents.chat_tools import (
-    run_backtest as _run_backtest,
-)
-from agents.chat_tools import (
-    screen_stocks as _screen_stocks,
-)
-from agents.chat_tools import (
-    search_stock_by_name as _search_stock_by_name,
-)
+from agents.screen_tools import screen_stocks as _screen_stocks
+from agents.search_tools import search_stock_by_name as _search_stock_by_name
 
 
 @mcp.tool()
@@ -292,38 +284,21 @@ def run_funnel_simulation(board: Literal["all", "main_chinext", "main", "chinext
     **结果处理**：candidates 是最终候选列表，details 含每层的筛选计数和触发信号明细。
     请用专业研报格式输出，不要直接扔原始 JSON。
     """
-    import os
-
     board_name = str(board or "all").strip().lower()
     if board_name == "main_chinext":
         board_name = "all"
     if board_name not in {"all", "main", "chinext", "star"}:
         return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star"}
 
-    prev_mode = os.environ.get("FUNNEL_POOL_MODE")
-    prev_board = os.environ.get("FUNNEL_POOL_BOARD")
-    prev_exec = os.environ.get("FUNNEL_EXECUTOR_MODE")
-    os.environ["FUNNEL_POOL_MODE"] = "board"
-    os.environ["FUNNEL_POOL_BOARD"] = board_name
-    os.environ["FUNNEL_EXECUTOR_MODE"] = "thread"
+    from workflows.wyckoff_funnel import run as run_funnel
 
-    from scripts.wyckoff_funnel import run as run_funnel
-
-    try:
-        ok, symbols, bench_ctx, details = run_funnel("", notify=False, return_details=True)
-    finally:
-        if prev_mode is None:
-            os.environ.pop("FUNNEL_POOL_MODE", None)
-        else:
-            os.environ["FUNNEL_POOL_MODE"] = prev_mode
-        if prev_board is None:
-            os.environ.pop("FUNNEL_POOL_BOARD", None)
-        else:
-            os.environ["FUNNEL_POOL_BOARD"] = prev_board
-        if prev_exec is None:
-            os.environ.pop("FUNNEL_EXECUTOR_MODE", None)
-        else:
-            os.environ["FUNNEL_EXECUTOR_MODE"] = prev_exec
+    ok, symbols, bench_ctx, details = run_funnel(
+        "",
+        notify=False,
+        return_details=True,
+        pool_board=board_name,
+        executor_mode="thread",
+    )
 
     if not ok:
         return {"error": "漏斗运行失败", "details": details}
@@ -339,18 +314,10 @@ def run_funnel_simulation(board: Literal["all", "main_chinext", "main", "chinext
 # Tier 3: 需 Supabase 用户认证
 # ---------------------------------------------------------------------------
 
-from agents.chat_tools import (
-    generate_ai_report as _generate_ai_report,
-)
-from agents.chat_tools import (
-    generate_strategy_decision as _generate_strategy_decision,
-)
-from agents.chat_tools import (
-    portfolio as _portfolio,
-)
-from agents.chat_tools import (
-    update_portfolio as _update_portfolio,
-)
+from agents.portfolio_tools import portfolio as _portfolio
+from agents.portfolio_tools import update_portfolio as _update_portfolio
+from agents.report_tools import generate_ai_report as _generate_ai_report
+from agents.strategy_tools import generate_strategy_decision as _generate_strategy_decision
 
 
 @mcp.tool()

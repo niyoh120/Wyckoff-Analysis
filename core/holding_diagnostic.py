@@ -12,8 +12,7 @@
         df_map=df_map,
         bench_df=bench_df,
     )
-    for d in diagnostics:
-        print(format_diagnostic_text(d))
+    rendered = [format_diagnostic_text(d) for d in diagnostics]
 """
 
 from __future__ import annotations
@@ -25,14 +24,14 @@ import pandas as pd
 
 from core.wyckoff_engine import (
     FunnelConfig,
-    _analyze_accum_stage,
     _detect_evr,
     _detect_lps,
     _detect_sos,
     _detect_spring,
-    _sorted_if_needed,
+    analyze_accum_stage,
     layer2_strength_detailed,
     layer5_exit_signals,
+    sort_by_date_if_needed,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +83,50 @@ class HoldingDiagnostic:
     health_reasons: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _SeriesSnapshot:
+    df: pd.DataFrame
+    close: pd.Series
+    high: pd.Series
+    low: pd.Series
+    volume: pd.Series
+    latest_close: float
+    pnl_pct: float
+
+
+@dataclass(frozen=True)
+class _MaSnapshot:
+    ma5: float | None
+    ma20: float | None
+    ma50: float | None
+    ma200: float | None
+    pattern: str
+    ma200_bias_pct: float | None
+
+
+@dataclass(frozen=True)
+class _WyckoffSnapshot:
+    l2_channel: str
+    track: str
+    accum_stage: str | None
+    l4_triggers: list[str]
+    exit_signal: str | None
+    exit_price: float | None
+    exit_reason: str
+
+
+@dataclass(frozen=True)
+class _RiskSnapshot:
+    stop_loss_7pct: float
+    stop_status: str
+    vol_ratio: float
+    range_60d: float
+    ret_10d: float
+    ret_20d: float
+    from_year_high: float
+    from_year_low: float
+
+
 # ── 通道 → 轨道映射 ──
 
 _TREND_CHANNELS = {"主升通道", "趋势延续", "点火破局"}
@@ -121,6 +164,178 @@ def _calc_ma_pattern(
     return "MA50<MA200(偏弱)"
 
 
+def _series_snapshot(df: pd.DataFrame, cost: float) -> _SeriesSnapshot:
+    df_s = sort_by_date_if_needed(df).copy()
+    close = pd.to_numeric(df_s["close"], errors="coerce")
+    high = pd.to_numeric(df_s["high"], errors="coerce")
+    low = pd.to_numeric(df_s["low"], errors="coerce")
+    volume = pd.to_numeric(df_s["volume"], errors="coerce")
+    latest_close = float(close.iloc[-1]) if not close.empty else 0.0
+    pnl_pct = (latest_close - cost) / cost * 100.0 if cost > 0 else 0.0
+    return _SeriesSnapshot(df_s, close, high, low, volume, latest_close, pnl_pct)
+
+
+def _ma_snapshot(close: pd.Series, latest_close: float) -> _MaSnapshot:
+    ma5 = float(close.rolling(5).mean().iloc[-1]) if len(close) >= 5 else None
+    ma20 = float(close.rolling(20).mean().iloc[-1]) if len(close) >= 20 else None
+    ma50 = float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else None
+    ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
+    pattern = _calc_ma_pattern(latest_close, ma50, ma200)
+    ma200_bias = (latest_close - ma200) / ma200 * 100 if ma200 and ma200 > 0 else None
+    return _MaSnapshot(ma5, ma20, ma50, ma200, pattern, ma200_bias)
+
+
+def _l2_channel(code: str, df: pd.DataFrame, bench_df: pd.DataFrame | None, cfg: FunnelConfig) -> str:
+    try:
+        diag_cfg = replace(cfg, enable_rps_filter=False)
+        _, channel_map, _ = layer2_strength_detailed([code], {code: df}, bench_df, diag_cfg)
+        return channel_map.get(code, "未入选")
+    except Exception:
+        logger.debug("L2 channel classification failed for %s", code, exc_info=True)
+        return "未入选"
+
+
+def _accum_stage(df: pd.DataFrame, cfg: FunnelConfig) -> str | None:
+    try:
+        return analyze_accum_stage(df, cfg)
+    except Exception:
+        logger.debug("Accumulation stage analysis failed", exc_info=True)
+        return None
+
+
+def _l4_triggers(df: pd.DataFrame, cfg: FunnelConfig) -> list[str]:
+    try:
+        triggers = []
+        if _detect_sos(df, cfg) is not None:
+            triggers.append("SOS")
+        if _detect_spring(df, cfg) is not None:
+            triggers.append("Spring")
+        if _detect_lps(df, cfg) is not None:
+            triggers.append("LPS")
+        if _detect_evr(df, cfg) is not None:
+            triggers.append("EVR")
+        return triggers
+    except Exception:
+        logger.debug("L4 trigger detection failed", exc_info=True)
+        return []
+
+
+def _exit_snapshot(
+    code: str, df: pd.DataFrame, accum_stage: str | None, cfg: FunnelConfig
+) -> tuple[str | None, float | None, str]:
+    try:
+        accum_map = {code: accum_stage} if accum_stage else {}
+        sig = layer5_exit_signals([code], {code: df}, accum_map, cfg).get(code, {})
+        if not sig:
+            return None, None, ""
+        return sig.get("signal"), sig.get("price"), sig.get("reason", "")
+    except Exception:
+        logger.debug("L5 exit signal detection failed", exc_info=True)
+        return None, None, ""
+
+
+def _wyckoff_snapshot(
+    code: str,
+    series: _SeriesSnapshot,
+    bench_df: pd.DataFrame | None,
+    cfg: FunnelConfig,
+) -> _WyckoffSnapshot:
+    l2_channel = _l2_channel(code, series.df, bench_df, cfg)
+    accum_stage = _accum_stage(series.df, cfg)
+    exit_signal, exit_price, exit_reason = _exit_snapshot(code, series.df, accum_stage, cfg)
+    return _WyckoffSnapshot(
+        l2_channel=l2_channel,
+        track=_classify_track(l2_channel),
+        accum_stage=accum_stage,
+        l4_triggers=_l4_triggers(series.df, cfg),
+        exit_signal=exit_signal,
+        exit_price=exit_price,
+        exit_reason=exit_reason,
+    )
+
+
+def _stop_status(cost: float, latest_close: float) -> tuple[float, str]:
+    stop_loss_7pct = cost * 0.93
+    if stop_loss_7pct <= 0:
+        return stop_loss_7pct, "无成本价"
+    if latest_close <= stop_loss_7pct:
+        return stop_loss_7pct, "已穿止损"
+    if (latest_close - stop_loss_7pct) / stop_loss_7pct < 0.02:
+        return stop_loss_7pct, "逼近止损(<2%)"
+    return stop_loss_7pct, "安全"
+
+
+def _risk_snapshot(series: _SeriesSnapshot, cost: float) -> _RiskSnapshot:
+    stop_loss_7pct, stop_status = _stop_status(cost, series.latest_close)
+    vol_20 = float(series.volume.tail(20).mean()) if len(series.volume) >= 20 else 0
+    vol_60 = float(series.volume.tail(60).mean()) if len(series.volume) >= 60 else 0
+    h60 = float(series.high.tail(60).max()) if len(series.high) >= 60 else float(series.high.max())
+    l60 = float(series.low.tail(60).min()) if len(series.low) >= 60 else float(series.low.min())
+    lookback_250 = min(len(series.high), 250)
+    h_year = float(series.high.tail(lookback_250).max())
+    l_year = float(series.low.tail(lookback_250).min())
+    return _RiskSnapshot(
+        stop_loss_7pct=stop_loss_7pct,
+        stop_status=stop_status,
+        vol_ratio=vol_20 / vol_60 if vol_60 > 0 else 0,
+        range_60d=(h60 - l60) / l60 * 100 if l60 > 0 else 0,
+        ret_10d=(series.latest_close / float(series.close.iloc[-11]) - 1) * 100 if len(series.close) >= 11 else 0,
+        ret_20d=(series.latest_close / float(series.close.iloc[-21]) - 1) * 100 if len(series.close) >= 21 else 0,
+        from_year_high=(series.latest_close - h_year) / h_year * 100 if h_year > 0 else 0,
+        from_year_low=(series.latest_close - l_year) / l_year * 100 if l_year > 0 else 0,
+    )
+
+
+def _health_rating(
+    ma: _MaSnapshot,
+    wyckoff: _WyckoffSnapshot,
+    risk: _RiskSnapshot,
+    pnl_pct: float,
+) -> tuple[str, list[str]]:
+    reasons: list[str] = []
+    if risk.stop_status == "已穿止损":
+        reasons.append("已穿止损线(-7%)")
+    if wyckoff.exit_signal == "stop_loss":
+        reasons.append("结构止损（从高点回撤>10%）")
+    if ma.pattern == "空头排列":
+        reasons.append("均线空头排列")
+    if risk.range_60d > 50:
+        reasons.append(f"60日振幅过大(>{risk.range_60d:.0f}%)")
+    if risk.ret_10d < -15:
+        reasons.append(f"近10日暴跌({risk.ret_10d:+.1f}%)")
+
+    if wyckoff.exit_signal == "distribution_warning":
+        reasons.append("高位派发预警")
+    if risk.stop_status == "逼近止损(<2%)":
+        reasons.append("逼近止损线")
+    if pnl_pct < -5:
+        reasons.append("浮亏超过5%")
+    if ma.pattern == "MA50<MA200(偏弱)" and pnl_pct < 0:
+        reasons.append("均线偏弱且浮亏")
+    if risk.vol_ratio < 0.5:
+        reasons.append("量能严重萎缩")
+
+    positive = _positive_reasons(ma, wyckoff)
+    danger_count = sum(1 for r in reasons if any(k in r for k in ["已穿", "暴跌", "空头排列", "结构止损"]))
+    warn_count = len(reasons) - danger_count
+    if danger_count >= 1:
+        return "🔴危险", reasons
+    if warn_count >= 2 or warn_count == 1 and not positive:
+        return "🟡警戒", reasons
+    return "🟢健康", positive if positive and not reasons else reasons
+
+
+def _positive_reasons(ma: _MaSnapshot, wyckoff: _WyckoffSnapshot) -> list[str]:
+    positive = []
+    if ma.pattern == "多头排列":
+        positive.append("多头排列")
+    if any(t in wyckoff.l2_channel for t in _TREND_CHANNELS):
+        positive.append(f"L2通道:{wyckoff.l2_channel}")
+    if wyckoff.l4_triggers:
+        positive.append(f"L4信号:{'+'.join(wyckoff.l4_triggers)}")
+    return positive
+
+
 def diagnose_one_stock(
     code: str,
     name: str,
@@ -144,179 +359,39 @@ def diagnose_one_stock(
     if cfg is None:
         cfg = FunnelConfig()
 
-    df_s = _sorted_if_needed(df).copy()
-    close = pd.to_numeric(df_s["close"], errors="coerce")
-    high = pd.to_numeric(df_s["high"], errors="coerce")
-    low = pd.to_numeric(df_s["low"], errors="coerce")
-    volume = pd.to_numeric(df_s["volume"], errors="coerce")
-
-    latest_close = float(close.iloc[-1]) if not close.empty else 0.0
-    pnl_pct = (latest_close - cost) / cost * 100.0 if cost > 0 else 0.0
-
-    # ── 均线 ──
-    ma5 = float(close.rolling(5).mean().iloc[-1]) if len(close) >= 5 else None
-    ma20 = float(close.rolling(20).mean().iloc[-1]) if len(close) >= 20 else None
-    ma50 = float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else None
-    ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
-    ma_pattern = _calc_ma_pattern(latest_close, ma50, ma200)
-    ma200_bias = (latest_close - ma200) / ma200 * 100 if ma200 and ma200 > 0 else None
-
-    # ── L2 通道分类（复用引擎函数）──
-    # 诊断模式下关闭 RPS 过滤：单股 universe 做 RPS 排名无意义（百分位天然 100）。
-    # 保留均线结构、RS 相对强度、量能形态等绝对指标做通道判断。
-    l2_channel = "未入选"
-    try:
-        diag_cfg = replace(cfg, enable_rps_filter=False)
-        passed, channel_map, _ = layer2_strength_detailed([code], {code: df_s}, bench_df, diag_cfg)
-        if code in channel_map:
-            l2_channel = channel_map[code]
-    except Exception:
-        logger.debug("L2 channel classification failed for %s", code, exc_info=True)
-
-    track = _classify_track(l2_channel)
-
-    # ── 吸筹阶段分析 ──
-    accum_stage = None
-    try:
-        accum_stage = _analyze_accum_stage(df_s, cfg)
-    except Exception:
-        logger.debug("Accumulation stage analysis failed", exc_info=True)
-
-    # ── L4 触发检测 ──
-    l4_triggers: list[str] = []
-    try:
-        if _detect_sos(df_s, cfg) is not None:
-            l4_triggers.append("SOS")
-        if _detect_spring(df_s, cfg) is not None:
-            l4_triggers.append("Spring")
-        if _detect_lps(df_s, cfg) is not None:
-            l4_triggers.append("LPS")
-        if _detect_evr(df_s, cfg) is not None:
-            l4_triggers.append("EVR")
-    except Exception:
-        logger.debug("L4 trigger detection failed", exc_info=True)
-
-    # ── L5 退出信号（复用引擎函数）──
-    exit_signal = None
-    exit_price = None
-    exit_reason = ""
-    try:
-        accum_map = {code: accum_stage} if accum_stage else {}
-        exit_signals = layer5_exit_signals([code], {code: df_s}, accum_map, cfg)
-        sig = exit_signals.get(code, {})
-        if sig:
-            exit_signal = sig.get("signal")
-            exit_price = sig.get("price")
-            exit_reason = sig.get("reason", "")
-    except Exception:
-        logger.debug("L5 exit signal detection failed", exc_info=True)
-
-    # ── 止损参考 ──
-    stop_loss_7pct = cost * 0.93
-    if stop_loss_7pct <= 0:
-        stop_status = "无成本价"
-    elif latest_close <= stop_loss_7pct:
-        stop_status = "已穿止损"
-    elif (latest_close - stop_loss_7pct) / stop_loss_7pct < 0.02:
-        stop_status = "逼近止损(<2%)"
-    else:
-        stop_status = "安全"
-
-    # ── 量能与振幅 ──
-    vol_20 = float(volume.tail(20).mean()) if len(volume) >= 20 else 0
-    vol_60 = float(volume.tail(60).mean()) if len(volume) >= 60 else 0
-    vol_ratio = vol_20 / vol_60 if vol_60 > 0 else 0
-
-    h60 = float(high.tail(60).max()) if len(high) >= 60 else float(high.max())
-    l60 = float(low.tail(60).min()) if len(low) >= 60 else float(low.min())
-    range_60d = (h60 - l60) / l60 * 100 if l60 > 0 else 0
-
-    ret_10d = (latest_close / float(close.iloc[-11]) - 1) * 100 if len(close) >= 11 else 0
-    ret_20d = (latest_close / float(close.iloc[-21]) - 1) * 100 if len(close) >= 21 else 0
-
-    lookback_250 = min(len(high), 250)
-    h_year = float(high.tail(lookback_250).max())
-    l_year = float(low.tail(lookback_250).min())
-    from_year_high = (latest_close - h_year) / h_year * 100 if h_year > 0 else 0
-    from_year_low = (latest_close - l_year) / l_year * 100 if l_year > 0 else 0
-
-    # ── 综合评级 ──
-    reasons: list[str] = []
-
-    # 危险信号
-    if stop_status == "已穿止损":
-        reasons.append("已穿止损线(-7%)")
-    if exit_signal == "stop_loss":
-        reasons.append("结构止损（从高点回撤>10%）")
-    if ma_pattern == "空头排列":
-        reasons.append("均线空头排列")
-    if range_60d > 50:
-        reasons.append(f"60日振幅过大(>{range_60d:.0f}%)")
-    if ret_10d < -15:
-        reasons.append(f"近10日暴跌({ret_10d:+.1f}%)")
-
-    # 警戒信号
-    if exit_signal == "distribution_warning":
-        reasons.append("高位派发预警")
-    if stop_status == "逼近止损(<2%)":
-        reasons.append("逼近止损线")
-    if pnl_pct < -5:
-        reasons.append("浮亏超过5%")
-    if ma_pattern == "MA50<MA200(偏弱)" and pnl_pct < 0:
-        reasons.append("均线偏弱且浮亏")
-    if vol_ratio < 0.5:
-        reasons.append("量能严重萎缩")
-
-    # 正面信号
-    positive = []
-    if ma_pattern == "多头排列":
-        positive.append("多头排列")
-    if any(t in l2_channel for t in _TREND_CHANNELS):
-        positive.append(f"L2通道:{l2_channel}")
-    if l4_triggers:
-        positive.append(f"L4信号:{'+'.join(l4_triggers)}")
-
-    # 打分
-    danger_count = sum(1 for r in reasons if any(k in r for k in ["已穿", "暴跌", "空头排列", "结构止损"]))
-    warn_count = len(reasons) - danger_count
-
-    if danger_count >= 1:
-        health = "🔴危险"
-    elif warn_count >= 2 or warn_count == 1 and not positive:
-        health = "🟡警戒"
-    else:
-        health = "🟢健康"
-
-    if positive and not reasons:
-        reasons = positive  # 健康时展示正面因素
+    series = _series_snapshot(df, cost)
+    ma = _ma_snapshot(series.close, series.latest_close)
+    wyckoff = _wyckoff_snapshot(code, series, bench_df, cfg)
+    risk = _risk_snapshot(series, cost)
+    health, reasons = _health_rating(ma, wyckoff, risk, series.pnl_pct)
 
     return HoldingDiagnostic(
         code=code,
         name=name,
         cost=cost,
-        latest_close=latest_close,
-        pnl_pct=pnl_pct,
-        ma5=ma5,
-        ma20=ma20,
-        ma50=ma50,
-        ma200=ma200,
-        ma_pattern=ma_pattern,
-        ma200_bias_pct=ma200_bias,
-        l2_channel=l2_channel,
-        accum_stage=accum_stage,
-        track=track,
-        l4_triggers=l4_triggers,
-        exit_signal=exit_signal,
-        exit_price=exit_price,
-        exit_reason=exit_reason,
-        stop_loss_7pct=stop_loss_7pct,
-        stop_loss_status=stop_status,
-        vol_ratio_20_60=vol_ratio,
-        range_60d_pct=range_60d,
-        ret_10d_pct=ret_10d,
-        ret_20d_pct=ret_20d,
-        from_year_high_pct=from_year_high,
-        from_year_low_pct=from_year_low,
+        latest_close=series.latest_close,
+        pnl_pct=series.pnl_pct,
+        ma5=ma.ma5,
+        ma20=ma.ma20,
+        ma50=ma.ma50,
+        ma200=ma.ma200,
+        ma_pattern=ma.pattern,
+        ma200_bias_pct=ma.ma200_bias_pct,
+        l2_channel=wyckoff.l2_channel,
+        accum_stage=wyckoff.accum_stage,
+        track=wyckoff.track,
+        l4_triggers=wyckoff.l4_triggers,
+        exit_signal=wyckoff.exit_signal,
+        exit_price=wyckoff.exit_price,
+        exit_reason=wyckoff.exit_reason,
+        stop_loss_7pct=risk.stop_loss_7pct,
+        stop_loss_status=risk.stop_status,
+        vol_ratio_20_60=risk.vol_ratio,
+        range_60d_pct=risk.range_60d,
+        ret_10d_pct=risk.ret_10d,
+        ret_20d_pct=risk.ret_20d,
+        from_year_high_pct=risk.from_year_high,
+        from_year_low_pct=risk.from_year_low,
         health=health,
         health_reasons=reasons,
     )

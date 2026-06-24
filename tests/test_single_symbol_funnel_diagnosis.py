@@ -4,7 +4,7 @@ from datetime import date
 
 import pandas as pd
 
-from scripts import single_symbol_funnel_diagnosis as diag
+import workflows.single_symbol_diagnosis as diag
 
 
 def _daily_frame(rows: int = 230) -> pd.DataFrame:
@@ -46,7 +46,7 @@ def test_evaluate_day_reports_selected_trigger(monkeypatch):
     monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
     monkeypatch.setattr(diag, "layer4_triggers", lambda *_args, **_kwargs: {"sos": [("AAPL.US", 12.5)]})
 
-    row = diag._evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
+    row = diag.evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
 
     assert row.status == "SELECTED"
     assert row.failed_layer == "-"
@@ -64,7 +64,7 @@ def test_evaluate_day_reports_l4_miss(monkeypatch):
     monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
     monkeypatch.setattr(diag, "layer4_triggers", lambda *_args, **_kwargs: {})
 
-    row = diag._evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
+    row = diag.evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
 
     assert row.status == "MISS"
     assert row.failed_layer == "L4"
@@ -93,7 +93,7 @@ def test_evaluate_day_slices_benchmark_to_replay_day(monkeypatch):
     monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
     monkeypatch.setattr(diag, "layer4_triggers", lambda *_args, **_kwargs: {"sos": [("603390", 10.0)]})
 
-    row = diag._evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
+    row = diag.evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
 
     assert row.status == "SELECTED"
     assert seen["bench"]["date"].tolist() == ["2025-11-17", "2025-11-18"]
@@ -105,7 +105,7 @@ def test_load_rps_histories_rejects_empty_cn_universe(monkeypatch):
     monkeypatch.setattr(diag, "load_rps_universe_histories", lambda *_args, **_kwargs: {})
 
     try:
-        diag._load_rps_histories(symbol, date(2025, 1, 1), date(2025, 2, 1), cfg, False)
+        diag.load_required_rps_histories(symbol, date(2025, 1, 1), date(2025, 2, 1), cfg, False)
     except RuntimeError as exc:
         assert "RPS 全市场历史不足" in str(exc)
     else:

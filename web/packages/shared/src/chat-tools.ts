@@ -4,6 +4,7 @@ import type { generateText as GenerateTextFn } from 'ai'
 import { z } from 'zod'
 import { fetchValueSnapshotWithFetch, isCnSymbol, normalizeTickFlowSymbol, normalizeTushareCode, type ValueSnapshot } from './agent-market'
 import { buildValuePrompt, buildValueScore } from './agent-value'
+import { formatPatternReviewDigest } from './pattern-review'
 
 export interface KlineRow {
   date: string
@@ -462,17 +463,7 @@ export async function execQueryRecommendations(deps: ToolDeps, limit: number): P
     .order('recommend_date', { ascending: false })
     .limit(limit)
 
-  if (!data || data.length === 0) return '暂无推荐记录'
-
-  const lines = data.map((r) => {
-    const code = String(r.code).padStart(6, '0')
-    const chg = r.change_pct >= 0 ? `+${r.change_pct.toFixed(2)}%` : `${r.change_pct.toFixed(2)}%`
-    const ai = r.is_ai_recommended ? ' [AI]' : ''
-    const count = Number.isFinite(Number(r.recommend_count)) && Number(r.recommend_count) > 0 ? Math.trunc(Number(r.recommend_count)) : 1
-    return `${code} ${r.name} | 推荐日${r.recommend_date} | 推荐${count}次 | ${r.initial_price?.toFixed(2)}→${r.current_price?.toFixed(2)} ${chg}${ai}`
-  })
-
-  return `最近 ${data.length} 条推荐记录：\n\n${lines.join('\n')}`
+  return formatPatternReviewDigest(data ?? [])
 }
 
 export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<string> {

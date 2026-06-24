@@ -288,8 +288,8 @@ def _find_deterministic_duplicate(content: str, existing: list[dict]) -> int | N
 def _get_dedup_provider() -> Any | None:
     """获取去重用的 provider：优先 fallback，其次 main。"""
     try:
-        from cli._provider_factory import _create_provider, provider_config_kwargs
         from cli.auth import load_default_model_id, load_fallback_model_id, load_model_configs
+        from cli.provider_factory import create_provider, provider_config_kwargs
 
         configs = load_model_configs()
         if not configs:
@@ -297,7 +297,7 @@ def _get_dedup_provider() -> Any | None:
         fallback_id = load_fallback_model_id()
         target_id = fallback_id or load_default_model_id()
         cfg = next((c for c in configs if c["id"] == target_id), configs[0])
-        provider, err = _create_provider(**provider_config_kwargs(cfg))
+        provider, err = create_provider(**provider_config_kwargs(cfg))
         return provider if not err else None
     except Exception:
         return None

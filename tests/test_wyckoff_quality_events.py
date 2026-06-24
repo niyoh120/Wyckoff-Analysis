@@ -20,6 +20,27 @@ def test_classify_wyckoff_event_right_side_ignition():
     assert event.label == "右侧点火"
     assert event.track == "Trend"
     assert event.confidence == "high"
+    assert "阶段=Markup" in event.reasons
+    assert "水温=RISK_ON" in event.reasons
+
+
+def test_classify_wyckoff_event_core_branches():
+    cases = [
+        (("spring", "lps"), "", 6.0, "accumulation_repair_resonance", "Accum", "high"),
+        (("spring",), "", 0.0, "spring_reclaim", "Accum", "medium"),
+        (("lps",), "", 0.0, "lps_pullback_confirm", "Accum", "medium"),
+        (("evr",), "Markup", 0.0, "volume_absorption", "Trend", "medium"),
+        (("sos",), "", 0.0, "sos_watch", "Trend", "medium"),
+        ((), "", 0.0, "wyckoff_watch", "Watch", "low"),
+    ]
+
+    for triggers, stage, score, event_id, track, confidence in cases:
+        event = classify_wyckoff_event(triggers, stage=stage, score=score)
+
+        assert event.event_id == event_id
+        assert event.track == track
+        assert event.confidence == confidence
+        assert event.watch_points
 
 
 def test_kline_quality_detects_bad_ohlc_and_duplicate_date():

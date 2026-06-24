@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from core.constants import TABLE_THEME_RADAR_SNAPSHOT
@@ -11,6 +12,8 @@ from integrations.supabase_base import create_admin_client as _admin
 from integrations.supabase_base import create_read_client as _read
 from integrations.supabase_base import is_admin_configured as _configured
 from integrations.supabase_base import require_server_write_context
+
+logger = logging.getLogger(__name__)
 
 
 def upsert_theme_radar_snapshot(snapshot: dict[str, Any]) -> int:
@@ -31,7 +34,7 @@ def upsert_theme_radar_snapshot(snapshot: dict[str, Any]) -> int:
         client.table(TABLE_THEME_RADAR_SNAPSHOT).upsert(payload, on_conflict="trade_date").execute()
         return 1
     except Exception as exc:
-        print(f"[theme_radar] supabase write failed: {exc}")
+        logger.warning("theme radar write failed: %s", exc)
         return 0
     finally:
         if client is not None:
@@ -51,7 +54,7 @@ def load_latest_theme_radar_snapshot_from_supabase() -> dict | None:
             .execute()
         )
     except Exception as exc:
-        print(f"[theme_radar] supabase read failed: {exc}")
+        logger.warning("theme radar read failed: %s", exc)
         return None
     finally:
         if client is not None:

@@ -386,6 +386,7 @@ jobs:
         run: |
           python3 -u - <<'PYEOF'
           import csv, os, glob, json, re, requests
+          from core.backtest_grid_ranking import rank_robust_params, robust_label as shared_robust_label, weak_period_guardrails
 
           webhook = os.environ.get('FEISHU_WEBHOOK_URL', '').strip()
           if not webhook:
@@ -665,24 +666,30 @@ jobs:
               return max(recent or group, key=rank_value)
 
           def robust_scores(cells_for_rank):
-              groups = {}
-              for c in cells_for_rank:
-                  groups.setdefault(robust_key(c), []).append(c)
-              out = []
-              for group in groups.values():
-                  by_period = {}
-                  for c in group:
-                      p = c.get('period') or '-'
-                      if p not in by_period or rank_value(c) > rank_value(by_period[p]):
-                          by_period[p] = c
-                  values = [rank_value(c) for c in by_period.values() if rank_value(c) is not None]
-                  if not values:
-                      continue
-                  recent = rank_value(by_period['recent_6m']) if 'recent_6m' in by_period else 0.0
-                  positive = sum(1 for v in values if v > 0)
-                  score = min(values) + sum(values) / len(values) * 0.35 + recent * 0.2 + positive * 4.0
-                  out.append({'cell': robust_representative(group), 'score': score, 'values': values, 'positive': positive})
-              return sorted(out, key=lambda x: x['score'], reverse=True)
+              return rank_robust_params(
+                  cells_for_rank,
+                  key_fn=robust_key,
+                  period_fn=lambda c: c.get('period') or '-',
+                  value_fn=rank_value,
+                  representative_fn=robust_representative,
+              )
+
+          def robust_label(rb):
+              return shared_robust_label(rb)
+
+          def period_guardrail_lines(valid_cells, period_keys):
+              known = set(period_keys)
+              guards = weak_period_guardrails(
+                  valid_cells,
+                  period_fn=lambda c: c.get('period') or '-',
+                  value_fn=rank_value,
+              )
+              lines = [
+                  f'- ⚠️ {period_label(g.period_key)}全部组合非正，最优 {fmt(g.best_value, "+.2f")}%，建议该周期默认空仓/影子观察。'
+                  for g in guards
+                  if g.period_key in known
+              ]
+              return lines
 
           def card_payload(title, template, card_elements):
               return {
@@ -803,7 +810,7 @@ jobs:
                   elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '⚠️ 结果文件存在，但未解析到有效现金收益或夏普指标'}})
               else:
                   robust_ranked = robust_scores(valid) if len(periods) > 1 else []
-                  best = robust_ranked[0]['cell'] if robust_ranked else max(valid, key=rank_value)
+                  best = robust_ranked[0].best_cell if robust_ranked else max(valid, key=rank_value)
                   ranked = sorted(valid, key=rank_value, reverse=True)
                   pos_cnt = sum(1 for c in valid if (rank_value(c) or 0) > 0)
                   neg_cnt = sum(1 for c in valid if (rank_value(c) or 0) <= 0)
@@ -814,7 +821,7 @@ jobs:
                   best_period = f'（{period_label(best.get("period", ""))}）' if len(periods) > 1 else ''
                   tp_str = f'TP{best["tp"]}%' if best['tp'] else '无止盈'
                   tr_str = f'移动止盈-{best["tr"]}%' if best['tr'] else '无移动止盈'
-                  best_label = '稳健参数（跨周期惩罚）' if robust_ranked else '最优参数（按现金收益）'
+                  best_label = robust_label(robust_ranked[0]) if robust_ranked else '最优参数（按现金收益）'
                   elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
                       'content': f'{tag} **{best_label}{best_period}**: {style_label(best.get("style", ""), best.get("style_label", ""))} / 持有{best["hold"]}天 / SL-{best["sl"]}% / {tp_str} / {tr_str}'}})
 
@@ -840,7 +847,11 @@ jobs:
                   if robust_ranked:
                       rb = robust_ranked[0]
                       elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
-                          'content': f'**跨周期稳健性**: 正收益周期 {rb["positive"]}/{len(rb["values"])}，最差周期 {fmt(min(rb["values"]), "+.2f")}%，稳健分 {fmt(rb["score"], ".2f")}'}})
+                          'content': f'**跨周期稳健性**: 正收益周期 {rb.positive_periods}/{len(rb.values)}，最差周期 {fmt(min(rb.values), "+.2f")}%，稳健分 {fmt(rb.score, ".2f")}'}})
+                      guardrails = period_guardrail_lines(valid, periods)
+                      if guardrails:
+                          elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
+                              'content': '**周期风控提示**\n' + '\n'.join(guardrails)}})
 
                   best_trade_rows = read_cash_trades(best.get('cash_trades_path'))
                   if best_trade_rows:

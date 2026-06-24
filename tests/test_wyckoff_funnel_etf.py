@@ -5,16 +5,26 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-import scripts.wyckoff_funnel as funnel
-from scripts.wyckoff_funnel import (
-    _append_etf_section,
-    _append_formal_l4_sections,
-    _merge_trigger_maps,
-    _promote_l2_bypass_for_ai,
-    _rank_etf_candidates,
-    _rank_l2_bypass_pool,
-    _split_selected_tracks,
+import integrations.funnel_etf_data as etf_data
+import workflows.funnel_ai_selection as funnel_ai_selection
+import workflows.funnel_candidates as funnel_candidates
+import workflows.funnel_data as funnel_data
+import workflows.funnel_etf as etf_workflow
+import workflows.funnel_layers as funnel_layers
+import workflows.wyckoff_funnel as funnel
+from core.candidate_policy import apply_loss_guard
+from core.funnel_etf import append_etf_section, rank_etf_candidates
+from core.funnel_report import signal_report_fields
+from core.funnel_sections import append_formal_l4_sections
+from core.funnel_selection import (
+    merge_trigger_maps,
+    promote_l2_bypass_for_ai,
+    rank_l2_bypass_pool,
+    should_force_quota_selection,
+    split_selected_tracks,
 )
+from integrations.funnel_etf_data import load_etf_universe
+from workflows.funnel_etf import fetch_etf_ohlcv, run_etf_enhancement
 
 
 def _frame(step: float, last_volume: float) -> pd.DataFrame:
@@ -46,29 +56,31 @@ def test_run_funnel_job_passes_l2_channel_map_to_l4(monkeypatch):
 
 def _patch_funnel_job_inputs(monkeypatch, df_map: dict[str, pd.DataFrame]) -> None:
     monkeypatch.delenv("TICKFLOW_API_KEY", raising=False)
-    monkeypatch.setattr(funnel, "_resolve_funnel_end_calendar_day", lambda: date(2026, 5, 22))
+    monkeypatch.setattr(funnel_data, "_resolve_funnel_end_calendar_day", lambda: date(2026, 5, 22))
     monkeypatch.setattr(
-        funnel,
-        "_resolve_trading_window",
+        funnel_data,
+        "resolve_trading_window",
         lambda **_kwargs: SimpleNamespace(start_trade_date=date(2026, 4, 1), end_trade_date=date(2026, 5, 22)),
     )
     monkeypatch.setattr(
-        funnel,
-        "_resolve_symbol_pool_from_env",
+        funnel_data,
+        "resolve_symbol_pool_from_env",
         lambda: (list(df_map), {"000001": "Alpha", "000002": "Beta"}, {"pool_main": 2}),
     )
-    monkeypatch.setattr(funnel, "fetch_sector_map", lambda: {"000001": "科技", "000002": "科技"})
-    monkeypatch.setattr(funnel, "fetch_concept_map", lambda: {})
-    monkeypatch.setattr(funnel, "fetch_concept_heat", lambda: [])
-    monkeypatch.setattr(funnel, "detect_theme_lines", lambda **_kwargs: [])
-    monkeypatch.setattr(funnel, "fetch_market_cap_map", lambda: {})
-    monkeypatch.setattr(funnel, "_stock_name_map", lambda: {"000001": "Alpha", "000002": "Beta"})
-    monkeypatch.setattr(funnel, "_load_benchmark_indices", lambda *_args: (_frame(0.1, 100.0), _frame(0.1, 100.0)))
-    monkeypatch.setattr(funnel, "fetch_all_ohlcv", lambda **_kwargs: (df_map, {"fetch_ok": 2}))
-    monkeypatch.setattr(funnel, "_dump_full_fetch_snapshot", lambda **_kwargs: "")
-    monkeypatch.setattr(funnel, "_run_etf_enhancement", lambda *_args, **_kwargs: ([], {}, {}, [], []))
-    monkeypatch.setattr(funnel, "_calc_market_breadth", lambda *_args: {})
-    monkeypatch.setattr(funnel, "_analyze_benchmark_and_tune_cfg", lambda *_args, **_kwargs: _benchmark_context())
+    monkeypatch.setattr(funnel_data, "fetch_sector_map", lambda: {"000001": "科技", "000002": "科技"})
+    monkeypatch.setattr(funnel_data, "fetch_concept_map", lambda: {})
+    monkeypatch.setattr(funnel_data, "fetch_concept_heat", lambda: [])
+    monkeypatch.setattr(funnel_data, "detect_theme_lines", lambda **_kwargs: [])
+    monkeypatch.setattr(funnel_data, "fetch_market_cap_map", lambda: {})
+    monkeypatch.setattr(funnel_data, "load_stock_name_map", lambda: {"000001": "Alpha", "000002": "Beta"})
+    monkeypatch.setattr(funnel_data, "_load_benchmark_indices", lambda *_args: (_frame(0.1, 100.0), _frame(0.1, 100.0)))
+    monkeypatch.setattr(funnel_data, "fetch_all_ohlcv", lambda **_kwargs: (df_map, {"fetch_ok": 2}))
+    monkeypatch.setattr(funnel_data, "dump_full_fetch_snapshot", lambda **_kwargs: "")
+    monkeypatch.setattr(funnel_data, "run_etf_enhancement", lambda *_args, **_kwargs: ([], {}, {}, [], []))
+    monkeypatch.setattr(funnel_data, "calc_market_breadth", lambda *_args: {})
+    monkeypatch.setattr(funnel_data, "calc_market_money_flow", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(funnel_data, "calc_amount_distribution_health", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(funnel_data, "analyze_benchmark_and_tune_cfg", lambda *_args, **_kwargs: _benchmark_context())
 
 
 def _patch_funnel_job_layers(monkeypatch, channel_map: dict[str, str], calls: list) -> None:
@@ -76,15 +88,26 @@ def _patch_funnel_job_layers(monkeypatch, channel_map: dict[str, str], calls: li
         calls.append((list(symbols), channel_map))
         return {"trend_pullback": [(symbols[0], 0.4)]} if symbols else {"trend_pullback": []}
 
-    monkeypatch.setattr(funnel, "layer1_filter", lambda symbols, *_args, **_kwargs: symbols)
-    monkeypatch.setattr(funnel, "layer2_strength_detailed", lambda *_args, **_kwargs: (["000001"], channel_map, []))
-    monkeypatch.setattr(funnel, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, ["科技"]))
-    monkeypatch.setattr(funnel, "analyze_sector_rotation", lambda *_args, **_kwargs: {"headline": "", "state_map": {}})
+    monkeypatch.setattr(funnel_layers, "layer1_filter", lambda symbols, *_args, **_kwargs: symbols)
+    monkeypatch.setattr(
+        funnel_layers, "layer2_strength_detailed", lambda *_args, **_kwargs: (["000001"], channel_map, [])
+    )
+    monkeypatch.setattr(
+        funnel_layers, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, ["科技"])
+    )
+    monkeypatch.setattr(
+        funnel_layers, "analyze_sector_rotation", lambda *_args, **_kwargs: {"headline": "", "state_map": {}}
+    )
+    monkeypatch.setattr(funnel_layers, "layer4_triggers", fake_layer4)
+    monkeypatch.setattr(funnel_layers, "detect_leader_radar", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(funnel_layers, "_safe_build_theme_radar", lambda **kwargs: {"trade_date": kwargs["trade_date"]})
+    monkeypatch.setattr(funnel_layers, "_resolve_linked_theme_radar", lambda current, _trade_date: (current, "current"))
     monkeypatch.setattr(funnel, "layer4_triggers", fake_layer4)
-    monkeypatch.setattr(funnel, "detect_markup_stage", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(funnel, "detect_accum_stage", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(funnel, "layer5_exit_signals", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(funnel, "_rank_l3_candidates", lambda **kwargs: (kwargs["l3_symbols"], {}))
+    monkeypatch.setattr(funnel_candidates, "layer4_triggers", fake_layer4)
+    monkeypatch.setattr(funnel_candidates, "detect_markup_stage", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(funnel_candidates, "detect_accum_stage", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(funnel_candidates, "layer5_exit_signals", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(funnel_candidates, "rank_l3_candidates", lambda **kwargs: (kwargs["l3_symbols"], {}))
 
 
 def _benchmark_context() -> dict[str, object]:
@@ -101,7 +124,7 @@ def _benchmark_context() -> dict[str, object]:
 
 
 def test_rank_etf_candidates_orders_by_strength():
-    rows = _rank_etf_candidates(
+    rows = rank_etf_candidates(
         ["512880", "512480"],
         {
             "512880": _frame(0.1, 100.0),
@@ -130,7 +153,7 @@ def test_append_etf_section_renders_compact_rows():
     ]
     lines: list[str] = []
 
-    _append_etf_section(lines, {"pool": 2, "fetched": 2, "l2_passed": 1}, rows)
+    append_etf_section(lines, {"pool": 2, "fetched": 2, "l2_passed": 1}, rows)
 
     text = "\n".join(lines)
     assert "ETF强势池" in text
@@ -138,11 +161,53 @@ def test_append_etf_section_renders_compact_rows():
     assert "3日+2.1%" in text
 
 
+def test_load_etf_universe_parses_comments_and_tags(tmp_path):
+    path = tmp_path / "etf_cn.txt"
+    path.write_text("512480 半导体 # comment\nbad row\n510300 沪深300ETF\n", encoding="utf-8")
+
+    codes, sectors = load_etf_universe(path)
+
+    assert codes == ["512480", "510300"]
+    assert sectors == {"512480": "半导体", "510300": "沪深300ETF"}
+
+
+def test_fetch_etf_ohlcv_skips_without_data_source(monkeypatch):
+    monkeypatch.delenv("TICKFLOW_API_KEY", raising=False)
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
+    monkeypatch.setattr(etf_workflow, "fetch_all_ohlcv", lambda **_kwargs: (_ for _ in ()).throw(AssertionError))
+
+    assert fetch_etf_ohlcv(["512480"], SimpleNamespace()) == {}
+
+
+def test_run_etf_enhancement_updates_maps(monkeypatch):
+    df_map = {"512480": _frame(1.0, 280.0)}
+    sector_map: dict[str, str] = {}
+    all_df_map: dict[str, pd.DataFrame] = {}
+    monkeypatch.setattr(etf_data, "load_etf_universe", lambda: (["512480"], {"512480": "半导体"}))
+    monkeypatch.setattr(etf_workflow, "fetch_etf_ohlcv", lambda *_args, **_kwargs: df_map)
+    monkeypatch.setattr(etf_workflow, "layer1_filter", lambda symbols, *_args, **_kwargs: symbols)
+    monkeypatch.setattr(
+        etf_workflow, "layer2_strength_detailed", lambda *_args, **_kwargs: (["512480"], {"512480": "主升通道"}, [])
+    )
+
+    syms, sectors, fetched, l2_passed, candidates = run_etf_enhancement(
+        funnel.FunnelConfig(), SimpleNamespace(), None, sector_map, all_df_map
+    )
+
+    assert syms == ["512480"]
+    assert sectors == {"512480": "半导体"}
+    assert fetched == df_map
+    assert l2_passed == ["512480"]
+    assert candidates[0]["code"] == "512480"
+    assert sector_map == {"512480": "半导体"}
+    assert all_df_map == df_map
+
+
 def test_append_formal_l4_sections_renders_all_hits_and_marks_ai():
     lines: list[str] = []
     scores = {"000001": 6.0, "000002": 3.0, "000003": 12.0}
 
-    _append_formal_l4_sections(
+    append_formal_l4_sections(
         lines,
         ["000003", "000001", "000002"],
         ["000002"],
@@ -160,7 +225,7 @@ def test_append_formal_l4_sections_renders_all_hits_and_marks_ai():
 
 
 def test_split_selected_tracks_preserves_order_and_accum_only_hits():
-    trend, accum = _split_selected_tracks(
+    trend, accum = split_selected_tracks(
         ["000001", "000002", "000003", "000004"],
         {
             "000001": ["sos"],
@@ -175,9 +240,9 @@ def test_split_selected_tracks_preserves_order_and_accum_only_hits():
 
 
 def test_full_formal_ai_selection_respects_hard_cap(monkeypatch):
-    monkeypatch.setattr(funnel, "FUNNEL_FULL_FORMAL_L4_MAX", 2)
+    monkeypatch.setattr(funnel_ai_selection, "FUNNEL_FULL_FORMAL_L4_MAX", 2)
 
-    selected, trend, accum, score_map, policy = funnel._full_formal_ai_selection(
+    selected, trend, accum, score_map, policy = funnel_ai_selection.full_formal_ai_selection(
         ["000001", "000002", "000003"],
         {"000001": 3.0, "000002": 2.0, "000003": 1.0},
         {"000001": ["sos"], "000002": ["lps"], "000003": ["spring"]},
@@ -193,7 +258,7 @@ def test_full_formal_ai_selection_respects_hard_cap(monkeypatch):
 
 
 def test_merge_trigger_maps_keeps_bypass_l4_hits():
-    merged = _merge_trigger_maps(
+    merged = merge_trigger_maps(
         {"lps": [("000001", 1.0)], "evr": [("000002", 2.0)]},
         {"lps": [("000001", 9.0), ("000003", 3.0)]},
     )
@@ -208,7 +273,7 @@ def test_promote_l2_bypass_for_ai_assigns_tracks_and_scores():
     accum: list[str] = []
     score_map: dict[str, float] = {}
 
-    added = _promote_l2_bypass_for_ai(
+    added = promote_l2_bypass_for_ai(
         selected,
         trend,
         accum,
@@ -217,6 +282,7 @@ def test_promote_l2_bypass_for_ai_assigns_tracks_and_scores():
         {"000002": ["lps"], "000003": ["evr"]},
         score_map,
         enabled=True,
+        cap=0,
     )
 
     assert added == 2
@@ -227,7 +293,7 @@ def test_promote_l2_bypass_for_ai_assigns_tracks_and_scores():
 
 
 def test_rank_l2_bypass_pool_orders_by_score_then_code():
-    ranked = _rank_l2_bypass_pool(
+    ranked = rank_l2_bypass_pool(
         ["000003", "000001", "000002", "000002"],
         {"000001": 5.0, "000002": 8.0, "000003": 8.0},
     )
@@ -235,14 +301,13 @@ def test_rank_l2_bypass_pool_orders_by_score_then_code():
     assert ranked == ["000002", "000003", "000001"]
 
 
-def test_promote_l2_bypass_for_ai_respects_budget(monkeypatch):
-    monkeypatch.setattr(funnel, "FUNNEL_L2_BYPASS_AI_CAP", 2)
+def test_promote_l2_bypass_for_ai_respects_budget():
     selected: list[str] = []
     trend: list[str] = []
     accum: list[str] = []
     score_map: dict[str, float] = {}
 
-    added = funnel._promote_l2_bypass_for_ai(
+    added = promote_l2_bypass_for_ai(
         selected,
         trend,
         accum,
@@ -251,6 +316,7 @@ def test_promote_l2_bypass_for_ai_respects_budget(monkeypatch):
         {"000001": ["evr"], "000002": ["evr"], "000003": ["evr"]},
         score_map,
         enabled=True,
+        cap=2,
     )
 
     assert added == 2
@@ -263,7 +329,7 @@ def test_promote_l2_bypass_for_ai_respects_total_cap():
     accum: list[str] = []
     score_map: dict[str, float] = {}
 
-    added = funnel._promote_l2_bypass_for_ai(
+    added = promote_l2_bypass_for_ai(
         selected,
         trend,
         accum,
@@ -272,6 +338,7 @@ def test_promote_l2_bypass_for_ai_respects_total_cap():
         {"000002": ["evr"], "000003": ["evr"]},
         score_map,
         enabled=True,
+        cap=0,
         total_cap=2,
     )
 
@@ -279,12 +346,10 @@ def test_promote_l2_bypass_for_ai_respects_total_cap():
     assert selected == ["000001", "000002"]
 
 
-def test_defensive_regime_forces_quota_selection(monkeypatch):
-    monkeypatch.setattr(funnel, "FUNNEL_DEFENSIVE_FORCE_QUOTA", True)
-
-    assert funnel._should_force_quota_selection("CRASH", True) is True
-    assert funnel._should_force_quota_selection("BEAR_REBOUND", True) is True
-    assert funnel._should_force_quota_selection("RISK_ON", True) is False
+def test_defensive_regime_forces_quota_selection():
+    assert should_force_quota_selection("CRASH", True, defensive_force_quota=True) is True
+    assert should_force_quota_selection("BEAR_REBOUND", True, defensive_force_quota=True) is True
+    assert should_force_quota_selection("RISK_ON", True, defensive_force_quota=True) is False
 
 
 def test_loss_guard_drops_low_lps_and_risk_on_pure_momentum():
@@ -292,7 +357,7 @@ def test_loss_guard_drops_low_lps_and_risk_on_pure_momentum():
     trend = ["000002", "000003"]
     accum = ["000001"]
 
-    kept, trend_kept, accum_kept, dropped = funnel._apply_loss_guard(
+    kept, trend_kept, accum_kept, dropped = apply_loss_guard(
         selected,
         trend,
         accum,
@@ -310,7 +375,7 @@ def test_loss_guard_drops_low_lps_and_risk_on_pure_momentum():
 
 
 def test_loss_guard_keeps_neutral_point_ignition():
-    kept, trend_kept, _accum_kept, dropped = funnel._apply_loss_guard(
+    kept, trend_kept, _accum_kept, dropped = apply_loss_guard(
         ["000001"],
         ["000001"],
         [],
@@ -327,7 +392,7 @@ def test_loss_guard_keeps_neutral_point_ignition():
 
 
 def test_loss_guard_bear_rebound_bans_pure_lps_even_with_score():
-    kept, trend_kept, accum_kept, dropped = funnel._apply_loss_guard(
+    kept, trend_kept, accum_kept, dropped = apply_loss_guard(
         ["000001"],
         [],
         ["000001"],
@@ -345,7 +410,7 @@ def test_loss_guard_bear_rebound_bans_pure_lps_even_with_score():
 
 
 def test_loss_guard_risk_on_bans_pure_trend_pullback():
-    kept, trend_kept, accum_kept, dropped = funnel._apply_loss_guard(
+    kept, trend_kept, accum_kept, dropped = apply_loss_guard(
         ["000001"],
         ["000001"],
         [],
@@ -363,7 +428,7 @@ def test_loss_guard_risk_on_bans_pure_trend_pullback():
 
 
 def test_signal_report_fields_fallback_for_strategic_review():
-    fields = funnel._signal_report_fields("000001", {}, "Trend", "crash", 0.0)
+    fields = signal_report_fields("000001", {}, "Trend", "crash", 0.0)
 
     assert fields["primary_signal"] == "strategic_review"
     assert fields["signal_types"] == []

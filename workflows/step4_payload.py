@@ -1,0 +1,500 @@
+"""Step4 position and candidate context payload building."""
+
+from __future__ import annotations
+
+import logging
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date
+from functools import partial
+
+import pandas as pd
+
+from core.hist_dates import latest_trade_date_from_hist
+from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_for_llm
+from core.wyckoff_engine import FunnelConfig, normalize_hist_from_fetch
+from integrations.fetch_a_share_csv import TradingWindow, fetch_hist
+from tools.report_builder import generate_stock_payload
+from tools.spot_patch import append_spot_bar_if_needed
+from workflows.step4_models import CandidateMeta, PortfolioState, PositionItem, Step4PayloadContext
+from workflows.step4_text import clean_text, normalize_stage, normalize_track
+
+logger = logging.getLogger(__name__)
+
+_append_spot_bar_if_needed = partial(
+    append_spot_bar_if_needed,
+    env_prefix="STEP4",
+    sleep_default=0.3,
+    zero_fallback=True,
+)
+
+
+def prepare_step4_payload_context(
+    portfolio: PortfolioState,
+    window: TradingWindow,
+    external_report: str,
+    candidate_meta: list[dict] | None,
+    *,
+    atr_period: int,
+    max_workers: int,
+    enforce_target_trade_date: bool,
+) -> Step4PayloadContext:
+    positions_payload, position_failures, live_value, latest_price_map, atr_map = format_position_payload(
+        portfolio.positions,
+        window,
+        atr_period=atr_period,
+        max_workers=max_workers,
+        enforce_target_trade_date=enforce_target_trade_date,
+    )
+    total_equity = float(portfolio.free_cash + live_value)
+    _log_total_equity_drift(portfolio, total_equity)
+    candidate_codes, candidate_items, allowed_codes, candidate_meta_map, name_map = collect_step4_candidates(
+        portfolio, candidate_meta, external_report
+    )
+    candidate_payload, candidate_failures, candidate_latest_price_map, candidate_atr_map = format_candidate_payload(
+        candidate_items,
+        window,
+        atr_period=atr_period,
+        max_workers=max_workers,
+        enforce_target_trade_date=enforce_target_trade_date,
+    )
+    latest_price_map.update(candidate_latest_price_map)
+    atr_map.update(candidate_atr_map)
+    return Step4PayloadContext(
+        total_equity=total_equity,
+        positions_payload=positions_payload,
+        position_failures=position_failures,
+        candidate_codes=candidate_codes,
+        allowed_codes=allowed_codes,
+        candidate_payload=candidate_payload,
+        candidate_failures=candidate_failures,
+        latest_price_map=latest_price_map,
+        atr_map=atr_map,
+        candidate_meta_map=candidate_meta_map,
+        name_map=name_map,
+    )
+
+
+def collect_step4_candidates(
+    portfolio: PortfolioState,
+    candidate_meta: list[dict] | None,
+    external_report: str,
+) -> tuple[list[str], list[dict], set[str], dict[str, CandidateMeta], dict[str, str]]:
+    position_codes = [p.code for p in portfolio.positions]
+    position_code_set = set(position_codes)
+    candidate_codes: list[str] = []
+    seen_candidate_codes: set[str] = set()
+    candidate_items: list[dict] = []
+    for item in candidate_meta or []:
+        if not isinstance(item, dict):
+            continue
+        code = clean_text(item.get("code"))
+        if not re.fullmatch(r"\d{6}", code) or code in position_code_set or code in seen_candidate_codes:
+            continue
+        seen_candidate_codes.add(code)
+        candidate_codes.append(code)
+        candidate_items.append(dict(item))
+    if candidate_meta is None:
+        for code in extract_stock_codes(external_report):
+            if code in position_code_set or code in seen_candidate_codes:
+                continue
+            seen_candidate_codes.add(code)
+            candidate_codes.append(code)
+    allowed_codes = set(position_codes + candidate_codes)
+    candidate_meta_map = build_candidate_meta_map(candidate_meta, portfolio.positions)
+    name_map = {p.code: p.name for p in portfolio.positions}
+    for code, meta in candidate_meta_map.items():
+        if code in allowed_codes and code not in name_map:
+            name_map[code] = meta.name or code
+    return candidate_codes, candidate_items, allowed_codes, candidate_meta_map, name_map
+
+
+def build_candidate_meta_map(
+    candidate_meta: list[dict] | None,
+    positions: list[PositionItem],
+) -> dict[str, CandidateMeta]:
+    meta_map: dict[str, CandidateMeta] = {}
+    for item in candidate_meta or []:
+        if not isinstance(item, dict):
+            continue
+        code = clean_text(item.get("code"))
+        if not re.fullmatch(r"\d{6}", code):
+            continue
+        meta_map[code] = CandidateMeta(
+            code=code,
+            name=clean_text(item.get("name")) or code,
+            tag=clean_text(item.get("tag")),
+            track=normalize_track(item.get("track")),
+            stage=normalize_stage(item.get("stage")),
+            industry=clean_text(item.get("industry")),
+            sector_state=clean_text(item.get("sector_state")),
+            sector_state_code=clean_text(item.get("sector_state_code")),
+            sector_note=clean_text(item.get("sector_note")),
+            funnel_score=parse_float_like(item.get("score")),
+            exit_signal=clean_text(item.get("exit_signal")),
+            exit_price=parse_float_like(item.get("exit_price")),
+            exit_reason=clean_text(item.get("exit_reason")),
+            source_type="external",
+        )
+    for pos in positions:
+        existing = meta_map.get(pos.code)
+        meta_map[pos.code] = CandidateMeta(
+            code=pos.code,
+            name=pos.name or pos.code,
+            tag=(existing.tag if existing and existing.tag else "持仓"),
+            track=(existing.track if existing and existing.track else None),
+            stage=(existing.stage if existing and existing.stage else None),
+            source_type="holding",
+        )
+    return meta_map
+
+
+def fetch_latest_real_close(code: str, window: TradingWindow, *, enforce_target_trade_date: bool) -> float | None:
+    for adjust, label in [("", "不复权"), ("qfq", "前复权")]:
+        try:
+            raw = fetch_hist(code, window, adjust)
+            df = normalize_hist_from_fetch(raw).sort_values("date").reset_index(drop=True)
+            if enforce_target_trade_date:
+                df, patched = _append_spot_bar_if_needed(code, df, window.end_trade_date)
+                if patched:
+                    logger.info("%s 实时快照补偿成功（%s）", code, label)
+                latest_trade_date = latest_trade_date_from_hist(df)
+                if latest_trade_date != window.end_trade_date:
+                    logger.info(
+                        "%s %s交易日未对齐: latest_trade_date=%s, target_trade_date=%s",
+                        code,
+                        label,
+                        latest_trade_date,
+                        window.end_trade_date,
+                    )
+                    continue
+            return float(df.iloc[-1]["close"])
+        except Exception:
+            logger.debug("%s fetch_latest_real_close failed (%s)", code, label, exc_info=True)
+            continue
+    return None
+
+
+def load_qfq_history(code: str, window: TradingWindow, *, enforce_target_trade_date: bool) -> pd.DataFrame:
+    raw_qfq = fetch_hist(code, window, "qfq")
+    df_qfq = normalize_hist_from_fetch(raw_qfq).sort_values("date").reset_index(drop=True)
+    if not enforce_target_trade_date:
+        return df_qfq
+    df_qfq, patched = _append_spot_bar_if_needed(code, df_qfq, window.end_trade_date)
+    if patched:
+        logger.info("%s 持仓数据已用实时快照补偿", code)
+    latest_trade_date = latest_trade_date_from_hist(df_qfq)
+    if latest_trade_date != window.end_trade_date:
+        raise RuntimeError(f"qfq_latest_trade_date={latest_trade_date}, target_trade_date={window.end_trade_date}")
+    return df_qfq
+
+
+def calc_atr(df: pd.DataFrame, period: int) -> float | None:
+    if df is None or df.empty:
+        return None
+    need_cols = {"high", "low", "close"}
+    if not need_cols.issubset(set(df.columns)):
+        return None
+    data = df.copy().sort_values("date").reset_index(drop=True)
+    high = pd.to_numeric(data["high"], errors="coerce")
+    low = pd.to_numeric(data["low"], errors="coerce")
+    close = pd.to_numeric(data["close"], errors="coerce")
+    prev_close = close.shift(1)
+    tr = pd.concat([(high - low).abs(), (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    atr = tr.rolling(max(int(period), 2)).mean()
+    if atr.dropna().empty:
+        return None
+    return float(atr.iloc[-1])
+
+
+def extract_stock_codes(text: str) -> list[str]:
+    if not text:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for code in re.findall(r"\b\d{6}\b", text):
+        if code in seen:
+            continue
+        seen.add(code)
+        out.append(code)
+    return out
+
+
+def parse_float_like(raw: object) -> float | None:
+    try:
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        if not text:
+            return None
+        return float(text)
+    except Exception:
+        logger.debug("parse_float_like failed for %s", raw, exc_info=True)
+        return None
+
+
+def format_position_payload(
+    positions: list[PositionItem],
+    window: TradingWindow,
+    *,
+    atr_period: int,
+    max_workers: int,
+    enforce_target_trade_date: bool,
+) -> tuple[str, list[str], float, dict[str, float], dict[str, float]]:
+    blocks: list[str] = []
+    failures: list[str] = []
+    live_value_sum = 0.0
+    latest_close_map: dict[str, float] = {}
+    atr_map: dict[str, float] = {}
+    if not positions:
+        return ("", [], 0.0, {}, {})
+
+    from integrations.local_db import load_signals_by_codes
+
+    signal_map = load_signals_by_codes([p.code for p in positions])
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _process_one_position,
+                pos,
+                window,
+                signal_map.get(pos.code),
+                atr_period=atr_period,
+                enforce_target_trade_date=enforce_target_trade_date,
+            ): pos
+            for pos in positions
+        }
+        for future in as_completed(futures):
+            pos = futures[future]
+            try:
+                meta_block, fail_msg, value, close, atr, _days = future.result()
+            except Exception as e:
+                failures.append(f"{pos.code} {pos.name}: 数据处理异常 {e}")
+                logger.warning("持仓 %s 处理异常: %s", pos.code, e, exc_info=True)
+                continue
+            if fail_msg:
+                failures.append(fail_msg)
+            if meta_block:
+                blocks.append(meta_block)
+                live_value_sum += value
+                latest_close_map[pos.code] = close
+                if atr is not None:
+                    atr_map[pos.code] = atr
+    return ("\n\n".join(blocks), failures, live_value_sum, latest_close_map, atr_map)
+
+
+def format_candidate_payload(
+    candidate_items: list[dict],
+    window: TradingWindow,
+    *,
+    atr_period: int,
+    max_workers: int,
+    enforce_target_trade_date: bool,
+) -> tuple[str, list[str], dict[str, float], dict[str, float]]:
+    if not candidate_items:
+        return ("", [], {}, {})
+
+    blocks_by_index: dict[int, str] = {}
+    failures: list[str] = []
+    latest_close_map: dict[str, float] = {}
+    atr_map: dict[str, float] = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _process_one_candidate,
+                item,
+                window,
+                atr_period=atr_period,
+                enforce_target_trade_date=enforce_target_trade_date,
+            ): (idx, item)
+            for idx, item in enumerate(candidate_items)
+        }
+        for future in as_completed(futures):
+            idx, item = futures[future]
+            block, fail_msg, latest_close, atr14 = future.result()
+            if fail_msg:
+                failures.append(fail_msg)
+            if block:
+                blocks_by_index[idx] = block
+            code = clean_text(item.get("code"))
+            if latest_close is not None:
+                latest_close_map[code] = latest_close
+            if atr14 is not None:
+                atr_map[code] = atr14
+    ordered_blocks = [blocks_by_index[idx] for idx in sorted(blocks_by_index)]
+    return ("\n\n".join(ordered_blocks), failures, latest_close_map, atr_map)
+
+
+def _calc_holding_trade_days(df: pd.DataFrame, buy_dt: str, end_trade_date: date) -> int | None:
+    if df is None or df.empty or "date" not in df.columns:
+        return None
+    if not str(buy_dt or "").strip():
+        return None
+    buy_ts = pd.to_datetime(buy_dt, errors="coerce")
+    if pd.isna(buy_ts):
+        return None
+    buy_date = buy_ts.date()
+    dates = pd.to_datetime(df["date"], errors="coerce").dropna().dt.date.tolist()
+    dates = sorted({d for d in dates if d <= end_trade_date})
+    if not dates:
+        return None
+    entry_trade_date = next((d for d in dates if d >= buy_date), None)
+    if entry_trade_date is None:
+        return None
+    return int(sum(1 for d in dates if d >= entry_trade_date))
+
+
+def _position_base_meta(
+    pos: PositionItem,
+    *,
+    latest_close: float,
+    atr14: float | None,
+    hold_trade_days: int | None,
+    signal_info: dict | None,
+    atr_period: int,
+) -> str:
+    pnl_pct = (latest_close - pos.cost) / pos.cost * 100.0 if pos.cost > 0 else 0.0
+    stop_info = f"- 当前止损: {pos.stop_loss:.2f}\n" if pos.stop_loss is not None else "- 当前止损: 未设置\n"
+    return (
+        f"### 持仓 {pos.code} {pos.name}\n"
+        f"- 成本价: {pos.cost:.2f}\n"
+        f"- 最新收盘(不复权优先): {latest_close:.2f}\n"
+        f"- 浮盈亏: {pnl_pct:+.2f}%\n"
+        f"{stop_info}"
+        f"- ATR{atr_period}: {(f'{atr14:.3f}' if atr14 is not None else '-')}\n"
+        f"- 持仓股数: {pos.shares}\n"
+        f"- 持仓交易日: {(hold_trade_days if hold_trade_days is not None else '-')}\n"
+        f"- 买入日期: {pos.buy_dt or '-'}\n"
+        f"- 信号类型: {signal_info.get('signal_type', '未记录') if signal_info else '未记录'}\n"
+        f"- 信号状态: {signal_info.get('status', '未记录') if signal_info else '未记录'}\n"
+        f"- 信号日期: {signal_info.get('signal_date', '-') if signal_info else '-'}\n"
+    )
+
+
+def _position_diagnostic_payload(pos: PositionItem, df_qfq: pd.DataFrame) -> tuple[str, str]:
+    try:
+        diag = diagnose_one_stock(
+            code=pos.code, name=pos.name, cost=pos.cost, df=df_qfq, bench_df=None, cfg=FunnelConfig()
+        )
+        payload = generate_stock_payload(
+            stock_code=pos.code,
+            stock_name=pos.name,
+            wyckoff_tag="持仓",
+            df=df_qfq,
+            track=diag.track if diag.track != "Unknown" else None,
+            stage=diag.accum_stage,
+            exit_signal=diag.exit_signal,
+            exit_price=diag.exit_price,
+            exit_reason=diag.exit_reason,
+        )
+        return f"- {format_diagnostic_for_llm(diag)}\n", payload
+    except Exception:
+        logger.debug("%s diagnostic formatting failed, using fallback", pos.code, exc_info=True)
+        payload = generate_stock_payload(stock_code=pos.code, stock_name=pos.name, wyckoff_tag="持仓", df=df_qfq)
+        return "", payload
+
+
+def _position_snapshot_fallback(
+    pos: PositionItem,
+    window: TradingWindow,
+    error: Exception,
+    *,
+    enforce_target_trade_date: bool,
+) -> tuple[str, str, float, float, float | None, int | None]:
+    latest_close = fetch_latest_real_close(pos.code, window, enforce_target_trade_date=enforce_target_trade_date)
+    if latest_close is None:
+        return ("", f"{pos.code}:{error}", 0.0, 0.0, None, None)
+    live_val = latest_close * max(pos.shares, 0)
+    fallback_meta = (
+        f"### 持仓 {pos.code} {pos.name}\n"
+        f"- 成本价: {pos.cost:.2f}\n"
+        f"- 最新收盘(快照补偿): {latest_close:.2f}\n"
+        f"- 持仓股数: {pos.shares}\n"
+        "- 数据状态: 日线未齐，已降级为快照风控。\n"
+    )
+    return (fallback_meta, f"{pos.code}:{error}", live_val, latest_close, None, None)
+
+
+def _process_one_position(
+    pos: PositionItem,
+    window: TradingWindow,
+    signal_info: dict | None = None,
+    *,
+    atr_period: int,
+    enforce_target_trade_date: bool,
+) -> tuple[str, str, float, float, float | None, int | None]:
+    try:
+        df_qfq = load_qfq_history(pos.code, window, enforce_target_trade_date=enforce_target_trade_date)
+        atr14 = calc_atr(df_qfq, atr_period)
+        latest_close = fetch_latest_real_close(pos.code, window, enforce_target_trade_date=enforce_target_trade_date)
+        failure_msg = "" if latest_close is not None else f"{pos.code}:real_close_fallback_to_qfq"
+        latest_close = latest_close if latest_close is not None else float(df_qfq.iloc[-1]["close"])
+        hold_days = _calc_holding_trade_days(df_qfq, pos.buy_dt, window.end_trade_date)
+        meta = _position_base_meta(
+            pos,
+            latest_close=latest_close,
+            atr14=atr14,
+            hold_trade_days=hold_days,
+            signal_info=signal_info,
+            atr_period=atr_period,
+        )
+        diag_text, payload = _position_diagnostic_payload(pos, df_qfq)
+        live_val = latest_close * max(pos.shares, 0)
+        return (meta + diag_text + "\n" + payload, failure_msg, live_val, latest_close, atr14, hold_days)
+    except Exception as e:
+        return _position_snapshot_fallback(
+            pos,
+            window,
+            e,
+            enforce_target_trade_date=enforce_target_trade_date,
+        )
+
+
+def _process_one_candidate(
+    item: dict,
+    window: TradingWindow,
+    *,
+    atr_period: int,
+    enforce_target_trade_date: bool,
+) -> tuple[str, str, float | None, float | None]:
+    code = clean_text(item.get("code"))
+    name = clean_text(item.get("name")) or code
+    try:
+        df_qfq = load_qfq_history(code, window, enforce_target_trade_date=enforce_target_trade_date)
+        atr14 = calc_atr(df_qfq, atr_period)
+        latest_close = fetch_latest_real_close(code, window, enforce_target_trade_date=enforce_target_trade_date)
+        if latest_close is None:
+            latest_close = float(df_qfq.iloc[-1]["close"])
+        payload = generate_stock_payload(
+            stock_code=code,
+            stock_name=name,
+            wyckoff_tag=clean_text(item.get("tag")) or "漏斗候选",
+            df=df_qfq,
+            industry=clean_text(item.get("industry")) or None,
+            track=clean_text(item.get("track")) or None,
+            stage=clean_text(item.get("stage")) or None,
+            funnel_score=parse_float_like(item.get("score")),
+            sector_state=clean_text(item.get("sector_state")) or None,
+            sector_state_code=clean_text(item.get("sector_state_code")) or None,
+            sector_note=clean_text(item.get("sector_note")) or None,
+            exit_signal=clean_text(item.get("exit_signal")) or None,
+            exit_price=parse_float_like(item.get("exit_price")),
+            exit_reason=clean_text(item.get("exit_reason")) or None,
+        )
+        return (payload, "", latest_close, atr14)
+    except Exception as e:
+        return ("", f"{code}:{e}", None, None)
+
+
+def _log_total_equity_drift(portfolio: PortfolioState, computed_total: float) -> None:
+    if portfolio.total_equity is None:
+        return
+    drift = abs(float(portfolio.total_equity) - computed_total)
+    if drift < 1e-6:
+        return
+    logger.info(
+        "total_equity 已按实时口径重算: input=%.2f, computed=%.2f, drift=%.2f",
+        float(portfolio.total_equity),
+        computed_total,
+        drift,
+    )

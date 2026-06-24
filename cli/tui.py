@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 from collections import deque
+from dataclasses import dataclass, field
 from typing import Any
 
 from rich.highlighter import Highlighter
@@ -185,6 +186,251 @@ def _display_final_response(
     return True
 
 
+@dataclass
+class _StreamViewState:
+    separator_strips: int = 0
+    text_strips: int = 0
+    started: bool = False
+    line_buf: str = ""
+
+
+@dataclass
+class _TurnRunState:
+    turn_user_index: int
+    user_text: str
+    scratchpad: AgentScratchpad | None
+    model_name: str
+    provider_name: str
+    workflow_run_id: str = ""
+    workflow_name: str = ""
+    executed_tool_summaries: list[dict[str, object]] = field(default_factory=list)
+    round_usages: dict[int, dict[str, Any]] = field(default_factory=dict)
+    round_tool_names: dict[int, list[str]] = field(default_factory=dict)
+    round_starts: dict[int, float] = field(default_factory=dict)
+    final_usage: dict[str, int] = field(default_factory=lambda: {"input_tokens": 0, "output_tokens": 0})
+    final_elapsed: float = 0.0
+    final_rounds: int = 0
+    last_usage: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class _AgentUiOps:
+    log: Any
+    write: Any
+    write_stream: Any
+    scroll: Any
+    spinner_start: Any
+    spinner_stop: Any
+
+
+def _flush_stream_line(stream: _StreamViewState, write_stream, scroll) -> None:
+    if not stream.line_buf:
+        return
+    stream.text_strips += write_stream(Text(stream.line_buf))
+    stream.line_buf = ""
+    scroll()
+
+
+def _clear_streamed_block(app, log_widget, stream: _StreamViewState, *, include_separator: bool) -> None:
+    strip_count = stream.text_strips
+    if include_separator:
+        strip_count += stream.separator_strips
+    if stream.started and strip_count > 0:
+        app.call_from_thread(_pop_lines, log_widget, strip_count)
+    stream.text_strips = 0
+    if include_separator:
+        stream.separator_strips = 0
+        stream.started = False
+
+
+def _append_stream_text(stream: _StreamViewState, text: str, write_stream, scroll, spinner_stop) -> None:
+    stream.line_buf += text
+    if not stream.started:
+        spinner_stop()
+        stream.separator_strips += write_stream(Text.from_markup("  [dim]───[/dim]"))
+        stream.started = True
+    while "\n" in stream.line_buf:
+        line, stream.line_buf = stream.line_buf.split("\n", 1)
+        stream.text_strips += write_stream(Text(line))
+        scroll()
+
+
+def _display_stream_final(app, log_widget, stream: _StreamViewState, final_text: str, write, scroll) -> None:
+    displayed = _display_final_response(
+        log_widget,
+        final_text,
+        streaming_started=stream.started,
+        stream_separator_strips=stream.separator_strips,
+        stream_text_strips=stream.text_strips,
+        write=write,
+        call_from_thread=app.call_from_thread,
+    )
+    if not displayed:
+        return
+    stream.separator_strips = 0
+    stream.text_strips = 0
+    stream.started = False
+    scroll()
+
+
+def _flush_and_clear_stream(app, ui: _AgentUiOps, stream: _StreamViewState) -> None:
+    _flush_stream_line(stream, ui.write_stream, ui.scroll)
+    _clear_streamed_block(app, ui.log, stream, include_separator=True)
+
+
+def _tool_display_name(tools, name: str) -> str:
+    return tools.display_name(name) if tools else name
+
+
+def _tool_result_view(event: dict[str, Any], tools) -> tuple[dict[str, object], Text]:
+    name = event["name"]
+    args = event.get("args", {})
+    display = _tool_display_name(tools, name)
+    result = event.get("result")
+    if result is None and event.get("error"):
+        result = {"error": event["error"]}
+    elapsed_s = float(event.get("elapsed_ms", 0)) / 1000
+    summary: dict[str, object] = {"name": name, "args_brief": str(args)[:100]}
+
+    if isinstance(result, dict) and result.get("error"):
+        summary.update({"status": "error", "error": str(result.get("error", ""))[:160]})
+        renderable = Text.from_markup(
+            f"  [red]✗ {display}[/red] [dim]{elapsed_s:.1f}s {str(result['error'])[:80]}[/dim]"
+        )
+    elif isinstance(result, dict) and result.get("status") == "background":
+        summary["status"] = "background"
+        renderable = Text.from_markup(f"  [cyan]↗ {display}[/cyan] [dim]已提交后台[/dim]")
+    else:
+        summary["status"] = event.get("status", "ok")
+        renderable = Text.from_markup(f"  [green]✓ {display}[/green] [dim]{elapsed_s:.1f}s[/dim]")
+    return summary, renderable
+
+
+def _display_tool_result_event(event: dict[str, Any], tools, write, scroll) -> dict[str, object]:
+    summary, renderable = _tool_result_view(event, tools)
+    write(renderable)
+    scroll()
+    return summary
+
+
+def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[str, str]:
+    run_id = str(event.get("run_id", ""))
+    workflow_name = str(event.get("workflow", ""))
+    label = str(event.get("label") or workflow_name)
+    steps = event.get("plan", {}).get("steps", [])
+    write(Text.from_markup(f"  [bold cyan]workflow[/bold cyan] [dim]{escape(label)} · {escape(run_id)}[/dim]"))
+    for idx, step in enumerate(steps, start=1):
+        title = escape(str(step.get("title", "")))
+        write(Text.from_markup(f"    [dim]{idx}.[/dim] {title} [dim]pending[/dim]"))
+    scroll()
+    return run_id, workflow_name
+
+
+def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
+    step = event.get("step", {})
+    status = step.get("status", "")
+    mark = {"running": "→", "completed": "✓", "failed": "✗", "skipped": "·"}.get(status, "·")
+    color = {"running": "yellow", "completed": "green", "failed": "red", "skipped": "dim"}.get(status, "dim")
+    title = escape(str(step.get("title", "")))
+    summary = escape(str(step.get("summary", "")))
+    write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{summary}[/dim]"))
+    scroll()
+
+
+def _compaction_panel(event: dict[str, Any]):
+    from rich.panel import Panel
+
+    before, after = event["before_messages"], event["after_messages"]
+    return Panel(
+        Text.assemble(
+            (" ⚡ 系统状态：上下文深度压缩中...\n\n", "bold yellow"),
+            ("已自动提取持久偏好写入 ", "dim white"),
+            ("SQLite 记忆库", "bold cyan"),
+            ("；\n已将前序 ", "dim white"),
+            (str(before), "bold red"),
+            (" 条陈旧对话压缩为结构化摘要，仅保留最近 ", "dim white"),
+            (str(after), "bold green"),
+            (" 条消息以维持当前上下文连贯性。", "dim white"),
+        ),
+        border_style="yellow",
+        title="[bold yellow] 📦 CONTEXT COMPACTION [/bold yellow]",
+        title_align="left",
+        padding=(1, 2),
+    )
+
+
+def _build_rounds_detail(
+    rounds: int,
+    round_usages: dict[int, dict[str, Any]],
+    round_tool_names: dict[int, list[str]],
+    round_starts: dict[int, float],
+    t_start: float,
+    model_name: str,
+) -> list[dict[str, object]]:
+    details: list[dict[str, object]] = []
+    for round_number in range(1, rounds + 1):
+        usage = round_usages.get(round_number, {})
+        started = round_starts.get(round_number, t_start)
+        details.append(
+            {
+                "round": round_number,
+                "model": model_name,
+                "tokens_in": usage.get("input_tokens", 0),
+                "tokens_out": usage.get("output_tokens", 0),
+                "cache_read": usage.get("cache_read_tokens", 0),
+                "cache_write": usage.get("cache_write_tokens", 0),
+                "duration": round(max(0.0, time.monotonic() - started), 2),
+                "has_tool_calls": bool(round_tool_names.get(round_number)),
+                "tool_names": round_tool_names.get(round_number, []),
+            }
+        )
+    return details
+
+
+def _usage_footer(total_input: int, total_output: int, elapsed_s: float) -> Text:
+    usage_parts = []
+    if total_input or total_output:
+        usage_parts.append(f"↑{total_input:,} ↓{total_output:,}")
+    usage_parts.append(f"{elapsed_s:.1f}s")
+    return Text.from_markup(f"  [dim]{' · '.join(usage_parts)}[/dim]")
+
+
+def _make_sub_agent_progress_handler(tools, write, scroll, spinner_start, spinner_stop):
+    sub_buf = ""
+
+    def _on_sub_agent_progress(event):
+        nonlocal sub_buf
+        agent = event.get("sub_agent", "sub")
+        etype = event.get("type")
+        if etype == "text_delta":
+            sub_buf += event.get("text", "")
+            while "\n" in sub_buf:
+                line, sub_buf = sub_buf.split("\n", 1)
+                if line.strip():
+                    write(Text.from_markup(f"    [dim italic]{agent}: {line}[/dim italic]"))
+                    scroll()
+        elif etype == "tool_start":
+            spinner_start(f"{agent} → {_tool_display_name(tools, event['name'])}")
+        elif etype in ("tool_result", "tool_error"):
+            spinner_stop()
+            elapsed = event.get("elapsed_ms", 0) / 1000
+            mark = "[green]✓[/green]" if event.get("status") != "error" else "[red]✗[/red]"
+            write(
+                Text.from_markup(
+                    f"    {mark} [dim]{agent} → {_tool_display_name(tools, event['name'])} {elapsed:.1f}s[/dim]"
+                )
+            )
+            scroll()
+        elif etype == "done":
+            spinner_stop()
+            if sub_buf.strip():
+                write(Text.from_markup(f"    [dim italic]{agent}: {sub_buf.strip()}[/dim italic]"))
+                sub_buf = ""
+            scroll()
+
+    return _on_sub_agent_progress
+
+
 def _build_thinking_preview(text: str) -> Text | None:
     preview = text.strip().replace("\n", " ")
     if len(preview) > 80:
@@ -340,6 +586,16 @@ class SelectorScreen(ModalScreen):
 
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_DEFAULT_MODEL_BY_PROVIDER = {
+    "gemini": "gemini-2.0-flash",
+    "openai": "gpt-4o",
+    "claude": "claude-sonnet-4-20250514",
+}
+_MODEL_PROVIDER_OPTIONS = [
+    ("gemini", "Gemini (Google)"),
+    ("openai", "OpenAI / 兼容接口 (LongCat, DeepSeek, Qwen...)"),
+    ("claude", "Claude (Anthropic)"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -964,86 +1220,17 @@ class WyckoffTUI(App):
         elif cmd == "/new":
             self.action_new_chat()
         elif cmd == "/help":
-            from cli.prompt_templates import load_prompt_templates
-            from cli.skills import load_skills
-
-            templates = load_prompt_templates()
-            skills = load_skills()
-            template_lines = "".join(f"  /{t.name:<11s}— {t.description}\n" for t in templates.values())
-            skill_lines = "".join(f"  /{s.name:<11s}— {s.description}\n" for s in skills.values())
-            log.write(
-                Text.from_markup(
-                    "\n[bold]可用命令[/bold]\n"
-                    "  /model   — 切换模型（list/add/rm/default）\n"
-                    "  /config  — 数据源配置（tushare_token, tickflow_api_key）\n"
-                    "  /login   — 登录\n"
-                    "  /logout  — 退出登录\n"
-                    "  /token   — Token 用量\n"
-                    "  /changelog— 版本更新日志\n"
-                    "  /prompt  — Prompt 模板（list/show/<name>）\n"
-                    "  /workflow— 最近动态 workflow\n"
-                    "  /schedule— 定时任务（list/add/rm/on/off）\n"
-                    "  /resume  — 恢复历史对话\n"
-                    "  /fork    — 分叉当前会话\n"
-                    "  /new     — 新对话 (Ctrl+N)\n"
-                    "  /clear   — 清屏 (Ctrl+L)\n"
-                    "  /quit    — 退出 (Ctrl+Q)\n"
-                    f"\n[bold]Skills[/bold]\n{skill_lines}"
-                    f"\n[bold]Prompt Templates[/bold]\n{template_lines}"
-                    "\n[bold]快捷键[/bold]\n"
-                    "  Ctrl+P   — 命令面板\n"
-                    "  Ctrl+C   — 复制选中文本 / 退出\n"
-                    "  Ctrl+N   — 新对话\n"
-                    "  Ctrl+L   — 清屏\n"
-                    "  鼠标拖选  — 选择文本\n"
-                )
-            )
+            self._show_help(log)
         elif cmd == "/token":
-            t = self._session_tokens
-            if t["rounds"] == 0:
-                log.write(Text.from_markup("[dim]本次会话尚无 Token 记录[/dim]"))
-            else:
-                log.write(
-                    Text.from_markup(
-                        f"\n[bold]Token 用量[/bold]  "
-                        f"输入: {t['input']:,}  输出: {t['output']:,}  "
-                        f"合计: {t['input'] + t['output']:,}  轮次: {t['rounds']}"
-                    )
-                )
+            self._show_token_usage(log)
         elif cmd == "/login":
             self._start_login()
         elif cmd == "/logout":
             self._do_logout()
         elif cmd == "/config":
-            parts = raw.strip().split(maxsplit=2)
-            if len(parts) == 1:
-                self._show_config()
-            elif parts[1] == "set" and len(parts) >= 3:
-                self._start_config_set(parts[2])
-            else:
-                log.write(
-                    Text.from_markup(
-                        "[dim]/config 用法: /config (查看) | /config set tushare_token | /config set tickflow_api_key[/dim]"
-                    )
-                )
+            self._handle_config_cmd(raw, log)
         elif cmd == "/model":
-            parts = raw.strip().split()
-            if len(parts) == 1:
-                self._switch_model_selector()
-            elif parts[1] == "list":
-                self._list_models()
-            elif parts[1] == "add":
-                self._start_model_add()
-            elif parts[1] == "rm" and len(parts) >= 3:
-                self._remove_model(parts[2])
-            elif parts[1] == "default" and len(parts) >= 3:
-                self._set_default_model(parts[2])
-            else:
-                log.write(
-                    Text.from_markup(
-                        "[dim]/model 用法: /model (切换) | /model list | /model add | /model rm <id> | /model default <id>[/dim]"
-                    )
-                )
+            self._handle_model_cmd(raw, log)
         elif cmd == "/changelog":
             self._show_changelog(log)
         elif cmd == "/prompt":
@@ -1051,17 +1238,101 @@ class WyckoffTUI(App):
         elif cmd in ("/workflow", "/wf"):
             self._handle_workflow_cmd(raw, log)
         elif cmd == "/resume":
-            parts = raw.strip().split(maxsplit=1)
-            if len(parts) > 1:
-                self._resume_session(parts[1].strip())
-            else:
-                self._resume_session_selector()
+            self._handle_resume_cmd(raw)
         elif cmd == "/fork":
             self.action_fork_session()
         elif cmd == "/schedule":
             self._handle_schedule_cmd(raw, log)
         else:
             self._try_skill(raw, log)
+
+    def _show_help(self, log) -> None:
+        from cli.prompt_templates import load_prompt_templates
+        from cli.skills import load_skills
+
+        templates = load_prompt_templates()
+        skills = load_skills()
+        template_lines = "".join(f"  /{t.name:<11s}— {t.description}\n" for t in templates.values())
+        skill_lines = "".join(f"  /{s.name:<11s}— {s.description}\n" for s in skills.values())
+        log.write(
+            Text.from_markup(
+                "\n[bold]可用命令[/bold]\n"
+                "  /model   — 切换模型（list/add/rm/default）\n"
+                "  /config  — 数据源配置（tushare_token, tickflow_api_key）\n"
+                "  /login   — 登录\n"
+                "  /logout  — 退出登录\n"
+                "  /token   — Token 用量\n"
+                "  /changelog— 版本更新日志\n"
+                "  /prompt  — Prompt 模板（list/show/<name>）\n"
+                "  /workflow— 最近动态 workflow\n"
+                "  /schedule— 定时任务（list/add/rm/on/off）\n"
+                "  /resume  — 恢复历史对话\n"
+                "  /fork    — 分叉当前会话\n"
+                "  /new     — 新对话 (Ctrl+N)\n"
+                "  /clear   — 清屏 (Ctrl+L)\n"
+                "  /quit    — 退出 (Ctrl+Q)\n"
+                f"\n[bold]Skills[/bold]\n{skill_lines}"
+                f"\n[bold]Prompt Templates[/bold]\n{template_lines}"
+                "\n[bold]快捷键[/bold]\n"
+                "  Ctrl+P   — 命令面板\n"
+                "  Ctrl+C   — 复制选中文本 / 退出\n"
+                "  Ctrl+N   — 新对话\n"
+                "  Ctrl+L   — 清屏\n"
+                "  鼠标拖选  — 选择文本\n"
+            )
+        )
+
+    def _show_token_usage(self, log) -> None:
+        t = self._session_tokens
+        if t["rounds"] == 0:
+            log.write(Text.from_markup("[dim]本次会话尚无 Token 记录[/dim]"))
+            return
+        log.write(
+            Text.from_markup(
+                f"\n[bold]Token 用量[/bold]  "
+                f"输入: {t['input']:,}  输出: {t['output']:,}  "
+                f"合计: {t['input'] + t['output']:,}  轮次: {t['rounds']}"
+            )
+        )
+
+    def _handle_config_cmd(self, raw: str, log) -> None:
+        parts = raw.strip().split(maxsplit=2)
+        if len(parts) == 1:
+            self._show_config()
+        elif parts[1] == "set" and len(parts) >= 3:
+            self._start_config_set(parts[2])
+        else:
+            log.write(
+                Text.from_markup(
+                    "[dim]/config 用法: /config (查看) | /config set tushare_token | /config set tickflow_api_key[/dim]"
+                )
+            )
+
+    def _handle_model_cmd(self, raw: str, log) -> None:
+        parts = raw.strip().split()
+        if len(parts) == 1:
+            self._switch_model_selector()
+        elif parts[1] == "list":
+            self._list_models()
+        elif parts[1] == "add":
+            self._start_model_add()
+        elif parts[1] == "rm" and len(parts) >= 3:
+            self._remove_model(parts[2])
+        elif parts[1] == "default" and len(parts) >= 3:
+            self._set_default_model(parts[2])
+        else:
+            log.write(
+                Text.from_markup(
+                    "[dim]/model 用法: /model (切换) | /model list | /model add | /model rm <id> | /model default <id>[/dim]"
+                )
+            )
+
+    def _handle_resume_cmd(self, raw: str) -> None:
+        parts = raw.strip().split(maxsplit=1)
+        if len(parts) > 1:
+            self._resume_session(parts[1].strip())
+        else:
+            self._resume_session_selector()
 
     def _show_changelog(self, log) -> None:
         from pathlib import Path
@@ -1328,9 +1599,9 @@ class WyckoffTUI(App):
             return
         default_cfg = next((c for c in configs if c["id"] == default_id), configs[0])
         if len(configs) == 1:
-            from cli._provider_factory import _create_provider, provider_config_kwargs
+            from cli.provider_factory import create_provider, provider_config_kwargs
 
-            provider, err = _create_provider(**provider_config_kwargs(default_cfg))
+            provider, err = create_provider(**provider_config_kwargs(default_cfg))
             if not err:
                 self._provider = provider
         else:
@@ -1413,131 +1684,133 @@ class WyckoffTUI(App):
         inp = self.query_one("#chat-input", Input)
         mode = self._input_mode
 
-        # MODEL_NAME 和 MODEL_URL 留空表示用默认值，不取消
         if not text and mode not in (_InputState.MODEL_NAME, _InputState.MODEL_URL, _InputState.MODEL_ID):
-            log.write(Text.from_markup("[dim]已取消[/dim]"))
-            self._input_mode = _InputState.NONE
-            inp.placeholder = "问我关于股票的任何问题... (/help 查看命令)"
+            self._cancel_interactive_input(log, inp)
             return
 
         if mode == _InputState.CONFIG_KEY:
-            inp.password = False
-            key = self._input_buf["config_key"]
-            label, env_key, _ = self._CONFIG_KEYS[key]
-            from cli.auth import save_config_key
-
-            save_config_key(key, text)
-            import os
-
-            os.environ[env_key] = text
-            log.write(Text.from_markup(f"  [green]✓ {label} 已保存[/green]"))
-            self._input_mode = _InputState.NONE
-            inp.placeholder = "问我关于股票的任何问题... (/help 查看命令)"
-            return
-
+            self._handle_config_value(text, log, inp)
         elif mode == _InputState.LOGIN_EMAIL:
-            self._input_buf["email"] = text
-            log.write(Text.from_markup(f"  邮箱: {text}"))
-            log.write(Text.from_markup("  输入密码："))
-            inp.placeholder = "密码..."
-            inp.password = True
-            self._input_mode = _InputState.LOGIN_PASSWORD
-
+            self._handle_login_email_input(text, log, inp)
         elif mode == _InputState.LOGIN_PASSWORD:
-            inp.password = False
-            log.write(Text.from_markup("  密码: ****"))
-            self._input_mode = _InputState.NONE
-            inp.placeholder = "问我关于股票的任何问题... (/help 查看命令)"
-            # 执行登录
-            try:
-                from cli.auth import login
-
-                session = login(self._input_buf["email"], text)
-                self._tools.state.update(
-                    {
-                        "user_id": session["user_id"],
-                        "email": session["email"],
-                        "access_token": session.get("access_token", ""),
-                        "refresh_token": session.get("refresh_token", ""),
-                    }
-                )
-                log.write(Text.from_markup(f"  [green]✓ 登录成功 ({session['email']})[/green]"))
-                self._update_status()
-            except Exception as e:
-                err = str(e)
-                if "Invalid login" in err or "invalid" in err.lower():
-                    log.write(Text.from_markup("  [red]邮箱或密码错误，请重新输入[/red]"))
-                else:
-                    log.write(Text.from_markup(f"  [red]登录失败: {err}，请重新输入[/red]"))
-                self._start_login()
-
+            self._handle_login_password_input(text, log, inp)
         elif mode == _InputState.MODEL_ID:
-            model_id = text.strip().lower() if text.strip() else ""
-            if not model_id:
-                log.write(Text.from_markup("[dim]已取消[/dim]"))
-                self._input_mode = _InputState.NONE
-                inp.placeholder = "问我关于股票的任何问题... (/help 查看命令)"
-                return
-            self._input_buf["id"] = model_id
-            log.write(Text.from_markup(f"  别名: {model_id}"))
-            log.write(Text.from_markup("  选择供应商（↑↓ 选择，Enter 确认，Esc 取消）："))
-            self._input_mode = _InputState.MODEL_PROVIDER
-            self._show_selector(
-                [
-                    ("gemini", "Gemini (Google)"),
-                    ("openai", "OpenAI / 兼容接口 (LongCat, DeepSeek, Qwen...)"),
-                    ("claude", "Claude (Anthropic)"),
-                ],
-                "model_provider",
-            )
-            return  # 等 selector 回调
-
+            self._handle_model_id_input(text, log, inp)
         elif mode == _InputState.MODEL_PROVIDER:
-            # 文本输入兜底（selector 取消后手动输入）
-            prov = text.strip().lower()
-            if prov not in ("gemini", "openai", "claude"):
-                log.write(Text.from_markup(f"  [red]不支持: {prov}[/red]"))
-                self._input_mode = _InputState.NONE
-                inp.placeholder = "问我关于股票的任何问题... (/help 查看命令)"
-                return
-            self._input_buf["provider"] = prov
-            log.write(Text.from_markup(f"  供应商: {prov}"))
-            log.write(
-                Text.from_markup(
-                    "  输入 API Key（购买: [link=https://www.1route.dev/register?aff=359904261]1route.dev[/link]）："
-                )
-            )
-            inp.placeholder = "API Key..."
-            inp.password = True
-            self._input_mode = _InputState.MODEL_KEY
-
+            self._handle_model_provider_input(text, log, inp)
         elif mode == _InputState.MODEL_KEY:
-            inp.password = False
-            self._input_buf["api_key"] = text
-            log.write(Text.from_markup("  API Key: ****"))
-            default_models = {"gemini": "gemini-2.0-flash", "openai": "gpt-4o", "claude": "claude-sonnet-4-20250514"}
-            default = default_models.get(self._input_buf["provider"], "")
-            log.write(Text.from_markup(f"  输入模型名（留空使用 {default}）："))
-            inp.placeholder = f"模型名，默认 {default}"
-            self._input_mode = _InputState.MODEL_NAME
-
+            self._handle_model_key_input(text, log, inp)
         elif mode == _InputState.MODEL_NAME:
-            default_models = {"gemini": "gemini-2.0-flash", "openai": "gpt-4o", "claude": "claude-sonnet-4-20250514"}
-            model = text or default_models.get(self._input_buf["provider"], "")
-            self._input_buf["model"] = model
-            log.write(Text.from_markup(f"  模型: {model}"))
-            log.write(Text.from_markup("  输入 Base URL（留空使用默认）："))
-            inp.placeholder = "Base URL（可选）"
-            self._input_mode = _InputState.MODEL_URL
-
+            self._handle_model_name_input(text, log, inp)
         elif mode == _InputState.MODEL_URL:
-            self._input_buf["base_url"] = text
-            self._input_mode = _InputState.NONE
-            inp.placeholder = "问我关于股票的任何问题... (/help 查看命令)"
-            self._apply_model_config()
-
+            self._handle_model_url_input(text, inp)
         elif mode in (_InputState.SCHED_ID, _InputState.SCHED_NAME, _InputState.SCHED_CRON, _InputState.SCHED_ACTION):
             self._handle_sched_input(mode, text, log, inp)
+
+    def _reset_input_prompt(self, inp: Input) -> None:
+        self._input_mode = _InputState.NONE
+        inp.placeholder = "问我关于股票的任何问题... (/help 查看命令)"
+
+    def _cancel_interactive_input(self, log, inp: Input) -> None:
+        log.write(Text.from_markup("[dim]已取消[/dim]"))
+        self._reset_input_prompt(inp)
+
+    def _handle_config_value(self, text: str, log, inp: Input) -> None:
+        inp.password = False
+        key = self._input_buf["config_key"]
+        label, env_key, _ = self._CONFIG_KEYS[key]
+        from cli.auth import save_config_key
+
+        save_config_key(key, text)
+        import os
+
+        os.environ[env_key] = text
+        log.write(Text.from_markup(f"  [green]✓ {label} 已保存[/green]"))
+        self._reset_input_prompt(inp)
+
+    def _handle_login_email_input(self, text: str, log, inp: Input) -> None:
+        self._input_buf["email"] = text
+        log.write(Text.from_markup(f"  邮箱: {text}"))
+        log.write(Text.from_markup("  输入密码："))
+        inp.placeholder = "密码..."
+        inp.password = True
+        self._input_mode = _InputState.LOGIN_PASSWORD
+
+    def _handle_login_password_input(self, text: str, log, inp: Input) -> None:
+        inp.password = False
+        log.write(Text.from_markup("  密码: ****"))
+        self._reset_input_prompt(inp)
+        try:
+            from cli.auth import login
+
+            session = login(self._input_buf["email"], text)
+            self._tools.state.update(
+                {
+                    "user_id": session["user_id"],
+                    "email": session["email"],
+                    "access_token": session.get("access_token", ""),
+                    "refresh_token": session.get("refresh_token", ""),
+                }
+            )
+            log.write(Text.from_markup(f"  [green]✓ 登录成功 ({session['email']})[/green]"))
+            self._update_status()
+        except Exception as e:
+            err = str(e)
+            if "Invalid login" in err or "invalid" in err.lower():
+                log.write(Text.from_markup("  [red]邮箱或密码错误，请重新输入[/red]"))
+            else:
+                log.write(Text.from_markup(f"  [red]登录失败: {err}，请重新输入[/red]"))
+            self._start_login()
+
+    def _handle_model_id_input(self, text: str, log, inp: Input) -> None:
+        model_id = text.strip().lower() if text.strip() else ""
+        if not model_id:
+            self._cancel_interactive_input(log, inp)
+            return
+        self._input_buf["id"] = model_id
+        log.write(Text.from_markup(f"  别名: {model_id}"))
+        log.write(Text.from_markup("  选择供应商（↑↓ 选择，Enter 确认，Esc 取消）："))
+        self._input_mode = _InputState.MODEL_PROVIDER
+        self._show_selector(_MODEL_PROVIDER_OPTIONS, "model_provider")
+
+    def _handle_model_provider_input(self, text: str, log, inp: Input) -> None:
+        prov = text.strip().lower()
+        if prov not in _DEFAULT_MODEL_BY_PROVIDER:
+            log.write(Text.from_markup(f"  [red]不支持: {prov}[/red]"))
+            self._reset_input_prompt(inp)
+            return
+        self._input_buf["provider"] = prov
+        log.write(Text.from_markup(f"  供应商: {prov}"))
+        log.write(
+            Text.from_markup(
+                "  输入 API Key（购买: [link=https://www.1route.dev/register?aff=359904261]1route.dev[/link]）："
+            )
+        )
+        inp.placeholder = "API Key..."
+        inp.password = True
+        self._input_mode = _InputState.MODEL_KEY
+
+    def _handle_model_key_input(self, text: str, log, inp: Input) -> None:
+        inp.password = False
+        self._input_buf["api_key"] = text
+        log.write(Text.from_markup("  API Key: ****"))
+        default = _DEFAULT_MODEL_BY_PROVIDER.get(self._input_buf["provider"], "")
+        log.write(Text.from_markup(f"  输入模型名（留空使用 {default}）："))
+        inp.placeholder = f"模型名，默认 {default}"
+        self._input_mode = _InputState.MODEL_NAME
+
+    def _handle_model_name_input(self, text: str, log, inp: Input) -> None:
+        model = text or _DEFAULT_MODEL_BY_PROVIDER.get(self._input_buf["provider"], "")
+        self._input_buf["model"] = model
+        log.write(Text.from_markup(f"  模型: {model}"))
+        log.write(Text.from_markup("  输入 Base URL（留空使用默认）："))
+        inp.placeholder = "Base URL（可选）"
+        self._input_mode = _InputState.MODEL_URL
+
+    def _handle_model_url_input(self, text: str, inp: Input) -> None:
+        self._input_buf["base_url"] = text
+        self._reset_input_prompt(inp)
+        self._apply_model_config()
 
     def _apply_model_config(self) -> None:
         log = self.query_one("#chat-log", ChatLog)
@@ -1725,9 +1998,7 @@ class WyckoffTUI(App):
                     f"[yellow]⚠ 检测到会话 [bold]#{session_id}[/bold] 上次执行中途异常中断（可能由于网络超时或崩溃）。[/yellow]"
                 )
             )
-            log.write(
-                Text.from_markup(f'[yellow]正在自动恢复会话并重新提交任务: [bold]"{query}"[/bold][/yellow]\n')
-            )
+            log.write(Text.from_markup(f'[yellow]正在自动恢复会话并重新提交任务: [bold]"{query}"[/bold][/yellow]\n'))
             # 自动发送消息重新执行
             self._send_message(query)
         except Exception:
@@ -1823,6 +2094,186 @@ class WyckoffTUI(App):
         except Exception:
             return None
 
+    def _create_turn_run_state(self) -> _TurnRunState:
+        turn_user_index, user_text = self._prepare_turn_memory_context()
+        return _TurnRunState(
+            turn_user_index=turn_user_index,
+            user_text=user_text,
+            scratchpad=self._create_scratchpad(user_text),
+            model_name=getattr(self._provider, "name", "") if self._provider else "",
+            provider_name=self._state.get("provider_name", "") if self._state else "",
+        )
+
+    def _drop_current_turn_messages(self) -> None:
+        while self._messages and self._messages[-1].get("role") != "user":
+            self._messages.pop()
+        if self._messages:
+            self._messages.pop()
+
+    def _handle_cancelled_agent_turn(self, stream: _StreamViewState, ui: _AgentUiOps) -> None:
+        ui.spinner_stop()
+        _flush_stream_line(stream, ui.write_stream, ui.scroll)
+        ui.write(Text.from_markup("[yellow]⏹ 已中断[/yellow]"))
+        ui.scroll()
+        self._drop_current_turn_messages()
+
+    def _save_completed_agent_turn(self, state: _TurnRunState, final_text: str, t_start: float, chatlog_save) -> None:
+        total_input = state.final_usage.get("input_tokens", 0)
+        total_output = state.final_usage.get("output_tokens", 0)
+        self._session_tokens["input"] += total_input
+        self._session_tokens["output"] += total_output
+        self._session_tokens["rounds"] += 1
+        self.call_from_thread(self._update_status)
+        self._restore_turn_user_message(state.turn_user_index)
+
+        chatlog_save("user", state.user_text, model=state.model_name, provider=state.provider_name)
+        tool_calls_json = (
+            json.dumps(state.executed_tool_summaries, ensure_ascii=False) if state.executed_tool_summaries else ""
+        )
+        metadata = {
+            "cache_read": state.last_usage.get("cache_read_tokens", 0),
+            "cache_write": state.last_usage.get("cache_write_tokens", 0),
+            "stop_reason": state.last_usage.get("stop_reason", "stop"),
+            "rounds": state.final_rounds,
+            "rounds_detail": _build_rounds_detail(
+                state.final_rounds,
+                state.round_usages,
+                state.round_tool_names,
+                state.round_starts,
+                t_start,
+                state.model_name,
+            ),
+            "messages": list(self._messages),
+            "system_prompt": self._system_prompt,
+            "tools": self._tools.schemas() if self._tools else [],
+            "scratchpad_path": str(state.scratchpad.path) if state.scratchpad else "",
+            "workflow": state.workflow_name,
+            "workflow_run_id": state.workflow_run_id,
+        }
+        chatlog_save(
+            "assistant",
+            final_text,
+            model=state.model_name,
+            provider=state.provider_name,
+            tokens_in=total_input,
+            tokens_out=total_output,
+            elapsed_s=round(state.final_elapsed, 2),
+            tool_calls_json=tool_calls_json,
+            metadata_json=json.dumps(metadata, ensure_ascii=False),
+        )
+        self._agent_log.info(
+            "session=%s done in=%.1fs tokens=%d/%d",
+            self._session_id,
+            state.final_elapsed,
+            total_input,
+            total_output,
+        )
+
+    def _save_failed_agent_turn(self, e: Exception, state: _TurnRunState, t_start: float, chatlog_save, write) -> None:
+        self._restore_turn_user_message(state.turn_user_index)
+        err = _friendly_error(e)
+        if state.scratchpad:
+            state.scratchpad.record_error(f"{type(e).__name__}: {err}", elapsed_s=time.monotonic() - t_start)
+        write(Text.from_markup(f"[red]错误: {err}[/red]"))
+        elapsed = time.monotonic() - t_start
+        self._agent_log.error(
+            "session=%s error after=%.1fs type=%s msg=%s",
+            self._session_id,
+            elapsed,
+            type(e).__name__,
+            str(e)[:500],
+        )
+        chatlog_save("user", state.user_text, model=state.model_name, provider=state.provider_name)
+        chatlog_save(
+            "error",
+            "",
+            model=state.model_name,
+            provider=state.provider_name,
+            elapsed_s=round(elapsed, 2),
+            error=f"{type(e).__name__}: {str(e)[:500]}",
+        )
+        self._drop_current_turn_messages()
+
+    def _handle_agent_event(
+        self,
+        event: dict[str, Any],
+        state: _TurnRunState,
+        stream: _StreamViewState,
+        ui: _AgentUiOps,
+        t_start: float,
+        chatlog_save,
+    ) -> bool:
+        event_type = event.get("type")
+        round_number = int(event.get("round") or 0)
+        if round_number > 0:
+            state.round_starts.setdefault(round_number, time.monotonic())
+
+        if event_type == "workflow_plan":
+            state.workflow_run_id, state.workflow_name = _display_workflow_plan_event(event, ui.write, ui.scroll)
+        elif event_type in {"workflow_step_start", "workflow_step_done"}:
+            _display_workflow_step_event(event, ui.write, ui.scroll)
+        elif event_type in {"workflow_done", "thinking_delta"}:
+            pass
+        elif event_type == "compaction":
+            ui.write(_compaction_panel(event))
+            ui.scroll()
+        elif event_type == "text_delta":
+            _append_stream_text(stream, event["text"], ui.write_stream, ui.scroll, ui.spinner_stop)
+        elif event_type == "tool_calls":
+            _flush_and_clear_stream(self, ui, stream)
+            names = [call["name"] for call in event.get("tool_calls", [])]
+            if round_number:
+                state.round_tool_names.setdefault(round_number, []).extend(names)
+        elif event_type == "usage":
+            usage = event.get("usage", {})
+            if round_number:
+                state.round_usages[round_number] = usage
+            state.last_usage = usage
+            fb_msg = getattr(self._provider, "last_fallback_msg", None)
+            if fb_msg:
+                ui.write(Text.from_markup(f"  [yellow]⚡ {fb_msg}[/yellow]"))
+                self._provider.last_fallback_msg = None
+        elif event_type == "thinking":
+            ui.spinner_stop()
+            preview = _build_thinking_preview(event.get("text", ""))
+            if preview:
+                ui.write(preview)
+        elif event_type == "model_start":
+            ui.spinner_start("思考中")
+        elif event_type == "tool_start":
+            _flush_and_clear_stream(self, ui, stream)
+            display = self._tools.display_name(event["name"]) if self._tools else event["name"]
+            ui.spinner_start(display)
+        elif event_type in {"tool_result", "tool_error"}:
+            ui.spinner_stop()
+            state.executed_tool_summaries.append(_display_tool_result_event(event, self._tools, ui.write, ui.scroll))
+        elif event_type == "retry":
+            _flush_and_clear_stream(self, ui, stream)
+            self._agent_log.info(
+                "session=%s loop_guard retry=%d required_tool=%s",
+                self._session_id,
+                event.get("retry", 0),
+                event.get("required_tool", ""),
+            )
+            ui.write(Text.from_markup("  [yellow]⚠ 模型未执行必需工具，已自动要求继续执行[/yellow]"))
+            ui.scroll()
+            ui.spinner_start()
+        elif event_type == "done":
+            ui.spinner_stop()
+            _flush_stream_line(stream, ui.write_stream, ui.scroll)
+            final_text = event.get("text", "")
+            state.final_usage = event.get("usage", state.final_usage)
+            state.final_elapsed = float(event.get("elapsed", time.monotonic() - t_start))
+            state.final_rounds = int(event.get("rounds", 0))
+            _display_stream_final(self, ui.log, stream, final_text, ui.write, ui.scroll)
+            total_input = state.final_usage.get("input_tokens", 0)
+            total_output = state.final_usage.get("output_tokens", 0)
+            ui.write(_usage_footer(total_input, total_output, state.final_elapsed))
+            ui.scroll()
+            self._save_completed_agent_turn(state, final_text, t_start, chatlog_save)
+            return True
+        return False
+
     # ----- Agent 执行（后台 Worker）-----
 
     @work(thread=True, exclusive=True)
@@ -1848,422 +2299,49 @@ class WyckoffTUI(App):
 
         t_start = time.monotonic()
 
-        # 记录用户输入
-        _turn_user_index, _user_text = self._prepare_turn_memory_context()
-        _scratchpad = self._create_scratchpad(_user_text)
-        _workflow_run_id = ""
-        _workflow_name = ""
-        _model_name = getattr(self._provider, "name", "") if self._provider else ""
-        _provider_name = self._state.get("provider_name", "") if self._state else ""
-        executed_tool_summaries: list[dict[str, object]] = []
-        round_usages: dict[int, dict[str, Any]] = {}
-        round_tool_names: dict[int, list[str]] = {}
-        round_starts: dict[int, float] = {}
-        final_text = ""
-        final_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
-        final_elapsed = 0.0
-        final_rounds = 0
-        last_usage: dict[str, Any] = {}
-        self._agent_log.info("session=%s user: %s", self._session_id, _user_text[:200])
+        state = self._create_turn_run_state()
+        self._agent_log.info("session=%s user: %s", self._session_id, state.user_text[:200])
         _chatlog_save = self._chatlog_save  # bound method ref
 
-        _stream_separator_strips = 0
-        _stream_text_strips = 0
-        _streaming_started = False
-        _stream_line_buf = ""
-
-        def _ensure_round(round_number: int) -> None:
-            if round_number > 0:
-                round_starts.setdefault(round_number, time.monotonic())
-
-        def _flush_stream_line() -> None:
-            nonlocal _stream_line_buf, _stream_text_strips
-            if _stream_line_buf:
-                _stream_text_strips += _write_stream(Text(_stream_line_buf))
-                _stream_line_buf = ""
-                _scroll()
-
-        def _clear_streamed_block(*, include_separator: bool) -> None:
-            nonlocal _stream_separator_strips
-            nonlocal _stream_text_strips, _streaming_started
-            strip_count = _stream_text_strips
-            if include_separator:
-                strip_count += _stream_separator_strips
-            if _streaming_started and strip_count > 0:
-                self.call_from_thread(_pop_lines, log, strip_count)
-            _stream_text_strips = 0
-            if include_separator:
-                _stream_separator_strips = 0
-                _streaming_started = False
-
-        def _display_tool_result(event: dict[str, Any]) -> None:
-            name = event["name"]
-            args = event.get("args", {})
-            display = self._tools.display_name(name) if self._tools else name
-            result = event.get("result")
-            if result is None and event.get("error"):
-                result = {"error": event["error"]}
-            elapsed_s = float(event.get("elapsed_ms", 0)) / 1000
-
-            if isinstance(result, dict) and result.get("error"):
-                executed_tool_summaries.append(
-                    {
-                        "name": name,
-                        "args_brief": str(args)[:100],
-                        "status": "error",
-                        "error": str(result.get("error", ""))[:160],
-                    }
-                )
-                _write(
-                    Text.from_markup(
-                        f"  [red]✗ {display}[/red] [dim]{elapsed_s:.1f}s {str(result['error'])[:80]}[/dim]"
-                    )
-                )
-            elif isinstance(result, dict) and result.get("status") == "background":
-                executed_tool_summaries.append(
-                    {
-                        "name": name,
-                        "args_brief": str(args)[:100],
-                        "status": "background",
-                    }
-                )
-                _write(Text.from_markup(f"  [cyan]↗ {display}[/cyan] [dim]已提交后台[/dim]"))
-            else:
-                executed_tool_summaries.append(
-                    {
-                        "name": name,
-                        "args_brief": str(args)[:100],
-                        "status": event.get("status", "ok"),
-                    }
-                )
-                _write(Text.from_markup(f"  [green]✓ {display}[/green] [dim]{elapsed_s:.1f}s[/dim]"))
-            _scroll()
-
-        def _display_workflow_plan(event: dict[str, Any]) -> None:
-            nonlocal _workflow_run_id, _workflow_name
-            _workflow_run_id = str(event.get("run_id", ""))
-            _workflow_name = str(event.get("workflow", ""))
-            label = str(event.get("label") or _workflow_name)
-            steps = event.get("plan", {}).get("steps", [])
-            _write(
-                Text.from_markup(
-                    f"  [bold cyan]workflow[/bold cyan] [dim]{escape(label)} · {escape(_workflow_run_id)}[/dim]"
-                )
-            )
-            for idx, step in enumerate(steps, start=1):
-                title = escape(str(step.get("title", "")))
-                _write(Text.from_markup(f"    [dim]{idx}.[/dim] {title} [dim]pending[/dim]"))
-            _scroll()
-
-        def _display_workflow_step(event: dict[str, Any]) -> None:
-            step = event.get("step", {})
-            status = step.get("status", "")
-            mark = {"running": "→", "completed": "✓", "failed": "✗", "skipped": "·"}.get(status, "·")
-            color = {"running": "yellow", "completed": "green", "failed": "red", "skipped": "dim"}.get(status, "dim")
-            title = escape(str(step.get("title", "")))
-            summary = escape(str(step.get("summary", "")))
-            _write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{summary}[/dim]"))
-            _scroll()
-
-        def _build_rounds_detail(rounds: int) -> list[dict[str, object]]:
-            details: list[dict[str, object]] = []
-            for round_number in range(1, rounds + 1):
-                usage = round_usages.get(round_number, {})
-                started = round_starts.get(round_number, t_start)
-                details.append(
-                    {
-                        "round": round_number,
-                        "model": _model_name,
-                        "tokens_in": usage.get("input_tokens", 0),
-                        "tokens_out": usage.get("output_tokens", 0),
-                        "cache_read": usage.get("cache_read_tokens", 0),
-                        "cache_write": usage.get("cache_write_tokens", 0),
-                        "duration": round(max(0.0, time.monotonic() - started), 2),
-                        "has_tool_calls": bool(round_tool_names.get(round_number)),
-                        "tool_names": round_tool_names.get(round_number, []),
-                    }
-                )
-            return details
+        stream = _StreamViewState()
+        ui = _AgentUiOps(log, _write, _write_stream, _scroll, _spinner_start, _spinner_stop)
 
         try:
             if not self._provider or not self._tools:
                 raise RuntimeError("模型或工具未初始化")
 
             # Sub-agent 实时进度回调
-            _sub_buf = ""
-
-            def _on_sub_agent_progress(event):
-                nonlocal _sub_buf
-                agent = event.get("sub_agent", "sub")
-                etype = event.get("type")
-                if etype == "text_delta":
-                    _sub_buf += event.get("text", "")
-                    while "\n" in _sub_buf:
-                        line, _sub_buf = _sub_buf.split("\n", 1)
-                        if line.strip():
-                            _write(Text.from_markup(f"    [dim italic]{agent}: {line}[/dim italic]"))
-                            _scroll()
-                elif etype == "tool_start":
-                    name = self._tools.display_name(event["name"]) if self._tools else event["name"]
-                    _spinner_start(f"{agent} → {name}")
-                elif etype in ("tool_result", "tool_error"):
-                    _spinner_stop()
-                    name = self._tools.display_name(event["name"]) if self._tools else event["name"]
-                    elapsed = event.get("elapsed_ms", 0) / 1000
-                    mark = "[green]✓[/green]" if event.get("status") != "error" else "[red]✗[/red]"
-                    _write(Text.from_markup(f"    {mark} [dim]{agent} → {name} {elapsed:.1f}s[/dim]"))
-                    _scroll()
-                elif etype == "done":
-                    _spinner_stop()
-                    if _sub_buf.strip():
-                        _write(Text.from_markup(f"    [dim italic]{agent}: {_sub_buf.strip()}[/dim italic]"))
-                        _sub_buf = ""
-                    _scroll()
-
-            self._tools._tool_context.on_progress = _on_sub_agent_progress
+            self._tools._tool_context.on_progress = _make_sub_agent_progress_handler(
+                self._tools,
+                _write,
+                _scroll,
+                _spinner_start,
+                _spinner_stop,
+            )
             self._tools._tool_context.cancel_check = self._cancel_event.is_set
 
             runtime, workflow_context = build_turn_runtime(
                 self._provider,
                 self._tools,
                 session_id=self._session_id,
-                user_text=_user_text,
-                scratchpad=_scratchpad,
+                user_text=state.user_text,
+                scratchpad=state.scratchpad,
                 cancel_check=self._cancel_event.is_set,
             )
-            _workflow_name = "" if workflow_context.is_general else workflow_context.name
+            state.workflow_name = "" if workflow_context.is_general else workflow_context.name
             for event in runtime.run_stream(self._messages, with_current_time(self._system_prompt)):
                 if self._cancel_event.is_set():
-                    _spinner_stop()
-                    _flush_stream_line()
-                    _write(Text.from_markup("[yellow]⏹ 已中断[/yellow]"))
-                    _scroll()
-                    while self._messages and self._messages[-1].get("role") != "user":
-                        self._messages.pop()
-                    if self._messages:
-                        self._messages.pop()
+                    self._handle_cancelled_agent_turn(stream, ui)
                     break
-
-                event_type = event.get("type")
-                round_number = int(event.get("round") or 0)
-                _ensure_round(round_number)
-
-                if event_type == "workflow_plan":
-                    _display_workflow_plan(event)
-                    continue
-
-                if event_type in {"workflow_step_start", "workflow_step_done"}:
-                    _display_workflow_step(event)
-                    continue
-
-                if event_type == "workflow_done":
-                    continue
-
-                if event_type == "compaction":
-                    before, after = event["before_messages"], event["after_messages"]
-                    from rich.panel import Panel
-
-                    panel = Panel(
-                        Text.assemble(
-                            (" ⚡ 系统状态：上下文深度压缩中...\n\n", "bold yellow"),
-                            ("已自动提取持久偏好写入 ", "dim white"),
-                            ("SQLite 记忆库", "bold cyan"),
-                            ("；\n已将前序 ", "dim white"),
-                            (str(before), "bold red"),
-                            (" 条陈旧对话压缩为结构化摘要，仅保留最近 ", "dim white"),
-                            (str(after), "bold green"),
-                            (" 条消息以维持当前上下文连贯性。", "dim white"),
-                        ),
-                        border_style="yellow",
-                        title="[bold yellow] 📦 CONTEXT COMPACTION [/bold yellow]",
-                        title_align="left",
-                        padding=(1, 2),
-                    )
-                    _write(panel)
-                    _scroll()
-                    continue
-
-                if event_type == "thinking_delta":
-                    continue
-
-                if event_type == "text_delta":
-                    _stream_line_buf += event["text"]
-                    if not _streaming_started:
-                        _spinner_stop()
-                        _stream_separator_strips += _write_stream(Text.from_markup("  [dim]───[/dim]"))
-                        _streaming_started = True
-                    while "\n" in _stream_line_buf:
-                        line, _stream_line_buf = _stream_line_buf.split("\n", 1)
-                        _stream_text_strips += _write_stream(Text(line))
-                        _scroll()
-                    continue
-
-                if event_type == "tool_calls":
-                    _flush_stream_line()
-                    _clear_streamed_block(include_separator=True)
-                    names = [call["name"] for call in event.get("tool_calls", [])]
-                    if round_number:
-                        round_tool_names.setdefault(round_number, []).extend(names)
-                    continue
-
-                if event_type == "usage":
-                    usage = event.get("usage", {})
-                    if round_number:
-                        round_usages[round_number] = usage
-                    last_usage = usage
-                    fb_msg = getattr(self._provider, "last_fallback_msg", None)
-                    if fb_msg:
-                        _write(Text.from_markup(f"  [yellow]⚡ {fb_msg}[/yellow]"))
-                        self._provider.last_fallback_msg = None
-                    continue
-
-                if event_type == "thinking":
-                    _spinner_stop()
-                    preview = _build_thinking_preview(event.get("text", ""))
-                    if preview:
-                        _write(preview)
-                    continue
-                if event_type == "model_start":
-                    _spinner_start("思考中")
-                    continue
-
-                if event_type == "tool_start":
-                    _flush_stream_line()
-                    _clear_streamed_block(include_separator=True)
-                    display = self._tools.display_name(event["name"]) if self._tools else event["name"]
-                    _spinner_start(display)
-                    continue
-
-                if event_type in {"tool_result", "tool_error"}:
-                    _spinner_stop()
-                    _display_tool_result(event)
-                    continue
-
-                if event_type == "retry":
-                    _flush_stream_line()
-                    _clear_streamed_block(include_separator=True)
-                    self._agent_log.info(
-                        "session=%s loop_guard retry=%d required_tool=%s",
-                        self._session_id,
-                        event.get("retry", 0),
-                        event.get("required_tool", ""),
-                    )
-                    _write(Text.from_markup("  [yellow]⚠ 模型未执行必需工具，已自动要求继续执行[/yellow]"))
-                    _scroll()
-                    _spinner_start()
-                    continue
-
-                if event_type == "done":
-                    _spinner_stop()
-                    _flush_stream_line()
-                    final_text = event.get("text", "")
-                    final_usage = event.get("usage", final_usage)
-                    final_elapsed = float(event.get("elapsed", time.monotonic() - t_start))
-                    final_rounds = int(event.get("rounds", 0))
-
-                    if _display_final_response(
-                        log,
-                        final_text,
-                        streaming_started=_streaming_started,
-                        stream_separator_strips=_stream_separator_strips,
-                        stream_text_strips=_stream_text_strips,
-                        write=_write,
-                        call_from_thread=self.call_from_thread,
-                    ):
-                        _stream_separator_strips = _stream_text_strips = 0
-                        _streaming_started = False
-                        _scroll()
-
-                    total_input = final_usage.get("input_tokens", 0)
-                    total_output = final_usage.get("output_tokens", 0)
-                    self._session_tokens["input"] += total_input
-                    self._session_tokens["output"] += total_output
-                    self._session_tokens["rounds"] += 1
-
-                    usage_parts = []
-                    if total_input or total_output:
-                        usage_parts.append(f"↑{total_input:,} ↓{total_output:,}")
-                    usage_parts.append(f"{final_elapsed:.1f}s")
-                    _write(Text.from_markup(f"  [dim]{' · '.join(usage_parts)}[/dim]"))
-                    _scroll()
-                    self.call_from_thread(self._update_status)
-                    self._restore_turn_user_message(_turn_user_index)
-
-                    _chatlog_save("user", _user_text, model=_model_name, provider=_provider_name)
-                    _tc_json = (
-                        json.dumps(executed_tool_summaries, ensure_ascii=False) if executed_tool_summaries else ""
-                    )
-                    _metadata = {
-                        "cache_read": last_usage.get("cache_read_tokens", 0),
-                        "cache_write": last_usage.get("cache_write_tokens", 0),
-                        "stop_reason": last_usage.get("stop_reason", "stop"),
-                        "rounds": final_rounds,
-                        "rounds_detail": _build_rounds_detail(final_rounds),
-                        "messages": list(self._messages),
-                        "system_prompt": self._system_prompt,
-                        "tools": self._tools.schemas() if self._tools else [],
-                        "scratchpad_path": str(_scratchpad.path) if _scratchpad else "",
-                        "workflow": _workflow_name,
-                        "workflow_run_id": _workflow_run_id,
-                    }
-                    _chatlog_save(
-                        "assistant",
-                        final_text,
-                        model=_model_name,
-                        provider=_provider_name,
-                        tokens_in=total_input,
-                        tokens_out=total_output,
-                        elapsed_s=round(final_elapsed, 2),
-                        tool_calls_json=_tc_json,
-                        metadata_json=json.dumps(_metadata, ensure_ascii=False),
-                    )
-                    self._agent_log.info(
-                        "session=%s done in=%.1fs tokens=%d/%d",
-                        self._session_id,
-                        final_elapsed,
-                        total_input,
-                        total_output,
-                    )
+                if self._handle_agent_event(event, state, stream, ui, t_start, _chatlog_save):
                     break
 
         except AgentCancelled:
-            _spinner_stop()
-            _flush_stream_line()
-            _write(Text.from_markup("[yellow]⏹ 已中断[/yellow]"))
-            _scroll()
-            while self._messages and self._messages[-1].get("role") != "user":
-                self._messages.pop()
-            if self._messages:
-                self._messages.pop()
+            self._handle_cancelled_agent_turn(stream, ui)
 
         except Exception as e:
-            self._restore_turn_user_message(_turn_user_index)
             _spinner_stop()
-            err = _friendly_error(e)
-            if _scratchpad:
-                _scratchpad.record_error(f"{type(e).__name__}: {err}", elapsed_s=time.monotonic() - t_start)
-            _write(Text.from_markup(f"[red]错误: {err}[/red]"))
-            _elapsed = time.monotonic() - t_start
-            self._agent_log.error(
-                "session=%s error after=%.1fs type=%s msg=%s",
-                self._session_id,
-                _elapsed,
-                type(e).__name__,
-                str(e)[:500],
-            )
-            _chatlog_save("user", _user_text, model=_model_name, provider=_provider_name)
-            _chatlog_save(
-                "error",
-                "",
-                model=_model_name,
-                provider=_provider_name,
-                elapsed_s=round(_elapsed, 2),
-                error=f"{type(e).__name__}: {str(e)[:500]}",
-            )
-            while self._messages and self._messages[-1].get("role") != "user":
-                self._messages.pop()
-            if self._messages:
-                self._messages.pop()
+            self._save_failed_agent_turn(e, state, t_start, _chatlog_save, _write)
 
         finally:
             self._busy = False

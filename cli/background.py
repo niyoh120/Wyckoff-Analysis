@@ -55,7 +55,7 @@ class BackgroundTaskManager:
             self._tasks[task_id] = task
 
         def _run():
-            from cli.progress import set_reporter
+            from utils.progress import set_reporter
 
             def _on_progress(stage, detail, progress):
                 with self._lock:

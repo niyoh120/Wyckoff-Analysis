@@ -58,6 +58,47 @@ def _resolve_base_url(provider: str, base_url: str | None) -> str | None:
     return OPENAI_COMPATIBLE_BASE_URLS.get(provider)
 
 
+def _import_litellm():
+    try:
+        import litellm
+    except ImportError as e:
+        raise ImportError(
+            "LiteLLM is required for the agent layer. Install it with: pip install litellm>=1.40.0"
+        ) from e
+    return litellm
+
+
+def _litellm_messages(system_prompt: str, user_message: str) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+
+
+def _log_litellm_call(provider: str, model: str, litellm_model: str, base_url: str | None, max_tokens: int) -> None:
+    logger.info(
+        "LiteLLM call: provider=%s model=%s litellm_model=%s base_url=%s max_tokens=%d",
+        provider,
+        model,
+        litellm_model,
+        base_url or "(default)",
+        max_tokens,
+    )
+
+
+def _response_content(response, litellm_model: str) -> str:
+    content = response.choices[0].message.content
+    if not content or not content.strip():
+        raise RuntimeError(f"LiteLLM returned empty response ({litellm_model})")
+    logger.info(
+        "LiteLLM response: model=%s tokens_in=%s tokens_out=%s",
+        litellm_model,
+        getattr(response.usage, "prompt_tokens", "?"),
+        getattr(response.usage, "completion_tokens", "?"),
+    )
+    return content.strip()
+
+
 def call_llm_via_litellm(
     provider: str,
     model: str,
@@ -82,34 +123,17 @@ def call_llm_via_litellm(
         ImportError: LiteLLM 未安装
         RuntimeError: LLM 调用失败
     """
-    try:
-        import litellm
-    except ImportError as e:
-        raise ImportError(
-            "LiteLLM is required for the agent layer. Install it with: pip install litellm>=1.40.0"
-        ) from e
-
+    litellm = _import_litellm()
     litellm_model = _resolve_litellm_model(provider, model)
     resolved_base_url = _resolve_base_url(provider, base_url)
     max_tokens = max_output_tokens or DEFAULT_MAX_OUTPUT_TOKENS
     _ = allow_truncated_text
-
-    logger.info(
-        "LiteLLM call: provider=%s model=%s litellm_model=%s base_url=%s max_tokens=%d",
-        provider,
-        model,
-        litellm_model,
-        resolved_base_url or "(default)",
-        max_tokens,
-    )
+    _log_litellm_call(provider, model, litellm_model, resolved_base_url, max_tokens)
 
     try:
         response = litellm.completion(
             model=litellm_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
+            messages=_litellm_messages(system_prompt, user_message),
             api_key=api_key,
             base_url=resolved_base_url,
             max_tokens=max_tokens,
@@ -120,14 +144,4 @@ def call_llm_via_litellm(
     except Exception as e:
         raise RuntimeError(f"LiteLLM call failed ({litellm_model}): {e}") from e
 
-    content = response.choices[0].message.content
-    if not content or not content.strip():
-        raise RuntimeError(f"LiteLLM returned empty response ({litellm_model})")
-
-    logger.info(
-        "LiteLLM response: model=%s tokens_in=%s tokens_out=%s",
-        litellm_model,
-        getattr(response.usage, "prompt_tokens", "?"),
-        getattr(response.usage, "completion_tokens", "?"),
-    )
-    return content.strip()
+    return _response_content(response, litellm_model)

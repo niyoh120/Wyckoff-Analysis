@@ -1,93 +1,28 @@
-"""
-形态复盘价格回填任务（独立定时）：
-- 从 recommendation_tracking 读取 code / recommend_date
-- 使用 Tickflow 实时报价与不复权日线计算：
-  - initial_price: 推荐时间对应最近交易日收盘价（不复权）
-  - current_price: Tickflow 最新实时价/收盘价
-  - change_pct
-"""
+"""CLI entrypoint for recommendation tracking price refresh."""
 
 from __future__ import annotations
 
 import argparse
-import os
-import sys
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-# Ensure project root is on sys.path for direct script invocation
-if __name__ == "__main__" or not __package__:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from contextlib import suppress
+import _bootstrap  # noqa: F401
 
-with suppress(Exception):
-    from dotenv import load_dotenv
-
-    load_dotenv()
-from integrations.supabase_recommendation import (
-    refresh_global_tracking_prices,
-    refresh_tracking_prices_with_tickflow_realtime,
+from workflows.recommendation_tracking_reprice_job import (
+    RecommendationRepriceRequest,
+    run_recommendation_reprice_job,
 )
-from integrations.supabase_tail_buy import refresh_tail_buy_prices_with_tickflow_realtime
-
-TZ = ZoneInfo("Asia/Shanghai")
 
 
-def _now() -> str:
-    return datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _log(msg: str, logs_path: str | None = None) -> None:
-    line = f"[{_now()}] {msg}"
-    print(line, flush=True)
-    if logs_path:
-        os.makedirs(os.path.dirname(logs_path) or ".", exist_ok=True)
-        with open(logs_path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-
-
-def main() -> int:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="形态复盘价格回填任务（Tickflow 实时报价）")
     parser.add_argument("--logs", default="", help="日志文件路径（可选）")
     parser.add_argument("--market", default="cn", choices=["cn", "us", "hk"], help="市场（默认 cn）")
-    args = parser.parse_args()
-    logs_path = str(args.logs or "").strip() or None
-    market = args.market
+    return parser.parse_args()
 
-    _log(f"开始执行 recommendation tracking 回填任务 market={market}", logs_path)
-    try:
-        if market == "cn":
-            summary = refresh_tracking_prices_with_tickflow_realtime()
-            try:
-                tail_summary = refresh_tail_buy_prices_with_tickflow_realtime()
-                _log(
-                    "尾盘表价格刷新完成: "
-                    f"rows_total={tail_summary.get('rows_total', 0)}, "
-                    f"rows_updated={tail_summary.get('rows_updated', 0)}, "
-                    f"codes_no_data={tail_summary.get('codes_no_data', 0)}, "
-                    f"schema_missing={tail_summary.get('schema_missing', False)}",
-                    logs_path,
-                )
-            except Exception as tail_exc:
-                _log(f"尾盘表价格刷新失败（recommendation 主任务已完成）: {tail_exc}", logs_path)
-        else:
-            summary = refresh_global_tracking_prices(market)
-    except Exception as e:
-        _log(f"任务失败: {e}", logs_path)
-        return 1
 
-    _log(
-        "任务完成: "
-        f"rows_total={summary.get('rows_total', 0)}, "
-        f"rows_updated={summary.get('rows_updated', 0)}, "
-        f"rows_skipped={summary.get('rows_skipped', 0)}, "
-        f"codes_total={summary.get('codes_total', 0)}, "
-        f"codes_no_data={summary.get('codes_no_data', 0)}, "
-        f"latest_trade_date={summary.get('latest_trade_date', '') or '-'}",
-        logs_path,
-    )
-    return 0
+def main() -> int:
+    args = parse_args()
+    return run_recommendation_reprice_job(RecommendationRepriceRequest(logs_path=args.logs, market=args.market))
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

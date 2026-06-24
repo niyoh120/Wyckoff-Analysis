@@ -85,72 +85,108 @@ def build_position_weight_frame(
     The output follows wbt's contract: ``dt, symbol, weight, price``.  It is an
     end-of-day target-weight approximation for audit/reporting.  Execution
     details such as T+1 entry, stop-loss, take-profit, and limit-up/limit-down
-    constraints remain handled by ``scripts.backtest_runner`` before this step.
+    constraints remain handled by the core replay engine before this step.
     """
 
+    empty = _empty_weight_frame()
     if not records:
-        return pd.DataFrame(columns=["dt", "symbol", "weight", "price"])
+        return empty
 
     window_dates = [d for d in trade_dates if start_dt <= d <= end_dt]
     if not window_dates:
-        return pd.DataFrame(columns=["dt", "symbol", "weight", "price"])
+        return empty
 
+    positions = _position_windows(records, trade_dates)
+    if not positions:
+        return empty
+
+    symbols = sorted({p["code"] for p in positions})
+    rows = _weight_rows(
+        symbols=symbols,
+        window_dates=window_dates,
+        pos_by_day=_active_positions_by_day(positions, window_dates),
+        close_maps=_symbol_close_maps(symbols, all_df_map, ohlc_cache),
+    )
+
+    if not rows:
+        return empty
+    return pd.DataFrame(rows).sort_values(["symbol", "dt"]).reset_index(drop=True)
+
+
+def _empty_weight_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=["dt", "symbol", "weight", "price"])
+
+
+def _position_windows(records: list[Any], trade_dates: list[date]) -> list[dict[str, Any]]:
     positions: list[dict[str, Any]] = []
     for rec in records:
         code = str(_record_get(rec, "code", "") or "").strip()
         if not code:
             continue
+        entry_date = _coerce_date(_record_get(rec, "entry_date"))
         signal_date = _coerce_date(_record_get(rec, "signal_date"))
         exit_date = _coerce_date(_record_get(rec, "exit_date"))
-        entry_date = _coerce_date(_record_get(rec, "entry_date"))
         if entry_date is None and signal_date is not None:
             entry_date = _next_trade_date(trade_dates, signal_date)
-        if entry_date is None or exit_date is None or exit_date <= entry_date:
-            continue
-        positions.append({"code": code, "entry_date": entry_date, "exit_date": exit_date})
+        if entry_date is not None and exit_date is not None and exit_date > entry_date:
+            positions.append({"code": code, "entry_date": entry_date, "exit_date": exit_date})
+    return positions
 
-    if not positions:
-        return pd.DataFrame(columns=["dt", "symbol", "weight", "price"])
 
-    symbols = sorted({p["code"] for p in positions})
+def _active_positions_by_day(
+    positions: list[dict[str, Any]], window_dates: list[date]
+) -> dict[date, list[dict[str, Any]]]:
     pos_by_day: dict[date, list[dict[str, Any]]] = {}
     for day in window_dates:
-        # wbt applies the weight at t to the return from t -> t+1.  Therefore a
-        # position is weighted on entry_date <= t < exit_date, and the exit row
-        # carries weight=0 while still providing the close price for liquidation.
         active = [p for p in positions if p["entry_date"] <= day < p["exit_date"]]
         if active:
             pos_by_day[day] = active
+    return pos_by_day
 
+
+def _symbol_close_maps(
+    symbols: list[str],
+    all_df_map: dict[str, pd.DataFrame],
+    ohlc_cache: dict[str, dict[date, tuple[float, float, float, float]]],
+) -> dict[str, dict[date, float]]:
     close_maps: dict[str, dict[date, float]] = {}
     for code in symbols:
-        from_cache = {d: float(v[3]) for d, v in (ohlc_cache.get(code) or {}).items() if v is not None and len(v) >= 4}
-        close_maps[code] = from_cache or _close_map_from_df(all_df_map.get(code))
+        cached = {d: float(v[3]) for d, v in (ohlc_cache.get(code) or {}).items() if v is not None and len(v) >= 4}
+        close_maps[code] = cached or _close_map_from_df(all_df_map.get(code))
+    return close_maps
 
+
+def _weight_rows(
+    *,
+    symbols: list[str],
+    window_dates: list[date],
+    pos_by_day: dict[date, list[dict[str, Any]]],
+    close_maps: dict[str, dict[date, float]],
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for code in symbols:
-        close_map = close_maps.get(code, {})
-        last_price: float | None = None
-        for day in window_dates:
-            if day in close_map:
-                last_price = close_map[day]
-            if last_price is None or last_price <= 0:
-                continue
-            active = pos_by_day.get(day, [])
-            n_active = len(active)
-            weight = sum(1.0 / n_active for p in active if p["code"] == code) if n_active else 0.0
-            rows.append(
-                {
-                    "dt": pd.Timestamp(day),
-                    "symbol": code,
-                    "weight": float(weight),
-                    "price": float(last_price),
-                }
-            )
+        rows.extend(_symbol_weight_rows(code, window_dates, pos_by_day, close_maps.get(code, {})))
+    return rows
 
-    if not rows:
-        return pd.DataFrame(columns=["dt", "symbol", "weight", "price"])
-    return pd.DataFrame(rows).sort_values(["symbol", "dt"]).reset_index(drop=True)
+
+def _symbol_weight_rows(
+    code: str,
+    window_dates: list[date],
+    pos_by_day: dict[date, list[dict[str, Any]]],
+    close_map: dict[date, float],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    last_price: float | None = None
+    for day in window_dates:
+        if day in close_map:
+            last_price = close_map[day]
+        if last_price is None or last_price <= 0:
+            continue
+        active = pos_by_day.get(day, [])
+        n_active = len(active)
+        weight = sum(1.0 / n_active for p in active if p["code"] == code) if n_active else 0.0
+        rows.append({"dt": pd.Timestamp(day), "symbol": code, "weight": float(weight), "price": float(last_price)})
+    return rows
 
 
 def build_nav_weight_frame(nav_df: pd.DataFrame) -> pd.DataFrame:

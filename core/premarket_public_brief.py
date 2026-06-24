@@ -8,11 +8,10 @@ trading instructions.
 from __future__ import annotations
 
 import json
-import os
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
-
-from integrations.llm_client import call_llm, provider_fallbacks, provider_route_chain, resolve_provider_name
 
 ALLOWED_TONES = ("乐观", "谨慎乐观", "谨慎", "保守", "恶劣")
 _STOCK_CODE_RE = re.compile(r"(?<!\d)\d{6}(?!\d)")
@@ -34,6 +33,14 @@ _PROHIBITED_TERMS = (
     "推荐",
     "满仓",
 )
+PublicBriefLlmCaller = Callable[..., str]
+
+
+@dataclass(frozen=True)
+class PublicBriefLlmConfig:
+    routes: tuple[dict[str, str], ...] = ()
+    timeout_seconds: int = 45
+    max_output_tokens: int = 512
 
 
 def _safe_float(raw: Any) -> float | None:
@@ -168,14 +175,6 @@ def _system_prompt() -> str:
     )
 
 
-def _llm_routes() -> list[dict[str, str]]:
-    if os.getenv("PREMARKET_LLM_ENABLED", "1").strip().lower() in {"0", "false", "no", "off"}:
-        return []
-    provider = resolve_provider_name("PREMARKET_LLM_PROVIDER", "efficiency")
-    fallbacks = provider_fallbacks("PREMARKET_LLM_FALLBACK_PROVIDERS")
-    return provider_route_chain(provider, fallbacks)
-
-
 def generate_public_premarket_brief(
     *,
     a50: dict,
@@ -183,6 +182,8 @@ def generate_public_premarket_brief(
     regime: str,
     reasons: list[str],
     market_signal: dict | None = None,
+    llm_config: PublicBriefLlmConfig | None = None,
+    llm_caller: PublicBriefLlmCaller | None = None,
 ) -> dict[str, Any]:
     payload = build_public_premarket_payload(
         a50=a50,
@@ -193,17 +194,20 @@ def generate_public_premarket_brief(
     )
     fallback = fallback_public_brief(payload)
     user_message = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-    for route in _llm_routes():
+    config = llm_config or PublicBriefLlmConfig()
+    if llm_caller is None:
+        return fallback
+    for route in config.routes:
         try:
-            raw = call_llm(
+            raw = llm_caller(
                 provider=route["provider"],
                 model=route["model"],
                 api_key=route["api_key"],
                 base_url=route.get("base_url") or None,
                 system_prompt=_system_prompt(),
                 user_message=user_message,
-                timeout=int(os.getenv("PREMARKET_LLM_TIMEOUT", "45")),
-                max_output_tokens=512,
+                timeout=config.timeout_seconds,
+                max_output_tokens=config.max_output_tokens,
             )
             brief = _extract_json_object(raw)
             ok, validation_reasons = validate_public_brief(brief)

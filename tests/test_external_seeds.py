@@ -68,11 +68,10 @@ def test_external_seed_upsert_rejects_cli_context(monkeypatch):
         supabase_external_seeds.upsert_external_seed_observations([{"code": "000001"}])
 
 
-def test_external_seed_signal_rows_skip_already_selected(monkeypatch):
-    import scripts.daily_job as daily_job
+def test_external_seed_signal_rows_skip_already_selected():
+    from workflows.daily_signal_observations import build_external_seed_signal_rows
 
-    monkeypatch.setattr(daily_job, "_latest_trade_date_str", lambda: "2026-06-13")
-    rows = daily_job._build_external_seed_signal_rows(
+    rows = build_external_seed_signal_rows(
         {
             "selected_for_ai": ["000001"],
             "metrics": {
@@ -82,6 +81,7 @@ def test_external_seed_signal_rows_skip_already_selected(monkeypatch):
             "name_map": {"000002": "万科A"},
         },
         "NEUTRAL",
+        trade_date="2026-06-13",
     )
 
     assert [row["code"] for row in rows] == ["000002"]

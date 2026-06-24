@@ -9,17 +9,17 @@ template fallback own the safety boundary.
 
 from __future__ import annotations
 
-import os
+import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
 
-from integrations.llm_client import call_llm
-
 EFFICIENCY_PROVIDER = "efficiency"
 DEFAULT_MAX_OUTPUT_TOKENS = 2048
+logger = logging.getLogger(__name__)
 
 _STOCK_CODE_RE = re.compile(r"(?<!\d)\d{6}(?!\d)")
 _PROHIBITED_TERMS = (
@@ -48,6 +48,7 @@ _PROHIBITED_TERMS = (
     "EXIT",
     "TRIM",
 )
+ComplianceLLMCaller = Callable[..., str]
 
 
 @dataclass(frozen=True)
@@ -57,26 +58,15 @@ class ComplianceLLMConfig:
     model: str
     base_url: str
     source: str
+    retries: int = 1
+    timeout_seconds: int = 90
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
 
 
 @dataclass(frozen=True)
 class ComplianceValidation:
     ok: bool
     reasons: tuple[str, ...] = ()
-
-
-def _bool_env(name: str, default: bool = True) -> bool:
-    raw = os.getenv(name, "")
-    if not raw:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _int_env(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, "").strip() or default)
-    except Exception:
-        return default
 
 
 def fmt_pct(value: Any) -> str:
@@ -129,24 +119,6 @@ def _etf_payload(ctx: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def resolve_compliance_llm_config() -> ComplianceLLMConfig | None:
-    """Resolve the cheap model channel from EFFICIENCY_* variables."""
-
-    efficiency_key = os.getenv("EFFICIENCY_API_KEY", "").strip()
-    efficiency_model = os.getenv("EFFICIENCY_MODEL", "").strip()
-    efficiency_base_url = os.getenv("EFFICIENCY_BASE_URL", "").strip()
-    if efficiency_key and efficiency_model and efficiency_base_url:
-        return ComplianceLLMConfig(
-            provider=EFFICIENCY_PROVIDER,
-            api_key=efficiency_key,
-            model=efficiency_model,
-            base_url=efficiency_base_url,
-            source="efficiency",
-        )
-
-    return None
-
-
 def _score_bucket(score: float) -> str:
     if score >= 0.75:
         return "高"
@@ -194,7 +166,6 @@ def build_public_payload(
     ctx = benchmark_context or {}
     df = selected_df.copy() if isinstance(selected_df, pd.DataFrame) else pd.DataFrame()
     ops_set = {str(code).strip() for code in (ops_codes or []) if str(code).strip()}
-
     payload: dict[str, Any] = {
         "trade_date": str(ctx.get("trade_date") or ctx.get("end_trade_date") or ""),
         "market": _market_payload(ctx),
@@ -210,58 +181,68 @@ def build_public_payload(
     }
 
     if not df.empty:
-        track_series = df.get("track", pd.Series(dtype=str)).astype(str).str.strip()
-        payload["style_stats"] = {
-            "trend_count": int((track_series == "Trend").sum()),
-            "accum_count": int((track_series == "Accum").sum()),
-            "unknown_count": int((~track_series.isin(["Trend", "Accum"])).sum()),
-        }
-
-        tag_series = df.get("tag", pd.Series(dtype=str)).astype(str).str.lower()
-        payload["trigger_stats"] = {
-            "sos_count": int(tag_series.str.contains("sos|点火|突破", regex=True).sum()),
-            "spring_count": int(tag_series.str.contains("spring", regex=True).sum()),
-            "lps_count": int(tag_series.str.contains("lps", regex=True).sum()),
-            "evr_count": int(tag_series.str.contains("evr", regex=True).sum()),
-        }
-
-        sec_df = df.copy()
-        if "industry" in sec_df.columns:
-            sec_df["industry"] = sec_df["industry"].astype(str).str.strip()
-        else:
-            sec_df["industry"] = ""
-        sec_df = sec_df[sec_df["industry"] != ""]
-        if not sec_df.empty:
-            priority_raw = (
-                sec_df["priority_score"]
-                if "priority_score" in sec_df.columns
-                else pd.Series([pd.NA] * len(sec_df), index=sec_df.index)
-            )
-            funnel_raw = (
-                sec_df["funnel_score"]
-                if "funnel_score" in sec_df.columns
-                else pd.Series([pd.NA] * len(sec_df), index=sec_df.index)
-            )
-            score_series = pd.to_numeric(priority_raw, errors="coerce")
-            score_series = score_series.where(score_series.notna(), pd.to_numeric(funnel_raw, errors="coerce"))
-            sec_df["score"] = score_series.fillna(0.0)
-            grouped = (
-                sec_df.groupby("industry", as_index=False)
-                .agg(sample_count=("industry", "count"), avg_score=("score", "mean"))
-                .sort_values(["sample_count", "avg_score"], ascending=[False, False])
-                .head(5)
-            )
-            payload["sector_stats"] = [
-                {
-                    "industry": str(row["industry"]),
-                    "sample_count": int(row["sample_count"]),
-                    "score_bucket": _score_bucket(float(row["avg_score"])),
-                }
-                for _, row in grouped.iterrows()
-            ]
+        payload["style_stats"] = _style_stats(df)
+        payload["trigger_stats"] = _trigger_stats(df)
+        payload["sector_stats"] = _sector_stats(df)
 
     payload["risk_flags"] = _risk_flags(payload)
     return payload
+
+
+def _style_stats(df: pd.DataFrame) -> dict[str, int]:
+    track_series = df.get("track", pd.Series(dtype=str)).astype(str).str.strip()
+    return {
+        "trend_count": int((track_series == "Trend").sum()),
+        "accum_count": int((track_series == "Accum").sum()),
+        "unknown_count": int((~track_series.isin(["Trend", "Accum"])).sum()),
+    }
+
+
+def _trigger_stats(df: pd.DataFrame) -> dict[str, int]:
+    tag_series = df.get("tag", pd.Series(dtype=str)).astype(str).str.lower()
+    return {
+        "sos_count": int(tag_series.str.contains("sos|点火|突破", regex=True).sum()),
+        "spring_count": int(tag_series.str.contains("spring", regex=True).sum()),
+        "lps_count": int(tag_series.str.contains("lps", regex=True).sum()),
+        "evr_count": int(tag_series.str.contains("evr", regex=True).sum()),
+    }
+
+
+def _sector_stats(df: pd.DataFrame) -> list[dict[str, Any]]:
+    industry = _text_series(df, "industry")
+    industry = industry[industry != ""]
+    if industry.empty:
+        return []
+
+    score = _candidate_score_series(df).reindex(industry.index).fillna(0.0)
+    grouped = (
+        pd.DataFrame({"industry": industry, "score": score})
+        .groupby("industry", as_index=False)
+        .agg(sample_count=("industry", "count"), avg_score=("score", "mean"))
+        .sort_values(["sample_count", "avg_score"], ascending=[False, False])
+        .head(5)
+    )
+    return [
+        {
+            "industry": str(row["industry"]),
+            "sample_count": int(row["sample_count"]),
+            "score_bucket": _score_bucket(float(row["avg_score"])),
+        }
+        for _, row in grouped.iterrows()
+    ]
+
+
+def _text_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series([""] * len(df), index=df.index, dtype=str)
+    return df[column].astype(str).str.strip()
+
+
+def _candidate_score_series(df: pd.DataFrame) -> pd.Series:
+    priority_raw = df["priority_score"] if "priority_score" in df.columns else pd.Series(pd.NA, index=df.index)
+    funnel_raw = df["funnel_score"] if "funnel_score" in df.columns else pd.Series(pd.NA, index=df.index)
+    score = pd.to_numeric(priority_raw, errors="coerce")
+    return score.where(score.notna(), pd.to_numeric(funnel_raw, errors="coerce"))
 
 
 def _risk_flags(payload: dict[str, Any]) -> list[str]:
@@ -499,6 +480,8 @@ def generate_compliance_brief(
     ops_codes: list[str] | None = None,
     code_name: dict[str, str] | None = None,
     rag_veto_count: int = 0,
+    llm_config: ComplianceLLMConfig | None = None,
+    llm_caller: ComplianceLLMCaller | None = None,
 ) -> str:
     payload = build_public_payload(
         benchmark_context=benchmark_context,
@@ -507,16 +490,12 @@ def generate_compliance_brief(
         rag_veto_count=rag_veto_count,
     )
     fallback = render_compliance_fallback(payload)
-    if not _bool_env("STEP3_COMPLIANCE_LLM_ENABLED", True):
-        return fallback
-
-    llm_cfg = resolve_compliance_llm_config()
-    if llm_cfg is None:
+    if llm_config is None or llm_caller is None:
         return fallback
 
     forbidden_names = list((code_name or {}).values())
-    retries = max(_int_env("STEP3_COMPLIANCE_MAX_RETRIES", 1), 0)
-    max_output_tokens = max(_int_env("STEP3_COMPLIANCE_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS), 512)
+    retries = max(int(llm_config.retries), 0)
+    max_output_tokens = max(int(llm_config.max_output_tokens), 512)
     user_message = _compliance_user_message(payload)
     last_reasons: tuple[str, ...] = ()
     for attempt in range(retries + 1):
@@ -524,27 +503,30 @@ def generate_compliance_brief(
         if attempt > 0 and last_reasons:
             prompt += "\n上一版未通过合规校验，原因：" + "，".join(last_reasons) + "。请重写并严格避开。"
         try:
-            text = call_llm(
-                provider=llm_cfg.provider,
-                model=llm_cfg.model,
-                api_key=llm_cfg.api_key,
+            text = llm_caller(
+                provider=llm_config.provider,
+                model=llm_config.model,
+                api_key=llm_config.api_key,
                 system_prompt=prompt,
                 user_message=user_message,
-                base_url=llm_cfg.base_url,
-                timeout=90,
+                base_url=llm_config.base_url,
+                timeout=llm_config.timeout_seconds,
                 max_output_tokens=max_output_tokens,
             ).strip()
         except Exception as exc:
-            print(f"[step3][compliance] {llm_cfg.source} 生成失败: {exc}")
+            logger.warning("[step3][compliance] %s 生成失败: %s", llm_config.source, exc)
             return fallback
         validation = validate_compliance_report(text, forbidden_names=forbidden_names)
         if validation.ok:
-            print(f"[step3][compliance] 使用 {llm_cfg.source} 模型生成合规简报: {llm_cfg.model}")
+            logger.info("[step3][compliance] 使用 %s 模型生成合规简报: %s", llm_config.source, llm_config.model)
             return text.rstrip() + "\n"
         last_reasons = validation.reasons
-        print(
-            f"[step3][compliance] 合规校验失败: attempt={attempt + 1}/{retries + 1}, reasons={','.join(last_reasons)}"
+        logger.warning(
+            "[step3][compliance] 合规校验失败: attempt=%s/%s, reasons=%s",
+            attempt + 1,
+            retries + 1,
+            ",".join(last_reasons),
         )
 
-    print("[step3][compliance] 已降级为确定性模板")
+    logger.info("[step3][compliance] 已降级为确定性模板")
     return fallback

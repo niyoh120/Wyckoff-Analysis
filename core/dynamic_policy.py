@@ -2,24 +2,40 @@
 
 from __future__ import annotations
 
-import os
+from dataclasses import dataclass
 from statistics import mean
 from typing import Any
 
+from core.ai_candidate_allocation import fit_ai_candidate_quotas
 from core.signal_feedback import BLOCKED_REGISTRY_STATUSES, normalize_signal_type, signal_track
-from core.wyckoff_engine import fit_ai_candidate_quotas
 
 
-def dynamic_policy_mode() -> str:
-    mode = os.getenv("FUNNEL_DYNAMIC_POLICY", "off").strip().lower()
+@dataclass(frozen=True)
+class DynamicPolicyConfig:
+    mode: str = "off"
+    horizon_days: int = 5
+
+    def normalized_mode(self) -> str:
+        mode = str(self.mode or "off").strip().lower()
+        return mode if mode in {"off", "shadow", "on"} else "off"
+
+    def normalized_horizon(self) -> int:
+        try:
+            return max(int(self.horizon_days), 1)
+        except (TypeError, ValueError):
+            return 5
+
+
+DEFAULT_DYNAMIC_POLICY_CONFIG = DynamicPolicyConfig()
+
+
+def dynamic_policy_mode(config: DynamicPolicyConfig | None = None) -> str:
+    mode = (config or DEFAULT_DYNAMIC_POLICY_CONFIG).normalized_mode()
     return mode if mode in {"off", "shadow", "on"} else "off"
 
 
-def dynamic_policy_horizon() -> int:
-    try:
-        return max(int(float(os.getenv("FUNNEL_DYNAMIC_POLICY_HORIZON", "5"))), 1)
-    except (TypeError, ValueError):
-        return 5
+def dynamic_policy_horizon(config: DynamicPolicyConfig | None = None) -> int:
+    return (config or DEFAULT_DYNAMIC_POLICY_CONFIG).normalized_horizon()
 
 
 def _float(raw: Any, default: float = 1.0) -> float:
@@ -81,9 +97,10 @@ def build_signal_weight_map(
     *,
     regime: str = "NEUTRAL",
     horizon_days: int | None = None,
+    config: DynamicPolicyConfig | None = None,
 ) -> dict[str, float]:
     weights: dict[str, float] = {}
-    horizon = dynamic_policy_horizon() if horizon_days is None else max(int(horizon_days), 1)
+    horizon = dynamic_policy_horizon(config) if horizon_days is None else max(int(horizon_days), 1)
     for signal_type, row in _latest_health_by_signal(health_rows, regime, horizon).items():
         weights[signal_type] = max(_float(row.get("weight_multiplier")), 0.0)
     for row in registry_rows or []:

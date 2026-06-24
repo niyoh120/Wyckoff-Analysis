@@ -91,9 +91,9 @@ class FallbackProvider(LLMProvider):
     def _get_provider(self, model_id: str) -> LLMProvider:
         if model_id not in self._providers:
             cfg = next(c for c in self._configs if c["id"] == model_id)
-            from cli._provider_factory import _create_provider, provider_config_kwargs
+            from cli.provider_factory import create_provider, provider_config_kwargs
 
-            provider, err = _create_provider(**provider_config_kwargs(cfg))
+            provider, err = create_provider(**provider_config_kwargs(cfg))
             if err:
                 raise RuntimeError(err)
             self._providers[model_id] = provider

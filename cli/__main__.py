@@ -32,6 +32,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -60,7 +61,7 @@ _logging.basicConfig(level=_logging.CRITICAL)
 # ---------------------------------------------------------------------------
 
 
-from cli._provider_factory import _create_provider, provider_config_kwargs  # noqa: F401
+from cli.provider_factory import create_provider, provider_config_kwargs  # noqa: F401
 
 
 def _get_version() -> str:
@@ -150,7 +151,7 @@ def _cmd_update(_args):
 
 
 def _cmd_auth(args):
-    from cli.auth import _load_session, login, logout, restore_session
+    from cli.auth import load_session, login, logout, restore_session
 
     sub = args.auth_cmd
 
@@ -160,7 +161,7 @@ def _cmd_auth(args):
         return
 
     if sub == "status":
-        session = _load_session()
+        session = load_session()
         if not session:
             print("未登录")
             return
@@ -510,7 +511,7 @@ def _cmd_portfolio(args):
 def _cmd_signal(args):
     status = args.status or "all"
     limit = args.limit or 30
-    from agents.chat_tools import query_history
+    from agents.history_tools import query_history
 
     result = query_history(source="signal", status=status, limit=limit)
     if result.get("error"):
@@ -536,7 +537,7 @@ def _cmd_signal(args):
 
 def _cmd_recommend(args):
     limit = args.limit or 20
-    from agents.chat_tools import query_history
+    from agents.history_tools import query_history
 
     result = query_history(source="recommendation", limit=limit)
     if result.get("error"):
@@ -574,7 +575,7 @@ def _cmd_screen(args):
     init_db()
     board = args.board or "all"
     print(f"正在执行全市场漏斗筛选 (board={board}) ...")
-    from scripts.wyckoff_funnel import run_funnel_job
+    from workflows.wyckoff_funnel import run_funnel_job
 
     try:
         triggers, metrics = run_funnel_job()
@@ -609,20 +610,22 @@ def _cmd_backtest(args):
     end_dt = date.today() - timedelta(days=1)
     start_dt = end_dt - timedelta(days=args.months * 30)
     print(f"正在回测 {start_dt} → {end_dt}  hold_days={args.hold_days} ...")
-    from scripts.backtest_runner import run_backtest
+    from workflows.backtest import BacktestWorkflowRequest, run_backtest_request
 
     try:
-        df, summary = run_backtest(
-            start_dt=start_dt,
-            end_dt=end_dt,
-            hold_days=args.hold_days,
-            top_n=args.top_n,
-            board="all",
-            sample_size=0,
-            trading_days=60,
-            max_workers=4,
-            cash_portfolio=True,
-            portfolio_styles="confirmation_only",
+        df, summary = run_backtest_request(
+            BacktestWorkflowRequest(
+                start_dt=start_dt,
+                end_dt=end_dt,
+                hold_days=args.hold_days,
+                top_n=args.top_n,
+                board="all",
+                sample_size=0,
+                trading_days=60,
+                max_workers=4,
+                cash_portfolio=True,
+                portfolio_styles="confirmation_only",
+            )
         )
     except Exception as e:
         print(f"✗ 回测失败: {e}")
@@ -665,7 +668,7 @@ def _cmd_report(args):
 
     symbols_info = [{"code": c, "name": "", "tag": ""} for c in codes]
     print(f"正在生成 AI 研报 ({len(codes)} 只) ...")
-    from scripts.step3_batch_report import run as run_report
+    from workflows.step3_batch_report import run as run_report
 
     try:
         result = run_report(
@@ -1247,18 +1250,11 @@ def _cmd_cleanup(args):
 # ---------------------------------------------------------------------------
 
 
-def _cmd_tui(_args=None):
-    _check_update_async()
-
-    from cli.tools import ToolRegistry
-
-    tools = ToolRegistry()
-
-    session_expired = False
+def _restore_tui_session(tools) -> bool:
     try:
-        from cli.auth import _load_session, restore_session
+        from cli.auth import load_session, restore_session
 
-        had_session = _load_session() is not None
+        had_session = load_session() is not None
         session = restore_session()
         if session:
             tools.state.update(
@@ -1270,11 +1266,13 @@ def _cmd_tui(_args=None):
                 }
             )
         elif had_session:
-            session_expired = True
+            return True
     except Exception:
         logger.warning("session restore failed", exc_info=True)
+    return False
 
-    # 初始化本地 SQLite + 后台同步
+
+def _init_tui_local_services() -> None:
     try:
         from integrations.local_db import init_db, prune_memories
 
@@ -1286,37 +1284,37 @@ def _cmd_tui(_args=None):
     except Exception:
         logger.warning("local db init or sync failed", exc_info=True)
 
-    from core.prompts import CHAT_AGENT_SYSTEM_PROMPT
 
-    system_prompt = CHAT_AGENT_SYSTEM_PROMPT
+def _load_tui_config_env() -> None:
+    from cli.auth import load_config
 
-    state = {"provider": None, "provider_name": "", "model": "", "api_key": "", "base_url": ""}
+    cfg = load_config()
+    for key, env_key in [("tushare_token", "TUSHARE_TOKEN"), ("tickflow_api_key", "TICKFLOW_API_KEY")]:
+        value = str(cfg.get(key, "") or "").strip()
+        if value:
+            os.environ.setdefault(env_key, value)
 
-    try:
-        from cli.auth import load_config
 
-        _cfg = load_config()
-        for _k, _env in [("tushare_token", "TUSHARE_TOKEN"), ("tickflow_api_key", "TICKFLOW_API_KEY")]:
-            _v = str(_cfg.get(_k, "") or "").strip()
-            if _v:
-                os.environ.setdefault(_env, _v)
-    except Exception:
-        logger.debug("config env vars load failed", exc_info=True)
+def _seed_model_env(configs: list[dict[str, Any]]) -> None:
+    env_map = {"gemini": "GEMINI_API_KEY", "claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+    for cfg in configs:
+        env_key = env_map.get(cfg.get("provider_name", ""))
+        if env_key and cfg.get("api_key"):
+            os.environ.setdefault(env_key, cfg["api_key"])
 
+
+def _build_tui_provider_state() -> dict[str, Any]:
+    state: dict[str, Any] = {"provider": None, "provider_name": "", "model": "", "api_key": "", "base_url": ""}
     try:
         from cli.auth import load_default_model_id, load_model_configs
 
         configs = load_model_configs()
         default_id = load_default_model_id()
         if configs and default_id:
-            env_map = {"gemini": "GEMINI_API_KEY", "claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
-            for cfg in configs:
-                ek = env_map.get(cfg.get("provider_name", ""))
-                if ek and cfg.get("api_key"):
-                    os.environ.setdefault(ek, cfg["api_key"])
+            _seed_model_env(configs)
             default_cfg = next((c for c in configs if c["id"] == default_id), configs[0])
             if len(configs) == 1:
-                provider, err = _create_provider(**provider_config_kwargs(default_cfg))
+                provider, err = create_provider(**provider_config_kwargs(default_cfg))
                 if not err:
                     state.update(default_cfg)
                     state["provider"] = provider
@@ -1328,11 +1326,10 @@ def _cmd_tui(_args=None):
                 state["provider"] = FallbackProvider(configs, default_id, fallback_id=load_fallback_model_id())
     except Exception:
         logger.warning("model provider init failed", exc_info=True)
+    return state
 
-    if state["provider"]:
-        tools.set_provider(state["provider"])
 
-    # 后台启动 dashboard 并打开浏览器
+def _start_tui_dashboard() -> None:
     import threading
     import webbrowser
 
@@ -1347,6 +1344,24 @@ def _cmd_tui(_args=None):
     threading.Thread(target=_dash_bg, daemon=True).start()
     webbrowser.open("http://127.0.0.1:8765")
 
+
+def _cleanup_tui_runtime() -> None:
+    try:
+        import baostock as bs
+
+        bs.logout()
+    except (Exception, KeyboardInterrupt):
+        logger.debug("baostock logout failed", exc_info=True)
+    try:
+        _devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(_devnull, 1)
+        os.dup2(_devnull, 2)
+        os.close(_devnull)
+    except Exception:
+        logger.debug("devnull redirect failed", exc_info=True)
+
+
+def _run_tui_app(tools, state: dict[str, Any], system_prompt: str, session_expired: bool) -> None:
     from cli.tui import WyckoffTUI
 
     app = WyckoffTUI(
@@ -1361,19 +1376,27 @@ def _cmd_tui(_args=None):
     except KeyboardInterrupt:
         logger.debug("TUI interrupted by user", exc_info=True)
     finally:
-        try:
-            import baostock as bs
+        _cleanup_tui_runtime()
 
-            bs.logout()
-        except (Exception, KeyboardInterrupt):
-            logger.debug("baostock logout failed", exc_info=True)
-        try:
-            _devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(_devnull, 1)
-            os.dup2(_devnull, 2)
-            os.close(_devnull)
-        except Exception:
-            logger.debug("devnull redirect failed", exc_info=True)
+
+def _cmd_tui(_args=None):
+    _check_update_async()
+
+    from cli.tools import ToolRegistry
+    from core.prompts import CHAT_AGENT_SYSTEM_PROMPT
+
+    tools = ToolRegistry()
+    session_expired = _restore_tui_session(tools)
+    _init_tui_local_services()
+    try:
+        _load_tui_config_env()
+    except Exception:
+        logger.debug("config env vars load failed", exc_info=True)
+    state = _build_tui_provider_state()
+    if state["provider"]:
+        tools.set_provider(state["provider"])
+    _start_tui_dashboard()
+    _run_tui_app(tools, state, CHAT_AGENT_SYSTEM_PROMPT, session_expired)
 
 
 # ---------------------------------------------------------------------------
@@ -1430,9 +1453,7 @@ def _dispatch_command(args) -> None:
         _cmd_tui(args)
 
 
-def main():
-    _set_terminal_title("Wyckoff-Analysis")
-
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wyckoff",
         description="威科夫终端读盘室 — Wyckoff 量价分析 Agent",
@@ -1440,15 +1461,20 @@ def main():
     parser.add_argument("-v", "--version", action="version", version=f"wyckoff {_get_version()}")
     sub = parser.add_subparsers(dest="cmd")
 
-    # wyckoff update
     sub.add_parser("update", help="升级到最新版")
+    _add_auth_model_config_parsers(sub)
+    _add_portfolio_history_parsers(sub)
+    _add_analysis_job_parsers(sub)
+    _add_session_debug_parsers(sub)
+    _add_maintenance_parsers(sub)
+    return parser
 
-    # wyckoff auth
+
+def _add_auth_model_config_parsers(sub) -> None:
     p_auth = sub.add_parser("auth", help="登录/登出/状态")
     p_auth.add_argument("auth_cmd", help="email 或 logout/status")
     p_auth.add_argument("password", nargs="?", default="", help="密码（可省略，交互输入）")
 
-    # wyckoff model
     p_model = sub.add_parser("model", help="模型管理")
     p_model.add_argument("model_cmd", nargs="?", default="list", help="list/add/set/rm/default/fallback/cost/usage")
     p_model.add_argument("model_id", nargs="?", default="", help="模型 ID")
@@ -1466,7 +1492,8 @@ def main():
     p_config.add_argument("config_cmd", nargs="?", default="", help="tushare/tickflow")
     p_config.add_argument("value", nargs="?", default="", help="值（可省略，交互输入）")
 
-    # wyckoff portfolio
+
+def _add_portfolio_history_parsers(sub) -> None:
     p_port = sub.add_parser("portfolio", help="持仓管理", aliases=["pf"])
     p_port.add_argument("portfolio_cmd", nargs="?", default="list", help="list/add/rm/cash")
     p_port.add_argument("code", nargs="?", default="", help="股票代码 (add/rm 时)")
@@ -1485,7 +1512,8 @@ def main():
     p_rec = sub.add_parser("recommend", help="威科夫形态复盘", aliases=["rec"])
     p_rec.add_argument("-n", "--limit", type=int, default=20, help="返回条数")
 
-    # wyckoff dashboard / dash
+
+def _add_analysis_job_parsers(sub) -> None:
     p_dash = sub.add_parser("dashboard", help="启动本地可视化面板", aliases=["dash"])
     p_dash.add_argument("--port", type=int, default=8765, help="HTTP 端口 (默认 8765)")
 
@@ -1506,6 +1534,8 @@ def main():
     # wyckoff mcp
     sub.add_parser("mcp", help="启动 MCP Server")
 
+
+def _add_session_debug_parsers(sub) -> None:
     _add_memory_parser(sub)
 
     # wyckoff log
@@ -1549,6 +1579,8 @@ def main():
     p_diag.add_argument("--out", default="", help="输出路径；默认 ~/.wyckoff/diagnostics/")
     p_diag.add_argument("--format", choices=["zip", "json"], default="zip", help="输出格式")
 
+
+def _add_maintenance_parsers(sub) -> None:
     # wyckoff sync
     p_sync = sub.add_parser("sync", help="同步 Supabase → 本地 SQLite")
     p_sync.add_argument("sync_cmd", nargs="?", default="", help="status: 查看同步状态")
@@ -1557,6 +1589,10 @@ def main():
     p_cleanup = sub.add_parser("cleanup", help="清理过期本地数据")
     p_cleanup.add_argument("--days", type=int, default=30, help="保留天数 (默认 30)")
 
+
+def main():
+    _set_terminal_title("Wyckoff-Analysis")
+    parser = _build_parser()
     args = parser.parse_args()
     _dispatch_command(args)
 

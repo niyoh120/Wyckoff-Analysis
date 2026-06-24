@@ -1,104 +1,27 @@
-#!/usr/bin/env python3
-"""Build structured market universe metadata from executable txt pools."""
+"""CLI entrypoint for market universe metadata generation."""
 
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
-from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_UNIVERSE_DIR = ROOT / "data" / "market_universes"
+import _bootstrap  # noqa: F401
 
-
-def _clean_symbol_lines(path: Path) -> list[str]:
-    out: list[str] = []
-    if not path.is_file():
-        return out
-    for line in path.read_text(encoding="utf-8").splitlines():
-        text = line.split("#", 1)[0].strip().upper()
-        if text:
-            out.append(text)
-    return sorted(dict.fromkeys(out))
+from workflows.market_universe_meta import (
+    DEFAULT_UNIVERSE_DIR,
+    MarketUniverseMetaRequest,
+    run_market_universe_meta_build,
+)
 
 
-def _market_entry(symbol: str, market: str) -> dict[str, Any]:
-    code = symbol.split(".", 1)[0]
-    currency = "USD" if market == "us" else "HKD"
-    return {
-        "symbol": symbol,
-        "code": code,
-        "name": "",
-        "market": market,
-        "asset_type": "stock",
-        "currency": currency,
-        "active": True,
-    }
-
-
-def _cn_fund_symbol(code: str) -> str:
-    if code.startswith(("15", "16", "18")):
-        return f"{code}.SZ"
-    return f"{code}.SH"
-
-
-def _etf_entries(path: Path) -> list[dict[str, Any]]:
-    group = ""
-    out: list[dict[str, Any]] = []
-    if not path.is_file():
-        return out
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        stripped = raw.strip()
-        if stripped.startswith("# ----") and stripped.endswith("----"):
-            group = stripped.strip("#- ")
-            continue
-        text = stripped.split("#", 1)[0].strip()
-        if not text:
-            continue
-        parts = text.split(None, 1)
-        if len(parts) != 2 or len(parts[0]) != 6 or not parts[0].isdigit():
-            continue
-        code, sector_tag = parts
-        out.append(
-            {
-                "symbol": _cn_fund_symbol(code),
-                "code": code,
-                "name": f"{sector_tag}ETF",
-                "market": "cn",
-                "asset_type": "etf",
-                "currency": "CNY",
-                "sector_tag": sector_tag,
-                "group": group,
-                "active": True,
-            }
-        )
-    return out
-
-
-def build_metadata(universe_dir: Path) -> dict[str, list[dict[str, Any]]]:
-    return {
-        "us": [_market_entry(symbol, "us") for symbol in _clean_symbol_lines(universe_dir / "us.txt")],
-        "hk": [_market_entry(symbol, "hk") for symbol in _clean_symbol_lines(universe_dir / "hk.txt")],
-        "etf_cn": _etf_entries(universe_dir / "etf_cn.txt"),
-    }
-
-
-def _write_json(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build market universe metadata JSON files.")
+    parser.add_argument("--universe-dir", type=Path, default=DEFAULT_UNIVERSE_DIR)
+    return parser.parse_args()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build market universe metadata JSON files.")
-    parser.add_argument("--universe-dir", type=Path, default=DEFAULT_UNIVERSE_DIR)
-    args = parser.parse_args()
-    universe_dir = args.universe_dir.resolve()
-    meta = build_metadata(universe_dir)
-    for key, rows in meta.items():
-        out = universe_dir / f"{key}_meta.json"
-        _write_json(out, rows)
-        print(f"[meta] wrote {out} rows={len(rows)}")
-    return 0
+    return run_market_universe_meta_build(MarketUniverseMetaRequest(universe_dir=parse_args().universe_dir))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from types import SimpleNamespace
+
+from core.tail_buy.models import DECISION_BUY, TailBuyCandidate
+from workflows import tail_buy_delivery as delivery
+from workflows.tail_buy_runtime import TailBuyCandidateRun
+from workflows.tail_buy_utils import TZ
+
+
+def _candidate() -> TailBuyCandidate:
+    return TailBuyCandidate(
+        code="000001",
+        name="平安银行",
+        signal_date="2026-06-21",
+        status="confirmed",
+        signal_type="candidate",
+        signal_score=81.0,
+        rule_score=72.5,
+        rule_decision=DECISION_BUY,
+        rule_reasons=["站稳VWAP", "尾盘放量"],
+        final_decision=DECISION_BUY,
+        priority_score=88.0,
+        features={"last_close": 12.34, "vwap": 12.1},
+    )
+
+
+def test_resolve_market_reminder_prefers_trade_date_row(monkeypatch) -> None:
+    monkeypatch.setattr(
+        delivery,
+        "load_market_signal_daily",
+        lambda _date: {"benchmark_regime": "risk_on", "premarket_regime": "neutral", "banner_message": "强势\n震荡"},
+    )
+    monkeypatch.setattr(delivery, "load_latest_market_signal_daily", lambda: None)
+
+    assert delivery.resolve_market_reminder("2026-06-22") == "RISK_ON/NEUTRAL | 强势 震荡"
+
+
+def test_tail_buy_persist_row_serializes_reasons_and_features() -> None:
+    started_at = datetime(2026, 6, 22, 14, 0, tzinfo=TZ)
+
+    row = delivery.tail_buy_persist_row(_candidate(), started_at)
+
+    assert row["initial_price"] == 12.34
+    assert json.loads(row["rule_reasons"]) == ["站稳VWAP", "尾盘放量"]
+    assert json.loads(row["features_json"])["vwap"] == 12.1
+
+
+def test_send_tail_buy_notifications_falls_back_from_rich_card(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setenv("FEISHU_TAIL_BUY_RICH_CARD", "1")
+    monkeypatch.setattr(delivery, "send_tail_buy_card", lambda *_args, **_kwargs: calls.append("rich") and False)
+    monkeypatch.setattr(delivery, "send_feishu_notification", lambda *_args, **_kwargs: calls.append("text") or True)
+    monkeypatch.setattr(delivery, "send_to_telegram", lambda *_args, **_kwargs: calls.append("tg") or True)
+    monkeypatch.setattr(delivery, "log_line", lambda *_args, **_kwargs: None)
+
+    result = delivery.send_tail_buy_notifications(
+        feishu_webhook="https://feishu.example",
+        tg_bot_token="tg-token",
+        tg_chat_id="chat",
+        title="Tail Buy",
+        report="report",
+    )
+
+    assert result == (True, True)
+    assert calls == ["rich", "text", "tg"]
+
+
+def test_send_tail_buy_report_builds_buy_only_report(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_markdown(**kwargs):
+        captured.update(kwargs)
+        return "markdown"
+
+    monkeypatch.setattr(delivery, "build_tail_buy_markdown", fake_markdown)
+    monkeypatch.setattr(delivery, "send_tail_buy_notifications", lambda **_kwargs: (True, False))
+
+    config = SimpleNamespace(
+        started_at=datetime(2026, 6, 22, 14, 0, tzinfo=TZ),
+        feishu_webhook="feishu",
+        tg_bot_token="",
+        tg_chat_id="",
+        logs_path="",
+    )
+    run_result = TailBuyCandidateRun([_candidate()], 1, 1, {"efficiency:model": 1}, "2026-06-22 14:00:00")
+
+    assert delivery.send_tail_buy_report(
+        config=config,
+        prev_trade_date="2026-06-21",
+        market_reminder="NEUTRAL",
+        candidate_source_desc="signal_pending",
+        holdings_section="holdings",
+        run_result=run_result,
+        elapsed=3.2,
+    ) == (True, False)
+    assert captured["buy_only"] is True
+    assert captured["extra_sections"] == ["holdings"]

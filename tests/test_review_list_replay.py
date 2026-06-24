@@ -5,19 +5,40 @@ from datetime import date
 
 import pandas as pd
 
-from scripts.review_list_replay import (
-    _build_focus_lines,
-    _build_report_lines,
-    _find_big_gainers,
-    _format_recommendation_history,
-    _load_today_review_codes,
-    _normalize_code6,
-    _short_code_list,
+from core.wyckoff_engine import FunnelConfig
+from workflows.review_big_gainers import find_big_gainers, load_today_review_codes
+from workflows.review_list_replay import (
+    ReplayContext,
+    classify_review_code,
+)
+from workflows.review_recommendation_lookup import format_recommendation_history, normalize_code6
+from workflows.review_report_render import (
+    build_focus_lines,
+    build_report_lines,
+    short_code_list,
 )
 
 
 def _row(code: str, name: str, stage: str) -> dict[str, str]:
     return {"code": code, "name": name, "stage": stage, "reason": ""}
+
+
+def _ctx() -> ReplayContext:
+    return ReplayContext(
+        cfg=FunnelConfig(),
+        all_symbol_set={"000001"},
+        name_map={"000001": "平安银行"},
+        market_cap_map={},
+        sector_map={},
+        df_map={"000001": pd.DataFrame({"close": [1.0, 1.1]})},
+        l1_set={"000001"},
+        l2_set={"000001"},
+        l3_set={"000001"},
+        end_trade_date="2026-04-30",
+        l2_ctx={},
+        hit_map={"000001": ["SOS（量价点火）"]},
+        blocked_exit_map={},
+    )
 
 
 def test_short_code_list_limits_output():
@@ -27,7 +48,17 @@ def test_short_code_list_limits_output():
         _row("000003", "国农科技", "L2淘汰"),
     ]
 
-    assert _short_code_list(rows, limit=2) == "000001平安银行、000002万科A、等3只"
+    assert short_code_list(rows, limit=2) == "000001平安银行、000002万科A、等3只"
+
+
+def test_classify_review_code_reports_pool_and_l4_hit():
+    name, stage, reason = classify_review_code("999999", _ctx())
+    assert (name, stage, reason) == ("999999", "池外", "不在当日主板+创业板+科创板去ST股票池")
+
+    name, stage, reason = classify_review_code("000001", _ctx())
+    assert name == "平安银行"
+    assert stage == "L4命中"
+    assert reason == "SOS（量价点火）"
 
 
 def test_find_big_gainers_derives_pct_from_close():
@@ -39,7 +70,7 @@ def test_find_big_gainers_derives_pct_from_close():
         }
     )
 
-    codes = _find_big_gainers({"000001": df}, {"000001": "平安银行"})
+    codes = find_big_gainers({"000001": df}, {"000001": "平安银行"})
 
     assert codes == ["000001"]
 
@@ -47,7 +78,7 @@ def test_find_big_gainers_derives_pct_from_close():
 def test_find_big_gainers_falls_back_to_pct_chg():
     df = pd.DataFrame({"date": ["2026-05-12", "2026-05-13"], "close": [10.0, 10.9], "pct_chg": [5.9, 8.2]})
 
-    codes = _find_big_gainers({"000001": df}, {"000001": "平安银行"})
+    codes = find_big_gainers({"000001": df}, {"000001": "平安银行"})
 
     assert codes == ["000001"]
 
@@ -61,28 +92,28 @@ def test_find_big_gainers_excludes_hot_previous_day():
         }
     )
 
-    codes = _find_big_gainers({"000001": df}, {"000001": "平安银行"})
+    codes = find_big_gainers({"000001": df}, {"000001": "平安银行"})
 
     assert codes == []
 
 
 def test_load_today_review_codes_falls_back_when_spot_candidates_empty(monkeypatch):
-    from integrations import data_source
+    from integrations import spot_snapshot
 
     monkeypatch.setattr(
-        data_source,
-        "_load_spot_snapshot_map",
+        spot_snapshot,
+        "load_spot_snapshot_map",
         lambda force_refresh: {"000001": {"pct_chg": 0.0}, "000002": {"pct_chg": 0.0}},
     )
     calls = []
 
-    def fake_fetch(codes, name_map, window):
+    def fake_fetch(codes, name_map, window, log=None):
         calls.append(list(codes))
         return ["000001"]
 
-    monkeypatch.setattr("scripts.review_list_replay._fetch_and_filter_review_codes", fake_fetch)
+    monkeypatch.setattr("workflows.review_big_gainers.fetch_and_filter_review_codes", fake_fetch)
 
-    codes = _load_today_review_codes(["000001", "000002"], {"000001": "平安银行", "000002": "万科A"}, object())
+    codes = load_today_review_codes(["000001", "000002"], {"000001": "平安银行", "000002": "万科A"}, object())
 
     assert codes == ["000001"]
     assert calls == [["000001", "000002"]]
@@ -99,7 +130,7 @@ def test_build_focus_lines_highlights_actionable_buckets():
         _row("000007", "全新好", "L4命中"),
     ]
 
-    lines = _build_focus_lines(rows, today=date(2026, 5, 6), previous_trade_date=date(2026, 4, 30))
+    lines = build_focus_lines(rows, today=date(2026, 5, 6), previous_trade_date=date(2026, 4, 30))
     text = "\n".join(lines)
 
     assert lines[0] == "**重点归因**"
@@ -114,8 +145,8 @@ def test_build_focus_lines_highlights_actionable_buckets():
 
 
 def test_format_recommendation_history_reports_missing_and_hits():
-    assert _normalize_code6(1) == "000001"
-    assert _format_recommendation_history("000001", {}) == "推荐记录: 此股没被推荐过"
+    assert normalize_code6(1) == "000001"
+    assert format_recommendation_history("000001", {}) == "推荐记录: 此股没被推荐过"
 
     lookup = {
         "000001": [
@@ -124,7 +155,7 @@ def test_format_recommendation_history_reports_missing_and_hits():
         ]
     }
 
-    note = _format_recommendation_history("000001", lookup)
+    note = format_recommendation_history("000001", lookup)
 
     assert "2026-04-30、2026-04-29 被推荐过" in note
     assert "累计推荐3次" in note
@@ -141,7 +172,7 @@ def test_build_report_lines_appends_recommendation_note():
         }
     ]
 
-    lines = _build_report_lines(
+    lines = build_report_lines(
         rows,
         Counter({"L2淘汰": 1}),
         today=date(2026, 5, 6),

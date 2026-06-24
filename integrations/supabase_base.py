@@ -29,7 +29,7 @@ def _resolve_credentials() -> tuple[str, str]:
     if url and key:
         return url, key
     # 内置 anon key（CLI / 无 .env 场景）
-    from core.constants import SUPABASE_ANON_KEY, SUPABASE_ANON_URL
+    from integrations.supabase_public_config import SUPABASE_ANON_KEY, SUPABASE_ANON_URL
 
     url = url or SUPABASE_ANON_URL
     key = key or SUPABASE_ANON_KEY

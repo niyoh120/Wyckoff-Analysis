@@ -87,7 +87,7 @@ function LoginPageHeader() {
   )
 }
 
-function LoginFields(props: {
+interface LoginFieldsProps {
   email: string
   password: string
   rememberEmail: boolean
@@ -95,48 +95,70 @@ function LoginFields(props: {
   onEmail: (value: string) => void
   onPassword: (value: string) => void
   onRememberEmail: (value: boolean) => void
-}) {
-  const { t } = usePreferences()
+}
+
+function LoginFields(props: LoginFieldsProps) {
   return (
     <>
-      <div>
-        <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{t('login.email')}</label>
-        <input
-          type="email"
-          value={props.email}
-          onChange={(e) => props.onEmail(e.target.value)}
-          className="w-full rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm outline-none transition-all duration-200 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-muted-foreground/50"
-          placeholder="your@email.com"
-          autoComplete="email"
-          required
-        />
-      </div>
-      <div>
-        <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{t('login.password')}</label>
-        <input
-          type="password"
-          value={props.password}
-          onChange={(e) => props.onPassword(e.target.value)}
-          className="w-full rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm outline-none transition-all duration-200 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-muted-foreground/50"
-          placeholder="••••••••"
-          autoComplete={props.isRegister ? 'new-password' : 'current-password'}
-          required
-          minLength={6}
-        />
-      </div>
-      <label className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/10 hover:bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground transition-colors cursor-pointer">
-        <input
-          type="checkbox"
-          checked={props.rememberEmail}
-          onChange={(e) => props.onRememberEmail(e.target.checked)}
-          className="mt-0.5 h-4 w-4 accent-primary cursor-pointer"
-        />
-        <span>
-          <span className="block font-semibold text-foreground">{t('login.rememberAccount')}</span>
-          <span className="block text-[11px] mt-0.5 text-muted-foreground/80">{t('login.passwordManagerHint')}</span>
-        </span>
-      </label>
+      <LoginEmailField value={props.email} onInput={props.onEmail} />
+      <LoginPasswordField value={props.password} isRegister={props.isRegister} onInput={props.onPassword} />
+      <RememberEmailCheckbox checked={props.rememberEmail} onChange={props.onRememberEmail} />
     </>
+  )
+}
+
+function LoginEmailField({ value, onInput }: { value: string; onInput: (value: string) => void }) {
+  const { t } = usePreferences()
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{t('login.email')}</label>
+      <input
+        type="email"
+        value={value}
+        onChange={(e) => onInput(e.target.value)}
+        className="w-full rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm outline-none transition-all duration-200 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-muted-foreground/50"
+        placeholder="your@email.com"
+        autoComplete="email"
+        required
+      />
+    </div>
+  )
+}
+
+function LoginPasswordField({ value, isRegister, onInput }: { value: string; isRegister: boolean; onInput: (value: string) => void }) {
+  const { t } = usePreferences()
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{t('login.password')}</label>
+      <input
+        type="password"
+        value={value}
+        onChange={(e) => onInput(e.target.value)}
+        className="w-full rounded-xl border border-border bg-background/50 px-4 py-2.5 text-sm outline-none transition-all duration-200 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder:text-muted-foreground/50"
+        placeholder="••••••••"
+        autoComplete={isRegister ? 'new-password' : 'current-password'}
+        required
+        minLength={6}
+      />
+    </div>
+  )
+}
+
+function RememberEmailCheckbox({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
+  const { t } = usePreferences()
+  return (
+    <label className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/10 hover:bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground transition-colors cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 accent-primary cursor-pointer"
+      />
+      <span>
+        <span className="block font-semibold text-foreground">{t('login.rememberAccount')}</span>
+        <span className="block text-[11px] mt-0.5 text-muted-foreground/80">{t('login.passwordManagerHint')}</span>
+      </span>
+    </label>
   )
 }
 

@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from integrations.fetch_a_share_csv import normalize_symbols
-from tools.funnel_config import parse_bool
+from utils.env import parse_bool
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PROFILE = ROOT / "config" / "profiles" / "a_share_prod.yml"

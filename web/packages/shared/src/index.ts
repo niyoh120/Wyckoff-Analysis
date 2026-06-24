@@ -27,4 +27,12 @@ export {
   sourceLabel,
 } from './agent-value'
 export type { ValueScore, ValueSignal, ValueTone } from './agent-value'
+export {
+  formatPatternReviewDigest,
+  formatPatternReviewLine,
+  patternReviewRole,
+  PATTERN_REVIEW_EMPTY_MESSAGE,
+  PATTERN_REVIEW_SCOPE_NOTE,
+} from './pattern-review'
+export type { PatternReviewRow } from './pattern-review'
 export * from './chat-tools'

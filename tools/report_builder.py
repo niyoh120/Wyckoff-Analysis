@@ -6,9 +6,6 @@ AI 研报 prompt 构建 + 报告解析工具。
 
 from __future__ import annotations
 
-import json
-import re
-
 import pandas as pd
 
 # ── 环境变量配置 ──
@@ -33,257 +30,6 @@ _SPRINGBOARD_RULE_MAP = {
     "B": "B=放量高收突破",
     "C": "C=支撑多次测试",
 }
-
-
-# ── 报告解析工具 ──
-
-
-def _extract_json_block(text: str) -> str:
-    """从 markdown code block 或原始文本中提取 JSON 片段。"""
-    raw = (text or "").strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
-        raw = re.sub(r"\s*```$", "", raw)
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start >= 0 and end > start:
-        return raw[start : end + 1]
-    return raw
-
-
-def _normalize_structured_pool(
-    payload: dict,
-    allowed_codes: set[str],
-    code_name: dict[str, str],
-) -> dict[str, list[dict[str, str]]]:
-    """将结构化 JSON 报告规范化为 watch_pool / operation_pool 两个列表。"""
-
-    def _collect_items(keys: tuple[str, ...]) -> list[dict]:
-        out: list[dict] = []
-        for key in keys:
-            value = payload.get(key)
-            if isinstance(value, list):
-                out.extend(v for v in value if isinstance(v, dict))
-            elif isinstance(value, dict):
-                out.append(value)
-        return out
-
-    watch_raw = _collect_items(
-        (
-            "\u903b\u8f91\u7834\u4ea7",
-            "\u50a8\u5907\u8425\u5730",
-            "invalidated",
-            "building_cause",
-            "building_camp",
-        )
-    )
-    ops_raw = _collect_items(
-        (
-            "operation_pool",
-            "\u5904\u4e8e\u8d77\u8df3\u677f",
-            "on_the_springboard",
-            "springboard_pool",
-        )
-    )
-
-    watch_items: list[dict[str, str]] = []
-    op_items: list[dict[str, str]] = []
-    seen_watch: set[str] = set()
-    seen_ops: set[str] = set()
-
-    if isinstance(watch_raw, list):
-        for item in watch_raw:
-            if not isinstance(item, dict):
-                continue
-            code = str(item.get("code", "")).strip()
-            if not re.fullmatch(r"\d{6}", code) or code not in allowed_codes:
-                continue
-            if code in seen_watch:
-                continue
-            seen_watch.add(code)
-            watch_items.append(
-                {
-                    "code": code,
-                    "name": str(item.get("name", "")).strip() or code_name.get(code, code),
-                    "reason": str(item.get("reason", "")).strip(),
-                    "condition": str(item.get("condition", "")).strip(),
-                }
-            )
-
-    if isinstance(ops_raw, list):
-        for item in ops_raw:
-            if not isinstance(item, dict):
-                continue
-            code = str(item.get("code", "")).strip()
-            if not re.fullmatch(r"\d{6}", code) or code not in allowed_codes:
-                continue
-            if code in seen_ops:
-                continue
-            seen_ops.add(code)
-            op_items.append(
-                {
-                    "code": code,
-                    "name": str(item.get("name", "")).strip() or code_name.get(code, code),
-                    "action": str(item.get("action", "")).strip(),
-                    "reason": str(item.get("reason", "")).strip(),
-                    "entry_condition": str(item.get("entry_condition", "")).strip(),
-                }
-            )
-
-    return {
-        "watch_pool": watch_items,
-        "operation_pool": op_items,
-    }
-
-
-def _try_parse_structured_report(
-    report: str,
-    allowed_codes: set[str],
-    code_name: dict[str, str],
-) -> dict[str, list[dict[str, str]]] | None:
-    """尝试将报告解析为结构化 JSON 格式。"""
-    raw = (report or "").strip()
-    if not raw:
-        return None
-    for candidate in [raw, _extract_json_block(raw)]:
-        if not candidate:
-            continue
-        try:
-            payload = json.loads(candidate)
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        normalized = _normalize_structured_pool(payload, allowed_codes, code_name)
-        if normalized["watch_pool"] or normalized["operation_pool"]:
-            return normalized
-    return None
-
-
-def _extract_ops_codes_from_markdown(
-    report: str,
-    allowed_codes: set[str],
-) -> list[str]:
-    """从纯 Markdown 文本中提取"处于起跳板"章节里的股票代码。"""
-    lines = str(report or "").splitlines()
-    in_ops_section = False
-    ops_codes: list[str] = []
-    stop_tokens = ("\u903b\u8f91\u7834\u4ea7", "\u50a8\u5907\u8425\u5730")
-    start_tokens = ("\u5904\u4e8e\u8d77\u8df3\u677f",)
-
-    for raw_line in lines:
-        line = str(raw_line or "").strip()
-        if not line:
-            continue
-        if line.startswith("#"):
-            if any(token in line for token in start_tokens):
-                in_ops_section = True
-            elif any(token in line for token in stop_tokens):
-                in_ops_section = False
-        if not in_ops_section:
-            continue
-        for code in re.findall(r"\b\d{6}\b", line):
-            if code in allowed_codes and code not in ops_codes:
-                ops_codes.append(code)
-    return ops_codes
-
-
-def _springboard_gate_fields(raw_text: str) -> dict[str, object] | None:
-    text = str(raw_text or "").strip()
-    gates = {gate for gate in re.findall(r"(?<![A-Za-z])[ABC](?![A-Za-z])", text.upper())}
-    ordered = [gate for gate in ("A", "B", "C") if gate in gates]
-    if not ordered:
-        return None
-    combo = "+".join(ordered)
-    return {
-        "springboard_a": "A" in gates,
-        "springboard_b": "B" in gates,
-        "springboard_c": "C" in gates,
-        "springboard_combo": combo,
-        "springboard_grade": combo,
-        "springboard_met_count": len(ordered),
-        "springboard_evidence": {
-            "source": "step3_report",
-            "llm_hard_gates": text,
-        },
-        "springboard_scored": True,
-    }
-
-
-def extract_operation_pool_springboards(
-    report: str,
-    allowed_codes: list[str] | set[str] | tuple[str, ...],
-) -> dict[str, dict[str, object]]:
-    """从 Step3 起跳板章节提取 LLM 最终给出的 A/B/C 硬门槛组合。"""
-    allowed_set = {str(c).strip() for c in allowed_codes if re.fullmatch(r"\d{6}", str(c).strip())}
-    if not allowed_set:
-        return {}
-    lines = str(report or "").splitlines()
-    in_ops_section = False
-    current_code = ""
-    out: dict[str, dict[str, object]] = {}
-    stop_tokens = ("\u903b\u8f91\u7834\u4ea7", "\u50a8\u5907\u8425\u5730")
-    start_tokens = ("\u5904\u4e8e\u8d77\u8df3\u677f",)
-
-    for raw_line in lines:
-        line = str(raw_line or "").strip()
-        if not line:
-            continue
-        if line.startswith("#"):
-            if any(token in line for token in start_tokens):
-                in_ops_section = True
-            elif any(token in line for token in stop_tokens):
-                in_ops_section = False
-        if not in_ops_section:
-            continue
-        for code in re.findall(r"\b\d{6}\b", line):
-            if code in allowed_set:
-                current_code = code
-        match = re.search(r"满足的硬门槛\s*[:：]\s*(.+)", line)
-        if match and current_code in allowed_set:
-            fields = _springboard_gate_fields(match.group(1))
-            if fields:
-                out[current_code] = fields
-    return out
-
-
-def extract_operation_pool_codes(
-    report: str,
-    allowed_codes: list[str] | set[str] | tuple[str, ...],
-) -> list[str]:
-    """
-    对外暴露：从 Step3 报告中提取"处于起跳板"代码。
-    优先解析 Markdown 章节，若无则回退结构化 JSON 解析。
-    """
-    ordered_allowed = [str(c).strip() for c in allowed_codes if re.fullmatch(r"\d{6}", str(c).strip())]
-    allowed_set = set(ordered_allowed)
-    if not allowed_set:
-        return []
-
-    ops_codes = _extract_ops_codes_from_markdown(report, allowed_set)
-    if not ops_codes:
-        code_name = {c: c for c in allowed_set}
-        structured = _try_parse_structured_report(
-            report=report,
-            allowed_codes=allowed_set,
-            code_name=code_name,
-        )
-        if structured and structured.get("operation_pool"):
-            for item in structured["operation_pool"]:
-                code = str(item.get("code", "")).strip()
-                if code in allowed_set and code not in ops_codes:
-                    ops_codes.append(code)
-
-    # 防御性去重，保持报告中的出现顺序
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for code in ops_codes:
-        if code in allowed_set and code not in seen:
-            seen.add(code)
-            deduped.append(code)
-    return deduped
-
-
 # ── Payload 构建工具 ──
 
 
@@ -497,21 +243,6 @@ def _build_highlight_section(df: pd.DataFrame) -> str:
     return "\n  [近60日异动高光]:\n" + "\n".join(highlights) + "\n" if highlights else ""
 
 
-def _track_execution_requirements() -> str:
-    return (
-        "补充执行要求：\n"
-        "1) 买入触发必须包含量价确认条件（缩量回踩/拒绝下破）；放量下破必须取消买入。\n"
-        "2) 盘面解剖须结合振幅、收位与量比，说明洗盘/承接/冲高回落的博弈痕迹。\n"
-        "3) 【板块状态/证据】仅作行业参考，最终以个股量价结构定生死。\n"
-        "4) 【结构支撑/阻力】中的 Creek 是箱体上沿，Ice 是箱体下沿；突破 Creek 后不能回落，跌破 Ice 后必须快速收回才可视作 Spring。\n"
-        "5) 【起跳板预判】A=缩量高收测试，B=放量高收突破，C=支撑多次测试；若事实切片冲突，以事实切片为准。\n"
-        "6) 若同时出现【退出预警】和向上异动，默认按诱多/修复失败审查，除非重新站回关键位且放量高收。\n"
-        "7) 近15日切片后的 VSA 标签仅是辅助索引，最终仍必须引用原始涨跌、振幅、收位与量比。\n\n"
-        "8) 【交易闸门】优先于量价评分：只有二次确认=confirmed 的标的才允许进入“处于起跳板”。\n"
-        "9) 未二次确认标的即使满足 A/B/C，也只能写入储备营地，并注明升级所需的下一根K线确认。\n\n"
-    )
-
-
 def _build_confirmation_gate_line(
     candidate_source: str | None,
     signal_status: str | None,
@@ -528,6 +259,155 @@ def _build_confirmation_gate_line(
     if confirm_reason:
         parts.append(f"确认理由:{str(confirm_reason).strip()}")
     return f"  [交易闸门] {' | '.join(parts)}\n"
+
+
+def _prepare_payload_frame(df: pd.DataFrame) -> pd.DataFrame:
+    frame = df.copy().sort_values("date").reset_index(drop=True)
+    close = frame["close"].astype(float)
+    high = frame["high"].astype(float)
+    low = frame["low"].astype(float)
+    volume = frame["volume"].astype(float)
+    amount = (
+        pd.to_numeric(frame["amount"], errors="coerce")
+        if "amount" in frame.columns
+        else pd.Series(close * volume, index=frame.index, dtype=float)
+    )
+    if amount.isna().all():
+        amount = pd.Series(close * volume, index=frame.index, dtype=float)
+    frame["ma50"] = close.rolling(50).mean()
+    frame["ma200"] = close.rolling(200).mean()
+    frame["vol_ma20"] = volume.rolling(20).mean()
+    frame["amount_ma20"] = amount.rolling(20).mean()
+    frame["pct_chg_calc"] = close.pct_change() * 100
+    prev_close = close.shift(1)
+    amplitude_base = prev_close.where(prev_close > 0, close.where(close > 0, pd.NA))
+    frame["amplitude_pct"] = ((high - low) / amplitude_base.replace(0, pd.NA) * 100).astype(float)
+    span = (high - low).replace(0, pd.NA)
+    frame["close_pos_pct"] = ((close - low) / span * 100).clip(lower=0, upper=100).fillna(50.0)
+    return frame
+
+
+def _build_structure_background(
+    df: pd.DataFrame,
+    market_cap_yi: float | None,
+    avg_amount_20_yi: float | None,
+) -> tuple[str, float]:
+    latest = df.iloc[-1]
+    ma50_val = latest["ma50"]
+    ma200_val = latest["ma200"]
+    close_val = latest["close"]
+    amount_ma20_val = latest.get("amount_ma20", pd.NA)
+    market_cap_val = pd.to_numeric(market_cap_yi, errors="coerce")
+    avg_amount_val = pd.to_numeric(avg_amount_20_yi, errors="coerce")
+    if pd.isna(avg_amount_val):
+        avg_amount_val = amount_ma20_val / 1e8 if pd.notna(amount_ma20_val) else pd.NA
+
+    extra_parts: list[str] = []
+    if pd.notna(ma50_val):
+        extra_parts.append(f"MA50:{ma50_val:.2f}")
+    if pd.notna(ma200_val):
+        extra_parts.append(f"MA200:{ma200_val:.2f}")
+    if pd.notna(ma200_val) and ma200_val > 0:
+        bias_200 = (close_val - ma200_val) / ma200_val * 100
+        extra_parts.append(f"年线乖离:{bias_200:.1f}%")
+    if pd.notna(market_cap_val):
+        extra_parts.append(f"市值:{float(market_cap_val):.0f}亿")
+    if pd.notna(avg_amount_val):
+        extra_parts.append(f"20日均成交:{float(avg_amount_val):.2f}亿")
+
+    extra_text = ", ".join(extra_parts)
+    if extra_text:
+        return f"  [结构背景] 现价:{close_val:.2f}, {extra_text}", close_val
+    return f"  [结构背景] 现价:{close_val:.2f}", close_val
+
+
+def _signal_context(wyckoff_tag: str) -> tuple[str, list[str], str]:
+    raw_tag = str(wyckoff_tag or "").strip()
+    if not raw_tag:
+        return "", [], ""
+    lowered = raw_tag.lower()
+    facts = [label for token, label in _SIGNAL_TAG_MAP if token in lowered]
+    tag_text = f" | 量化初筛假设：{'/'.join(facts)}" if facts else f" | 量化初筛假设：{raw_tag}"
+    return raw_tag, facts, tag_text
+
+
+def _build_sector_state_line(sector_state: str | None, sector_state_code: str | None) -> str:
+    if not sector_state:
+        return ""
+    state_text = str(sector_state).strip()
+    state_code_text = str(sector_state_code or "").strip()
+    if state_code_text:
+        state_text = f"{state_text} ({state_code_text})"
+    return f"  [板块状态] {state_text}\n"
+
+
+def _build_exit_warning_line(
+    exit_signal: str | None,
+    exit_price: float | None,
+    exit_reason: str | None,
+) -> str:
+    if not exit_signal:
+        return ""
+    exit_parts = [f"信号: {exit_signal}"]
+    if exit_price is not None:
+        exit_parts.append(f"触发价: {exit_price:.2f}")
+    if exit_reason:
+        exit_parts.append(f"原因: {exit_reason}")
+    return f"  [退出预警] {', '.join(exit_parts)}\n"
+
+
+def _build_springboard_line(springboard_grade: str | None) -> str:
+    if not springboard_grade:
+        return ""
+    met = len(_springboard_codes(springboard_grade))
+    grade_text = _springboard_grade_text(springboard_grade)
+    return f"  [起跳板预判] 满足条件: {grade_text} ({met}/3)\n"
+
+
+def _build_payload_header(
+    *,
+    stock_code: str,
+    stock_name: str,
+    policy_tag: str | None,
+    tag_text: str,
+    df: pd.DataFrame,
+    close_val: float,
+    background: str,
+    raw_tag: str,
+    facts: list[str],
+    springboard_grade: str | None,
+    exit_signal: str | None,
+    sector_state_code: str | None,
+    candidate_source: str | None,
+    signal_status: str | None,
+    confirm_date: str | None,
+    confirm_reason: str | None,
+    stage: str | None,
+    industry: str | None,
+    sector_state: str | None,
+    sector_note: str | None,
+    exit_price: float | None,
+    exit_reason: str | None,
+    financial_metrics: dict | None,
+) -> str:
+    policy_prefix = f" {policy_tag}" if policy_tag else ""
+    header = f"\u2022 {stock_code} {stock_name}{policy_prefix}{tag_text}\n"
+    header += f"  [价格锚点] 最新收盘价:{close_val:.2f}\n{background}\n"
+    header += _build_trading_range_line(df, close_val)
+    header += _build_candidate_type_line(raw_tag, facts, springboard_grade, exit_signal, sector_state_code)
+    header += _build_confirmation_gate_line(candidate_source, signal_status, confirm_date, confirm_reason)
+    if stage:
+        header += f"  [阶段假设] {stage}\n"
+    if industry:
+        header += f"  [行业/主营] {industry}\n"
+    header += _build_sector_state_line(sector_state, sector_state_code)
+    if sector_note:
+        header += f"  [板块证据] {str(sector_note).strip()}\n"
+    header += _build_exit_warning_line(exit_signal, exit_price, exit_reason)
+    header += _build_conflict_line(exit_signal)
+    header += _format_financial_snapshot(financial_metrics)
+    header += _build_springboard_line(springboard_grade)
+    return header
 
 
 def generate_stock_payload(
@@ -565,176 +445,36 @@ def generate_stock_payload(
     2. 近 15 日量价切片（放量比 + 涨跌幅 + 振幅 + 收盘位置）
     3. 近 60 日异动高光时刻
     """
-    df = df.copy().sort_values("date").reset_index(drop=True)
-    close = df["close"].astype(float)
-    high = df["high"].astype(float)
-    low = df["low"].astype(float)
-    volume = df["volume"].astype(float)
-    amount = (
-        pd.to_numeric(df["amount"], errors="coerce")
-        if "amount" in df.columns
-        else pd.Series(close * volume, index=df.index, dtype=float)
+    df = _prepare_payload_frame(df)
+    background, close_val = _build_structure_background(df, market_cap_yi, avg_amount_20_yi)
+    raw_tag, facts, tag_text = _signal_context(wyckoff_tag)
+    header = _build_payload_header(
+        stock_code=stock_code,
+        stock_name=stock_name,
+        policy_tag=policy_tag,
+        tag_text=tag_text,
+        df=df,
+        close_val=close_val,
+        background=background,
+        raw_tag=raw_tag,
+        facts=facts,
+        springboard_grade=springboard_grade,
+        exit_signal=exit_signal,
+        sector_state_code=sector_state_code,
+        candidate_source=candidate_source,
+        signal_status=signal_status,
+        confirm_date=confirm_date,
+        confirm_reason=confirm_reason,
+        stage=stage,
+        industry=industry,
+        sector_state=sector_state,
+        sector_note=sector_note,
+        exit_price=exit_price,
+        exit_reason=exit_reason,
+        financial_metrics=financial_metrics,
     )
-    if amount.isna().all():
-        amount = pd.Series(close * volume, index=df.index, dtype=float)
-    df["ma50"] = close.rolling(50).mean()
-    df["ma200"] = close.rolling(200).mean()
-    df["vol_ma20"] = volume.rolling(20).mean()
-    df["amount_ma20"] = amount.rolling(20).mean()
-    df["pct_chg_calc"] = close.pct_change() * 100
-    prev_close = close.shift(1)
-    amplitude_base = prev_close.where(prev_close > 0, close.where(close > 0, pd.NA))
-    df["amplitude_pct"] = ((high - low) / amplitude_base.replace(0, pd.NA) * 100).astype(float)
-    span = (high - low).replace(0, pd.NA)
-    df["close_pos_pct"] = ((close - low) / span * 100).clip(lower=0, upper=100).fillna(50.0)
-
-    latest = df.iloc[-1]
-    ma50_val = latest["ma50"]
-    ma200_val = latest["ma200"]
-    close_val = latest["close"]
-    amount_ma20_val = latest.get("amount_ma20", pd.NA)
-    market_cap_val = pd.to_numeric(market_cap_yi, errors="coerce")
-    avg_amount_val = pd.to_numeric(avg_amount_20_yi, errors="coerce")
-    if pd.isna(avg_amount_val):
-        avg_amount_val = amount_ma20_val / 1e8 if pd.notna(amount_ma20_val) else pd.NA
-
-    extra_parts: list[str] = []
-    if pd.notna(ma50_val):
-        extra_parts.append(f"MA50:{ma50_val:.2f}")
-    if pd.notna(ma200_val):
-        extra_parts.append(f"MA200:{ma200_val:.2f}")
-    if pd.notna(ma200_val) and ma200_val > 0:
-        bias_200 = (close_val - ma200_val) / ma200_val * 100
-        extra_parts.append(f"年线乖离:{bias_200:.1f}%")
-    if pd.notna(market_cap_val):
-        extra_parts.append(f"市值:{float(market_cap_val):.0f}亿")
-    if pd.notna(avg_amount_val):
-        extra_parts.append(f"20日均成交:{float(avg_amount_val):.2f}亿")
-    extra_text = ", ".join(extra_parts)
-    if extra_text:
-        background = f"  [结构背景] 现价:{close_val:.2f}, {extra_text}"
-    else:
-        background = f"  [结构背景] 现价:{close_val:.2f}"
-
-    policy_prefix = f" {policy_tag}" if policy_tag else ""
-    tag_text = ""
-    raw_tag = str(wyckoff_tag or "").strip()
-    facts: list[str] = []
-    if raw_tag:
-        lowered = raw_tag.lower()
-        facts = [lbl for tok, lbl in _SIGNAL_TAG_MAP if tok in lowered]
-        tag_text = f" | 量化初筛假设：{'/'.join(facts)}" if facts else f" | 量化初筛假设：{raw_tag}"
-
-    header = (
-        f"\u2022 {stock_code} {stock_name}{policy_prefix}{tag_text}\n"
-        f"  [价格锚点] 最新收盘价:{close_val:.2f}\n"
-        f"{background}\n"
-    )
-    header += _build_trading_range_line(df, close_val)
-    header += _build_candidate_type_line(raw_tag, facts, springboard_grade, exit_signal, sector_state_code)
-    header += _build_confirmation_gate_line(candidate_source, signal_status, confirm_date, confirm_reason)
-    if stage:
-        header += f"  [阶段假设] {stage}\n"
-    if industry:
-        header += f"  [行业/主营] {industry}\n"
-    if sector_state:
-        state_text = str(sector_state).strip()
-        state_code_text = str(sector_state_code or "").strip()
-        if state_code_text:
-            state_text = f"{state_text} ({state_code_text})"
-        header += f"  [板块状态] {state_text}\n"
-    if sector_note:
-        header += f"  [板块证据] {str(sector_note).strip()}\n"
-    if exit_signal:
-        exit_parts = [f"信号: {exit_signal}"]
-        if exit_price is not None:
-            exit_parts.append(f"触发价: {exit_price:.2f}")
-        if exit_reason:
-            exit_parts.append(f"原因: {exit_reason}")
-        header += f"  [退出预警] {', '.join(exit_parts)}\n"
-    header += _build_conflict_line(exit_signal)
-
-    header += _format_financial_snapshot(financial_metrics)
-
-    if springboard_grade:
-        met = len(_springboard_codes(springboard_grade))
-        grade_text = _springboard_grade_text(springboard_grade)
-        header += f"  [起跳板预判] 满足条件: {grade_text} ({met}/3)\n"
 
     supply_summary = _build_supply_demand_summary(df)
     recent_section = _build_recent_slice(df)
     highlight_section = _build_highlight_section(df)
     return header + recent_section + supply_summary + highlight_section + "\n"
-
-
-def build_track_user_message(
-    track: str,
-    benchmark_lines: list[str],
-    payloads: list[str],
-    *,
-    compressed: bool,
-    raw_count: int,
-    selected_count: int,
-    regime: str = "",
-) -> str:
-    """构建发送给 LLM 的轨道级用户消息。"""
-    track_key = "Accum" if str(track).strip() == "Accum" else "Trend"
-    regime_upper = str(regime or "").strip().upper() or "NEUTRAL"
-
-    if track_key == "Trend":
-        scope = (
-            "[本轮分析范围]\n"
-            "本轮仅分析 Trend轨（右侧主升 / 放量点火 / 突破组）。\n"
-            "请重点审查是否存在高潮诱多、深水区反抽、爆量次日承接不足，以及看似突破实为派发等问题。"
-        )
-        if regime_upper == "CRASH":
-            scope += (
-                "\n\u26a0\ufe0f 当前 CRASH 环境，右侧突破全部视为诱多。\n"
-                "Trend 轨所有标的一律归入逻辑破产或储备营地，不得放入起跳板。"
-            )
-        elif regime_upper == "RISK_OFF":
-            scope += (
-                "\n\u26a0\ufe0f 当前大盘处于弱势环境，右侧假突破概率极高。\n"
-                "Trend 信号必须有突破日量比 >= 1.5x 且次日承接不回落，否则视为诱多归入逻辑破产。"
-            )
-    else:
-        scope = (
-            "[本轮分析范围]\n"
-            "本轮仅分析 Accum轨（左侧潜伏 / Spring / LPS / Accum_C 组）。\n"
-            "请重点审查供应是否真正枯竭；若下跌放量或支撑反复失守，应归入逻辑破产或储备营地。\n"
-            "若出现长下影、高收位、放量拉回，不得机械判死刑，必须分辨是真Spring还是失败反抽。"
-        )
-        if regime_upper in ("RISK_OFF", "CRASH"):
-            scope += (
-                "\n\u26a0\ufe0f 当前大盘处于弱势环境，左侧抄底风险极高。\n"
-                "Accum 信号必须同时满足：1) 缩量测试量比 < 0.6x 2) 支撑位至少 2 次测试未破。\n"
-                "不满足的一律归入储备营地，不得放入起跳板。"
-            )
-
-    regime_hint = ""
-    if regime_upper == "CRASH":
-        regime_hint = "[仓位约束] 当前 CRASH 环境，禁止推荐起跳板，全部归入储备营地或逻辑破产。\n\n"
-    elif regime_upper == "RISK_OFF":
-        regime_hint = "[仓位约束] 当前 RISK_OFF 弱势环境，起跳板最多 1-2 只，必须有极强的量价确认。\n\n"
-    elif regime_upper == "RISK_ON":
-        regime_hint = "[仓位约束] 当前 RISK_ON 追涨期，反转率高，起跳板最多 2 只，必须有缩量回踩确认。\n\n"
-
-    message = (
-        ("{}\n\n".format("\n".join(benchmark_lines)) if benchmark_lines else "")
-        + regime_hint
-        + f"{scope}\n\n"
-        + (
-            (f"[候选说明] 本轮候选已从 {raw_count} 只压缩到 {selected_count} 只。\n\n")
-            if compressed and raw_count > selected_count
-            else ""
-        )
-        + "以下是本轮候选名单。\n"
-        + "请做三阵营分流：1) 逻辑破产 2) 储备营地 3) 处于起跳板。\n"
-        + "其中前两类属于非操作区，第三类才是可执行区。\n"
-        + "交易闸门硬规则：只有 [交易闸门] 二次确认=confirmed 的标的才允许进入第三类；"
-        + "未确认标的只能进入储备营地或逻辑破产。\n"
-        + "输出必须包含这三个部分，且只能使用输入列表中的股票代码，不得遗漏或新增。\n\n"
-        + _track_execution_requirements()
-        + "\n".join(payloads)
-    )
-    return message

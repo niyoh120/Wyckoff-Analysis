@@ -81,65 +81,120 @@ def _safe_ratio(numerator: float | None, denominator: float | None) -> float | N
 def _member_snapshot(df: pd.DataFrame) -> dict | None:
     if df is None or df.empty:
         return None
-    s = df.sort_values("date").reset_index(drop=True).copy()
-    close = pd.to_numeric(s.get("close"), errors="coerce")
-    high = pd.to_numeric(s.get("high"), errors="coerce")
-    low = pd.to_numeric(s.get("low"), errors="coerce")
-    volume = pd.to_numeric(s.get("volume"), errors="coerce")
-    amount = pd.to_numeric(s.get("amount"), errors="coerce") if "amount" in s.columns else close * volume
+
+    s = _sorted_member_frame(df)
+    series = _member_series(s)
+    close = series["close"]
     if len(close.dropna()) < 40:
         return None
 
-    ma20 = close.rolling(20).mean()
-    ma50 = close.rolling(50).mean()
-    vol_ma20 = volume.rolling(20).mean()
-    pct = close.pct_change() * 100.0
-    prev_close = close.shift(1)
-    amplitude = (high - low) / prev_close.replace(0, pd.NA) * 100.0
-    close_pos = ((close - low) / (high - low).replace(0, pd.NA) * 100.0).clip(0, 100).fillna(50.0)
-
-    recent = pd.DataFrame(
-        {
-            "pct": pct,
-            "vol_ratio": volume / vol_ma20.replace(0, pd.NA),
-            "amplitude": amplitude,
-            "close_pos": close_pos,
-            "close": close,
-            "ma20": ma20,
-            "ma50": ma50,
-            "amount": amount,
-        }
-    ).tail(3)
+    indicators = _member_indicators(series)
+    recent = _recent_member_frame(indicators)
     if recent.empty:
         return None
 
+    last_close = float(close.iloc[-1])
+    above_ma20, above_ma50 = _ma_flags(last_close, indicators["ma20"], indicators["ma50"])
+    amount_ratio_3d = _amount_ratio_3d(recent, series["amount"])
+    ret3 = _safe_return(close, 3)
+    ret10 = _safe_return(close, 10)
+    breakdown_flag = _breakdown_flag(ret3, amount_ratio_3d, above_ma20)
+
+    last_pct = pd.to_numeric(recent["pct"], errors="coerce").iloc[-1]
+    return {
+        "ret_3d": ret3,
+        "ret_10d": ret10,
+        "amount_ratio_3d": amount_ratio_3d,
+        "above_ma50": above_ma50,
+        "above_ma20": above_ma20,
+        "climax_flag": _climax_flag(recent),
+        "pullback_shrink_flag": _pullback_shrink_flag(
+            ret10, ret3, amount_ratio_3d, above_ma20, above_ma50, breakdown_flag
+        ),
+        "breakdown_flag": breakdown_flag,
+        "last_pct": float(last_pct) if pd.notna(last_pct) else None,
+    }
+
+
+def _sorted_member_frame(df: pd.DataFrame) -> pd.DataFrame:
+    return df.sort_values("date").reset_index(drop=True).copy()
+
+
+def _member_series(df: pd.DataFrame) -> dict[str, pd.Series]:
+    close = pd.to_numeric(df.get("close"), errors="coerce")
+    volume = pd.to_numeric(df.get("volume"), errors="coerce")
+    return {
+        "close": close,
+        "high": pd.to_numeric(df.get("high"), errors="coerce"),
+        "low": pd.to_numeric(df.get("low"), errors="coerce"),
+        "volume": volume,
+        "amount": pd.to_numeric(df.get("amount"), errors="coerce") if "amount" in df.columns else close * volume,
+    }
+
+
+def _member_indicators(series: dict[str, pd.Series]) -> dict[str, pd.Series]:
+    close = series["close"]
+    high = series["high"]
+    low = series["low"]
+    volume = series["volume"]
+    return {
+        "pct": close.pct_change() * 100.0,
+        "vol_ratio": volume / volume.rolling(20).mean().replace(0, pd.NA),
+        "amplitude": (high - low) / close.shift(1).replace(0, pd.NA) * 100.0,
+        "close_pos": ((close - low) / (high - low).replace(0, pd.NA) * 100.0).clip(0, 100).fillna(50.0),
+        "close": close,
+        "ma20": close.rolling(20).mean(),
+        "ma50": close.rolling(50).mean(),
+        "amount": series["amount"],
+    }
+
+
+def _recent_member_frame(indicators: dict[str, pd.Series]) -> pd.DataFrame:
+    return pd.DataFrame(indicators).tail(3)
+
+
+def _amount_ratio_3d(recent: pd.DataFrame, amount: pd.Series) -> float | None:
     recent_amount_mean = pd.to_numeric(recent["amount"], errors="coerce").dropna().mean()
     base_amount_slice = pd.to_numeric(amount.iloc[-23:-3], errors="coerce").dropna()
     if len(base_amount_slice) < 5:
         base_amount_slice = pd.to_numeric(amount.tail(20), errors="coerce").dropna()
     base_amount_mean = base_amount_slice.mean() if not base_amount_slice.empty else None
-    amount_ratio_3d = _safe_ratio(recent_amount_mean, base_amount_mean)
+    return _safe_ratio(recent_amount_mean, base_amount_mean)
 
-    last_close = float(close.iloc[-1])
+
+def _ma_flags(last_close: float, ma20: pd.Series, ma50: pd.Series) -> tuple[bool, bool]:
     last_ma20 = ma20.iloc[-1] if len(ma20) else pd.NA
     last_ma50 = ma50.iloc[-1] if len(ma50) else pd.NA
     above_ma20 = bool(pd.notna(last_ma20) and float(last_ma20) > 0 and last_close >= float(last_ma20) * 0.99)
     above_ma50 = bool(pd.notna(last_ma50) and float(last_ma50) > 0 and last_close >= float(last_ma50) * 0.99)
+    return above_ma20, above_ma50
 
+
+def _climax_flag(recent: pd.DataFrame) -> bool:
     climax_days = recent[
         (pd.to_numeric(recent["pct"], errors="coerce") >= 4.0)
         & (pd.to_numeric(recent["vol_ratio"], errors="coerce") >= 1.5)
         & (pd.to_numeric(recent["close_pos"], errors="coerce") >= 65.0)
         & (pd.to_numeric(recent["amplitude"], errors="coerce") >= 4.0)
     ]
-    climax_flag = not climax_days.empty
+    return not climax_days.empty
 
-    ret3 = _safe_return(close, 3)
-    ret10 = _safe_return(close, 10)
-    breakdown_flag = bool(
+
+def _breakdown_flag(ret3: float | None, amount_ratio_3d: float | None, above_ma20: bool) -> bool:
+    return bool(
         ret3 is not None and ret3 <= -2.0 and amount_ratio_3d is not None and amount_ratio_3d >= 1.05 and not above_ma20
     )
-    pullback_shrink_flag = bool(
+
+
+def _pullback_shrink_flag(
+    ret10: float | None,
+    ret3: float | None,
+    amount_ratio_3d: float | None,
+    above_ma20: bool,
+    above_ma50: bool,
+    breakdown_flag: bool,
+) -> bool:
+    return bool(
         ret10 is not None
         and ret10 >= 4.0
         and ret3 is not None
@@ -149,19 +204,6 @@ def _member_snapshot(df: pd.DataFrame) -> dict | None:
         and (above_ma20 or above_ma50)
         and not breakdown_flag
     )
-
-    last_pct = pd.to_numeric(recent["pct"], errors="coerce").iloc[-1]
-    return {
-        "ret_3d": ret3,
-        "ret_10d": ret10,
-        "amount_ratio_3d": amount_ratio_3d,
-        "above_ma50": above_ma50,
-        "above_ma20": above_ma20,
-        "climax_flag": climax_flag,
-        "pullback_shrink_flag": pullback_shrink_flag,
-        "breakdown_flag": breakdown_flag,
-        "last_pct": float(last_pct) if pd.notna(last_pct) else None,
-    }
 
 
 def _fmt_pct(value: float | None) -> str:

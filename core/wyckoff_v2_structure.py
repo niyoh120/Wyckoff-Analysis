@@ -7,7 +7,7 @@ from typing import NamedTuple
 
 import pandas as pd
 
-from core.wyckoff_engine import FunnelConfig, _sorted_if_needed
+from core.wyckoff_engine import FunnelConfig, sort_by_date_if_needed
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,32 @@ class StructureTriggerResult(NamedTuple):
     triggers: dict[str, list[tuple[str, float]]]
     trading_ranges: dict[str, TradingRange]
     stage_map: dict[str, str]
+
+
+class _StructureSeries(NamedTuple):
+    high: pd.Series
+    low: pd.Series
+    close: pd.Series
+    volume: pd.Series
+    pct_chg: pd.Series
+
+
+class _LastBar(NamedTuple):
+    width: float
+    last_close: float
+    last_low: float
+    prev_low: float
+    last_pct: float
+
+
+class _RangeCandidate(NamedTuple):
+    support: float
+    resistance: float
+    width_pct: float
+    drift_pct: float
+    max_drift: float
+    support_tests: int
+    resistance_tests: int
 
 
 def _to_numeric(series: pd.Series) -> pd.Series:
@@ -89,6 +115,104 @@ def _swing_values(series: pd.Series, *, kind: str, window: int) -> list[float]:
     return out
 
 
+def _range_zone(
+    df: pd.DataFrame,
+    *,
+    lookback: int,
+    min_bars: int,
+    exclude_last: int,
+) -> pd.DataFrame | None:
+    if len(df) < min_bars + max(int(exclude_last), 0):
+        return None
+    df_s = sort_by_date_if_needed(df).copy()
+    if exclude_last > 0:
+        df_s = df_s.iloc[:-exclude_last]
+    zone = df_s.tail(max(int(lookback), min_bars)).copy()
+    return zone if len(zone) >= min_bars else None
+
+
+def _range_boundary(
+    zone: pd.DataFrame, swing_window: int
+) -> tuple[pd.Series, pd.Series, pd.Series, float, float] | None:
+    high = _to_numeric(zone["high"])
+    low = _to_numeric(zone["low"])
+    close = _to_numeric(zone["close"])
+    if high.isna().all() or low.isna().all() or close.isna().all():
+        return None
+    swing_lows = _swing_values(low, kind="low", window=swing_window)
+    swing_highs = _swing_values(high, kind="high", window=swing_window)
+    support = float(pd.Series(swing_lows[-5:]).median()) if len(swing_lows) >= 2 else float(low.quantile(0.10))
+    resistance = float(pd.Series(swing_highs[-5:]).median()) if len(swing_highs) >= 2 else float(high.quantile(0.90))
+    if support <= 0 or resistance <= support:
+        return None
+    return high, low, close, support, resistance
+
+
+def _range_width_ok(support: float, resistance: float, cfg: FunnelConfig) -> float | None:
+    width_pct = (resistance - support) / support * 100.0
+    max_width = min(max(float(getattr(cfg, "spring_tr_max_range_pct", 30.0)) * 1.5, 24.0), 55.0)
+    if width_pct < 4.0 or width_pct > max_width:
+        return None
+    return float(width_pct)
+
+
+def _range_drift(close: pd.Series, cfg: FunnelConfig) -> tuple[float, float] | None:
+    clean = close.dropna()
+    first_close = clean.iloc[0]
+    last_close = clean.iloc[-1]
+    if first_close <= 0:
+        return None
+    drift_pct = abs((float(last_close) - float(first_close)) / float(first_close) * 100.0)
+    max_drift = max(float(getattr(cfg, "spring_tr_max_drift_pct", 12.0)) * 1.5, 18.0)
+    return (float(drift_pct), float(max_drift)) if drift_pct <= max_drift else None
+
+
+def _range_tests(high: pd.Series, low: pd.Series, support: float, resistance: float) -> tuple[int, int] | None:
+    tolerance = 0.035
+    support_tests = int((low <= support * (1.0 + tolerance)).sum())
+    resistance_tests = int((high >= resistance * (1.0 - tolerance)).sum())
+    if support_tests < 2 or resistance_tests < 2:
+        return None
+    return support_tests, resistance_tests
+
+
+def _range_quality(
+    width_pct: float, drift_pct: float, max_drift: float, support_tests: int, resistance_tests: int
+) -> float:
+    width_score = max(0.0, 1.0 - abs(width_pct - 18.0) / 30.0)
+    test_score = min((support_tests + resistance_tests) / 8.0, 1.0)
+    drift_score = max(0.0, 1.0 - drift_pct / max_drift)
+    return float(0.45 * test_score + 0.35 * width_score + 0.20 * drift_score)
+
+
+def _range_candidate(
+    df: pd.DataFrame, cfg: FunnelConfig, lookback: int, swing_window: int, exclude_last: int, min_bars: int
+):
+    zone = _range_zone(df, lookback=lookback, min_bars=min_bars, exclude_last=exclude_last)
+    if zone is None:
+        return None
+    boundary = _range_boundary(zone, swing_window)
+    if boundary is None:
+        return None
+    high, low, close, support, resistance = boundary
+    width_pct = _range_width_ok(support, resistance, cfg)
+    drift = _range_drift(close, cfg)
+    tests = _range_tests(high, low, support, resistance)
+    if width_pct is None or drift is None or tests is None:
+        return None
+    drift_pct, max_drift = drift
+    support_tests, resistance_tests = tests
+    return _RangeCandidate(
+        support=support,
+        resistance=resistance,
+        width_pct=width_pct,
+        drift_pct=drift_pct,
+        max_drift=max_drift,
+        support_tests=support_tests,
+        resistance_tests=resistance_tests,
+    )
+
+
 def identify_trading_range(
     df: pd.DataFrame,
     cfg: FunnelConfig | None = None,
@@ -107,62 +231,26 @@ def identify_trading_range(
         return None
     cfg = cfg or FunnelConfig()
     min_bars = max(40, swing_window * 2 + 20)
-    if len(df) < min_bars + max(int(exclude_last), 0):
+    candidate = _range_candidate(df, cfg, lookback, swing_window, exclude_last, min_bars)
+    if candidate is None:
         return None
 
-    df_s = _sorted_if_needed(df).copy()
-    if exclude_last > 0:
-        df_s = df_s.iloc[:-exclude_last]
-    zone = df_s.tail(max(int(lookback), min_bars)).copy()
-    if len(zone) < min_bars:
-        return None
-
-    high = _to_numeric(zone["high"])
-    low = _to_numeric(zone["low"])
-    close = _to_numeric(zone["close"])
-    if high.isna().all() or low.isna().all() or close.isna().all():
-        return None
-
-    swing_lows = _swing_values(low, kind="low", window=swing_window)
-    swing_highs = _swing_values(high, kind="high", window=swing_window)
-    support = float(pd.Series(swing_lows[-5:]).median()) if len(swing_lows) >= 2 else float(low.quantile(0.10))
-    resistance = float(pd.Series(swing_highs[-5:]).median()) if len(swing_highs) >= 2 else float(high.quantile(0.90))
-    if support <= 0 or resistance <= support:
-        return None
-
-    width_pct = (resistance - support) / support * 100.0
-    max_width = min(max(float(getattr(cfg, "spring_tr_max_range_pct", 30.0)) * 1.5, 24.0), 55.0)
-    if width_pct < 4.0 or width_pct > max_width:
-        return None
-
-    first_close = close.dropna().iloc[0]
-    last_close = close.dropna().iloc[-1]
-    if first_close <= 0:
-        return None
-    drift_pct = abs((float(last_close) - float(first_close)) / float(first_close) * 100.0)
-    max_drift = max(float(getattr(cfg, "spring_tr_max_drift_pct", 12.0)) * 1.5, 18.0)
-    if drift_pct > max_drift:
-        return None
-
-    tolerance = 0.035
-    support_tests = int((low <= support * (1.0 + tolerance)).sum())
-    resistance_tests = int((high >= resistance * (1.0 - tolerance)).sum())
-    if support_tests < 2 or resistance_tests < 2:
-        return None
-
-    width_score = max(0.0, 1.0 - abs(width_pct - 18.0) / 30.0)
-    test_score = min((support_tests + resistance_tests) / 8.0, 1.0)
-    drift_score = max(0.0, 1.0 - drift_pct / max_drift)
-    quality_score = 0.45 * test_score + 0.35 * width_score + 0.20 * drift_score
-    mid = support + (resistance - support) / 2.0
+    quality_score = _range_quality(
+        candidate.width_pct,
+        candidate.drift_pct,
+        candidate.max_drift,
+        candidate.support_tests,
+        candidate.resistance_tests,
+    )
+    mid = candidate.support + (candidate.resistance - candidate.support) / 2.0
     return TradingRange(
-        support=support,
-        resistance=resistance,
+        support=candidate.support,
+        resistance=candidate.resistance,
         mid=mid,
-        width_pct=width_pct,
-        support_tests=support_tests,
-        resistance_tests=resistance_tests,
-        quality_score=float(quality_score),
+        width_pct=candidate.width_pct,
+        support_tests=candidate.support_tests,
+        resistance_tests=candidate.resistance_tests,
+        quality_score=quality_score,
     )
 
 
@@ -181,6 +269,106 @@ def _infer_stage(df: pd.DataFrame, tr: TradingRange, trigger_keys: set[str]) -> 
     return "Accum_A"
 
 
+def _empty_structure_triggers() -> dict[str, list[tuple[str, float]]]:
+    return {"sos": [], "spring": [], "lps": [], "evr": [], "compression": []}
+
+
+def _structure_series(df: pd.DataFrame) -> _StructureSeries | None:
+    series = _StructureSeries(
+        high=_to_numeric(df["high"]),
+        low=_to_numeric(df["low"]),
+        close=_to_numeric(df["close"]),
+        volume=_to_numeric(df["volume"]),
+        pct_chg=_ensure_pct_chg(df),
+    )
+    if series.close.isna().all() or series.low.isna().all() or series.high.isna().all() or series.volume.isna().all():
+        return None
+    return series
+
+
+def _last_bar(series: _StructureSeries, tr: TradingRange) -> _LastBar:
+    last_pct = float(series.pct_chg.iloc[-1]) if pd.notna(series.pct_chg.iloc[-1]) else 0.0
+    return _LastBar(
+        width=tr.resistance - tr.support,
+        last_close=float(series.close.iloc[-1]),
+        last_low=float(series.low.iloc[-1]),
+        prev_low=float(series.low.iloc[-2]) if len(series.low) >= 2 else float(series.low.iloc[-1]),
+        last_pct=last_pct,
+    )
+
+
+def _sos_trigger_score(series: _StructureSeries, bar: _LastBar, tr: TradingRange, cfg: FunnelConfig) -> float | None:
+    vol_ratio = _last_ref_volume_ratio(series.volume, max(int(cfg.sos_vol_window), 5))
+    if vol_ratio is None:
+        return None
+    breakout_tolerance = float(getattr(cfg, "sos_breakout_tolerance", 0.01))
+    structure_breakout = bar.last_close >= tr.resistance * (1.0 - breakout_tolerance)
+    enough_push = bar.last_pct >= float(getattr(cfg, "sos_pct_min", 6.0))
+    enough_volume = vol_ratio >= float(getattr(cfg, "sos_vol_ratio", 2.0))
+    if not (structure_breakout and enough_push and enough_volume):
+        return None
+    score = vol_ratio + max((bar.last_close - tr.resistance) / tr.resistance * 100.0, 0.0)
+    return float(score + tr.quality_score)
+
+
+def _spring_trigger_score(series: _StructureSeries, bar: _LastBar, tr: TradingRange, cfg: FunnelConfig) -> float | None:
+    vol_ratio = _last_ref_volume_ratio(series.volume, 5)
+    pierced = min(bar.prev_low, bar.last_low) <= tr.support * 0.995
+    recovered = bar.last_close > tr.support * 1.005
+    still_in_range = bar.last_close < tr.mid + bar.width * 0.25
+    enough_volume = vol_ratio is not None and vol_ratio >= float(getattr(cfg, "spring_vol_ratio", 1.1))
+    if not (pierced and recovered and still_in_range and enough_volume):
+        return None
+    recovery = (bar.last_close - tr.support) / tr.support * 100.0
+    return float(recovery + tr.quality_score)
+
+
+def _lps_trigger_score(series: _StructureSeries, bar: _LastBar, tr: TradingRange, cfg: FunnelConfig) -> float | None:
+    lookback = max(int(getattr(cfg, "lps_lookback", 3)), 1)
+    dry_ratio = _recent_ref_volume_ratio(series.volume, lookback, max(int(getattr(cfg, "lps_vol_ref_window", 60)), 10))
+    recent_lows = series.low.tail(lookback)
+    near_support = float(recent_lows.min()) <= tr.support + bar.width * 0.35
+    holds_support = bar.last_close > tr.support
+    if dry_ratio is None or not near_support or not holds_support or dry_ratio > float(cfg.lps_vol_dry_ratio):
+        return None
+    return float((1.0 - dry_ratio) + tr.quality_score)
+
+
+def _evr_trigger_score(series: _StructureSeries, bar: _LastBar, tr: TradingRange, cfg: FunnelConfig) -> float | None:
+    vol_ratio = _last_ref_volume_ratio(series.volume, max(int(cfg.evr_vol_window), 10))
+    if (
+        not getattr(cfg, "enable_evr_trigger", False)
+        or vol_ratio is None
+        or vol_ratio < float(cfg.evr_vol_ratio)
+        or bar.last_close > tr.mid
+        or not (-float(cfg.evr_max_drop) <= bar.last_pct <= float(cfg.evr_max_rise))
+        or bar.last_close < tr.support * 0.98
+    ):
+        return None
+    return float(vol_ratio + tr.quality_score)
+
+
+def _append_structure_hits(
+    sym: str,
+    triggers: dict[str, list[tuple[str, float]]],
+    series: _StructureSeries,
+    bar: _LastBar,
+    tr: TradingRange,
+    cfg: FunnelConfig,
+) -> set[str]:
+    hit_keys: set[str] = set()
+    for key, score in (
+        ("sos", _sos_trigger_score(series, bar, tr, cfg)),
+        ("spring", _spring_trigger_score(series, bar, tr, cfg)),
+        ("lps", _lps_trigger_score(series, bar, tr, cfg)),
+        ("evr", _evr_trigger_score(series, bar, tr, cfg)),
+    ):
+        if score is not None:
+            triggers[key].append((sym, score))
+            hit_keys.add(key)
+    return hit_keys
+
+
 def detect_structure_triggers(
     symbols: list[str],
     df_map: dict[str, pd.DataFrame],
@@ -190,7 +378,7 @@ def detect_structure_triggers(
 ) -> StructureTriggerResult:
     """Run dynamic-TR Spring / SOS / LPS / EVR detection."""
 
-    triggers: dict[str, list[tuple[str, float]]] = {"sos": [], "spring": [], "lps": [], "evr": [], "compression": []}
+    triggers = _empty_structure_triggers()
     ranges: dict[str, TradingRange] = {}
     stage_map: dict[str, str] = {}
 
@@ -198,82 +386,17 @@ def detect_structure_triggers(
         df = df_map.get(sym)
         if df is None or df.empty or len(df) < 60:
             continue
-        df_s = _sorted_if_needed(df).copy()
+        df_s = sort_by_date_if_needed(df).copy()
         tr = identify_trading_range(df_s, cfg, lookback=lookback, exclude_last=1)
         if tr is None:
             continue
 
-        high = _to_numeric(df_s["high"])
-        low = _to_numeric(df_s["low"])
-        close = _to_numeric(df_s["close"])
-        volume = _to_numeric(df_s["volume"])
-        pct_chg = _ensure_pct_chg(df_s)
-        if close.isna().all() or low.isna().all() or high.isna().all() or volume.isna().all():
+        series = _structure_series(df_s)
+        if series is None:
             continue
 
         ranges[sym] = tr
-        width = tr.resistance - tr.support
-        last_close = float(close.iloc[-1])
-        last_low = float(low.iloc[-1])
-        prev_low = float(low.iloc[-2]) if len(low) >= 2 else last_low
-        last_pct = float(pct_chg.iloc[-1]) if pd.notna(pct_chg.iloc[-1]) else 0.0
-        hit_keys: set[str] = set()
-
-        vol_ratio_sos = _last_ref_volume_ratio(volume, max(int(cfg.sos_vol_window), 5))
-        if vol_ratio_sos is not None:
-            breakout_tolerance = float(getattr(cfg, "sos_breakout_tolerance", 0.01))
-            structure_breakout = last_close >= tr.resistance * (1.0 - breakout_tolerance)
-            enough_push = last_pct >= float(getattr(cfg, "sos_pct_min", 6.0))
-            enough_volume = vol_ratio_sos >= float(getattr(cfg, "sos_vol_ratio", 2.0))
-            if structure_breakout and enough_push and enough_volume:
-                score = vol_ratio_sos + max((last_close - tr.resistance) / tr.resistance * 100.0, 0.0)
-                score += tr.quality_score
-                triggers["sos"].append((sym, float(score)))
-                hit_keys.add("sos")
-
-        vol_ratio_spring = _last_ref_volume_ratio(volume, 5)
-        pierced = min(prev_low, last_low) <= tr.support * 0.995
-        recovered = last_close > tr.support * 1.005
-        still_in_range = last_close < tr.mid + width * 0.25
-        if (
-            vol_ratio_spring is not None
-            and pierced
-            and recovered
-            and still_in_range
-            and vol_ratio_spring >= float(getattr(cfg, "spring_vol_ratio", 1.1))
-        ):
-            recovery = (last_close - tr.support) / tr.support * 100.0
-            score = recovery + tr.quality_score
-            triggers["spring"].append((sym, float(score)))
-            hit_keys.add("spring")
-
-        dry_ratio = _recent_ref_volume_ratio(
-            volume,
-            max(int(getattr(cfg, "lps_lookback", 3)), 1),
-            max(int(getattr(cfg, "lps_vol_ref_window", 60)), 10),
-        )
-        recent_lows = low.tail(max(int(getattr(cfg, "lps_lookback", 3)), 1))
-        near_support = float(recent_lows.min()) <= tr.support + width * 0.35
-        holds_support = last_close > tr.support
-        if dry_ratio is not None and near_support and holds_support and dry_ratio <= float(cfg.lps_vol_dry_ratio):
-            score = (1.0 - dry_ratio) + tr.quality_score
-            triggers["lps"].append((sym, float(score)))
-            hit_keys.add("lps")
-
-        vol_ratio_evr = _last_ref_volume_ratio(volume, max(int(cfg.evr_vol_window), 10))
-        in_lower_range = last_close <= tr.mid
-        if (
-            getattr(cfg, "enable_evr_trigger", False)
-            and vol_ratio_evr is not None
-            and vol_ratio_evr >= float(cfg.evr_vol_ratio)
-            and in_lower_range
-            and -float(cfg.evr_max_drop) <= last_pct <= float(cfg.evr_max_rise)
-            and last_close >= tr.support * 0.98
-        ):
-            score = vol_ratio_evr + tr.quality_score
-            triggers["evr"].append((sym, float(score)))
-            hit_keys.add("evr")
-
+        hit_keys = _append_structure_hits(sym, triggers, series, _last_bar(series, tr), tr, cfg)
         stage_map[sym] = _infer_stage(df_s, tr, hit_keys)
 
     return StructureTriggerResult(triggers=triggers, trading_ranges=ranges, stage_map=stage_map)

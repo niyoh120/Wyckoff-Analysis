@@ -2,78 +2,38 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
-import pandas as pd
-
 from core.constants import TABLE_SIGNAL_PENDING
-from core.signal_confirmation import SIGNAL_TTL_DAYS, build_snap, run_confirmation_cycle
 from integrations.supabase_base import create_admin_client as _admin
 from integrations.supabase_base import create_read_client as _read
 from integrations.supabase_base import is_admin_configured as _configured
 from integrations.supabase_base import require_server_write_context
 
+logger = logging.getLogger(__name__)
 
-def write_pending_signals(
-    signal_date: str,
-    triggers: dict[str, list[tuple[str, float]]],
-    df_map: dict[str, pd.DataFrame],
-    regime: str = "NEUTRAL",
-    name_map: dict[str, str] | None = None,
-    sector_map: dict[str, str] | None = None,
-    cfg: Any = None,
-) -> int:
-    """将 L4 触发信号写入 signal_pending 表，返回写入行数。"""
-    if not _configured():
+
+def insert_pending_signal_rows(rows: list[dict[str, Any]]) -> int:
+    """Insert new pending signal rows, skipping already-pending duplicates."""
+    if not _configured() or not rows:
         return 0
     require_server_write_context("write signal_pending")
-
-    name_map, sector_map = name_map or {}, sector_map or {}
-    now_iso = datetime.now(UTC).isoformat()
-    payload: list[dict[str, Any]] = []
-
-    for signal_type, hits in triggers.items():
-        ttl = SIGNAL_TTL_DAYS.get(signal_type, 3)
-        for code, score in hits:
-            df = df_map.get(code)
-            if df is None or df.empty:
-                continue
-            snap = build_snap(signal_type, df, score, cfg)
-            payload.append(
-                {
-                    "code": int(code) if code.isdigit() else 0,
-                    "signal_type": signal_type,
-                    "signal_date": signal_date,
-                    "signal_score": float(score),
-                    "status": "pending",
-                    "ttl_days": ttl,
-                    "days_elapsed": 0,
-                    "regime": regime,
-                    "name": name_map.get(code, code),
-                    "industry": sector_map.get(code, ""),
-                    "created_at": now_iso,
-                    "updated_at": now_iso,
-                    **snap,
-                }
-            )
-
-    if not payload:
-        return 0
 
     try:
         client = _admin()
         existing = client.table(TABLE_SIGNAL_PENDING).select("code,signal_type").eq("status", "pending").execute()
         existing_keys = {(int(r["code"]), r["signal_type"]) for r in (existing.data or [])}
-        to_insert = [p for p in payload if (int(p["code"]), p["signal_type"]) not in existing_keys]
+        to_insert = [row for row in rows if (int(row["code"]), row["signal_type"]) not in existing_keys]
         if not to_insert:
-            print(f"[signal_pending] {len(payload)} 条信号已存在 pending，跳过")
+            logger.info("%s pending signals already exist; skipped", len(rows))
             return 0
         client.table(TABLE_SIGNAL_PENDING).insert(to_insert).execute()
-        print(f"[signal_pending] 写入 {len(to_insert)} 条（跳过 {len(payload) - len(to_insert)} 条已有）")
+        logger.info("inserted %s pending signals; skipped %s existing", len(to_insert), len(rows) - len(to_insert))
         return len(to_insert)
     except Exception as e:
-        print(f"[signal_pending] write failed: {e}")
+        logger.warning("write pending signals failed: %s", e)
         return 0
 
 
@@ -81,7 +41,7 @@ def load_pending_signals() -> list[dict[str, Any]]:
     try:
         return _read().table(TABLE_SIGNAL_PENDING).select("*").eq("status", "pending").execute().data or []
     except Exception as e:
-        print(f"[signal_pending] load failed: {e}")
+        logger.warning("load pending signals failed: %s", e)
         return []
 
 
@@ -107,32 +67,8 @@ def batch_update_signals(updates: list[dict[str, Any]]) -> bool:
             if upd.get("expire_date"):
                 row["expire_date"] = upd["expire_date"]
             client.table(TABLE_SIGNAL_PENDING).update(row).eq("id", row_id).execute()
-        print(f"[signal_pending] 更新 {len(updates)} 条状态")
+        logger.info("updated %s pending signals", len(updates))
         return True
     except Exception as e:
-        print(f"[signal_pending] update failed: {e}")
+        logger.warning("update pending signals failed: %s", e)
         return False
-
-
-def run_step2_5(
-    signal_date: str,
-    triggers: dict[str, list[tuple[str, float]]],
-    df_map: dict[str, pd.DataFrame],
-    regime: str = "NEUTRAL",
-    name_map: dict[str, str] | None = None,
-    sector_map: dict[str, str] | None = None,
-    cfg: Any = None,
-    dry_run: bool = False,
-) -> list[dict[str, Any]]:
-    """Step2.5：写入新信号 + 确认/过期旧信号，返回确认通过的 symbol_info 列表。"""
-    if not dry_run:
-        write_pending_signals(signal_date, triggers, df_map, regime, name_map, sector_map, cfg)
-    pending = load_pending_signals()
-    if not pending:
-        return []
-    updates, confirmed = run_confirmation_cycle(pending, df_map, signal_date)
-    if updates and not dry_run:
-        batch_update_signals(updates)
-    elif updates:
-        print(f"[signal_pending] dry-run: 跳过状态更新 {len(updates)} 条")
-    return confirmed

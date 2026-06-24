@@ -603,7 +603,7 @@ flowchart LR
 
 ## 尾盘策略
 
-`core/tail_buy_strategy.py` + `scripts/tail_buy_intraday_job.py`
+`core/tail_buy/` + `workflows/tail_buy_config.py` + `scripts/tail_buy_intraday_job.py`
 
 策略设计用于盘中 14:00 附近执行，从前日 L4 信号中筛选尾盘买入标的；当前 GitHub Actions 工作流只保留手动触发，不再作为每日自动定时任务。
 

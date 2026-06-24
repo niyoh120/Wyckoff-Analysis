@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import argparse
-
 
 def test_build_strategy_reflection_and_candidate():
     from core.strategy_reflection import build_policy_candidate, build_strategy_reflection
@@ -25,9 +23,9 @@ def test_build_strategy_reflection_and_candidate():
 
 
 def test_strategy_reflection_job_dry_run_payload(monkeypatch):
-    from scripts import strategy_reflection_job as job
+    import workflows.strategy_reflection_job as job
 
-    args = argparse.Namespace(
+    request = job.StrategyReflectionRequest(
         market="cn",
         as_of_date="2026-06-12",
         horizon_days=5,
@@ -42,7 +40,7 @@ def test_strategy_reflection_job_dry_run_payload(monkeypatch):
     )
     monkeypatch.setattr(job, "load_policy_shadow_runs", lambda *_args: [{"diff_added": [], "diff_removed": []}])
 
-    reflection, candidate = job._build_payloads(args)
+    reflection, candidate = job.build_strategy_reflection_payloads(request)
 
     assert reflection["as_of_date"] == "2026-06-12"
     assert reflection["summary"]["preferred_track"] == "Trend"

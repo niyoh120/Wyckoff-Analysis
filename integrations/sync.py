@@ -17,7 +17,7 @@ def _get_read_context():
     from integrations.supabase_base import create_read_client, create_user_client
 
     try:
-        from cli.auth import restore_session
+        from integrations.local_auth import restore_session
 
         session = restore_session()
         if session and session.get("access_token"):

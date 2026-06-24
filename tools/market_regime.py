@@ -6,45 +6,14 @@
 
 from __future__ import annotations
 
-import os
 import re
+from dataclasses import dataclass
 
 import pandas as pd
 
+from core.market_breadth import calc_market_breadth as calc_core_market_breadth
 from core.wyckoff_engine import FunnelConfig
-
-# ── 环境变量配置 ──
-
-BREADTH_MA_WINDOW = int(os.getenv("FUNNEL_BREADTH_MA_WINDOW", "20"))
-BREADTH_RISK_OFF_THRESHOLD = float(os.getenv("FUNNEL_BREADTH_RISK_OFF_PCT", "20.0"))
-BREADTH_RISK_ON_THRESHOLD = float(os.getenv("FUNNEL_BREADTH_RISK_ON_PCT", "60.0"))
-BREADTH_RISK_ON_MIN_DELTA = float(os.getenv("FUNNEL_BREADTH_RISK_ON_DELTA", "0.0"))
-BREADTH_CLIFF_DROP_PCT = float(os.getenv("FUNNEL_BREADTH_CLIFF_DROP_PCT", "-10.0"))
-SMALLCAP_BENCH_CODE = os.getenv("FUNNEL_SMALLCAP_BENCH_CODE", "399006").strip() or "399006"
-CRASH_MAIN_DAY_DROP_PCT = float(os.getenv("FUNNEL_CRASH_MAIN_DAY_DROP_PCT", "-1.3"))
-CRASH_SMALL_DAY_DROP_PCT = float(os.getenv("FUNNEL_CRASH_SMALL_DAY_DROP_PCT", "-2.5"))
-CRASH_BREADTH_RATIO_PCT = float(os.getenv("FUNNEL_CRASH_BREADTH_RATIO_PCT", "15.0"))
-CRASH_BREADTH_DELTA_PCT = float(os.getenv("FUNNEL_CRASH_BREADTH_DELTA_PCT", "-20.0"))
-PANIC_REPAIR_MIN_AVG_AMOUNT_WAN = float(os.getenv("FUNNEL_PANIC_REPAIR_MIN_AVG_AMOUNT_WAN", "7000.0"))
-RISK_OFF_MIN_AVG_AMOUNT_WAN = float(os.getenv("FUNNEL_RISK_OFF_MIN_AVG_AMOUNT_WAN", "8000.0"))
-RISK_OFF_DEEP_MIN_AVG_AMOUNT_WAN = float(os.getenv("FUNNEL_RISK_OFF_DEEP_MIN_AVG_AMOUNT_WAN", "10000.0"))
-CRASH_MIN_AVG_AMOUNT_WAN = float(os.getenv("FUNNEL_CRASH_MIN_AVG_AMOUNT_WAN", "12000.0"))
-PANIC_REPAIR_ENABLE = os.getenv("FUNNEL_PANIC_REPAIR_ENABLE", "1").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-PANIC_REPAIR_MAIN_REBOUND_PCT = float(os.getenv("FUNNEL_PANIC_REPAIR_MAIN_REBOUND_PCT", "0.8"))
-PANIC_REPAIR_SMALL_REBOUND_PCT = float(os.getenv("FUNNEL_PANIC_REPAIR_SMALL_REBOUND_PCT", "1.5"))
-FUNNEL_EVR_POLICY = os.getenv("FUNNEL_EVR_POLICY", "all_regimes").strip().lower()
-MONEY_FLOW_LOOKBACK = int(os.getenv("FUNNEL_MONEY_FLOW_LOOKBACK", "20"))
-MONEY_FLOW_EXPAND_RATIO = float(os.getenv("FUNNEL_MONEY_FLOW_EXPAND_RATIO", "1.10"))
-MONEY_FLOW_CONTRACT_RATIO = float(os.getenv("FUNNEL_MONEY_FLOW_CONTRACT_RATIO", "0.85"))
-MONEY_FLOW_DOMINANCE_RATIO = float(os.getenv("FUNNEL_MONEY_FLOW_DOMINANCE_RATIO", "1.20"))
-AMOUNT_DISTRIBUTION_LOOKBACK = int(os.getenv("FUNNEL_AMOUNT_DISTRIBUTION_LOOKBACK", "20"))
-AMOUNT_DISTRIBUTION_SKEW_THRESHOLD = float(os.getenv("FUNNEL_AMOUNT_DISTRIBUTION_SKEW_THRESHOLD", "2.5"))
-AMOUNT_DISTRIBUTION_THIN_PASS_RATIO = float(os.getenv("FUNNEL_AMOUNT_DISTRIBUTION_THIN_PASS_RATIO", "0.35"))
+from tools.market_liquidity import calc_amount_distribution_health, calc_market_money_flow
 
 _PV_OUTLOOK_FALLBACK: dict[str, str] = {
     "RISK_ON": "次日推演：若量能维持在20日均量0.95x上方且不破MA50，偏强震荡延续；若放量跌破MA50，需转入防守。",
@@ -59,6 +28,80 @@ _PV_SYSTEM_PROMPT = (
     "你是 Wyckoff 量价分析师。根据以下大盘结构化数据，给出次日操作推演。\n"
     "要求：1-2句话，不超过80字，纯操作指引（若X则Y格式），不要废话和客套。"
 )
+
+
+@dataclass(frozen=True)
+class MarketRegimeConfig:
+    breadth_ma_window: int = 20
+    breadth_risk_off_threshold: float = 20.0
+    breadth_risk_on_threshold: float = 60.0
+    breadth_risk_on_min_delta: float = 0.0
+    breadth_cliff_drop_pct: float = -10.0
+    smallcap_bench_code: str = "399006"
+    crash_main_day_drop_pct: float = -1.3
+    crash_small_day_drop_pct: float = -2.5
+    crash_breadth_ratio_pct: float = 15.0
+    crash_breadth_delta_pct: float = -20.0
+    panic_repair_min_avg_amount_wan: float = 7000.0
+    risk_off_min_avg_amount_wan: float = 8000.0
+    risk_off_deep_min_avg_amount_wan: float = 10000.0
+    crash_min_avg_amount_wan: float = 12000.0
+    panic_repair_enabled: bool = True
+    panic_repair_main_rebound_pct: float = 0.8
+    panic_repair_small_rebound_pct: float = 1.5
+    evr_policy: str = "all_regimes"
+    pv_llm_provider: str = "gemini"
+
+    def normalized(self) -> MarketRegimeConfig:
+        return MarketRegimeConfig(
+            breadth_ma_window=max(int(self.breadth_ma_window), 1),
+            breadth_risk_off_threshold=float(self.breadth_risk_off_threshold),
+            breadth_risk_on_threshold=float(self.breadth_risk_on_threshold),
+            breadth_risk_on_min_delta=float(self.breadth_risk_on_min_delta),
+            breadth_cliff_drop_pct=float(self.breadth_cliff_drop_pct),
+            smallcap_bench_code=str(self.smallcap_bench_code or "399006").strip() or "399006",
+            crash_main_day_drop_pct=float(self.crash_main_day_drop_pct),
+            crash_small_day_drop_pct=float(self.crash_small_day_drop_pct),
+            crash_breadth_ratio_pct=float(self.crash_breadth_ratio_pct),
+            crash_breadth_delta_pct=float(self.crash_breadth_delta_pct),
+            panic_repair_min_avg_amount_wan=float(self.panic_repair_min_avg_amount_wan),
+            risk_off_min_avg_amount_wan=float(self.risk_off_min_avg_amount_wan),
+            risk_off_deep_min_avg_amount_wan=float(self.risk_off_deep_min_avg_amount_wan),
+            crash_min_avg_amount_wan=float(self.crash_min_avg_amount_wan),
+            panic_repair_enabled=bool(self.panic_repair_enabled),
+            panic_repair_main_rebound_pct=float(self.panic_repair_main_rebound_pct),
+            panic_repair_small_rebound_pct=float(self.panic_repair_small_rebound_pct),
+            evr_policy=str(self.evr_policy or "all_regimes").strip().lower() or "all_regimes",
+            pv_llm_provider=str(self.pv_llm_provider or "gemini").strip().lower() or "gemini",
+        )
+
+
+DEFAULT_MARKET_REGIME_CONFIG = MarketRegimeConfig()
+
+
+@dataclass(frozen=True)
+class MainBenchmarkMetrics:
+    close: float | None = None
+    ma50: float | None = None
+    ma200: float | None = None
+    ma50_slope_5d: float | None = None
+    recent3_list: list[float] | None = None
+    recent3_cum: float | None = None
+    today_pct: float | None = None
+    prev_pct: float | None = None
+    vol_ma5: float | None = None
+    vol_ma20: float | None = None
+    vol_ratio_5_20: float | None = None
+    volume_state: str = "未知"
+
+
+@dataclass(frozen=True)
+class SmallcapMetrics:
+    close: float | None = None
+    recent3_list: list[float] | None = None
+    recent3_cum: float | None = None
+    today_pct: float | None = None
+    prev_pct: float | None = None
 
 
 def _build_pv_user_message(
@@ -93,12 +136,12 @@ def _generate_pv_outlook(
     vol_ratio_text: str,
     volume_state: str,
     recent3_cum: float | None,
+    provider: str,
 ) -> str:
     fallback = _PV_OUTLOOK_FALLBACK.get(regime, "次日推演：结构信息不足，先观察量能与MA50得失再定方向。")
     try:
         from integrations.llm_client import call_llm, get_provider_credentials
 
-        provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").strip().lower() or "gemini"
         api_key, model, base_url = get_provider_credentials(provider)
         if not api_key:
             return fallback
@@ -133,275 +176,9 @@ def _generate_pv_outlook(
 
 def calc_market_breadth(
     df_map: dict[str, pd.DataFrame],
-    ma_window: int = BREADTH_MA_WINDOW,
+    ma_window: int = DEFAULT_MARKET_REGIME_CONFIG.breadth_ma_window,
 ) -> dict:
-    """
-    全市场广度：
-    breadth = 收盘价站上 MA20 的股票占比（%）。
-    额外给出前一日广度与日变化，用于识别扩散/收敛。
-    """
-    valid_now = 0
-    valid_prev = 0
-    above_now = 0
-    above_prev = 0
-    w = max(int(ma_window), 2)
-    for df in df_map.values():
-        if df is None or df.empty:
-            continue
-        s = df
-        if "date" in s.columns:
-            try:
-                if not s["date"].is_monotonic_increasing:
-                    s = s.sort_values("date")
-            except Exception:
-                s = s.sort_values("date")
-
-        close = pd.to_numeric(s.get("close"), errors="coerce").dropna().tail(w + 1)
-        if len(close) < (w + 1):
-            continue
-
-        c_now = float(close.iloc[-1])
-        ma_now = float(close.iloc[1:].mean())
-        c_prev = float(close.iloc[-2])
-        ma_prev = float(close.iloc[:-1].mean())
-
-        valid_now += 1
-        if c_now >= ma_now:
-            above_now += 1
-
-        valid_prev += 1
-        if c_prev >= ma_prev:
-            above_prev += 1
-
-    ratio_now = (above_now / valid_now * 100.0) if valid_now > 0 else None
-    ratio_prev = (above_prev / valid_prev * 100.0) if valid_prev > 0 else None
-    delta = None
-    if ratio_now is not None and ratio_prev is not None:
-        delta = ratio_now - ratio_prev
-    return {
-        "ratio_pct": ratio_now,
-        "prev_ratio_pct": ratio_prev,
-        "delta_pct": delta,
-        "sample_size": valid_now,
-    }
-
-
-def _sorted_daily_frame(df: pd.DataFrame) -> pd.DataFrame:
-    work = df.copy()
-    if "date" in work.columns:
-        work = work.sort_values("date")
-    return work.reset_index(drop=True)
-
-
-def _symbol_money_snapshot(df: pd.DataFrame, lookback: int) -> dict | None:
-    if df is None or df.empty or "amount" not in df.columns:
-        return None
-    work = _sorted_daily_frame(df)
-    close = pd.to_numeric(work.get("close"), errors="coerce")
-    amount = pd.to_numeric(work.get("amount"), errors="coerce")
-    valid = pd.DataFrame({"close": close, "amount": amount}).dropna()
-    if len(valid) < 2:
-        return None
-    latest_amount = float(valid["amount"].iloc[-1])
-    if latest_amount <= 0:
-        return None
-    prev_close = float(valid["close"].iloc[-2])
-    latest_close = float(valid["close"].iloc[-1])
-    pct = (latest_close / prev_close - 1.0) * 100.0 if prev_close > 0 else 0.0
-    positive_amount = valid["amount"][valid["amount"] > 0]
-    return {
-        "pct": pct,
-        "latest_amount": latest_amount,
-        "prev_amount": float(valid["amount"].iloc[-2]) if float(valid["amount"].iloc[-2]) > 0 else 0.0,
-        "mean_amount": float(positive_amount.tail(lookback).mean()) if not positive_amount.empty else 0.0,
-        "recent3_amount": float(positive_amount.tail(3).mean()) if not positive_amount.empty else 0.0,
-    }
-
-
-def _money_flow_totals(snapshots: list[dict]) -> dict[str, float | int]:
-    up_amount = sum(item["latest_amount"] for item in snapshots if item["pct"] > 0)
-    down_amount = sum(item["latest_amount"] for item in snapshots if item["pct"] < 0)
-    return {
-        "sample_size": len(snapshots),
-        "total_amount": sum(item["latest_amount"] for item in snapshots),
-        "prev_total_amount": sum(item["prev_amount"] for item in snapshots),
-        "mean_amount": sum(item["mean_amount"] for item in snapshots),
-        "recent3_amount": sum(item["recent3_amount"] for item in snapshots),
-        "up_amount": up_amount,
-        "down_amount": down_amount,
-        "flat_amount": sum(item["latest_amount"] for item in snapshots if item["pct"] == 0),
-        "advancing_count": sum(1 for item in snapshots if item["pct"] > 0),
-        "declining_count": sum(1 for item in snapshots if item["pct"] < 0),
-    }
-
-
-def _safe_ratio(numerator: float, denominator: float) -> float | None:
-    return float(numerator / denominator) if denominator and denominator > 0 else None
-
-
-def _classify_money_flow(amount_ratio: float | None, up_down_ratio: float | None, breadth_delta: float | None) -> str:
-    expanded = amount_ratio is not None and amount_ratio >= MONEY_FLOW_EXPAND_RATIO
-    contracted = amount_ratio is not None and amount_ratio <= MONEY_FLOW_CONTRACT_RATIO
-    up_dominant = up_down_ratio is not None and up_down_ratio >= MONEY_FLOW_DOMINANCE_RATIO
-    down_dominant = up_down_ratio is not None and up_down_ratio <= 1.0 / MONEY_FLOW_DOMINANCE_RATIO
-    breadth_ok = breadth_delta is None or breadth_delta >= 0
-    breadth_bad = breadth_delta is not None and breadth_delta < 0
-    if expanded and up_dominant and breadth_ok:
-        return "主力进场"
-    if expanded and down_dominant and breadth_bad:
-        return "主力撤退"
-    if expanded:
-        return "放量分歧"
-    if contracted and up_dominant:
-        return "缩量反弹"
-    if contracted:
-        return "缩量观望"
-    if up_dominant:
-        return "资金偏进"
-    if down_dominant:
-        return "资金偏撤"
-    return "资金均衡"
-
-
-def _money_flow_score(
-    amount_ratio: float | None, up_amount: float, down_amount: float, breadth_delta: float | None
-) -> float:
-    total_directional = up_amount + down_amount
-    direction = (up_amount - down_amount) / total_directional if total_directional > 0 else 0.0
-    expansion = (amount_ratio - 1.0) if amount_ratio is not None else 0.0
-    breadth_part = (breadth_delta or 0.0) / 20.0
-    return round(direction * 60.0 + expansion * 35.0 + breadth_part * 20.0, 1)
-
-
-def _money_flow_summary(
-    state: str, totals: dict, amount_ratio: float | None, up_down_ratio: float | None, breadth: dict
-) -> str:
-    if not totals["sample_size"]:
-        return "资金趋势：样本不足，暂不判断主力进退。"
-    ratio_text = f"{amount_ratio:.2f}x" if amount_ratio is not None else "未知"
-    ud_text = f"{up_down_ratio:.2f}x" if up_down_ratio is not None else "无下跌成交额"
-    breadth_delta = breadth.get("delta_pct") if breadth else None
-    breadth_text = f"，广度变化 {float(breadth_delta):+.1f}pct" if breadth_delta is not None else ""
-    total_yi = float(totals["total_amount"]) / 1e8
-    return f"{state}：全市场成交额 {total_yi:.0f}亿，为20日均额 {ratio_text}；上涨/下跌成交额 {ud_text}{breadth_text}。"
-
-
-def calc_market_money_flow(
-    df_map: dict[str, pd.DataFrame],
-    breadth: dict | None = None,
-    lookback: int = MONEY_FLOW_LOOKBACK,
-) -> dict:
-    """用全市场成交额扩张/收缩和涨跌成交额分布，推断资金进退趋势。"""
-    snapshots = [
-        item
-        for item in (_symbol_money_snapshot(df, max(int(lookback), 2)) for df in df_map.values())
-        if item is not None
-    ]
-    totals = _money_flow_totals(snapshots)
-    amount_ratio = _safe_ratio(float(totals["total_amount"]), float(totals["mean_amount"]))
-    amount_ratio_3_20 = _safe_ratio(float(totals["recent3_amount"]), float(totals["mean_amount"]))
-    amount_change_pct = _safe_ratio(float(totals["total_amount"]), float(totals["prev_total_amount"]))
-    up_down_ratio = _safe_ratio(float(totals["up_amount"]), float(totals["down_amount"]))
-    breadth_delta = breadth.get("delta_pct") if breadth else None
-    state = _classify_money_flow(amount_ratio, up_down_ratio, breadth_delta)
-    score = _money_flow_score(amount_ratio, float(totals["up_amount"]), float(totals["down_amount"]), breadth_delta)
-    trend = "entry" if score >= 20 else "retreat" if score <= -20 else "neutral"
-    return {
-        "state": state,
-        "trend": trend,
-        "score": score,
-        "sample_size": totals["sample_size"],
-        "total_amount_yi": round(float(totals["total_amount"]) / 1e8, 2),
-        "prev_total_amount_yi": round(float(totals["prev_total_amount"]) / 1e8, 2),
-        "amount_ratio_1_20": None if amount_ratio is None else round(amount_ratio, 3),
-        "amount_ratio_3_20": None if amount_ratio_3_20 is None else round(amount_ratio_3_20, 3),
-        "amount_change_pct": None if amount_change_pct is None else round((amount_change_pct - 1.0) * 100.0, 2),
-        "up_amount_yi": round(float(totals["up_amount"]) / 1e8, 2),
-        "down_amount_yi": round(float(totals["down_amount"]) / 1e8, 2),
-        "up_down_amount_ratio": None if up_down_ratio is None else round(up_down_ratio, 3),
-        "advancing_count": totals["advancing_count"],
-        "declining_count": totals["declining_count"],
-        "summary": _money_flow_summary(state, totals, amount_ratio, up_down_ratio, breadth or {}),
-    }
-
-
-def _symbol_avg_amount(df: pd.DataFrame, lookback: int) -> float | None:
-    if df is None or df.empty or "amount" not in df.columns:
-        return None
-    work = _sorted_daily_frame(df)
-    amount = pd.to_numeric(work.get("amount"), errors="coerce").dropna()
-    amount = amount[amount > 0].tail(max(int(lookback), 2))
-    if amount.empty:
-        return None
-    return float(amount.mean())
-
-
-def _empty_amount_distribution() -> dict:
-    return {
-        "state": "unknown",
-        "summary": "成交额分布：样本不足，暂不判断流动性偏度。",
-        "sample_size": 0,
-        "lookback": AMOUNT_DISTRIBUTION_LOOKBACK,
-        "mean_amount_yi": None,
-        "median_amount_yi": None,
-        "median_mean_ratio": None,
-        "p80_p20_ratio": None,
-        "skewness": None,
-        "pass_ratio_pct": None,
-        "dry_ratio_pct": None,
-    }
-
-
-def _amount_distribution_summary(state: str, sample: int, skew: float, pass_ratio: float, median_mean: float) -> str:
-    state_label = {"healthy": "健康", "concentrated": "集中", "thin": "偏弱"}.get(state, "未知")
-    return (
-        f"成交额分布{state_label}：样本{sample}只，偏度{skew:.2f}，"
-        f"达标占比{pass_ratio * 100:.1f}%，中位/均值{median_mean:.2f}。"
-    )
-
-
-def calc_amount_distribution_health(
-    df_map: dict[str, pd.DataFrame],
-    min_avg_amount_wan: float,
-    lookback: int = AMOUNT_DISTRIBUTION_LOOKBACK,
-) -> dict:
-    """检查全市场成交额是否过度集中，避免均值被少数龙头抬高。"""
-    values = [
-        value
-        for value in (_symbol_avg_amount(df, lookback) for df in df_map.values())
-        if value is not None and value > 0
-    ]
-    if not values:
-        return _empty_amount_distribution()
-    series = pd.Series(values, dtype=float)
-    threshold = float(min_avg_amount_wan) * 10000
-    mean_amount = float(series.mean())
-    median_amount = float(series.median())
-    skewness = float(series.skew()) if len(series) >= 3 else 0.0
-    pass_ratio = float((series >= threshold).mean())
-    dry_ratio = float((series < threshold * 0.5).mean())
-    median_mean = _safe_ratio(median_amount, mean_amount) or 0.0
-    p20 = float(series.quantile(0.2))
-    p80 = float(series.quantile(0.8))
-    p80_p20 = _safe_ratio(p80, p20)
-    state = "healthy"
-    if pass_ratio < AMOUNT_DISTRIBUTION_THIN_PASS_RATIO or median_mean < 0.35:
-        state = "thin"
-    elif skewness >= AMOUNT_DISTRIBUTION_SKEW_THRESHOLD and median_mean < 0.55:
-        state = "concentrated"
-    return {
-        "state": state,
-        "summary": _amount_distribution_summary(state, len(series), skewness, pass_ratio, median_mean),
-        "sample_size": len(series),
-        "lookback": max(int(lookback), 2),
-        "mean_amount_yi": round(mean_amount / 1e8, 3),
-        "median_amount_yi": round(median_amount / 1e8, 3),
-        "median_mean_ratio": round(median_mean, 3),
-        "p80_p20_ratio": None if p80_p20 is None else round(p80_p20, 3),
-        "skewness": round(skewness, 3),
-        "pass_ratio_pct": round(pass_ratio * 100.0, 2),
-        "dry_ratio_pct": round(dry_ratio * 100.0, 2),
-    }
+    return calc_core_market_breadth(df_map, ma_window=ma_window)
 
 
 def _latest_trade_gap_days(df: pd.DataFrame | None) -> int:
@@ -466,7 +243,9 @@ def derive_market_pv_policy_shadow(
     volume_state: str,
     money_flow: dict,
     cfg: FunnelConfig,
+    regime_config: MarketRegimeConfig | None = None,
 ) -> dict:
+    runtime = (regime_config or DEFAULT_MARKET_REGIME_CONFIG).normalized()
     text = str(outlook or "")
     flow_trend = str((money_flow or {}).get("trend") or "neutral")
     defensive_words = ("防守", "收缩", "失守", "跌破", "回避追高", "冲高回落")
@@ -483,7 +262,7 @@ def derive_market_pv_policy_shadow(
     if defensive:
         risk_bias = "defensive"
         overrides = {
-            "min_avg_amount_wan": max(float(cfg.min_avg_amount_wan), RISK_OFF_MIN_AVG_AMOUNT_WAN),
+            "min_avg_amount_wan": max(float(cfg.min_avg_amount_wan), runtime.risk_off_min_avg_amount_wan),
             "rps_fast_min": max(float(cfg.rps_fast_min), 80.0),
             "rps_slow_min": max(float(cfg.rps_slow_min), 75.0),
         }
@@ -520,13 +299,13 @@ def _base_tuned_context(cfg: FunnelConfig) -> dict:
     }
 
 
-def _base_breadth_context() -> dict:
+def _base_breadth_context(regime_config: MarketRegimeConfig) -> dict:
     return {
         "ratio_pct": None,
         "prev_ratio_pct": None,
         "delta_pct": None,
         "sample_size": 0,
-        "ma_window": BREADTH_MA_WINDOW,
+        "ma_window": regime_config.breadth_ma_window,
     }
 
 
@@ -544,6 +323,7 @@ def _base_benchmark_context(
     cfg: FunnelConfig,
     money_flow_context: dict,
     amount_distribution_context: dict,
+    regime_config: MarketRegimeConfig,
 ) -> dict:
     return {
         "regime": "UNKNOWN",
@@ -554,7 +334,7 @@ def _base_benchmark_context(
         "ma50_slope_5d": None,
         "recent3_pct": [],
         "recent3_cum_pct": None,
-        "smallcap_code": SMALLCAP_BENCH_CODE,
+        "smallcap_code": regime_config.smallcap_bench_code,
         "smallcap_close": None,
         "smallcap_recent3_pct": [],
         "smallcap_recent3_cum_pct": None,
@@ -566,7 +346,7 @@ def _base_benchmark_context(
         "bear_rebound_triggered": False,
         "bear_rebound_reasons": [],
         "tuned": _base_tuned_context(cfg),
-        "breadth": _base_breadth_context(),
+        "breadth": _base_breadth_context(regime_config),
         "money_flow": money_flow_context,
         "amount_distribution": amount_distribution_context,
         "holiday_grace_dynamic": _base_holiday_grace_context(cfg),
@@ -574,183 +354,219 @@ def _base_benchmark_context(
     }
 
 
-def analyze_benchmark_and_tune_cfg(
-    bench_df: pd.DataFrame | None,
-    smallcap_df: pd.DataFrame | None,
-    cfg: FunnelConfig,
-    breadth: dict | None = None,
-    money_flow: dict | None = None,
-    amount_distribution: dict | None = None,
-) -> dict:
-    """
-    Step 0：大盘总闸
-    - 输出宏观水温（RISK_ON / BEAR_REBOUND / NEUTRAL / RISK_OFF / CRASH / PANIC_REPAIR）
-    - 在 RISK_OFF 时动态收紧个股过滤阈值
-    """
-    money_flow_context = money_flow or calc_market_money_flow({}, breadth)
-    amount_distribution_context = amount_distribution or calc_amount_distribution_health({}, cfg.min_avg_amount_wan)
-    context = _base_benchmark_context(cfg, money_flow_context, amount_distribution_context)
-    close = None
-    ma50 = None
-    ma200 = None
-    ma50_slope_5d = None
-    recent3_list: list[float] = []
-    recent3_cum = None
-    main_today_pct = None
-    main_prev_pct = None
-    main_vol_ma5 = None
-    main_vol_ma20 = None
-    main_vol_ratio_5_20 = None
-    main_volume_state = "未知"
-    small_close = None
-    small_recent3_list: list[float] = []
-    small_recent3_cum = None
-    small_today_pct = None
-    small_prev_pct = None
+def _recent_pct_metrics(frame: pd.DataFrame) -> tuple[list[float], float | None, float | None, float | None]:
+    recent = frame["pct_chg"].dropna().tail(3)
+    recent_list = [float(x) for x in recent.tolist()]
+    recent_cum = float(((recent / 100.0 + 1.0).prod() - 1.0) * 100.0) if not recent.empty else None
+    today_pct = float(recent_list[-1]) if recent_list else None
+    prev_pct = float(recent_list[-2]) if len(recent_list) >= 2 else None
+    return recent_list, recent_cum, today_pct, prev_pct
 
-    if bench_df is not None and not bench_df.empty:
-        b = bench_df.sort_values("date").copy()
-        b["close"] = pd.to_numeric(b["close"], errors="coerce")
-        b["pct_chg"] = pd.to_numeric(b["pct_chg"], errors="coerce")
-        b["volume"] = pd.to_numeric(b.get("volume"), errors="coerce")
-        if len(b) >= 60:
-            close = float(b["close"].iloc[-1])
-            ma50 = float(b["close"].rolling(50).mean().iloc[-1])
-            ma200 = float(b["close"].rolling(200).mean().iloc[-1])
-            ma50_prev = b["close"].rolling(50).mean().shift(5).iloc[-1]
-            ma50_slope_5d = None if pd.isna(ma50_prev) else float(ma50 - ma50_prev)
-            recent3 = b["pct_chg"].dropna().tail(3)
-            recent3_list = [float(x) for x in recent3.tolist()]
-            if not recent3.empty:
-                recent3_cum = float(((recent3 / 100.0 + 1.0).prod() - 1.0) * 100.0)
-            if recent3_list:
-                main_today_pct = float(recent3_list[-1])
-                if len(recent3_list) >= 2:
-                    main_prev_pct = float(recent3_list[-2])
-            vol = b["volume"].dropna()
-            if len(vol) >= 20:
-                main_vol_ma20 = float(vol.tail(20).mean())
-                main_vol_ma5 = float(vol.tail(5).mean())
-                if main_vol_ma20 > 0:
-                    main_vol_ratio_5_20 = float(main_vol_ma5 / main_vol_ma20)
-                    if main_vol_ratio_5_20 >= 1.15:
-                        main_volume_state = "放量"
-                    elif main_vol_ratio_5_20 <= 0.85:
-                        main_volume_state = "缩量"
-                    else:
-                        main_volume_state = "平量"
 
-    if smallcap_df is not None and not smallcap_df.empty:
-        s = smallcap_df.sort_values("date").copy()
-        s["close"] = pd.to_numeric(s["close"], errors="coerce")
-        s["pct_chg"] = pd.to_numeric(s["pct_chg"], errors="coerce")
-        if len(s) >= 10:
-            small_close = float(s["close"].iloc[-1])
-            s_recent3 = s["pct_chg"].dropna().tail(3)
-            small_recent3_list = [float(x) for x in s_recent3.tolist()]
-            if not s_recent3.empty:
-                small_recent3_cum = float(((s_recent3 / 100.0 + 1.0).prod() - 1.0) * 100.0)
-            if small_recent3_list:
-                small_today_pct = float(small_recent3_list[-1])
-                if len(small_recent3_list) >= 2:
-                    small_prev_pct = float(small_recent3_list[-2])
+def _classify_volume_state(ratio: float | None) -> str:
+    if ratio is None:
+        return "未知"
+    if ratio >= 1.15:
+        return "放量"
+    if ratio <= 0.85:
+        return "缩量"
+    return "平量"
 
-    regime = "NEUTRAL"
-    if (
-        ma200 is not None
-        and ma50 is not None
-        and ma50_slope_5d is not None
-        and recent3_cum is not None
-        and close is not None
-    ):
-        risk_off = (close < ma200) and (ma50 < ma200) and (ma50_slope_5d < 0) and (recent3_cum <= -2.0)
-        risk_on = (close > ma50 > ma200) and (ma50_slope_5d > 0) and (recent3_cum >= 0.0)
-        if risk_off:
-            regime = "RISK_OFF"
-        elif risk_on:
-            regime = "RISK_ON"
 
-    breadth_ratio = None
-    breadth_prev = None
-    breadth_delta = None
-    breadth_sample = 0
-    if breadth:
-        breadth_ratio = breadth.get("ratio_pct")
-        breadth_prev = breadth.get("prev_ratio_pct")
-        breadth_delta = breadth.get("delta_pct")
-        breadth_sample = int(breadth.get("sample_size") or 0)
-    if breadth_ratio is not None:
-        if float(breadth_ratio) <= BREADTH_RISK_OFF_THRESHOLD:
-            regime = "RISK_OFF"
-        elif float(breadth_ratio) >= BREADTH_RISK_ON_THRESHOLD and (
-            breadth_delta is None or float(breadth_delta) >= BREADTH_RISK_ON_MIN_DELTA
-        ):
-            regime = "RISK_ON"
-        # 强力悬崖检测 (Breadth Cliff Drop): 赚了指数不赚钱，暗流涌动的隐性雪崩
-        if breadth_delta is not None and float(breadth_delta) <= BREADTH_CLIFF_DROP_PCT:
-            regime = "RISK_OFF"
-
-    panic_reasons: list[str] = []
-    if main_today_pct is not None and float(main_today_pct) <= float(CRASH_MAIN_DAY_DROP_PCT):
-        panic_reasons.append(f"main_day_drop={main_today_pct:.2f}%<=阈值{CRASH_MAIN_DAY_DROP_PCT:.2f}%")
-    if small_today_pct is not None and float(small_today_pct) <= float(CRASH_SMALL_DAY_DROP_PCT):
-        panic_reasons.append(f"smallcap_day_drop={small_today_pct:.2f}%<=阈值{CRASH_SMALL_DAY_DROP_PCT:.2f}%")
-    if breadth_ratio is not None and float(breadth_ratio) <= float(CRASH_BREADTH_RATIO_PCT):
-        panic_reasons.append(f"breadth_ratio={float(breadth_ratio):.2f}%<=阈值{CRASH_BREADTH_RATIO_PCT:.2f}%")
-    if breadth_delta is not None and float(breadth_delta) <= float(CRASH_BREADTH_DELTA_PCT):
-        panic_reasons.append(f"breadth_delta={float(breadth_delta):.2f}%<=阈值{CRASH_BREADTH_DELTA_PCT:.2f}%")
-    repair_reasons: list[str] = []
-    if panic_reasons:
-        regime = "CRASH"
-    elif PANIC_REPAIR_ENABLE:
-        # 改进逻辑：支持连续反弹（前 1-2 天是 CRASH，最近 1-2 天反弹）
-        prev_panic = (main_prev_pct is not None and float(main_prev_pct) <= float(CRASH_MAIN_DAY_DROP_PCT)) or (
-            small_prev_pct is not None and float(small_prev_pct) <= float(CRASH_SMALL_DAY_DROP_PCT)
-        )
-        rebound_ok = (main_today_pct is not None and float(main_today_pct) >= float(PANIC_REPAIR_MAIN_REBOUND_PCT)) or (
-            small_today_pct is not None and float(small_today_pct) >= float(PANIC_REPAIR_SMALL_REBOUND_PCT)
-        )
-        # 连续反弹：最近 2 日都反弹
-        continuous_rebound = False
-        if main_today_pct is not None and main_prev_pct is not None:
-            continuous_rebound = (
-                float(main_today_pct) >= float(PANIC_REPAIR_MAIN_REBOUND_PCT) * 0.5
-                and float(main_prev_pct) >= float(PANIC_REPAIR_MAIN_REBOUND_PCT) * 0.5
-            )
-
-        if (prev_panic and rebound_ok) or continuous_rebound:
-            regime = "PANIC_REPAIR"
-            repair_reasons = [
-                f"prev_panic(main_prev={main_prev_pct}, small_prev={small_prev_pct})",
-                f"rebound_ok(main_today={main_today_pct}, small_today={small_today_pct})",
-            ]
-
-    bull_structure = (
-        close is not None
-        and ma50 is not None
-        and ma200 is not None
-        and ma50_slope_5d is not None
-        and close > ma50 > ma200
-        and ma50_slope_5d > 0
+def _main_benchmark_metrics(bench_df: pd.DataFrame | None) -> MainBenchmarkMetrics:
+    if bench_df is None or bench_df.empty:
+        return MainBenchmarkMetrics(recent3_list=[])
+    frame = bench_df.sort_values("date").copy()
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    frame["pct_chg"] = pd.to_numeric(frame["pct_chg"], errors="coerce")
+    frame["volume"] = pd.to_numeric(frame.get("volume"), errors="coerce")
+    if len(frame) < 60:
+        return MainBenchmarkMetrics(recent3_list=[])
+    close = float(frame["close"].iloc[-1])
+    rolling50 = frame["close"].rolling(50)
+    ma50 = float(rolling50.mean().iloc[-1])
+    ma200 = float(frame["close"].rolling(200).mean().iloc[-1])
+    ma50_prev = rolling50.mean().shift(5).iloc[-1]
+    recent3_list, recent3_cum, today_pct, prev_pct = _recent_pct_metrics(frame)
+    vol = frame["volume"].dropna()
+    vol_ma5 = vol_ma20 = vol_ratio = None
+    if len(vol) >= 20:
+        vol_ma20 = float(vol.tail(20).mean())
+        vol_ma5 = float(vol.tail(5).mean())
+        vol_ratio = float(vol_ma5 / vol_ma20) if vol_ma20 > 0 else None
+    return MainBenchmarkMetrics(
+        close=close,
+        ma50=ma50,
+        ma200=ma200,
+        ma50_slope_5d=None if pd.isna(ma50_prev) else float(ma50 - ma50_prev),
+        recent3_list=recent3_list,
+        recent3_cum=recent3_cum,
+        today_pct=today_pct,
+        prev_pct=prev_pct,
+        vol_ma5=vol_ma5,
+        vol_ma20=vol_ma20,
+        vol_ratio_5_20=vol_ratio,
+        volume_state=_classify_volume_state(vol_ratio),
     )
-    bear_rebound_reasons: list[str] = []
-    if regime == "RISK_ON" and not bull_structure:
-        regime = "BEAR_REBOUND"
-        if close is not None and ma200 is not None and close < ma200:
-            bear_rebound_reasons.append("close_below_ma200")
-        if ma50 is not None and ma200 is not None and ma50 <= ma200:
-            bear_rebound_reasons.append("ma50_below_ma200")
-        if ma50_slope_5d is not None and ma50_slope_5d <= 0:
-            bear_rebound_reasons.append("ma50_slope_non_positive")
-        if not bear_rebound_reasons:
-            bear_rebound_reasons.append("risk_on_without_bull_structure")
 
-    # EVR 开关策略：
-    # - all_regimes(默认): 各市场水温都开启，保持信号连续性
-    # - cold_only: 仅在 RISK_OFF/CRASH 开启
-    # - respect_cfg: 使用 FunnelConfig 当前值
-    # - off: 全关闭
-    evr_policy = FUNNEL_EVR_POLICY
+
+def _smallcap_metrics(smallcap_df: pd.DataFrame | None) -> SmallcapMetrics:
+    if smallcap_df is None or smallcap_df.empty:
+        return SmallcapMetrics(recent3_list=[])
+    frame = smallcap_df.sort_values("date").copy()
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    frame["pct_chg"] = pd.to_numeric(frame["pct_chg"], errors="coerce")
+    if len(frame) < 10:
+        return SmallcapMetrics(recent3_list=[])
+    recent3_list, recent3_cum, today_pct, prev_pct = _recent_pct_metrics(frame)
+    return SmallcapMetrics(
+        close=float(frame["close"].iloc[-1]),
+        recent3_list=recent3_list,
+        recent3_cum=recent3_cum,
+        today_pct=today_pct,
+        prev_pct=prev_pct,
+    )
+
+
+def _trend_regime(metrics: MainBenchmarkMetrics) -> str:
+    required = (
+        metrics.ma200,
+        metrics.ma50,
+        metrics.ma50_slope_5d,
+        metrics.recent3_cum,
+        metrics.close,
+    )
+    if any(value is None for value in required):
+        return "NEUTRAL"
+    risk_off = (
+        metrics.close < metrics.ma200
+        and metrics.ma50 < metrics.ma200
+        and metrics.ma50_slope_5d < 0
+        and metrics.recent3_cum <= -2.0
+    )
+    risk_on = metrics.close > metrics.ma50 > metrics.ma200 and metrics.ma50_slope_5d > 0 and metrics.recent3_cum >= 0.0
+    return "RISK_OFF" if risk_off else "RISK_ON" if risk_on else "NEUTRAL"
+
+
+def _breadth_values(breadth: dict | None) -> tuple[float | None, float | None, float | None, int]:
+    if not breadth:
+        return None, None, None, 0
+    return (
+        breadth.get("ratio_pct"),
+        breadth.get("prev_ratio_pct"),
+        breadth.get("delta_pct"),
+        int(breadth.get("sample_size") or 0),
+    )
+
+
+def _apply_breadth_regime(
+    regime: str,
+    breadth_ratio: float | None,
+    breadth_delta: float | None,
+    regime_config: MarketRegimeConfig,
+) -> str:
+    if breadth_ratio is None:
+        return regime
+    if float(breadth_ratio) <= regime_config.breadth_risk_off_threshold:
+        regime = "RISK_OFF"
+    elif float(breadth_ratio) >= regime_config.breadth_risk_on_threshold and (
+        breadth_delta is None or float(breadth_delta) >= regime_config.breadth_risk_on_min_delta
+    ):
+        regime = "RISK_ON"
+    if breadth_delta is not None and float(breadth_delta) <= regime_config.breadth_cliff_drop_pct:
+        regime = "RISK_OFF"
+    return regime
+
+
+def _panic_reasons(
+    main: MainBenchmarkMetrics,
+    small: SmallcapMetrics,
+    breadth_ratio: float | None,
+    breadth_delta: float | None,
+    regime_config: MarketRegimeConfig,
+) -> list[str]:
+    reasons: list[str] = []
+    if main.today_pct is not None and float(main.today_pct) <= regime_config.crash_main_day_drop_pct:
+        reasons.append(f"main_day_drop={main.today_pct:.2f}%<=阈值{regime_config.crash_main_day_drop_pct:.2f}%")
+    if small.today_pct is not None and float(small.today_pct) <= regime_config.crash_small_day_drop_pct:
+        reasons.append(f"smallcap_day_drop={small.today_pct:.2f}%<=阈值{regime_config.crash_small_day_drop_pct:.2f}%")
+    if breadth_ratio is not None and float(breadth_ratio) <= regime_config.crash_breadth_ratio_pct:
+        reasons.append(f"breadth_ratio={float(breadth_ratio):.2f}%<=阈值{regime_config.crash_breadth_ratio_pct:.2f}%")
+    if breadth_delta is not None and float(breadth_delta) <= regime_config.crash_breadth_delta_pct:
+        reasons.append(f"breadth_delta={float(breadth_delta):.2f}%<=阈值{regime_config.crash_breadth_delta_pct:.2f}%")
+    return reasons
+
+
+def _repair_reasons(
+    main: MainBenchmarkMetrics,
+    small: SmallcapMetrics,
+    regime_config: MarketRegimeConfig,
+) -> list[str]:
+    prev_panic = (main.prev_pct is not None and float(main.prev_pct) <= regime_config.crash_main_day_drop_pct) or (
+        small.prev_pct is not None and float(small.prev_pct) <= regime_config.crash_small_day_drop_pct
+    )
+    rebound_ok = (
+        main.today_pct is not None and float(main.today_pct) >= regime_config.panic_repair_main_rebound_pct
+    ) or (small.today_pct is not None and float(small.today_pct) >= regime_config.panic_repair_small_rebound_pct)
+    continuous_rebound = False
+    if main.today_pct is not None and main.prev_pct is not None:
+        continuous_rebound = (
+            float(main.today_pct) >= regime_config.panic_repair_main_rebound_pct * 0.5
+            and float(main.prev_pct) >= regime_config.panic_repair_main_rebound_pct * 0.5
+        )
+    if not ((prev_panic and rebound_ok) or continuous_rebound):
+        return []
+    return [
+        f"prev_panic(main_prev={main.prev_pct}, small_prev={small.prev_pct})",
+        f"rebound_ok(main_today={main.today_pct}, small_today={small.today_pct})",
+    ]
+
+
+def _apply_panic_repair_regime(
+    regime: str,
+    main: MainBenchmarkMetrics,
+    small: SmallcapMetrics,
+    breadth_ratio: float | None,
+    breadth_delta: float | None,
+    regime_config: MarketRegimeConfig,
+) -> tuple[str, list[str], list[str]]:
+    panic_reasons = _panic_reasons(main, small, breadth_ratio, breadth_delta, regime_config)
+    if panic_reasons:
+        return "CRASH", panic_reasons, []
+    if not regime_config.panic_repair_enabled:
+        return regime, [], []
+    repair_reasons = _repair_reasons(main, small, regime_config)
+    return ("PANIC_REPAIR", [], repair_reasons) if repair_reasons else (regime, [], [])
+
+
+def _bull_structure(metrics: MainBenchmarkMetrics) -> bool:
+    return (
+        metrics.close is not None
+        and metrics.ma50 is not None
+        and metrics.ma200 is not None
+        and metrics.ma50_slope_5d is not None
+        and metrics.close > metrics.ma50 > metrics.ma200
+        and metrics.ma50_slope_5d > 0
+    )
+
+
+def _apply_bear_rebound_regime(regime: str, metrics: MainBenchmarkMetrics) -> tuple[str, list[str]]:
+    if regime != "RISK_ON" or _bull_structure(metrics):
+        return regime, []
+    reasons: list[str] = []
+    if metrics.close is not None and metrics.ma200 is not None and metrics.close < metrics.ma200:
+        reasons.append("close_below_ma200")
+    if metrics.ma50 is not None and metrics.ma200 is not None and metrics.ma50 <= metrics.ma200:
+        reasons.append("ma50_below_ma200")
+    if metrics.ma50_slope_5d is not None and metrics.ma50_slope_5d <= 0:
+        reasons.append("ma50_slope_non_positive")
+    if not reasons:
+        reasons.append("risk_on_without_bull_structure")
+    return "BEAR_REBOUND", reasons
+
+
+def _apply_evr_policy(cfg: FunnelConfig, regime: str, regime_config: MarketRegimeConfig) -> None:
+    evr_policy = regime_config.evr_policy
     if evr_policy in {"cold_only", "risk_off", "risk_off_crash"}:
         cfg.enable_evr_trigger = regime in {"RISK_OFF", "CRASH"}
     elif evr_policy in {"off", "disabled", "disable", "0", "false", "no"}:
@@ -760,34 +576,29 @@ def analyze_benchmark_and_tune_cfg(
     else:
         cfg.enable_evr_trigger = True
 
-    # 动态调参：风险越冷，过滤越严
+
+def _tune_cfg_for_regime(
+    cfg: FunnelConfig,
+    regime: str,
+    recent3_cum: float | None,
+    regime_config: MarketRegimeConfig,
+) -> None:
     if regime == "CRASH":
-        cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, CRASH_MIN_AVG_AMOUNT_WAN)
+        cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, regime_config.crash_min_avg_amount_wan)
         cfg.rs_min_long = max(cfg.rs_min_long, 4.0)
         cfg.rs_min_short = max(cfg.rs_min_short, 1.0)
         cfg.rps_fast_min = max(cfg.rps_fast_min, 80.0)
         cfg.rps_slow_min = max(cfg.rps_slow_min, 75.0)
     elif regime == "PANIC_REPAIR":
-        cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, PANIC_REPAIR_MIN_AVG_AMOUNT_WAN)
+        cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, regime_config.panic_repair_min_avg_amount_wan)
         cfg.rs_min_long = max(cfg.rs_min_long, 1.0)
         cfg.rs_min_short = max(cfg.rs_min_short, 0.2)
         cfg.rps_fast_min = max(cfg.rps_fast_min, 75.0)
         cfg.rps_slow_min = max(cfg.rps_slow_min, 65.0)
     elif regime == "RISK_OFF":
-        cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, RISK_OFF_MIN_AVG_AMOUNT_WAN)
-        cfg.rs_min_long = max(cfg.rs_min_long, 2.0)
-        cfg.rs_min_short = max(cfg.rs_min_short, 0.5)
-        cfg.rps_fast_min = max(cfg.rps_fast_min, 80.0)
-        cfg.rps_slow_min = max(cfg.rps_slow_min, 75.0)
-        if recent3_cum is not None and recent3_cum <= -4.0:
-            cfg.min_avg_amount_wan = max(
-                cfg.min_avg_amount_wan,
-                RISK_OFF_DEEP_MIN_AVG_AMOUNT_WAN,
-            )
-            cfg.rs_min_long = max(cfg.rs_min_long, 4.0)
-            cfg.rs_min_short = max(cfg.rs_min_short, 1.0)
+        _tune_risk_off_cfg(cfg, recent3_cum, regime_config)
     elif regime == "BEAR_REBOUND":
-        cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, RISK_OFF_MIN_AVG_AMOUNT_WAN)
+        cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, regime_config.risk_off_min_avg_amount_wan)
         cfg.rs_min_long = max(cfg.rs_min_long, 3.0)
         cfg.rs_min_short = max(cfg.rs_min_short, 1.0)
         cfg.rps_fast_min = max(cfg.rps_fast_min, 80.0)
@@ -798,92 +609,199 @@ def analyze_benchmark_and_tune_cfg(
         cfg.rps_fast_min = min(cfg.rps_fast_min, 70.0)
         cfg.rps_slow_min = min(cfg.rps_slow_min, 60.0)
 
-    holiday_grace_dynamic = _resolve_holiday_grace_dynamic(
-        cfg,
-        regime,
-        money_flow_context,
-        _latest_trade_gap_days(bench_df),
-    )
 
-    price_zone = "结构待确认"
-    if close is not None and ma50 is not None and ma200 is not None:
-        if close > ma50 > ma200:
-            price_zone = "多头上方"
-        elif close < ma50 < ma200:
-            price_zone = "空头下方"
-        elif close >= ma50 and close <= ma200:
-            price_zone = "反抽修复区"
-        elif close < ma50 and close >= ma200:
-            price_zone = "高位回撤区"
-        else:
-            price_zone = "震荡博弈区"
-    ratio_text = f"{main_vol_ratio_5_20:.2f}x" if main_vol_ratio_5_20 is not None else "未知"
-    market_pv_summary = f"沪深300近5日均量/20日均量={ratio_text}（{main_volume_state}），当前位于{price_zone}。"
-    market_pv_outlook = _generate_pv_outlook(
+def _tune_risk_off_cfg(
+    cfg: FunnelConfig,
+    recent3_cum: float | None,
+    regime_config: MarketRegimeConfig,
+) -> None:
+    cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, regime_config.risk_off_min_avg_amount_wan)
+    cfg.rs_min_long = max(cfg.rs_min_long, 2.0)
+    cfg.rs_min_short = max(cfg.rs_min_short, 0.5)
+    cfg.rps_fast_min = max(cfg.rps_fast_min, 80.0)
+    cfg.rps_slow_min = max(cfg.rps_slow_min, 75.0)
+    if recent3_cum is not None and recent3_cum <= -4.0:
+        cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, regime_config.risk_off_deep_min_avg_amount_wan)
+        cfg.rs_min_long = max(cfg.rs_min_long, 4.0)
+        cfg.rs_min_short = max(cfg.rs_min_short, 1.0)
+
+
+def _price_zone(metrics: MainBenchmarkMetrics) -> str:
+    if metrics.close is None or metrics.ma50 is None or metrics.ma200 is None:
+        return "结构待确认"
+    if metrics.close > metrics.ma50 > metrics.ma200:
+        return "多头上方"
+    if metrics.close < metrics.ma50 < metrics.ma200:
+        return "空头下方"
+    if metrics.close >= metrics.ma50 and metrics.close <= metrics.ma200:
+        return "反抽修复区"
+    if metrics.close < metrics.ma50 and metrics.close >= metrics.ma200:
+        return "高位回撤区"
+    return "震荡博弈区"
+
+
+def _final_tuned_context(cfg: FunnelConfig) -> dict:
+    tuned = _base_tuned_context(cfg)
+    tuned["enable_evr_trigger"] = bool(cfg.enable_evr_trigger)
+    return tuned
+
+
+def _final_breadth_context(
+    breadth_ratio: float | None,
+    breadth_prev: float | None,
+    breadth_delta: float | None,
+    breadth_sample: int,
+    regime_config: MarketRegimeConfig,
+) -> dict:
+    return {
+        "ratio_pct": breadth_ratio,
+        "prev_ratio_pct": breadth_prev,
+        "delta_pct": breadth_delta,
+        "sample_size": breadth_sample,
+        "ma_window": regime_config.breadth_ma_window,
+    }
+
+
+def _market_pv_context(
+    main: MainBenchmarkMetrics,
+    regime: str,
+    money_flow_context: dict,
+    cfg: FunnelConfig,
+    regime_config: MarketRegimeConfig,
+) -> dict:
+    price_zone = _price_zone(main)
+    ratio_text = f"{main.vol_ratio_5_20:.2f}x" if main.vol_ratio_5_20 is not None else "未知"
+    outlook = _generate_pv_outlook(
         regime=regime,
-        close=close,
-        ma50=ma50,
-        ma200=ma200,
+        close=main.close,
+        ma50=main.ma50,
+        ma200=main.ma200,
         price_zone=price_zone,
         vol_ratio_text=ratio_text,
-        volume_state=main_volume_state,
-        recent3_cum=recent3_cum,
+        volume_state=main.volume_state,
+        recent3_cum=main.recent3_cum,
+        provider=regime_config.pv_llm_provider,
     )
-    market_pv_policy_shadow = derive_market_pv_policy_shadow(
-        outlook=market_pv_outlook,
-        regime=regime,
-        price_zone=price_zone,
-        volume_state=main_volume_state,
-        money_flow=money_flow_context,
-        cfg=cfg,
-    )
+    return {
+        "market_pv_summary": f"沪深300近5日均量/20日均量={ratio_text}（{main.volume_state}），当前位于{price_zone}。",
+        "market_pv_outlook": outlook,
+        "market_pv_policy_shadow": derive_market_pv_policy_shadow(
+            outlook=outlook,
+            regime=regime,
+            price_zone=price_zone,
+            volume_state=main.volume_state,
+            money_flow=money_flow_context,
+            cfg=cfg,
+            regime_config=regime_config,
+        ),
+    }
 
+
+def _benchmark_result_context(
+    *,
+    main: MainBenchmarkMetrics,
+    small: SmallcapMetrics,
+    regime: str,
+    cfg: FunnelConfig,
+    breadth_context: dict,
+    money_flow_context: dict,
+    amount_distribution_context: dict,
+    holiday_grace_dynamic: dict,
+    panic_reasons: list[str],
+    repair_reasons: list[str],
+    bear_rebound_reasons: list[str],
+    regime_config: MarketRegimeConfig,
+) -> dict:
+    result = {
+        "regime": regime,
+        "close": main.close,
+        "ma50": main.ma50,
+        "ma200": main.ma200,
+        "ma50_slope_5d": main.ma50_slope_5d,
+        "recent3_pct": main.recent3_list or [],
+        "recent3_cum_pct": main.recent3_cum,
+        "main_today_pct": main.today_pct,
+        "main_vol_ma5": main.vol_ma5,
+        "main_vol_ma20": main.vol_ma20,
+        "main_vol_ratio_5_20": main.vol_ratio_5_20,
+        "main_volume_state": main.volume_state,
+        "smallcap_close": small.close,
+        "smallcap_recent3_pct": small.recent3_list or [],
+        "smallcap_recent3_cum_pct": small.recent3_cum,
+        "smallcap_today_pct": small.today_pct,
+        "panic_triggered": bool(panic_reasons),
+        "panic_reasons": panic_reasons,
+        "repair_triggered": bool(repair_reasons),
+        "repair_reasons": repair_reasons,
+        "bear_rebound_triggered": bool(bear_rebound_reasons),
+        "bear_rebound_reasons": bear_rebound_reasons,
+        "tuned": _final_tuned_context(cfg),
+        "breadth": breadth_context,
+        "money_flow": money_flow_context,
+        "amount_distribution": amount_distribution_context,
+        "holiday_grace_dynamic": holiday_grace_dynamic,
+    }
+    result.update(_market_pv_context(main, regime, money_flow_context, cfg, regime_config))
+    return result
+
+
+def analyze_benchmark_and_tune_cfg(
+    bench_df: pd.DataFrame | None,
+    smallcap_df: pd.DataFrame | None,
+    cfg: FunnelConfig,
+    breadth: dict | None = None,
+    money_flow: dict | None = None,
+    amount_distribution: dict | None = None,
+    regime_config: MarketRegimeConfig | None = None,
+) -> dict:
+    """
+    Step 0：大盘总闸
+    - 输出宏观水温（RISK_ON / BEAR_REBOUND / NEUTRAL / RISK_OFF / CRASH / PANIC_REPAIR）
+    - 在 RISK_OFF 时动态收紧个股过滤阈值
+    """
+    runtime = (regime_config or DEFAULT_MARKET_REGIME_CONFIG).normalized()
+    money_flow_context = money_flow or calc_market_money_flow({}, breadth)
+    amount_distribution_context = amount_distribution or calc_amount_distribution_health({}, cfg.min_avg_amount_wan)
+    context = _base_benchmark_context(cfg, money_flow_context, amount_distribution_context, runtime)
+    main = _main_benchmark_metrics(bench_df)
+    small = _smallcap_metrics(smallcap_df)
+    breadth_ratio, breadth_prev, breadth_delta, breadth_sample = _breadth_values(breadth)
+    regime = _apply_breadth_regime(_trend_regime(main), breadth_ratio, breadth_delta, runtime)
+    regime, panic_reasons, repair_reasons = _apply_panic_repair_regime(
+        regime,
+        main,
+        small,
+        breadth_ratio,
+        breadth_delta,
+        runtime,
+    )
+    regime, bear_rebound_reasons = _apply_bear_rebound_regime(regime, main)
+    _apply_evr_policy(cfg, regime, runtime)
+    _tune_cfg_for_regime(cfg, regime, main.recent3_cum, runtime)
+    holiday_grace_dynamic = _resolve_holiday_grace_dynamic(
+        cfg, regime, money_flow_context, _latest_trade_gap_days(bench_df)
+    )
+    breadth_context = _final_breadth_context(
+        breadth_ratio,
+        breadth_prev,
+        breadth_delta,
+        breadth_sample,
+        runtime,
+    )
     context.update(
-        {
-            "regime": regime,
-            "close": close,
-            "ma50": ma50,
-            "ma200": ma200,
-            "ma50_slope_5d": ma50_slope_5d,
-            "recent3_pct": recent3_list,
-            "recent3_cum_pct": recent3_cum,
-            "main_today_pct": main_today_pct,
-            "main_vol_ma5": main_vol_ma5,
-            "main_vol_ma20": main_vol_ma20,
-            "main_vol_ratio_5_20": main_vol_ratio_5_20,
-            "main_volume_state": main_volume_state,
-            "market_pv_summary": market_pv_summary,
-            "market_pv_outlook": market_pv_outlook,
-            "market_pv_policy_shadow": market_pv_policy_shadow,
-            "smallcap_close": small_close,
-            "smallcap_recent3_pct": small_recent3_list,
-            "smallcap_recent3_cum_pct": small_recent3_cum,
-            "smallcap_today_pct": small_today_pct,
-            "panic_triggered": bool(panic_reasons),
-            "panic_reasons": panic_reasons,
-            "repair_triggered": bool(repair_reasons),
-            "repair_reasons": repair_reasons,
-            "bear_rebound_triggered": bool(bear_rebound_reasons),
-            "bear_rebound_reasons": bear_rebound_reasons,
-            "tuned": {
-                "min_avg_amount_wan": cfg.min_avg_amount_wan,
-                "rs_min_long": cfg.rs_min_long,
-                "rs_min_short": cfg.rs_min_short,
-                "rps_fast_min": cfg.rps_fast_min,
-                "rps_slow_min": cfg.rps_slow_min,
-                "enable_evr_trigger": bool(cfg.enable_evr_trigger),
-                "exit_holiday_grace_days": cfg.exit_holiday_grace_days,
-            },
-            "breadth": {
-                "ratio_pct": breadth_ratio,
-                "prev_ratio_pct": breadth_prev,
-                "delta_pct": breadth_delta,
-                "sample_size": breadth_sample,
-                "ma_window": BREADTH_MA_WINDOW,
-            },
-            "money_flow": money_flow_context,
-            "amount_distribution": amount_distribution_context,
-            "holiday_grace_dynamic": holiday_grace_dynamic,
-        }
+        _benchmark_result_context(
+            main=main,
+            small=small,
+            regime=regime,
+            cfg=cfg,
+            breadth_context=breadth_context,
+            money_flow_context=money_flow_context,
+            amount_distribution_context=amount_distribution_context,
+            holiday_grace_dynamic=holiday_grace_dynamic,
+            panic_reasons=panic_reasons,
+            repair_reasons=repair_reasons,
+            bear_rebound_reasons=bear_rebound_reasons,
+            regime_config=runtime,
+        )
     )
     return context

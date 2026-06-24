@@ -1,17 +1,18 @@
 {
-  "total_python_loc": 45288,
-  "total_ts_loc": 10885,
+  "total_python_loc": 57760,
+  "total_ts_loc": 15381,
   "by_module": {
-    "agents": 1928,
-    "cli": 9330,
-    "core": 6826,
-    "integrations": 7605,
-    "scripts": 16574,
-    "tools": 2044,
-    "utils": 981,
-    "web/apps/web/src": 10729,
-    "web/apps/api/src": 76,
-    "web/packages/shared/src": 80
+    "agents": 1956,
+    "cli": 10986,
+    "core": 13560,
+    "integrations": 8756,
+    "scripts": 10240,
+    "tools": 2783,
+    "utils": 1019,
+    "workflows": 8460,
+    "web/apps/web/src": 13735,
+    "web/apps/api/src": 416,
+    "web/packages/shared/src": 1230
   },
-  "generated_at": "2026-06-08"
+  "generated_at": "2026-06-22"
 }

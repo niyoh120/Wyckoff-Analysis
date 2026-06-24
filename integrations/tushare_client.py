@@ -29,7 +29,7 @@ _call_times: list[float] = []
 _call_lock = Lock()
 
 
-def _wait_for_rate_limit() -> None:
+def wait_for_rate_limit() -> None:
     """滑动窗口限流：确保过去 60 秒内调用不超过 _RATE_LIMIT 次。"""
     while True:
         with _call_lock:
@@ -53,7 +53,7 @@ class _RateLimitedPro:
         if callable(attr):
 
             def wrapper(*args, **kwargs):
-                _wait_for_rate_limit()
+                wait_for_rate_limit()
                 return attr(*args, **kwargs)
 
             wrapper.__name__ = name

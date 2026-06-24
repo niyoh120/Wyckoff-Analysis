@@ -1,0 +1,132 @@
+"""Step4 OMS trade ticket rendering."""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime
+
+from utils.trading_clock import CN_TZ
+from workflows.step4_models import ExecutionTicket
+
+
+def render_trade_ticket(
+    market_view: str,
+    total_equity: float,
+    free_cash_before: float,
+    free_cash_after: float,
+    tickets: list[ExecutionTicket],
+    *,
+    atr_period: int,
+) -> str:
+    now_str = datetime.now(CN_TZ).strftime("%Y-%m-%d")
+    sells = [t for t in tickets if t.status == "APPROVED" and t.action in {"EXIT", "TRIM"}]
+    holds = [t for t in tickets if t.status == "APPROVED" and t.action == "HOLD" and t.is_holding]
+    approved_buy = [t for t in tickets if t.status == "APPROVED" and t.action in {"PROBE", "ATTACK"}]
+    blocked = [t for t in tickets if t.status != "APPROVED"]
+
+    lines = [
+        "🚨 Alpha-OMS 交易执行工单",
+        f"📅 日期：{now_str} | 净权益：{total_equity:.2f} | 当前可用现金：{free_cash_before:.2f}",
+    ]
+    if market_view:
+        lines.append(f"📌 市场视图：{market_view}")
+    lines.append("")
+    lines.extend(_render_sell_ticket_lines(sells, atr_period=atr_period))
+    lines.extend(_render_hold_ticket_lines(holds, atr_period=atr_period))
+    lines.extend(_render_buy_ticket_lines(approved_buy, atr_period=atr_period))
+    lines.extend(_render_blocked_ticket_lines(blocked))
+    lines.append(f"💰 执行后可用现金：{free_cash_after:.2f}")
+    return "\n".join(lines)
+
+
+def _ticket_first_sentence(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return "-"
+    parts = re.split(r"[。；;\n]+", text, maxsplit=1)
+    return parts[0].strip() if parts and parts[0].strip() else text
+
+
+def _fmt_ticket_stop(value: float | None) -> str:
+    return "-" if value is None else f"{value:.2f}"
+
+
+def _render_sell_ticket_lines(sells: list[ExecutionTicket], *, atr_period: int) -> list[str]:
+    lines = [f"🟥 [卖出动作 SELL] ({len(sells)})"]
+    if not sells:
+        return lines + ["- 无"]
+    for ticket in sells:
+        lines.append(f"- 🟥 {ticket.action} | {ticket.code} {ticket.name}")
+        lines.append(
+            f"  执行：{ticket.shares} 股 | 回笼：{ticket.amount:.2f} 元 | 止损：{_fmt_ticket_stop(ticket.stop_loss)}"
+        )
+        if ticket.atr14 is not None:
+            lines.append(f"  风控：ATR{atr_period}={ticket.atr14:.3f} | 滑点={ticket.slippage_bps * 100:.2f}%")
+        lines.append(f"  触发：{_ticket_first_sentence(ticket.tape_condition)}")
+        lines.append(f"  失效：{_ticket_first_sentence(ticket.invalidate_condition)}")
+        lines.append(f"  理由：{_ticket_first_sentence(ticket.reason)}")
+        lines.append("")
+    return lines
+
+
+def _render_hold_ticket_lines(holds: list[ExecutionTicket], *, atr_period: int) -> list[str]:
+    lines = [f"🟨 [持有动作 HOLD] ({len(holds)})"]
+    if not holds:
+        return lines + ["- 无", ""]
+    for ticket in holds:
+        lines.append(f"- 🟨 HOLD | {ticket.code} {ticket.name} | 止损：{_fmt_ticket_stop(ticket.stop_loss)}")
+        if ticket.atr14 is not None:
+            lines.append(
+                f"  风控：ATR{atr_period}={ticket.atr14:.3f} | 动态止损={_fmt_ticket_stop(ticket.effective_stop_loss)}"
+            )
+        lines.append(f"  观察：{_ticket_first_sentence(ticket.reason)}")
+        lines.append(f"  触发：{_ticket_first_sentence(ticket.tape_condition)}")
+        lines.append(f"  失效：{_ticket_first_sentence(ticket.invalidate_condition)}")
+        lines.append("")
+    lines.append("")
+    return lines
+
+
+def _render_buy_ticket_lines(approved_buy: list[ExecutionTicket], *, atr_period: int) -> list[str]:
+    lines = [f"🟩 [买入动作 BUY - APPROVED] ({len(approved_buy)})"]
+    if not approved_buy:
+        return lines + ["- 无", ""]
+    for ticket in approved_buy:
+        price_hint = "-" if ticket.price_hint is None else f"{ticket.price_hint:.2f}"
+        lines.append(f"- 🟩 {ticket.action} | {ticket.code} {ticket.name}")
+        lines.append(f"  下单：{ticket.shares} 股 | 占用：{ticket.amount:.2f} 元 | 参考价：{price_hint}")
+        if ticket.chase_profile:
+            lines.append(f"  分层：{ticket.chase_profile}")
+        if ticket.wyckoff_context:
+            lines.append(f"  结构：{ticket.wyckoff_context}")
+        if ticket.max_entry_price is not None:
+            lines.append(f"  🛑 【防追高限价】明日开盘价若 > {ticket.max_entry_price:.2f} 元，请放弃买入！")
+        lines.append(
+            f"  风险：止损 {_fmt_ticket_stop(ticket.stop_loss)} | 最大回撤 {ticket.max_loss:.2f} 元 "
+            f"({ticket.drawdown_ratio * 100:.2f}%) | 滑点={ticket.slippage_bps * 100:.2f}%"
+        )
+        if ticket.atr14 is not None:
+            lines.append(f"  ATR：ATR{atr_period}={ticket.atr14:.3f}")
+        if ticket.tape_condition:
+            lines.append(f"  确认：{_ticket_first_sentence(ticket.tape_condition)}")
+        if ticket.invalidate_condition:
+            lines.append(f"  熔断：{_ticket_first_sentence(ticket.invalidate_condition)}")
+        if ticket.reason:
+            lines.append(f"  理由：{_ticket_first_sentence(ticket.reason)}")
+        lines.append("")
+    lines.append("")
+    return lines
+
+
+def _render_blocked_ticket_lines(blocked: list[ExecutionTicket]) -> list[str]:
+    lines = [f"⬛ [风控拒单 NO_TRADE] ({len(blocked)})"]
+    if not blocked:
+        return lines + ["- 无", ""]
+    for ticket in blocked:
+        lines.append(f"- ⬛ NO_TRADE | {ticket.code} {ticket.name} | 原动作：{ticket.action}")
+        lines.append(f"  原因：{_ticket_first_sentence(ticket.reason)}")
+        if ticket.audit:
+            lines.append(f"  审计：{_ticket_first_sentence(ticket.audit)}")
+        lines.append("")
+    lines.append("")
+    return lines

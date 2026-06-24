@@ -5,11 +5,17 @@ import argparse
 import pandas as pd
 import pytest
 
-from core.dynamic_policy import build_signal_weight_map, filter_triggers_by_registry, resolve_dynamic_candidate_policy
+from core.dynamic_policy import (
+    DynamicPolicyConfig,
+    build_signal_weight_map,
+    filter_triggers_by_registry,
+    resolve_dynamic_candidate_policy,
+)
 from core.price_action_footprint import compute_price_action_footprint
 from core.signal_confirmation import score_springboard_abc
 from core.signal_feedback import build_signal_observations, build_signal_registry_updates, summarize_signal_health
-from scripts.signal_feedback_job import _default_registry_horizon, _outcome_rows
+from workflows.dynamic_policy_config import dynamic_policy_config_from_env
+from workflows.signal_feedback_job import _outcome_rows, default_registry_horizon
 
 
 def _make_intraday_df(*, start: float = 10.0, end: float = 10.9, bars: int = 180) -> pd.DataFrame:
@@ -210,7 +216,7 @@ def test_build_signal_observations_marks_selection_and_source():
 
 def test_daily_job_builds_intraday_tail_confirmation_map(monkeypatch):
     from integrations import tickflow_client
-    from scripts import daily_job
+    from workflows import daily_signal_observations
 
     class FakeTickFlow:
         def __init__(self, api_key: str):
@@ -227,7 +233,7 @@ def test_daily_job_builds_intraday_tail_confirmation_map(monkeypatch):
     monkeypatch.setenv("FUNNEL_TAIL_CONFIRMATION_MAX_SYMBOLS", "1")
     monkeypatch.setattr(tickflow_client, "TickFlowClient", FakeTickFlow)
 
-    got = daily_job._build_intraday_tail_map(
+    got = daily_signal_observations.build_intraday_tail_map(
         {
             "selected_for_ai": ["000001", "000002"],
             "review_triggers": {"sos": [("000001", 6.0), ("000002", 5.0)]},
@@ -247,12 +253,12 @@ def test_daily_job_builds_intraday_tail_confirmation_map(monkeypatch):
 
 
 def test_daily_job_intraday_tail_map_skips_without_tickflow_key(monkeypatch):
-    from scripts import daily_job
+    from workflows import daily_signal_observations
 
     monkeypatch.delenv("TICKFLOW_API_KEY", raising=False)
     monkeypatch.setenv("FUNNEL_INTRADAY_TAIL_CONFIRMATION", "1")
 
-    got = daily_job._build_intraday_tail_map(
+    got = daily_signal_observations.build_intraday_tail_map(
         {"selected_for_ai": ["000001"], "review_triggers": {"sos": [("000001", 6.0)]}},
         [],
         None,
@@ -318,7 +324,7 @@ def test_external_capital_context_normalizes_sources():
 
 def test_daily_job_builds_external_capital_context_map(monkeypatch):
     from integrations import external_capital_context
-    from scripts import daily_job
+    from workflows import daily_signal_observations
 
     captured = {}
 
@@ -337,16 +343,16 @@ def test_daily_job_builds_external_capital_context_map(monkeypatch):
     monkeypatch.setenv("FUNNEL_EXTERNAL_CAPITAL_CONTEXT", "1")
     monkeypatch.setenv("FUNNEL_EXTERNAL_CAPITAL_MAX_SYMBOLS", "1")
     monkeypatch.setenv("FUNNEL_EXTERNAL_CAPITAL_TICK_CONTEXT", "0")
-    monkeypatch.setattr(daily_job, "_latest_trade_date_str", lambda: "2026-06-12")
     monkeypatch.setattr(external_capital_context, "build_external_capital_context", fake_build)
 
-    got = daily_job._build_external_capital_context_map(
+    got = daily_signal_observations.build_external_capital_context_map(
         {
             "selected_for_ai": ["000001", "000002"],
             "review_triggers": {"sos": [("000001", 6.0), ("000002", 5.0)]},
         },
         [],
         None,
+        trade_date="2026-06-12",
     )
 
     assert captured["codes"] == ["000001"]
@@ -510,22 +516,32 @@ def test_dynamic_policy_shifts_quota_toward_healthier_track():
     assert policy["trend_quota"] > policy["accum_quota"]
 
 
-def test_dynamic_policy_uses_configured_feedback_horizon(monkeypatch):
-    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY_HORIZON", "5")
+def test_dynamic_policy_uses_configured_feedback_horizon():
     weights = build_signal_weight_map(
         [
             {"as_of_date": "2026-06-10", "horizon_days": 10, "signal_type": "lps", "weight_multiplier": 1.2},
             {"as_of_date": "2026-06-10", "horizon_days": 5, "signal_type": "lps", "weight_multiplier": 0.4},
-        ]
+        ],
+        config=DynamicPolicyConfig(horizon_days=5),
     )
 
     assert weights["lps"] == 0.4
 
 
+def test_dynamic_policy_env_loader_stays_in_workflow_layer(monkeypatch):
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY_HORIZON", "8")
+
+    config = dynamic_policy_config_from_env()
+
+    assert config.normalized_mode() == "shadow"
+    assert config.normalized_horizon() == 8
+
+
 def test_signal_feedback_registry_horizon_defaults_to_five(monkeypatch):
     monkeypatch.delenv("SIGNAL_REGISTRY_HORIZON", raising=False)
 
-    assert _default_registry_horizon() == 5
+    assert default_registry_horizon() == 5
 
 
 def test_registry_retires_after_repeated_decay():
@@ -557,21 +573,21 @@ def test_filter_triggers_by_registry_blocks_experimental_signal():
 
 
 def test_shadow_selection_diff_preserves_shadow_order():
-    from scripts.wyckoff_funnel import _selection_diff
+    from workflows.funnel_ai_selection import selection_diff
 
-    added, removed = _selection_diff(["000001", "000002"], ["000002", "000003"])
+    added, removed = selection_diff(["000001", "000002"], ["000002", "000003"])
 
     assert added == ["000003"]
     assert removed == ["000001"]
 
 
 def test_attach_shadow_policy_preserves_base_policy():
-    from scripts.wyckoff_funnel import _attach_shadow_policy
+    from workflows.funnel_ai_selection import attach_shadow_policy
 
     base = {"trend_quota": 8, "accum_quota": 4, "quota_family": "FULL_FORMAL_L4"}
     shadow = {"trend_quota": 3, "accum_quota": 5, "quota_family": "RISK_ON+DYNAMIC"}
 
-    _attach_shadow_policy(
+    attach_shadow_policy(
         base,
         {
             "mode": "shadow",

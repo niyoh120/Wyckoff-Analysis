@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agents.chat_tools import exec_command, read_file, web_fetch, write_file
+from agents.local_tools import exec_command, read_file, web_fetch, write_file
 
 
 def test_exec_command_allows_simple_read_only_command():

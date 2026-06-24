@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core.backtest_metrics import calc_stratified_stats
+from core.backtest_selection import select_ai_input_codes
+from core.candidate_policy import CandidatePolicyConfig, apply_regime_position_filter, loss_guard_reason
 from core.wyckoff_engine import FunnelResult
-from scripts.backtest_runner import _apply_regime_position_filter, _calc_stratified_stats, _select_ai_input_codes
 
 
 def test_all_formal_l4_selection_excludes_stage_only_candidates() -> None:
@@ -21,7 +23,7 @@ def test_all_formal_l4_selection_excludes_stage_only_candidates() -> None:
         leader_radar_rows=[],
     )
 
-    codes, score_map, track_map = _select_ai_input_codes(
+    codes, score_map, track_map = select_ai_input_codes(
         result=result,
         day_df_map={},
         sector_map={},
@@ -34,10 +36,7 @@ def test_all_formal_l4_selection_excludes_stage_only_candidates() -> None:
     assert track_map == {"000001": "Trend"}
 
 
-def test_all_formal_l4_selection_respects_hard_cap(monkeypatch) -> None:
-    from scripts import backtest_runner
-
-    monkeypatch.setattr(backtest_runner, "BACKTEST_FULL_FORMAL_L4_MAX", 2)
+def test_all_formal_l4_selection_respects_hard_cap() -> None:
     result = FunnelResult(
         layer1_symbols=["000001", "000002", "000003"],
         layer2_symbols=["000001", "000002", "000003"],
@@ -52,12 +51,13 @@ def test_all_formal_l4_selection_respects_hard_cap(monkeypatch) -> None:
         leader_radar_rows=[],
     )
 
-    codes, score_map, track_map = backtest_runner._select_ai_input_codes(
+    codes, score_map, track_map = select_ai_input_codes(
         result=result,
         day_df_map={},
         sector_map={},
         regime="NEUTRAL",
         selection_mode="all_formal_l4",
+        full_formal_l4_max=2,
     )
 
     assert codes == ["000001", "000002"]
@@ -91,7 +91,7 @@ def test_tradeable_l4_selection_uses_formal_l4_without_l3_fallback() -> None:
         leader_radar_rows=[],
     )
 
-    codes, score_map, _ = _select_ai_input_codes(
+    codes, score_map, _ = select_ai_input_codes(
         result=result,
         day_df_map={},
         sector_map={},
@@ -126,7 +126,7 @@ def test_tradeable_l4_selection_prefers_candidate_board_when_available() -> None
         ],
     )
 
-    codes, score_map, track_map = _select_ai_input_codes(
+    codes, score_map, track_map = select_ai_input_codes(
         result=result,
         day_df_map={},
         sector_map={},
@@ -158,7 +158,7 @@ def test_tradeable_l4_candidate_board_blocks_risk_on_early_breakout() -> None:
         ],
     )
 
-    codes, score_map, track_map = _select_ai_input_codes(
+    codes, score_map, track_map = select_ai_input_codes(
         result=result,
         day_df_map={},
         sector_map={},
@@ -190,7 +190,7 @@ def test_tradeable_l4_candidate_board_prioritizes_launchpad_over_formal_score() 
         ],
     )
 
-    codes, _, track_map = _select_ai_input_codes(
+    codes, _, track_map = select_ai_input_codes(
         result=result,
         day_df_map={},
         sector_map={},
@@ -205,11 +205,32 @@ def test_tradeable_l4_candidate_board_prioritizes_launchpad_over_formal_score() 
 def test_regime_position_filter_blocks_defensive_regimes() -> None:
     codes = ["A", "B", "C", "D"]
 
-    assert _apply_regime_position_filter(codes, "PANIC_REPAIR") == []
-    assert _apply_regime_position_filter(codes, "RISK_OFF") == []
-    assert _apply_regime_position_filter(codes, "NEUTRAL") == ["A", "B"]
-    assert _apply_regime_position_filter(codes, "RISK_ON") == ["A"]
-    assert _apply_regime_position_filter(codes, "BEAR_REBOUND") == ["A"]
+    assert apply_regime_position_filter(codes, "PANIC_REPAIR") == []
+    assert apply_regime_position_filter(codes, "RISK_OFF") == []
+    assert apply_regime_position_filter(codes, "NEUTRAL") == ["A", "B"]
+    assert apply_regime_position_filter(codes, "RISK_ON") == ["A"]
+    assert apply_regime_position_filter(codes, "BEAR_REBOUND") == ["A"]
+
+
+def test_candidate_policy_config_overrides_regime_position_ratio() -> None:
+    codes = ["A", "B", "C", "D"]
+    config = CandidatePolicyConfig(position_ratio_by_regime={"NEUTRAL": 1.0})
+
+    assert apply_regime_position_filter(codes, "NEUTRAL", config=config) == codes
+
+
+def test_candidate_policy_config_can_disable_loss_guard() -> None:
+    reason = loss_guard_reason(
+        "000001",
+        "RISK_ON",
+        ["lps"],
+        0.1,
+        "",
+        {},
+        config=CandidatePolicyConfig(loss_guard_enabled=False),
+    )
+
+    assert reason == ""
 
 
 def test_stratified_stats_include_exit_and_excursion_diagnostics() -> None:
@@ -238,7 +259,7 @@ def test_stratified_stats_include_exit_and_excursion_diagnostics() -> None:
         ]
     )
 
-    stats = _calc_stratified_stats(trades, hold_days=5)
+    stats = calc_stratified_stats(trades, hold_days=5)
 
     assert stats["by_trigger"]["sos"]["stop_exit_rate_pct"] == 50.0
     assert stats["by_trigger"]["sos"]["avg_mfe_pct"] == 6.0

@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 
-def test_theme_bonus_promotes_formal_l4_candidate(monkeypatch) -> None:
-    from scripts import wyckoff_funnel as mod
+def test_theme_bonus_promotes_formal_l4_candidate() -> None:
+    from core.funnel_theme import promote_theme_l4_for_ai
 
-    monkeypatch.setattr(mod, "FUNNEL_THEME_RADAR_PROMOTE_CAP", 6)
     selected: list[str] = []
     trend_selected: list[str] = []
     accum_selected: list[str] = []
     score_map: dict[str, float] = {}
 
-    added = mod._promote_theme_l4_for_ai(
+    added = promote_theme_l4_for_ai(
         selected,
         trend_selected,
         accum_selected,
@@ -19,6 +18,7 @@ def test_theme_bonus_promotes_formal_l4_candidate(monkeypatch) -> None:
         {"000001": 19.0},
         {"000001": ["sos"]},
         score_map,
+        promotion_cap=6,
     )
 
     assert added == 1
@@ -28,15 +28,14 @@ def test_theme_bonus_promotes_formal_l4_candidate(monkeypatch) -> None:
     assert score_map["000001"] == 19.0
 
 
-def test_theme_promotion_respects_total_cap(monkeypatch) -> None:
-    from scripts import wyckoff_funnel as mod
+def test_theme_promotion_respects_total_cap() -> None:
+    from core.funnel_theme import promote_theme_l4_for_ai
 
-    monkeypatch.setattr(mod, "FUNNEL_THEME_RADAR_PROMOTE_CAP", 6)
     selected = ["000001"]
     trend_selected = ["000001"]
     accum_selected: list[str] = []
 
-    added = mod._promote_theme_l4_for_ai(
+    added = promote_theme_l4_for_ai(
         selected,
         trend_selected,
         accum_selected,
@@ -45,6 +44,7 @@ def test_theme_promotion_respects_total_cap(monkeypatch) -> None:
         {"000002": 19.0, "000003": 18.0},
         {"000002": ["sos"], "000003": ["sos"]},
         {},
+        promotion_cap=6,
         total_cap=2,
     )
 
@@ -53,9 +53,9 @@ def test_theme_promotion_respects_total_cap(monkeypatch) -> None:
 
 
 def test_theme_report_fields_are_empty_for_non_strategic_code() -> None:
-    from scripts import wyckoff_funnel as mod
+    from core.funnel_report import theme_report_fields
 
-    fields = mod._theme_report_fields("000002", {"000001": {"theme": "芯片半导体"}}, {"000001": 9.0})
+    fields = theme_report_fields("000002", {"000001": {"theme": "芯片半导体"}}, {"000001": 9.0})
 
     assert fields == {
         "strategic_theme": "",
@@ -66,35 +66,35 @@ def test_theme_report_fields_are_empty_for_non_strategic_code() -> None:
     }
 
 
-def test_strategic_bypass_seed_codes_respects_l1_l2_and_scores(monkeypatch) -> None:
-    from scripts import wyckoff_funnel as mod
+def test_strategic_bypass_seed_codes_respects_l1_l2_and_scores() -> None:
+    from core.funnel_theme import strategic_bypass_seed_codes
 
-    monkeypatch.setattr(mod, "FUNNEL_STRATEGIC_L2_BYPASS_ENABLED", True)
-    monkeypatch.setattr(mod, "FUNNEL_STRATEGIC_L2_BYPASS_MIN_THEME_SCORE", 0.45)
-    monkeypatch.setattr(mod, "FUNNEL_STRATEGIC_L2_BYPASS_MIN_STOCK_SCORE", 0.55)
-
-    seeds = mod._strategic_bypass_seed_codes(
-        ["000001", "000002", "000003", "000004"],
+    seeds = strategic_bypass_seed_codes(
+        ["000005", "000001", "000002", "000003", "000004"],
         ["000002"],
         {
             "000001": {"theme_score": 0.60, "stock_score": 0.70, "state": "observe"},
             "000002": {"theme_score": 0.80, "stock_score": 0.90, "state": "confirmed"},
             "000003": {"theme_score": 0.60, "stock_score": 0.20, "state": "observe"},
             "000004": {"theme_score": 0.80, "stock_score": 0.90, "state": "overheated"},
+            "000005": {"theme_score": 0.60, "stock_score": 0.70, "state": "confirmed"},
         },
+        enabled=True,
+        min_theme_score=0.45,
+        min_stock_score=0.55,
     )
 
-    assert seeds == ["000001"]
+    assert seeds == ["000005", "000001"]
 
 
 def test_l2_bypass_promotion_can_force_accum_track() -> None:
-    from scripts import wyckoff_funnel as mod
+    from core.funnel_selection import promote_l2_bypass_for_ai
 
     selected: list[str] = []
     trend_selected: list[str] = []
     accum_selected: list[str] = []
 
-    added = mod._promote_l2_bypass_for_ai(
+    added = promote_l2_bypass_for_ai(
         selected,
         trend_selected,
         accum_selected,
@@ -114,7 +114,7 @@ def test_l2_bypass_promotion_can_force_accum_track() -> None:
 
 
 def test_linked_theme_radar_falls_back_when_loader_fails(monkeypatch) -> None:
-    from scripts import wyckoff_funnel as mod
+    from workflows import funnel_layers as mod
 
     monkeypatch.setattr(mod, "FUNNEL_THEME_RADAR_LINK_ENABLED", True)
 
@@ -131,7 +131,7 @@ def test_linked_theme_radar_falls_back_when_loader_fails(monkeypatch) -> None:
 
 
 def test_linked_theme_radar_falls_back_when_persisted_snapshot_is_stale(monkeypatch) -> None:
-    from scripts import wyckoff_funnel as mod
+    from workflows import funnel_layers as mod
 
     monkeypatch.setattr(mod, "FUNNEL_THEME_RADAR_LINK_ENABLED", True)
     monkeypatch.setattr(mod, "FUNNEL_THEME_RADAR_MAX_AGE_DAYS", 3)
@@ -150,22 +150,23 @@ def test_linked_theme_radar_falls_back_when_persisted_snapshot_is_stale(monkeypa
     assert snapshot == {"trade_date": "2026-05-27"}
 
 
-def test_strategic_bypass_is_pluggable_when_disabled(monkeypatch) -> None:
-    from scripts import wyckoff_funnel as mod
+def test_strategic_bypass_is_pluggable_when_disabled() -> None:
+    from core.funnel_theme import strategic_bypass_seed_codes
 
-    monkeypatch.setattr(mod, "FUNNEL_STRATEGIC_L2_BYPASS_ENABLED", False)
-
-    seeds = mod._strategic_bypass_seed_codes(
+    seeds = strategic_bypass_seed_codes(
         ["000001"],
         [],
         {"000001": {"theme_score": 1.0, "stock_score": 1.0, "state": "confirmed"}},
+        enabled=False,
+        min_theme_score=0.45,
+        min_stock_score=0.55,
     )
 
     assert seeds == []
 
 
 def test_theme_radar_global_switch_disables_linkage(monkeypatch) -> None:
-    from scripts import wyckoff_funnel as mod
+    from workflows import funnel_layers as mod
 
     monkeypatch.setattr(mod, "FUNNEL_THEME_RADAR_ENABLED", False)
     monkeypatch.setattr(mod, "build_theme_radar_snapshot", lambda **_kwargs: (_ for _ in ()).throw(AssertionError))
@@ -187,9 +188,7 @@ def test_theme_radar_global_switch_disables_linkage(monkeypatch) -> None:
     assert source == "disabled"
 
 
-def test_zero_theme_bonus_disables_theme_bonus_map(monkeypatch) -> None:
-    from scripts import wyckoff_funnel as mod
+def test_zero_theme_bonus_disables_theme_bonus_map() -> None:
+    from core.funnel_theme import theme_bonus_map
 
-    monkeypatch.setattr(mod, "FUNNEL_THEME_RADAR_BONUS_MAX", 0.0)
-
-    assert mod._theme_bonus_map({"000001": {"theme_score": 1.0, "stock_score": 1.0}}) == {}
+    assert theme_bonus_map({"000001": {"theme_score": 1.0, "stock_score": 1.0}}, 0.0) == {}

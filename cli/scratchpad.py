@@ -29,17 +29,17 @@ def _timestamp() -> str:
     return datetime.now().isoformat(timespec="milliseconds")
 
 
-def _scrub(value: Any) -> Any:
+def scrub_sensitive_value(value: Any) -> Any:
     """Make values JSON-safe and redact obvious secrets."""
 
     if isinstance(value, dict):
         cleaned: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            cleaned[key_text] = "***REDACTED***" if _SENSITIVE_KEY_RE.search(key_text) else _scrub(item)
+            cleaned[key_text] = "***REDACTED***" if _SENSITIVE_KEY_RE.search(key_text) else scrub_sensitive_value(item)
         return cleaned
     if isinstance(value, (list, tuple, set)):
-        return [_scrub(item) for item in value]
+        return [scrub_sensitive_value(item) for item in value]
     if isinstance(value, bytes):
         return f"<bytes:{len(value)}>"
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -82,7 +82,7 @@ class AgentScratchpad:
         )
 
     def append(self, entry: dict[str, Any]) -> None:
-        safe_entry = _scrub(entry)
+        safe_entry = scrub_sensitive_value(entry)
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(safe_entry, ensure_ascii=False, default=str))
             fh.write("\n")

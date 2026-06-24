@@ -29,6 +29,23 @@ export interface PreparedChatHistory {
   afterMessages: number
 }
 
+type UserSettingsRow = {
+  chat_provider?: string | null
+  gemini_api_key?: string | null
+  gemini_model?: string | null
+  gemini_base_url?: string | null
+  openai_api_key?: string | null
+  openai_model?: string | null
+  openai_base_url?: string | null
+  deepseek_api_key?: string | null
+  deepseek_model?: string | null
+  deepseek_base_url?: string | null
+  anthropic_api_key?: string | null
+  anthropic_model?: string | null
+  anthropic_base_url?: string | null
+  custom_providers?: unknown
+}
+
 const MODEL_CONTEXT_WINDOWS: [string, number][] = [
   ['deepseek', 64_000],
   ['gpt-4o', 128_000],
@@ -205,51 +222,56 @@ export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
 
   if (!data) return null
 
-  const provider = data.chat_provider || '1route'
+  const settings = data as UserSettingsRow
+  const provider = settings.chat_provider || '1route'
   if (RETIRED_PROVIDERS.has(provider)) return null
-  let config: LLMConfig
+  const config = buildProviderConfig(provider, settings)
 
+  if (!config.api_key) return null
+  return config
+}
+
+function buildProviderConfig(provider: string, data: UserSettingsRow): LLMConfig {
   if (provider === 'gemini') {
-    config = {
+    return {
       api_key: data.gemini_api_key || '',
       model: data.gemini_model || PROVIDER_DEFAULT_MODELS.gemini,
       base_url: data.gemini_base_url || 'https://generativelanguage.googleapis.com/v1beta/openai',
       protocol: 'openai',
     }
-  } else if (provider === 'openai') {
-    config = {
+  }
+  if (provider === 'openai') {
+    return {
       api_key: data.openai_api_key || '',
       model: data.openai_model || PROVIDER_DEFAULT_MODELS.openai,
       base_url: data.openai_base_url || PROVIDER_BASE_URLS.openai,
       protocol: 'openai',
     }
-  } else if (provider === 'deepseek') {
-    config = {
+  }
+  if (provider === 'deepseek') {
+    return {
       api_key: data.deepseek_api_key || '',
       model: data.deepseek_model || PROVIDER_DEFAULT_MODELS.deepseek,
       base_url: data.deepseek_base_url || PROVIDER_BASE_URLS.deepseek,
       protocol: 'openai',
     }
-  } else if (provider === 'anthropic') {
-    config = {
+  }
+  if (provider === 'anthropic') {
+    return {
       api_key: data.anthropic_api_key || '',
       model: data.anthropic_model || PROVIDER_DEFAULT_MODELS.anthropic,
       base_url: data.anthropic_base_url || 'https://api.anthropic.com',
       protocol: 'anthropic',
     }
-  } else {
-    const custom = parseCustomProviders(data.custom_providers)
-    const info = custom[provider] || {}
-    config = {
-      api_key: info.apikey || info.api_key || '',
-      model: info.model || defaultModelForProvider(provider),
-      base_url: info.baseurl || info.base_url || defaultBaseUrlForProvider(provider),
-      protocol: 'openai',
-    }
   }
-
-  if (!config.api_key) return null
-  return config
+  const custom = parseCustomProviders(data.custom_providers)
+  const info = custom[provider] || {}
+  return {
+    api_key: info.apikey || info.api_key || '',
+    model: info.model || defaultModelForProvider(provider),
+    base_url: info.baseurl || info.base_url || defaultBaseUrlForProvider(provider),
+    protocol: 'openai',
+  }
 }
 
 function defaultModelForProvider(provider: string): string {

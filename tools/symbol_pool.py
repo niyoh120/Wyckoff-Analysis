@@ -9,13 +9,13 @@ from __future__ import annotations
 import os
 
 from integrations.fetch_a_share_csv import (
-    _normalize_symbols,
     get_stocks_by_board,
+    normalize_symbols,
 )
-from tools.funnel_config import parse_int_env
+from utils.env import parse_int_env
 
 
-def _stock_name_map() -> dict[str, str]:
+def load_stock_name_map() -> dict[str, str]:
     """获取全部 A 股 + ETF 代码→名称映射（如失败返回空 dict）。"""
     try:
         from integrations.fetch_a_share_csv import get_all_stocks
@@ -89,7 +89,7 @@ def _symbols_from_map(
     code_to_name: dict[str, str],
     limit_count: int,
 ) -> tuple[list[str], dict[str, str], int]:
-    merged_symbols = _normalize_symbols(list(code_to_name.keys()))
+    merged_symbols = normalize_symbols(list(code_to_name.keys()))
     symbols = merged_symbols[:limit_count] if limit_count > 0 else merged_symbols
     return symbols, {code: code_to_name.get(code, "") for code in symbols}, len(merged_symbols)
 
@@ -135,7 +135,7 @@ def _resolve_default_pool(limit_count: int) -> tuple[list[str], dict[str, str], 
     chinext_items = get_stocks_by_board("chinext")
     star_items = get_stocks_by_board("star")
     code_to_name = _merge_code_to_name(main_items + chinext_items + star_items)
-    merged_symbols = _normalize_symbols(list(code_to_name.keys()))
+    merged_symbols = normalize_symbols(list(code_to_name.keys()))
     st_set = {sym for sym in merged_symbols if "ST" in code_to_name.get(sym, "").upper()}
     all_symbols = [sym for sym in merged_symbols if sym not in st_set]
     if limit_count > 0:
@@ -152,20 +152,22 @@ def _resolve_default_pool(limit_count: int) -> tuple[list[str], dict[str, str], 
     return all_symbols, {code: code_to_name.get(code, "") for code in all_symbols}, stats
 
 
-def resolve_symbol_pool_from_env() -> tuple[list[str], dict[str, str], dict[str, int | str]]:
-    """
-    根据环境变量 FUNNEL_POOL_MODE / FUNNEL_POOL_MANUAL_SYMBOLS 等
-    解析当前使用的股票池。
-
-    返回: (symbols, name_map, pool_stats)
-    """
-    pool_mode = str(os.getenv("FUNNEL_POOL_MODE", "") or "").strip().lower()
-    limit_count = max(parse_int_env("FUNNEL_POOL_LIMIT_COUNT", 0), 0)
+def resolve_symbol_pool(
+    *,
+    pool_mode: str = "",
+    board_name: str = "",
+    manual_symbols: str = "",
+    limit_count: int = 0,
+) -> tuple[list[str], dict[str, str], dict[str, int | str]]:
+    """解析给定参数对应的股票池，避免调用方通过全局环境变量传参。"""
+    pool_mode = str(pool_mode or "").strip().lower()
+    board_name = str(board_name or "").strip().lower()
+    manual_raw = str(manual_symbols or "")
+    limit_count = max(int(limit_count or 0), 0)
 
     if pool_mode == "manual":
-        manual_raw = str(os.getenv("FUNNEL_POOL_MANUAL_SYMBOLS", "") or "")
-        all_name_map = _stock_name_map()
-        symbols = _normalize_symbols([x.strip() for x in manual_raw.replace(";", ",").replace("\n", ",").split(",")])
+        all_name_map = load_stock_name_map()
+        symbols = normalize_symbols([x.strip() for x in manual_raw.replace(";", ",").replace("\n", ",").split(",")])
         name_map = {code: all_name_map.get(code, "") for code in symbols}
         return (
             symbols,
@@ -173,8 +175,22 @@ def resolve_symbol_pool_from_env() -> tuple[list[str], dict[str, str], dict[str,
             _pool_stats("manual", main=0, chinext=0, star=0, merged=len(symbols), st_excluded=0, limit=limit_count),
         )
 
-    board_name = str(os.getenv("FUNNEL_POOL_BOARD", "") or "").strip().lower()
     if pool_mode == "board" and board_name in {"main", "chinext", "star", "all", "main_chinext"}:
         return _resolve_board_pool(board_name, limit_count)
 
     return _resolve_default_pool(limit_count)
+
+
+def resolve_symbol_pool_from_env() -> tuple[list[str], dict[str, str], dict[str, int | str]]:
+    """
+    根据环境变量 FUNNEL_POOL_MODE / FUNNEL_POOL_MANUAL_SYMBOLS 等
+    解析当前使用的股票池。
+
+    返回: (symbols, name_map, pool_stats)
+    """
+    return resolve_symbol_pool(
+        pool_mode=os.getenv("FUNNEL_POOL_MODE", ""),
+        board_name=os.getenv("FUNNEL_POOL_BOARD", ""),
+        manual_symbols=os.getenv("FUNNEL_POOL_MANUAL_SYMBOLS", ""),
+        limit_count=parse_int_env("FUNNEL_POOL_LIMIT_COUNT", 0),
+    )

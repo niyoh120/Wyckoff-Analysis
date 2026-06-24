@@ -4,8 +4,11 @@ import json
 
 import pandas as pd
 
-import scripts.market_funnel_job as market_job
-from scripts.market_funnel_job import _candidate_rows, run_market_funnel
+import workflows.market_funnel_data as market_data
+import workflows.market_funnel_job as market_job
+import workflows.market_funnel_tracking as market_tracking
+from workflows.market_funnel_job import _candidate_rows, run_market_funnel
+from workflows.market_funnel_runtime import runtime_config_from_env
 
 
 def _daily_frame(rows: int = 230) -> pd.DataFrame:
@@ -56,7 +59,7 @@ def test_run_layers_passes_l2_channel_map_to_l4(monkeypatch):
         ["AAPL.US"],
         {"AAPL.US": "Apple"},
         {"AAPL.US": _daily_frame()},
-        market_job._runtime_config("us", None),
+        runtime_config_from_env("us", None),
         bench_df=bench,
         sector_map=sector_map,
     )
@@ -87,7 +90,7 @@ def test_candidate_rows_keep_raw_trigger_strength():
 
 
 def test_rank_quotes_prefers_liquidity_not_absolute_change():
-    ranked = market_job._rank_quotes(
+    ranked = market_data.rank_quotes(
         {
             "SAFE.US": {"last_price": 20, "amount": 100, "volume": 1, "ext": {"change_pct": 0.5}},
             "MOVE.US": {"last_price": 20, "amount": 90, "volume": 999, "ext": {"change_pct": -20}},
@@ -101,7 +104,7 @@ def test_rank_quotes_prefers_liquidity_not_absolute_change():
 
 
 def test_rank_quotes_filters_low_price_symbols():
-    ranked = market_job._rank_quotes(
+    ranked = market_data.rank_quotes(
         {
             "PENNY.HK": {"last_price": 0.25, "amount": 99_000_000, "volume": 1_000_000},
             "BLUE.HK": {"last_price": 10, "amount": 1_000_000, "volume": 100_000},
@@ -254,8 +257,8 @@ def test_run_market_funnel_writes_all_candidates_to_db_when_enabled(tmp_path, mo
     monkeypatch.setenv("MARKET_FUNNEL_MIN_HISTORY_ROWS", "220")
     monkeypatch.setenv("MARKET_FUNNEL_WRITE_DB", "1")
     monkeypatch.setenv("FEISHU_WEBHOOK_URL", "https://example.invalid/webhook")
-    monkeypatch.setattr("scripts.market_funnel_job._run_layers", fake_run_layers)
-    monkeypatch.setattr("integrations.supabase_recommendation.upsert_global_recommendations", fake_upsert)
+    monkeypatch.setattr("workflows.market_funnel_job._run_layers", fake_run_layers)
+    monkeypatch.setattr("integrations.recommendation_global.upsert_global_recommendations", fake_upsert)
 
     result = run_market_funnel("us", output=str(tmp_path / "us_result.json"), client=ManyCandidateTickFlowClient())
 
@@ -273,9 +276,9 @@ def test_upsert_funnel_to_tracking_groups_by_trade_date(monkeypatch):
         calls.append((recommend_date, rows, market))
         return True
 
-    monkeypatch.setattr("integrations.supabase_recommendation.upsert_global_recommendations", fake_upsert)
+    monkeypatch.setattr("integrations.recommendation_global.upsert_global_recommendations", fake_upsert)
 
-    market_job._upsert_funnel_to_tracking(
+    market_tracking.upsert_funnel_to_tracking(
         [
             {"symbol": "HALT.US", "latest_close": 10.0, "latest_trade_date": 20260513},
             {"symbol": "AAPL.US", "latest_close": 213.0, "latest_trade_date": 20260514},

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def test_run_theme_radar_uses_full_concept_heat(monkeypatch) -> None:
-    from scripts import theme_radar_job as mod
+    from workflows import theme_radar_runtime as mod
 
     captured: dict = {}
     metrics = {
@@ -22,7 +22,7 @@ def test_run_theme_radar_uses_full_concept_heat(monkeypatch) -> None:
 
 
 def test_render_theme_radar_report_groups_candidates_by_theme() -> None:
-    from scripts.theme_radar_job import render_theme_radar_report
+    from workflows.theme_radar_report import render_theme_radar_report
 
     report = render_theme_radar_report(_snapshot())
 
@@ -35,7 +35,7 @@ def test_render_theme_radar_report_groups_candidates_by_theme() -> None:
 
 
 def test_render_theme_radar_html_outputs_grouped_cards() -> None:
-    from scripts.theme_radar_job import render_theme_radar_html
+    from workflows.theme_radar_report import render_theme_radar_html
 
     html = render_theme_radar_html(_snapshot())
 
@@ -47,7 +47,7 @@ def test_render_theme_radar_html_outputs_grouped_cards() -> None:
 
 
 def test_notify_report_sends_feishu(monkeypatch) -> None:
-    from scripts import theme_radar_job as mod
+    from workflows import theme_radar_runtime as mod
 
     captured: dict[str, str] = {}
     monkeypatch.setenv("FEISHU_WEBHOOK_URL", "https://example.invalid/webhook")
@@ -59,7 +59,7 @@ def test_notify_report_sends_feishu(monkeypatch) -> None:
         ),
     )
 
-    mod._notify_report({"trade_date": "2026-06-12"}, "# report")
+    mod.notify_theme_radar_report({"trade_date": "2026-06-12"}, "# report")
 
     assert captured == {
         "webhook": "https://example.invalid/webhook",

@@ -149,8 +149,44 @@ def test_market_report_prefers_cross_period_robust_params(tmp_path):
 
     report = build_report(load_grid_cells(tmp_path))
 
-    assert "稳健参数（跨周期惩罚）: **等额四仓 / 15天 / SL-8% / 无TP / 无Trail**" in report
+    assert "稳健参数（跨周期全正）: **等额四仓 / 15天 / SL-8% / 无TP / 无Trail**" in report
     assert "跨周期参数稳健性" in report
+
+
+def test_market_report_flags_period_with_no_positive_cash_combo(tmp_path):
+    from scripts.update_backtest_market_report import build_report, load_grid_cells
+
+    for period, start, end, cash_return in [
+        ("recent_6m", "2025-12-01", "2026-05-31", 12.0),
+        ("bear_2022", "2021-12-13", "2022-10-31", -6.5),
+    ]:
+        artifact = tmp_path / f"backtest-grid-{period}-h10-sl7-tp18-tr0-37"
+        artifact.mkdir()
+        (artifact / f"summary_{period}_h10.md").write_text(
+            "\n".join(
+                [
+                    f"- 区间: {start} ~ {end}",
+                    "- 每日候选上限: Top 4",
+                    "- 股票池: main_chinext (sample=0)",
+                    "- 绩效引擎: legacy",
+                    "- 成交样本: 10",
+                    "- 胜率: 40.0%",
+                    "- 平均收益: 1.0%",
+                    "- 中位收益: 0.5%",
+                    "- 夏普比 (Sharpe Ratio): 0.3",
+                    "- 最大回撤: -10.0%",
+                    "- 初始现金: 100000.00",
+                    f"- 最终现金: {100000 * (1 + cash_return / 100):.2f}",
+                    f"- 总收益: {cash_return}%",
+                    "- 成交笔数: 4",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    report = build_report(load_grid_cells(tmp_path))
+
+    assert "周期风控: **熊市 2021-12~2022-10** 全部组合非正" in report
 
 
 def test_market_report_expands_cash_portfolio_styles(tmp_path):
@@ -192,17 +228,37 @@ def test_market_report_expands_cash_portfolio_styles(tmp_path):
         + "\n",
         encoding="utf-8",
     )
+    (artifact / "trades_20251201_20260531_h10_n4.csv").write_text(
+        "signal_date,code,ret_pct,regime,trigger\n2026-01-01,000001,-9.0,RISK_OFF,sos\n",
+        encoding="utf-8",
+    )
+    (artifact / "cash_trades_probe_add_20251201_20260531_h10_n4.csv").write_text(
+        "\n".join(
+            [
+                "signal_date,code,ret_pct,regime,trigger",
+                "2026-01-02,000002,5.0,RISK_ON,lps",
+                "2026-01-03,000003,7.0,RISK_ON,evr",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     cells = load_grid_cells(tmp_path)
     assert [(cell.portfolio_style, cell.cash_total_return) for cell in cells] == [
         ("slot_equal_4", 1.0),
         ("probe_add", 12.0),
     ]
+    assert cells[0].trades_path and cells[0].trades_path.name.startswith("trades_")
+    assert cells[1].trades_path and cells[1].trades_path.name.startswith("cash_trades_probe_add_")
 
     report = build_report(cells)
 
     assert "## 各交易风格最佳" in report
     assert "观察仓补仓 / 10天 / SL-6% / 无TP / 无Trail" in report
+    assert "- 交易笔数: 2；盈利 2；亏损 0" in report
+    assert "会提交到仓库" not in report
+    assert "上传为 artifact" in report
 
 
 def test_market_report_loads_merged_tp_artifact_layout(tmp_path):

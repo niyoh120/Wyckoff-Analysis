@@ -1,23 +1,31 @@
 from __future__ import annotations
 
 
-def test_send_feishu_report(monkeypatch):
-    import scripts.holding_diagnosis_job as mod
+def test_send_holding_report_uses_telegram(monkeypatch):
+    import workflows.holding_diagnosis_job as mod
 
     captured: dict[str, str] = {}
-    monkeypatch.setenv("FEISHU_WEBHOOK_URL", "https://example.invalid/webhook")
     monkeypatch.setattr(
         mod,
-        "send_feishu_notification",
-        lambda webhook, title, content: (
-            captured.update({"webhook": webhook, "title": title, "content": content}) or True
+        "send_to_telegram",
+        lambda text, *, tg_bot_token, tg_chat_id: (
+            captured.update({"text": text, "token": tg_bot_token, "chat_id": tg_chat_id}) or True
         ),
     )
 
-    mod._send_feishu_report("# holding report")
+    ok = mod._send_holding_report(
+        "# holding report",
+        mod.HoldingDiagnosisRuntime(
+            tickflow_api_key="tf-key",
+            tg_bot_token="tg-token",
+            tg_chat_id="tg-chat",
+            portfolio_id="USER_LIVE",
+        ),
+    )
 
+    assert ok is True
     assert captured == {
-        "webhook": "https://example.invalid/webhook",
-        "title": "持仓诊断",
-        "content": "# holding report",
+        "text": "📊 持仓诊断\n\n# holding report",
+        "token": "tg-token",
+        "chat_id": "tg-chat",
     }

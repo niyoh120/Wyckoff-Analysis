@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from scripts.backtest_runner import _calc_trade_excursion_pct, _entry_on_or_after, _price_at_or_before
+from core.backtest_execution import calc_trade_excursion_pct, entry_on_or_after, price_at_or_before
 
 
 def test_price_at_or_before_uses_last_minute_before_target() -> None:
@@ -23,15 +23,14 @@ def test_price_at_or_before_uses_last_minute_before_target() -> None:
         }
     )
 
-    assert _price_at_or_before(df, day, "14:55") == 10.2
+    assert price_at_or_before(df, day, "14:55") == 10.2
 
 
-def test_tail_1455_fallback_close_uses_daily_close(monkeypatch) -> None:
-    monkeypatch.setattr("scripts.backtest_runner._resolve_tickflow_entry_price", lambda *_args: None)
+def test_tail_1455_fallback_close_uses_daily_close() -> None:
     day = datetime(2026, 1, 5).date()
     df = pd.DataFrame({"date": [day], "open": [10.0], "high": [10.8], "low": [9.8], "close": [10.5]})
 
-    price, entry_date, source = _entry_on_or_after(
+    price, entry_date, source = entry_on_or_after(
         df,
         "000001",
         day,
@@ -46,12 +45,11 @@ def test_tail_1455_fallback_close_uses_daily_close(monkeypatch) -> None:
     assert source == "daily_close_fallback"
 
 
-def test_tail_1455_fallback_skip_marks_missing(monkeypatch) -> None:
-    monkeypatch.setattr("scripts.backtest_runner._resolve_tickflow_entry_price", lambda *_args: None)
+def test_tail_1455_fallback_skip_marks_missing() -> None:
     day = datetime(2026, 1, 5).date()
     df = pd.DataFrame({"date": [day], "open": [10.0], "high": [10.8], "low": [9.8], "close": [10.5]})
 
-    price, entry_date, source = _entry_on_or_after(
+    price, entry_date, source = entry_on_or_after(
         df,
         "000001",
         day,
@@ -66,6 +64,29 @@ def test_tail_1455_fallback_skip_marks_missing(monkeypatch) -> None:
     assert source == "tail_1455_missing_skip"
 
 
+def test_tail_1455_uses_injected_intraday_fetcher() -> None:
+    day = datetime(2026, 1, 5).date()
+    df = pd.DataFrame({"date": [day], "open": [10.0], "high": [10.8], "low": [9.8], "close": [10.5]})
+
+    def fetcher(_code, _day, entry_time, _cache):
+        return 10.2, f"tickflow_1m_{entry_time}"
+
+    price, entry_date, source = entry_on_or_after(
+        df,
+        "000001",
+        day,
+        mode="tail_1455",
+        entry_time="14:55",
+        fallback="close",
+        intraday_cache={},
+        intraday_price_fetcher=fetcher,
+    )
+
+    assert price == 10.2
+    assert entry_date == day
+    assert source == "tickflow_1m_14:55"
+
+
 def test_calc_trade_excursion_uses_window_high_low() -> None:
     d1 = datetime(2026, 1, 5).date()
     d2 = datetime(2026, 1, 6).date()
@@ -74,7 +95,7 @@ def test_calc_trade_excursion_uses_window_high_low() -> None:
         d2: (10.6, 12.0, 9.0, 11.5),
     }
 
-    mfe, mae = _calc_trade_excursion_pct(day_ohlc, [d1, d2], 10.0)
+    mfe, mae = calc_trade_excursion_pct(day_ohlc, [d1, d2], 10.0)
 
     assert mfe == pytest.approx(20.0)
     assert mae == pytest.approx(-10.0)

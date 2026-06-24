@@ -184,7 +184,8 @@ def _close_due_positions(
         if pos["exit_date"] > day:
             keep.append(pos)
             continue
-        cash = _close_position(pos, cash, float(pos["exit_price"]), closed_rows, "planned_exit")
+        reason = str(pos.get("exit_reason") or "planned_exit")
+        cash = _close_position(pos, cash, float(pos["exit_price"]), closed_rows, reason)
     active[:] = keep
     return cash
 
@@ -257,6 +258,7 @@ def _new_position(
         "score": _row_score(row),
         "track": str(row.get("track", "") or ""),
         "trigger": str(row.get("trigger", "") or ""),
+        "exit_reason": str(row.get("exit_reason", "") or ""),
         "buy_gross": buy_gross,
         "buy_fee": buy_fee,
         "cost_total": buy_gross + buy_fee,

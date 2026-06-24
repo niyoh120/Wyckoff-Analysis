@@ -1,31 +1,13 @@
-"""core/batch_report.py re-export 桥接测试。"""
+"""Batch report payload helper tests."""
 
 from __future__ import annotations
 
 import pandas as pd
-import pytest
-
-akshare = pytest.importorskip("akshare", reason="akshare not installed")
-
-
-def test_bridge_exports_are_importable():
-    """确认桥接模块能正常 import 所有公共 API。"""
-    from core.batch_report import (
-        extract_operation_pool_codes,
-        extract_operation_pool_springboards,
-        generate_stock_payload,
-        run_step3,
-    )
-
-    assert callable(generate_stock_payload)
-    assert callable(extract_operation_pool_codes)
-    assert callable(extract_operation_pool_springboards)
-    assert callable(run_step3)
 
 
 def test_generate_stock_payload_includes_structure_and_conflict_context():
     """模型输入需要保留 TR 边界、A/B/C 释义、冲突提示与 VSA 标签。"""
-    from core.batch_report import generate_stock_payload
+    from tools.report_builder import generate_stock_payload
 
     dates = pd.date_range("2026-04-01", periods=25, freq="D")
     rows = []
