@@ -70,6 +70,29 @@ def test_resolve_trade_exit_sltp_uses_threshold_price() -> None:
     assert reason == "take_profit"
 
 
+def test_resolve_trade_exit_sltp_zero_risk_controls_waits_for_time_exit() -> None:
+    d1 = date(2026, 1, 5)
+    d2 = date(2026, 1, 6)
+    full_df = _daily_close_frame([(d1, 10.0), (d2, 12.0)])
+    day_ohlc = {d1: (10.0, 10.0, 10.0, 10.0), d2: (10.0, 30.0, 1.0, 12.0)}
+
+    exit_close, exit_date, reason = resolve_trade_exit(
+        full_df=full_df,
+        day_ohlc=day_ohlc,
+        trade_dates=[d1, d2],
+        actual_entry_idx=0,
+        actual_exit_idx=1,
+        actual_exit_anchor=d2,
+        signal_date=d1,
+        entry_close=10.0,
+        config=_exit_config(stop_loss_pct=0.0, take_profit_pct=0.0, trailing_stop_pct=0.0),
+    )
+
+    assert exit_close == pytest.approx(12.0)
+    assert exit_date == d2
+    assert reason == "time_exit"
+
+
 def _exit_config(**overrides) -> ExitSimulationConfig:
     values = {
         "exit_mode": "sltp",

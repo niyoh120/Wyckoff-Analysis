@@ -147,8 +147,9 @@ jobs:
           retention-days: 3
 
   # ────────────────────────────────────────────────
-  # Phase 2: 12 个并行 job 读快照做回测（无需网络拉取）
-  # 维度: hold_days × stop_loss；每个 job 内部循环 TP=0/18（生产对齐默认关闭 trailing）
+  # Phase 2: 并行 job 读快照做回测（无需网络拉取）
+  # 基础维度: hold_days × stop_loss；每个 job 内部循环 TP=0/18（生产对齐默认关闭 trailing）
+  # 额外链路: 固定持有 5/10 个交易日，SL=0/TP=0/Trail=0，用于观察无风控退出基准。
   # ────────────────────────────────────────────────
   grid:
     name: Grid ${{ matrix.period_key }} h${{ matrix.hold_days }} sl${{ matrix.stop_loss }}
@@ -162,6 +163,38 @@ jobs:
         hold_days: [10, 15]
         stop_loss: [-7, -8]
         trailing_stop: [0]
+        take_profit_values: ["0 18"]
+        include:
+          - period_key: recent_6m
+            hold_days: 5
+            stop_loss: 0
+            trailing_stop: 0
+            take_profit_values: "0"
+          - period_key: bull_2020
+            hold_days: 5
+            stop_loss: 0
+            trailing_stop: 0
+            take_profit_values: "0"
+          - period_key: bear_2022
+            hold_days: 5
+            stop_loss: 0
+            trailing_stop: 0
+            take_profit_values: "0"
+          - period_key: recent_6m
+            hold_days: 10
+            stop_loss: 0
+            trailing_stop: 0
+            take_profit_values: "0"
+          - period_key: bull_2020
+            hold_days: 10
+            stop_loss: 0
+            trailing_stop: 0
+            take_profit_values: "0"
+          - period_key: bear_2022
+            hold_days: 10
+            stop_loss: 0
+            trailing_stop: 0
+            take_profit_values: "0"
     env:
       PYTHONUNBUFFERED: "1"
       TZ: Asia/Shanghai
@@ -253,13 +286,14 @@ jobs:
           HOLD="${{ matrix.hold_days }}"
           STOP="${{ matrix.stop_loss }}"
           TRAIL="${{ matrix.trailing_stop }}"
+          TP_VALUES="${{ matrix.take_profit_values }}"
           STOP_TAG="${STOP#-}"
           TRAIL_TAG="${TRAIL#-}"
           OUT_ROOT="analysis/backtest_grid_actions/${BT_PERIOD_KEY}/h${HOLD}_sl${STOP_TAG}_tr${TRAIL_TAG}"
           echo "OUT_ROOT=${OUT_ROOT}" >> "${GITHUB_ENV}"
           mkdir -p "${OUT_ROOT}"
 
-          for TP in 0 18; do
+          for TP in ${TP_VALUES}; do
             OUT_DIR="${OUT_ROOT}/backtest-grid-${BT_PERIOD_KEY}-h${HOLD}-sl${STOP_TAG}-tp${TP}-tr${TRAIL_TAG}"
             mkdir -p "${OUT_DIR}"
             echo "[grid] period=${BT_PERIOD_KEY} hold=${HOLD} stop=${STOP} tp=${TP} trail=${TRAIL}"
@@ -618,6 +652,14 @@ jobs:
           def fmt(v, spec):
               return format(v, spec) if v is not None else '-'
 
+          def sl_label(v):
+              value = int(v or 0)
+              return '无SL' if value == 0 else f'SL-{value}%'
+
+          def sl_axis_label(v):
+              value = int(v or 0)
+              return '无SL' if value == 0 else f'-{value}%'
+
           def sharp_flag(v):
               if v is None:
                   return '⚪'
@@ -722,7 +764,7 @@ jobs:
               mark = '🏆 ' if is_best else ''
               tp_s = f'TP{c["tp"]}%' if c['tp'] else '无TP'
               tr_s = f'Trail-{c["tr"]}%' if c['tr'] else '无Trail'
-              combo = f'{style_label(c.get("style", ""), c.get("style_label", ""))} / {c["hold"]}天 / SL-{c["sl"]}% / {tp_s} / {tr_s}'
+              combo = f'{style_label(c.get("style", ""), c.get("style_label", ""))} / {c["hold"]}天 / {sl_label(c["sl"])} / {tp_s} / {tr_s}'
               if len(periods) > 1:
                   combo = f'{period_label(c.get("period", ""))} · {combo}'
               return (
@@ -823,7 +865,7 @@ jobs:
                   tr_str = f'移动止盈-{best["tr"]}%' if best['tr'] else '无移动止盈'
                   best_label = robust_label(robust_ranked[0]) if robust_ranked else '最优参数（按现金收益）'
                   elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
-                      'content': f'{tag} **{best_label}{best_period}**: {style_label(best.get("style", ""), best.get("style_label", ""))} / 持有{best["hold"]}天 / SL-{best["sl"]}% / {tp_str} / {tr_str}'}})
+                      'content': f'{tag} **{best_label}{best_period}**: {style_label(best.get("style", ""), best.get("style_label", ""))} / 持有{best["hold"]}天 / {sl_label(best["sl"])} / {tp_str} / {tr_str}'}})
 
                   cols = [
                       ('**现金收益**', f'{fmt(best.get("cash_return"), "+.2f")}%'),
@@ -876,7 +918,7 @@ jobs:
                           tp_s = f'TP{b["tp"]}%' if b['tp'] else '无TP'
                           tr_s = f'Trail-{b["tr"]}%' if b['tr'] else '无Trail'
                           lines.append(
-                              f'- {period_label(period)}: {style_label(b.get("style", ""), b.get("style_label", ""))} / {b["hold"]}天 / SL-{b["sl"]}% / {tp_s} / {tr_s}，'
+                              f'- {period_label(period)}: {style_label(b.get("style", ""), b.get("style_label", ""))} / {b["hold"]}天 / {sl_label(b["sl"])} / {tp_s} / {tr_s}，'
                               f'现金收益 {fmt(b.get("cash_return"), "+.2f")}%，夏普 {fmt(b.get("sharpe"), ".3f")}'
                           )
                       elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '\n'.join(lines)}})
@@ -892,7 +934,7 @@ jobs:
                           tp_s = f'TP{b["tp"]}%' if b['tp'] else '无TP'
                           tr_s = f'Trail-{b["tr"]}%' if b['tr'] else '无Trail'
                           lines.append(
-                              f'- {style_label(style, b.get("style_label", ""))}: {period_label(b.get("period", ""))} / {b["hold"]}天 / SL-{b["sl"]}% / {tp_s} / {tr_s}，'
+                              f'- {style_label(style, b.get("style_label", ""))}: {period_label(b.get("period", ""))} / {b["hold"]}天 / {sl_label(b["sl"])} / {tp_s} / {tr_s}，'
                               f'现金收益 {fmt(b.get("cash_return"), "+.2f")}%'
                           )
                       elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '\n'.join(lines)}})
@@ -921,7 +963,7 @@ jobs:
                           {'tag': 'div', 'text': {'tag': 'lark_md', 'content': '**持有\\\\SL**'}}]}]
                       for s in sls:
                           hdr_cols.append({'tag': 'column', 'width': 'weighted', 'weight': 1, 'elements': [
-                              {'tag': 'div', 'text': {'tag': 'lark_md', 'content': f'**-{s}%**'}}]})
+                              {'tag': 'div', 'text': {'tag': 'lark_md', 'content': f'**{sl_axis_label(s)}**'}}]})
                       elements.append({'tag': 'column_set', 'flex_mode': 'stretch',
                           'background_style': 'grey', 'columns': hdr_cols})
                       # Data rows

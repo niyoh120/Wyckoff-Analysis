@@ -75,10 +75,11 @@ def _cash_pnl(cell: GridCell) -> float | None:
 
 
 def _fmt_param(cell: GridCell) -> str:
+    sl = "无SL" if cell.stop_loss == 0 else f"SL-{cell.stop_loss}%"
     tp = f"TP{cell.take_profit}%" if cell.take_profit else "无TP"
     tr = f"Trail-{cell.trailing_stop}%" if cell.trailing_stop else "无Trail"
     style = cell.portfolio_style_label or cell.portfolio_style
-    return f"{style} / {cell.hold}天 / SL-{cell.stop_loss}% / {tp} / {tr}"
+    return f"{style} / {cell.hold}天 / {sl} / {tp} / {tr}"
 
 
 def _period_label(cell: GridCell) -> str:
@@ -278,7 +279,7 @@ def _build_matrix(cells: list[GridCell], best: GridCell) -> list[str]:
             by_pair[key] = c
 
     lines = []
-    lines.append("| 持有\\SL | " + " | ".join(f"-{s}%" for s in stops) + " |")
+    lines.append("| 持有\\SL | " + " | ".join("无SL" if s == 0 else f"-{s}%" for s in stops) + " |")
     lines.append("|---|" + "|".join(["---:"] * len(stops)) + "|")
     for h in holds:
         row = [f"{h}天"]
