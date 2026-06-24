@@ -388,7 +388,7 @@ def test_loss_guard_drops_low_lps_and_risk_on_pure_momentum():
         accum,
         regime="RISK_ON",
         code_to_trigger_keys={"000001": ["lps"], "000002": ["sos"], "000003": ["sos"]},
-        code_to_total_score={"000001": 0.4, "000002": 4.0, "000003": 4.0},
+        code_to_total_score={"000001": 0.4, "000002": 4.0, "000003": 6.0},
         channel_map={"000002": "主升通道", "000003": "点火破局"},
         df_map={},
     )
@@ -396,7 +396,7 @@ def test_loss_guard_drops_low_lps_and_risk_on_pure_momentum():
     assert kept == ["000003"]
     assert trend_kept == ["000003"]
     assert accum_kept == []
-    assert dropped == {"低分LPS": 1, "RISK_ON纯趋势追涨": 1}
+    assert dropped == {"单LPS仅观察": 1, "RISK_ON纯趋势追涨": 1}
 
 
 def test_loss_guard_keeps_neutral_point_ignition():
@@ -406,7 +406,7 @@ def test_loss_guard_keeps_neutral_point_ignition():
         [],
         regime="NEUTRAL",
         code_to_trigger_keys={"000001": ["sos"]},
-        code_to_total_score={"000001": 4.0},
+        code_to_total_score={"000001": 6.0},
         channel_map={"000001": "加速突破+点火破局"},
         df_map={},
     )
@@ -431,7 +431,7 @@ def test_loss_guard_bear_rebound_bans_pure_lps_even_with_score():
     assert kept == []
     assert trend_kept == []
     assert accum_kept == []
-    assert dropped == {"BEAR_REBOUND禁用LPS": 1}
+    assert dropped == {"单LPS仅观察": 1}
 
 
 def test_select_base_ai_candidates_blocks_observe_only_market():
@@ -459,7 +459,7 @@ def test_select_base_ai_candidates_blocks_observe_only_market():
 
 def test_promote_review_candidates_blocks_neutral_bypass(monkeypatch):
     monkeypatch.setattr(funnel_ai_selection, "FUNNEL_L2_BYPASS_AI_ENABLED", True)
-    monkeypatch.setattr(funnel_ai_selection, "FUNNEL_STRATEGIC_L2_BYPASS_ENABLED", True)
+    monkeypatch.setattr(funnel_ai_selection, "FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED", True)
     monkeypatch.setattr(funnel_ai_selection, "FUNNEL_THEME_RADAR_PROMOTE_CAP", 2)
     selected = ["000001"]
     trend = ["000001"]
@@ -505,7 +505,25 @@ def test_loss_guard_risk_on_bans_pure_trend_pullback():
     assert kept == []
     assert trend_kept == []
     assert accum_kept == []
-    assert dropped == {"RISK_ON禁用TrendPB": 1}
+    assert dropped == {"单TrendPB仅观察": 1}
+
+
+def test_loss_guard_blocks_pure_evr_as_observation_only():
+    kept, trend_kept, accum_kept, dropped = apply_loss_guard(
+        ["000001"],
+        ["000001"],
+        [],
+        regime="NEUTRAL",
+        code_to_trigger_keys={"000001": ["evr"]},
+        code_to_total_score={"000001": 8.0},
+        channel_map={"000001": "吸筹通道"},
+        df_map={},
+    )
+
+    assert kept == []
+    assert trend_kept == []
+    assert accum_kept == []
+    assert dropped == {"单EVR仅观察": 1}
 
 
 def test_signal_report_fields_fallback_for_strategic_review():

@@ -114,6 +114,16 @@ uv run python scripts/signal_feedback_job.py
 
 当外部观察名单触发 L4 且没有进入正式候选时，系统会补写 `signal_observations`，`source=external_seed:<source>`，`selection_mode=external_seed_shadow`。这部分只用于后续 outcome 复盘，不影响真实推荐和 AI 候选池。
 
+## L2 旁路 Shadow
+
+L2 旁路和战略 L2 旁路解决的是“L2 没过，但形态或主线线索值得继续观察”的问题。近期 shadow 归因显示，直接把 L2 旁路送入正式 AI 推荐会显著放大亏损，因此默认只记录样本，不再晋级 AI 候选：
+
+- `source=l2_bypass_shadow` / `selection_mode=l2_bypass_shadow`：普通 L2 拒绝但 L4 有形态的观察样本。
+- `source=strategic_l2_bypass_shadow` / `selection_mode=strategic_l2_bypass_shadow`：主题主线或 60m 救援结构触发的战略观察样本。
+- 只有显式打开 `FUNNEL_L2_BYPASS_AI_ENABLED=1` 或 `FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED=1` 时，旁路才允许进入 AI 输入；生产默认关闭。
+
+这部分样本继续写入 `signal_observations` 和后续 `signal_outcomes`，用于验证“哪些 L2 外的 A 股波动结构真的有价值”。在样本不足或收益为负时，不应把旁路改成正式买入入口。
+
 ## 信号生命周期
 
 ```mermaid

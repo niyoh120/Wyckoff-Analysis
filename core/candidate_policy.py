@@ -28,9 +28,12 @@ class CandidatePolicyConfig:
     alpha_block_risk_on_early_breakout: bool = True
     alpha_risk_on_early_breakout_min_score: float = 70.0
     mix_trendpb_min_score: float = 12.0
+    pure_lps_observe_only: bool = True
     pure_lps_min_score: float = 6.0
+    pure_trendpb_observe_only: bool = True
     pure_trendpb_min_score: float = 14.0
-    pure_sos_min_score: float = 4.0
+    pure_sos_min_score: float = 6.0
+    pure_evr_observe_only: bool = True
     pure_evr_min_score_default: float = 3.0
     pure_evr_min_score_hot: float = 5.0
     risk_on_pre5_ret: float = 25.0
@@ -221,6 +224,8 @@ def loss_guard_reason(
 
 
 def _pure_lps_reason(regime_norm: str, trigger_score: float, config: CandidatePolicyConfig) -> str:
+    if config.pure_lps_observe_only:
+        return "单LPS仅观察"
     if trigger_score < config.pure_lps_min_score:
         return "低分LPS"
     if regime_norm in DEFENSIVE_REGIMES | {"RISK_ON"}:
@@ -229,6 +234,8 @@ def _pure_lps_reason(regime_norm: str, trigger_score: float, config: CandidatePo
 
 
 def _pure_trend_pullback_reason(regime_norm: str, trigger_score: float, config: CandidatePolicyConfig) -> str:
+    if config.pure_trendpb_observe_only:
+        return "单TrendPB仅观察"
     if trigger_score < config.pure_trendpb_min_score:
         return "低分TrendPB"
     if regime_norm in WEAK_PULLBACK_REGIMES:
@@ -246,6 +253,8 @@ def _naked_right_side_reason(
 ) -> str:
     if regime_norm in {"RISK_ON", "BEAR_REBOUND"} and _is_pure_momentum_channel(channel):
         return f"{regime_norm}纯趋势追涨"
+    if keys == {"evr"} and config.pure_evr_observe_only:
+        return "单EVR仅观察"
     if "sos" in keys and trigger_score < config.pure_sos_min_score:
         return "低分SOS"
     evr_min_score = (

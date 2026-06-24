@@ -128,6 +128,7 @@ def build_signal_observation_rows(
         intraday_tail_map=step2_details.get("intraday_tail_map") or {},
         source_context_map=step2_details.get("source_context_map") or {},
         selection_mode=os.getenv("FUNNEL_AI_SELECTION_MODE", "quota"),
+        selection_mode_map=_signal_observation_selection_mode_map(step2_details),
         policy_version=f"dynamic:{os.getenv('FUNNEL_DYNAMIC_POLICY', 'off')}",
         rank_map={str(code): idx + 1 for idx, code in enumerate(selected_for_ai)},
     )
@@ -424,15 +425,33 @@ def _merge_observation_trigger_maps(step2_details: dict) -> dict[str, list[tuple
 
 def _signal_observation_source_map(step2_details: dict) -> dict[str, str]:
     metrics = step2_details.get("metrics", {}) or {}
+    bypass_pool = {str(c).strip() for c in step2_details.get("l2_bypass_pool", []) if str(c).strip()}
+    strategic_pool = {str(c).strip() for c in step2_details.get("strategic_l2_bypass_pool", []) if str(c).strip()}
     bypass_codes = {str(c).strip() for c in step2_details.get("l2_bypass_selected", []) if str(c).strip()}
     strategic_codes = {str(c).strip() for c in step2_details.get("strategic_l2_bypass_selected", []) if str(c).strip()}
     external_codes = {str(c).strip() for c in step2_details.get("external_seed_selected", []) if str(c).strip()}
-    source_map = {code: "l2_bypass" for code in bypass_codes}
+    source_map = {code: "l2_bypass_shadow" for code in bypass_pool}
+    source_map.update({code: "strategic_l2_bypass_shadow" for code in strategic_pool})
+    source_map.update({code: "l2_bypass" for code in bypass_codes})
     source_map.update({code: "strategic_l2_bypass" for code in strategic_codes})
     source_map.update(
         {code: f"external_seed:{metrics.get('external_seed_source') or 'external'}" for code in external_codes}
     )
     return source_map
+
+
+def _signal_observation_selection_mode_map(step2_details: dict) -> dict[str, str]:
+    bypass_pool = {str(c).strip() for c in step2_details.get("l2_bypass_pool", []) if str(c).strip()}
+    strategic_pool = {str(c).strip() for c in step2_details.get("strategic_l2_bypass_pool", []) if str(c).strip()}
+    bypass_selected = {str(c).strip() for c in step2_details.get("l2_bypass_selected", []) if str(c).strip()}
+    strategic_selected = {
+        str(c).strip() for c in step2_details.get("strategic_l2_bypass_selected", []) if str(c).strip()
+    }
+    out = {code: "l2_bypass_shadow" for code in bypass_pool}
+    out.update({code: "strategic_l2_bypass_shadow" for code in strategic_pool})
+    out.update({code: "l2_bypass" for code in bypass_selected})
+    out.update({code: "strategic_l2_bypass" for code in strategic_selected})
+    return out
 
 
 def _springboard_fields(result: dict) -> dict:

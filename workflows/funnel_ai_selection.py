@@ -37,7 +37,7 @@ from workflows.funnel_settings import (
     FUNNEL_L2_BYPASS_AI_CAP,
     FUNNEL_L2_BYPASS_AI_ENABLED,
     FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
-    FUNNEL_STRATEGIC_L2_BYPASS_ENABLED,
+    FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED,
     FUNNEL_THEME_RADAR_PROMOTE_CAP,
 )
 
@@ -138,7 +138,7 @@ def promote_review_candidates(
         ai_total_cap=ai_total_cap,
         bypass_enabled=FUNNEL_L2_BYPASS_AI_ENABLED and trade_mode.allow_bypass_review,
         bypass_cap=FUNNEL_L2_BYPASS_AI_CAP,
-        strategic_enabled=FUNNEL_STRATEGIC_L2_BYPASS_ENABLED and trade_mode.allow_bypass_review,
+        strategic_enabled=FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED and trade_mode.allow_bypass_review,
         strategic_cap=FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
         regime=regime,
     )

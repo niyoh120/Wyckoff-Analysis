@@ -115,6 +115,8 @@ def test_build_signal_observations_marks_selection_and_source():
         score_map={"000001": 88},
         latest_close_map={"000001": 10.5},
         source_map={"000002": "l2_bypass"},
+        selection_mode="tradeable_l4",
+        selection_mode_map={"000002": "l2_bypass_shadow"},
         footprint_map={
             "sos:000001": {
                 "version": "price_action_footprint_v1",
@@ -204,6 +206,7 @@ def test_build_signal_observations_marks_selection_and_source():
     assert "tail_buy_confirmation" in shadow_score["positive_tags"]
     assert second["track"] == "Accum"
     assert second["source"] == "l2_bypass"
+    assert second["selection_mode"] == "l2_bypass_shadow"
     assert second["springboard_grade"] == "C"
     assert second["springboard_c"] is True
     assert second["features_json"]["data_lineage"]["coverage_grade"] == "thin"
@@ -265,6 +268,39 @@ def test_daily_job_intraday_tail_map_skips_without_tickflow_key(monkeypatch):
     )
 
     assert got == {}
+
+
+def test_daily_job_marks_bypass_observations_as_shadow(monkeypatch):
+    from workflows import daily_signal_observations
+
+    monkeypatch.setenv("FUNNEL_AI_SELECTION_MODE", "tradeable_l4")
+    rows = daily_signal_observations.build_signal_observation_rows(
+        {
+            "selected_for_ai": ["000001"],
+            "l2_bypass_pool": ["000002"],
+            "strategic_l2_bypass_pool": ["000003"],
+            "review_triggers": {
+                "sos": [("000001", 6.0), ("000002", 5.0)],
+                "spring": [("000003", 2.0)],
+            },
+            "name_map": {"000001": "Alpha", "000002": "Beta", "000003": "Gamma"},
+            "metrics": {
+                "layer2_channel_map": {"000001": "点火破局"},
+                "latest_close_map": {"000001": 10.0, "000002": 8.0, "000003": 6.0},
+            },
+        },
+        "RISK_ON",
+        [],
+        trade_date="2026-06-24",
+    )
+
+    by_code = {row["code"]: row for row in rows}
+    assert by_code["000001"]["selection_mode"] == "tradeable_l4"
+    assert by_code["000001"]["source"] == "funnel"
+    assert by_code["000002"]["selection_mode"] == "l2_bypass_shadow"
+    assert by_code["000002"]["source"] == "l2_bypass_shadow"
+    assert by_code["000003"]["selection_mode"] == "strategic_l2_bypass_shadow"
+    assert by_code["000003"]["source"] == "strategic_l2_bypass_shadow"
 
 
 def test_external_capital_context_normalizes_sources():

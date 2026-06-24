@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -50,9 +51,12 @@ def test_script_help_renders(script: str) -> None:
 
 
 def test_review_list_replay_entrypoint_imports() -> None:
+    env = os.environ.copy()
+    env.pop("FEISHU_WEBHOOK_URL", None)
     proc = subprocess.run(
         [sys.executable, "scripts/review_list_replay.py"],
         cwd=ROOT,
+        env=env,
         text=True,
         capture_output=True,
         timeout=20,

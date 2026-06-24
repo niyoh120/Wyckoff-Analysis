@@ -380,7 +380,7 @@ def _signal_observation_row(
         "profile_tag": channel or signal_track(signal_type),
         "stage_tag": stage,
         "trigger_tags": ctx["trigger_tags"].get(code, [signal_type]),
-        "selection_mode": ctx["selection_mode"],
+        "selection_mode": ctx["selection_mode_map"].get(code, ctx["selection_mode"]),
         "policy_version": ctx["policy_version"],
         "candidate_rank": ctx["rank_map"].get(code),
         "trigger_score": trigger_score,
@@ -418,6 +418,7 @@ def _observation_context(triggers: dict[str, list[tuple[str, float]]], kwargs: d
         "intraday_tail_map": kwargs["intraday_tail_map"],
         "source_context_map": kwargs["source_context_map"],
         "selection_mode": kwargs["selection_mode"],
+        "selection_mode_map": kwargs["selection_mode_map"] or {},
         "policy_version": kwargs["policy_version"],
         "rank_map": _derived_rank_map(kwargs["selected_for_ai"], kwargs["rank_map"]),
     }
@@ -443,6 +444,7 @@ def build_signal_observations(
     intraday_tail_map: dict[str, dict[str, Any]] | None = None,
     source_context_map: dict[str, dict[str, Any]] | None = None,
     selection_mode: str = "",
+    selection_mode_map: dict[str, str] | None = None,
     policy_version: str = "",
     rank_map: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
