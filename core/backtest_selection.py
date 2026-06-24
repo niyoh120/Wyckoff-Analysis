@@ -160,7 +160,39 @@ def _select_l4_mode_codes(
     else:
         return None
     score_map = {code: hit_score_map.get(code, 0.0) for code in selected_codes}
-    return selected_codes, score_map, track_map_for_hits(selected_codes, result.triggers)
+    track_map = track_map_for_hits(selected_codes, result.triggers)
+    if selection_mode in TRADEABLE_L4_SELECTION_MODES:
+        selected_codes = _apply_tradeable_loss_guard(
+            selected_codes, track_map, result, day_df_map, regime, hit_score_map, candidate_policy
+        )
+        score_map = {code: score_map.get(code, 0.0) for code in selected_codes}
+        track_map = {code: track_map[code] for code in selected_codes}
+    return selected_codes, score_map, track_map
+
+
+def _apply_tradeable_loss_guard(
+    selected_codes: list[str],
+    track_map: dict[str, str],
+    result: FunnelResult,
+    day_df_map: dict[str, pd.DataFrame],
+    regime: str,
+    hit_score_map: dict[str, float],
+    candidate_policy: CandidatePolicyConfig | None,
+) -> list[str]:
+    trend_sel = [code for code in selected_codes if track_map.get(code) == "Trend"]
+    accum_sel = [code for code in selected_codes if track_map.get(code) == "Accum"]
+    kept, _trend_kept, _accum_kept, _ = apply_loss_guard(
+        selected_codes,
+        trend_sel,
+        accum_sel,
+        regime=regime,
+        code_to_trigger_keys=trigger_sets_by_code(result.triggers),
+        code_to_total_score=hit_score_map,
+        channel_map=result.channel_map,
+        df_map=day_df_map,
+        config=candidate_policy,
+    )
+    return kept
 
 
 def _select_candidate_entries(

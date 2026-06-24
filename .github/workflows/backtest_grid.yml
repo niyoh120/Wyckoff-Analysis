@@ -700,6 +700,37 @@ jobs:
           def rank_value(c):
               return c.get('cash_return') if c.get('cash_return') is not None else c.get('sharpe')
 
+          def fixed_hold_baseline_lines(valid_cells, period_keys):
+              baseline = [
+                  c for c in valid_cells
+                  if c.get('hold') in {5, 10}
+                  and int(c.get('sl') or 0) == 0
+                  and int(c.get('tp') or 0) == 0
+                  and int(c.get('tr') or 0) == 0
+                  and rank_value(c) is not None
+              ]
+              if not baseline:
+                  return []
+              periods_for_baseline = period_keys or sorted(
+                  {c.get('period', '') for c in baseline if c.get('period')},
+                  key=period_sort_key,
+              )
+              lines = ['**固定持有旁路基准（无SL/无TP/无Trail）**']
+              for period in periods_for_baseline:
+                  for hold in (5, 10):
+                      subset = [c for c in baseline if c.get('period') == period and c.get('hold') == hold]
+                      if not subset:
+                          continue
+                      best_cell = max(subset, key=rank_value)
+                      lines.append(
+                          f'- {period_label(period)} {hold}天: '
+                          f'{style_label(best_cell.get("style", ""), best_cell.get("style_label", ""))}，'
+                          f'现金收益 {fmt(best_cell.get("cash_return"), "+.2f")}%，'
+                          f'现金回撤 {fmt(best_cell.get("cash_mdd") if best_cell.get("cash_mdd") is not None else best_cell.get("mdd"), ".1f")}%，'
+                          f'夏普 {fmt(best_cell.get("sharpe"), ".3f")}'
+                      )
+              return lines if len(lines) > 1 else []
+
           def robust_key(c):
               return (c.get('style', ''), c.get('hold'), c.get('sl'), c.get('tp'), c.get('tr'))
 
@@ -938,6 +969,11 @@ jobs:
                               f'现金收益 {fmt(b.get("cash_return"), "+.2f")}%'
                           )
                       elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '\n'.join(lines)}})
+
+                  baseline_lines = fixed_hold_baseline_lines(valid, periods)
+                  if baseline_lines:
+                      elements.append({'tag': 'hr'})
+                      elements.append({'tag': 'div', 'text': {'tag': 'lark_md', 'content': '\n'.join(baseline_lines)}})
 
                   # 参数梯队完整排名拆成后续轻量卡片，避免飞书 100KB 单卡上限。
                   elements.append({'tag': 'hr'})

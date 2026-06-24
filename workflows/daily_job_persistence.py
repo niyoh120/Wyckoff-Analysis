@@ -12,7 +12,7 @@ from integrations.recommendation_payload import (
     write_recommendation_backup_artifact,
 )
 from integrations.supabase_market_signal import upsert_market_signal_daily
-from workflows.step4_pipeline import TZ
+from workflows.step4_pipeline import TZ, is_confirmed_step4_candidate
 
 
 def persist_benchmark_context(
@@ -44,23 +44,41 @@ def persist_recommendations(
     trade_date: str,
     log_fn,
 ) -> tuple[int | None, list[dict]]:
+    write_symbols = recommendation_write_symbols(symbols_info)
     if dry_run:
-        log_fn(f"预演模式: 跳过推荐记录入库 count={len(symbols_info)}", logs_path)
+        log_fn(
+            f"预演模式: 跳过推荐记录入库 raw_count={len(symbols_info)}, write_count={len(write_symbols)}",
+            logs_path,
+        )
         return None, []
     try:
         recommend_date = int(trade_date.replace("-", ""))
-        payload = prepare_recommendation_payload(recommend_date, symbols_info)
+        if not write_symbols:
+            log_fn(f"推荐记录入库: raw_count={len(symbols_info)}, write_count=0（二次确认为空，跳过）", logs_path)
+            return recommend_date, []
+        payload = prepare_recommendation_payload(recommend_date, write_symbols)
         write_recommendation_backup(recommend_date, payload, logs_path, ai_codes=None, log_fn=log_fn)
         rec_ok = upsert_recommendation_payload(payload)
         log_fn(
             "推荐记录入库: "
-            f"ok={rec_ok}, raw_count={len(symbols_info)}, payload_count={len(payload)}, date={recommend_date}",
+            f"ok={rec_ok}, raw_count={len(symbols_info)}, write_count={len(write_symbols)}, "
+            f"payload_count={len(payload)}, date={recommend_date}",
             logs_path,
         )
         return recommend_date, payload
     except Exception as e:
         log_fn(f"推荐记录入库失败: {e}", logs_path)
         return None, []
+
+
+def recommendation_write_symbols(symbols_info: list[dict]) -> list[dict]:
+    return [item for item in symbols_info if is_recommendation_write_candidate(item)]
+
+
+def is_recommendation_write_candidate(item: dict) -> bool:
+    if not isinstance(item, dict):
+        return False
+    return is_confirmed_step4_candidate(item)
 
 
 def write_recommendation_backup(

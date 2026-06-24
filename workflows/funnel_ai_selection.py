@@ -106,6 +106,7 @@ def promote_review_candidates(
     ai_policy: dict,
     use_full_ai_selection: bool,
     theme_bonus_map: dict[str, float],
+    regime: str,
 ) -> tuple[int, int, int]:
     if not use_full_ai_selection:
         apply_theme_bonus_to_scores(score_map, theme_bonus_map)
@@ -123,6 +124,7 @@ def promote_review_candidates(
         bypass_cap=FUNNEL_L2_BYPASS_AI_CAP,
         strategic_enabled=FUNNEL_STRATEGIC_L2_BYPASS_ENABLED,
         strategic_cap=FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
+        regime=regime,
     )
     theme_added = promote_theme_l4_for_ai(
         selected_for_ai,

@@ -74,6 +74,12 @@ def persist_step2_outputs(step2: Step2StageResult, cfg: DailyJobConfig) -> tuple
     if step2.symbols_info and step2.details:
         scored = run_springboard_scoring(step2.symbols_info, step2.details)
         log_line(f"Step2.7 起跳板评分: scored={scored}/{len(step2.symbols_info)}", cfg.logs_path)
+        step2.details["step3_symbols_info"] = daily_persistence.recommendation_write_symbols(step2.symbols_info)
+        log_line(
+            "Step2.8 AI研报输入收口: "
+            f"raw={len(step2.symbols_info)}, confirmed={len(step2.details['step3_symbols_info'])}",
+            cfg.logs_path,
+        )
     if step2.ok and step2.symbols_info:
         return daily_persistence.persist_recommendations(
             step2.symbols_info,

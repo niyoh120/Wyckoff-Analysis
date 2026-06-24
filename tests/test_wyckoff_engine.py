@@ -277,6 +277,49 @@ class TestAlphaCandidateBoard:
         assert entries[0]["entry_type"] == "early_breakout"
         assert any("承接" in reason for reason in entries[0]["reasons"])
 
+    def test_builds_volatile_pullback_candidate_for_a_share_wave(self):
+        cfg = FunnelConfig()
+        dates = pd.date_range("2024-01-01", periods=150, freq="B")
+        closes = [8.0 + i * 0.02 for i in range(90)]
+        closes += [10.0 + i * 0.08 for i in range(40)]
+        closes += [
+            13.5,
+            12.2,
+            14.0,
+            12.8,
+            14.5,
+            13.1,
+            15.0,
+            13.6,
+            15.5,
+            14.0,
+            16.0,
+            14.4,
+            16.5,
+            15.0,
+            17.0,
+            15.5,
+            17.5,
+            16.0,
+            18.0,
+            17.2,
+        ]
+
+        entries = build_candidate_entries(
+            alpha_symbols=["000001"],
+            df_map={"000001": _make_df(dates.strftime("%Y-%m-%d").tolist(), closes)},
+            sector_map={"000001": "机器人"},
+            channel_map={"000001": "主升通道"},
+            triggers={},
+            stage_map={},
+            exit_signals={},
+            cfg=cfg,
+        )
+
+        assert [item["code"] for item in entries] == ["000001"]
+        assert entries[0]["entry_type"] == "volatile_pullback"
+        assert entries[0]["track"] == "future_leader"
+
 
 class TestDetectCompression:
     def _build_compression_df(self):

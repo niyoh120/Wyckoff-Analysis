@@ -12,6 +12,7 @@ def candidate_policy_config_from_env() -> CandidatePolicyConfig:
     return CandidatePolicyConfig(
         loss_guard_enabled=_env_bool("FUNNEL_LOSS_GUARD_ENABLED", True),
         alpha_block_risk_on_early_breakout=_env_bool("FUNNEL_ALPHA_BLOCK_RISK_ON_EARLY_BREAKOUT", True),
+        alpha_risk_on_early_breakout_min_score=_env_float("FUNNEL_ALPHA_RISK_ON_EARLY_BREAKOUT_MIN_SCORE", 70.0),
         mix_trendpb_min_score=_env_float("FUNNEL_LOSS_GUARD_MIX_TRENDPB_MIN_SCORE", 12.0),
         pure_lps_min_score=_env_float("FUNNEL_LOSS_GUARD_PURE_LPS_MIN_SCORE", 6.0),
         pure_trendpb_min_score=_env_float("FUNNEL_LOSS_GUARD_PURE_TRENDPB_MIN_SCORE", 14.0),
@@ -21,6 +22,10 @@ def candidate_policy_config_from_env() -> CandidatePolicyConfig:
         risk_on_pre5_ret=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET", 25.0),
         risk_on_range_pos=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_RANGE_POS", 85.0),
         risk_on_vol_ratio=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_VOL_RATIO", 1.8),
+        defensive_high_range_pos=_env_float("FUNNEL_LOSS_GUARD_DEFENSIVE_HIGH_RANGE_POS", 78.0),
+        defensive_high_20d_ret=_env_float("FUNNEL_LOSS_GUARD_DEFENSIVE_HIGH_20D_RET", 18.0),
+        neutral_high_range_pos=_env_float("FUNNEL_LOSS_GUARD_NEUTRAL_HIGH_RANGE_POS", 90.0),
+        neutral_high_20d_ret=_env_float("FUNNEL_LOSS_GUARD_NEUTRAL_HIGH_20D_RET", 35.0),
         position_ratio_by_regime=_position_ratio_by_regime_from_env(),
     )
 

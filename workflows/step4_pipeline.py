@@ -62,6 +62,7 @@ def is_confirmed_step4_candidate(item: dict) -> bool:
         item.get("status"),
         item.get("signal_status"),
         item.get("confirm_status"),
+        item.get("selection_source"),
         item.get("source_type"),
         item.get("tag"),
         item.get("recommend_reason"),

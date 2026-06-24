@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-STRUCTURAL_L4_TRIGGERS = {"spring", "lps", "compression", "compress", "trend_pullback"}
+STRUCTURAL_L4_TRIGGERS = {"spring", "lps", "compression", "compress", "trend_pullback", "volatile_pullback"}
 NAKED_RIGHT_SIDE_TRIGGERS = {"sos", "evr"}
 DEFENSIVE_REGIMES = {"RISK_OFF", "BEAR_REBOUND", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}
 WEAK_PULLBACK_REGIMES = DEFENSIVE_REGIMES | {"RISK_ON"}
@@ -26,6 +26,7 @@ DEFAULT_POSITION_RATIO_BY_REGIME: dict[str, float] = {
 class CandidatePolicyConfig:
     loss_guard_enabled: bool = True
     alpha_block_risk_on_early_breakout: bool = True
+    alpha_risk_on_early_breakout_min_score: float = 70.0
     mix_trendpb_min_score: float = 12.0
     pure_lps_min_score: float = 6.0
     pure_trendpb_min_score: float = 14.0
@@ -35,6 +36,10 @@ class CandidatePolicyConfig:
     risk_on_pre5_ret: float = 25.0
     risk_on_range_pos: float = 85.0
     risk_on_vol_ratio: float = 1.8
+    defensive_high_range_pos: float = 78.0
+    defensive_high_20d_ret: float = 18.0
+    neutral_high_range_pos: float = 90.0
+    neutral_high_20d_ret: float = 35.0
     position_ratio_by_regime: Mapping[str, float] = field(
         default_factory=lambda: dict(DEFAULT_POSITION_RATIO_BY_REGIME)
     )
@@ -137,6 +142,39 @@ def _recent_overheat(df: pd.DataFrame | None, config: CandidatePolicyConfig) -> 
     )
 
 
+def _recent_position_stats(df: pd.DataFrame | None) -> dict[str, float] | None:
+    if df is None or df.empty or len(df) < 21:
+        return None
+    work = _numeric_ohlcv(df)
+    if work is None:
+        return None
+    high20, low20 = float(work["high"].max()), float(work["low"].min())
+    close = float(work.iloc[-1]["close"])
+    base = float(work.iloc[0]["close"])
+    range_pos = (close - low20) / (high20 - low20) * 100.0 if high20 > low20 else 0.0
+    ret20 = (close / base - 1.0) * 100.0 if base > 0 else 0.0
+    return {"range_pos": range_pos, "ret20": ret20}
+
+
+def _late_stage_high_reason(
+    regime_norm: str,
+    keys: set[str],
+    df: pd.DataFrame | None,
+    config: CandidatePolicyConfig,
+) -> str:
+    if not keys or "spring" in keys or "volatile_pullback" in keys:
+        return ""
+    stats = _recent_position_stats(df)
+    if not stats:
+        return ""
+    defensive = regime_norm in DEFENSIVE_REGIMES
+    range_cut = config.defensive_high_range_pos if defensive else config.neutral_high_range_pos
+    ret_cut = config.defensive_high_20d_ret if defensive else config.neutral_high_20d_ret
+    if stats["range_pos"] >= range_cut and stats["ret20"] >= ret_cut:
+        return f"{regime_norm}20日高位追涨"
+    return ""
+
+
 def _numeric_ohlcv(df: pd.DataFrame) -> pd.DataFrame | None:
     work = df.copy()
     for col in ("close", "high", "low", "volume"):
@@ -163,8 +201,11 @@ def loss_guard_reason(
     keys = _normalize_keys(trigger_keys)
     regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
     if keys == {"early_breakout"} and regime_norm == "RISK_ON":
-        if policy.alpha_block_risk_on_early_breakout:
-            return "RISK_ON禁用早期突破"
+        if policy.alpha_block_risk_on_early_breakout and trigger_score < policy.alpha_risk_on_early_breakout_min_score:
+            return "RISK_ON低分早期突破"
+    high_reason = _late_stage_high_reason(regime_norm, keys, df_map.get(code), policy)
+    if high_reason:
+        return high_reason
     if "lps" in keys and not (keys & {"sos", "evr", "spring"}):
         return _pure_lps_reason(regime_norm, trigger_score, policy)
     if keys == {"trend_pullback"}:

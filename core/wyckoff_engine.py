@@ -303,6 +303,11 @@ class FunnelConfig:
     alpha_tight_base_ret60_min: float = 25.0
     alpha_tight_base_range20_max: float = 22.0
     alpha_tight_base_near_high_min: float = -14.0
+    alpha_volatile_pullback_ret20_min: float = 8.0
+    alpha_volatile_pullback_ret60_min: float = 20.0
+    alpha_volatile_pullback_range20_min: float = 18.0
+    alpha_volatile_pullback_near_high_min: float = -25.0
+    alpha_volatile_pullback_vol_ratio_max: float = 2.2
     alpha_accum_price_from_low_max: float = 0.65
     alpha_accum_range60_max: float = 45.0
     alpha_bias200_soft_max: float = 95.0
@@ -1754,6 +1759,27 @@ def _alpha_tight_base_option(
     return None
 
 
+def _alpha_volatile_pullback_option(
+    row: dict[str, Any], cfg: FunnelConfig, v: dict[str, float]
+) -> tuple[str, str, float, list[str]] | None:
+    if (
+        row["above_ma50"]
+        and v["ret20"] >= cfg.alpha_volatile_pullback_ret20_min
+        and v["ret60"] >= cfg.alpha_volatile_pullback_ret60_min
+        and v["range20"] >= cfg.alpha_volatile_pullback_range20_min
+        and v["near_high"] >= cfg.alpha_volatile_pullback_near_high_min
+        and v["vol5"] <= cfg.alpha_volatile_pullback_vol_ratio_max
+        and v["slope"] >= -1.0
+    ):
+        return (
+            "future_leader",
+            "volatile_pullback",
+            0.73,
+            [f"20日{v['ret20']:.1f}%", f"60日{v['ret60']:.1f}%", f"20日振幅{v['range20']:.1f}%"],
+        )
+    return None
+
+
 def _alpha_accum_ready_option(
     row: dict[str, Any], cfg: FunnelConfig, v: dict[str, float]
 ) -> tuple[str, str, float, list[str]] | None:
@@ -1779,6 +1805,7 @@ def _alpha_entry_options(row: dict[str, Any], cfg: FunnelConfig) -> list[tuple[s
         _alpha_breakout_option(row, cfg, values),
         _alpha_launchpad_option(row, cfg, values),
         _alpha_tight_base_option(row, cfg, values),
+        _alpha_volatile_pullback_option(row, cfg, values),
         _alpha_accum_ready_option(row, cfg, values),
     ]
     return [item for item in options if item is not None]

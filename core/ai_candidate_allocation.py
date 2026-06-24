@@ -60,13 +60,14 @@ def candidate_entry_sort_key(item: dict[str, Any]) -> tuple[int, float, str]:
         "launchpad": 0,
         "tight_base": 1,
         "early_breakout": 2,
-        "accumulation_ready": 3,
-        "spring": 4,
-        "lps": 5,
-        "compression": 6,
-        "trend_pullback": 7,
-        "sos": 8,
-        "evr": 9,
+        "volatile_pullback": 3,
+        "accumulation_ready": 4,
+        "spring": 5,
+        "lps": 6,
+        "compression": 7,
+        "trend_pullback": 8,
+        "sos": 9,
+        "evr": 10,
     }
     entry_type = str(item.get("entry_type", "") or item.get("signal_key", "")).strip()
     return (priority.get(entry_type, 10), -float(item.get("score", 0.0) or 0.0), str(item.get("code", "")))

@@ -8,6 +8,17 @@ from core.candidate_policy import CandidatePolicyConfig, apply_regime_position_f
 from core.wyckoff_engine import FunnelResult
 
 
+def _daily_position_df(closes: list[float]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "close": closes,
+            "high": [x * 1.01 for x in closes],
+            "low": [x * 0.99 for x in closes],
+            "volume": [100.0 for _ in closes],
+        }
+    )
+
+
 def test_all_formal_l4_selection_excludes_stage_only_candidates() -> None:
     result = FunnelResult(
         layer1_symbols=["000001", "000002"],
@@ -99,8 +110,8 @@ def test_tradeable_l4_selection_uses_formal_l4_without_l3_fallback() -> None:
         selection_mode="tradeable_l4",
     )
 
-    assert codes == ["000004", "000005", "000006"]
-    assert score_map == {"000004": 2.0, "000005": 1.5, "000006": 1.0}
+    assert codes == ["000005", "000006"]
+    assert score_map == {"000005": 1.5, "000006": 1.0}
 
 
 def test_tradeable_l4_selection_prefers_candidate_board_when_available() -> None:
@@ -139,7 +150,7 @@ def test_tradeable_l4_selection_prefers_candidate_board_when_available() -> None
     assert track_map == {"000002": "Trend"}
 
 
-def test_tradeable_l4_candidate_board_blocks_risk_on_early_breakout() -> None:
+def test_tradeable_l4_candidate_board_allows_high_score_risk_on_early_breakout() -> None:
     result = FunnelResult(
         layer1_symbols=[],
         layer2_symbols=[],
@@ -154,6 +165,37 @@ def test_tradeable_l4_candidate_board_blocks_risk_on_early_breakout() -> None:
         leader_radar_rows=[],
         candidate_entries=[
             {"code": "000001", "track": "breakout", "entry_type": "early_breakout", "score": 92.0},
+        ],
+    )
+
+    codes, score_map, track_map = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="RISK_ON",
+        selection_mode="tradeable_l4",
+    )
+
+    assert codes == ["000001"]
+    assert score_map == {"000001": 92.0}
+    assert track_map == {"000001": "Trend"}
+
+
+def test_tradeable_l4_candidate_board_blocks_low_score_risk_on_early_breakout() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {"code": "000001", "track": "breakout", "entry_type": "early_breakout", "score": 69.0},
             {"code": "000002", "track": "future_leader", "entry_type": "launchpad", "score": 78.0},
         ],
     )
@@ -228,6 +270,36 @@ def test_candidate_policy_config_can_disable_loss_guard() -> None:
         "",
         {},
         config=CandidatePolicyConfig(loss_guard_enabled=False),
+    )
+
+    assert reason == ""
+
+
+def test_loss_guard_blocks_defensive_high_position_chase() -> None:
+    df = _daily_position_df([10.0 + idx * 0.2 for idx in range(21)])
+
+    reason = loss_guard_reason(
+        "000001",
+        "RISK_OFF",
+        ["sos"],
+        8.0,
+        "点火破局",
+        {"000001": df},
+    )
+
+    assert reason == "RISK_OFF20日高位追涨"
+
+
+def test_loss_guard_keeps_defensive_spring_even_near_range_high() -> None:
+    df = _daily_position_df([10.0 + idx * 0.2 for idx in range(21)])
+
+    reason = loss_guard_reason(
+        "000001",
+        "RISK_OFF",
+        ["spring"],
+        8.0,
+        "吸筹通道",
+        {"000001": df},
     )
 
     assert reason == ""

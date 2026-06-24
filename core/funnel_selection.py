@@ -54,8 +54,11 @@ def promote_l2_bypass_for_ai(
     cap: int,
     total_cap: int | None = None,
     accum_codes: set[str] | None = None,
+    regime: str = "",
 ) -> int:
     if not enabled or not l2_bypass_pool:
+        return 0
+    if _is_defensive_regime(regime):
         return 0
     ranked = rank_l2_bypass_pool(l2_bypass_pool, code_to_total_score)
     item_left, total_left = promotion_limits(selected_for_ai, cap, total_cap)
@@ -87,6 +90,7 @@ def promote_bypass_groups(
     bypass_cap: int,
     strategic_enabled: bool,
     strategic_cap: int,
+    regime: str = "",
 ) -> tuple[int, int]:
     bypass_added = promote_l2_bypass_for_ai(
         selected_for_ai,
@@ -99,6 +103,7 @@ def promote_bypass_groups(
         enabled=bypass_enabled,
         cap=bypass_cap,
         total_cap=ai_total_cap,
+        regime=regime,
     )
     strategic_added = promote_l2_bypass_for_ai(
         selected_for_ai,
@@ -112,6 +117,7 @@ def promote_bypass_groups(
         cap=strategic_cap,
         total_cap=ai_total_cap,
         accum_codes=set(pools["strategic_accum"]),
+        regime=regime,
     )
     return bypass_added, strategic_added
 
@@ -179,3 +185,7 @@ def _append_track_once(
 
 def _decrement_optional(value: int | None) -> int | None:
     return None if value is None else value - 1
+
+
+def _is_defensive_regime(regime: str) -> bool:
+    return str(regime or "").strip().upper() in DEFENSIVE_QUOTA_REGIMES

@@ -346,6 +346,31 @@ def test_promote_l2_bypass_for_ai_respects_total_cap():
     assert selected == ["000001", "000002"]
 
 
+def test_promote_l2_bypass_for_ai_blocks_defensive_regime():
+    selected: list[str] = []
+    trend: list[str] = []
+    accum: list[str] = []
+    score_map: dict[str, float] = {}
+
+    added = promote_l2_bypass_for_ai(
+        selected,
+        trend,
+        accum,
+        ["000001", "000002"],
+        {"000001": 9.0, "000002": 8.0},
+        {"000001": ["evr"], "000002": ["lps"]},
+        score_map,
+        enabled=True,
+        cap=2,
+        regime="RISK_OFF",
+    )
+
+    assert added == 0
+    assert selected == []
+    assert trend == []
+    assert accum == []
+
+
 def test_defensive_regime_forces_quota_selection():
     assert should_force_quota_selection("CRASH", True, defensive_force_quota=True) is True
     assert should_force_quota_selection("BEAR_REBOUND", True, defensive_force_quota=True) is True

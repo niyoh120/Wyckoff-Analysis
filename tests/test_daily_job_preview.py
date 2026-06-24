@@ -79,9 +79,9 @@ def test_preview_only_skips_persistence_and_keeps_llm_input_path(monkeypatch, tm
     assert captured["step2_return_details"] is True
     assert captured["signal_dry_run"] is True
     assert captured["step3_webhook"] == "https://example.invalid/webhook"
-    assert captured["step3_symbols"] == ["000001", "000002"]
-    assert captured["step3_items"][1]["selection_source"] == "signal_confirmed"
-    assert captured["step3_items"][1]["confirm_reason"] == "守住 10.00"
+    assert captured["step3_symbols"] == ["000002"]
+    assert captured["step3_items"][0]["selection_source"] == "signal_confirmed"
+    assert captured["step3_items"][0]["confirm_reason"] == "守住 10.00"
 
 
 def test_non_trading_skip_message_allows_when_next_day_trades(monkeypatch):
@@ -117,6 +117,7 @@ def test_step4_candidate_confirmation_gate_accepts_only_confirmed():
 
     assert is_confirmed_step4_candidate({"tag": "SOS(确认)"})
     assert is_confirmed_step4_candidate({"status": "confirmed"})
+    assert is_confirmed_step4_candidate({"selection_source": "signal_confirmed"})
     assert not is_confirmed_step4_candidate({"tag": "SOS（量价点火）"})
 
 
@@ -134,6 +135,21 @@ def test_step3_codes_filter_keeps_only_confirmed_candidates():
 
     assert kept == ["000001", "000003"]
     assert blocked == ["000002"]
+
+
+def test_recommendation_write_symbols_keeps_only_confirmed_candidates():
+    from workflows.daily_job_persistence import recommendation_write_symbols
+
+    rows = [
+        {"code": "000001", "tag": "SOS（量价点火）"},
+        {"code": "000002", "signal_status": "confirmed"},
+        {"code": "000003", "tag": "LPS(确认)"},
+        {"code": "000004", "springboard_combo": "A+C", "springboard_met_count": 2},
+    ]
+
+    got = recommendation_write_symbols(rows)
+
+    assert [row["code"] for row in got] == ["000002", "000003"]
 
 
 def test_step3_springboard_updates_patch_recommendation_payload():

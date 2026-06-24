@@ -8,7 +8,7 @@ from typing import Any
 
 from core.candidate_ranker import TRIGGER_GROUP_ORDER, TRIGGER_GROUP_TITLES, TRIGGER_LABELS, TRIGGER_SHORT_LABELS
 from core.funnel_etf import append_etf_section
-from core.funnel_sections import append_formal_l4_sections, append_leader_radar_section, score_star
+from core.funnel_sections import append_formal_l4_sections, score_star
 from core.theme_radar import summarize_theme_radar
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_report_payload import (
@@ -22,7 +22,6 @@ from workflows.funnel_settings import (
     FUNNEL_BYPASS_DISPLAY_LIMIT,
     FUNNEL_ETF_DISPLAY_LIMIT,
     FUNNEL_L2_BYPASS_AI_CAP,
-    FUNNEL_LEADER_RADAR_DISPLAY_LIMIT,
 )
 
 
@@ -235,7 +234,6 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         f"**大盘量价推演**: {pv_line}",
         f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
         f"**中长线主线**: {summarize_theme_radar(ctx.metrics.get('theme_radar') or {})} ({ctx.theme_radar_source})",
-        f"**龙头雷达**: {len(ctx.leader_radar_rows)}只（观察池，非买点/非订单）",
         f"**潜在大涨候选板**: {len(ctx.candidate_entries)}只 / 类型 {ctx.metrics.get('candidate_entry_types', {}) or {}}",
         (
             f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / 正式L4命中{ctx.theme_l4_count}只 / "
@@ -255,9 +253,6 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     append_etf_section(lines, ctx.etf_metrics, ctx.etf_candidates, display_limit=FUNNEL_ETF_DISPLAY_LIMIT)
     if ctx.etf_metrics or ctx.etf_candidates:
         lines.append("")
-    append_leader_radar_section(
-        lines, ctx.leader_radar_rows, ctx.name_map, display_limit=FUNNEL_LEADER_RADAR_DISPLAY_LIMIT
-    )
     _append_legacy_selected_sections(lines, ctx, selected_for_ai)
     if not selected_for_ai:
         lines.append("无")
@@ -313,7 +308,6 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         f"**大盘量价推演**: {pv_line}",
         f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
         f"**中长线主线**: {summarize_theme_radar(ctx.metrics.get('theme_radar') or {})} ({ctx.theme_radar_source})",
-        f"**龙头雷达**: {len(ctx.leader_radar_rows)}只（观察池，非买点/非订单）",
         f"**潜在大涨候选板**: {len(ctx.candidate_entries)}只 / 类型 {ctx.metrics.get('candidate_entry_types', {}) or {}}",
         (
             f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / 正式L4命中{ctx.theme_l4_count}只 / "
@@ -391,9 +385,6 @@ def _build_modern_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     append_etf_section(lines, ctx.etf_metrics, ctx.etf_candidates, display_limit=FUNNEL_ETF_DISPLAY_LIMIT)
     if ctx.etf_metrics or ctx.etf_candidates:
         lines.append("")
-    append_leader_radar_section(
-        lines, ctx.leader_radar_rows, ctx.name_map, display_limit=FUNNEL_LEADER_RADAR_DISPLAY_LIMIT
-    )
     if ctx.formal_sorted_codes:
         lines.append("**正式L4展开**: 以下列出全部正式L4；标记 →AI 的进入 Step3 研报")
         append_formal_l4_sections(

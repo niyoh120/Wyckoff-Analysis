@@ -29,8 +29,9 @@ def run_step3_block(
     recommendation_payload: list[dict],
     summary: list[dict],
 ) -> Step3StageResult:
+    symbols_info = step3_symbols_info(step2)
     step3 = run_step3_stage(
-        symbols_info=step2.symbols_info,
+        symbols_info=symbols_info,
         benchmark_context=step2.benchmark_context,
         run_step3=run_step3,
         cfg=cfg,
@@ -38,6 +39,12 @@ def run_step3_block(
     summary.append(step3.summary_item)
     mark_step3_outputs(recommend_trade_date_int, recommendation_payload, step3, cfg)
     return step3
+
+
+def step3_symbols_info(step2: Step2StageResult) -> list[dict]:
+    if step2.details and "step3_symbols_info" in step2.details:
+        return list(step2.details.get("step3_symbols_info") or [])
+    return step2.symbols_info
 
 
 def run_step3_stage(
