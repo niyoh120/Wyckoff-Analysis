@@ -47,3 +47,19 @@ def test_script_help_renders(script: str) -> None:
     output = f"{proc.stdout}\n{proc.stderr}"
     assert proc.returncode == 0, output
     assert "usage:" in output
+
+
+def test_review_list_replay_entrypoint_imports() -> None:
+    proc = subprocess.run(
+        [sys.executable, "scripts/review_list_replay.py"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+
+    output = f"{proc.stdout}\n{proc.stderr}"
+    assert proc.returncode == 2, output
+    assert "FEISHU_WEBHOOK_URL 未配置" in output
+    assert "ModuleNotFoundError" not in output

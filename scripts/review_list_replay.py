@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+import _bootstrap  # noqa: F401
+
 from workflows.review_list_replay import run_review_list_replay
 
 
