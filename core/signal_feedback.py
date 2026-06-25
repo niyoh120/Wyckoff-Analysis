@@ -7,12 +7,18 @@ from datetime import UTC, datetime
 from statistics import mean, median
 from typing import Any
 
+from core.candidate_metadata import code6
 from core.candidate_selection_score import score_candidate_shadow
 
 SIGNAL_TRACK: dict[str, str] = {
     "sos": "Trend",
     "evr": "Trend",
     "trend_pullback": "Trend",
+    "trend_breakout": "Trend",
+    "trend_lane_pullback": "Trend",
+    "sector_strength": "Trend",
+    "wyckoff_structure": "Trend",
+    "mainline": "Trend",
     "spring": "Accum",
     "lps": "Accum",
     "compression": "Accum",
@@ -281,8 +287,11 @@ def _features_json(
     intraday_tail: dict[str, Any],
     source_context: dict[str, Any],
     data_lineage: dict[str, Any],
+    candidate_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
+    if candidate_metadata:
+        out["candidate_metadata"] = candidate_metadata
     if footprint:
         out["price_action_footprint"] = footprint
     if springboard:
@@ -324,6 +333,7 @@ def _observation_feature_inputs(
     footprint = _footprint_fields(signal_type, code, ctx["footprint_map"])
     intraday_tail = _intraday_tail_fields(signal_type, code, ctx["intraday_tail_map"])
     source_context = _source_context_fields(signal_type, code, ctx["source_context_map"])
+    candidate_metadata = ctx["candidate_metadata_map"].get(code6(code), {})
     priority_score = _float(ctx["score_map"].get(code))
     selected_for_ai = code in ctx["selected"]
     ai_recommended = code in ctx["recommended"]
@@ -350,6 +360,7 @@ def _observation_feature_inputs(
         intraday_tail,
         source_context,
         data_lineage,
+        candidate_metadata,
     )
     return priority_score, {"features_json": features, **springboard}
 
@@ -366,6 +377,7 @@ def _signal_observation_row(
     stage = ctx["stage_map"].get(code, "")
     channel = ctx["channel_map"].get(code, "")
     priority_score, feature_fields = _observation_feature_inputs(signal_type, code, trigger_score, ctx)
+    candidate_metadata = ctx["candidate_metadata_map"].get(code6(code), {})
     return {
         "market": market,
         "trade_date": trade_date,
@@ -389,6 +401,11 @@ def _signal_observation_row(
         "selected_for_ai": code in ctx["selected"],
         "ai_recommended": code in ctx["recommended"],
         "source": ctx["source_map"].get(code, "funnel"),
+        "strategy_version": candidate_metadata.get("strategy_version"),
+        "candidate_lane": candidate_metadata.get("candidate_lane"),
+        "entry_type": candidate_metadata.get("entry_type"),
+        "signal_key": candidate_metadata.get("signal_key"),
+        "candidate_status": candidate_metadata.get("candidate_status"),
         "lifecycle_status": "ACTIVE",
         "updated_at": now_iso,
         **feature_fields,
@@ -417,6 +434,7 @@ def _observation_context(triggers: dict[str, list[tuple[str, float]]], kwargs: d
         "footprint_map": kwargs["footprint_map"],
         "intraday_tail_map": kwargs["intraday_tail_map"],
         "source_context_map": kwargs["source_context_map"],
+        "candidate_metadata_map": kwargs["candidate_metadata_map"] or {},
         "selection_mode": kwargs["selection_mode"],
         "selection_mode_map": kwargs["selection_mode_map"] or {},
         "policy_version": kwargs["policy_version"],
@@ -443,6 +461,7 @@ def build_signal_observations(
     footprint_map: dict[str, dict[str, Any]] | None = None,
     intraday_tail_map: dict[str, dict[str, Any]] | None = None,
     source_context_map: dict[str, dict[str, Any]] | None = None,
+    candidate_metadata_map: dict[str, dict[str, Any]] | None = None,
     selection_mode: str = "",
     selection_mode_map: dict[str, str] | None = None,
     policy_version: str = "",

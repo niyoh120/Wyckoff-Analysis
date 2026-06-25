@@ -41,13 +41,13 @@ def _int_env(name: str, default: int, *, minimum: int = 1) -> int:
 # - yyyymmdd_int:  YYYYMMDD（整数日期列）
 CLEANUP_RULES: list[tuple[str, str, int, str]] = [
     (TABLE_TRADE_ORDERS, "trade_date", 15, "iso_date"),
-    (TABLE_SIGNAL_PENDING, "signal_date", 15, "iso_date"),
-    (TABLE_MARKET_SIGNAL_DAILY, "trade_date", 30, "iso_date"),
+    (TABLE_SIGNAL_PENDING, "signal_date", _int_env("DB_SIGNAL_PENDING_RETENTION_DAYS", 30), "iso_date"),
+    (TABLE_MARKET_SIGNAL_DAILY, "trade_date", _int_env("DB_MARKET_SIGNAL_RETENTION_DAYS", 180), "iso_date"),
     (TABLE_DAILY_NAV, "trade_date", 15, "iso_date"),
-    (TABLE_TAIL_BUY_HISTORY, "run_date", 10, "iso_date"),
+    (TABLE_TAIL_BUY_HISTORY, "run_date", _int_env("DB_TAIL_BUY_HISTORY_RETENTION_DAYS", 90), "iso_date"),
     (TABLE_EXTERNAL_SEED_OBSERVATIONS, "trade_date", _int_env("FUNNEL_EXTERNAL_SEED_RETENTION_DAYS", 180), "iso_date"),
 ]
-RECOMMENDATION_KEEP_DATES = 30
+RECOMMENDATION_KEEP_DATES = _int_env("DB_RECOMMENDATION_KEEP_DATES", 180)
 RECOMMENDATION_DATE_PAGE_SIZE = 1000
 RECOMMENDATION_TRACKING_TABLES = (
     TABLE_RECOMMENDATION_TRACKING,

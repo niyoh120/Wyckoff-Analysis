@@ -137,7 +137,8 @@ def run_signal_confirmation(
 
         triggers_raw = step2_details.get("triggers", {})
         all_df_map = step2_details.get("all_df_map", {})
-        if triggers_raw and all_df_map:
+        candidate_entries = _selected_candidate_entries(step2_details)
+        if (triggers_raw or candidate_entries) and all_df_map:
             confirmed_extra = run_step2_5(
                 signal_date=latest_trade_date_str(),
                 triggers=triggers_raw,
@@ -147,6 +148,8 @@ def run_signal_confirmation(
                 else "NEUTRAL",
                 name_map=step2_details.get("name_map", {}),
                 sector_map=step2_details.get("sector_map", {}),
+                candidate_entries=candidate_entries,
+                mainline_candidates=step2_details.get("mainline_candidates", []) or [],
                 dry_run=dry_run,
             )
             merge_confirmed_signals(symbols_info, step2_details, confirmed_extra)
@@ -155,6 +158,17 @@ def run_signal_confirmation(
     except Exception as e:
         log_line(f"Step2.5 信号确认失败（已降级）: {e}", logs_path)
     return confirmed_extra
+
+
+def _selected_candidate_entries(step2_details: dict) -> list[dict]:
+    selected = {str(code).strip() for code in step2_details.get("selected_for_ai", []) or [] if str(code).strip()}
+    if not selected:
+        return []
+    return [
+        item
+        for item in step2_details.get("candidate_entries", []) or []
+        if str(item.get("code", "")).strip() in selected
+    ]
 
 
 def merge_confirmed_signals(symbols_info: list[dict], step2_details: dict, confirmed_extra: list[dict]) -> None:

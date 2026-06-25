@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from core.candidate_lanes import build_l1_candidate_lane_entries
 from core.candidate_ranker import TRIGGER_LABELS, TRIGGER_SHORT_LABELS
 from core.signal_confirmation import score_springboard_abc
 from core.wyckoff_engine import (
@@ -168,6 +169,9 @@ def evaluate_day(
         layer1, rps_df_map, benchmark_for_day(ctx.bench_df, day), cfg, rps_universe=rps_universe
     )
     if spec.symbol not in layer2:
+        lane_scores = candidate_lane_scores(spec, day_df, ctx, layer1, [], {})
+        if lane_scores:
+            return diagnostic(spec, day_df, day, "SELECTED", "-", selected_reason(lane_scores, day_df), lane_scores, "")
         return diagnostic(spec, day_df, day, "MISS", "L2", l2_reason(spec, day_df, cfg), {}, "")
     return evaluate_l3_l4(spec, day_df, ctx, cfg, day, layer1, layer2, channel_map)
 
@@ -188,9 +192,34 @@ def evaluate_l3_l4(
     if spec.symbol not in layer3:
         return diagnostic(spec, day_df, day, "MISS", "L3", l3_reason(spec, ctx), {}, channel)
     scores = trigger_scores(layer4_triggers(layer3, df_map, cfg, channel_map), spec.symbol)
+    scores.update(candidate_lane_scores(spec, day_df, ctx, layer1, layer2, channel_map))
     if not scores:
         return diagnostic(spec, day_df, day, "MISS", "L4", l4_reason(day_df), scores, channel)
     return diagnostic(spec, day_df, day, "SELECTED", "-", selected_reason(scores, day_df), scores, channel)
+
+
+def candidate_lane_scores(
+    spec: SymbolSpec,
+    day_df: pd.DataFrame,
+    ctx: ReplayContext,
+    layer1: list[str],
+    layer2: list[str],
+    channel_map: dict[str, str],
+) -> dict[str, float]:
+    entries = build_l1_candidate_lane_entries(
+        l1_symbols=layer1,
+        df_map={spec.symbol: day_df},
+        sector_map=ctx.sector_map,
+        top_sectors=[],
+        l2_symbols=layer2,
+        channel_map=channel_map,
+        limit=10,
+    )
+    return {
+        str(item.get("signal_key") or item.get("entry_type") or "candidate_lane"): float(item.get("score") or 0.0)
+        for item in entries
+        if str(item.get("code", "")).strip() == spec.symbol
+    }
 
 
 def build_rps_context(

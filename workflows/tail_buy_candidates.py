@@ -100,7 +100,11 @@ def _fetch_signal_pending_rows(cutoff_date: str) -> list[dict]:
     try:
         return (
             client.table(TABLE_SIGNAL_PENDING)
-            .select("code,name,signal_type,signal_score,status,signal_date,regime,snap_support,snap_ma20")
+            .select(
+                "code,name,signal_type,signal_score,status,signal_date,regime,snap_support,snap_ma20,"
+                "strategy_version,candidate_lane,entry_type,signal_key,candidate_status,"
+                "mainline_score,theme_score,stock_role_score,quality_score,timing_score"
+            )
             .in_("status", ["pending", "confirmed"])
             .gte("signal_date", cutoff_date)
             .order("signal_date", desc=True)

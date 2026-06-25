@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 
+from core.candidate_metadata import build_candidate_metadata_map, candidate_signal_triggers, code6, merge_trigger_maps
 from core.signal_confirmation import SIGNAL_TTL_DAYS, build_snap, run_confirmation_cycle
 from integrations.supabase_signal_pending import batch_update_signals, insert_pending_signal_rows, load_pending_signals
 
@@ -22,9 +23,11 @@ def build_pending_signal_rows(
     regime: str = "NEUTRAL",
     name_map: dict[str, str] | None = None,
     sector_map: dict[str, str] | None = None,
+    candidate_metadata_map: dict[str, dict[str, Any]] | None = None,
     cfg: Any = None,
 ) -> list[dict[str, Any]]:
     name_map, sector_map = name_map or {}, sector_map or {}
+    candidate_metadata_map = candidate_metadata_map or {}
     now_iso = datetime.now(UTC).isoformat()
     rows: list[dict[str, Any]] = []
     for signal_type, hits in triggers.items():
@@ -32,9 +35,10 @@ def build_pending_signal_rows(
             df = df_map.get(code)
             if df is None or df.empty:
                 continue
+            code_s = code6(code)
             rows.append(
                 {
-                    "code": int(code) if code.isdigit() else 0,
+                    "code": int(code_s) if code_s.isdigit() else 0,
                     "signal_type": signal_type,
                     "signal_date": signal_date,
                     "signal_score": float(score),
@@ -42,14 +46,22 @@ def build_pending_signal_rows(
                     "ttl_days": SIGNAL_TTL_DAYS.get(signal_type, 3),
                     "days_elapsed": 0,
                     "regime": regime,
-                    "name": name_map.get(code, code),
-                    "industry": sector_map.get(code, ""),
+                    "name": name_map.get(code_s, code_s),
+                    "industry": sector_map.get(code_s, ""),
                     "created_at": now_iso,
                     "updated_at": now_iso,
                     **build_snap(signal_type, df, score, cfg),
+                    **candidate_metadata_map.get(code_s, {}),
                 }
             )
     return rows
+
+
+def _confirmation_trigger_map(
+    triggers: dict[str, list[tuple[str, float]]],
+    candidate_entries: list[dict[str, Any]] | None,
+) -> dict[str, list[tuple[str, float]]]:
+    return merge_trigger_maps(triggers, candidate_signal_triggers(candidate_entries))
 
 
 def run_step2_5(
@@ -59,10 +71,14 @@ def run_step2_5(
     regime: str = "NEUTRAL",
     name_map: dict[str, str] | None = None,
     sector_map: dict[str, str] | None = None,
+    candidate_entries: list[dict[str, Any]] | None = None,
+    mainline_candidates: list[dict[str, Any]] | None = None,
     cfg: Any = None,
     dry_run: bool = False,
 ) -> list[dict[str, Any]]:
     """Write fresh pending signals and confirm/expire existing pending signals."""
+    triggers = _confirmation_trigger_map(triggers, candidate_entries)
+    metadata_map = build_candidate_metadata_map(candidate_entries, mainline_candidates)
     if not dry_run:
         rows = build_pending_signal_rows(
             signal_date=signal_date,
@@ -71,6 +87,7 @@ def run_step2_5(
             regime=regime,
             name_map=name_map,
             sector_map=sector_map,
+            candidate_metadata_map=metadata_map,
             cfg=cfg,
         )
         insert_pending_signal_rows(rows)

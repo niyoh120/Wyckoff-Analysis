@@ -22,6 +22,7 @@ from dataclasses import dataclass, field, replace
 
 import pandas as pd
 
+from core.candidate_lanes import build_l1_candidate_lane_entries
 from core.wyckoff_engine import (
     FunnelConfig,
     _detect_evr,
@@ -60,6 +61,9 @@ class HoldingDiagnostic:
     accum_stage: str | None = None  # Accum_A / Accum_B / Accum_C
     track: str = "Unknown"  # Trend / Accum / Unknown
     l4_triggers: list[str] = field(default_factory=list)  # ["SOS", "Spring", ...]
+    candidate_lane: str = ""
+    candidate_entry_type: str = ""
+    candidate_score: float = 0.0
 
     # 退出信号 (来自 layer5_exit_signals)
     exit_signal: str | None = None  # stop_loss / distribution_warning
@@ -336,6 +340,20 @@ def _positive_reasons(ma: _MaSnapshot, wyckoff: _WyckoffSnapshot) -> list[str]:
     return positive
 
 
+def _candidate_lane_entry(code: str, series: _SeriesSnapshot, wyckoff: _WyckoffSnapshot) -> dict:
+    l2_symbols = [code] if wyckoff.l2_channel and wyckoff.l2_channel != "未入选" else []
+    entries = build_l1_candidate_lane_entries(
+        l1_symbols=[code],
+        df_map={code: series.df},
+        sector_map={},
+        top_sectors=[],
+        l2_symbols=l2_symbols,
+        channel_map={code: wyckoff.l2_channel},
+        limit=5,
+    )
+    return entries[0] if entries else {}
+
+
 def diagnose_one_stock(
     code: str,
     name: str,
@@ -362,6 +380,7 @@ def diagnose_one_stock(
     series = _series_snapshot(df, cost)
     ma = _ma_snapshot(series.close, series.latest_close)
     wyckoff = _wyckoff_snapshot(code, series, bench_df, cfg)
+    candidate_entry = _candidate_lane_entry(code, series, wyckoff)
     risk = _risk_snapshot(series, cost)
     health, reasons = _health_rating(ma, wyckoff, risk, series.pnl_pct)
 
@@ -381,6 +400,9 @@ def diagnose_one_stock(
         accum_stage=wyckoff.accum_stage,
         track=wyckoff.track,
         l4_triggers=wyckoff.l4_triggers,
+        candidate_lane=str(candidate_entry.get("lane", "") or ""),
+        candidate_entry_type=str(candidate_entry.get("entry_type", "") or ""),
+        candidate_score=float(candidate_entry.get("score", 0.0) or 0.0),
         exit_signal=wyckoff.exit_signal,
         exit_price=wyckoff.exit_price,
         exit_reason=wyckoff.exit_reason,
@@ -453,6 +475,8 @@ def format_diagnostic_text(d: HoldingDiagnostic) -> str:
         wy_parts.append(f"阶段: {d.accum_stage}")
     if d.l4_triggers:
         wy_parts.append(f"L4: {'+'.join(d.l4_triggers)}")
+    if d.candidate_lane:
+        wy_parts.append(f"候选车道: {d.candidate_entry_type or d.candidate_lane}({d.candidate_score:.1f})")
     lines.append("  " + " | ".join(wy_parts))
 
     # 退出信号
@@ -493,6 +517,8 @@ def format_diagnostic_for_llm(d: HoldingDiagnostic) -> str:
         parts.append(f"阶段:{d.accum_stage}")
     if d.l4_triggers:
         parts.append(f"信号:{'+'.join(d.l4_triggers)}")
+    if d.candidate_lane:
+        parts.append(f"候选车道:{d.candidate_entry_type or d.candidate_lane}({d.candidate_score:.1f})")
     if d.exit_signal:
         parts.append(f"退出:{d.exit_signal}")
         if d.exit_price is not None:

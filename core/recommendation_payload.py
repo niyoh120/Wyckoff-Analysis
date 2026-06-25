@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 
+from core.candidate_metadata import CANDIDATE_ATTRIBUTION_COLUMNS
 from core.constants import TABLE_RECOMMENDATION_TRACKING
 
 RECOMMENDATION_ATTRIBUTION_COLUMNS = (
@@ -44,6 +45,7 @@ RECOMMENDATION_ATTRIBUTION_COLUMNS = (
     "springboard_touch_count",
     "springboard_evidence",
     "springboard_scored",
+    *CANDIDATE_ATTRIBUTION_COLUMNS,
 )
 RECOMMENDATION_OPTIONAL_COLUMNS = (
     "is_ai_recommended",
@@ -280,6 +282,20 @@ def _extract_recommendation_attribution(row: dict[str, Any]) -> dict[str, Any]:
         "springboard_touch_count": _optional_int(row.get("springboard_touch_count")) or 0,
         "springboard_evidence": _optional_json(row.get("springboard_evidence")),
         "springboard_scored": _optional_bool(row.get("springboard_scored")) or False,
+        "strategy_version": _optional_text(row.get("strategy_version")),
+        "candidate_lane": _optional_text(row.get("candidate_lane")),
+        "entry_type": _optional_text(row.get("entry_type")),
+        "signal_key": _optional_text(row.get("signal_key")),
+        "candidate_status": _optional_text(row.get("candidate_status")),
+        "candidate_timing": _optional_text(row.get("candidate_timing")),
+        "candidate_risk": _optional_text(row.get("candidate_risk")),
+        "candidate_reasons": _optional_json(row.get("candidate_reasons")),
+        "candidate_metrics": _optional_json(row.get("candidate_metrics")),
+        "mainline_score": _optional_float(row.get("mainline_score")),
+        "theme_score": _optional_float(row.get("theme_score")),
+        "stock_role_score": _optional_float(row.get("stock_role_score")),
+        "quality_score": _optional_float(row.get("quality_score")),
+        "timing_score": _optional_float(row.get("timing_score")),
     }
 
 

@@ -217,6 +217,36 @@ def test_build_signal_observations_marks_selection_and_source():
     ]
 
 
+def test_build_signal_observations_writes_candidate_metadata():
+    rows = build_signal_observations(
+        "2026-06-25",
+        {"mainline": [("300308", 88.0)]},
+        selected_for_ai=["300308"],
+        ai_recommended=["300308"],
+        name_map={"300308": "中际旭创"},
+        latest_close_map={"300308": 100.0},
+        candidate_metadata_map={
+            "300308": {
+                "strategy_version": "lane_v2",
+                "candidate_lane": "mainline",
+                "entry_type": "主线平台再突破",
+                "signal_key": "mainline",
+                "candidate_status": "可买主线",
+                "mainline_score": 0.86,
+                "timing_score": 0.72,
+            }
+        },
+    )
+
+    row = rows[0]
+    assert row["strategy_version"] == "lane_v2"
+    assert row["candidate_lane"] == "mainline"
+    assert row["entry_type"] == "主线平台再突破"
+    assert row["candidate_status"] == "可买主线"
+    assert row["features_json"]["candidate_metadata"]["mainline_score"] == 0.86
+    assert row["features_json"]["candidate_metadata"]["timing_score"] == 0.72
+
+
 def test_daily_job_builds_intraday_tail_confirmation_map(monkeypatch):
     from integrations import tickflow_client
     from workflows import daily_signal_observations

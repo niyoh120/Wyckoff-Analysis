@@ -152,6 +152,42 @@ def test_upsert_recommendations_dedupes_same_code_same_date(monkeypatch):
     assert client.upserts[0][0]["springboard_evidence"]["a_hits"][0]["date"] == "2026-05-18"
 
 
+def test_upsert_recommendations_preserves_candidate_metadata(monkeypatch):
+    client = FakeSupabaseClient()
+    _enable_fake_supabase(monkeypatch, client)
+
+    ok = upsert_recommendations(
+        20260625,
+        [
+            {
+                "code": "300308",
+                "name": "中际旭创",
+                "initial_price": 100.0,
+                "funnel_score": 86.0,
+                "strategy_version": "lane_v2",
+                "candidate_lane": "mainline",
+                "entry_type": "主线平台再突破",
+                "signal_key": "mainline",
+                "candidate_status": "可买主线",
+                "candidate_reasons": {"theme": "CPO"},
+                "mainline_score": 0.86,
+                "theme_score": 0.8,
+                "timing_score": 0.72,
+            }
+        ],
+    )
+
+    assert ok is True
+    row = client.upserts[0][0]
+    assert row["strategy_version"] == "lane_v2"
+    assert row["candidate_lane"] == "mainline"
+    assert row["entry_type"] == "主线平台再突破"
+    assert row["candidate_status"] == "可买主线"
+    assert row["candidate_reasons"] == {"theme": "CPO"}
+    assert row["mainline_score"] == 0.86
+    assert row["timing_score"] == 0.72
+
+
 def test_upsert_recommendations_writes_large_payload_in_chunks(monkeypatch):
     client = FakeSupabaseClient()
     _enable_fake_supabase(monkeypatch, client)

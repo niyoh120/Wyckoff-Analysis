@@ -8,6 +8,8 @@ import sqlite3
 from typing import Any
 
 from integrations.local_db import get_db
+from integrations.local_db import save_recommendations as _save_recommendations
+from integrations.local_db import save_signals as _save_signals
 
 logger = logging.getLogger(__name__)
 
@@ -18,30 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def save_recommendations(rows: list[dict]) -> int:
-    if not rows:
-        return 0
-    conn = get_db()
-    with conn:
-        conn.executemany(
-            """INSERT OR REPLACE INTO recommendation_tracking
-               (code, name, recommend_date, recommend_reason, initial_price,
-                current_price, is_ai_recommended, camp, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-            [
-                (
-                    str(r.get("code", "")).strip(),
-                    str(r.get("name", "")).strip(),
-                    int(r.get("recommend_date", 0)),
-                    str(r.get("recommend_reason", "")).strip(),
-                    float(r.get("initial_price", 0) or 0),
-                    float(r.get("current_price", 0) or 0),
-                    1 if r.get("is_ai_recommended") else 0,
-                    str(r.get("camp", "")).strip(),
-                )
-                for r in rows
-            ],
-        )
-    return len(rows)
+    return _save_recommendations(rows)
 
 
 def load_recommendations(*, limit: int = 100) -> list[dict]:
@@ -59,31 +38,7 @@ def load_recommendations(*, limit: int = 100) -> list[dict]:
 
 
 def save_signals(rows: list[dict]) -> int:
-    if not rows:
-        return 0
-    conn = get_db()
-    with conn:
-        conn.executemany(
-            """INSERT OR REPLACE INTO signal_pending
-               (code, name, signal_type, signal_date, status, signal_score,
-                days_elapsed, regime, industry, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-            [
-                (
-                    str(r.get("code", "")).strip(),
-                    str(r.get("name", "")).strip(),
-                    str(r.get("signal_type", "")).strip(),
-                    str(r.get("signal_date", "")).strip(),
-                    str(r.get("status", "pending")).strip(),
-                    float(r.get("signal_score", 0) or 0),
-                    int(r.get("days_elapsed", 0) or 0),
-                    str(r.get("regime", "")).strip(),
-                    str(r.get("industry", "")).strip(),
-                )
-                for r in rows
-            ],
-        )
-    return len(rows)
+    return _save_signals(rows)
 
 
 def delete_recommendations(codes: list[str]) -> int:

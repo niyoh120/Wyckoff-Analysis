@@ -15,13 +15,14 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from core import constants as core_constants
+from core.candidate_metadata import CANDIDATE_ATTRIBUTION_COLUMNS
 
 logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 
-_SCHEMA_VERSION = 12
+_SCHEMA_VERSION = 13
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -36,9 +37,32 @@ CREATE TABLE IF NOT EXISTS recommendation_tracking (
     recommend_reason TEXT DEFAULT '',
     initial_price REAL DEFAULT 0,
     current_price REAL DEFAULT 0,
+    change_pct REAL DEFAULT 0,
+    funnel_score REAL,
+    recommend_count INTEGER DEFAULT 0,
     is_ai_recommended INTEGER DEFAULT 0,
     rag_vetoed INTEGER DEFAULT 0,
     camp TEXT DEFAULT '',
+    selection_source TEXT DEFAULT '',
+    selection_rank INTEGER,
+    priority_score REAL,
+    trigger_score REAL,
+    stage TEXT DEFAULT '',
+    industry TEXT DEFAULT '',
+    strategy_version TEXT DEFAULT '',
+    candidate_lane TEXT DEFAULT '',
+    entry_type TEXT DEFAULT '',
+    signal_key TEXT DEFAULT '',
+    candidate_status TEXT DEFAULT '',
+    candidate_timing TEXT DEFAULT '',
+    candidate_risk TEXT DEFAULT '',
+    candidate_reasons TEXT DEFAULT '',
+    candidate_metrics TEXT DEFAULT '',
+    mainline_score REAL,
+    theme_score REAL,
+    stock_role_score REAL,
+    quality_score REAL,
+    timing_score REAL,
     synced_at TEXT DEFAULT (datetime('now')),
     UNIQUE(code, recommend_date)
 );
@@ -53,6 +77,22 @@ CREATE TABLE IF NOT EXISTS signal_pending (
     days_elapsed INTEGER DEFAULT 0,
     regime TEXT DEFAULT '',
     industry TEXT DEFAULT '',
+    snap_support REAL,
+    snap_ma20 REAL,
+    strategy_version TEXT DEFAULT '',
+    candidate_lane TEXT DEFAULT '',
+    entry_type TEXT DEFAULT '',
+    signal_key TEXT DEFAULT '',
+    candidate_status TEXT DEFAULT '',
+    candidate_timing TEXT DEFAULT '',
+    candidate_risk TEXT DEFAULT '',
+    candidate_reasons TEXT DEFAULT '',
+    candidate_metrics TEXT DEFAULT '',
+    mainline_score REAL,
+    theme_score REAL,
+    stock_role_score REAL,
+    quality_score REAL,
+    timing_score REAL,
     synced_at TEXT DEFAULT (datetime('now')),
     UNIQUE(code, signal_type, signal_date)
 );
@@ -191,7 +231,9 @@ CREATE TABLE IF NOT EXISTS workflow_event (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rec_date ON recommendation_tracking(recommend_date);
+CREATE INDEX IF NOT EXISTS idx_rec_lane ON recommendation_tracking(candidate_lane);
 CREATE INDEX IF NOT EXISTS idx_sig_status ON signal_pending(status);
+CREATE INDEX IF NOT EXISTS idx_sig_lane ON signal_pending(candidate_lane);
 CREATE INDEX IF NOT EXISTS idx_mem_type ON agent_memory(memory_type);
 CREATE INDEX IF NOT EXISTS idx_mem_codes ON agent_memory(codes);
 CREATE INDEX IF NOT EXISTS idx_chatlog_session ON chat_log(session_id);
@@ -247,6 +289,8 @@ def get_db() -> sqlite3.Connection:
 def init_db() -> None:
     conn = get_db()
     conn.executescript(_DDL)
+    _ensure_recommendation_tracking_columns(conn)
+    _ensure_signal_pending_columns(conn)
     _ensure_agent_memory_columns(conn)
     _ensure_tail_buy_history_columns(conn)
     cur = conn.execute("SELECT MAX(version) FROM schema_version")
@@ -270,12 +314,59 @@ def init_db() -> None:
         _ensure_agent_memory_columns(conn)
     if current < 9:
         _ensure_tail_buy_history_columns(conn)
+    if current < 13:
+        _ensure_recommendation_tracking_columns(conn)
+        _ensure_signal_pending_columns(conn)
     if current < _SCHEMA_VERSION:
         conn.execute(
             "INSERT OR REPLACE INTO schema_version(version) VALUES(?)",
             (_SCHEMA_VERSION,),
         )
         conn.commit()
+
+
+def _ensure_recommendation_tracking_columns(conn: sqlite3.Connection) -> None:
+    columns = {
+        "change_pct": "REAL DEFAULT 0",
+        "funnel_score": "REAL",
+        "recommend_count": "INTEGER DEFAULT 0",
+        "selection_source": "TEXT DEFAULT ''",
+        "selection_rank": "INTEGER",
+        "priority_score": "REAL",
+        "trigger_score": "REAL",
+        "stage": "TEXT DEFAULT ''",
+        "industry": "TEXT DEFAULT ''",
+        **_candidate_sqlite_columns(),
+    }
+    _ensure_columns(conn, "recommendation_tracking", columns)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rec_lane ON recommendation_tracking(candidate_lane)")
+
+
+def _ensure_signal_pending_columns(conn: sqlite3.Connection) -> None:
+    columns = {
+        "snap_support": "REAL",
+        "snap_ma20": "REAL",
+        **_candidate_sqlite_columns(),
+    }
+    _ensure_columns(conn, "signal_pending", columns)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sig_lane ON signal_pending(candidate_lane)")
+
+
+def _candidate_sqlite_columns() -> dict[str, str]:
+    json_columns = {"candidate_reasons", "candidate_metrics"}
+    real_columns = {"mainline_score", "theme_score", "stock_role_score", "quality_score", "timing_score"}
+    return {
+        column: "REAL" if column in real_columns else "TEXT DEFAULT ''"
+        for column in CANDIDATE_ATTRIBUTION_COLUMNS
+        if column not in json_columns
+    } | {column: "TEXT DEFAULT ''" for column in json_columns}
+
+
+def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 def _ensure_agent_memory_columns(conn: sqlite3.Connection) -> None:
@@ -392,6 +483,91 @@ def _migrate_fts5_memory(conn: sqlite3.Connection) -> None:
         logger.warning("fts5 memory migration failed", exc_info=True)
 
 
+def _recommendation_local_values(row: dict) -> tuple:
+    base = (
+        str(row.get("code", "")).strip(),
+        str(row.get("name", "")).strip(),
+        int(row.get("recommend_date", 0) or 0),
+        str(row.get("recommend_reason", "")).strip(),
+        _float_value(row.get("initial_price")),
+        _float_value(row.get("current_price")),
+        _float_value(row.get("change_pct")),
+        _nullable_float(row.get("funnel_score")),
+        int(row.get("recommend_count", 0) or 0),
+        1 if row.get("is_ai_recommended") else 0,
+        str(row.get("camp", "")).strip(),
+        str(row.get("selection_source", "")).strip(),
+        _nullable_int(row.get("selection_rank")),
+        _nullable_float(row.get("priority_score")),
+        _nullable_float(row.get("trigger_score")),
+        str(row.get("stage", "")).strip(),
+        str(row.get("industry", "")).strip(),
+    )
+    return base + _candidate_local_values(row)
+
+
+def _signal_local_values(row: dict) -> tuple:
+    base = (
+        str(row.get("code", "")).strip(),
+        str(row.get("name", "")).strip(),
+        str(row.get("signal_type", "")).strip(),
+        str(row.get("signal_date", "")).strip(),
+        str(row.get("status", "pending")).strip(),
+        _float_value(row.get("signal_score")),
+        int(row.get("days_elapsed", 0) or 0),
+        str(row.get("regime", "")).strip(),
+        str(row.get("industry", "")).strip(),
+        _nullable_float(row.get("snap_support")),
+        _nullable_float(row.get("snap_ma20")),
+    )
+    return base + _candidate_local_values(row)
+
+
+def _candidate_local_values(row: dict) -> tuple:
+    return tuple(_candidate_local_value(column, row.get(column)) for column in CANDIDATE_ATTRIBUTION_COLUMNS)
+
+
+def _candidate_local_value(column: str, value: Any) -> Any:
+    if column in {"candidate_reasons", "candidate_metrics"}:
+        return _json_text(value)
+    if column in {"mainline_score", "theme_score", "stock_role_score", "quality_score", "timing_score"}:
+        return _nullable_float(value)
+    return str(value or "").strip()
+
+
+def _json_text(value: Any) -> str:
+    if value in (None, "", [], {}):
+        return ""
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _float_value(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _nullable_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _nullable_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Recommendation tracking
 # ---------------------------------------------------------------------------
@@ -401,25 +577,33 @@ def save_recommendations(rows: list[dict]) -> int:
     if not rows:
         return 0
     conn = get_db()
+    columns = [
+        "code",
+        "name",
+        "recommend_date",
+        "recommend_reason",
+        "initial_price",
+        "current_price",
+        "change_pct",
+        "funnel_score",
+        "recommend_count",
+        "is_ai_recommended",
+        "camp",
+        "selection_source",
+        "selection_rank",
+        "priority_score",
+        "trigger_score",
+        "stage",
+        "industry",
+        *CANDIDATE_ATTRIBUTION_COLUMNS,
+    ]
+    placeholders = ", ".join("?" for _ in columns)
     with conn:
         conn.executemany(
-            """INSERT OR REPLACE INTO recommendation_tracking
-               (code, name, recommend_date, recommend_reason, initial_price,
-                current_price, is_ai_recommended, camp, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-            [
-                (
-                    str(r.get("code", "")).strip(),
-                    str(r.get("name", "")).strip(),
-                    int(r.get("recommend_date", 0)),
-                    str(r.get("recommend_reason", "")).strip(),
-                    float(r.get("initial_price", 0) or 0),
-                    float(r.get("current_price", 0) or 0),
-                    1 if r.get("is_ai_recommended") else 0,
-                    str(r.get("camp", "")).strip(),
-                )
-                for r in rows
-            ],
+            f"""INSERT OR REPLACE INTO recommendation_tracking
+               ({", ".join(columns)}, synced_at)
+               VALUES ({placeholders}, datetime('now'))""",
+            [_recommendation_local_values(r) for r in rows],
         )
     return len(rows)
 
@@ -442,26 +626,27 @@ def save_signals(rows: list[dict]) -> int:
     if not rows:
         return 0
     conn = get_db()
+    columns = [
+        "code",
+        "name",
+        "signal_type",
+        "signal_date",
+        "status",
+        "signal_score",
+        "days_elapsed",
+        "regime",
+        "industry",
+        "snap_support",
+        "snap_ma20",
+        *CANDIDATE_ATTRIBUTION_COLUMNS,
+    ]
+    placeholders = ", ".join("?" for _ in columns)
     with conn:
         conn.executemany(
-            """INSERT OR REPLACE INTO signal_pending
-               (code, name, signal_type, signal_date, status, signal_score,
-                days_elapsed, regime, industry, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-            [
-                (
-                    str(r.get("code", "")).strip(),
-                    str(r.get("name", "")).strip(),
-                    str(r.get("signal_type", "")).strip(),
-                    str(r.get("signal_date", "")).strip(),
-                    str(r.get("status", "pending")).strip(),
-                    float(r.get("signal_score", 0) or 0),
-                    int(r.get("days_elapsed", 0) or 0),
-                    str(r.get("regime", "")).strip(),
-                    str(r.get("industry", "")).strip(),
-                )
-                for r in rows
-            ],
+            f"""INSERT OR REPLACE INTO signal_pending
+               ({", ".join(columns)}, synced_at)
+               VALUES ({placeholders}, datetime('now'))""",
+            [_signal_local_values(r) for r in rows],
         )
     return len(rows)
 

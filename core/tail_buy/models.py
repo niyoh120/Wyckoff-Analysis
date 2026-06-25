@@ -18,6 +18,10 @@ class TailBuyCandidate:
     signal_type: str
     signal_score: float
     market_regime: str = ""
+    candidate_lane: str = ""
+    entry_type: str = ""
+    signal_key: str = ""
+    candidate_status: str = ""
     snap: dict[str, Any] = field(default_factory=dict)
     rule_score: float = 0.0
     rule_decision: str = DECISION_SKIP

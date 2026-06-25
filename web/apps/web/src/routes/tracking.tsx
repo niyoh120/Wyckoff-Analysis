@@ -41,6 +41,18 @@ interface Recommendation {
   springboard_grade?: string | null
   springboard_met_count?: number | null
   springboard_scored?: boolean | null
+  strategy_version?: string | null
+  candidate_lane?: string | null
+  entry_type?: string | null
+  signal_key?: string | null
+  candidate_status?: string | null
+  candidate_timing?: string | null
+  candidate_risk?: string | null
+  mainline_score?: number | null
+  theme_score?: number | null
+  stock_role_score?: number | null
+  quality_score?: number | null
+  timing_score?: number | null
 }
 
 interface SummaryStats {
@@ -534,7 +546,7 @@ function TrackingTable({
   return (
     <div className="overflow-hidden rounded-lg border border-border">
       <div className="overflow-x-auto">
-        <table className="min-w-[1120px] w-full text-sm">
+        <table className="min-w-[1240px] w-full text-sm">
           <TrackingTableHead market={market} sortBy={sortBy} sortOrder={sortOrder} onSortChange={onSortChange} />
           <tbody style={{ contentVisibility: 'auto', containIntrinsicSize: '0 40000px' }}>
             {rows.length === 0 ? (
@@ -576,6 +588,7 @@ function TrackingTableHead({
         <th className="px-3 py-2 text-right font-medium">{t('tracking.currentPrice')}</th>
         <SortableHeader align="right" active={sortBy === 'change'} label={t('tracking.changePct')} order={sortOrder} onClick={() => onSortChange('change')} />
         <SortableHeader align="right" active={sortBy === 'score'} label={t('tracking.score')} order={sortOrder} onClick={() => onSortChange('score')} />
+        <th className="px-3 py-2 text-left font-medium">车道</th>
         {market === 'us' && <UsPerformanceHeaders sortBy={sortBy} sortOrder={sortOrder} onSortChange={onSortChange} />}
         <th className="px-3 py-2 text-center font-medium">{t('tracking.springboard')}</th>
         <th className="px-3 py-2 text-center font-medium">AI</th>
@@ -660,6 +673,9 @@ function TrackingRow({ row, market = 'cn' }: { row: Recommendation; market?: Mar
           )}
         </div>
       </td>
+      <td className="px-3 py-2">
+        <CandidateLaneBadge row={row} />
+      </td>
       {market === 'us' && <UsPerformanceCells row={row} />}
       <td className="px-3 py-2 text-center">
         <SpringboardBadge row={row} />
@@ -681,6 +697,26 @@ function SpringboardBadge({ row }: { row: Recommendation }) {
   return <span className={`inline-flex min-w-[3.5rem] justify-center rounded-full border px-2 py-0.5 text-xs font-medium ${cls}`}>{combo}</span>
 }
 
+function CandidateLaneBadge({ row }: { row: Recommendation }) {
+  const lane = cleanText(row.candidate_lane || row.signal_key)
+  const entry = cleanText(row.entry_type || row.candidate_timing)
+  const status = cleanText(row.candidate_status)
+  if (!lane && !entry && !status) return <span className="text-muted-foreground">-</span>
+  const score = isFiniteNumber(row.mainline_score) ? `${Math.round((row.mainline_score ?? 0) * 100)}` : ''
+  return (
+    <div className="flex min-w-[8rem] max-w-[14rem] flex-col gap-1">
+      <span className="inline-flex w-fit rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-300">
+        {lane || 'candidate'}{score ? ` ${score}` : ''}
+      </span>
+      {(entry || status) && (
+        <span className="truncate text-xs text-muted-foreground" title={[entry, status].filter(Boolean).join(' | ')}>
+          {[entry, status].filter(Boolean).join(' | ')}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function springboardCombo(row: Recommendation): string {
   const raw = (row.springboard_combo || row.springboard_grade || '').trim()
   if (raw) return raw
@@ -694,7 +730,12 @@ function springboardCombo(row: Recommendation): string {
 }
 
 function trackingColumnCount(market: MarketTab): number {
-  return market === 'us' ? 12 : 9
+  return market === 'us' ? 13 : 10
+}
+
+function cleanText(value: string | null | undefined): string {
+  const text = String(value || '').trim()
+  return text && text !== 'none' ? text : ''
 }
 
 function trackingScoreKind(row: Recommendation): 'priority' | 'raw' | null {

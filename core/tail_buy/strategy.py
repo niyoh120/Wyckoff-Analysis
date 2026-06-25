@@ -115,6 +115,10 @@ def pick_tail_candidates(
             signal_type=str(row.get("signal_type", "") or "").strip() or "unknown",
             signal_score=safe_float(row.get("signal_score"), 0.0),
             market_regime=normalize_regime(row.get("regime") or row.get("market_regime")),
+            candidate_lane=str(row.get("candidate_lane", "") or "").strip(),
+            entry_type=str(row.get("entry_type", "") or "").strip(),
+            signal_key=str(row.get("signal_key", "") or "").strip(),
+            candidate_status=str(row.get("candidate_status", "") or "").strip(),
             snap={k: v for k, v in row.items() if k.startswith("snap_")},
         )
         old = by_code.get(code)
@@ -312,9 +316,16 @@ def compute_tail_features(
 _SIGNAL_TYPE_STYLE: dict[str, str] = {
     "sos": "trend",
     "jac": "trend",
+    "trend_breakout": "trend",
+    "sector_strength": "trend",
+    "wyckoff_structure": "trend",
+    "mainline": "trend",
     "spring": "pullback",
     "lps": "pullback",
+    "trend_pullback": "pullback",
+    "trend_lane_pullback": "pullback",
     "evr": "hybrid",
+    "compression": "hybrid",
 }
 
 
@@ -334,6 +345,8 @@ def _normalize_signal_score(signal_score: float, signal_type: str) -> float:
     elif st == "spring":
         # Spring score 是回升幅度%（0-10+），天然接近 0-10
         normalized = raw
+    elif st in {"mainline", "trend_breakout", "trend_lane_pullback", "sector_strength", "wyckoff_structure"}:
+        normalized = raw / 10.0 if raw > 10.0 else raw
     else:
         normalized = raw
     return min(max(normalized, 0.0), 10.0)
@@ -642,7 +655,9 @@ def build_llm_prompt(
     user_prompt = (
         f"策略风格: {style_desc}\n"
         f"股票: {candidate.code} {candidate.name}\n"
-        f"信号: status={candidate.status}, type={candidate.signal_type}, regime={candidate.market_regime or '-'}, signal_score={candidate.signal_score:.2f}\n"
+        f"信号: status={candidate.status}, type={candidate.signal_type}, lane={candidate.candidate_lane or '-'}, "
+        f"entry={candidate.entry_type or '-'}, regime={candidate.market_regime or '-'}, "
+        f"signal_score={candidate.signal_score:.2f}\n"
         f"规则一判: {candidate.rule_decision}, rule_score={candidate.rule_score:.1f}\n"
         "规则特征:\n"
         f"- close_pos={safe_float(f.get('close_pos')):.3f}\n"

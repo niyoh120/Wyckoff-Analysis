@@ -10,6 +10,11 @@ export interface PatternReviewRow {
   current_price?: number | null
   change_pct?: number | null
   is_ai_recommended?: boolean | number | string | null
+  candidate_lane?: string | null
+  entry_type?: string | null
+  signal_key?: string | null
+  candidate_status?: string | null
+  mainline_score?: number | null
 }
 
 function isAiRecommended(value: PatternReviewRow['is_ai_recommended']): boolean {
@@ -41,13 +46,19 @@ export function patternReviewRole(row: PatternReviewRow): string {
 export function formatPatternReviewLine(row: PatternReviewRow): string {
   const code = String(row.code).padStart(6, '0')
   const pricePath = `${formatPrice(row.initial_price)}→${formatPrice(row.current_price)}`
+  const lane = [row.candidate_lane || row.signal_key, row.entry_type || row.candidate_status]
+    .map(item => String(item || '').trim())
+    .filter(Boolean)
+    .join('/')
+  const mainline = typeof row.mainline_score === 'number' ? `主线${Math.round(row.mainline_score * 100)}` : ''
   return [
     `${code} ${row.name}`,
     patternReviewRole(row),
     `入选日${row.recommend_date}`,
     `入选${formatCount(row.recommend_count)}次`,
+    lane || mainline ? `车道${[lane, mainline].filter(Boolean).join(' ')}` : '',
     `${pricePath} ${formatChange(row.change_pct)}`,
-  ].join(' | ')
+  ].filter(Boolean).join(' | ')
 }
 
 export function formatPatternReviewDigest(rows: PatternReviewRow[]): string {

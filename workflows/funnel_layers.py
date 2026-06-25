@@ -84,7 +84,7 @@ def run_base_funnel_layers(
         l2_passed=l2_passed,
         concept_map=ref_data.concept_map,
         concept_heat=ref_data.concept_heat,
-        theme_radar=theme_radar,
+        theme_radar=theme_current,
         df_map=all_df_map,
         financial_map=ref_data.financial_map,
         name_map=ref_data.name_map,

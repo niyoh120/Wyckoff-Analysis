@@ -6,6 +6,8 @@ import os
 from collections.abc import Callable
 from typing import Any
 
+from core.candidate_metadata import build_candidate_metadata_map, candidate_signal_triggers, merge_trigger_maps
+
 LogFn = Callable[[str, str | None], None]
 
 
@@ -112,7 +114,7 @@ def build_signal_observation_rows(
     selected_for_ai = step2_details.get("selected_for_ai", []) or []
     return build_signal_observations(
         trade_date,
-        step2_details.get("review_triggers") or step2_details.get("triggers") or {},
+        _primary_observation_triggers(step2_details),
         regime=regime,
         selected_for_ai=selected_for_ai,
         ai_recommended=ai_codes,
@@ -127,6 +129,7 @@ def build_signal_observation_rows(
         footprint_map=footprint_map,
         intraday_tail_map=step2_details.get("intraday_tail_map") or {},
         source_context_map=step2_details.get("source_context_map") or {},
+        candidate_metadata_map=_candidate_metadata_map(step2_details),
         selection_mode=os.getenv("FUNNEL_AI_SELECTION_MODE", "quota"),
         selection_mode_map=_signal_observation_selection_mode_map(step2_details),
         policy_version=f"dynamic:{os.getenv('FUNNEL_DYNAMIC_POLICY', 'off')}",
@@ -278,7 +281,7 @@ def build_springboard_map(step2_details: dict) -> dict[str, dict]:
     from core.signal_confirmation import score_springboard_abc
 
     all_df_map = step2_details.get("all_df_map", {})
-    triggers = step2_details.get("review_triggers") or step2_details.get("triggers", {})
+    triggers = _primary_observation_triggers(step2_details)
     out: dict[str, dict] = {}
     for sig_type, hits in triggers.items():
         for code, _score in hits:
@@ -364,7 +367,7 @@ def _tail_confirmation_trigger_items(step2_details: dict, ai_codes: list[str]) -
     if not target_order:
         return []
     items: list[tuple[str, str, float]] = []
-    for signal_type, hits in (step2_details.get("review_triggers") or step2_details.get("triggers") or {}).items():
+    for signal_type, hits in _primary_observation_triggers(step2_details).items():
         sig = str(signal_type or "").strip().lower()
         if not sig:
             continue
@@ -413,14 +416,29 @@ def _build_footprint_map(step2_details: dict) -> dict[str, dict]:
 
 def _merge_observation_trigger_maps(step2_details: dict) -> dict[str, list[tuple[str, float]]]:
     metrics = step2_details.get("metrics", {}) or {}
-    out: dict[str, list[tuple[str, float]]] = {}
-    for trigger_map in (
+    return merge_trigger_maps(
         step2_details.get("review_triggers") or step2_details.get("triggers") or {},
+        _candidate_trigger_map(step2_details),
         metrics.get("external_seed_l4_triggers") or {},
-    ):
-        for signal_type, hits in trigger_map.items():
-            out.setdefault(str(signal_type).strip().lower(), []).extend(hits or [])
-    return {signal_type: hits for signal_type, hits in out.items() if signal_type and hits}
+    )
+
+
+def _primary_observation_triggers(step2_details: dict) -> dict[str, list[tuple[str, float]]]:
+    return merge_trigger_maps(
+        step2_details.get("review_triggers") or step2_details.get("triggers") or {},
+        _candidate_trigger_map(step2_details),
+    )
+
+
+def _candidate_trigger_map(step2_details: dict) -> dict[str, list[tuple[str, float]]]:
+    return candidate_signal_triggers(step2_details.get("candidate_entries") or [])
+
+
+def _candidate_metadata_map(step2_details: dict) -> dict[str, dict[str, Any]]:
+    return build_candidate_metadata_map(
+        step2_details.get("candidate_entries") or [],
+        step2_details.get("mainline_candidates") or [],
+    )
 
 
 def _signal_observation_source_map(step2_details: dict) -> dict[str, str]:
@@ -430,8 +448,12 @@ def _signal_observation_source_map(step2_details: dict) -> dict[str, str]:
     bypass_codes = {str(c).strip() for c in step2_details.get("l2_bypass_selected", []) if str(c).strip()}
     strategic_codes = {str(c).strip() for c in step2_details.get("strategic_l2_bypass_selected", []) if str(c).strip()}
     external_codes = {str(c).strip() for c in step2_details.get("external_seed_selected", []) if str(c).strip()}
+    candidate_codes = {str(row.get("code", "")).strip() for row in step2_details.get("candidate_entries", []) or []}
+    mainline_codes = {str(row.get("code", "")).strip() for row in step2_details.get("mainline_candidates", []) or []}
     source_map = {code: "l2_bypass_shadow" for code in bypass_pool}
     source_map.update({code: "strategic_l2_bypass_shadow" for code in strategic_pool})
+    source_map.update({code: "candidate_lane" for code in candidate_codes})
+    source_map.update({code: "mainline" for code in mainline_codes})
     source_map.update({code: "l2_bypass" for code in bypass_codes})
     source_map.update({code: "strategic_l2_bypass" for code in strategic_codes})
     source_map.update(
@@ -447,8 +469,12 @@ def _signal_observation_selection_mode_map(step2_details: dict) -> dict[str, str
     strategic_selected = {
         str(c).strip() for c in step2_details.get("strategic_l2_bypass_selected", []) if str(c).strip()
     }
+    candidate_codes = {str(row.get("code", "")).strip() for row in step2_details.get("candidate_entries", []) or []}
+    mainline_codes = {str(row.get("code", "")).strip() for row in step2_details.get("mainline_candidates", []) or []}
     out = {code: "l2_bypass_shadow" for code in bypass_pool}
     out.update({code: "strategic_l2_bypass_shadow" for code in strategic_pool})
+    out.update({code: "candidate_lane_shadow" for code in candidate_codes})
+    out.update({code: "mainline_shadow" for code in mainline_codes})
     out.update({code: "l2_bypass" for code in bypass_selected})
     out.update({code: "strategic_l2_bypass" for code in strategic_selected})
     return out

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.candidate_metadata import build_candidate_metadata_map, code6
 from core.funnel_report import build_symbol_report_row, candidate_reason_text
 from core.market_trade_mode import resolve_market_trade_mode
 from workflows.funnel_ai_selection import FunnelAiSelection
@@ -15,6 +16,7 @@ def context_regime(ctx: Any) -> str:
 
 
 def legacy_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
+    metadata_map = _candidate_metadata_map(ctx)
     sos_hit_set = {str(c).strip() for c, _ in ctx.review_triggers.get("sos", [])}
     evr_hit_set = {str(c).strip() for c, _ in ctx.review_triggers.get("evr", [])}
     spring_hit_set = {str(c).strip() for c, _ in ctx.review_triggers.get("spring", [])}
@@ -29,40 +31,61 @@ def legacy_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
         return "Accum" if code in spring_hit_set or code in lps_hit_set else "Trend"
 
     return [
-        build_symbol_report_row(
+        _with_candidate_metadata(
+            build_symbol_report_row(
+                code,
+                rank=idx + 1,
+                tag=candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map),
+                track=infer_track(code),
+                stage=stage_name(ctx, code),
+                score=legacy_display_score(ctx, code),
+                priority_score=float(ctx.code_to_total_score.get(code, 0.0)),
+                selection_source=legacy_selection_source(ctx, code),
+                selection_is_fill=False,
+                market_regime=context_regime(ctx),
+                maps=ctx.report_maps,
+            ),
             code,
-            rank=idx + 1,
-            tag=candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map),
-            track=infer_track(code),
-            stage=stage_name(ctx, code),
-            score=legacy_display_score(ctx, code),
-            priority_score=float(ctx.code_to_total_score.get(code, 0.0)),
-            selection_source=legacy_selection_source(ctx, code),
-            selection_is_fill=False,
-            market_regime=context_regime(ctx),
-            maps=ctx.report_maps,
+            metadata_map,
         )
         for idx, code in enumerate(selection.selected_for_ai)
     ]
 
 
 def modern_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
+    metadata_map = _candidate_metadata_map(ctx)
     return [
-        build_symbol_report_row(
+        _with_candidate_metadata(
+            build_symbol_report_row(
+                code,
+                rank=idx + 1,
+                tag=f"{_source_tag(ctx, code)} | {candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map)}",
+                track=selected_track(selection, code),
+                stage=stage_name(ctx, code),
+                score=display_score(ctx, selection, code),
+                priority_score=float(selection.score_map.get(code, 0.0)),
+                selection_source=selection_source(ctx, code),
+                selection_is_fill=selection_source(ctx, code) == "l3_fill",
+                market_regime=context_regime(ctx),
+                maps=ctx.report_maps,
+            ),
             code,
-            rank=idx + 1,
-            tag=f"{_source_tag(ctx, code)} | {candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map)}",
-            track=selected_track(selection, code),
-            stage=stage_name(ctx, code),
-            score=display_score(ctx, selection, code),
-            priority_score=float(selection.score_map.get(code, 0.0)),
-            selection_source=selection_source(ctx, code),
-            selection_is_fill=selection_source(ctx, code) == "l3_fill",
-            market_regime=context_regime(ctx),
-            maps=ctx.report_maps,
+            metadata_map,
         )
         for idx, code in enumerate(selection.selected_for_ai)
     ]
+
+
+def _candidate_metadata_map(ctx: Any) -> dict[str, dict[str, Any]]:
+    return build_candidate_metadata_map(
+        getattr(ctx, "candidate_entries", []) or [],
+        getattr(ctx, "mainline_candidates", []) or [],
+    )
+
+
+def _with_candidate_metadata(row: dict[str, Any], code: str, metadata_map: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    row.update(metadata_map.get(code6(code), {}))
+    return row
 
 
 def _source_tag(ctx: Any, code: str) -> str:

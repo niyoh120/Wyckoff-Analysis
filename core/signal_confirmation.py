@@ -12,6 +12,20 @@ SIGNAL_TTL_DAYS: dict[str, int] = {
     "lps": 3,
     "evr": 2,
     "compression": 3,
+    "trend_pullback": 3,
+    "trend_breakout": 2,
+    "trend_lane_pullback": 3,
+    "sector_strength": 2,
+    "wyckoff_structure": 3,
+    "mainline": 3,
+}
+TREND_CONFIRM_SIGNALS = {
+    "trend_pullback",
+    "trend_breakout",
+    "trend_lane_pullback",
+    "sector_strength",
+    "wyckoff_structure",
+    "mainline",
 }
 
 
@@ -86,12 +100,29 @@ def _confirm_compression(snap: dict, today: dict, days_elapsed: int) -> tuple[st
     return "pending", "等待继续缩量确认"
 
 
+def _confirm_trend_candidate(snap: dict, today: dict, days_elapsed: int) -> tuple[str, str]:
+    support = snap.get("snap_support", 0) or snap.get("snap_ma20", 0) or snap.get("snap_low", 0)
+    snap_close = snap.get("snap_close", 0)
+    snap_vol = snap.get("snap_volume", 0)
+    ma20 = today.get("ma20", 0) or snap.get("snap_ma20", 0)
+    if support > 0 and today["low"] < support * 0.985:
+        return "expired", f"跌破确认支撑 {support:.2f}"
+    if snap_vol > 0 and today["volume"] > snap_vol * 1.8 and today["close"] < max(support, snap_close) * 0.985:
+        return "expired", "放量跌破确认区，趋势候选失效"
+    if ma20 > 0 and today["close"] >= ma20 * 0.995 and today["close"] >= snap_close * 0.985:
+        return "confirmed", f"守住MA20/信号收盘，收盘 {today['close']:.2f}"
+    if support > 0 and today["close"] >= support and today["close"] >= snap_close:
+        return "confirmed", f"守住支撑并收回信号收盘 {snap_close:.2f}"
+    return "pending", "等待主线/趋势买点确认"
+
+
 _CONFIRM_DISPATCH = {
     "sos": _confirm_sos,
     "spring": _confirm_spring,
     "lps": _confirm_lps,
     "evr": _confirm_evr,
     "compression": _confirm_compression,
+    **{signal: _confirm_trend_candidate for signal in TREND_CONFIRM_SIGNALS},
 }
 
 
@@ -253,8 +284,10 @@ def build_snap(
         snap["snap_support"] = float(zone["close"].min()) if len(zone) > 0 else float(last["low"])
     elif signal_type == "sos":
         snap["snap_support"] = float(df_s["high"].tail(21).iloc[:-1].max()) if len(df_s) >= 21 else float(last["high"])
-    elif signal_type == "lps":
+    elif signal_type in {"lps", "trend_pullback", "trend_lane_pullback", "mainline"}:
         snap["snap_support"] = ma20
+    elif signal_type in {"trend_breakout", "sector_strength", "wyckoff_structure"}:
+        snap["snap_support"] = max(float(last["low"]), ma20 * 0.985)
     else:
         snap["snap_support"] = float(last["low"])
 
@@ -280,11 +313,11 @@ def build_today_ohlcv(df: pd.DataFrame) -> dict[str, float]:
 
 def _confirmed_symbol_info(sig: dict, code_str: str, today: dict[str, float], trade_date: str, reason: str) -> dict:
     signal_type = sig["signal_type"]
-    return {
+    item = {
         "code": code_str,
         "name": sig.get("name", code_str),
         "tag": f"{signal_type.upper()}(二次确认)",
-        "track": "Accum" if signal_type in ("spring", "lps") else "Trend",
+        "track": "Accum" if signal_type in ("spring", "lps", "compression") else "Trend",
         "initial_price": today["close"],
         "score": sig.get("signal_score", 0),
         "signal_type": signal_type,
@@ -296,6 +329,29 @@ def _confirmed_symbol_info(sig: dict, code_str: str, today: dict[str, float], tr
         "confirm_date": trade_date,
         "confirm_reason": reason,
     }
+    _copy_candidate_fields(item, sig)
+    return item
+
+
+def _copy_candidate_fields(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key in (
+        "strategy_version",
+        "candidate_lane",
+        "entry_type",
+        "signal_key",
+        "candidate_status",
+        "candidate_timing",
+        "candidate_risk",
+        "candidate_reasons",
+        "candidate_metrics",
+        "mainline_score",
+        "theme_score",
+        "stock_role_score",
+        "quality_score",
+        "timing_score",
+    ):
+        if source.get(key) not in (None, "", [], {}):
+            target[key] = source[key]
 
 
 def run_confirmation_cycle(

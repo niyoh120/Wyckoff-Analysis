@@ -459,7 +459,9 @@ function buildMarketHistoryDigest(name: string, rows: KlineRow[]): string {
 export async function execQueryRecommendations(deps: ToolDeps, limit: number): Promise<string> {
   const { data } = await deps.supabase
     .from('recommendation_tracking')
-    .select('code, name, recommend_date, recommend_count, initial_price, current_price, change_pct, is_ai_recommended, funnel_score')
+    .select(
+      'code, name, recommend_date, recommend_count, initial_price, current_price, change_pct, is_ai_recommended, funnel_score, candidate_lane, entry_type, signal_key, candidate_status, mainline_score',
+    )
     .order('recommend_date', { ascending: false })
     .limit(limit)
 
@@ -553,6 +555,8 @@ export interface ScreenStockItem {
   name: string
   funnel_score: number | null
   change_pct: number | null
+  candidate_lane: string | null
+  entry_type: string | null
 }
 
 export interface ScreenResult {
@@ -568,6 +572,8 @@ export const SCREEN_RESULT_OUTPUT_SCHEMA = z.object({
     name: z.string(),
     funnel_score: z.number().nullable(),
     change_pct: z.number().nullable(),
+    candidate_lane: z.string().nullable(),
+    entry_type: z.string().nullable(),
   })),
   meta: z.object({ ai_count: z.number() }),
 })
@@ -575,7 +581,7 @@ export const SCREEN_RESULT_OUTPUT_SCHEMA = z.object({
 export async function execScreenStocks(deps: ToolDeps): Promise<ScreenResult> {
   const { data } = await deps.supabase
     .from('recommendation_tracking')
-    .select('code, name, recommend_date, funnel_score, change_pct, is_ai_recommended')
+    .select('code, name, recommend_date, funnel_score, change_pct, is_ai_recommended, candidate_lane, entry_type')
     .eq('is_ai_recommended', true)
     .order('recommend_date', { ascending: false })
     .limit(30)
@@ -592,6 +598,8 @@ export async function execScreenStocks(deps: ToolDeps): Promise<ScreenResult> {
       name: r.name,
       funnel_score: r.funnel_score ?? null,
       change_pct: r.change_pct ?? null,
+      candidate_lane: r.candidate_lane ?? null,
+      entry_type: r.entry_type ?? null,
     })),
     meta: { ai_count: latest.length },
   }

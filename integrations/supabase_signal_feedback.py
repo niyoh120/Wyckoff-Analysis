@@ -28,6 +28,11 @@ OPTIONAL_SIGNAL_OBSERVATION_COLUMNS = (
     "policy_version",
     "candidate_rank",
     "features_json",
+    "strategy_version",
+    "candidate_lane",
+    "entry_type",
+    "signal_key",
+    "candidate_status",
 )
 
 
@@ -231,7 +236,7 @@ def touch_registry_defaults(market: str, signal_types: list[str]) -> int:
         {
             "market": market,
             "signal_type": signal_type,
-            "track": "Trend" if signal_type in {"sos", "evr", "trend_pullback"} else "Accum",
+            "track": "Accum" if signal_type in {"spring", "lps", "compression"} else "Trend",
             "status": "ACTIVE",
             "weight_multiplier": 1.0,
             "reason": "default active",

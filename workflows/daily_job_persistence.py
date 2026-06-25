@@ -135,7 +135,8 @@ def mark_step3_recommendations(
 
 
 def persist_theme_radar(step2_details: dict, logs_path: str | None, *, dry_run: bool, log_fn) -> None:
-    snapshot = ((step2_details or {}).get("metrics", {}) or {}).get("theme_radar") or {}
+    metrics = (step2_details or {}).get("metrics", {}) or {}
+    snapshot = metrics.get("theme_radar_current") or metrics.get("theme_radar") or {}
     if dry_run or not snapshot:
         return
     try:
