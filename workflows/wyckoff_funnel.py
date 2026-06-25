@@ -468,7 +468,7 @@ def _log_funnel_summary(metrics: dict, inputs: FunnelMetricsInputs) -> None:
         f"Top板块={inputs.layers.top_sectors}, 主线={inputs.ref_data.hot_concepts[:3] if inputs.ref_data.hot_concepts else []}, "
         f"战略旁路={len(inputs.strategic.pool)}, 主线={_mainline_log_counts(inputs.layers.mainline_candidates)}, "
         f"Alpha候选={len(inputs.candidates.candidate_entries)}, "
-        f"龙头雷达={len(inputs.layers.leader_radar_rows)}, 各触发={metrics['by_trigger']}"
+        f"趋势观察={len(inputs.layers.leader_radar_rows)}, 各触发={metrics['by_trigger']}"
     )
     print(f"[funnel] 主题雷达({inputs.layers.theme_radar_source}): {summarize_theme_radar(inputs.layers.theme_radar)}")
     _report_progress("筛选完成", f"命中={inputs.candidates.total_hits}只", 1.0)

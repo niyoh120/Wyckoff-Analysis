@@ -18,8 +18,8 @@ def append_leader_radar_section(
     if not rows:
         return
     lines.append("")
-    lines.append(f"**【🚀 龙头雷达】{len(rows)} 只**")
-    lines.append("仅观察强势主升，不计入正式L4买点、不生成OMS订单；只有 BUY-APPROVED 才是可执行买入")
+    lines.append(f"**【📈 趋势观察池】{len(rows)} 只**")
+    lines.append("仅用于跟踪强趋势背景，不是正式买点；进入可买区仍必须通过主线/候选车道和尾盘确认")
     display = rows if display_limit <= 0 else rows[:display_limit]
     lines.extend(_leader_row(row, name_map) for row in display)
     omitted = len(rows) - len(display)

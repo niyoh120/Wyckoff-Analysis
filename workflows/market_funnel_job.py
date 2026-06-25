@@ -122,16 +122,16 @@ def _run_layers(
     sector_map = sector_map or {}
     layer3, top_sectors = layer3_sector_resonance(layer2, sector_map, funnel_cfg, base_symbols=layer1, df_map=df_map)
     triggers = layer4_triggers(layer3, df_map, funnel_cfg, channel_map=channel_map)
-    leader_rows = detect_leader_radar(layer1, df_map, sector_map, channel_map, funnel_cfg)
+    trend_watch_rows = detect_leader_radar(layer1, df_map, sector_map, channel_map, funnel_cfg)
     metrics = {
         "layer1": len(layer1),
         "layer2": len(layer2),
         "layer3": len(layer3),
         "total_hits": sum(len(items) for items in triggers.values()),
         "by_trigger": {key: len(items) for key, items in triggers.items()},
-        "leader_radar": len(leader_rows),
-        "leader_radar_rows": leader_rows,
-        "leader_radar_symbols": [str(row["code"]) for row in leader_rows],
+        "trend_watch": len(trend_watch_rows),
+        "trend_watch_rows": trend_watch_rows,
+        "trend_watch_symbols": [str(row["code"]) for row in trend_watch_rows],
         "top_sectors": top_sectors,
         "layer2_channel_map": channel_map,
         "benchmark": benchmark_context,
@@ -230,7 +230,7 @@ def _build_funnel_result(
         "fetch_stats": fetch_stats,
         "metrics": metrics,
         "top_candidates": candidates[:100],
-        "top_leader_radar": (metrics.get("leader_radar_rows") or [])[:100],
+        "top_trend_watch": (metrics.get("trend_watch_rows") or [])[:100],
         "limits": {
             "max_symbols": runtime.max_symbols,
             "quote_batch_size": runtime.quote_batch_size,

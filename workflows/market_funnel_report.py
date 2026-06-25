@@ -26,7 +26,7 @@ def render_market_funnel_report(result: dict[str, Any]) -> str:
         *_overview_block(result, metrics),
         *_trigger_block(metrics),
         *_candidate_block(candidates),
-        *_leader_radar_block(metrics),
+        *_trend_watch_block(metrics),
         *_runtime_block(result),
     ]
     return "\n".join(blocks).rstrip() + "\n"
@@ -104,9 +104,10 @@ def _candidate_block(candidates: list[dict[str, Any]]) -> list[str]:
     ]
 
 
-def _leader_radar_block(metrics: dict[str, Any]) -> list[str]:
+def _trend_watch_block(metrics: dict[str, Any]) -> list[str]:
     rows = []
-    for index, item in enumerate((metrics.get("leader_radar_rows") or [])[:30], start=1):
+    trend_rows = metrics.get("trend_watch_rows") or metrics.get("leader_radar_rows") or []
+    for index, item in enumerate(trend_rows[:10], start=1):
         rows.append(
             "| "
             f"{index} | {item.get('code', '-')} | {_fmt_float(item.get('score'))} | "
@@ -114,11 +115,11 @@ def _leader_radar_block(metrics: dict[str, Any]) -> list[str]:
             f"{_fmt_float(item.get('ret120'))}% | {item.get('risk', '-')} |"
         )
     return [
-        "## 龙头雷达",
-        "仅观察强势主升，不计入正式 L4 买点、不生成 OMS 订单；只有 BUY-APPROVED 才是可执行买入。",
+        "## 趋势观察池",
+        "仅观察强趋势背景，不是买入信号；进入正式推荐仍必须通过候选车道和尾盘确认。",
         "| # | 代码 | 分数 | 20日 | 60日 | 120日 | 风险 |",
         "| ---: | --- | ---: | ---: | ---: | ---: | --- |",
-        *(rows or ["| - | - | - | - | - | - | 本次无主升雷达候选 |"]),
+        *(rows or ["| - | - | - | - | - | - | 本次无趋势观察候选 |"]),
         "",
     ]
 
