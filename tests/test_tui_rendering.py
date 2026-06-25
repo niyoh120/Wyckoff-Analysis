@@ -6,7 +6,14 @@ pytest.importorskip("textual")
 
 from rich.markdown import Markdown
 
-from cli.tui import _display_final_response, _pop_lines, _replace_streamed_response, _write_counted
+from cli.tui import (
+    _display_final_response,
+    _display_workflow_plan_event,
+    _pop_lines,
+    _replace_streamed_response,
+    _workflow_control_intent,
+    _write_counted,
+)
 
 
 class _FakeLog:
@@ -76,3 +83,38 @@ def test_display_final_response_replaces_streamed_raw_text():
     assert writes == []
     assert log.lines[0] == "kept"
     assert isinstance(log.lines[1], Markdown)
+
+
+def test_display_workflow_plan_event_includes_route_reason():
+    writes = []
+    scrolled = []
+
+    run_id, workflow_name = _display_workflow_plan_event(
+        {
+            "run_id": "wf_1",
+            "workflow": "backtest",
+            "label": "策略回测",
+            "route": {"reason": "检测到策略回测意图", "matches": ["回测"], "confidence": 0.9},
+            "plan": {"steps": [{"title": "执行回测任务"}]},
+        },
+        writes.append,
+        lambda: scrolled.append(True),
+    )
+
+    assert run_id == "wf_1"
+    assert workflow_name == "backtest"
+    assert "策略回测" in str(writes[0])
+    assert "检测到策略回测意图" in str(writes[1])
+    assert "命中：回测" in str(writes[1])
+    assert "待执行" in str(writes[2])
+    assert scrolled == [True]
+
+
+def test_workflow_control_intent_requires_explicit_control_action():
+    assert _workflow_control_intent("解释一下 workflow 是什么") is None
+    assert _workflow_control_intent("查看 workflow wf_abc123") == ("show", "wf_abc123")
+    assert _workflow_control_intent("把 workflow wf_abc123 的脚本打开") == ("script", "wf_abc123")
+    assert _workflow_control_intent("复跑刚才的 workflow") == ("rerun", "")
+    assert _workflow_control_intent("批准 workflow wf_abc123") == ("approve", "wf_abc123")
+    assert _workflow_control_intent("暂停 workflow wf_abc123") == ("pause", "wf_abc123")
+    assert _workflow_control_intent("停止 workflow wf_abc123") == ("stop", "wf_abc123")

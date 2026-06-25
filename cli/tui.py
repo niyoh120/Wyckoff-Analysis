@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 _KITTY_ENABLE = "\x1b[>1u"
 _KITTY_DISABLE = "\x1b[<u"
 _CSI_U_IME_RE = re.compile(r"\x1b\[\d+(?::\d+)*;;([\d:]+)u")
+_WORKFLOW_ID_RE = re.compile(r"\bwf_[A-Za-z0-9_-]+\b")
 
 
 def _decode_csi_u(m: re.Match[str]) -> str:
@@ -122,6 +123,7 @@ _patch_driver_no_kitty()
 from cli.runtime import AgentCancelled
 from cli.scratchpad import AgentScratchpad
 from cli.workflows.dispatch import build_turn_runtime
+from cli.workflows.executor import WorkflowExecutor
 from core.prompts import with_current_time
 
 
@@ -211,6 +213,24 @@ class _TurnRunState:
     final_elapsed: float = 0.0
     final_rounds: int = 0
     last_usage: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class _WorkflowOverride:
+    source_run_id: str
+    script: dict[str, Any]
+    context: Any
+    args: Any = None
+    only_step_id: str = ""
+
+
+@dataclass
+class _PendingWorkflowLaunch:
+    runtime: WorkflowExecutor
+    messages: list[dict[str, Any]]
+    system_prompt: str
+    model_name: str
+    provider_name: str
 
 
 @dataclass
@@ -318,12 +338,44 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
     workflow_name = str(event.get("workflow", ""))
     label = str(event.get("label") or workflow_name)
     steps = event.get("plan", {}).get("steps", [])
-    write(Text.from_markup(f"  [bold cyan]workflow[/bold cyan] [dim]{escape(label)} · {escape(run_id)}[/dim]"))
-    for idx, step in enumerate(steps, start=1):
+    route = event.get("route") or event.get("plan", {}).get("route", {})
+    write(
+        Text.from_markup(f"  [bold cyan]workflow[/bold cyan] [bold]{escape(label)}[/bold] [dim]{escape(run_id)}[/dim]")
+    )
+    script_title = str(event.get("plan", {}).get("script", {}).get("title", "") or "")
+    if script_title and script_title != label:
+        write(Text.from_markup(f"    [dim]动态脚本：{escape(script_title)}[/dim]"))
+    route_line = _workflow_route_line(route)
+    if route_line:
+        write(route_line)
+    visible_steps = steps[:20] if isinstance(steps, list) else []
+    for idx, step in enumerate(visible_steps, start=1):
         title = escape(str(step.get("title", "")))
-        write(Text.from_markup(f"    [dim]{idx}.[/dim] {title} [dim]pending[/dim]"))
+        agent = escape(str(step.get("agent", "") or "agent"))
+        write(Text.from_markup(f"    [dim]{idx}.[/dim] {title} [dim]{agent} · 待执行[/dim]"))
+    if isinstance(steps, list) and len(steps) > len(visible_steps):
+        write(
+            Text.from_markup(
+                f"    [dim]... 还有 {len(steps) - len(visible_steps)} 个 task，可用 /workflow script 查看[/dim]"
+            )
+        )
     scroll()
     return run_id, workflow_name
+
+
+def _workflow_route_line(route: dict[str, Any]) -> Text | None:
+    reason = escape(str(route.get("reason", "") or ""))
+    if not reason:
+        return None
+    matches = [escape(str(item)) for item in route.get("matches", []) if str(item)]
+    confidence = route.get("confidence")
+    parts = [f"    [dim]识别原因：{reason}"]
+    if matches:
+        parts.append(f" · 命中：{', '.join(matches)}")
+    if isinstance(confidence, (int, float)) and confidence > 0:
+        parts.append(f" · 置信度：{confidence:.0%}")
+    parts.append("[/dim]")
+    return Text.from_markup("".join(parts))
 
 
 def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
@@ -333,8 +385,198 @@ def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
     color = {"running": "yellow", "completed": "green", "failed": "red", "skipped": "dim"}.get(status, "dim")
     title = escape(str(step.get("title", "")))
     summary = escape(str(step.get("summary", "")))
-    write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{summary}[/dim]"))
+    agent = escape(str(step.get("agent", "") or "agent"))
+    label = {"running": "运行中", "completed": "完成", "failed": "失败", "skipped": "跳过"}.get(status, status)
+    write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{agent} · {label} {summary}[/dim]"))
     scroll()
+
+
+def _display_workflow_phase_event(event: dict[str, Any], write, scroll) -> None:
+    phase = escape(str(event.get("phase", "") or "phase"))
+    steps = event.get("steps", [])
+    count = len(steps) if isinstance(steps, list) else 0
+    parallel = bool(event.get("parallel"))
+    if event.get("type") == "workflow_phase_start":
+        mode = "并发" if parallel else "顺序"
+        write(Text.from_markup(f"    [bold]phase[/bold] {phase} [dim]{mode} · {count} agent[/dim]"))
+    else:
+        write(Text.from_markup(f"    [green]phase done[/green] [dim]{phase}[/dim]"))
+    scroll()
+
+
+def _workflow_script(run: dict[str, Any]) -> dict[str, Any]:
+    script = run.get("plan", {}).get("script", {})
+    return script if isinstance(script, dict) else {}
+
+
+def _workflow_script_path(run: Any) -> str:
+    if not run:
+        return ""
+    script = getattr(run, "script", {}) if not isinstance(run, dict) else _workflow_script(run)
+    runtime = script.get("runtime", {}) if isinstance(script, dict) else {}
+    return str(runtime.get("script_path", "") or "") if isinstance(runtime, dict) else ""
+
+
+def _workflow_has_step(run: dict[str, Any], step_id: str) -> bool:
+    for step in run.get("plan", {}).get("steps", []):
+        if isinstance(step, dict) and str(step.get("step_id", "")) == step_id:
+            return True
+    return False
+
+
+def _workflow_agent_detail_from_events(rows: list[dict[str, Any]], step_id: str) -> dict[str, Any]:
+    for row in reversed(rows):
+        payload = row.get("payload", {})
+        source = payload.get("source", {}) if isinstance(payload, dict) else {}
+        detail = source.get("agent_detail", {}) if isinstance(source, dict) else {}
+        if isinstance(detail, dict) and str(detail.get("step_id", "")) == step_id:
+            return detail
+    return {}
+
+
+def _workflow_context_from_run(run: dict[str, Any]) -> Any:
+    from cli.workflows.models import WorkflowContext
+    from cli.workflows.router import WORKFLOWS
+
+    name = str(run.get("workflow", ""))
+    plan = run.get("plan", {})
+    if not isinstance(plan, dict):
+        plan = {}
+    route = plan.get("route", {}) if isinstance(plan, dict) else {}
+    base = WORKFLOWS.get(name)
+    return WorkflowContext(
+        name=name,
+        label=str(run.get("label") or (base.label if base else name)),
+        allowed_tools=tuple(plan.get("allowed_tools") or (base.allowed_tools if base else ())),
+        system_hint=base.system_hint if base else "",
+        route_reason=str(route.get("reason", "") or "复用已保存 workflow script"),
+        route_confidence=_workflow_route_confidence(route),
+        route_matches=tuple(str(item) for item in route.get("matches", []) if str(item)),
+    )
+
+
+def _workflow_run_from_saved(saved: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "run_id": f"saved:{saved.get('name', '')}",
+        "workflow": saved.get("workflow", ""),
+        "label": saved.get("label", ""),
+        "plan": {
+            "allowed_tools": saved.get("allowed_tools", []),
+            "route": saved.get("route", {}),
+            "script": saved.get("script", {}),
+        },
+    }
+
+
+def _workflow_route_confidence(route: dict[str, Any]) -> float:
+    try:
+        return float(route.get("confidence", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _workflow_control_intent(text: str) -> tuple[str, str] | None:
+    lower = text.lower()
+    if "workflow" not in lower and "工作流" not in text:
+        return None
+    match = _WORKFLOW_ID_RE.search(text)
+    run_id = match.group(0) if match else ""
+    if any(token in text for token in ("批准", "同意", "开始运行", "运行这个 workflow")) or "approve" in lower:
+        return "approve", run_id
+    if any(token in text for token in ("取消", "拒绝")) or "deny" in lower:
+        return "deny", run_id
+    if any(token in text for token in ("暂停", "先停一下")) or "pause" in lower:
+        return "pause", run_id
+    if any(token in text for token in ("恢复运行", "继续运行")) or "resume" in lower:
+        return "resume_running", run_id
+    if any(token in text for token in ("停止", "终止")) or "stop" in lower:
+        return "stop", run_id
+    if any(token in text for token in ("重新加载脚本", "刷新脚本")) or "reload" in lower:
+        return "reload", run_id
+    if "rerun" in lower or any(token in text for token in ("复跑", "重跑", "重新运行", "按原脚本再跑")):
+        return "rerun", run_id
+    if "script" in lower or "脚本" in text:
+        return "script", run_id
+    if any(token in text for token in ("查看", "显示", "打开", "看看")) or "show" in lower:
+        return "show", run_id
+    return None
+
+
+def _split_workflow_name_args(name_part: str, rest: str) -> tuple[str, str]:
+    if rest:
+        return name_part.strip(), rest
+    pieces = name_part.strip().split(maxsplit=1)
+    if not pieces:
+        return "", ""
+    return pieces[0], pieces[1] if len(pieces) > 1 else ""
+
+
+def _run_workflow_background(
+    runtime: WorkflowExecutor,
+    messages: list[dict[str, Any]],
+    system_prompt: str,
+    model_name: str = "",
+    provider_name: str = "",
+) -> dict[str, Any]:
+    from utils.progress import report_progress
+
+    started_at = time.monotonic()
+    final_text = ""
+    usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
+    events: list[dict[str, Any]] = []
+    run_id = ""
+    workflow_name = ""
+    try:
+        for event in runtime.run_stream(messages, system_prompt):
+            event_type = str(event.get("type", ""))
+            events.append(_workflow_bg_event_summary(event))
+            if event_type in {"workflow_plan", "workflow_start"}:
+                run_id = str(event.get("run_id", "")) or run_id
+                workflow_name = str(event.get("workflow", "")) or workflow_name
+                report_progress("workflow running", run_id, -1.0)
+            elif event_type == "workflow_phase_start":
+                report_progress(f"phase {event.get('phase', '')}", "running", -1.0)
+            elif event_type == "workflow_step_start":
+                step = event.get("step", {})
+                report_progress(str(step.get("agent", "agent")), str(step.get("title", ""))[:80], -1.0)
+            elif event_type == "workflow_step_done":
+                step = event.get("step", {})
+                report_progress(str(step.get("agent", "agent")), str(step.get("summary", ""))[:80], -1.0)
+            elif event_type == "done":
+                final_text = str(event.get("text", ""))
+                usage = event.get("usage", usage)
+    except Exception as exc:
+        run_id = run_id or (runtime.run.run_id if runtime.run else "")
+        return {"workflow_run_id": run_id, "error": str(exc), "events": events[-40:]}
+    if runtime.run:
+        run_id = run_id or runtime.run.run_id
+        workflow_name = workflow_name or runtime.run.workflow
+    return {
+        "workflow_run_id": run_id,
+        "workflow": workflow_name,
+        "final_text": final_text,
+        "usage": usage,
+        "elapsed": time.monotonic() - started_at,
+        "events": events[-40:],
+        "model_name": model_name,
+        "provider_name": provider_name,
+    }
+
+
+def _workflow_bg_event_summary(event: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {"type": event.get("type", "")}
+    for key in ("run_id", "workflow", "phase", "status"):
+        if event.get(key):
+            payload[key] = event.get(key)
+    step = event.get("step")
+    if isinstance(step, dict):
+        payload["step"] = {
+            "title": step.get("title", ""),
+            "agent": step.get("agent", ""),
+            "status": step.get("status", ""),
+            "summary": step.get("summary", ""),
+        }
+    return payload
 
 
 def _compaction_panel(event: dict[str, Any]):
@@ -533,7 +775,11 @@ class BackgroundTaskPanel(Static):
             m, s = divmod(int(time.monotonic() - t.submitted_at), 60)
             stage = t.current_stage or "准备中"
             detail = f" · {t.current_detail}" if t.current_detail else ""
-            name = TOOL_DISPLAY_NAMES.get(t.tool_name, t.tool_name)
+            name = (
+                "dynamic workflow"
+                if t.tool_name == "dynamic_workflow"
+                else TOOL_DISPLAY_NAMES.get(t.tool_name, t.tool_name)
+            )
             lines.append(
                 f"  ⟳ {name}  {stage}{detail}    [{m}m{s:02d}s]" if m else f"  ⟳ {name}  {stage}{detail}    [{s}s]"
             )
@@ -903,6 +1149,8 @@ class WyckoffTUI(App):
         self._cancel_event = threading.Event()
         self._last_ctrl_c: float = 0.0
         self._queue: deque[str] = deque()
+        self._workflow_override: _WorkflowOverride | None = None
+        self._pending_workflows: dict[str, _PendingWorkflowLaunch] = {}
         self._session_id = uuid.uuid4().hex[:12]
         self._agent_log = _get_agent_logger()
         # 后台任务管理
@@ -1171,6 +1419,9 @@ class WyckoffTUI(App):
             self._handle_command(text)
             return
 
+        if self._handle_workflow_control_text(text, log):
+            return
+
         if not self._provider:
             log.write(Text.from_markup("[yellow]⚠ 未配置模型，请先输入 /model add[/yellow]"))
             return
@@ -1264,7 +1515,7 @@ class WyckoffTUI(App):
                 "  /token   — Token 用量\n"
                 "  /changelog— 版本更新日志\n"
                 "  /prompt  — Prompt 模板（list/show/<name>）\n"
-                "  /workflow— 最近动态 workflow\n"
+                "  /workflow— workflow（approve/reload/restart/pause/stop/save/run）\n"
                 "  /schedule— 定时任务（list/add/rm/on/off）\n"
                 "  /resume  — 恢复历史对话\n"
                 "  /fork    — 分叉当前会话\n"
@@ -1354,6 +1605,7 @@ class WyckoffTUI(App):
     def _try_skill(self, raw: str, log) -> None:
         from cli.prompt_templates import load_prompt_templates
         from cli.skills import load_skills
+        from cli.workflows.saved import load_saved_workflow
 
         templates = load_prompt_templates()
         skills = load_skills()
@@ -1364,6 +1616,8 @@ class WyckoffTUI(App):
             self._execute_skill(cmd_name, user_input)
         elif cmd_name in templates:
             self._execute_prompt_template(cmd_name, user_input)
+        elif load_saved_workflow(cmd_name):
+            self._run_saved_workflow(cmd_name, user_input, log)
         else:
             log.write(Text.from_markup(f"[red]未知命令: {raw}[/red]，/help 查看"))
 
@@ -1386,34 +1640,482 @@ class WyckoffTUI(App):
         """命令面板调用 skill 入口。"""
         self._execute_skill(name)
 
+    def action_run_saved_workflow(self, name: str) -> None:
+        log = self.query_one("#chat-log", ChatLog)
+        self._run_saved_workflow(name, "", log)
+
     # ----- Prompt Templates -----
 
     def _handle_workflow_cmd(self, raw: str, log) -> None:
-        parts = raw.strip().split(maxsplit=2)
-        if len(parts) >= 3 and parts[1] == "resume":
-            self._resume_workflow(parts[2].strip(), log)
+        parts = raw.strip().split(maxsplit=3)
+        sub = parts[1].lower() if len(parts) >= 2 else "list"
+        target = parts[2].strip() if len(parts) >= 3 else ""
+        if sub in {"resume", "continue"}:
+            if self._resume_running_workflow(target, log, quiet_missing=True):
+                return
+            self._resume_workflow(target, log)
+            return
+        if sub in {"show", "open"}:
+            self._show_workflow_detail(target, log)
+            return
+        if sub in {"script", "json"}:
+            self._show_workflow_script(target, log)
+            return
+        if sub == "events":
+            self._show_workflow_events(target, log)
+            return
+        if sub == "agent":
+            self._show_workflow_agent_detail(target, parts[3].strip() if len(parts) >= 4 else "", log)
+            return
+        if sub in {"rerun", "replay"}:
+            self._rerun_workflow(target, log)
+            return
+        if sub in {"approve", "yes"}:
+            self._approve_workflow(target, log)
+            return
+        if sub in {"deny", "cancel"}:
+            self._deny_workflow(target, log)
+            return
+        if sub == "pause":
+            self._pause_workflow(target, log)
+            return
+        if sub == "resume-run":
+            self._resume_running_workflow(target, log)
+            return
+        if sub == "stop":
+            self._stop_workflow(target, log)
+            return
+        if sub == "status":
+            self._show_workflow_runtime_status(log)
+            return
+        if sub == "reload":
+            self._reload_pending_workflow_script(target, log)
+            return
+        if sub == "restart":
+            self._restart_workflow_step(target, parts[3].strip() if len(parts) >= 4 else "", log)
+            return
+        if sub == "save":
+            self._save_workflow_command(target, parts[3].strip() if len(parts) >= 4 else "", log)
+            return
+        if sub == "run":
+            name, args = _split_workflow_name_args(target, parts[3].strip() if len(parts) >= 4 else "")
+            self._run_saved_workflow(name, args, log)
+            return
+        if sub.startswith("wf_"):
+            self._show_workflow_detail(sub, log)
             return
         self._show_workflows()
 
+    def _handle_workflow_control_text(self, text: str, log) -> bool:
+        intent = _workflow_control_intent(text)
+        if not intent:
+            return False
+        action, run_id = intent
+        if action == "rerun":
+            self._rerun_workflow(run_id, log)
+            return True
+        if action == "approve":
+            self._approve_workflow(run_id, log)
+            return True
+        if action == "deny":
+            self._deny_workflow(run_id, log)
+            return True
+        if action == "pause":
+            self._pause_workflow(run_id, log)
+            return True
+        if action == "resume_running":
+            self._resume_running_workflow(run_id, log)
+            return True
+        if action == "stop":
+            self._stop_workflow(run_id, log)
+            return True
+        if action == "reload":
+            self._reload_pending_workflow_script(run_id, log)
+            return True
+        log.write(Text.from_markup(f"[bold cyan]❯[/bold cyan] {escape(text)}"))
+        if action == "script":
+            self._show_workflow_script(run_id, log)
+            return True
+        self._show_workflow_detail(run_id, log)
+        return True
+
     def _resume_workflow(self, run_id: str, log) -> None:
         from cli.workflows.resume import build_resume_prompt
-        from cli.workflows.store import get_workflow_run
 
-        run = get_workflow_run(run_id)
+        run = self._load_workflow_run(run_id, log)
         if not run:
-            log.write(Text.from_markup(f"[red]未找到 workflow: {escape(run_id)}[/red]"))
             return
         self._send_message(build_resume_prompt(run))
 
+    def _show_workflow_detail(self, run_id: str, log) -> None:
+        run = self._load_workflow_run(run_id, log)
+        if not run:
+            return
+        script = _workflow_script(run)
+        lines = [
+            "\n[bold]Workflow[/bold] "
+            f"[cyan]{escape(str(run.get('run_id', '')))}[/cyan] "
+            f"{escape(str(run.get('status', '')))} {escape(str(run.get('label', '')))}",
+            f"  [dim]原始请求：{escape(str(run.get('user_text', ''))[:120])}[/dim]",
+        ]
+        if script.get("title"):
+            lines.append(f"  动态脚本：{escape(str(script.get('title')))}")
+        if script.get("rationale"):
+            lines.append(f"  [dim]编排理由：{escape(str(script.get('rationale'))[:180])}[/dim]")
+        runtime = script.get("runtime", {}) if isinstance(script.get("runtime"), dict) else {}
+        if runtime.get("script_path"):
+            lines.append(f"  [dim]脚本文件：{escape(str(runtime.get('script_path')))}[/dim]")
+        for phase in script.get("phases", []):
+            if not isinstance(phase, dict):
+                continue
+            lines.append(f"  [bold]{escape(str(phase.get('title') or phase.get('id') or 'phase'))}[/bold]")
+            for task in phase.get("tasks", []):
+                if isinstance(task, dict):
+                    title = escape(str(task.get("title") or task.get("id") or "task"))
+                    agent = escape(str(task.get("agent") or "agent"))
+                    step_id = escape(str(task.get("id") or title))
+                    lines.append(f"    - [dim]{step_id}[/dim] {agent} · {title}")
+        log.write(Text.from_markup("\n".join(lines)))
+
+    def _show_workflow_script(self, run_id: str, log) -> None:
+        run = self._load_workflow_run(run_id, log)
+        if not run:
+            return
+        script = _workflow_script(run)
+        if not script:
+            log.write(Text.from_markup(f"[yellow]workflow {escape(str(run.get('run_id', '')))} 没有保存脚本[/yellow]"))
+            return
+        body = json.dumps(script, ensure_ascii=False, indent=2, default=str)
+        log.write(Markdown(f"```json\n{body}\n```"))
+
+    def _show_workflow_events(self, run_id: str, log) -> None:
+        from cli.workflows.store import load_workflow_events
+
+        run = self._load_workflow_run(run_id, log)
+        if not run:
+            return
+        rows = load_workflow_events(str(run.get("run_id", "")), limit=80)
+        if not rows:
+            log.write(Text.from_markup(f"[dim]暂无 workflow 事件: {escape(str(run.get('run_id', '')))}[/dim]"))
+            return
+        lines = [f"\n[bold]Workflow events[/bold] [cyan]{escape(str(run.get('run_id', '')))}[/cyan]"]
+        for row in rows[-40:]:
+            payload = row.get("payload", {})
+            step = payload.get("step", {}) if isinstance(payload, dict) else {}
+            detail = f" · {step.get('step_id', '')} {step.get('status', '')}" if isinstance(step, dict) else ""
+            lines.append(
+                f"  [dim]{escape(str(row.get('created_at', ''))[:19])}[/dim] "
+                f"{escape(str(row.get('event_type', '')))}{escape(detail)}"
+            )
+        log.write(Text.from_markup("\n".join(lines)))
+
+    def _show_workflow_agent_detail(self, run_id: str, step_id: str, log) -> None:
+        if not run_id or not step_id:
+            log.write(Text.from_markup("[yellow]用法: /workflow agent <run_id> <step_id>[/yellow]"))
+            return
+        from cli.workflows.store import load_workflow_events
+
+        rows = load_workflow_events(run_id, limit=500)
+        detail = _workflow_agent_detail_from_events(rows, step_id)
+        if not detail:
+            log.write(Text.from_markup(f"[yellow]未找到 agent detail: {escape(run_id)} {escape(step_id)}[/yellow]"))
+            return
+        body = (
+            f"# {detail.get('title', step_id)}\n\n"
+            f"- agent: `{detail.get('agent', '')}`\n"
+            f"- status: `{detail.get('status', '')}`\n"
+            f"- elapsed: `{detail.get('elapsed', 0)}`\n"
+            f"- tool_calls: `{', '.join(str(item) for item in detail.get('tool_calls', [])) or '-'}`\n\n"
+            "## Prompt\n\n"
+            f"{detail.get('prompt', '') or '-'}\n\n"
+            "## Context\n\n"
+            f"{detail.get('context', '') or '-'}\n\n"
+            "## Result\n\n"
+            f"{detail.get('result', '') or detail.get('error', '') or '-'}"
+        )
+        log.write(Markdown(body))
+
+    def _rerun_workflow(self, run_id: str, log) -> None:
+        if self._busy:
+            log.write(Text.from_markup("[yellow]当前 agent 正在运行，完成后再复跑 workflow[/yellow]"))
+            return
+        run = self._load_workflow_run(run_id, log)
+        if not run:
+            return
+        script = _workflow_script(run)
+        if not script:
+            log.write(
+                Text.from_markup(f"[yellow]workflow {escape(str(run.get('run_id', '')))} 没有可复跑脚本[/yellow]")
+            )
+            return
+        self._workflow_override = _WorkflowOverride(str(run.get("run_id", "")), script, _workflow_context_from_run(run))
+        self._send_message(f"复跑 workflow {run.get('run_id', '')}\n原始请求: {run.get('user_text', '')}")
+
+    def _save_workflow_command(self, run_id: str, name: str, log) -> None:
+        if not name:
+            log.write(Text.from_markup("[yellow]用法: /workflow save <run_id> <name>[/yellow]"))
+            return
+        run = self._load_workflow_run(run_id, log)
+        if not run:
+            return
+        try:
+            from cli.workflows.saved import save_workflow_script
+
+            path = save_workflow_script(name, run)
+        except ValueError as exc:
+            log.write(Text.from_markup(f"[red]保存 workflow 失败: {escape(str(exc))}[/red]"))
+            return
+        log.write(
+            Text.from_markup(
+                f"[green]已保存 workflow[/green] [cyan]/{escape(path.stem)}[/cyan] [dim]{escape(str(path))}[/dim]"
+            )
+        )
+
+    def _run_saved_workflow(self, name: str, args: str, log) -> None:
+        if self._busy:
+            log.write(Text.from_markup("[yellow]当前 agent 正在运行，完成后再运行保存的 workflow[/yellow]"))
+            return
+        if not name:
+            self._show_saved_workflows(log)
+            return
+        from cli.workflows.saved import load_saved_workflow
+
+        saved = load_saved_workflow(name)
+        if not saved:
+            log.write(Text.from_markup(f"[red]未找到保存的 workflow: {escape(name)}[/red]"))
+            return
+        script = saved.get("script", {})
+        if not isinstance(script, dict) or not script:
+            log.write(Text.from_markup(f"[yellow]保存的 workflow {escape(name)} 没有可运行脚本[/yellow]"))
+            return
+        run_like = _workflow_run_from_saved(saved)
+        self._workflow_override = _WorkflowOverride(
+            f"saved:{saved.get('name', name)}", script, _workflow_context_from_run(run_like), args
+        )
+        self._send_message(f"运行 workflow /{saved.get('name', name)}\n参数: {args or '-'}")
+
+    def _show_saved_workflows(self, log) -> None:
+        from cli.workflows.saved import list_saved_workflows
+
+        rows = list_saved_workflows()
+        if not rows:
+            log.write(Text.from_markup("[dim]暂无保存的 workflow[/dim]"))
+            return
+        lines = ["\n[bold]已保存 workflow[/bold] [dim]/workflow run <name> [args][/dim]"]
+        for row in rows:
+            lines.append(f"  [cyan]/{escape(str(row.get('name', '')))}[/cyan] {escape(str(row.get('label', '')))}")
+        log.write(Text.from_markup("\n".join(lines)))
+
+    def _approve_workflow(self, run_id: str, log) -> None:
+        target_id = self._resolve_pending_workflow_id(run_id, log)
+        if not target_id:
+            return
+        pending = self._pending_workflows.pop(target_id)
+        task_id = f"wfbg_{target_id}_{time.time_ns()}"
+        self._launch_workflow_background(
+            pending.runtime,
+            pending.messages,
+            pending.system_prompt,
+            pending.model_name,
+            pending.provider_name,
+            task_id,
+            log.write,
+            lambda: log.scroll_end(animate=False),
+        )
+        log.write(Text.from_markup(f"[green]已批准 workflow[/green] [dim]{escape(target_id)}[/dim]"))
+
+    def _deny_workflow(self, run_id: str, log) -> None:
+        target_id = self._resolve_pending_workflow_id(run_id, log)
+        if not target_id:
+            return
+        self._pending_workflows.pop(target_id, None)
+        from cli.workflows.models import STOPPED
+        from cli.workflows.store import append_workflow_event, set_workflow_status
+
+        set_workflow_status(target_id, STOPPED, "用户取消 workflow")
+        append_workflow_event(target_id, "workflow_denied", {"type": "workflow_denied", "run_id": target_id})
+        log.write(Text.from_markup(f"[yellow]已取消 workflow[/yellow] [dim]{escape(target_id)}[/dim]"))
+
+    def _pause_workflow(self, run_id: str, log) -> None:
+        target_id = self._resolve_active_workflow_id(run_id, log)
+        if not target_id:
+            return
+        from cli.workflows.control import get_workflow_control
+        from cli.workflows.models import PAUSED
+        from cli.workflows.store import append_workflow_event, set_workflow_status
+
+        control = get_workflow_control(target_id)
+        if not control:
+            log.write(Text.from_markup(f"[yellow]workflow 不在运行中: {escape(target_id)}[/yellow]"))
+            return
+        control.pause()
+        set_workflow_status(target_id, PAUSED)
+        append_workflow_event(target_id, "workflow_paused", {"type": "workflow_paused", "run_id": target_id})
+        log.write(Text.from_markup(f"[yellow]已暂停 workflow[/yellow] [dim]{escape(target_id)}[/dim]"))
+
+    def _resume_running_workflow(self, run_id: str, log, *, quiet_missing: bool = False) -> bool:
+        target_id = self._resolve_active_workflow_id(run_id, log if not quiet_missing else None)
+        if not target_id:
+            return False
+        from cli.workflows.control import get_workflow_control
+        from cli.workflows.models import RUNNING
+        from cli.workflows.store import append_workflow_event, set_workflow_status
+
+        control = get_workflow_control(target_id)
+        if not control:
+            if not quiet_missing:
+                log.write(Text.from_markup(f"[yellow]workflow 不在运行中: {escape(target_id)}[/yellow]"))
+            return False
+        control.resume()
+        set_workflow_status(target_id, RUNNING)
+        append_workflow_event(target_id, "workflow_resumed", {"type": "workflow_resumed", "run_id": target_id})
+        log.write(Text.from_markup(f"[green]已恢复 workflow[/green] [dim]{escape(target_id)}[/dim]"))
+        return True
+
+    def _stop_workflow(self, run_id: str, log) -> None:
+        target_id = self._resolve_active_workflow_id(run_id, log)
+        if not target_id:
+            return
+        from cli.workflows.control import get_workflow_control
+        from cli.workflows.models import STOPPED
+        from cli.workflows.store import append_workflow_event, set_workflow_status
+
+        control = get_workflow_control(target_id)
+        if not control:
+            log.write(Text.from_markup(f"[yellow]workflow 不在运行中: {escape(target_id)}[/yellow]"))
+            return
+        control.stop()
+        set_workflow_status(target_id, STOPPED, "用户停止 workflow")
+        append_workflow_event(
+            target_id, "workflow_stop_requested", {"type": "workflow_stop_requested", "run_id": target_id}
+        )
+        log.write(Text.from_markup(f"[red]已请求停止 workflow[/red] [dim]{escape(target_id)}[/dim]"))
+
+    def _reload_pending_workflow_script(self, run_id: str, log) -> None:
+        target_id = self._resolve_pending_workflow_id(run_id, log)
+        if not target_id:
+            return
+        pending = self._pending_workflows[target_id]
+        script_path = _workflow_script_path(pending.runtime.run)
+        if not script_path:
+            log.write(Text.from_markup(f"[yellow]workflow {escape(target_id)} 没有可 reload 的脚本文件[/yellow]"))
+            return
+        try:
+            from cli.workflows.store import load_workflow_script_payload
+
+            event = pending.runtime.replace_prepared_script(load_workflow_script_payload(script_path))
+        except Exception as exc:
+            log.write(Text.from_markup(f"[red]reload workflow script 失败: {escape(str(exc))}[/red]"))
+            return
+        _display_workflow_plan_event(event, log.write, lambda: log.scroll_end(animate=False))
+        log.write(Text.from_markup(f"[green]已从脚本文件 reload[/green] [dim]{escape(script_path)}[/dim]"))
+
+    def _restart_workflow_step(self, run_id: str, raw_step_and_args: str, log) -> None:
+        step_id, args = _split_workflow_name_args(raw_step_and_args, "")
+        if not run_id or not step_id:
+            log.write(Text.from_markup("[yellow]用法: /workflow restart <run_id> <step_id> [args][/yellow]"))
+            return
+        run = self._load_workflow_run(run_id, log)
+        if not run:
+            return
+        if not _workflow_has_step(run, step_id):
+            log.write(Text.from_markup(f"[red]workflow {escape(run_id)} 没有 task: {escape(step_id)}[/red]"))
+            return
+        script = _workflow_script(run)
+        if not script:
+            log.write(Text.from_markup(f"[yellow]workflow {escape(run_id)} 没有可重启脚本[/yellow]"))
+            return
+        self._workflow_override = _WorkflowOverride(run_id, script, _workflow_context_from_run(run), args, step_id)
+        self._send_message(f"重启 workflow {run_id} 的 task {step_id}\n参数: {args or '-'}")
+
+    def _show_workflow_runtime_status(self, log) -> None:
+        from cli.workflows.control import active_workflow_ids, get_workflow_control
+
+        pending = sorted(self._pending_workflows)
+        active = active_workflow_ids()
+        if not pending and not active:
+            log.write(Text.from_markup("[dim]暂无 pending/running workflow[/dim]"))
+            return
+        lines = ["\n[bold]Workflow runtime[/bold]"]
+        for run_id in pending:
+            lines.append(f"  [yellow]pending[/yellow] {escape(run_id)}")
+        for run_id in active:
+            control = get_workflow_control(run_id)
+            status = "paused" if control and control.paused() else "running"
+            lines.append(f"  [cyan]{escape(status)}[/cyan] {escape(run_id)}")
+        log.write(Text.from_markup("\n".join(lines)))
+
+    def _resolve_pending_workflow_id(self, run_id: str, log) -> str:
+        target_id = run_id.strip()
+        if target_id:
+            if target_id not in self._pending_workflows:
+                log.write(Text.from_markup(f"[red]未找到待批准 workflow: {escape(target_id)}[/red]"))
+                return ""
+            return target_id
+        if len(self._pending_workflows) == 1:
+            return next(iter(self._pending_workflows))
+        if not self._pending_workflows:
+            log.write(Text.from_markup("[dim]暂无待批准 workflow[/dim]"))
+            return ""
+        log.write(Text.from_markup("[yellow]存在多个待批准 workflow，请指定 run_id[/yellow]"))
+        return ""
+
+    def _resolve_active_workflow_id(self, run_id: str, log) -> str:
+        from cli.workflows.control import active_workflow_ids
+
+        target_id = run_id.strip()
+        active = active_workflow_ids()
+        if target_id:
+            return target_id
+        if len(active) == 1:
+            return active[0]
+        if not active:
+            if log:
+                log.write(Text.from_markup("[dim]暂无运行中 workflow[/dim]"))
+            return ""
+        if log:
+            log.write(Text.from_markup("[yellow]存在多个运行中 workflow，请指定 run_id[/yellow]"))
+        return ""
+
+    def _load_workflow_run(self, run_id: str, log) -> dict[str, Any] | None:
+        from cli.workflows.store import get_workflow_run, list_workflow_runs
+
+        target_id = run_id.strip()
+        if not target_id:
+            rows = list_workflow_runs(limit=1)
+            if not rows:
+                log.write(Text.from_markup("[dim]暂无 workflow 记录[/dim]"))
+                return None
+            target_id = str(rows[0].get("run_id", ""))
+        run = get_workflow_run(target_id)
+        if not run:
+            log.write(Text.from_markup(f"[red]未找到 workflow: {escape(target_id)}[/red]"))
+            return None
+        return run
+
     def _show_workflows(self) -> None:
+        from cli.workflows.control import active_workflow_ids
         from cli.workflows.store import list_workflow_runs
 
         log = self.query_one("#chat-log", ChatLog)
         rows = list_workflow_runs(limit=8)
-        if not rows:
+        active = active_workflow_ids()
+        if not rows and not self._pending_workflows and not active:
             log.write(Text.from_markup("[dim]暂无 workflow 记录[/dim]"))
             return
-        lines = ["\n[bold]最近 workflow[/bold]"]
+        lines = [
+            "\n[bold]最近 workflow[/bold] "
+            "[dim]/workflow approve|reload|pause|resume|stop|show|script|events <id> · "
+            "/workflow agent <id> <task_id> · "
+            "/workflow restart <id> <task_id> · "
+            "/workflow save <id> <name> · /workflow run <name>[/dim]"
+        ]
+        if self._pending_workflows:
+            lines.append(
+                "  [yellow]pending approval[/yellow] " + ", ".join(escape(run_id) for run_id in self._pending_workflows)
+            )
+        if active:
+            lines.append("  [cyan]active[/cyan] " + ", ".join(escape(run_id) for run_id in active))
         for row in rows:
             lines.append(
                 f"  [cyan]{row['run_id']}[/cyan] {row['status']} {row['label']} "
@@ -2194,6 +2896,152 @@ class WyckoffTUI(App):
         )
         self._drop_current_turn_messages()
 
+    def _submit_workflow_background(
+        self,
+        runtime: WorkflowExecutor,
+        state: _TurnRunState,
+        system_prompt: str,
+        write,
+        scroll,
+    ) -> bool:
+        task_id = f"wfbg_{time.time_ns()}"
+        messages_snapshot = [dict(item) for item in self._messages]
+        self._restore_turn_user_message(state.turn_user_index)
+        self._chatlog_save("user", state.user_text, model=state.model_name, provider=state.provider_name)
+        ack = "workflow 已提交后台运行；可继续聊天，用 /workflow 查看进度。"
+        self._messages.append({"role": "assistant", "content": ack})
+        self._chatlog_save(
+            "assistant",
+            ack,
+            model=state.model_name,
+            provider=state.provider_name,
+            metadata_json=json.dumps({"workflow_background": True}, ensure_ascii=False),
+        )
+        self._launch_workflow_background(
+            runtime,
+            messages_snapshot,
+            system_prompt,
+            state.model_name,
+            state.provider_name,
+            task_id,
+            write,
+            scroll,
+        )
+        return True
+
+    def _prepare_workflow_approval(
+        self,
+        runtime: WorkflowExecutor,
+        state: _TurnRunState,
+        system_prompt: str,
+        write,
+        scroll,
+    ) -> bool:
+        event = runtime.prepare_run()
+        run_id = str(event.get("run_id", ""))
+        self._restore_turn_user_message(state.turn_user_index)
+        self._chatlog_save("user", state.user_text, model=state.model_name, provider=state.provider_name)
+        _display_workflow_plan_event(event, write, scroll)
+        messages_snapshot = [dict(item) for item in self._messages]
+        self._pending_workflows[run_id] = _PendingWorkflowLaunch(
+            runtime=runtime,
+            messages=messages_snapshot,
+            system_prompt=system_prompt,
+            model_name=state.model_name,
+            provider_name=state.provider_name,
+        )
+        ack = f"workflow {run_id} 等待批准。使用 /workflow approve {run_id} 运行，/workflow deny {run_id} 取消。"
+        self._messages.append({"role": "assistant", "content": ack})
+        self._chatlog_save(
+            "assistant",
+            ack,
+            model=state.model_name,
+            provider=state.provider_name,
+            metadata_json=json.dumps(
+                {"workflow_pending_approval": True, "workflow_run_id": run_id}, ensure_ascii=False
+            ),
+        )
+        write(Text.from_markup(f"  [yellow]等待批准[/yellow] [dim]/workflow approve {escape(run_id)}[/dim]"))
+        scroll()
+        return True
+
+    def _launch_workflow_background(
+        self,
+        runtime: WorkflowExecutor,
+        messages_snapshot: list[dict[str, Any]],
+        system_prompt: str,
+        model_name: str,
+        provider_name: str,
+        task_id: str,
+        write,
+        scroll,
+    ) -> None:
+        run_id = runtime.run.run_id if runtime.run else ""
+        if run_id:
+            from cli.workflows.control import register_workflow_control
+
+            runtime.set_control(register_workflow_control(run_id))
+        self._bg_manager.submit(
+            task_id,
+            "dynamic_workflow",
+            _run_workflow_background,
+            {
+                "runtime": runtime,
+                "messages": messages_snapshot,
+                "system_prompt": system_prompt,
+                "model_name": model_name,
+                "provider_name": provider_name,
+            },
+            on_complete=self._on_bg_complete,
+        )
+        write(Text.from_markup(f"  [cyan]↗ dynamic workflow[/cyan] [dim]后台运行中，任务 {task_id}[/dim]"))
+        scroll()
+
+    def _complete_workflow_background(self, task_id: str, result: dict[str, Any]) -> None:
+        from cli.workflows.control import unregister_workflow_control
+
+        log = self.query_one("#chat-log", ChatLog)
+        is_error = bool(result.get("error"))
+        run_id = str(result.get("workflow_run_id", ""))
+        if run_id:
+            unregister_workflow_control(run_id)
+        if is_error:
+            log.write(
+                Text.from_markup(
+                    f"  [red]✗ workflow 后台失败[/red] [dim]{escape(str(result.get('error', ''))[:100])}[/dim]"
+                )
+            )
+            return
+        final_text = str(result.get("final_text", "") or "workflow 已完成，但没有生成最终文本。")
+        log.write(Text.from_markup(f"  [green]✓ workflow 后台完成[/green] [dim]{escape(run_id or task_id)}[/dim]"))
+        log.write(Markdown(final_text))
+        self._messages.append({"role": "assistant", "content": final_text})
+        usage = result.get("usage", {}) if isinstance(result.get("usage"), dict) else {}
+        tokens_in = int(usage.get("input_tokens", 0) or 0)
+        tokens_out = int(usage.get("output_tokens", 0) or 0)
+        self._session_tokens["input"] += tokens_in
+        self._session_tokens["output"] += tokens_out
+        self._session_tokens["rounds"] += 1
+        self._update_status()
+        self._chatlog_save(
+            "assistant",
+            final_text,
+            model=str(result.get("model_name", "")),
+            provider=str(result.get("provider_name", "")),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            elapsed_s=float(result.get("elapsed", 0.0) or 0.0),
+            metadata_json=json.dumps(
+                {
+                    "workflow": result.get("workflow", ""),
+                    "workflow_run_id": run_id,
+                    "background_task_id": task_id,
+                    "events": result.get("events", []),
+                },
+                ensure_ascii=False,
+            ),
+        )
+
     def _handle_agent_event(
         self,
         event: dict[str, Any],
@@ -2210,6 +3058,8 @@ class WyckoffTUI(App):
 
         if event_type == "workflow_plan":
             state.workflow_run_id, state.workflow_name = _display_workflow_plan_event(event, ui.write, ui.scroll)
+        elif event_type in {"workflow_phase_start", "workflow_phase_done"}:
+            _display_workflow_phase_event(event, ui.write, ui.scroll)
         elif event_type in {"workflow_step_start", "workflow_step_done"}:
             _display_workflow_step_event(event, ui.write, ui.scroll)
         elif event_type in {"workflow_done", "thinking_delta"}:
@@ -2320,6 +3170,8 @@ class WyckoffTUI(App):
             )
             self._tools._tool_context.cancel_check = self._cancel_event.is_set
 
+            workflow_override = self._workflow_override
+            self._workflow_override = None
             runtime, workflow_context = build_turn_runtime(
                 self._provider,
                 self._tools,
@@ -2327,8 +3179,18 @@ class WyckoffTUI(App):
                 user_text=state.user_text,
                 scratchpad=state.scratchpad,
                 cancel_check=self._cancel_event.is_set,
+                workflow_context=workflow_override.context if workflow_override else None,
+                workflow_script=workflow_override.script if workflow_override else None,
+                workflow_source_run_id=workflow_override.source_run_id if workflow_override else "",
+                workflow_args=workflow_override.args if workflow_override else None,
+                workflow_only_step_id=workflow_override.only_step_id if workflow_override else "",
             )
             state.workflow_name = "" if workflow_context.is_general else workflow_context.name
+            system_prompt = with_current_time(self._system_prompt)
+            if isinstance(runtime, WorkflowExecutor):
+                ui.spinner_stop()
+                self._prepare_workflow_approval(runtime, state, system_prompt, _write, _scroll)
+                return
             for event in runtime.run_stream(self._messages, with_current_time(self._system_prompt)):
                 if self._cancel_event.is_set():
                     self._handle_cancelled_agent_turn(stream, ui)
@@ -2366,6 +3228,24 @@ class WyckoffTUI(App):
     def _on_bg_complete(self, task_id: str, tool_name: str, result) -> None:
         """后台任务完成，注入结果到消息队列。"""
         from cli.tools import TOOL_DISPLAY_NAMES
+
+        if tool_name == "dynamic_workflow":
+            try:
+                from integrations.local_db import save_background_task_result
+
+                save_background_task_result(
+                    task_id,
+                    tool_name,
+                    result,
+                    session_id=self._session_id,
+                    status="failed" if isinstance(result, dict) and result.get("error") else "completed",
+                )
+            except Exception:
+                logger.debug("save background workflow result failed", exc_info=True)
+            self.call_from_thread(
+                self._complete_workflow_background, task_id, result if isinstance(result, dict) else {}
+            )
+            return
 
         display = TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
         is_error = isinstance(result, dict) and result.get("error")

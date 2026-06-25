@@ -22,11 +22,15 @@ def build_turn_runtime(
     cancel_check: Callable[[], bool] | None = None,
     stream_chunk_timeout: float | None = None,
     workflow_context: WorkflowContext | None = None,
+    workflow_script: dict[str, Any] | None = None,
+    workflow_source_run_id: str = "",
+    workflow_args: Any = None,
+    workflow_only_step_id: str = "",
 ) -> tuple[Any, WorkflowContext]:
     """Return direct runtime for general chat, workflow executor for task turns."""
 
     workflow = workflow_context or route_workflow(user_text)
-    if workflow.is_general:
+    if workflow.is_general and not workflow_script:
         kwargs: dict[str, Any] = {"scratchpad": scratchpad, "cancel_check": cancel_check}
         if stream_chunk_timeout is not None:
             kwargs["stream_chunk_timeout"] = stream_chunk_timeout
@@ -41,6 +45,10 @@ def build_turn_runtime(
             cancel_check=cancel_check,
             stream_chunk_timeout=stream_chunk_timeout,
             workflow_context=workflow,
+            workflow_script=workflow_script,
+            source_run_id=workflow_source_run_id,
+            workflow_args=workflow_args,
+            only_step_id=workflow_only_step_id,
         ),
         workflow,
     )

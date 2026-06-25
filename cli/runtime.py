@@ -598,6 +598,7 @@ class AgentRuntime:
             "type": "workflow_start",
             "workflow": getattr(workflow, "name", ""),
             "label": getattr(workflow, "label", ""),
+            "route": workflow.route_payload() if hasattr(workflow, "route_payload") else {},
             "allowed_tools": sorted(self.allowed_tools or []),
         }
 

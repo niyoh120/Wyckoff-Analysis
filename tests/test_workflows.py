@@ -20,6 +20,9 @@ def test_route_workflow_selects_backtest():
 
     assert workflow.name == "backtest"
     assert "run_backtest" in workflow.allowed_tools
+    assert workflow.route_reason == "检测到策略回测意图"
+    assert workflow.route_matches == ("回测",)
+    assert workflow.route_confidence > 0
 
 
 def test_route_workflow_selects_stock_diagnosis_for_code():
@@ -27,6 +30,8 @@ def test_route_workflow_selects_stock_diagnosis_for_code():
 
     assert workflow.name == "stock_diagnosis"
     assert "analyze_stock" in workflow.allowed_tools
+    assert "300750" in workflow.route_matches
+    assert "怎么看" in workflow.route_matches
 
 
 def test_build_workflow_prompt_is_empty_for_general_chat():
@@ -34,6 +39,21 @@ def test_build_workflow_prompt_is_empty_for_general_chat():
 
     assert workflow.name == "general_chat"
     assert build_workflow_system_prompt(workflow) == ""
+    assert workflow.route_reason == "未命中任务型 workflow，保持自由对话"
+
+
+def test_route_workflow_explicit_dynamic_opt_in():
+    workflow = route_workflow("用 workflow 帮我研究一下今天的市场风险")
+
+    assert workflow.name == "dynamic_task"
+    assert "delegate_to_research" in workflow.allowed_tools
+    assert workflow.route_reason == "用户显式要求动态 workflow"
+
+
+def test_route_workflow_explaining_workflow_stays_general():
+    workflow = route_workflow("解释一下 workflow 是什么")
+
+    assert workflow.name == "general_chat"
 
 
 def test_dispatch_uses_direct_runtime_for_general_chat():
@@ -64,3 +84,4 @@ def test_route_workflow_resume_uses_original_label():
     workflow = route_workflow("继续 workflow wf_1\n类型: 持仓复盘")
 
     assert workflow.name == "portfolio_review"
+    assert workflow.route_reason == "用户明确要求继续已有 workflow"

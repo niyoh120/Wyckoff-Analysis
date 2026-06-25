@@ -7,11 +7,13 @@ from typing import Any
 
 PENDING = "pending"
 RUNNING = "running"
+PAUSED = "paused"
 COMPLETED = "completed"
 FAILED = "failed"
 SKIPPED = "skipped"
+STOPPED = "stopped"
 
-TERMINAL_STATUSES = {COMPLETED, FAILED, SKIPPED}
+TERMINAL_STATUSES = {COMPLETED, FAILED, SKIPPED, STOPPED}
 
 
 @dataclass(frozen=True)
@@ -22,10 +24,20 @@ class WorkflowContext:
     label: str
     allowed_tools: tuple[str, ...] = ()
     system_hint: str = ""
+    route_reason: str = ""
+    route_confidence: float = 0.0
+    route_matches: tuple[str, ...] = ()
 
     @property
     def is_general(self) -> bool:
         return self.name == "general_chat"
+
+    def route_payload(self) -> dict[str, Any]:
+        return {
+            "reason": self.route_reason,
+            "confidence": round(self.route_confidence, 2),
+            "matches": list(self.route_matches),
+        }
 
 
 @dataclass
@@ -35,6 +47,10 @@ class WorkflowStep:
     step_id: str
     title: str
     tools: tuple[str, ...] = ()
+    agent: str = ""
+    prompt: str = ""
+    context: str = ""
+    phase: str = ""
     status: str = PENDING
     summary: str = ""
     dynamic: bool = False
@@ -44,6 +60,10 @@ class WorkflowStep:
             "step_id": self.step_id,
             "title": self.title,
             "tools": list(self.tools),
+            "agent": self.agent,
+            "prompt": self.prompt,
+            "context": self.context,
+            "phase": self.phase,
             "status": self.status,
             "summary": self.summary,
             "dynamic": self.dynamic,
@@ -55,6 +75,10 @@ class WorkflowStep:
             step_id=str(payload.get("step_id", "")),
             title=str(payload.get("title", "")),
             tools=tuple(payload.get("tools") or ()),
+            agent=str(payload.get("agent", "")),
+            prompt=str(payload.get("prompt", "")),
+            context=str(payload.get("context", "")),
+            phase=str(payload.get("phase", "")),
             status=str(payload.get("status") or PENDING),
             summary=str(payload.get("summary") or ""),
             dynamic=bool(payload.get("dynamic")),
@@ -70,6 +94,7 @@ class WorkflowRun:
     user_text: str
     context: WorkflowContext
     steps: list[WorkflowStep] = field(default_factory=list)
+    script: dict[str, Any] = field(default_factory=dict)
     status: str = RUNNING
     current_step: int = 0
     result_summary: str = ""
@@ -91,6 +116,8 @@ class WorkflowRun:
             "workflow": self.workflow,
             "label": self.label,
             "allowed_tools": list(self.allowed_tools),
+            "route": self.context.route_payload(),
+            "script": self.script,
             "steps": [step.to_dict() for step in self.steps],
         }
 

@@ -17,6 +17,16 @@ def _template_commands() -> list[tuple[str, str, str]]:
     return [(f"/{t.name}", f"run_template('{t.name}')", t.description) for t in load_prompt_templates().values()]
 
 
+def _saved_workflow_commands() -> list[tuple[str, str, str]]:
+    from cli.workflows.saved import list_saved_workflows
+
+    return [
+        (f"/{row.get('name', '')}", f"run_saved_workflow('{row.get('name', '')}')", row.get("label", "saved workflow"))
+        for row in list_saved_workflows()
+        if row.get("name")
+    ]
+
+
 class WyckoffCommands(Provider):
     """Wyckoff CLI 命令面板。"""
 
@@ -35,12 +45,13 @@ class WyckoffCommands(Provider):
                 ("退出登录", "do_logout", "退出当前账号"),
                 ("Token 用量", "show_token", "查看本次会话 Token 用量"),
                 ("Prompt 模板", "show_prompt_templates", "查看可复用投研 Prompt 模板"),
-                ("Workflow 记录", "show_workflows", "查看最近动态 workflow"),
+                ("Workflow 记录", "show_workflows", "批准/编辑/重启/保存动态 workflow"),
                 ("切换主题", "switch_theme", "切换终端配色主题"),
                 ("退出", "quit", "退出程序"),
             ]
             + _skill_commands()
             + _template_commands()
+            + _saved_workflow_commands()
         )
         matcher = self.matcher(query)
         for name, action, help_text in commands:
@@ -68,11 +79,12 @@ class WyckoffCommands(Provider):
                 ("切换主题", "switch_theme", ""),
                 ("Token 用量", "show_token", "/token"),
                 ("Prompt 模板", "show_prompt_templates", "/prompt"),
-                ("Workflow 记录", "show_workflows", "/workflow"),
+                ("Workflow 记录", "show_workflows", "/workflow approve|reload|restart|pause|stop|save|run"),
                 ("退出", "quit", "Ctrl+Q"),
             ]
             + _skill_commands()
             + _template_commands()
+            + _saved_workflow_commands()
         )
         for name, action, help_text in commands:
             yield Hit(1.0, name, partial=action, help=help_text)
