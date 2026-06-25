@@ -51,10 +51,7 @@ def modern_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
         build_symbol_report_row(
             code,
             rank=idx + 1,
-            tag=(
-                f"{'战略L2旁路' if code in ctx.strategic_l2_bypass_set else 'L2旁路观察' if code in ctx.l2_bypass_set else str(ctx.l2_channel_map.get(code, '')).strip()} | "
-                f"{candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map)}"
-            ),
+            tag=f"{_source_tag(ctx, code)} | {candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map)}",
             track=selected_track(selection, code),
             stage=stage_name(ctx, code),
             score=display_score(ctx, selection, code),
@@ -66,6 +63,16 @@ def modern_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
         )
         for idx, code in enumerate(selection.selected_for_ai)
     ]
+
+
+def _source_tag(ctx: Any, code: str) -> str:
+    if code in getattr(ctx, "mainline_candidate_set", set()):
+        return "主线买点确认"
+    if code in ctx.strategic_l2_bypass_set:
+        return "战略L2旁路"
+    if code in ctx.l2_bypass_set:
+        return "L2旁路观察"
+    return str(ctx.l2_channel_map.get(code, "")).strip() or "正式候选"
 
 
 def funnel_run_details(
@@ -97,6 +104,10 @@ def funnel_run_details(
         "strategic_l2_bypass_triggers": ctx.strategic_l2_bypass_triggers,
         "strategic_l2_bypass_selected": [c for c in selection.selected_for_ai if c in ctx.strategic_l2_bypass_set],
         "strategic_l2_bypass_budget": FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
+        "mainline_candidates": getattr(ctx, "mainline_candidates", []),
+        "mainline_selected": [
+            c for c in selection.selected_for_ai if c in getattr(ctx, "mainline_candidate_set", set())
+        ],
         "leader_radar_rows": ctx.leader_radar_rows,
         "leader_radar_symbols": sorted(ctx.leader_radar_symbols),
         "candidate_entries": ctx.candidate_entries,
@@ -137,6 +148,8 @@ def legacy_display_score(ctx: Any, code: str) -> float:
 
 
 def legacy_selection_source(ctx: Any, code: str) -> str:
+    if code in getattr(ctx, "mainline_candidate_set", set()):
+        return "mainline"
     if code in ctx.candidate_entry_map:
         return "alpha_candidate"
     if code in ctx.strategic_l2_bypass_set:
@@ -147,6 +160,8 @@ def legacy_selection_source(ctx: Any, code: str) -> str:
 
 
 def selection_source(ctx: Any, code: str) -> str:
+    if code in getattr(ctx, "mainline_candidate_set", set()):
+        return "mainline"
     if code in ctx.candidate_entry_map:
         return "alpha_candidate"
     if code in ctx.strategic_l2_bypass_set:

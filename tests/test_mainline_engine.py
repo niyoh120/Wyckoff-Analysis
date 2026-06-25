@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import pandas as pd
+
+from core.mainline_engine import MainlineEngineConfig, build_mainline_candidates, mainline_candidate_entries
+
+
+def _frame(values: list[float], *, volume_tail: float = 900.0) -> pd.DataFrame:
+    dates = pd.date_range("2025-01-01", periods=len(values), freq="B")
+    volume = [1000.0] * max(len(values) - 5, 0) + [volume_tail] * min(5, len(values))
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "open": [v * 0.99 for v in values],
+            "high": [v * 1.01 for v in values],
+            "low": [v * 0.98 for v in values],
+            "close": values,
+            "volume": volume,
+        }
+    )
+
+
+def _trend_values(days: int = 140) -> list[float]:
+    return [10 + i * 0.05 for i in range(days - 8)] + [16.0, 16.2, 16.4, 16.6, 16.5, 16.4, 16.3, 16.2]
+
+
+def test_mainline_dynamic_theme_can_bypass_l2_but_requires_timing() -> None:
+    candidates = build_mainline_candidates(
+        l1_passed=["000001"],
+        l2_passed=[],
+        concept_map={"000001": ["军工信息化"]},
+        concept_heat=[{"name": "军工信息化", "pct": 5.5, "net_inflow": 900_000_000}],
+        theme_radar={"themes": [{"theme": "军工信息化", "score": 0.72}], "strategic_candidates": []},
+        df_map={"000001": _frame(_trend_values())},
+        financial_map={"000001": {"roe": 12, "debt_to_asset_ratio": 45, "revenue_yoy": 20}},
+        name_map={"000001": "动态主线A"},
+        config=MainlineEngineConfig(),
+    )
+
+    assert candidates[0]["theme"] == "军工信息化"
+    assert candidates[0]["l2_passed"] is False
+    assert candidates[0]["status"] == "可买主线"
+    assert mainline_candidate_entries(candidates, max_count=3)[0]["signal_key"] == "mainline"
+
+
+def test_mainline_blocks_candidate_without_timing_gate() -> None:
+    weak = [10 + i * 0.03 for i in range(120)] + [10.0, 9.8, 9.5, 9.2, 9.1]
+    candidates = build_mainline_candidates(
+        l1_passed=["000002"],
+        l2_passed=[],
+        concept_map={"000002": ["机器人"]},
+        concept_heat=[{"name": "机器人", "pct": 4.0, "net_inflow": 700_000_000}],
+        theme_radar={"themes": [{"theme": "机器人", "score": 0.70}], "strategic_candidates": []},
+        df_map={"000002": _frame(weak)},
+        financial_map={},
+        name_map={},
+        config=MainlineEngineConfig(),
+    )
+
+    assert candidates[0]["status"] == "主线观察"
+    assert mainline_candidate_entries(candidates, max_count=3) == []
+
+
+def test_mainline_overheated_does_not_enter_tradeable_pool() -> None:
+    hot = [10 + i * 0.03 for i in range(110)] + [18 + i * 0.5 for i in range(20)]
+    candidates = build_mainline_candidates(
+        l1_passed=["000003"],
+        l2_passed=["000003"],
+        concept_map={"000003": ["消费电子"]},
+        concept_heat=[{"name": "消费电子", "pct": 7.2, "net_inflow": 1_100_000_000}],
+        theme_radar={"themes": [{"theme": "消费电子", "score": 0.76}], "strategic_candidates": []},
+        df_map={"000003": _frame(hot, volume_tail=2200)},
+        financial_map={},
+        name_map={},
+        config=MainlineEngineConfig(),
+    )
+
+    assert candidates[0]["status"] == "过热不追"
+    assert mainline_candidate_entries(candidates, max_count=3) == []
+
+
+def test_mainline_configured_themes_are_optional_not_default_targets() -> None:
+    cfg = MainlineEngineConfig()
+    assert cfg.themes == ()
+    assert cfg.core_basket == ()

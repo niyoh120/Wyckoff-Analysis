@@ -23,6 +23,7 @@ from workflows.funnel_settings import (
     FUNNEL_BYPASS_DISPLAY_LIMIT,
     FUNNEL_ETF_DISPLAY_LIMIT,
     FUNNEL_L2_BYPASS_AI_CAP,
+    FUNNEL_MAINLINE_DISPLAY_LIMIT,
 )
 
 
@@ -191,6 +192,39 @@ def _append_strategic_bypass_card_section(lines: list[str], ctx: Any, selected_c
         lines.append(f"  ... 另 {omitted} 只略")
 
 
+def _append_mainline_card_section(lines: list[str], ctx: Any, selected_count: int) -> None:
+    if not ctx.mainline_candidates:
+        return
+    lines.append("")
+    lines.append(f"**【🎯 可买主线】{len(ctx.mainline_tradeable)} 只**")
+    lines.append(f"动态主线候选，已过量价买点确认；送AI复核 {selected_count} 只")
+    display_rows = _mainline_display_rows(ctx.mainline_tradeable)
+    if not display_rows:
+        lines.append("  暂无")
+    for item in display_rows:
+        lines.append(_mainline_row(ctx, item))
+    omitted = len(ctx.mainline_tradeable) - len(display_rows)
+    if omitted > 0:
+        lines.append(f"  ... 另 {omitted} 只略")
+    lines.append(f"**主线观察**: {len(ctx.mainline_observe)}只；**过热不追**: {len(ctx.mainline_overheated)}只")
+
+
+def _mainline_display_rows(rows: list[dict]) -> list[dict]:
+    ranked = sorted(rows, key=lambda item: (-float(item.get("mainline_score") or 0.0), str(item.get("code"))))
+    return ranked if FUNNEL_MAINLINE_DISPLAY_LIMIT <= 0 else ranked[:FUNNEL_MAINLINE_DISPLAY_LIMIT]
+
+
+def _mainline_row(ctx: Any, item: dict) -> str:
+    code = str(item.get("code") or "")
+    name = str(item.get("name") or ctx.name_map.get(code) or code)
+    theme = str(item.get("theme") or "")
+    entry = str(item.get("entry_type") or "等待确认")
+    score = float(item.get("mainline_score") or 0.0) * 100.0
+    risk = " / ".join(item.get("risk_flags") or [])
+    risk_suffix = f"  风险:{risk}" if risk else ""
+    return f"  {code} {name}  {theme}  {entry}  分{score:.1f}{risk_suffix}"
+
+
 def _append_legacy_selected_sections(lines: list[str], ctx: Any, selected_for_ai: list[str]) -> None:
     multi_signal = [
         c
@@ -244,13 +278,15 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         f"**潜在大涨候选板**: {len(ctx.candidate_entries)}只 / 类型 {ctx.metrics.get('candidate_entry_types', {}) or {}}",
         (
             f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / 正式L4命中{ctx.theme_l4_count}只 / "
-            f"战略L2旁路{len(ctx.strategic_l2_bypass_pool)}只 / 加权送审{selection.theme_promoted_count}只"
+            f"战略L2旁路{len(ctx.strategic_l2_bypass_pool)}只 / "
+            f"主线可买{len(ctx.mainline_tradeable)}只 / 加权送审{selection.theme_promoted_count}只"
         ),
         f"**候选分层**: 正式L4命中{ctx.unique_hit_count}只 / L2明珠池{len(ctx.l2_bypass_pool)}只 "
         f"-> AI输入{len(selected_for_ai)}只 "
         f"(正式L4 {sum(1 for c in selected_for_ai if c in ctx.formal_hit_set)} / "
         f"L2明珠 {sum(1 for c in selected_for_ai if c in ctx.l2_bypass_set)} / "
-        f"战略旁路 {sum(1 for c in selected_for_ai if c in ctx.strategic_l2_bypass_set)}; "
+        f"战略旁路 {sum(1 for c in selected_for_ai if c in ctx.strategic_l2_bypass_set)} / "
+        f"主线 {sum(1 for c in selected_for_ai if c in ctx.mainline_candidate_set)}; "
         f"旁路预算 {FUNNEL_L2_BYPASS_AI_CAP or 'unlimited'})",
         f"**Top 行业**: {', '.join(ctx.metrics['top_sectors']) if ctx.metrics['top_sectors'] else '无'}",
         "",
@@ -263,6 +299,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     _append_legacy_selected_sections(lines, ctx, selected_for_ai)
     if not selected_for_ai:
         lines.append("无")
+    _append_mainline_card_section(lines, ctx, sum(1 for c in selected_for_ai if c in ctx.mainline_candidate_set))
     _append_l2_bypass_card_section(lines, ctx, sum(1 for c in selected_for_ai if c in ctx.l2_bypass_set))
     _append_strategic_bypass_card_section(
         lines, ctx, sum(1 for c in selected_for_ai if c in ctx.strategic_l2_bypass_set)
@@ -275,12 +312,14 @@ def _modern_selection_counts(ctx: Any, selection: FunnelAiSelection) -> dict[str
     hit_selected = sum(1 for c in selected if c in ctx.formal_hit_set)
     bypass_selected = sum(1 for c in selected if c in ctx.l2_bypass_set)
     strategic_selected = sum(1 for c in selected if c in ctx.strategic_l2_bypass_set)
+    mainline_selected = sum(1 for c in selected if c in ctx.mainline_candidate_set)
     return {
         "formal_event": sum(len(v) for v in ctx.formal_triggers.values()),
         "hit_selected": hit_selected,
         "bypass_selected": bypass_selected,
         "strategic_selected": strategic_selected,
-        "l3_only": max(len(selected) - hit_selected - bypass_selected - strategic_selected, 0),
+        "mainline_selected": mainline_selected,
+        "l3_only": max(len(selected) - hit_selected - bypass_selected - strategic_selected - mainline_selected, 0),
     }
 
 
@@ -294,7 +333,7 @@ def _print_modern_selection_summary(ctx: Any, selection: FunnelAiSelection, coun
         f"effective Accum={policy['accum_quota']}, 总上限={policy['total_cap']}, "
         f"l3_fill_limit Trend={policy['max_trend_l3_fill']}, Accum={policy['max_accum_l3_fill']}], "
         f"最终选入: Trend={len(selection.trend_selected)}, Accum={len(selection.accum_selected)}, "
-        f"战略旁路={counts['strategic_selected']}, 总计={len(selection.selected_for_ai)}"
+        f"战略旁路={counts['strategic_selected']}, 主线={counts['mainline_selected']}, 总计={len(selection.selected_for_ai)}"
     )
 
 
@@ -319,14 +358,16 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         f"**潜在大涨候选板**: {len(ctx.candidate_entries)}只 / 类型 {ctx.metrics.get('candidate_entry_types', {}) or {}}",
         (
             f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / 正式L4命中{ctx.theme_l4_count}只 / "
-            f"战略L2旁路{len(ctx.strategic_l2_bypass_pool)}只 / 加权送审{selection.theme_promoted_count}只"
+            f"战略L2旁路{len(ctx.strategic_l2_bypass_pool)}只 / "
+            f"主线可买{len(ctx.mainline_tradeable)}只 / 主线送审{selection.mainline_promoted_count}只"
         ),
         f"**候选分层**: 正式L4命中{ctx.unique_hit_count}只 / L2明珠池{len(ctx.l2_bypass_pool)}只 "
         f"-> AI输入{len(selection.selected_for_ai)}只 "
         f"(配额 {policy['quota_family']}: Trend {len(selection.trend_selected)}/{policy['trend_quota']}, "
         f"Accum {len(selection.accum_selected)}/{policy['accum_quota']}; 正式L4 {counts['hit_selected']} / "
         f"L3补充{counts['l3_only']} / L2明珠 {counts['bypass_selected']} / "
-        f"战略旁路 {counts['strategic_selected']}; 旁路预算 {FUNNEL_L2_BYPASS_AI_CAP or 'unlimited'})",
+        f"战略旁路 {counts['strategic_selected']} / 主线 {counts['mainline_selected']}; "
+        f"旁路预算 {FUNNEL_L2_BYPASS_AI_CAP or 'unlimited'})",
         f"**Top 行业**: {', '.join(ctx.metrics['top_sectors']) if ctx.metrics['top_sectors'] else '无'}",
         "",
     ]
@@ -345,7 +386,10 @@ def _append_modern_fill_section(lines: list[str], ctx: Any, selection: FunnelAiS
     fill_codes = [
         c
         for c in selection.selected_for_ai
-        if c not in ctx.formal_hit_set and c not in ctx.l2_bypass_set and c not in ctx.strategic_l2_bypass_set
+        if c not in ctx.formal_hit_set
+        and c not in ctx.l2_bypass_set
+        and c not in ctx.strategic_l2_bypass_set
+        and c not in ctx.mainline_candidate_set
     ]
     if not fill_codes:
         return
@@ -407,6 +451,7 @@ def _build_modern_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     _append_modern_fill_section(lines, ctx, selection)
     if not selection.selected_for_ai:
         lines.append("无")
+    _append_mainline_card_section(lines, ctx, counts["mainline_selected"])
     _append_l2_bypass_card_section(lines, ctx, counts["bypass_selected"])
     _append_modern_strategic_bypass_section(lines, ctx, counts["strategic_selected"])
     return lines

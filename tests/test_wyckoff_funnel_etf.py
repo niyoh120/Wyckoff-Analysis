@@ -465,7 +465,7 @@ def test_promote_review_candidates_blocks_neutral_bypass(monkeypatch):
     trend = ["000001"]
     accum: list[str] = []
 
-    bypass_added, strategic_added, theme_added = funnel_ai_selection.promote_review_candidates(
+    bypass_added, strategic_added, theme_added, mainline_added = funnel_ai_selection.promote_review_candidates(
         selected,
         trend,
         accum,
@@ -474,9 +474,10 @@ def test_promote_review_candidates_blocks_neutral_bypass(monkeypatch):
             "strategic_l2_bypass": ["000003"],
             "strategic_accum": {"000003"},
             "formal_hit": {"000004"},
+            "mainline": ["000005"],
         },
-        code_to_total_score={"000002": 2.0, "000003": 3.0, "000004": 4.0},
-        code_to_trigger_keys={"000002": ["sos"], "000003": ["spring"], "000004": ["sos"]},
+        code_to_total_score={"000002": 2.0, "000003": 3.0, "000004": 4.0, "000005": 5.0},
+        code_to_trigger_keys={"000002": ["sos"], "000003": ["spring"], "000004": ["sos"], "000005": ["mainline"]},
         score_map={"000001": 1.0},
         ai_policy={"total_cap": 4},
         use_full_ai_selection=False,
@@ -484,9 +485,9 @@ def test_promote_review_candidates_blocks_neutral_bypass(monkeypatch):
         regime="NEUTRAL",
     )
 
-    assert (bypass_added, strategic_added, theme_added) == (0, 0, 0)
-    assert selected == ["000001"]
-    assert trend == ["000001"]
+    assert (bypass_added, strategic_added, theme_added, mainline_added) == (0, 0, 0, 1)
+    assert selected == ["000001", "000005"]
+    assert trend == ["000001", "000005"]
     assert accum == []
 
 

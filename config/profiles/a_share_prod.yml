@@ -10,3 +10,17 @@ external_seeds:
   allow_l2_bypass_review: true
   watch_ttl_days: 10
   retention_days: 180
+
+mainline_engine:
+  enabled: true
+  max_ai_candidates: 3
+  min_theme_score: 0.55
+  min_stock_score: 0.60
+  min_timing_score: 0.55
+  allow_l2_bypass: true
+  allow_l4_bypass: false
+  max_candidates_per_theme: 8
+  # Empty means dynamic discovery from concept heat, heat history, concept map, and theme radar.
+  # Fill only when you want a temporary manual watch/boost list.
+  themes: []
+  core_basket: []

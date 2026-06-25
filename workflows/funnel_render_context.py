@@ -43,6 +43,12 @@ class FunnelRenderContext:
     leader_radar_symbols: set[str]
     candidate_entries: list[dict]
     candidate_entry_map: dict[str, dict]
+    mainline_candidates: list[dict]
+    mainline_tradeable: list[dict]
+    mainline_observe: list[dict]
+    mainline_overheated: list[dict]
+    mainline_tradeable_codes: list[str]
+    mainline_candidate_set: set[str]
     external_seed_triggers: dict[str, list[tuple[str, float]]]
     formal_hit_set: set[str]
     l2_bypass_set: set[str]
@@ -94,6 +100,7 @@ class _RenderContextParts:
     code_to_total_score: dict[str, float]
     sorted_codes: list[str]
     leader_rows: list[dict]
+    mainline_candidates: list[dict]
     exit_signals: dict[str, dict]
     sector_rotation_map: dict[str, dict]
     report_maps: FunnelReportMaps
@@ -109,6 +116,7 @@ def build_render_context(triggers: dict[str, list[tuple[str, float]]], metrics: 
     strategic_triggers = metrics.get("strategic_l2_bypass_triggers", {}) or {}
     candidate_entries = metrics.get("candidate_entries", []) or []
     candidate_entry_map = _entry_map(candidate_entries)
+    mainline_candidates = metrics.get("mainline_candidates", []) or []
     review_triggers = merge_trigger_maps(triggers, bypass_triggers, strategic_triggers)
     formal_hit_set = {str(code).strip() for hits in triggers.values() for code, _ in hits if str(code).strip()}
     strategic_set = {str(c).strip() for c in strategic_pool if str(c).strip()}
@@ -161,6 +169,7 @@ def build_render_context(triggers: dict[str, list[tuple[str, float]]], metrics: 
             code_to_total_score=code_to_total_score,
             sorted_codes=sorted_codes,
             leader_rows=leader_rows,
+            mainline_candidates=mainline_candidates,
             exit_signals=exit_signals,
             sector_rotation_map=sector_rotation_map,
             report_maps=report_maps,
@@ -311,6 +320,14 @@ def _render_context_from_parts(parts: _RenderContextParts) -> FunnelRenderContex
         leader_radar_symbols={str(row.get("code", "")).strip() for row in parts.leader_rows if row.get("code")},
         candidate_entries=parts.candidate_entries,
         candidate_entry_map=parts.candidate_entry_map,
+        mainline_candidates=parts.mainline_candidates,
+        mainline_tradeable=_mainline_by_status(parts.mainline_candidates, "可买主线"),
+        mainline_observe=_mainline_by_status(parts.mainline_candidates, "主线观察"),
+        mainline_overheated=_mainline_by_status(parts.mainline_candidates, "过热不追"),
+        mainline_tradeable_codes=_mainline_codes_by_status(parts.mainline_candidates, "可买主线"),
+        mainline_candidate_set={
+            str(row.get("code", "")).strip() for row in parts.mainline_candidates if row.get("code")
+        },
         external_seed_triggers=parts.metrics.get("external_seed_l4_triggers", {}) or {},
         formal_hit_set=parts.formal_hit_set,
         l2_bypass_set=set(parts.l2_bypass_pool),
@@ -336,3 +353,11 @@ def _render_context_from_parts(parts: _RenderContextParts) -> FunnelRenderContex
         external_seed_line=_external_seed_report_line(parts.metrics),
         regime=str(parts.benchmark_context.get("regime", "NEUTRAL")),
     )
+
+
+def _mainline_by_status(rows: list[dict], status: str) -> list[dict]:
+    return [row for row in rows if str(row.get("status") or "") == status]
+
+
+def _mainline_codes_by_status(rows: list[dict], status: str) -> list[str]:
+    return [str(row.get("code")).strip() for row in _mainline_by_status(rows, status) if str(row.get("code")).strip()]

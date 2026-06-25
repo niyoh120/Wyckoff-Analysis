@@ -12,6 +12,13 @@ import pandas as pd
 from core.concept_filters import is_actionable_theme_name
 
 THEME_ALIASES: dict[str, tuple[str, ...]] = {
+    "国产CPU": ("国产CPU", "CPU", "处理器", "龙芯", "海光", "飞腾", "鲲鹏", "x86", "risc-v", "riscv"),
+    "MLCC被动元件": ("MLCC", "被动元件", "陶瓷电容", "片式电容", "电容电阻"),
+    "AI PCB": ("AI PCB", "PCB", "印制电路板", "高多层板", "HDI", "载板", "覆铜板"),
+    "先进封装": ("先进封装", "Chiplet", "CoWoS", "封测", "封装测试", "HBM封装"),
+    "HBM存储": ("HBM", "存储芯片", "DRAM", "NAND", "存储器", "存储"),
+    "液冷": ("液冷", "服务器液冷", "数据中心液冷", "冷板", "温控"),
+    "服务器算力": ("AI服务器", "服务器", "算力租赁", "智算中心", "数据中心", "GPU服务器"),
     "芯片半导体": ("芯片", "半导体", "集成电路", "先进封装", "存储", "光刻胶", "第三代半导体", "semiconductor", "chip"),
     "AI算力": ("人工智能", "AI应用", "大模型", "算力", "数据中心", "服务器", "液冷", "PCB", "data center", "server"),
     "光模块": (

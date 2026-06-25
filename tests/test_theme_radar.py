@@ -93,6 +93,13 @@ def test_theme_radar_normalizes_defensive_value_aliases() -> None:
     assert normalize_theme_name("火电公用事业") == "公用事业"
 
 
+def test_theme_radar_normalizes_mainline_aliases() -> None:
+    assert normalize_theme_name("CPO 800G 光模块") == "光模块"
+    assert normalize_theme_name("MLCC被动元件") == "MLCC被动元件"
+    assert normalize_theme_name("陶瓷电容扩产") == "MLCC被动元件"
+    assert normalize_theme_name("国产CPU替代") == "国产CPU"
+
+
 def test_theme_radar_snapshot_round_trip_local_db(tmp_path, monkeypatch) -> None:
     from integrations import local_db
 

@@ -19,7 +19,12 @@ from core.dynamic_policy import (
     filter_triggers_by_registry,
     resolve_dynamic_candidate_policy,
 )
-from core.funnel_selection import promote_bypass_groups, should_force_quota_selection, split_selected_tracks
+from core.funnel_selection import (
+    promote_bypass_groups,
+    promote_l2_bypass_for_ai,
+    should_force_quota_selection,
+    split_selected_tracks,
+)
 from core.funnel_theme import apply_theme_bonus_to_scores, promote_theme_l4_for_ai
 from core.market_trade_mode import resolve_market_trade_mode
 from core.wyckoff_engine import FunnelResult
@@ -36,6 +41,7 @@ from workflows.funnel_settings import (
     FUNNEL_FULL_FORMAL_L4_MAX,
     FUNNEL_L2_BYPASS_AI_CAP,
     FUNNEL_L2_BYPASS_AI_ENABLED,
+    FUNNEL_MAINLINE_MAX_AI_CANDIDATES,
     FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
     FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED,
     FUNNEL_THEME_RADAR_PROMOTE_CAP,
@@ -50,6 +56,7 @@ class FunnelAiSelection:
     score_map: dict[str, float]
     ai_policy: dict
     theme_promoted_count: int
+    mainline_promoted_count: int = 0
 
 
 def select_base_ai_candidates(
@@ -114,7 +121,7 @@ def promote_review_candidates(
     selected_for_ai: list[str],
     trend_selected: list[str],
     accum_selected: list[str],
-    pools: dict[str, list[str] | set[str]],
+    pools: dict[str, object],
     code_to_total_score: dict[str, float],
     code_to_trigger_keys: dict[str, list[str]],
     score_map: dict[str, float],
@@ -122,7 +129,7 @@ def promote_review_candidates(
     use_full_ai_selection: bool,
     theme_bonus_map: dict[str, float],
     regime: str,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     trade_mode = resolve_market_trade_mode(regime)
     if not use_full_ai_selection:
         apply_theme_bonus_to_scores(score_map, theme_bonus_map)
@@ -156,7 +163,45 @@ def promote_review_candidates(
             promotion_cap=FUNNEL_THEME_RADAR_PROMOTE_CAP,
             total_cap=ai_total_cap,
         )
-    return bypass_added, strategic_added, theme_added
+    mainline_added = _promote_mainline_for_ai(
+        selected_for_ai,
+        trend_selected,
+        accum_selected,
+        pools,
+        code_to_total_score,
+        code_to_trigger_keys,
+        score_map,
+        enabled=trade_mode.allow_ai_review,
+        cap=int(pools.get("mainline_cap") or FUNNEL_MAINLINE_MAX_AI_CANDIDATES),
+    )
+    ai_policy["mainline_added_count"] = mainline_added
+    return bypass_added, strategic_added, theme_added, mainline_added
+
+
+def _promote_mainline_for_ai(
+    selected_for_ai: list[str],
+    trend_selected: list[str],
+    accum_selected: list[str],
+    pools: dict[str, object],
+    code_to_total_score: dict[str, float],
+    code_to_trigger_keys: dict[str, list[str]],
+    score_map: dict[str, float],
+    *,
+    enabled: bool,
+    cap: int,
+) -> int:
+    return promote_l2_bypass_for_ai(
+        selected_for_ai,
+        trend_selected,
+        accum_selected,
+        list(pools.get("mainline") or []),
+        code_to_total_score,
+        code_to_trigger_keys,
+        score_map,
+        enabled=enabled,
+        cap=cap,
+        total_cap=None,
+    )
 
 
 def maybe_persist_policy_shadow_run(

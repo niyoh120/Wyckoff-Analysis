@@ -10,6 +10,7 @@ import pandas as pd
 
 from core.funnel_theme import empty_theme_snapshot, select_linked_theme_radar
 from core.funnel_theme import theme_candidate_map as build_theme_candidate_map
+from core.mainline_engine import build_mainline_candidates
 from core.sector_rotation import analyze_sector_rotation
 from core.theme_radar import build_theme_radar_snapshot
 from core.wyckoff_engine import (
@@ -21,6 +22,7 @@ from core.wyckoff_engine import (
     layer4_triggers,
 )
 from integrations.market_metadata import CONCEPT_HEAT_HISTORY
+from tools.mainline_config import load_mainline_engine_config
 from workflows.funnel_data import FunnelReferenceData
 from workflows.funnel_settings import (
     FUNNEL_THEME_RADAR_ENABLED,
@@ -47,6 +49,8 @@ class FunnelLayerOutputs:
     theme_radar: dict
     theme_radar_source: str
     theme_candidate_map: dict
+    mainline_candidates: list[dict]
+    mainline_ai_cap: int
 
 
 def run_base_funnel_layers(
@@ -74,6 +78,18 @@ def run_base_funnel_layers(
     )
     leader_rows = detect_leader_radar(l1_passed, all_df_map, ref_data.sector_map, l2_channel_map, cfg)
     theme_current, theme_radar, theme_source = _build_theme_context(window, ref_data, all_df_map)
+    mainline_cfg = load_mainline_engine_config()
+    mainline_candidates = build_mainline_candidates(
+        l1_passed=l1_passed,
+        l2_passed=l2_passed,
+        concept_map=ref_data.concept_map,
+        concept_heat=ref_data.concept_heat,
+        theme_radar=theme_radar,
+        df_map=all_df_map,
+        financial_map=ref_data.financial_map,
+        name_map=ref_data.name_map,
+        config=mainline_cfg,
+    )
     return FunnelLayerOutputs(
         l1_passed=l1_passed,
         l2_passed=l2_passed,
@@ -89,6 +105,8 @@ def run_base_funnel_layers(
         theme_radar=theme_radar,
         theme_radar_source=theme_source,
         theme_candidate_map=build_theme_candidate_map(theme_radar),
+        mainline_candidates=mainline_candidates,
+        mainline_ai_cap=mainline_cfg.max_ai_candidates,
     )
 
 

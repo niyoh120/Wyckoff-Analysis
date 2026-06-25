@@ -222,7 +222,7 @@ def _select_run_ai_candidates(
         for code, stage in ctx.strategic_l2_bypass_stage_map.items()
         if str(stage or "").strip() in {"Accum_B", "Accum_C"}
     }
-    _bypass_added, _strategic_added, theme_promoted_count = promote_review_candidates(
+    _bypass_added, _strategic_added, theme_promoted_count, mainline_promoted_count = promote_review_candidates(
         selected_for_ai,
         trend_selected,
         accum_selected,
@@ -231,6 +231,8 @@ def _select_run_ai_candidates(
             "strategic_l2_bypass": ctx.strategic_l2_bypass_pool,
             "strategic_accum": strategic_accum_codes,
             "formal_hit": ctx.formal_hit_set,
+            "mainline": ctx.mainline_tradeable_codes,
+            "mainline_cap": ctx.metrics.get("mainline_ai_cap", 3),
         },
         ctx.code_to_total_score,
         ctx.code_to_trigger_keys,
@@ -254,7 +256,13 @@ def _select_run_ai_candidates(
     )
     ai_policy.update(shadow_meta)
     return FunnelAiSelection(
-        selected_for_ai, trend_selected, accum_selected, score_map, ai_policy, theme_promoted_count
+        selected_for_ai,
+        trend_selected,
+        accum_selected,
+        score_map,
+        ai_policy,
+        theme_promoted_count,
+        mainline_promoted_count,
     )
 
 
@@ -358,6 +366,8 @@ def _layer_metrics(layers: FunnelLayerOutputs) -> dict:
         "leader_radar": len(layers.leader_radar_rows),
         "leader_radar_symbols": layers.leader_radar_symbols,
         "leader_radar_rows": layers.leader_radar_rows,
+        "mainline_candidates": layers.mainline_candidates,
+        "mainline_ai_cap": layers.mainline_ai_cap,
         "by_trigger": {k: len(v) for k, v in layers.triggers.items()},
     }
 
@@ -396,6 +406,7 @@ def _candidate_metrics(inputs: FunnelMetricsInputs, ranked_l3_symbols: list[str]
         "layer3_score_map": candidates.l3_score_map,
         "total_hits": candidates.total_hits,
         "candidate_entries": candidates.candidate_entries,
+        "mainline_candidate_entries": candidates.mainline_candidate_entries,
         "candidate_entry_count": len(candidates.candidate_entries),
         "candidate_entry_types": _candidate_entry_type_counts(candidates.candidate_entries),
         "min_funnel_score": float(getattr(inputs.cfg, "min_funnel_score", 0.0) or 0.0),
@@ -454,7 +465,8 @@ def _log_funnel_summary(metrics: dict, inputs: FunnelMetricsInputs) -> None:
         f"地量={counts['dry_vol']}, 护盘={counts['rs_div']}, 趋势={counts['trend_cont']}, 点火={counts['sos']}), "
         f"L3={metrics['layer3']}, 命中={inputs.candidates.total_hits}, "
         f"Top板块={inputs.layers.top_sectors}, 主线={inputs.ref_data.hot_concepts[:3] if inputs.ref_data.hot_concepts else []}, "
-        f"战略旁路={len(inputs.strategic.pool)}, Alpha候选={len(inputs.candidates.candidate_entries)}, "
+        f"战略旁路={len(inputs.strategic.pool)}, 主线={_mainline_log_counts(inputs.layers.mainline_candidates)}, "
+        f"Alpha候选={len(inputs.candidates.candidate_entries)}, "
         f"龙头雷达={len(inputs.layers.leader_radar_rows)}, 各触发={metrics['by_trigger']}"
     )
     print(f"[funnel] 主题雷达({inputs.layers.theme_radar_source}): {summarize_theme_radar(inputs.layers.theme_radar)}")
@@ -490,6 +502,19 @@ def _build_run_artifacts(data) -> FunnelRunArtifacts:
         cfg=data.cfg,
     )
     return FunnelRunArtifacts(layers, l2_bypass_pool, bypass_triggers, strategic, candidates, external_seed_review)
+
+
+def _mainline_log_counts(candidates: list[dict]) -> str:
+    counts = _mainline_status_counts(candidates)
+    return f"可买{counts['可买主线']}/观察{counts['主线观察']}/过热{counts['过热不追']}"
+
+
+def _mainline_status_counts(candidates: list[dict]) -> dict[str, int]:
+    counts = {"可买主线": 0, "主线观察": 0, "过热不追": 0}
+    for item in candidates or []:
+        status = str(item.get("status") or "主线观察")
+        counts[status] = counts.get(status, 0) + 1
+    return counts
 
 
 def _build_l2_bypass(data, layers: FunnelLayerOutputs) -> tuple[list[str], dict[str, list[tuple[str, float]]]]:
