@@ -9,6 +9,7 @@ from core.wyckoff_engine import FunnelConfig
 from workflows.review_big_gainers import find_big_gainers, load_today_review_codes
 from workflows.review_list_replay import (
     ReplayContext,
+    build_candidate_entry_map,
     classify_review_code,
 )
 from workflows.review_recommendation_lookup import format_recommendation_history, normalize_code6
@@ -38,6 +39,7 @@ def _ctx() -> ReplayContext:
         l2_ctx={},
         hit_map={"000001": ["SOS（量价点火）"]},
         blocked_exit_map={},
+        candidate_entry_map={},
     )
 
 
@@ -59,6 +61,41 @@ def test_classify_review_code_reports_pool_and_l4_hit():
     assert name == "平安银行"
     assert stage == "L4命中"
     assert reason == "SOS（量价点火）"
+
+
+def test_classify_review_code_reports_new_candidate_before_old_l2_gate():
+    ctx = ReplayContext(
+        cfg=FunnelConfig(),
+        all_symbol_set={"000001"},
+        name_map={"000001": "平安银行"},
+        market_cap_map={},
+        sector_map={"000001": "共封装光学(CPO)"},
+        df_map={"000001": pd.DataFrame({"close": [1.0, 1.1]})},
+        l1_set={"000001"},
+        l2_set=set(),
+        l3_set=set(),
+        end_trade_date="2026-06-24",
+        l2_ctx={},
+        hit_map={},
+        blocked_exit_map={},
+        candidate_entry_map=build_candidate_entry_map(
+            [
+                {
+                    "code": "000001",
+                    "entry_type": "trend_breakout",
+                    "score": 82.5,
+                    "opportunity": "强趋势平台突破: 共封装光学(CPO)",
+                }
+            ]
+        ),
+    )
+
+    name, stage, reason = classify_review_code("000001", ctx)
+
+    assert name == "平安银行"
+    assert stage == "候选命中[新漏斗]"
+    assert "trend_breakout" in reason
+    assert "强趋势平台突破" in reason
 
 
 def test_find_big_gainers_derives_pct_from_close():
@@ -121,6 +158,7 @@ def test_load_today_review_codes_falls_back_when_spot_candidates_empty(monkeypat
 
 def test_build_focus_lines_highlights_actionable_buckets():
     rows = [
+        _row("000000", "新漏斗A", "候选命中[新漏斗]"),
         _row("000001", "平安银行", "L2淘汰"),
         _row("000002", "万科A", "L2淘汰"),
         _row("000003", "国农科技", "风控淘汰[触发结构止损或派发]"),
@@ -135,13 +173,14 @@ def test_build_focus_lines_highlights_actionable_buckets():
 
     assert lines[0] == "**重点归因**"
     assert "日期间隔" in text
-    assert "L2 是主因" in text
+    assert "新漏斗已捕获" in text
+    assert "旧 L2 仍未捕获" in text
     assert "风控冲突优先复盘" in text
     assert "000003国农科技" in text
-    assert "L4 扳机漏网" in text
-    assert "板块层漏网" in text
+    assert "旧 L4 扳机漏网" in text
+    assert "旧板块层漏网" in text
     assert "基础过滤漏网" in text
-    assert "已被漏斗捕获" in text
+    assert "旧 L4 已捕获" in text
 
 
 def test_format_recommendation_history_reports_missing_and_hits():

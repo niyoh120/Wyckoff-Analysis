@@ -41,6 +41,7 @@ class ReplayContext:
     l2_ctx: dict
     hit_map: dict[str, list[str]]
     blocked_exit_map: dict[str, dict]
+    candidate_entry_map: dict[str, dict]
 
 
 def run_review_list_replay(webhook: str, log=print) -> int:
@@ -111,6 +112,7 @@ def replay_context(triggers: dict, metrics: dict, log=print) -> ReplayContext | 
         l2_ctx=build_layer2_context(df_map=df_map, bench_df=debug.get("bench_df")),
         hit_map=build_hit_map(triggers),
         blocked_exit_map=blocked_exit_signal_map(metrics.get("exit_signals", {}) or {}),
+        candidate_entry_map=build_candidate_entry_map(metrics.get("candidate_entries", []) or []),
     )
 
 
@@ -122,6 +124,8 @@ def classify_review_code(code: str, ctx: ReplayContext) -> tuple[str, str, str]:
         return name, "数据失败", "日线拉取失败/超时"
     if code not in ctx.l1_set:
         return name, "L1淘汰", explain_l1_fail(code, ctx.cfg, ctx.name_map, ctx.market_cap_map, ctx.df_map)
+    if code in ctx.candidate_entry_map:
+        return name, "候选命中[新漏斗]", explain_candidate_entry(code, ctx.candidate_entry_map)
     if code not in ctx.l2_set:
         return name, "L2淘汰", explain_l2_fail(code, ctx.cfg, ctx.df_map, ctx.l2_ctx)
     if code not in ctx.l3_set:
@@ -194,6 +198,27 @@ def blocked_exit_signal_map(exit_signals: dict[str, dict] | None) -> dict[str, d
         if signal in {"stop_loss", "distribution_warning"}:
             blocked[str(code)] = dict(raw or {})
     return blocked
+
+
+def build_candidate_entry_map(entries: list[dict]) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    for item in entries or []:
+        code = str((item or {}).get("code", "")).strip()
+        if code:
+            result[code] = dict(item or {})
+    return result
+
+
+def explain_candidate_entry(code: str, entry_map: dict[str, dict]) -> str:
+    entry = entry_map.get(code, {}) or {}
+    entry_type = str(entry.get("entry_type") or entry.get("signal_key") or "candidate").strip()
+    score = float(entry.get("score", 0.0) or 0.0)
+    parts = [f"新漏斗候选: {entry_type}", f"score={score:.2f}"]
+    for key in ("opportunity", "timing", "risk"):
+        value = str(entry.get(key, "") or "").strip()
+        if value:
+            parts.append(value)
+    return " | ".join(parts)
 
 
 def explain_l1_fail(

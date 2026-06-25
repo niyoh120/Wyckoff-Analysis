@@ -65,6 +65,7 @@ def _date_gap_lines(today: date, previous_trade_date: date) -> list[str]:
 
 def _stage_focus_lines(stage_rows: dict[str, list[dict[str, str]]], total: int) -> list[str]:
     lines: list[str] = []
+    lines.extend(_candidate_hit_focus(stage_rows.get("候选命中[新漏斗]", [])))
     lines.extend(_l2_focus(stage_rows.get("L2淘汰", []), total))
     lines.extend(_risk_focus(stage_rows.get("风控淘汰[触发结构止损或派发]", [])))
     lines.extend(_l4_miss_focus(stage_rows.get("L4未命中", [])))
@@ -74,12 +75,20 @@ def _stage_focus_lines(stage_rows: dict[str, list[dict[str, str]]], total: int) 
     return lines
 
 
+def _candidate_hit_focus(rows: list[dict[str, str]]) -> list[str]:
+    if not rows:
+        return []
+    return [
+        f"- **新漏斗已捕获**：{short_code_list(rows)}。这些票已经进入前一日多路候选池，不应再按旧 L2/L3 漏检归因；后续重点核对 AI 配额、尾盘确认和风控是否挡住。"
+    ]
+
+
 def _l2_focus(rows: list[dict[str, str]], total: int) -> list[str]:
     if not rows:
         return []
     pct = len(rows) / total * 100.0
     return [
-        f"- **L2 是主因**：{len(rows)} / {total}（{pct:.1f}%）前一日没有进入六通道。这里不宜直接放宽实盘漏斗，否则会把大量无结构、纯事件驱动的一日异动混入候选池。"
+        f"- **旧 L2 仍未捕获**：{len(rows)} / {total}（{pct:.1f}%）未进入 Wyckoff 六通道，且没有被新多路候选池接住；这类才需要继续检查趋势/题材 lane 的覆盖面。"
     ]
 
 
@@ -95,14 +104,16 @@ def _l4_miss_focus(rows: list[dict[str, str]]) -> list[str]:
     if not rows:
         return []
     return [
-        f"- **L4 扳机漏网**：{short_code_list(rows)}。这些票已过 L2/L3，只差 Spring/LPS/EVR/SOS 微观触发，适合测试“爆发前夜压缩/试盘”类观察信号。"
+        f"- **旧 L4 扳机漏网**：{short_code_list(rows)}。这些票已过旧 L2/L3，但没有进入新候选池，适合检查“爆发前夜压缩/试盘”类 lane 是否覆盖。"
     ]
 
 
 def _l3_focus(rows: list[dict[str, str]]) -> list[str]:
     if not rows:
         return []
-    return [f"- **板块层漏网**：{short_code_list(rows)}。若同一题材后续反复出现，可考虑给极强个股更多行业绕行权。"]
+    return [
+        f"- **旧板块层漏网**：{short_code_list(rows)}。这些票未被新候选池接住时，优先检查题材映射、主线热度和 sector_strength lane。"
+    ]
 
 
 def _l1_focus(rows: list[dict[str, str]]) -> list[str]:
@@ -114,7 +125,7 @@ def _l1_focus(rows: list[dict[str, str]]) -> list[str]:
 def _l4_hit_focus(rows: list[dict[str, str]]) -> list[str]:
     if not rows:
         return []
-    return [f"- **已被漏斗捕获**：{short_code_list(rows)}。这类不是形态漏检，后续应核对是否被 AI 配额或风控环节挡住。"]
+    return [f"- **旧 L4 已捕获**：{short_code_list(rows)}。这类不是形态漏检，后续应核对是否被 AI 配额或风控环节挡住。"]
 
 
 def _recommendation_counts(rows: list[dict[str, str]]) -> tuple[int, int]:
