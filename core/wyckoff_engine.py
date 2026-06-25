@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from core.ai_candidate_allocation import candidate_entry_sort_key
+from core.candidate_lanes import build_l1_candidate_lane_entries, merge_candidate_entries
 from core.layer2_strength import (
     build_benchmark_context,
     build_rps_context,
@@ -2281,15 +2282,8 @@ def run_funnel(
 
     # 退出信号针对 L2 和 Markup 股票
     exit_signals = layer5_exit_signals(l2 + markup_symbols, prepared_df_map, accum_stage_map, cfg)
-    candidate_entries = build_candidate_entries(
-        alpha_symbols=l1,
-        df_map=prepared_df_map,
-        sector_map=sector_map,
-        channel_map=channel_map,
-        triggers=triggers,
-        stage_map=stage_map,
-        exit_signals=exit_signals,
-        cfg=cfg,
+    candidate_entries = _candidate_entries_for_result(
+        l1, l2, top_sectors, prepared_df_map, sector_map, channel_map, triggers, stage_map, exit_signals, cfg
     )
 
     return FunnelResult(
@@ -2306,3 +2300,36 @@ def run_funnel(
         leader_radar_rows=leader_radar_rows,
         candidate_entries=candidate_entries,
     )
+
+
+def _candidate_entries_for_result(
+    l1: list[str],
+    l2: list[str],
+    top_sectors: list[str],
+    df_map: dict[str, pd.DataFrame],
+    sector_map: dict[str, str],
+    channel_map: dict[str, str],
+    triggers: dict[str, list[tuple[str, float]]],
+    stage_map: dict[str, str],
+    exit_signals: dict[str, dict],
+    cfg: FunnelConfig,
+) -> list[dict[str, Any]]:
+    wyckoff_entries = build_candidate_entries(
+        alpha_symbols=l1,
+        df_map=df_map,
+        sector_map=sector_map,
+        channel_map=channel_map,
+        triggers=triggers,
+        stage_map=stage_map,
+        exit_signals=exit_signals,
+        cfg=cfg,
+    )
+    lane_entries = build_l1_candidate_lane_entries(
+        l1_symbols=l1,
+        df_map=df_map,
+        sector_map=sector_map,
+        top_sectors=top_sectors,
+        l2_symbols=l2,
+        channel_map=channel_map,
+    )
+    return merge_candidate_entries(wyckoff_entries, lane_entries)

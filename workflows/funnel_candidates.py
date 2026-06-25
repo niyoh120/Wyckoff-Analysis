@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from core.candidate_lanes import build_l1_candidate_lane_entries, merge_candidate_entries
 from core.candidate_ranker import rank_l3_candidates
 from core.funnel_theme import strategic_bypass_seed_codes
 from core.mainline_engine import mainline_candidate_entries
@@ -49,6 +50,7 @@ class FunnelCandidateOutputs:
     exit_signals: dict[str, dict]
     candidate_entries: list[dict]
     mainline_candidate_entries: list[dict]
+    lane_candidate_entries: list[dict]
     ranked_l3_symbols: list[str]
     l3_score_map: dict[str, float]
     total_hits: int
@@ -142,11 +144,19 @@ def build_candidate_outputs(
         exit_signals=exit_signals,
         cfg=cfg,
     )
+    lane_entries = build_l1_candidate_lane_entries(
+        l1_symbols=layers.l1_passed,
+        df_map=all_df_map,
+        sector_map=sector_map,
+        top_sectors=layers.top_sectors,
+        l2_symbols=layers.l2_passed,
+        channel_map=layers.l2_channel_map,
+    )
     mainline_entries = mainline_candidate_entries(
         layers.mainline_candidates,
         max_count=layers.mainline_ai_cap,
     )
-    candidate_entries = _merge_candidate_entries(candidate_entries, mainline_entries)
+    candidate_entries = merge_candidate_entries(candidate_entries, lane_entries, mainline_entries)
     ranked_l3_symbols, l3_score_map = rank_l3_candidates(
         l3_symbols=layers.l3_passed,
         df_map=all_df_map,
@@ -162,19 +172,11 @@ def build_candidate_outputs(
         exit_signals=exit_signals,
         candidate_entries=candidate_entries,
         mainline_candidate_entries=mainline_entries,
+        lane_candidate_entries=lane_entries,
         ranked_l3_symbols=ranked_l3_symbols,
         l3_score_map=l3_score_map,
         total_hits=sum(len(v) for v in layers.triggers.values()),
     )
-
-
-def _merge_candidate_entries(base: list[dict], extra: list[dict]) -> list[dict]:
-    merged = {str(item.get("code", "")).strip(): item for item in base if str(item.get("code", "")).strip()}
-    for item in extra:
-        code = str(item.get("code", "")).strip()
-        if code and float(item.get("score", 0.0) or 0.0) > float(merged.get(code, {}).get("score", 0.0) or 0.0):
-            merged[code] = item
-    return sorted(merged.values(), key=lambda item: (-float(item.get("score", 0.0) or 0.0), str(item.get("code"))))
 
 
 def _strategic_stage_reason_map(stage_map: dict[str, str], markup_symbols: list[str]) -> dict[str, list[str]]:

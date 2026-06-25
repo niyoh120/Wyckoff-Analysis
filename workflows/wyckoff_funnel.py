@@ -407,6 +407,7 @@ def _candidate_metrics(inputs: FunnelMetricsInputs, ranked_l3_symbols: list[str]
         "total_hits": candidates.total_hits,
         "candidate_entries": candidates.candidate_entries,
         "mainline_candidate_entries": candidates.mainline_candidate_entries,
+        "lane_candidate_entries": candidates.lane_candidate_entries,
         "candidate_entry_count": len(candidates.candidate_entries),
         "candidate_entry_types": _candidate_entry_type_counts(candidates.candidate_entries),
         "min_funnel_score": float(getattr(inputs.cfg, "min_funnel_score", 0.0) or 0.0),

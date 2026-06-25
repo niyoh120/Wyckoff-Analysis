@@ -321,6 +321,7 @@ def _candidate_entry(item: dict[str, Any]) -> dict[str, Any]:
         "track": "trend",
         "signal_key": "mainline",
         "entry_type": str(item.get("entry_type") or "mainline"),
+        "lane": "mainline",
         "score": score,
         "opportunity": f"主线核心票: {item.get('theme')}",
         "timing": str(item.get("entry_type") or ""),
