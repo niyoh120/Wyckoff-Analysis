@@ -45,6 +45,7 @@ def test_evaluate_day_reports_selected_trigger(monkeypatch):
     )
     monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
     monkeypatch.setattr(diag, "layer4_triggers", lambda *_args, **_kwargs: {"sos": [("AAPL.US", 12.5)]})
+    monkeypatch.setattr(diag, "candidate_lane_scores", lambda *_args, **_kwargs: {})
 
     row = diag.evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
 
@@ -63,6 +64,7 @@ def test_evaluate_day_reports_l4_miss(monkeypatch):
     monkeypatch.setattr(diag, "layer2_strength_detailed", lambda symbols, *_args, **_kwargs: (symbols, {}, []))
     monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
     monkeypatch.setattr(diag, "layer4_triggers", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(diag, "candidate_lane_scores", lambda *_args, **_kwargs: {})
 
     row = diag.evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
 

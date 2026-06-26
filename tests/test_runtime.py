@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from cli.runtime import AgentRuntime, partition_tool_calls
-from cli.workflows.router import WORKFLOWS, route_workflow
+from cli.workflows.router import WORKFLOWS
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
 
@@ -198,7 +198,7 @@ def test_runtime_filters_tools_for_workflow_scope():
     )
 
     events = list(
-        AgentRuntime(provider, tools, workflow=route_workflow("我的持仓怎么样")).run_stream(
+        AgentRuntime(provider, tools, workflow=WORKFLOWS["portfolio_review"]).run_stream(
             [{"role": "user", "content": "我的持仓怎么样"}]
         )
     )
@@ -208,7 +208,7 @@ def test_runtime_filters_tools_for_workflow_scope():
     assert "ask_user_question" in exposed
     assert "run_backtest" not in exposed
     assert events[0]["type"] == "workflow_start"
-    assert events[0]["route"]["reason"] == "检测到持仓复盘意图"
+    assert events[0]["workflow"] == "portfolio_review"
 
 
 def test_runtime_blocks_tool_outside_workflow_scope():

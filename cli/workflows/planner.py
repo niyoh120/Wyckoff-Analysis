@@ -52,7 +52,10 @@ runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文
 - 只输出 JSON，不要 Markdown，不要代码块。
 - phases 总任务数 1-1000 个。
 - 同一 phase 内的 task 会并发执行；有依赖关系的 task 必须拆到后续 phase。
-- 缺少关键参数时，生成一个 analysis 任务来说明需要澄清什么，不要编造参数。
+- 普通单轮工具型请求不要拆成模板化多阶段；1 个能直接执行的 task 更好。
+- 如果可用工具能读取或推断信息，task prompt 必须要求 sub-agent 先调用工具探测，例如 portfolio 读取持仓、search_stock_by_name 识别股票、analyze_stock 诊断个股、get_market_overview 读取市场。
+- 只有可用工具也无法获得的必需参数才允许澄清；不要为了更完整而先问用户。
+- 缺少不可替代的关键参数时，生成一个 analysis 任务说明要澄清什么，不要编造参数。
 - 不要生成会写入持仓、交易或文件的任务。
 """
 

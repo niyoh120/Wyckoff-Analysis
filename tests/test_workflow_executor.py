@@ -102,17 +102,17 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         provider,
         tools,
         session_id="s1",
-        user_text="我的持仓怎么样",
+        user_text="用 workflow 复盘我的持仓",
     )
-    events = list(executor.run_stream([{"role": "user", "content": "我的持仓怎么样"}]))
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 复盘我的持仓"}]))
 
     assert executor.run is not None
     run = get_workflow_run(executor.run.run_id)
     stored_events = load_workflow_events(executor.run.run_id)
     try:
         assert events[0]["type"] == "workflow_plan"
-        assert events[0]["route"]["reason"] == "检测到持仓复盘意图"
-        assert events[0]["plan"]["route"]["matches"] == ["持仓"]
+        assert events[0]["route"]["reason"] == "用户显式要求动态 workflow"
+        assert events[0]["plan"]["route"]["matches"] == ["用 workflow"]
         assert events[0]["plan"]["script"]["title"] == "持仓复盘"
         assert events[0]["plan"]["steps"][0]["agent"] == "analysis"
         assert any(event["type"] == "workflow_step_start" for event in events)
@@ -122,7 +122,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert "只看核心仓位" in provider.calls[1]["messages"][0]["content"]
         assert "汇总持仓风险和下一步动作" in provider.calls[2]["messages"][0]["content"]
         assert run and run["status"] == "completed"
-        assert run["workflow"] == "portfolio_review"
+        assert run["workflow"] == "dynamic_task"
         assert run["plan"]["script"]["runtime"]["script_path"].startswith(str(tmp_path / "workflow-runs"))
         assert (tmp_path / "workflow-runs" / "s1" / f"{executor.run.run_id}.json").is_file()
         assert stored_events[0]["event_type"] == "workflow_plan"
@@ -152,7 +152,7 @@ def test_workflow_executor_reruns_stored_script_without_replanning(tmp_path, mon
         StubToolRegistry(tool_results={"portfolio": {"positions": []}}),
         session_id="s2",
         user_text="复跑 workflow wf_old",
-        workflow_context=route_workflow("我的持仓怎么样"),
+        workflow_context=route_workflow("用 workflow 复盘我的持仓"),
         workflow_script=json.loads(_PLAN_JSON),
         source_run_id="wf_old",
     )
@@ -187,7 +187,7 @@ def test_workflow_executor_runs_same_phase_tasks_in_parallel(tmp_path, monkeypat
         StubToolRegistry(),
         session_id="s3",
         user_text="并发复核 300750",
-        workflow_context=route_workflow("300750 怎么看"),
+        workflow_context=route_workflow("用 workflow 并发复核 300750"),
         workflow_script=json.loads(_PARALLEL_PLAN_JSON),
         workflow_args="300750",
     )
@@ -221,7 +221,7 @@ def test_prepared_workflow_can_be_stopped_before_agents_run(tmp_path, monkeypatc
         StubToolRegistry(),
         session_id="s4",
         user_text="复跑 workflow wf_old",
-        workflow_context=route_workflow("我的持仓怎么样"),
+        workflow_context=route_workflow("用 workflow 复盘我的持仓"),
         workflow_script=json.loads(_PLAN_JSON),
         source_run_id="wf_old",
     )
@@ -253,7 +253,7 @@ def test_prepared_workflow_can_reload_edited_script(tmp_path, monkeypatch):
         StubToolRegistry(),
         session_id="s5",
         user_text="复跑 workflow wf_old",
-        workflow_context=route_workflow("我的持仓怎么样"),
+        workflow_context=route_workflow("用 workflow 复盘我的持仓"),
         workflow_script=json.loads(_PLAN_JSON),
         source_run_id="wf_old",
     )
@@ -288,7 +288,7 @@ def test_workflow_executor_restarts_only_selected_step(tmp_path, monkeypatch):
         StubToolRegistry(),
         session_id="s6",
         user_text="重启 workflow wf_old 的 task analysis_view",
-        workflow_context=route_workflow("300750 怎么看"),
+        workflow_context=route_workflow("用 workflow 并发复核 300750"),
         workflow_script=json.loads(_PARALLEL_PLAN_JSON),
         source_run_id="wf_old",
         only_step_id="analysis_view",

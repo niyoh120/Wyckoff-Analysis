@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import replace
 
 from cli.workflows.models import WorkflowContext
@@ -100,16 +99,9 @@ def route_workflow(user_text: str) -> WorkflowContext:
         return _with_route(resumed, "用户明确要求继续已有 workflow", 0.95, ("继续 workflow",))
     if matches := _explicit_dynamic_workflow_matches(text):
         return _with_route(WORKFLOWS["dynamic_task"], "用户显式要求动态 workflow", 0.96, matches)
-    if matches := _matched_keywords(text, ("持仓", "仓位", "组合", "我的票", "手里")):
-        return _with_route(WORKFLOWS["portfolio_review"], "检测到持仓复盘意图", 0.9, matches)
-    if matches := _matched_keywords(text, ("回测", "backtest", "收益曲线", "参数梯队", "夏普")):
-        return _with_route(WORKFLOWS["backtest"], "检测到策略回测意图", 0.9, matches)
-    if matches := _matched_keywords(text, ("筛选", "选股", "扫描", "候选", "漏斗", "全市场")):
-        return _with_route(WORKFLOWS["stock_screen"], "检测到选股扫描意图", 0.88, matches)
-    stock_matches = _stock_question_matches(text)
-    if stock_matches:
-        return _with_route(WORKFLOWS["stock_diagnosis"], "检测到个股诊断意图", 0.82, stock_matches)
-    return _with_route(WORKFLOWS["general_chat"], "未命中任务型 workflow，保持自由对话", 0.0, ())
+    if matches := _deep_workflow_matches(text):
+        return _with_route(WORKFLOWS["dynamic_task"], "用户要求深度/多阶段研究", 0.86, matches)
+    return _with_route(WORKFLOWS["general_chat"], "普通工具型对话交给直接 agent", 0.0, ())
 
 
 def build_workflow_system_prompt(workflow: WorkflowContext | None) -> str:
@@ -139,6 +131,21 @@ def _explicit_dynamic_workflow_matches(text: str) -> tuple[str, ...]:
     return tuple(marker for marker in markers if marker in text)
 
 
+def _deep_workflow_matches(text: str) -> tuple[str, ...]:
+    markers = (
+        "/deep-research",
+        "deep research",
+        "深度研究",
+        "多代理",
+        "多 agent",
+        "并发",
+        "分阶段",
+        "全流程",
+        "系统性研究",
+    )
+    return tuple(marker for marker in markers if marker in text)
+
+
 def _with_route(
     workflow: WorkflowContext,
     reason: str,
@@ -161,13 +168,3 @@ def _resume_workflow_context(text: str) -> WorkflowContext | None:
         if name in text or workflow.label in text:
             return workflow
     return WORKFLOWS["general_chat"]
-
-
-def _looks_like_stock_question(text: str) -> bool:
-    return bool(_stock_question_matches(text))
-
-
-def _stock_question_matches(text: str) -> tuple[str, ...]:
-    code_matches = tuple(re.findall(r"\b\d{6}\b", text) + re.findall(r"\b[a-z]{1,5}\.(?:us|hk)\b", text))
-    keyword_matches = _matched_keywords(text, ("诊断", "分析", "怎么看", "可不可以买", "触发价", "失效位"))
-    return code_matches + keyword_matches

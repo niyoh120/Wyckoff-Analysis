@@ -7,31 +7,29 @@ from cli.workflows.router import build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
 
-def test_route_workflow_selects_portfolio_review():
+def test_route_workflow_keeps_portfolio_turn_direct():
     workflow = route_workflow("我的持仓有没有要处理的？")
 
-    assert workflow.name == "portfolio_review"
-    assert "portfolio" in workflow.allowed_tools
-    assert "run_backtest" not in workflow.allowed_tools
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "普通工具型对话交给直接 agent"
 
 
-def test_route_workflow_selects_backtest():
+def test_route_workflow_keeps_typo_like_portfolio_turn_direct():
+    workflow = route_workflow("给我做磁场诊断")
+
+    assert workflow.name == "general_chat"
+
+
+def test_route_workflow_keeps_backtest_turn_direct():
     workflow = route_workflow("帮我回测 2023 年参数")
 
-    assert workflow.name == "backtest"
-    assert "run_backtest" in workflow.allowed_tools
-    assert workflow.route_reason == "检测到策略回测意图"
-    assert workflow.route_matches == ("回测",)
-    assert workflow.route_confidence > 0
+    assert workflow.name == "general_chat"
 
 
-def test_route_workflow_selects_stock_diagnosis_for_code():
+def test_route_workflow_keeps_stock_diagnosis_direct():
     workflow = route_workflow("300750 现在怎么看？")
 
-    assert workflow.name == "stock_diagnosis"
-    assert "analyze_stock" in workflow.allowed_tools
-    assert "300750" in workflow.route_matches
-    assert "怎么看" in workflow.route_matches
+    assert workflow.name == "general_chat"
 
 
 def test_build_workflow_prompt_is_empty_for_general_chat():
@@ -39,7 +37,7 @@ def test_build_workflow_prompt_is_empty_for_general_chat():
 
     assert workflow.name == "general_chat"
     assert build_workflow_system_prompt(workflow) == ""
-    assert workflow.route_reason == "未命中任务型 workflow，保持自由对话"
+    assert workflow.route_reason == "普通工具型对话交给直接 agent"
 
 
 def test_route_workflow_explicit_dynamic_opt_in():
@@ -48,6 +46,14 @@ def test_route_workflow_explicit_dynamic_opt_in():
     assert workflow.name == "dynamic_task"
     assert "delegate_to_research" in workflow.allowed_tools
     assert workflow.route_reason == "用户显式要求动态 workflow"
+
+
+def test_route_workflow_deep_research_opt_in():
+    workflow = route_workflow("分阶段深度研究一下今天的市场风险")
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_reason == "用户要求深度/多阶段研究"
+    assert workflow.route_matches == ("深度研究", "分阶段")
 
 
 def test_route_workflow_explaining_workflow_stays_general():
@@ -68,7 +74,7 @@ def test_dispatch_uses_direct_runtime_for_general_chat():
     assert isinstance(runtime, AgentRuntime)
 
 
-def test_dispatch_uses_workflow_executor_for_task_turn():
+def test_dispatch_uses_direct_runtime_for_portfolio_turn():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
         StubToolRegistry(),
@@ -76,7 +82,19 @@ def test_dispatch_uses_workflow_executor_for_task_turn():
         user_text="我的持仓有什么风险？",
     )
 
-    assert workflow.name == "portfolio_review"
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+
+
+def test_dispatch_uses_workflow_executor_for_explicit_dynamic_turn():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="用 workflow 做一个持仓风险复盘",
+    )
+
+    assert workflow.name == "dynamic_task"
     assert isinstance(runtime, WorkflowExecutor)
 
 
