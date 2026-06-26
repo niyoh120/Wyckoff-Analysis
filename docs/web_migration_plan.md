@@ -20,7 +20,7 @@ Pages Functions (边缘计算)                 同域 /api/*
       └─ 回传 response (含 SSE stream)
   ↓
 LLM Providers (外部)
-  ├─ 1Route (https://www.1route.dev/v1)
+  ├─ 1Route (https://api.1route.dev/v1)
   ├─ DeepSeek (https://api.deepseek.com/v1)
   ├─ OpenAI / Gemini / 智谱 / 通义千问 / 火山引擎
   ↓

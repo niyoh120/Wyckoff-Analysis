@@ -86,6 +86,7 @@ type ChatRateResult = { ok: true } | { ok: false; message: string }
 const rateStates = new Map<string, ChatRateState>()
 const ALLOWED_URL_RE = /^https?:\/\//i
 const ALLOWED_TARGET_ORIGINS = new Set([
+  'https://api.1route.dev',
   'https://www.1route.dev',
   'https://api.openai.com',
   'https://generativelanguage.googleapis.com',
@@ -95,6 +96,7 @@ const ALLOWED_TARGET_ORIGINS = new Set([
   'https://api.tickflow.org',
   'https://api.tushare.pro',
 ])
+const ONE_ROUTE_ORIGINS = new Set(['https://api.1route.dev', 'https://www.1route.dev'])
 
 const WYCKOFF_CHAT_SYSTEM_PROMPT = `# 角色设定
 
@@ -325,7 +327,12 @@ function forwardProxyHeaders(headers: HeadersInit | undefined): Headers {
 }
 
 function isOneRouteChatCompletion(url: string): boolean {
-  return url.startsWith('https://www.1route.dev') && url.includes('/chat/completions')
+  try {
+    const target = new URL(url)
+    return ONE_ROUTE_ORIGINS.has(target.origin) && target.pathname.endsWith('/chat/completions')
+  } catch {
+    return false
+  }
 }
 
 function isGeminiChatCompletion(url: string): boolean {

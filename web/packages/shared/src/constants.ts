@@ -13,7 +13,7 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
 }
 
 export const PROVIDER_BASE_URLS: Record<Provider, string> = {
-  '1route': 'https://www.1route.dev/v1',
+  '1route': 'https://api.1route.dev/v1',
   gemini: '',
   openai: 'https://api.openai.com/v1',
   deepseek: 'https://api.deepseek.com/v1',

@@ -18,6 +18,7 @@ const FORWARD_HEADERS = new Set([
 ])
 
 const ALLOWED_TARGET_ORIGINS = new Set([
+  'https://api.1route.dev',
   'https://www.1route.dev',
   'https://api.openai.com',
   'https://generativelanguage.googleapis.com',
@@ -30,6 +31,7 @@ const ALLOWED_TARGET_ORIGINS = new Set([
 
 const JSON_CONTENT_RE = /\bapplication\/json\b/i
 const SSE_CONTENT_RE = /\btext\/event-stream\b/i
+const ONE_ROUTE_ORIGINS = new Set(['https://api.1route.dev', 'https://www.1route.dev'])
 
 function normalizeTargetUrl(raw: string): URL | null {
   try {
@@ -48,7 +50,7 @@ function joinTargetUrl(targetUrl: URL, proxyPath: string, search: string): strin
 }
 
 function isOneRouteChatCompletion(targetUrl: URL, proxyPath: string): boolean {
-  return targetUrl.origin === 'https://www.1route.dev' && proxyPath.endsWith('/chat/completions')
+  return ONE_ROUTE_ORIGINS.has(targetUrl.origin) && proxyPath.endsWith('/chat/completions')
 }
 
 function isGeminiChatCompletion(targetUrl: URL, proxyPath: string): boolean {

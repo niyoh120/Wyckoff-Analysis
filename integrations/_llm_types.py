@@ -17,7 +17,7 @@ SUPPORTED_PROVIDERS = (
 )
 
 OPENAI_COMPATIBLE_BASE_URLS = {
-    "1route": "https://www.1route.dev/v1",
+    "1route": "https://api.1route.dev/v1",
     "openai": "https://api.openai.com/v1",
     "longcat": "https://api.longcat.chat/openai",
     "efficiency": "",

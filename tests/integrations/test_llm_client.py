@@ -13,6 +13,17 @@ import pytest
 class TestLiteLLMSwitch:
     """验证 LITELLM_ENABLED 环境变量路由逻辑。"""
 
+    def test_one_route_defaults_to_api_base_url(self):
+        """1Route 默认使用 API 网关域名。"""
+        with patch.dict(os.environ, {"1ROUTE_API_KEY": "one-route-key"}, clear=True):
+            from integrations.llm_client import get_provider_credentials
+
+            api_key, model, base_url = get_provider_credentials("1route")
+
+        assert api_key == "one-route-key"
+        assert model == "gpt-5.5"
+        assert base_url == "https://api.1route.dev/v1"
+
     def test_litellm_disabled_by_default(self):
         """不设 LITELLM_ENABLED 时，不走 LiteLLM。"""
         with patch.dict(os.environ, {}, clear=False):
