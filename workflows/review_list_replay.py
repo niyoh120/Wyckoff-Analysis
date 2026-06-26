@@ -11,6 +11,16 @@ from datetime import date, timedelta
 import pandas as pd
 
 from core.candidate_ranker import TRIGGER_LABELS
+from core.funnel_taxonomy import (
+    REVIEW_STAGE_BASE_REJECT,
+    REVIEW_STAGE_CANDIDATE_HIT,
+    REVIEW_STAGE_RISK_BLOCK,
+    REVIEW_STAGE_STRENGTH_MISS,
+    REVIEW_STAGE_THEME_MISS,
+    REVIEW_STAGE_TRIGGER_HIT,
+    REVIEW_STAGE_TRIGGER_MISS,
+    lane_label,
+)
 from core.wyckoff_engine import FunnelConfig, sort_by_date_if_needed
 from utils.feishu import send_feishu_notification
 from workflows.review_big_gainers import is_target_cn_board, load_today_review_codes
@@ -123,18 +133,22 @@ def classify_review_code(code: str, ctx: ReplayContext) -> tuple[str, str, str]:
     if code not in ctx.df_map:
         return name, "数据失败", "日线拉取失败/超时"
     if code not in ctx.l1_set:
-        return name, "L1淘汰", explain_l1_fail(code, ctx.cfg, ctx.name_map, ctx.market_cap_map, ctx.df_map)
+        return (
+            name,
+            REVIEW_STAGE_BASE_REJECT,
+            explain_l1_fail(code, ctx.cfg, ctx.name_map, ctx.market_cap_map, ctx.df_map),
+        )
     if code in ctx.candidate_entry_map:
-        return name, "候选命中[新漏斗]", explain_candidate_entry(code, ctx.candidate_entry_map)
+        return name, REVIEW_STAGE_CANDIDATE_HIT, explain_candidate_entry(code, ctx.candidate_entry_map)
     if code not in ctx.l2_set:
-        return name, "L2淘汰", explain_l2_fail(code, ctx.cfg, ctx.df_map, ctx.l2_ctx)
+        return name, REVIEW_STAGE_STRENGTH_MISS, explain_l2_fail(code, ctx.cfg, ctx.df_map, ctx.l2_ctx)
     if code not in ctx.l3_set:
-        return name, "L3淘汰", f"行业共振层未通过（{ctx.sector_map.get(code, '未知行业')}）"
+        return name, REVIEW_STAGE_THEME_MISS, f"题材/行业共振不足（{ctx.sector_map.get(code, '未知行业')}）"
     if code in ctx.blocked_exit_map:
-        return name, "风控淘汰[触发结构止损或派发]", explain_risk_reject(code, ctx.blocked_exit_map, ctx.hit_map)
+        return name, REVIEW_STAGE_RISK_BLOCK, explain_risk_reject(code, ctx.blocked_exit_map, ctx.hit_map)
     if code in ctx.hit_map:
-        return name, "L4命中", "、".join(ctx.hit_map.get(code, []))
-    return name, "L4未命中", "未触发 Spring（弹簧/假跌破）/LPS（最后支撑点）/EVR（放量不跌）/SOS（强势信号）"
+        return name, REVIEW_STAGE_TRIGGER_HIT, "、".join(ctx.hit_map.get(code, []))
+    return name, REVIEW_STAGE_TRIGGER_MISS, "未触发 Spring/LPS/EVR/SOS 等买点确认"
 
 
 def build_replay_rows(
@@ -213,7 +227,7 @@ def explain_candidate_entry(code: str, entry_map: dict[str, dict]) -> str:
     entry = entry_map.get(code, {}) or {}
     entry_type = str(entry.get("entry_type") or entry.get("signal_key") or "candidate").strip()
     score = float(entry.get("score", 0.0) or 0.0)
-    parts = [f"新漏斗候选: {entry_type}", f"score={score:.2f}"]
+    parts = [f"候选车道: {lane_label(entry_type) or entry_type}", f"score={score:.2f}"]
     for key in ("opportunity", "timing", "risk"):
         value = str(entry.get(key, "") or "").strip()
         if value:
@@ -252,8 +266,8 @@ def explain_l2_fail(code: str, cfg: FunnelConfig, df_map: dict[str, pd.DataFrame
         rps_universe=ctx.get("rps_universe", [code]),
     )
     if passed:
-        return f"引擎判定通过L2[{channel_map.get(code, '未知通道')}]，应在L3或后续层被淘汰"
-    return "七通道均未通过（主升/潜伏/吸筹/地量蓄势/暗中护盘/趋势延续/点火破局）"
+        return f"结构强度通道已通过[{channel_map.get(code, '未知通道')}]，应在题材共振或买点确认阶段被拦截"
+    return "结构强度不足：七通道均未通过（主升/潜伏/吸筹/地量蓄势/暗中护盘/趋势延续/点火破局）"
 
 
 def explain_risk_reject(code: str, blocked_exit_map: dict[str, dict], hit_map: dict[str, list[str]]) -> str:
@@ -265,7 +279,7 @@ def explain_risk_reject(code: str, blocked_exit_map: dict[str, dict], hit_map: d
             parts.append(f"参考价={float(price):.2f}")
     trigger_labels = "、".join(hit_map.get(code, []))
     if trigger_labels:
-        parts.append(f"L4命中={trigger_labels}")
+        parts.append(f"买点确认={trigger_labels}")
     reason = str(exit_sig.get("reason", "")).strip()
     if reason:
         parts.append(reason)
@@ -311,11 +325,11 @@ def _amount_fail_reason(code: str, cfg: FunnelConfig, df_map: dict[str, pd.DataF
         return "缺少日线数据"
     sorted_df = sort_by_date_if_needed(df)
     if "amount" not in sorted_df.columns:
-        return "未通过L1（综合条件不满足）"
+        return "未通过基础准入（综合条件不满足）"
     avg_amt = pd.to_numeric(sorted_df["amount"], errors="coerce").tail(cfg.amount_avg_window).mean()
     if pd.notna(avg_amt) and float(avg_amt) < cfg.min_avg_amount_wan * 10000:
         return f"成交额不足: {float(avg_amt) / 10000.0:.1f}万 < {cfg.min_avg_amount_wan:.1f}万"
-    return "未通过L1（综合条件不满足）"
+    return "未通过基础准入（综合条件不满足）"
 
 
 def _signal_label(exit_sig: dict) -> str:

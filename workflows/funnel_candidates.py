@@ -78,7 +78,7 @@ def build_l2_bypass_pool(
     triggers = layer4_triggers(in_sector, all_df_map, cfg, channel_map=channel_map, market_cap_map=market_cap_map)
     pool = sorted(trigger_hit_codes(triggers))
     if pool:
-        print(f"[funnel] L2旁路观察池: {len(pool)} 只 (L2拒绝但有L4信号+板块共振)")
+        print(f"[funnel] 形态旁路观察池: {len(pool)} 只 (结构强度不足但有买点形态+板块共振)")
     return pool, triggers
 
 
@@ -109,9 +109,9 @@ def build_strategic_bypass_from_theme(
     )
     if strategic.pool:
         print(
-            "[funnel] 战略L2旁路: "
+            "[funnel] 战略主题观察: "
             f"seeds={len(strategic.seed_codes)}, pool={len(strategic.pool)}, "
-            f"L4={len(trigger_hit_codes(strategic.triggers))}, "
+            f"buy_trigger={len(trigger_hit_codes(strategic.triggers))}, "
             f"stage={len(strategic.reason_map)}, rescue={len(strategic.rescue_map)}"
         )
     return strategic

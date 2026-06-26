@@ -5,6 +5,15 @@ from datetime import date
 
 import pandas as pd
 
+from core.funnel_taxonomy import (
+    REVIEW_STAGE_BASE_REJECT,
+    REVIEW_STAGE_CANDIDATE_HIT,
+    REVIEW_STAGE_RISK_BLOCK,
+    REVIEW_STAGE_STRENGTH_MISS,
+    REVIEW_STAGE_THEME_MISS,
+    REVIEW_STAGE_TRIGGER_HIT,
+    REVIEW_STAGE_TRIGGER_MISS,
+)
 from core.wyckoff_engine import FunnelConfig
 from workflows.review_big_gainers import find_big_gainers, load_today_review_codes
 from workflows.review_list_replay import (
@@ -45,9 +54,9 @@ def _ctx() -> ReplayContext:
 
 def test_short_code_list_limits_output():
     rows = [
-        _row("000001", "平安银行", "L2淘汰"),
-        _row("000002", "万科A", "L2淘汰"),
-        _row("000003", "国农科技", "L2淘汰"),
+        _row("000001", "平安银行", REVIEW_STAGE_STRENGTH_MISS),
+        _row("000002", "万科A", REVIEW_STAGE_STRENGTH_MISS),
+        _row("000003", "国农科技", REVIEW_STAGE_STRENGTH_MISS),
     ]
 
     assert short_code_list(rows, limit=2) == "000001平安银行、000002万科A、等3只"
@@ -59,7 +68,7 @@ def test_classify_review_code_reports_pool_and_l4_hit():
 
     name, stage, reason = classify_review_code("000001", _ctx())
     assert name == "平安银行"
-    assert stage == "L4命中"
+    assert stage == REVIEW_STAGE_TRIGGER_HIT
     assert reason == "SOS（量价点火）"
 
 
@@ -93,8 +102,8 @@ def test_classify_review_code_reports_new_candidate_before_old_l2_gate():
     name, stage, reason = classify_review_code("000001", ctx)
 
     assert name == "平安银行"
-    assert stage == "候选命中[新漏斗]"
-    assert "trend_breakout" in reason
+    assert stage == REVIEW_STAGE_CANDIDATE_HIT
+    assert "趋势突破" in reason
     assert "强趋势平台突破" in reason
 
 
@@ -158,14 +167,14 @@ def test_load_today_review_codes_falls_back_when_spot_candidates_empty(monkeypat
 
 def test_build_focus_lines_highlights_actionable_buckets():
     rows = [
-        _row("000000", "新漏斗A", "候选命中[新漏斗]"),
-        _row("000001", "平安银行", "L2淘汰"),
-        _row("000002", "万科A", "L2淘汰"),
-        _row("000003", "国农科技", "风控淘汰[触发结构止损或派发]"),
-        _row("000004", "长江证券", "L4未命中"),
-        _row("000005", "世纪星源", "L3淘汰"),
-        _row("000006", "深振业A", "L1淘汰"),
-        _row("000007", "全新好", "L4命中"),
+        _row("000000", "候选A", REVIEW_STAGE_CANDIDATE_HIT),
+        _row("000001", "平安银行", REVIEW_STAGE_STRENGTH_MISS),
+        _row("000002", "万科A", REVIEW_STAGE_STRENGTH_MISS),
+        _row("000003", "国农科技", REVIEW_STAGE_RISK_BLOCK),
+        _row("000004", "长江证券", REVIEW_STAGE_TRIGGER_MISS),
+        _row("000005", "世纪星源", REVIEW_STAGE_THEME_MISS),
+        _row("000006", "深振业A", REVIEW_STAGE_BASE_REJECT),
+        _row("000007", "全新好", REVIEW_STAGE_TRIGGER_HIT),
     ]
 
     lines = build_focus_lines(rows, today=date(2026, 5, 6), previous_trade_date=date(2026, 4, 30))
@@ -173,14 +182,14 @@ def test_build_focus_lines_highlights_actionable_buckets():
 
     assert lines[0] == "**重点归因**"
     assert "日期间隔" in text
-    assert "新漏斗已捕获" in text
-    assert "旧 L2 仍未捕获" in text
-    assert "风控冲突优先复盘" in text
+    assert "候选池已捕获" in text
+    assert "结构强度不足" in text
+    assert "风控拦截优先复盘" in text
     assert "000003国农科技" in text
-    assert "旧 L4 扳机漏网" in text
-    assert "旧板块层漏网" in text
-    assert "基础过滤漏网" in text
-    assert "旧 L4 已捕获" in text
+    assert "买点未确认" in text
+    assert "题材共振不足" in text
+    assert "基础准入淘汰" in text
+    assert "买点已确认" in text
 
 
 def test_format_recommendation_history_reports_missing_and_hits():
@@ -205,7 +214,7 @@ def test_build_report_lines_appends_recommendation_note():
         {
             "code": "000001",
             "name": "平安银行",
-            "stage": "L2淘汰",
+            "stage": REVIEW_STAGE_STRENGTH_MISS,
             "reason": "六通道均未通过",
             "recommendation": "推荐记录: 2026-04-30 被推荐过；累计推荐1次",
         }
@@ -213,7 +222,7 @@ def test_build_report_lines_appends_recommendation_note():
 
     lines = build_report_lines(
         rows,
-        Counter({"L2淘汰": 1}),
+        Counter({REVIEW_STAGE_STRENGTH_MISS: 1}),
         today=date(2026, 5, 6),
         previous_trade_date=date(2026, 4, 30),
         end_trade_date="2026-04-30",

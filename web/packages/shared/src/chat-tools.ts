@@ -556,6 +556,7 @@ export interface ScreenStockItem {
   funnel_score: number | null
   change_pct: number | null
   candidate_lane: string | null
+  candidate_label: string | null
   entry_type: string | null
 }
 
@@ -573,6 +574,7 @@ export const SCREEN_RESULT_OUTPUT_SCHEMA = z.object({
     funnel_score: z.number().nullable(),
     change_pct: z.number().nullable(),
     candidate_lane: z.string().nullable(),
+    candidate_label: z.string().nullable(),
     entry_type: z.string().nullable(),
   })),
   meta: z.object({ ai_count: z.number() }),
@@ -599,12 +601,30 @@ export async function execScreenStocks(deps: ToolDeps): Promise<ScreenResult> {
       funnel_score: r.funnel_score ?? null,
       change_pct: r.change_pct ?? null,
       candidate_lane: r.candidate_lane ?? null,
+      candidate_label: labelCandidateTerm(r.candidate_lane ?? r.entry_type ?? ''),
       entry_type: r.entry_type ?? null,
     })),
     meta: { ai_count: latest.length },
   }
 
   return result
+}
+
+function labelCandidateTerm(value: string): string | null {
+  const clean = value.trim()
+  if (!clean) return null
+  const labels: Record<string, string> = {
+    mainline: '主线买点',
+    trend_breakout: '趋势突破',
+    trend_lane_pullback: '趋势回踩',
+    sector_strength: '板块强势',
+    wyckoff_structure: 'Wyckoff结构',
+    sos: 'SOS点火',
+    evr: 'EVR放量不跌',
+    lps: 'LPS缩量回踩',
+    spring: 'Spring震仓',
+  }
+  return labels[clean] || clean
 }
 
 export async function execAnalyzeStock(

@@ -227,7 +227,7 @@ def test_build_signal_observations_writes_candidate_metadata():
         latest_close_map={"300308": 100.0},
         candidate_metadata_map={
             "300308": {
-                "strategy_version": "lane_v2",
+                "strategy_version": "candidate_lane_v1",
                 "candidate_lane": "mainline",
                 "entry_type": "主线平台再突破",
                 "signal_key": "mainline",
@@ -239,7 +239,7 @@ def test_build_signal_observations_writes_candidate_metadata():
     )
 
     row = rows[0]
-    assert row["strategy_version"] == "lane_v2"
+    assert row["strategy_version"] == "candidate_lane_v1"
     assert row["candidate_lane"] == "mainline"
     assert row["entry_type"] == "主线平台再突破"
     assert row["candidate_status"] == "可买主线"

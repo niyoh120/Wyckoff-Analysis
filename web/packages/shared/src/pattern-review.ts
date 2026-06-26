@@ -43,12 +43,29 @@ export function patternReviewRole(row: PatternReviewRow): string {
   return isAiRecommended(row.is_ai_recommended) ? 'AI推荐' : '观察/信号复盘'
 }
 
+function labelCandidateTerm(value: string): string {
+  const labels: Record<string, string> = {
+    mainline: '主线买点',
+    trend_breakout: '趋势突破',
+    trend_lane_pullback: '趋势回踩',
+    sector_strength: '板块强势',
+    wyckoff_structure: 'Wyckoff结构',
+    sos: 'SOS点火',
+    evr: 'EVR放量不跌',
+    lps: 'LPS缩量回踩',
+    spring: 'Spring震仓',
+    Lane: '候选车道',
+  }
+  return labels[value] || value
+}
+
 export function formatPatternReviewLine(row: PatternReviewRow): string {
   const code = String(row.code).padStart(6, '0')
   const pricePath = `${formatPrice(row.initial_price)}→${formatPrice(row.current_price)}`
   const lane = [row.candidate_lane || row.signal_key, row.entry_type || row.candidate_status]
     .map(item => String(item || '').trim())
     .filter(Boolean)
+    .map(labelCandidateTerm)
     .join('/')
   const mainline = typeof row.mainline_score === 'number' ? `主线${Math.round(row.mainline_score * 100)}` : ''
   return [

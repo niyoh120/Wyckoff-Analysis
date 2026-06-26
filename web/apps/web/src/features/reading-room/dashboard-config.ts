@@ -36,7 +36,7 @@ export const SCENARIOS: DeskScenario[] = [
     title: '盘前',
     eyebrow: '市场先验',
     description: '水温、持仓、候选池先排队。',
-    prompt: '做一次盘前读盘：先看市场水温和风险状态，再结合我的持仓、最新漏斗候选和威科夫形态复盘，给出今天只需要盯的 3 件事。',
+    prompt: '做一次盘前读盘：先看市场水温和风险状态，再结合我的持仓、最新候选池和威科夫形态复盘，给出今天只需要盯的 3 件事。',
     Icon: Gauge,
     toneClass: 'border-sky-200 bg-sky-50/75 text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100',
   },

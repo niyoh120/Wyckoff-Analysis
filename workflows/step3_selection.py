@@ -4,25 +4,16 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core.funnel_taxonomy import source_label
 from workflows.step3_compression import select_compressed_step3_candidates
 from workflows.step3_runtime_config import Step3RuntimeConfig
 from workflows.step3_text import clean_text
 from workflows.step3_upstream_selection import has_upstream_priority_context, select_upstream_priority_candidates
 
-SOURCE_LABELS = {
-    "l4_hit": "今日漏斗",
-    "l2_bypass": "L2旁路",
-    "strategic_l2_bypass": "战略旁路",
-    "l3_fill": "L3补位",
-    "markup": "Markup补位",
-    "accum_c": "Accum_C补位",
-    "signal_confirmed": "二次确认",
-}
-
 
 def candidate_source_label(row: pd.Series) -> str:
     source = clean_text(row.get("selection_source"))
-    label = SOURCE_LABELS.get(source, source)
+    label = source_label(source)
     confirmed = clean_text(row.get("signal_status")).lower() == "confirmed"
     if confirmed and label and label != "二次确认":
         return f"{label}+二次确认"

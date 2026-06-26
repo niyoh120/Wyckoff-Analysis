@@ -158,7 +158,7 @@ export function toolProgressDescription(toolName: string, input: unknown): strin
     case 'analyze_stock':
       return `诊断 ${sanitizeText(item?.code) || '个股'} 的形态阶段、支撑压力和交易动作。`
     case 'screen_stocks':
-      return '读取最新漏斗选股结果，按分数和形态证据筛候选。'
+      return '读取最新候选池结果，按分数和形态证据筛候选。'
     case 'generate_ai_report':
       return `生成 ${codesInputLabel(item)} 的威科夫深度研报。`
     case 'generate_strategy_decision':

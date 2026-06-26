@@ -6,6 +6,7 @@ from typing import Any
 
 from core.candidate_metadata import build_candidate_metadata_map, code6
 from core.funnel_report import build_symbol_report_row, candidate_reason_text
+from core.funnel_taxonomy import source_label
 from core.market_trade_mode import resolve_market_trade_mode
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_settings import FUNNEL_L2_BYPASS_AI_CAP, FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP
@@ -92,9 +93,9 @@ def _source_tag(ctx: Any, code: str) -> str:
     if code in getattr(ctx, "mainline_candidate_set", set()):
         return "主线买点确认"
     if code in ctx.strategic_l2_bypass_set:
-        return "战略L2旁路"
+        return source_label("strategic_l2_bypass")
     if code in ctx.l2_bypass_set:
-        return "L2旁路观察"
+        return source_label("l2_bypass")
     return str(ctx.l2_channel_map.get(code, "")).strip() or "正式候选"
 
 
@@ -121,11 +122,16 @@ def funnel_run_details(
         "triggers": ctx.review_triggers,
         "review_triggers": ctx.review_triggers,
         "formal_triggers": ctx.formal_triggers,
+        "confirmation_triggers": ctx.formal_triggers,
         "l2_bypass_triggers": ctx.bypass_triggers,
+        "pattern_bypass_triggers": ctx.bypass_triggers,
         "l2_bypass_selected": [c for c in selection.selected_for_ai if c in ctx.l2_bypass_set],
+        "pattern_bypass_selected": [c for c in selection.selected_for_ai if c in ctx.l2_bypass_set],
         "l2_bypass_budget": FUNNEL_L2_BYPASS_AI_CAP,
         "strategic_l2_bypass_triggers": ctx.strategic_l2_bypass_triggers,
+        "strategic_theme_triggers": ctx.strategic_l2_bypass_triggers,
         "strategic_l2_bypass_selected": [c for c in selection.selected_for_ai if c in ctx.strategic_l2_bypass_set],
+        "strategic_theme_selected": [c for c in selection.selected_for_ai if c in ctx.strategic_l2_bypass_set],
         "strategic_l2_bypass_budget": FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP,
         "mainline_candidates": getattr(ctx, "mainline_candidates", []),
         "mainline_selected": [

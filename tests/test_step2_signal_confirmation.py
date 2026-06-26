@@ -55,7 +55,7 @@ def test_build_pending_signal_rows_writes_candidate_metadata():
         df_map={"300308": frame},
         candidate_metadata_map={
             "300308": {
-                "strategy_version": "lane_v2",
+                "strategy_version": "candidate_lane_v1",
                 "candidate_lane": "mainline",
                 "entry_type": "主线回踩MA20",
                 "signal_key": "mainline",
@@ -65,7 +65,7 @@ def test_build_pending_signal_rows_writes_candidate_metadata():
         },
     )
 
-    assert rows[0]["strategy_version"] == "lane_v2"
+    assert rows[0]["strategy_version"] == "candidate_lane_v1"
     assert rows[0]["candidate_lane"] == "mainline"
     assert rows[0]["entry_type"] == "主线回踩MA20"
     assert rows[0]["mainline_score"] == 0.82

@@ -58,14 +58,14 @@ def _overview_block(result: dict[str, Any], metrics: dict[str, Any]) -> list[str
         ("实时行情返回", result.get("quote_count")),
         ("流动性预筛", result.get("selected_count")),
         ("日K可用", result.get("fetched_count")),
-        ("L1 基础结构", metrics.get("layer1")),
-        ("L2 强弱通道", metrics.get("layer2")),
-        ("L3 板块共振", metrics.get("layer3")),
-        ("L4 触发命中", metrics.get("total_hits")),
+        ("基础准入", metrics.get("layer1")),
+        ("结构强度", metrics.get("layer2")),
+        ("题材共振", metrics.get("layer3")),
+        ("买点确认", metrics.get("total_hits")),
     ]
     return [
-        "## 漏斗概览",
-        "| 阶段 | 数量 |",
+        "## 筛选概览",
+        "| 环节 | 数量 |",
         "| --- | ---: |",
         *[f"| {name} | {_fmt_number(value)} |" for name, value in rows],
         "",
@@ -99,7 +99,7 @@ def _candidate_block(candidates: list[dict[str, Any]]) -> list[str]:
         "## Top 候选",
         "| # | 代码 | 名称 | 分数 | 最新收盘 | 触发 |",
         "| ---: | --- | --- | ---: | ---: | --- |",
-        *(rows or ["| - | - | - | - | - | 本次无 L4 触发候选 |"]),
+        *(rows or ["| - | - | - | - | - | 本次无买点确认候选 |"]),
         "",
     ]
 

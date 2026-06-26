@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-STRATEGY_VERSION_LANE_V2 = "lane_v2"
+STRATEGY_VERSION_CANDIDATE_LANE_V1 = "candidate_lane_v1"
 
 CANDIDATE_ATTRIBUTION_COLUMNS = (
     "strategy_version",
@@ -49,7 +49,7 @@ def build_candidate_metadata_map(
 def candidate_entry_metadata(item: dict[str, Any], mainline: dict[str, Any] | None = None) -> dict[str, Any]:
     lane = _text(item.get("lane")) or _text(item.get("signal_key")) or _text(item.get("entry_type"))
     meta = {
-        "strategy_version": STRATEGY_VERSION_LANE_V2,
+        "strategy_version": STRATEGY_VERSION_CANDIDATE_LANE_V1,
         "candidate_lane": lane,
         "entry_type": _text(item.get("entry_type")) or lane,
         "signal_key": normalize_signal_key(item.get("signal_key") or item.get("entry_type") or lane),
@@ -69,7 +69,7 @@ def candidate_entry_metadata(item: dict[str, Any], mainline: dict[str, Any] | No
 def mainline_metadata(item: dict[str, Any]) -> dict[str, Any]:
     entry_type = _text(item.get("entry_type")) or "mainline"
     meta = {
-        "strategy_version": STRATEGY_VERSION_LANE_V2,
+        "strategy_version": STRATEGY_VERSION_CANDIDATE_LANE_V1,
         "candidate_lane": "mainline",
         "entry_type": entry_type,
         "signal_key": "mainline",

@@ -164,7 +164,7 @@ def test_upsert_recommendations_preserves_candidate_metadata(monkeypatch):
                 "name": "中际旭创",
                 "initial_price": 100.0,
                 "funnel_score": 86.0,
-                "strategy_version": "lane_v2",
+                "strategy_version": "candidate_lane_v1",
                 "candidate_lane": "mainline",
                 "entry_type": "主线平台再突破",
                 "signal_key": "mainline",
@@ -179,7 +179,7 @@ def test_upsert_recommendations_preserves_candidate_metadata(monkeypatch):
 
     assert ok is True
     row = client.upserts[0][0]
-    assert row["strategy_version"] == "lane_v2"
+    assert row["strategy_version"] == "candidate_lane_v1"
     assert row["candidate_lane"] == "mainline"
     assert row["entry_type"] == "主线平台再突破"
     assert row["candidate_status"] == "可买主线"
