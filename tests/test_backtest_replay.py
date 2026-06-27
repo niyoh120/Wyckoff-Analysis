@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 
 import pandas as pd
@@ -7,6 +8,7 @@ import pytest
 
 from core.backtest_execution import ExitSimulationConfig
 from core.backtest_replay import BacktestReplayConfig, replay_backtest
+from core.mainline_engine import MainlineEngineConfig
 from core.wyckoff_engine import FunnelConfig, FunnelResult
 
 
@@ -74,13 +76,26 @@ def _config() -> BacktestReplayConfig:
 
 
 def test_replay_backtest_generates_t1_trades(monkeypatch) -> None:
+    calls: dict[str, object] = {}
     monkeypatch.setattr("core.backtest_replay.calc_market_breadth", lambda _df_map: {})
     monkeypatch.setattr(
         "core.backtest_replay.analyze_benchmark_and_tune_cfg", lambda *_args, **_kwargs: {"regime": "NEUTRAL"}
     )
-    monkeypatch.setattr("core.backtest_replay.run_funnel", lambda **_kwargs: _result())
+
+    def fake_run_funnel(**kwargs):
+        calls.update(kwargs)
+        return _result()
+
+    monkeypatch.setattr("core.backtest_replay.run_funnel", fake_run_funnel)
     cfg = FunnelConfig(trading_days=3)
     cfg.ma_long = 2
+    replay_cfg = replace(
+        _config(),
+        concept_map={"000001": ["CPO"]},
+        concept_heat=[{"name": "CPO", "pct": 3.2}],
+        financial_map={"000001": {"roe": 12}},
+        mainline_config=MainlineEngineConfig(max_ai_candidates=2),
+    )
 
     replay = replay_backtest(
         all_df_map={"000001": _hist()},
@@ -90,7 +105,7 @@ def test_replay_backtest_generates_t1_trades(monkeypatch) -> None:
         market_cap_map={},
         sector_map={},
         base_cfg=cfg,
-        config=_config(),
+        config=replay_cfg,
     )
 
     assert replay.eval_days == 2
@@ -100,3 +115,7 @@ def test_replay_backtest_generates_t1_trades(monkeypatch) -> None:
     assert replay.records[0].entry_date == date(2026, 1, 3)
     assert replay.records[0].exit_date == date(2026, 1, 4)
     assert replay.records[0].ret_pct == pytest.approx(10.0)
+    assert calls["concept_map"] == {"000001": ["CPO"]}
+    assert calls["concept_heat"] == [{"name": "CPO", "pct": 3.2}]
+    assert calls["financial_map"] == {"000001": {"roe": 12}}
+    assert calls["mainline_config"].max_ai_candidates == 2

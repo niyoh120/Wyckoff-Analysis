@@ -9,6 +9,9 @@ from workflows.backtest_data import (
     board_match,
     load_backtest_history,
     load_backtest_metadata,
+    load_snapshot_concept_heat,
+    load_snapshot_concept_map,
+    load_snapshot_financial_map,
     load_snapshot_hist_map,
     load_snapshot_market_cap_map,
     load_snapshot_sector_map,
@@ -51,13 +54,25 @@ def test_resolve_universe_from_snapshot_filters_st_and_board(tmp_path) -> None:
 def test_snapshot_meta_loaders(tmp_path) -> None:
     (tmp_path / "sector_map.json").write_text(json.dumps({"688001": "半导体"}), encoding="utf-8")
     (tmp_path / "market_cap_map.json").write_text(json.dumps({"688001": "123.4"}), encoding="utf-8")
+    (tmp_path / "concept_map.json").write_text(json.dumps({"688001": ["CPO"]}, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "concept_heat.json").write_text(
+        json.dumps([{"name": "CPO", "pct": 3.2}], ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (tmp_path / "financial_map.json").write_text(json.dumps({"688001": {"roe": 12}}), encoding="utf-8")
 
     assert load_snapshot_sector_map(tmp_path) == {"688001": "半导体"}
     assert load_snapshot_market_cap_map(tmp_path) == {"688001": 123.4}
+    assert load_snapshot_concept_map(tmp_path) == {"688001": ["CPO"]}
+    assert load_snapshot_concept_heat(tmp_path) == [{"name": "CPO", "pct": 3.2}]
+    assert load_snapshot_financial_map(tmp_path) == {"688001": {"roe": 12}}
     metadata = load_backtest_metadata(use_current_meta=True, snapshot_dir=tmp_path)
     assert metadata.source == "snapshot"
     assert metadata.sector_map == {"688001": "半导体"}
     assert metadata.market_cap_map == {"688001": 123.4}
+    assert metadata.concept_map == {"688001": ["CPO"]}
+    assert metadata.concept_heat == [{"name": "CPO", "pct": 3.2}]
+    assert metadata.financial_map == {"688001": {"roe": 12}}
 
 
 def test_backtest_metadata_disabled_returns_empty_maps(tmp_path) -> None:

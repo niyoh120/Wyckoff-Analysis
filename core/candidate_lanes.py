@@ -238,8 +238,16 @@ def _entry_rank(item: dict[str, Any]) -> tuple[int, float, str]:
         "sector_strength": 3,
         "wyckoff_structure": 4,
     }
-    entry_type = str(item.get("entry_type", "") or item.get("signal_key", ""))
-    return (priority.get(entry_type, 20), -float(item.get("score", 0.0) or 0.0), str(item.get("code", "")))
+    rank_key = _rank_key(item, priority)
+    return (priority.get(rank_key, 20), -float(item.get("score", 0.0) or 0.0), str(item.get("code", "")))
+
+
+def _rank_key(item: dict[str, Any], priority: dict[str, int]) -> str:
+    for key in ("signal_key", "lane", "entry_type"):
+        value = str(item.get(key, "") or "")
+        if value in priority:
+            return value
+    return str(item.get("entry_type", "") or item.get("signal_key", ""))
 
 
 def _num(df: pd.DataFrame, column: str) -> pd.Series:

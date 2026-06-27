@@ -25,6 +25,7 @@ from core.layer2_strength import (
     build_rps_context,
     evaluate_layer2_symbol,
 )
+from core.mainline_engine import MainlineEngineConfig, build_mainline_candidates, mainline_candidate_entries
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +352,23 @@ class FunnelResult(NamedTuple):
     leader_radar_symbols: list[str]
     leader_radar_rows: list[dict[str, Any]]
     candidate_entries: list[dict[str, Any]] = []
+
+
+class _FunnelLayerState(NamedTuple):
+    df_map: dict[str, pd.DataFrame]
+    l1: list[str]
+    l2: list[str]
+    l3: list[str]
+    top_sectors: list[str]
+    channel_map: dict[str, str]
+    triggers: dict[str, list[tuple[str, float]]]
+
+
+class _FunnelStageState(NamedTuple):
+    stage_map: dict[str, str]
+    markup_symbols: list[str]
+    exit_signals: dict[str, dict]
+    leader_radar_rows: list[dict[str, Any]]
 
 
 # Layer 1: 剥离垃圾
@@ -2252,14 +2270,77 @@ def run_funnel(
     market_cap_map: dict[str, float],
     sector_map: dict[str, str],
     cfg: FunnelConfig | None = None,
+    concept_map: dict[str, list[str]] | None = None,
+    concept_heat: list[dict[str, Any]] | None = None,
+    hot_concepts: list[str] | None = None,
+    theme_radar: dict[str, Any] | None = None,
+    financial_map: dict[str, dict] | None = None,
+    mainline_config: MainlineEngineConfig | None = None,
 ) -> FunnelResult:
     if cfg is None:
         cfg = FunnelConfig()
+    layers = _run_funnel_layers(
+        all_symbols,
+        df_map,
+        bench_df,
+        name_map,
+        market_cap_map,
+        sector_map,
+        cfg,
+        concept_map=concept_map,
+        hot_concepts=hot_concepts,
+        financial_map=financial_map,
+    )
+    stages = _run_funnel_stage_context(layers, sector_map, cfg)
+    candidate_entries = _candidate_entries_for_result(
+        layers.l1,
+        layers.l2,
+        layers.top_sectors,
+        layers.df_map,
+        sector_map,
+        layers.channel_map,
+        layers.triggers,
+        stages.stage_map,
+        stages.exit_signals,
+        cfg,
+        concept_map=concept_map,
+        concept_heat=concept_heat,
+        theme_radar=theme_radar,
+        financial_map=financial_map,
+        name_map=name_map,
+        mainline_config=mainline_config,
+    )
+    return FunnelResult(
+        layer1_symbols=layers.l1,
+        layer2_symbols=layers.l2,
+        layer3_symbols=layers.l3,
+        top_sectors=layers.top_sectors,
+        triggers=layers.triggers,
+        stage_map=stages.stage_map,
+        markup_symbols=stages.markup_symbols,
+        exit_signals=stages.exit_signals,
+        channel_map=layers.channel_map,
+        leader_radar_symbols=[str(row["code"]) for row in stages.leader_radar_rows],
+        leader_radar_rows=stages.leader_radar_rows,
+        candidate_entries=candidate_entries,
+    )
 
-    # 预先整理时序，避免各层重复 sort/copy 产生大量临时对象。
+
+def _run_funnel_layers(
+    all_symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    bench_df: pd.DataFrame | None,
+    name_map: dict[str, str],
+    market_cap_map: dict[str, float],
+    sector_map: dict[str, str],
+    cfg: FunnelConfig,
+    *,
+    concept_map: dict[str, list[str]] | None,
+    hot_concepts: list[str] | None,
+    financial_map: dict[str, dict] | None,
+) -> _FunnelLayerState:
     prepared_df_map = _prepare_df_map(df_map)
-
-    l1 = layer1_filter(all_symbols, name_map, market_cap_map, prepared_df_map, cfg)
+    l1 = layer1_filter(all_symbols, name_map, market_cap_map, prepared_df_map, cfg, financial_map=financial_map)
     l2, channel_map, _pre_ign = layer2_strength_detailed(
         l1,
         prepared_df_map,
@@ -2267,39 +2348,32 @@ def run_funnel(
         cfg,
         rps_universe=list(prepared_df_map.keys()),
     )
-    l3, top_sectors = layer3_sector_resonance(l2, sector_map, cfg, base_symbols=l1, df_map=prepared_df_map)
+    l3, top_sectors = layer3_sector_resonance(
+        l2,
+        sector_map,
+        cfg,
+        base_symbols=l1,
+        df_map=prepared_df_map,
+        concept_map=concept_map,
+        hot_concepts=hot_concepts,
+    )
     triggers = layer4_triggers(l3, prepared_df_map, cfg, channel_map=channel_map, market_cap_map=market_cap_map)
+    return _FunnelLayerState(prepared_df_map, l1, l2, l3, top_sectors, channel_map, triggers)
 
-    # 阶段识别和退出信号
-    markup_symbols = detect_markup_stage(l3, prepared_df_map, cfg)
-    accum_stage_map = detect_accum_stage(l2, prepared_df_map, cfg)  # 对 L2 做细化分析
-    leader_radar_rows = detect_leader_radar(l1, prepared_df_map, sector_map, channel_map, cfg)
 
-    # 构建完整的 stage_map（包括 Markup）
+def _run_funnel_stage_context(
+    layers: _FunnelLayerState,
+    sector_map: dict[str, str],
+    cfg: FunnelConfig,
+) -> _FunnelStageState:
+    markup_symbols = detect_markup_stage(layers.l3, layers.df_map, cfg)
+    accum_stage_map = detect_accum_stage(layers.l2, layers.df_map, cfg)
+    leader_radar_rows = detect_leader_radar(layers.l1, layers.df_map, sector_map, layers.channel_map, cfg)
     stage_map: dict[str, str] = accum_stage_map.copy()
     for sym in markup_symbols:
         stage_map[sym] = "Markup"
-
-    # 退出信号针对 L2 和 Markup 股票
-    exit_signals = layer5_exit_signals(l2 + markup_symbols, prepared_df_map, accum_stage_map, cfg)
-    candidate_entries = _candidate_entries_for_result(
-        l1, l2, top_sectors, prepared_df_map, sector_map, channel_map, triggers, stage_map, exit_signals, cfg
-    )
-
-    return FunnelResult(
-        layer1_symbols=l1,
-        layer2_symbols=l2,
-        layer3_symbols=l3,
-        top_sectors=top_sectors,
-        triggers=triggers,
-        stage_map=stage_map,
-        markup_symbols=markup_symbols,
-        exit_signals=exit_signals,
-        channel_map=channel_map,
-        leader_radar_symbols=[str(row["code"]) for row in leader_radar_rows],
-        leader_radar_rows=leader_radar_rows,
-        candidate_entries=candidate_entries,
-    )
+    exit_signals = layer5_exit_signals(layers.l2 + markup_symbols, layers.df_map, accum_stage_map, cfg)
+    return _FunnelStageState(stage_map, markup_symbols, exit_signals, leader_radar_rows)
 
 
 def _candidate_entries_for_result(
@@ -2313,6 +2387,13 @@ def _candidate_entries_for_result(
     stage_map: dict[str, str],
     exit_signals: dict[str, dict],
     cfg: FunnelConfig,
+    *,
+    concept_map: dict[str, list[str]] | None = None,
+    concept_heat: list[dict[str, Any]] | None = None,
+    theme_radar: dict[str, Any] | None = None,
+    financial_map: dict[str, dict] | None = None,
+    name_map: dict[str, str] | None = None,
+    mainline_config: MainlineEngineConfig | None = None,
 ) -> list[dict[str, Any]]:
     wyckoff_entries = build_candidate_entries(
         alpha_symbols=l1,
@@ -2332,4 +2413,43 @@ def _candidate_entries_for_result(
         l2_symbols=l2,
         channel_map=channel_map,
     )
-    return merge_candidate_entries(wyckoff_entries, lane_entries)
+    mainline_entries = _mainline_entries_for_result(
+        l1,
+        l2,
+        df_map,
+        concept_map=concept_map,
+        concept_heat=concept_heat,
+        theme_radar=theme_radar,
+        financial_map=financial_map,
+        name_map=name_map,
+        mainline_config=mainline_config,
+    )
+    return merge_candidate_entries(wyckoff_entries, lane_entries, mainline_entries)
+
+
+def _mainline_entries_for_result(
+    l1: list[str],
+    l2: list[str],
+    df_map: dict[str, pd.DataFrame],
+    *,
+    concept_map: dict[str, list[str]] | None,
+    concept_heat: list[dict[str, Any]] | None,
+    theme_radar: dict[str, Any] | None,
+    financial_map: dict[str, dict] | None,
+    name_map: dict[str, str] | None,
+    mainline_config: MainlineEngineConfig | None,
+) -> list[dict[str, Any]]:
+    if mainline_config is None or not mainline_config.enabled:
+        return []
+    candidates = build_mainline_candidates(
+        l1_passed=l1,
+        l2_passed=l2,
+        concept_map=concept_map or {},
+        concept_heat=concept_heat or [],
+        theme_radar=theme_radar or {},
+        df_map=df_map,
+        financial_map=financial_map or {},
+        name_map=name_map or {},
+        config=mainline_config,
+    )
+    return mainline_candidate_entries(candidates, max_count=mainline_config.max_ai_candidates)

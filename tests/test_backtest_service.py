@@ -22,7 +22,14 @@ def test_run_backtest_workflow_builds_context_without_network(monkeypatch) -> No
     )
     monkeypatch.setattr(
         "workflows.backtest.load_backtest_metadata",
-        lambda *_args, **_kwargs: BacktestMetadata({"000001": 100.0}, {"000001": "银行"}, "test"),
+        lambda *_args, **_kwargs: BacktestMetadata(
+            {"000001": 100.0},
+            {"000001": "银行"},
+            {"000001": ["CPO"]},
+            [{"name": "CPO", "pct": 3.2}],
+            {"000001": {"roe": 12}},
+            "test",
+        ),
     )
 
     def fake_execute_backtest_run(**kwargs):
@@ -50,6 +57,9 @@ def test_run_backtest_workflow_builds_context_without_network(monkeypatch) -> No
     assert summary == {"ok": True}
     assert captured["context"].board == "all"
     assert captured["data"].name_map == {"000001": "平安银行"}
+    assert captured["data"].concept_map == {"000001": ["CPO"]}
+    assert captured["data"].concept_heat == [{"name": "CPO", "pct": 3.2}]
+    assert captured["data"].financial_map == {"000001": {"roe": 12}}
     assert captured["config"].performance.cash_portfolio is True
     analyzer = captured["config"].replay.market_regime_analyzer
     assert analyzer.keywords["regime_config"].smallcap_bench_code == "399905"

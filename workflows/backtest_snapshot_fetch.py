@@ -15,7 +15,7 @@ from core.wyckoff_engine import normalize_hist_from_fetch
 from integrations.data_source import fetch_stock_hist
 from integrations.fetch_a_share_csv import get_stocks_by_board, normalize_symbols
 from integrations.index_data_source import fetch_index_akshare, fetch_index_hist
-from integrations.market_metadata import fetch_market_cap_map, fetch_sector_map
+from integrations.market_metadata import fetch_concept_heat, fetch_concept_map, fetch_market_cap_map, fetch_sector_map
 
 
 @dataclass(frozen=True)
@@ -279,6 +279,20 @@ def _write_optional_maps(out_dir: Path) -> None:
         print(f"[snapshot] market_cap_map.json: {len(market_cap_map)} entries")
     except Exception as exc:
         print(f"[snapshot] market_cap_map 拉取失败（不阻塞）: {exc}")
+
+    try:
+        concept_map = fetch_concept_map()
+        _write_json(out_dir / "concept_map.json", concept_map)
+        print(f"[snapshot] concept_map.json: {len(concept_map)} entries")
+    except Exception as exc:
+        print(f"[snapshot] concept_map 拉取失败（不阻塞）: {exc}")
+
+    try:
+        concept_heat = fetch_concept_heat()
+        _write_json(out_dir / "concept_heat.json", concept_heat)
+        print(f"[snapshot] concept_heat.json: {len(concept_heat)} entries")
+    except Exception as exc:
+        print(f"[snapshot] concept_heat 拉取失败（不阻塞）: {exc}")
 
 
 def _write_snapshot_outputs(

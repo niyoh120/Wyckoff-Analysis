@@ -21,6 +21,7 @@ from core.backtest_execution import (
 )
 from core.backtest_selection import combine_trigger_scores, select_ai_input_codes
 from core.candidate_policy import CandidatePolicyConfig, apply_regime_position_filter
+from core.mainline_engine import MainlineEngineConfig
 from core.market_breadth import calc_market_breadth
 from core.signal_confirmation import PendingPool, score_springboard_abc
 from core.wyckoff_engine import FunnelConfig, FunnelResult, run_funnel
@@ -65,6 +66,11 @@ class BacktestReplayConfig:
     intraday_entry_price_fetcher: IntradayPriceFetcher | None = None
     candidate_policy: CandidatePolicyConfig = field(default_factory=CandidatePolicyConfig)
     ai_allocation: AiCandidateAllocationConfig = field(default_factory=AiCandidateAllocationConfig)
+    concept_map: dict[str, list[str]] = field(default_factory=dict)
+    concept_heat: list[dict] = field(default_factory=list)
+    theme_radar: dict = field(default_factory=dict)
+    financial_map: dict[str, dict] = field(default_factory=dict)
+    mainline_config: MainlineEngineConfig | None = None
     market_breadth_calculator: MarketBreadthCalculator | None = None
     market_regime_analyzer: MarketRegimeAnalyzer | None = None
 
@@ -202,6 +208,11 @@ def _build_day_context(
         market_cap_map=market_cap_map,
         sector_map=sector_map,
         cfg=day_cfg,
+        concept_map=config.concept_map,
+        concept_heat=config.concept_heat,
+        theme_radar=config.theme_radar,
+        financial_map=config.financial_map,
+        mainline_config=config.mainline_config,
     )
     regime = bench_context.get("regime", "NEUTRAL") if bench_context else "NEUTRAL"
     return _DayContext(idx, signal_date, trade_dates[idx + 1], day_df_map, name_map, day_cfg, result, str(regime))

@@ -58,7 +58,7 @@ def test_merge_candidate_entries_prefers_mainline_then_lane_priority() -> None:
     merged = merge_candidate_entries(
         [{"code": "000001", "entry_type": "sos", "score": 99.0}],
         [{"code": "000001", "entry_type": "trend_lane_pullback", "score": 76.0}],
-        [{"code": "000002", "entry_type": "mainline", "score": 70.0}],
+        [{"code": "000002", "signal_key": "mainline", "entry_type": "主线回踩MA20", "score": 70.0}],
     )
 
-    assert [item["entry_type"] for item in merged] == ["mainline", "trend_lane_pullback"]
+    assert [item["entry_type"] for item in merged] == ["主线回踩MA20", "trend_lane_pullback"]

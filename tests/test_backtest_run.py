@@ -91,6 +91,9 @@ def test_execute_backtest_run_builds_summary_from_prepared_data(monkeypatch) -> 
         name_map={"000001": "平安银行"},
         market_cap_map={"000001": 100.0},
         sector_map={"000001": "银行"},
+        concept_map={"000001": ["CPO"]},
+        concept_heat=[{"name": "CPO", "pct": 3.2}],
+        financial_map={"000001": {"roe": 12}},
         failures=["000002:empty"],
         snapshot_rows_total=10,
         snapshot_used=True,
@@ -110,6 +113,9 @@ def test_execute_backtest_run_builds_summary_from_prepared_data(monkeypatch) -> 
     assert summary["universe_ok"] == 1
     assert summary["universe_fail"] == 1
     assert summary["snapshot_used"] is True
+    assert summary["concept_map_loaded"] == 1
+    assert summary["concept_heat_loaded"] == 1
+    assert summary["financial_map_loaded"] == 1
     assert summary["pending_confirmed_total"] == 3
     assert summary["cash_portfolio_styles_requested"] == "confirmation_only"
     assert len(calls["trade_dates"]) == 4

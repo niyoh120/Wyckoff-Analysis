@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 
 import pandas as pd
@@ -32,6 +32,9 @@ class BacktestPreparedData:
     name_map: dict[str, str]
     market_cap_map: dict[str, float]
     sector_map: dict[str, str]
+    concept_map: dict[str, list[str]]
+    concept_heat: list[dict]
+    financial_map: dict[str, dict]
     failures: list[str]
     snapshot_rows_total: int = 0
     snapshot_used: bool = False
@@ -61,7 +64,7 @@ def execute_backtest_run(
         market_cap_map=data.market_cap_map,
         sector_map=data.sector_map,
         base_cfg=_base_funnel_config(config),
-        config=config.replay,
+        config=_replay_config_with_metadata(config, data),
         progress=progress,
     )
     trades_df = pd.DataFrame([record.__dict__ for record in replay.records])
@@ -97,6 +100,15 @@ def _base_funnel_config(config: BacktestRunConfig) -> FunnelConfig:
         _apply_us_cfg(base_cfg)
     _apply_funnel_config_overrides(base_cfg, config.funnel_config_overrides)
     return base_cfg
+
+
+def _replay_config_with_metadata(config: BacktestRunConfig, data: BacktestPreparedData):
+    return replace(
+        config.replay,
+        concept_map=data.concept_map,
+        concept_heat=data.concept_heat,
+        financial_map=data.financial_map,
+    )
 
 
 def _apply_funnel_config_overrides(cfg: FunnelConfig, overrides: dict[str, object]) -> None:
@@ -155,6 +167,10 @@ def _base_summary(
         "universe_fail": len(data.failures),
         "snapshot_used": data.snapshot_used,
         "snapshot_rows_total": data.snapshot_rows_total,
+        "concept_map_loaded": len(data.concept_map),
+        "concept_heat_loaded": len(data.concept_heat),
+        "financial_map_loaded": len(data.financial_map),
+        "mainline_engine_enabled": bool(config.replay.mainline_config and config.replay.mainline_config.enabled),
         "eval_days": replay.eval_days,
         "signal_days": replay.signal_days,
         "trades": len(trades_df),

@@ -39,6 +39,8 @@ def test_write_snapshot_outputs_writes_core_artifacts(monkeypatch, tmp_path: Pat
     meta = {"symbols": 1, "ok": 1, "fail": 0, "start": "20260101", "end": "20260618"}
     monkeypatch.setattr(snapshot, "fetch_sector_map", lambda: {"000001": "银行"})
     monkeypatch.setattr(snapshot, "fetch_market_cap_map", lambda: {"000001": 100.0})
+    monkeypatch.setattr(snapshot, "fetch_concept_map", lambda: {"000001": ["CPO"]})
+    monkeypatch.setattr(snapshot, "fetch_concept_heat", lambda: [{"name": "CPO", "pct": 3.2}])
 
     snapshot._write_snapshot_outputs(
         tmp_path,
@@ -51,4 +53,6 @@ def test_write_snapshot_outputs_writes_core_artifacts(monkeypatch, tmp_path: Pat
     assert (tmp_path / "hist_full.csv.gz").exists()
     assert (tmp_path / "benchmark_main.csv").exists()
     assert json.loads((tmp_path / "name_map.json").read_text(encoding="utf-8")) == {"000001": "平安银行"}
+    assert json.loads((tmp_path / "concept_map.json").read_text(encoding="utf-8")) == {"000001": ["CPO"]}
+    assert json.loads((tmp_path / "concept_heat.json").read_text(encoding="utf-8")) == [{"name": "CPO", "pct": 3.2}]
     assert json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8")) == meta

@@ -12,6 +12,7 @@ from core.backtest_performance import BacktestPerformanceConfig
 from core.backtest_replay import BacktestReplayConfig, MarketBreadthCalculator, MarketRegimeAnalyzer
 from core.candidate_policy import CandidatePolicyConfig
 from core.cash_portfolio import CashPortfolioConfig, expand_portfolio_styles
+from core.mainline_engine import MainlineEngineConfig
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,11 @@ class BacktestRunInput:
     market_regime_analyzer: MarketRegimeAnalyzer | None = None
     candidate_policy: CandidatePolicyConfig = field(default_factory=CandidatePolicyConfig)
     ai_allocation: AiCandidateAllocationConfig = field(default_factory=AiCandidateAllocationConfig)
+    concept_map: dict[str, list[str]] = field(default_factory=dict)
+    concept_heat: list[dict] = field(default_factory=list)
+    theme_radar: dict = field(default_factory=dict)
+    financial_map: dict[str, dict] = field(default_factory=dict)
+    mainline_config: MainlineEngineConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -243,6 +249,11 @@ def _replay_config(
         exit=params.exit_config,
         candidate_policy=params.candidate_policy,
         ai_allocation=params.ai_allocation,
+        concept_map=dict(params.concept_map),
+        concept_heat=list(params.concept_heat),
+        theme_radar=dict(params.theme_radar),
+        financial_map=dict(params.financial_map),
+        mainline_config=params.mainline_config,
     )
 
 

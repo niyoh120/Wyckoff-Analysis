@@ -15,6 +15,7 @@ from core.backtest_execution import ExitSimulationConfig
 from core.backtest_run import BacktestPreparedData, BacktestRunContext, execute_backtest_run
 from core.cash_portfolio import CashPortfolioConfig
 from core.market_breadth import calc_market_breadth
+from tools.mainline_config import load_mainline_engine_config
 from tools.market_regime import analyze_benchmark_and_tune_cfg
 from workflows.ai_candidate_allocation_config import ai_candidate_allocation_config_from_env
 from workflows.backtest_data import (
@@ -161,6 +162,7 @@ def _build_run_config(request: BacktestWorkflowRequest) -> BacktestRunConfig:
             market_regime_analyzer=_market_regime_analyzer_from_env(),
             candidate_policy=candidate_policy_config_from_env(),
             ai_allocation=ai_candidate_allocation_config_from_env(),
+            mainline_config=load_mainline_engine_config(),
         )
     )
 
@@ -199,6 +201,9 @@ def _load_prepared_data(
         name_map=universe.name_map,
         market_cap_map=metadata.market_cap_map,
         sector_map=metadata.sector_map,
+        concept_map=metadata.concept_map,
+        concept_heat=metadata.concept_heat,
+        financial_map=metadata.financial_map,
         failures=history.failures,
         snapshot_rows_total=history.snapshot_rows_total,
         snapshot_used=history.snapshot_used,

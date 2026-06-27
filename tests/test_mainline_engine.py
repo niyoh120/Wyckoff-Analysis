@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from core.mainline_engine import MainlineEngineConfig, build_mainline_candidates, mainline_candidate_entries
+from core.wyckoff_engine import FunnelConfig, run_funnel
 
 
 def _frame(values: list[float], *, volume_tail: float = 900.0) -> pd.DataFrame:
@@ -16,6 +17,8 @@ def _frame(values: list[float], *, volume_tail: float = 900.0) -> pd.DataFrame:
             "low": [v * 0.98 for v in values],
             "close": values,
             "volume": volume,
+            "amount": [100_000_000.0] * len(values),
+            "pct_chg": pd.Series(values).pct_change().fillna(0.0) * 100.0,
         }
     )
 
@@ -83,3 +86,25 @@ def test_mainline_configured_themes_are_optional_not_default_targets() -> None:
     cfg = MainlineEngineConfig()
     assert cfg.themes == ()
     assert cfg.core_basket == ()
+
+
+def test_run_funnel_merges_mainline_entries_when_configured() -> None:
+    frame = _frame(_trend_values())
+    cfg = FunnelConfig()
+    cfg.ma_long = 60
+
+    result = run_funnel(
+        all_symbols=["000001"],
+        df_map={"000001": frame},
+        bench_df=frame,
+        name_map={"000001": "动态主线A"},
+        market_cap_map={},
+        sector_map={"000001": "通信设备"},
+        cfg=cfg,
+        concept_map={"000001": ["军工信息化"]},
+        concept_heat=[{"name": "军工信息化", "pct": 5.5, "net_inflow": 900_000_000}],
+        financial_map={"000001": {"roe": 12, "debt_to_asset_ratio": 45, "revenue_yoy": 20}},
+        mainline_config=MainlineEngineConfig(max_ai_candidates=3),
+    )
+
+    assert any(item["signal_key"] == "mainline" for item in result.candidate_entries)

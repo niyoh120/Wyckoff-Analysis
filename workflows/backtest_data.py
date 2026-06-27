@@ -16,7 +16,7 @@ from core.wyckoff_engine import normalize_hist_from_fetch
 from integrations.data_source import fetch_stock_hist
 from integrations.fetch_a_share_csv import get_stocks_by_board, normalize_symbols
 from integrations.index_data_source import fetch_index_hist
-from integrations.market_metadata import fetch_market_cap_map, fetch_sector_map
+from integrations.market_metadata import fetch_concept_heat, fetch_concept_map, fetch_market_cap_map, fetch_sector_map
 from integrations.market_universe import load_us_symbols
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,9 @@ class BacktestHistory:
 class BacktestMetadata:
     market_cap_map: dict[str, float]
     sector_map: dict[str, str]
+    concept_map: dict[str, list[str]]
+    concept_heat: list[dict]
+    financial_map: dict[str, dict]
     source: str
 
 
@@ -181,25 +184,69 @@ def load_snapshot_market_cap_map(snapshot_dir: Path | None) -> dict[str, float] 
     return {str(k): float(v) for k, v in data.items() if v is not None} if data else None
 
 
+def load_snapshot_concept_map(snapshot_dir: Path | None) -> dict[str, list[str]] | None:
+    data = _load_json_map(snapshot_dir, "concept_map.json")
+    if not data:
+        return None
+    return {str(k): [str(item) for item in v or []] for k, v in data.items() if isinstance(v, list)}
+
+
+def load_snapshot_concept_heat(snapshot_dir: Path | None) -> list[dict] | None:
+    data = _load_json_list(snapshot_dir, "concept_heat.json")
+    return [item for item in data if isinstance(item, dict)] if data else None
+
+
+def load_snapshot_financial_map(snapshot_dir: Path | None) -> dict[str, dict] | None:
+    data = _load_json_map(snapshot_dir, "financial_map.json")
+    return {str(k): v for k, v in data.items() if isinstance(v, dict)} if data else None
+
+
 def load_backtest_metadata(use_current_meta: bool, snapshot_dir: Path | None) -> BacktestMetadata:
+    snap = _snapshot_metadata(snapshot_dir)
+    if snap is not None:
+        return snap
+
     if not use_current_meta:
         logger.info("偏差抑制口径：关闭当前截面市值/行业映射过滤 (L1 市值过滤 + L3 行业共振过滤)")
-        return BacktestMetadata(market_cap_map={}, sector_map={}, source="disabled")
-
-    snap_sector = load_snapshot_sector_map(snapshot_dir)
-    snap_cap = load_snapshot_market_cap_map(snapshot_dir)
-    if snap_sector is not None or snap_cap is not None:
-        sector_map = snap_sector or {}
-        market_cap_map = snap_cap or {}
-        logger.info("元数据从快照加载: sector_map=%d, market_cap_map=%d", len(sector_map), len(market_cap_map))
-        return BacktestMetadata(market_cap_map=market_cap_map, sector_map=sector_map, source="snapshot")
+        return BacktestMetadata({}, {}, {}, [], {}, "disabled")
 
     market_cap_map = fetch_market_cap_map()
     sector_map = fetch_sector_map()
+    concept_map = fetch_concept_map()
+    concept_heat = fetch_concept_heat()
     logger.warning("使用当前截面市值/行业映射（会引入 look-ahead bias）")
     if not market_cap_map:
         logger.warning("当前市值映射为空，Layer1 市值过滤将被跳过")
-    return BacktestMetadata(market_cap_map=market_cap_map, sector_map=sector_map, source="current")
+    return BacktestMetadata(market_cap_map, sector_map, concept_map, concept_heat, {}, "current")
+
+
+def _snapshot_metadata(snapshot_dir: Path | None) -> BacktestMetadata | None:
+    snap_sector = load_snapshot_sector_map(snapshot_dir)
+    snap_cap = load_snapshot_market_cap_map(snapshot_dir)
+    snap_concept_map = load_snapshot_concept_map(snapshot_dir)
+    snap_concept_heat = load_snapshot_concept_heat(snapshot_dir)
+    snap_financial_map = load_snapshot_financial_map(snapshot_dir)
+    if not any(
+        item is not None for item in (snap_sector, snap_cap, snap_concept_map, snap_concept_heat, snap_financial_map)
+    ):
+        return None
+    metadata = BacktestMetadata(
+        market_cap_map=snap_cap or {},
+        sector_map=snap_sector or {},
+        concept_map=snap_concept_map or {},
+        concept_heat=snap_concept_heat or [],
+        financial_map=snap_financial_map or {},
+        source="snapshot",
+    )
+    logger.info(
+        "元数据从快照加载: sector=%d, cap=%d, concept=%d, heat=%d, financial=%d",
+        len(metadata.sector_map),
+        len(metadata.market_cap_map),
+        len(metadata.concept_map),
+        len(metadata.concept_heat),
+        len(metadata.financial_map),
+    )
+    return metadata
 
 
 def _load_json_map(snapshot_dir: Path | None, filename: str) -> dict | None:
@@ -214,6 +261,20 @@ def _load_json_map(snapshot_dir: Path | None, filename: str) -> dict | None:
         logger.debug("failed to load snapshot json: %s", path, exc_info=True)
         return None
     return data if isinstance(data, dict) and data else None
+
+
+def _load_json_list(snapshot_dir: Path | None, filename: str) -> list | None:
+    if snapshot_dir is None:
+        return None
+    path = snapshot_dir / filename
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("failed to load snapshot json: %s", path, exc_info=True)
+        return None
+    return data if isinstance(data, list) and data else None
 
 
 def fetch_hist_norm(symbol: str, start_dt: date, end_dt: date) -> tuple[str, pd.DataFrame | None, str | None]:
