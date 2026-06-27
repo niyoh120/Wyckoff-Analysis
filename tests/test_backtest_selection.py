@@ -11,10 +11,26 @@ from core.wyckoff_engine import FunnelResult
 def _daily_position_df(closes: list[float]) -> pd.DataFrame:
     return pd.DataFrame(
         {
+            "open": [x * 0.995 for x in closes],
             "close": closes,
             "high": [x * 1.01 for x in closes],
             "low": [x * 0.99 for x in closes],
             "volume": [100.0 for _ in closes],
+        }
+    )
+
+
+def _low_confirmation_df(rows: int = 80) -> pd.DataFrame:
+    closes = [10.0 + idx * 0.01 for idx in range(rows)]
+    dates = pd.date_range("2025-01-01", periods=rows, freq="B")
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "open": [x * 0.995 for x in closes],
+            "close": closes,
+            "high": [x * 1.01 for x in closes],
+            "low": [x * 0.99 for x in closes],
+            "volume": [1000.0 for _ in closes],
         }
     )
 
@@ -334,6 +350,32 @@ def test_loss_guard_keeps_defensive_spring_even_near_range_high() -> None:
     )
 
     assert reason == ""
+
+
+def test_loss_guard_blocks_weak_right_side_without_abc_confirmation() -> None:
+    reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["sos"],
+        8.0,
+        "点火破局",
+        {"000001": _low_confirmation_df()},
+    )
+
+    assert reason == "右侧信号ABC不足"
+
+
+def test_loss_guard_blocks_weak_trend_candidate_without_abc_confirmation() -> None:
+    reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["trend_breakout"],
+        88.0,
+        "趋势延续",
+        {"000001": _low_confirmation_df()},
+    )
+
+    assert reason == "趋势候选ABC不足"
 
 
 def test_stratified_stats_include_exit_and_excursion_diagnostics() -> None:

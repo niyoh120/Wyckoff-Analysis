@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 
 from core.candidate_lanes import build_l1_candidate_lane_entries
+from core.candidate_policy import loss_guard_reason
 from core.candidate_ranker import TRIGGER_LABELS, TRIGGER_SHORT_LABELS
 from core.signal_confirmation import score_springboard_abc
 from core.wyckoff_engine import (
@@ -171,7 +172,7 @@ def evaluate_day(
     if spec.symbol not in layer2:
         lane_scores = candidate_lane_scores(spec, day_df, ctx, layer1, [], {})
         if lane_scores:
-            return diagnostic(spec, day_df, day, "SELECTED", "-", selected_reason(lane_scores, day_df), lane_scores, "")
+            return selected_or_guarded_diagnostic(spec, day_df, day, lane_scores, "")
         return diagnostic(spec, day_df, day, "MISS", "L2", l2_reason(spec, day_df, cfg), {}, "")
     return evaluate_l3_l4(spec, day_df, ctx, cfg, day, layer1, layer2, channel_map)
 
@@ -195,7 +196,7 @@ def evaluate_l3_l4(
     scores.update(candidate_lane_scores(spec, day_df, ctx, layer1, layer2, channel_map))
     if not scores:
         return diagnostic(spec, day_df, day, "MISS", "L4", l4_reason(day_df), scores, channel)
-    return diagnostic(spec, day_df, day, "SELECTED", "-", selected_reason(scores, day_df), scores, channel)
+    return selected_or_guarded_diagnostic(spec, day_df, day, scores, channel)
 
 
 def candidate_lane_scores(
@@ -252,6 +253,38 @@ def trigger_scores(triggers: dict[str, list[tuple[str, float]]], symbol: str) ->
             if code == symbol:
                 out[trigger] = max(out.get(trigger, 0.0), float(score))
     return out
+
+
+def selected_or_guarded_diagnostic(
+    spec: SymbolSpec,
+    day_df: pd.DataFrame,
+    day: date,
+    scores: dict[str, float],
+    channel: str,
+) -> DayDiagnostic:
+    reason = diagnostic_loss_guard_reason(spec, day_df, scores, channel)
+    if reason:
+        return diagnostic(spec, day_df, day, "MISS", "LOSS_GUARD", reason, scores, channel)
+    return diagnostic(spec, day_df, day, "SELECTED", "-", selected_reason(scores, day_df), scores, channel)
+
+
+def diagnostic_loss_guard_reason(
+    spec: SymbolSpec,
+    day_df: pd.DataFrame,
+    scores: dict[str, float],
+    channel: str,
+) -> str:
+    if spec.market != "cn" or not scores:
+        return ""
+    reason = loss_guard_reason(
+        spec.symbol,
+        "NEUTRAL",
+        scores.keys(),
+        sum(float(v or 0.0) for v in scores.values()),
+        channel,
+        {spec.symbol: day_df},
+    )
+    return f"正式候选风控拦截: {reason}" if reason else ""
 
 
 def diagnostic(

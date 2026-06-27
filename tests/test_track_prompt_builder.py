@@ -19,6 +19,7 @@ def test_build_track_user_message_includes_regime_scope_gate_and_payloads():
     assert "Accum轨" in message
     assert "候选已从 9 只压缩到 3 只" in message
     assert "二次确认=confirmed" in message
+    assert "满足的硬门槛" in message
     assert "BUY-APPROVED" in message
     assert "000001 平安银行" in message
 

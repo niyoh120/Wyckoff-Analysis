@@ -7,6 +7,7 @@ from functools import partial
 
 import pandas as pd
 
+from core.candidate_metadata import CANDIDATE_ATTRIBUTION_COLUMNS
 from core.hist_dates import latest_trade_date_from_hist
 from core.sector_rotation import SECTOR_STATE_LABELS
 from core.wyckoff_engine import normalize_hist_from_fetch
@@ -244,4 +245,9 @@ def _base_candidate_fields(item_order: int, item: dict) -> dict:
         "exit_signal": str(item.get("exit_signal", "")).strip(),
         "exit_price": pd.to_numeric(item.get("exit_price"), errors="coerce"),
         "exit_reason": str(item.get("exit_reason", "")).strip(),
+        **_candidate_attribution_fields(item),
     }
+
+
+def _candidate_attribution_fields(item: dict) -> dict:
+    return {key: item[key] for key in CANDIDATE_ATTRIBUTION_COLUMNS if item.get(key) not in (None, "", [], {})}

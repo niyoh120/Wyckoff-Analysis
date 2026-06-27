@@ -188,6 +188,31 @@ def test_upsert_recommendations_preserves_candidate_metadata(monkeypatch):
     assert row["timing_score"] == 0.72
 
 
+def test_upsert_recommendations_fills_candidate_metadata_defaults(monkeypatch):
+    client = FakeSupabaseClient()
+    _enable_fake_supabase(monkeypatch, client)
+
+    ok = upsert_recommendations(
+        20260625,
+        [
+            {
+                "code": "600203",
+                "name": "福日电子",
+                "initial_price": 10.0,
+                "primary_signal": "sos",
+                "selection_source": "l4_hit",
+            }
+        ],
+    )
+
+    assert ok is True
+    row = client.upserts[0][0]
+    assert row["strategy_version"] == "candidate_lane_v1"
+    assert row["candidate_lane"] == "sos"
+    assert row["entry_type"] == "sos"
+    assert row["signal_key"] == "sos"
+
+
 def test_upsert_recommendations_writes_large_payload_in_chunks(monkeypatch):
     client = FakeSupabaseClient()
     _enable_fake_supabase(monkeypatch, client)

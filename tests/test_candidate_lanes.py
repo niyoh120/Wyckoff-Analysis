@@ -35,6 +35,8 @@ def test_l1_candidate_lanes_can_create_trend_breakout_without_l2() -> None:
     assert entries[0]["code"] == "000001"
     assert entries[0]["entry_type"] == "trend_breakout"
     assert entries[0]["lane"] == "trend_breakout"
+    assert entries[0]["metrics"]["ret20"] > 0
+    assert entries[0]["metrics"]["dist_ma20"] > 0
 
 
 def test_l1_candidate_lanes_block_overheated_chase() -> None:

@@ -81,6 +81,7 @@ def _candidate_entry(
         "signal_key": lane,
         "entry_type": lane,
         "score": round(score, 2),
+        "metrics": {key: round(float(value), 4) for key, value in metrics.items()},
         "opportunity": _opportunity_text(lane, sector),
         "timing": _timing_text(lane, metrics),
         "risk": " / ".join(risks) or "尾盘仍需二次确认",

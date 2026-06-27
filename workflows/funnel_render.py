@@ -10,6 +10,7 @@ from core.candidate_ranker import TRIGGER_GROUP_ORDER, TRIGGER_GROUP_TITLES, TRI
 from core.funnel_etf import append_etf_section
 from core.funnel_sections import append_formal_l4_sections, score_star
 from core.market_trade_mode import resolve_market_trade_mode
+from core.signal_confirmation import score_springboard_abc
 from core.theme_radar import summarize_theme_radar
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_report_payload import (
@@ -163,7 +164,7 @@ def _append_l2_bypass_card_section(lines: list[str], ctx: Any, selected_count: i
         reasons = "+".join(_trigger_short_reasons(code, ctx.bypass_triggers))
         industry = str(ctx.sector_map.get(code, "") or "")
         theme_badge = f"  {ctx.theme_badge_map[code]}" if code in ctx.theme_badge_map else ""
-        lines.append(f"  {code} {name}  {reasons}  [{industry}]{theme_badge}")
+        lines.append(f"  {code} {name}  {reasons}{_confirmation_suffix(ctx, code)}  [{industry}]{theme_badge}")
     omitted = len(ctx.l2_bypass_pool) - len(display_pool)
     if omitted > 0:
         lines.append(f"  ... 另 {omitted} 只略")
@@ -186,7 +187,7 @@ def _append_strategic_bypass_card_section(lines: list[str], ctx: Any, selected_c
         stage = str(ctx.strategic_l2_bypass_stage_map.get(code, "") or "").strip()
         reason = " / ".join(x for x in [short, stage] if x) or "战略复核"
         theme_badge = f"  {ctx.theme_badge_map[code]}" if code in ctx.theme_badge_map else ""
-        lines.append(f"  {code} {name}  {reason}{theme_badge}")
+        lines.append(f"  {code} {name}  {reason}{_confirmation_suffix(ctx, code)}{theme_badge}")
     omitted = len(ctx.strategic_l2_bypass_pool) - len(display_pool)
     if omitted > 0:
         lines.append(f"  ... 另 {omitted} 只略")
@@ -222,7 +223,46 @@ def _mainline_row(ctx: Any, item: dict) -> str:
     score = float(item.get("mainline_score") or 0.0) * 100.0
     risk = " / ".join(item.get("risk_flags") or [])
     risk_suffix = f"  风险:{risk}" if risk else ""
-    return f"  {code} {name}  {theme}  {entry}  分{score:.1f}{risk_suffix}"
+    return f"  {code} {name}  {theme}  {entry}  分{score:.1f}{_confirmation_suffix(ctx, code)}{risk_suffix}"
+
+
+def _confirmation_suffix(ctx: Any, code: str) -> str:
+    label = _confirmation_label(ctx, code)
+    return f"  {label}" if label else ""
+
+
+def _confirmation_label(ctx: Any, code: str) -> str:
+    df = (getattr(ctx, "all_df_map", {}) or {}).get(code)
+    if df is None or df.empty:
+        return ""
+    scores = []
+    for signal_type in _confirmation_signal_keys(ctx, code):
+        try:
+            scores.append(score_springboard_abc(df, signal_type))
+        except Exception:
+            continue
+    if not scores:
+        return ""
+    best = max(scores, key=lambda item: (int(item.get("met_count") or 0), str(item.get("grade") or "")))
+    grade = str(best.get("grade") or "none")
+    met_count = int(best.get("met_count") or 0)
+    return f"二次确认:{grade}({met_count}/3)"
+
+
+def _confirmation_signal_keys(ctx: Any, code: str) -> list[str]:
+    keys = list((getattr(ctx, "code_to_trigger_keys", {}) or {}).get(code, []) or [])
+    entry = (getattr(ctx, "candidate_entry_map", {}) or {}).get(code) or {}
+    for field in ("signal_key", "entry_type", "lane"):
+        value = str(entry.get(field, "") or "").strip()
+        if value:
+            keys.append(value)
+    if code in getattr(ctx, "mainline_candidate_set", set()):
+        keys.append("mainline")
+    out: list[str] = []
+    for key in keys:
+        if key and key not in out:
+            out.append(key)
+    return out
 
 
 def _append_legacy_selected_sections(lines: list[str], ctx: Any, selected_for_ai: list[str]) -> None:
@@ -238,7 +278,9 @@ def _append_legacy_selected_sections(lines: list[str], ctx: Any, selected_for_ai
             short = "+".join(TRIGGER_SHORT_LABELS.get(k, k) for k in ctx.code_to_trigger_keys.get(code, []))
             score = ctx.code_to_total_score.get(code, 0)
             theme_badge = f"  {ctx.theme_badge_map[code]}" if code in ctx.theme_badge_map else ""
-            lines.append(f"{score_star(score)} {code} {name}  {score:.2f}  {short}{theme_badge}")
+            lines.append(
+                f"{score_star(score)} {code} {name}  {score:.2f}  {short}{_confirmation_suffix(ctx, code)}{theme_badge}"
+            )
         lines.append("")
     single_signal_codes = [
         c for c in selected_for_ai if c not in set(multi_signal) and c not in ctx.strategic_l2_bypass_set
@@ -253,7 +295,9 @@ def _append_legacy_selected_sections(lines: list[str], ctx: Any, selected_for_ai
             name = ctx.name_map.get(code, code)
             score = ctx.code_to_total_score.get(code, 0)
             theme_badge = f"  {ctx.theme_badge_map[code]}" if code in ctx.theme_badge_map else ""
-            lines.append(f"{score_star(score)} {code} {name}  {score:.2f}{theme_badge}")
+            lines.append(
+                f"{score_star(score)} {code} {name}  {score:.2f}{_confirmation_suffix(ctx, code)}{theme_badge}"
+            )
         lines.append("")
 
 
@@ -404,7 +448,10 @@ def _append_modern_fill_section(lines: list[str], ctx: Any, selection: FunnelAiS
         score = display_score(ctx, selection, code)
         theme_badge = f"  {ctx.theme_badge_map[code]}" if code in ctx.theme_badge_map else ""
         lines.append(
-            f"{score_star(score)} {code} {name}  {score:.2f}" + (f"  {suffix}" if suffix else "") + theme_badge
+            f"{score_star(score)} {code} {name}  {score:.2f}"
+            + (f"  {suffix}" if suffix else "")
+            + _confirmation_suffix(ctx, code)
+            + theme_badge
         )
     lines.append("")
 
@@ -426,7 +473,7 @@ def _append_modern_strategic_bypass_section(lines: list[str], ctx: Any, selected
         stage = str(ctx.strategic_l2_bypass_stage_map.get(code, "") or "").strip()
         reason = " / ".join(x for x in [reasons, stage] if x) or "战略复核"
         theme_badge = f"  {ctx.theme_badge_map[code]}" if code in ctx.theme_badge_map else ""
-        lines.append(f"  {code} {name}  {reason}{theme_badge}")
+        lines.append(f"  {code} {name}  {reason}{_confirmation_suffix(ctx, code)}{theme_badge}")
     omitted = len(ctx.strategic_l2_bypass_pool) - len(display_pool)
     if omitted > 0:
         lines.append(f"  ... 另 {omitted} 只略")
@@ -449,6 +496,7 @@ def _build_modern_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
             ctx.code_to_trigger_keys,
             lambda code: display_score(ctx, selection, code),
             ctx.theme_badge_map,
+            lambda code: _confirmation_label(ctx, code),
         )
     _append_modern_fill_section(lines, ctx, selection)
     if not selection.selected_for_ai:

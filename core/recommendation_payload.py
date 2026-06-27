@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from core.candidate_metadata import CANDIDATE_ATTRIBUTION_COLUMNS
+from core.candidate_metadata import CANDIDATE_ATTRIBUTION_COLUMNS, STRATEGY_VERSION_CANDIDATE_LANE_V1
 from core.constants import TABLE_RECOMMENDATION_TRACKING
 
 RECOMMENDATION_ATTRIBUTION_COLUMNS = (
@@ -248,6 +248,10 @@ def _extract_recommendation_score(row: dict[str, Any]) -> float | None:
 def _extract_recommendation_attribution(row: dict[str, Any]) -> dict[str, Any]:
     signal_types = _optional_text_list(row.get("signal_types"))
     primary_signal = _optional_text(row.get("primary_signal")) or (signal_types[0] if signal_types else None)
+    candidate_lane = (
+        _optional_text(row.get("candidate_lane")) or primary_signal or _optional_text(row.get("selection_source"))
+    )
+    entry_type = _optional_text(row.get("entry_type")) or candidate_lane
     return {
         "primary_signal": primary_signal,
         "signal_types": signal_types,
@@ -282,10 +286,10 @@ def _extract_recommendation_attribution(row: dict[str, Any]) -> dict[str, Any]:
         "springboard_touch_count": _optional_int(row.get("springboard_touch_count")) or 0,
         "springboard_evidence": _optional_json(row.get("springboard_evidence")),
         "springboard_scored": _optional_bool(row.get("springboard_scored")) or False,
-        "strategy_version": _optional_text(row.get("strategy_version")),
-        "candidate_lane": _optional_text(row.get("candidate_lane")),
-        "entry_type": _optional_text(row.get("entry_type")),
-        "signal_key": _optional_text(row.get("signal_key")),
+        "strategy_version": _optional_text(row.get("strategy_version")) or STRATEGY_VERSION_CANDIDATE_LANE_V1,
+        "candidate_lane": candidate_lane,
+        "entry_type": entry_type,
+        "signal_key": _optional_text(row.get("signal_key")) or entry_type,
         "candidate_status": _optional_text(row.get("candidate_status")),
         "candidate_timing": _optional_text(row.get("candidate_timing")),
         "candidate_risk": _optional_text(row.get("candidate_risk")),

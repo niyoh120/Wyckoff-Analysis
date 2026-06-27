@@ -94,11 +94,36 @@ def test_evaluate_day_slices_benchmark_to_replay_day(monkeypatch):
     monkeypatch.setattr(diag, "layer2_strength_detailed", fake_layer2)
     monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
     monkeypatch.setattr(diag, "layer4_triggers", lambda *_args, **_kwargs: {"sos": [("603390", 10.0)]})
+    monkeypatch.setattr(diag, "diagnostic_loss_guard_reason", lambda *_args, **_kwargs: "")
 
     row = diag.evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
 
     assert row.status == "SELECTED"
     assert seen["bench"]["date"].tolist() == ["2025-11-17", "2025-11-18"]
+
+
+def test_evaluate_day_reports_loss_guard_miss(monkeypatch):
+    symbol = diag.SymbolSpec("cn", "603390", "A股")
+    cfg = diag.config_for_symbol(symbol, 220)
+    ctx = diag.ReplayContext({"603390": "603390"}, {}, {}, None)
+
+    monkeypatch.setattr(diag, "layer1_filter", lambda symbols, *_args, **_kwargs: symbols)
+    monkeypatch.setattr(
+        diag, "layer2_strength_detailed", lambda symbols, *_args, **_kwargs: (symbols, {"603390": "main"}, [])
+    )
+    monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
+    monkeypatch.setattr(diag, "layer4_triggers", lambda *_args, **_kwargs: {"sos": [("603390", 10.0)]})
+    monkeypatch.setattr(
+        diag,
+        "diagnostic_loss_guard_reason",
+        lambda *_args, **_kwargs: "正式候选风控拦截: 右侧信号ABC不足",
+    )
+
+    row = diag.evaluate_day(symbol, _daily_frame(), ctx, cfg, date(2025, 11, 18))
+
+    assert row.status == "MISS"
+    assert row.failed_layer == "LOSS_GUARD"
+    assert row.reason == "正式候选风控拦截: 右侧信号ABC不足"
 
 
 def test_load_rps_histories_rejects_empty_cn_universe(monkeypatch):

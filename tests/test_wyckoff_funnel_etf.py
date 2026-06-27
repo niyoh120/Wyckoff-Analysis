@@ -214,6 +214,7 @@ def test_append_formal_l4_sections_renders_all_hits_and_marks_ai():
         {"000001": "平安银行", "000002": "万科A", "000003": "国农科技"},
         {"000001": ["sos"], "000002": ["lps"], "000003": ["sos", "evr"]},
         lambda code: scores[code],
+        confirmation_label=lambda code: "二次确认:A+C(2/3)" if code == "000002" else "",
     )
 
     text = "\n".join(lines)
@@ -221,7 +222,7 @@ def test_append_formal_l4_sections_renders_all_hits_and_marks_ai():
     assert "【⚡ SOS 量价点火】1 只" in text
     assert "【🔄 LPS 缩量回踩】1 只" in text
     assert "000001 平安银行" in text
-    assert "000002 万科A  3.00  →AI" in text
+    assert "000002 万科A  3.00  →AI  二次确认:A+C(2/3)" in text
 
 
 def test_split_selected_tracks_preserves_order_and_accum_only_hits():

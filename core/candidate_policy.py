@@ -7,8 +7,11 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from core.signal_confirmation import score_springboard_abc
+
 STRUCTURAL_L4_TRIGGERS = {"spring", "lps", "compression", "compress", "trend_pullback", "volatile_pullback"}
 NAKED_RIGHT_SIDE_TRIGGERS = {"sos", "evr"}
+TREND_CANDIDATE_TRIGGERS = {"trend_breakout", "trend_lane_pullback", "sector_strength", "wyckoff_structure"}
 DEFENSIVE_REGIMES = {"RISK_OFF", "BEAR_REBOUND", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}
 WEAK_PULLBACK_REGIMES = DEFENSIVE_REGIMES | {"RISK_ON"}
 DEFAULT_POSITION_RATIO_BY_REGIME: dict[str, float] = {
@@ -36,6 +39,7 @@ class CandidatePolicyConfig:
     pure_evr_observe_only: bool = True
     pure_evr_min_score_default: float = 3.0
     pure_evr_min_score_hot: float = 5.0
+    weak_confirmation_min_abc: int = 2
     risk_on_pre5_ret: float = 25.0
     risk_on_range_pos: float = 85.0
     risk_on_vol_ratio: float = 1.8
@@ -209,6 +213,9 @@ def loss_guard_reason(
     high_reason = _late_stage_high_reason(regime_norm, keys, df_map.get(code), policy)
     if high_reason:
         return high_reason
+    weak_reason = _weak_confirmation_reason(keys, df_map.get(code), policy)
+    if weak_reason:
+        return weak_reason
     if "lps" in keys and not (keys & {"sos", "evr", "spring"}):
         return _pure_lps_reason(regime_norm, trigger_score, policy)
     if keys == {"trend_pullback"}:
@@ -221,6 +228,33 @@ def loss_guard_reason(
         if reason:
             return reason
     return ""
+
+
+def _weak_confirmation_reason(keys: set[str], df: pd.DataFrame | None, config: CandidatePolicyConfig) -> str:
+    if not keys:
+        return ""
+    if not (keys <= NAKED_RIGHT_SIDE_TRIGGERS or keys & TREND_CANDIDATE_TRIGGERS):
+        return ""
+    met_count = _springboard_met_count(df, keys)
+    if met_count is None or met_count >= config.weak_confirmation_min_abc:
+        return ""
+    if keys <= NAKED_RIGHT_SIDE_TRIGGERS:
+        return "右侧信号ABC不足"
+    return "趋势候选ABC不足"
+
+
+def _springboard_met_count(df: pd.DataFrame | None, keys: set[str]) -> int | None:
+    if df is None or df.empty or not {"open", "high", "low", "close", "volume"}.issubset(df.columns):
+        return None
+    if len(df) < 60:
+        return None
+    counts = []
+    for signal_type in sorted(keys):
+        try:
+            counts.append(int(score_springboard_abc(df, signal_type).get("met_count") or 0))
+        except Exception:
+            continue
+    return max(counts) if counts else None
 
 
 def _pure_lps_reason(regime_norm: str, trigger_score: float, config: CandidatePolicyConfig) -> str:
