@@ -25,6 +25,9 @@ REGIME_LABELS = {
     "BEAR_REBOUND": "熊市反抽期",
 }
 
+UNKNOWN_REGIME = "未标注"
+UNKNOWN_REGIME_DESC = "回测样本未写入周期标签"
+
 PERIOD_LABELS = {
     "recent_2m": "最近2个月",
     "recent_6m": "最近6个月",
@@ -91,6 +94,15 @@ def _period_label(cell: GridCell) -> str:
 
 def _period_sort_key(label: str) -> tuple[int, str]:
     return PERIOD_ORDER.get(label, 99), label
+
+
+def _normalize_regime(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    return normalized if normalized and normalized != "-" else UNKNOWN_REGIME
+
+
+def _regime_label(key: str) -> str:
+    return UNKNOWN_REGIME_DESC if key == UNKNOWN_REGIME else REGIME_LABELS.get(key, key)
 
 
 def _style_sort_key(label: str) -> tuple[int, str]:
@@ -166,6 +178,7 @@ def _rank_robust_params(cells: list[GridCell]) -> list[RobustParamScore]:
         period_fn=lambda cell: cell.period_key or _period_label(cell),
         value_fn=_cell_cash_return_or_none,
         representative_fn=_representative_cell,
+        period_rank_fn=_period_sort_key,
     )
 
 
@@ -331,6 +344,13 @@ def _group_stats(rows: list[dict[str, str]], key_fn: Callable[[dict[str, str]], 
     return sorted(stats, key=lambda x: (-int(x["count"]), str(x["key"])))
 
 
+def _cycle_count_label(key: str, count: int, total: int) -> str:
+    if key == UNKNOWN_REGIME:
+        return f"未标注周期 {count}/{total}"
+    label = _regime_label(key)
+    return f"{key} {count}/{total}" if key == label else f"{key}({label}) {count}/{total}"
+
+
 def _latest_cycle(rows: list[dict[str, str]], sample_size: int = 20) -> tuple[str, str]:
     dated = [r for r in rows if r.get("signal_date")]
     dated.sort(key=lambda r: (r.get("signal_date", ""), r.get("code", "")))
@@ -338,12 +358,17 @@ def _latest_cycle(rows: list[dict[str, str]], sample_size: int = 20) -> tuple[st
     if not tail:
         return "样本不足", "未找到可完整验证的尾段交易样本。"
 
-    counts = Counter(r.get("regime", "-") or "-" for r in tail)
+    counts = Counter(_normalize_regime(r.get("regime")) for r in tail)
     dominant = counts.most_common(2)
     latest_date = tail[-1].get("signal_date", "")
     first_date = tail[0].get("signal_date", "")
-    label_parts = [f"{k}({REGIME_LABELS.get(k, k)}) {v}/{len(tail)}" for k, v in dominant]
-    cycle = f"{dominant[0][0]} / {dominant[1][0]} 切换观察期" if len(dominant) >= 2 else f"{dominant[0][0]} 主导期"
+    label_parts = [_cycle_count_label(k, v, len(tail)) for k, v in dominant]
+    if len(dominant) >= 2:
+        cycle = f"{dominant[0][0]} / {dominant[1][0]} 切换观察期"
+    elif dominant[0][0] == UNKNOWN_REGIME:
+        cycle = "市场周期未标注"
+    else:
+        cycle = f"{dominant[0][0]} 主导期"
     detail = (
         f"最优组合可完整验证的尾段信号为 {first_date} ~ {latest_date}，近 {len(tail)} 笔以 "
         + "、".join(label_parts)
@@ -477,9 +502,12 @@ def _build_period_guardrail_lines(cells: list[GridCell]) -> list[str]:
 
 
 def _build_followup_lines(regime_stats: list[dict[str, object]], trigger_stats: list[dict[str, object]]) -> list[str]:
-    negative_regimes = [s for s in regime_stats if isinstance(s["avg"], float) and s["avg"] < 0]
-    positive_regimes = [s for s in regime_stats if isinstance(s["avg"], float) and s["avg"] > 0]
+    known_regimes = [s for s in regime_stats if s["key"] != UNKNOWN_REGIME]
+    negative_regimes = [s for s in known_regimes if isinstance(s["avg"], float) and s["avg"] < 0]
+    positive_regimes = [s for s in known_regimes if isinstance(s["avg"], float) and s["avg"] > 0]
     lines = ["", "## 解读与后续策略", ""]
+    if any(s["key"] == UNKNOWN_REGIME for s in regime_stats):
+        lines.append("- 周期标签: 最优组合交易样本未写入市场周期，暂不把该样本归因到具体水温。")
     if positive_regimes:
         pos_text = "、".join(f"{s['key']}({_fmt_signed(s['avg'], 2, '%')})" for s in positive_regimes)
         lines.append(f"- 优势周期: {pos_text}，这些水温下更适合保留趋势跟踪仓位。")
@@ -557,7 +585,7 @@ def _build_regime_stats_table(regime_stats: list[dict[str, object]]) -> list[str
             + " | ".join(
                 [
                     key,
-                    REGIME_LABELS.get(key, "-"),
+                    _regime_label(key),
                     str(stat["count"]),
                     date_range,
                     _fmt_num(stat["win_rate"], 1, "%"),
@@ -598,7 +626,6 @@ def _build_methodology_notes() -> list[str]:
         "- 入场口径以各参数单元 summary 为准；当前 workflow 默认 T+1 开盘价，`tail_1455` 模式缺分钟线时按 `BACKTEST_ENTRY_PRICE_FALLBACK` 处理。",
         "- `可完整验证信号期` 会早于回测结束日，因为持有窗口需要足够后续交易日完成离场验证。",
         "- 本结果仍可能包含当前股票池幸存者偏差，以及当前截面市值/行业映射带来的前视偏差；用于参数方向和市场周期适配判断，不等同于实盘承诺。",
-        "",
     ]
 
 
@@ -613,7 +640,7 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
     best_sharpe_cell = max(cells, key=_cell_sort_key)
     best_rows = read_trades(best.trades_path)
     diagnostics = _build_trade_diagnostics(best_rows)
-    regime_stats = _group_stats(best_rows, lambda r: r.get("regime", ""))
+    regime_stats = _group_stats(best_rows, lambda r: _normalize_regime(r.get("regime")))
     trigger_stats = _group_stats(best_rows, lambda r: r.get("trigger", ""))
     current_cycle, cycle_detail = _latest_cycle(best_rows)
 

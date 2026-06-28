@@ -38,13 +38,15 @@ def rank_robust_params(
     period_fn: Callable[[T], str],
     value_fn: Callable[[T], float | None],
     representative_fn: Callable[[list[T]], T],
-    recent_period: str = "recent_6m",
+    recent_period: str | None = None,
+    period_rank_fn: Callable[[str], tuple[int, str]] | None = None,
 ) -> list[RobustParamScore[T]]:
     groups: dict[Hashable, list[T]] = defaultdict(list)
     for cell in cells:
         groups[key_fn(cell)].append(cell)
+    resolved_recent_period = recent_period or _resolve_recent_period(cells, period_fn, period_rank_fn)
     scores = [
-        _score_param_group(key, group, period_fn, value_fn, representative_fn, recent_period)
+        _score_param_group(key, group, period_fn, value_fn, representative_fn, resolved_recent_period)
         for key, group in groups.items()
     ]
     return sorted((s for s in scores if s.values), key=lambda item: item.score, reverse=True)
@@ -113,6 +115,19 @@ def _best_cells_by_period(
         if key not in by_period or _rank_value(value_fn(cell)) > _rank_value(value_fn(by_period[key])):
             by_period[key] = cell
     return by_period
+
+
+def _resolve_recent_period(
+    cells: Sequence[T],
+    period_fn: Callable[[T], str],
+    period_rank_fn: Callable[[str], tuple[int, str]] | None,
+) -> str:
+    period_keys = {period_fn(cell) for cell in cells}
+    if not period_keys:
+        return "recent_6m"
+    if period_rank_fn is None:
+        return "recent_6m" if "recent_6m" in period_keys else sorted(period_keys)[0]
+    return min(period_keys, key=period_rank_fn)
 
 
 def _robust_score(values: tuple[float, ...], recent_ret: float | None, positive_periods: int) -> float:

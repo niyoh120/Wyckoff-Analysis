@@ -55,6 +55,24 @@ def test_rank_robust_params_accepts_workflow_dict_cells() -> None:
     assert ranked[0].min_cash_return == -23.40
 
 
+def test_rank_robust_params_uses_first_available_recent_period() -> None:
+    cells = [
+        Cell("fast", "recent_2m", 5, 8.0),
+        Cell("fast", "bull_2020", 5, 3.0),
+    ]
+
+    ranked = rank_robust_params(
+        cells,
+        key_fn=lambda c: (c.style, c.hold),
+        period_fn=lambda c: c.period,
+        value_fn=lambda c: c.cash_return,
+        representative_fn=lambda group: group[0],
+        period_rank_fn=lambda period: (0 if period == "recent_2m" else 1, period),
+    )
+
+    assert ranked[0].recent_cash_return == 8.0
+
+
 def test_weak_period_guardrails_reports_only_non_positive_periods() -> None:
     cells = [
         Cell("a", "recent_6m", 10, 5.0),
