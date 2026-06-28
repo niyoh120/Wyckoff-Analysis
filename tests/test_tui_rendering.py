@@ -11,6 +11,7 @@ from cli.tui import (
     _display_workflow_plan_event,
     _pop_lines,
     _replace_streamed_response,
+    _settle_markdown_render,
     _workflow_control_intent,
     _write_counted,
 )
@@ -22,6 +23,8 @@ class _FakeLog:
         self._widest_line_width = 0
         self.virtual_size = None
         self.refreshed = False
+        self.layout_refreshed = False
+        self.scrolled = False
 
     def write(self, renderable) -> None:
         if isinstance(renderable, list):
@@ -29,8 +32,12 @@ class _FakeLog:
         else:
             self.lines.append(renderable)
 
-    def refresh(self) -> None:
+    def refresh(self, *, layout: bool = False) -> None:
         self.refreshed = True
+        self.layout_refreshed = self.layout_refreshed or layout
+
+    def scroll_end(self, *, animate: bool = False) -> None:
+        self.scrolled = True
 
 
 def test_write_counted_returns_actual_added_strips_for_wrapped_renderable():
@@ -62,6 +69,16 @@ def test_replace_streamed_response_redraws_markdown():
     assert log.lines[0] == "kept"
     assert isinstance(log.lines[1], Markdown)
     assert log.refreshed is True
+    assert log.layout_refreshed is True
+
+
+def test_settle_markdown_render_refreshes_layout_and_scrolls():
+    log = _FakeLog()
+
+    _settle_markdown_render(log)
+
+    assert log.layout_refreshed is True
+    assert log.scrolled is True
 
 
 def test_display_final_response_replaces_streamed_raw_text():

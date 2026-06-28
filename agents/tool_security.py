@@ -24,6 +24,7 @@ SAFE_WEB_CONTENT_TYPE_PREFIXES = (
     "application/xhtml+xml",
     "text/",
 )
+_PROXY_FAKE_IP_NETWORKS = (ipaddress.ip_network("198.18.0.0/15"),)
 
 _BLOCKED_PATH_PARTS = {
     ".ssh",
@@ -236,18 +237,27 @@ def validate_public_http_url(url: str) -> str | dict:
     except socket.gaierror:
         return security_error("URL 主机无法解析")
 
+    host_is_ip_literal = _parse_ip(host) is not None
     for info in infos:
-        ip_result = _validate_public_ip(info[4][0])
+        ip_result = _validate_public_ip(info[4][0], allow_proxy_fake_ip=not host_is_ip_literal)
         if ip_result:
             return ip_result
     return raw
 
 
-def _validate_public_ip(ip_text: str) -> dict | None:
+def _parse_ip(ip_text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     try:
-        ip = ipaddress.ip_address(ip_text)
+        return ipaddress.ip_address(ip_text)
     except ValueError:
+        return None
+
+
+def _validate_public_ip(ip_text: str, *, allow_proxy_fake_ip: bool = False) -> dict | None:
+    ip = _parse_ip(ip_text)
+    if ip is None:
         return security_error("URL 解析到无效地址")
+    if allow_proxy_fake_ip and any(ip in network for network in _PROXY_FAKE_IP_NETWORKS):
+        return None
     if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
         return security_error("禁止抓取内网、本机、链路本地或保留地址")
     return None

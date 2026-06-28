@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,7 @@ MAX_COMPACT_RESERVE_TOKENS = 32_768
 TAIL_KEEP = 4
 DEFAULT_RECENT_KEEP_TOKENS = 20_000
 MIN_RECENT_KEEP_TOKENS = 4_000
+COMPACTION_STREAM_TIMEOUT = 30.0
 
 _CODE_RE = re.compile(r"\d{6}")
 _FILE_RE = re.compile(r"(?:[\w.-]+/)+[\w.-]+")
@@ -284,15 +287,48 @@ def _build_summary_input(head: list[dict[str, Any]]) -> str:
     return serialize_messages_for_compaction(head_for_summary)
 
 
-def _run_compaction_summary(provider: Any, head_text: str) -> str:
-    chunks = list(
-        provider.chat_stream(
-            [{"role": "user", "content": head_text}],
-            [],
-            COMPACTION_PROMPT,
-        )
-    )
+def _iter_stream_with_timeout(stream, timeout: float | None = None):
+    timeout = COMPACTION_STREAM_TIMEOUT if timeout is None else timeout
+    q: queue.Queue = queue.Queue()
+    sentinel = object()
+    exception_marker = object()
+
+    def _producer() -> None:
+        try:
+            for chunk in stream:
+                q.put(chunk)
+            q.put(sentinel)
+        except BaseException as exc:
+            q.put((exception_marker, exc))
+
+    thread = threading.Thread(target=_producer, daemon=True)
+    thread.start()
+
+    while True:
+        try:
+            item = q.get(timeout=timeout)
+        except queue.Empty as exc:
+            if hasattr(stream, "close"):
+                try:
+                    stream.close()
+                except Exception:
+                    logger.debug("compaction stream close failed after timeout", exc_info=True)
+            raise TimeoutError(f"compaction stream idle timeout after {timeout:.0f}s") from exc
+        if item is sentinel:
+            return
+        if isinstance(item, tuple) and len(item) == 2 and item[0] is exception_marker:
+            raise item[1]
+        yield item
+
+
+def _collect_stream_text(provider: Any, messages: list[dict[str, Any]], system_prompt: str) -> str:
+    stream = provider.chat_stream(messages, [], system_prompt)
+    chunks = _iter_stream_with_timeout(stream)
     return "".join(c.get("text", "") for c in chunks if c.get("type") == "text_delta")
+
+
+def _run_compaction_summary(provider: Any, head_text: str) -> str:
+    return _collect_stream_text(provider, [{"role": "user", "content": head_text}], COMPACTION_PROMPT)
 
 
 def _create_archive_safely(
@@ -355,14 +391,7 @@ def flush_memory_before_compaction(
 
     text = "\n".join(lines[-20:])
     try:
-        chunks = list(
-            provider.chat_stream(
-                [{"role": "user", "content": text}],
-                [],
-                _FLUSH_PROMPT,
-            )
-        )
-        result = "".join(c.get("text", "") for c in chunks if c.get("type") == "text_delta")
+        result = _collect_stream_text(provider, [{"role": "user", "content": text}], _FLUSH_PROMPT)
         if not result or "无" in result.strip()[:5]:
             return
 

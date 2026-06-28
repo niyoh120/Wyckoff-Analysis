@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 from cli.compaction import (
     MAX_COMPACT_RESERVE_TOKENS,
@@ -220,6 +221,25 @@ class TestCompactMessages:
 
         msgs = self._make_messages(30)
         result, compacted = compact_messages(msgs, FailProvider(), "deepseek")
+        assert not compacted
+        assert result is msgs
+
+    def test_hanging_compaction_stream_returns_original(self, monkeypatch):
+        class HangingProvider:
+            def chat_stream(self, messages, tools, system_prompt):
+                event = threading.Event()
+
+                def _stream():
+                    event.wait(10)
+                    yield {"type": "text_delta", "text": "too late"}
+
+                return _stream()
+
+        monkeypatch.setattr("cli.compaction.COMPACTION_STREAM_TIMEOUT", 0.01)
+
+        msgs = self._make_messages(30)
+        result, compacted = compact_messages(msgs, HangingProvider(), "deepseek")
+
         assert not compacted
         assert result is msgs
 

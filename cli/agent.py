@@ -13,7 +13,7 @@ from typing import Any
 from rich.markdown import Markdown
 
 from cli.providers.base import LLMProvider
-from cli.runtime import AgentRuntime, RuntimeEvent
+from cli.runtime import RuntimeEvent
 from cli.scratchpad import AgentScratchpad
 from cli.tools import ToolRegistry
 from cli.workflows.dispatch import build_turn_runtime
@@ -77,8 +77,6 @@ def _dispatch_legacy_callbacks(
 
 
 def _build_runtime(provider, tools, messages, scratchpad, workflow):
-    if workflow is None:
-        return AgentRuntime(provider, tools, scratchpad=scratchpad)
     user_text = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
     workflow_context = workflow if hasattr(workflow, "name") else None
     runtime, _ = build_turn_runtime(

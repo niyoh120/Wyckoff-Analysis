@@ -41,6 +41,8 @@ _KITTY_ENABLE = "\x1b[>1u"
 _KITTY_DISABLE = "\x1b[<u"
 _CSI_U_IME_RE = re.compile(r"\x1b\[\d+(?::\d+)*;;([\d:]+)u")
 _WORKFLOW_ID_RE = re.compile(r"\bwf_[A-Za-z0-9_-]+\b")
+_BUSY_FORCE_EXIT_WINDOW = 1.5
+_HARD_EXIT_DELAY = 1.0
 
 
 def _decode_csi_u(m: re.Match[str]) -> str:
@@ -162,9 +164,25 @@ def _write_counted(log_widget, renderable) -> int:
     return max(0, len(log_widget.lines) - before)
 
 
+def _refresh_log_layout(log_widget) -> None:
+    try:
+        log_widget.refresh(layout=True)
+    except TypeError:
+        log_widget.refresh()
+
+
 def _replace_streamed_response(log_widget, strip_count: int, final_text: str) -> int:
+    _get_agent_logger().info("TUI_STREAM_REPLACE: strip_count=%d text_len=%d", strip_count, len(final_text))
     _pop_lines(log_widget, strip_count)
-    return _write_counted(log_widget, Markdown(final_text))
+    added = _write_counted(log_widget, Markdown(final_text))
+    _refresh_log_layout(log_widget)
+    return added
+
+
+def _settle_markdown_render(log_widget) -> None:
+    _refresh_log_layout(log_widget)
+    if hasattr(log_widget, "scroll_end"):
+        log_widget.scroll_end(animate=False)
 
 
 def _display_final_response(
@@ -177,6 +195,13 @@ def _display_final_response(
     write,
     call_from_thread,
 ) -> bool:
+    _get_agent_logger().info(
+        "TUI_DISPLAY_FINAL: final_text_len=%d streaming_started=%s sep_strips=%d text_strips=%d",
+        len(final_text) if final_text else 0,
+        streaming_started,
+        stream_separator_strips,
+        stream_text_strips,
+    )
     if not final_text:
         return False
     if streaming_started:
@@ -291,6 +316,8 @@ def _display_stream_final(app, log_widget, stream: _StreamViewState, final_text:
     stream.text_strips = 0
     stream.started = False
     scroll()
+    app.call_from_thread(_settle_markdown_render, log_widget)
+    app.call_from_thread(app.call_after_refresh, lambda: _settle_markdown_render(log_widget))
 
 
 def _flush_and_clear_stream(app, ui: _AgentUiOps, stream: _StreamViewState) -> None:
@@ -685,8 +712,11 @@ def _build_thinking_preview(text: str) -> Text | None:
 class ChatLog(RichLog):
     DEFAULT_CSS = """
     ChatLog {
-        background: $surface;
+        background: $background;
         scrollbar-size: 1 1;
+        border: none;
+        margin: 0 2;
+        height: 1fr;
     }
     """
 
@@ -694,11 +724,12 @@ class ChatLog(RichLog):
 class StatusBar(Static):
     DEFAULT_CSS = """
     StatusBar {
-        dock: top;
+        dock: bottom;
         height: 1;
-        background: $primary-background;
+        background: $background;
         color: $text-muted;
-        padding: 0 1;
+        padding: 0 2;
+        text-align: right;
     }
     """
 
@@ -712,6 +743,21 @@ class _PasteHighlighter(Highlighter):
 
 class ChatInput(Input):
     """支持多行粘贴折叠显示的输入框。"""
+
+    DEFAULT_CSS = """
+    ChatInput {
+        background: $background;
+        border: none;
+        color: $text;
+        height: 3;
+        margin: 0;
+        padding: 0 1;
+        width: 1fr;
+    }
+    ChatInput:focus {
+        border: none;
+    }
+    """
 
     _pasted_text: str | None = None
 
@@ -747,7 +793,7 @@ class BackgroundTaskPanel(Static):
         max-height: 5;
         background: $boost;
         color: $text;
-        padding: 0 1;
+        padding: 0 2;
         border-bottom: solid $primary;
     }
     """
@@ -1093,6 +1139,10 @@ def _friendly_error(e: Exception) -> str:
     return err
 
 
+def _should_force_exit_busy_cancel(cancel_requested: bool, last_interrupt_at: float, now: float) -> bool:
+    return cancel_requested and now - last_interrupt_at <= _BUSY_FORCE_EXIT_WINDOW
+
+
 # ---------------------------------------------------------------------------
 # 主应用
 # ---------------------------------------------------------------------------
@@ -1105,15 +1155,23 @@ class WyckoffTUI(App):
     CSS = """
     Screen {
         layout: vertical;
+        background: $background;
     }
-    #chat-log {
-        height: 1fr;
-        border: round $primary;
-        margin: 0 1;
+    #input-container {
+        layout: horizontal;
+        height: 3;
+        border-top: solid $border;
+        background: $background;
+        align: left middle;
     }
-    #chat-input {
-        dock: bottom;
-        margin: 0 1 0 1;
+    #input-container:focus-within {
+        border-top: solid $primary;
+    }
+    #prompt-prefix {
+        width: auto;
+        color: $primary;
+        margin: 0 0 0 2;
+        text-style: bold;
     }
     """
 
@@ -1171,14 +1229,18 @@ class WyckoffTUI(App):
         self._schedules = load_schedules()
 
     def compose(self) -> ComposeResult:
-        yield StatusBar(self._build_status_text(), id="status-bar")
+        from textual.containers import Horizontal
+
         yield BackgroundTaskPanel(self._bg_manager, id="bg-panel")
         yield ChatLog(id="chat-log", highlight=True, markup=True, wrap=True)
-        yield ChatInput(
-            placeholder="问我关于股票的任何问题... (/help 查看命令)",
-            id="chat-input",
-            highlighter=_PasteHighlighter(),
-        )
+        with Horizontal(id="input-container"):
+            yield Static("❯", id="prompt-prefix")
+            yield ChatInput(
+                placeholder="问我关于股票的任何问题... (/help 查看命令)",
+                id="chat-input",
+                highlighter=_PasteHighlighter(),
+            )
+        yield StatusBar(self._build_status_text(), id="status-bar")
 
     def on_mount(self) -> None:
         # 加载保存的主题
@@ -1192,12 +1254,49 @@ class WyckoffTUI(App):
             logger.debug("load saved theme failed", exc_info=True)
 
         log = self.query_one("#chat-log", ChatLog)
-        log.write(
-            Text.from_markup(
-                "[bold]Wyckoff 读盘室[/bold]\n"
-                "[dim]直接输入问题开始对话  ·  /help 查看命令  ·  Ctrl+P 命令面板  ·  Ctrl+C 复制/退出[/dim]\n"
-            )
+        from importlib.metadata import version as _ver
+
+        try:
+            ver = _ver("youngcan-wyckoff-analysis")
+        except Exception:
+            ver = "0.9.19"
+
+        from rich.panel import Panel
+        from rich.table import Table
+
+        layout_table = Table.grid(expand=True)
+        layout_table.add_column(ratio=2)
+        layout_table.add_column(ratio=3)
+
+        left_text = Text.from_markup(
+            "\n"
+            " [bold white]Welcome back![/bold white]\n\n"
+            "    [bold #58a6ff]⚡ WYCKOFF QUANT[/bold #58a6ff]\n\n"
+            " [dim]Market Workstation[/dim]\n"
         )
+
+        right_text = Text.from_markup(
+            "\n"
+            " [bold #ff7b72]Tips for getting started[/bold #ff7b72]\n"
+            " 输入股票代码 (如 [cyan]600519[/cyan]) 开始量化分析。\n"
+            " 输入 [cyan]/help[/cyan] 查看所有支持的交互式命令。\n\n"
+            " [bold #ff7b72]Quick Shortcuts[/bold #ff7b72]\n"
+            " [cyan]Ctrl+N[/cyan] 新会话  ·  [cyan]Ctrl+L[/cyan] 清理屏幕\n"
+            " [cyan]Ctrl+P[/cyan] 命令面板 · [cyan]Ctrl+Q[/cyan] 退出系统\n"
+        )
+
+        layout_table.add_row(left_text, right_text)
+
+        welcome_panel = Panel(
+            layout_table,
+            title=f"[bold #58a6ff]Wyckoff Station v{ver}[/bold #58a6ff]",
+            title_align="left",
+            border_style="#30363d",
+            padding=(0, 1),
+            expand=True,
+        )
+        log.write(welcome_panel)
+        log.write("")
         if not self._provider:
             log.write(Text.from_markup("[yellow]⚠ 未配置模型，请输入 /model add 添加[/yellow]\n"))
         if self._session_expired:
@@ -1302,11 +1401,28 @@ class WyckoffTUI(App):
         except Exception:
             logger.debug("save session summary failed", exc_info=True)
 
-    def _save_and_exit(self) -> None:
-        self._save_memory_async(wait_timeout=5, skip_layers=True)
-        self.exit()
+    def _save_and_exit(self, *, force: bool = False) -> None:
+        if force:
+            self._cancel_event.set()
+        self._save_memory_async(wait_timeout=1 if force else 5, skip_layers=True)
+        self.exit(return_code=130 if force else 0)
+        if force:
+            timer = threading.Timer(_HARD_EXIT_DELAY, self._hard_exit_after_force_quit)
+            timer.daemon = True
+            timer.start()
+
+    def _hard_exit_after_force_quit(self) -> None:
+        if not self._busy:
+            return
+        import os
+
+        os._exit(130)
 
     def action_quit(self) -> None:
+        if self._busy:
+            self.notify("强制退出", timeout=1)
+            self._save_and_exit(force=True)
+            return
         self._save_and_exit()
 
     def action_smart_copy(self) -> None:
@@ -1317,11 +1433,16 @@ class WyckoffTUI(App):
             self.screen.clear_selection()
             self.notify("已复制", timeout=1)
             return
-        if self._busy:
-            self._cancel_event.set()
-            self.notify("已中断", timeout=1)
-            return
         now = time.monotonic()
+        if self._busy:
+            if _should_force_exit_busy_cancel(self._cancel_event.is_set(), self._last_ctrl_c, now):
+                self.notify("强制退出", timeout=1)
+                self._save_and_exit(force=True)
+                return
+            self._cancel_event.set()
+            self._last_ctrl_c = now
+            self.notify("已中断，再按一次 Ctrl+C 强制退出", timeout=1)
+            return
         if now - self._last_ctrl_c < 1.0:
             self._save_and_exit()
         else:
@@ -3354,6 +3475,7 @@ class WyckoffTUI(App):
 
     def _resume_session(self, session_id: str) -> None:
         """恢复指定会话，加载历史消息到 self._messages。"""
+        from cli.session_context import build_resumed_model_context
         from integrations.local_db import list_chat_sessions, load_chat_logs
 
         log = self.query_one("#chat-log", ChatLog)
@@ -3367,15 +3489,17 @@ class WyckoffTUI(App):
                 return
             session_id = sessions[idx - 1]["session_id"]
 
-        rows = load_chat_logs(session_id=session_id)
+        rows = load_chat_logs(session_id=session_id, limit=1000)
         if not rows:
             log.write(Text.from_markup(f"[red]未找到会话: {session_id}[/red]"))
             return
 
+        resumed = build_resumed_model_context(rows)
+
         # 保存当前会话记忆
         self._save_memory_async()
 
-        self._messages.clear()
+        self._messages[:] = resumed.messages
         self._queue.clear()
         self._session_tokens = {"input": 0, "output": 0, "rounds": 0}
         self._session_id = session_id
@@ -3383,6 +3507,12 @@ class WyckoffTUI(App):
         log.clear()
 
         log.write(Text.from_markup(f"[green]已恢复会话[/green] [dim]{session_id} · {len(rows)} 条记录[/dim]\n"))
+        log.write(
+            Text.from_markup(
+                f"[dim]模型上下文: {resumed.mode} · {resumed.model_messages} 条 · "
+                f"约 {resumed.estimated_tokens:,} tokens[/dim]\n"
+            )
+        )
 
         for row in rows:
             role = row["role"]
@@ -3390,16 +3520,13 @@ class WyckoffTUI(App):
 
             if role == "error":
                 if row.get("error"):
-                    log.write(Text.from_markup(f"  [dim red]✗ {str(row['error'])[:80]}[/dim red]"))
+                    log.write(Text.from_markup(f"  [dim red]✗ {str(row['error'])}[/dim red]"))
                 continue
 
             if role == "user":
-                self._messages.append({"role": "user", "content": content})
-                preview = content if len(content) <= 120 else content[:120] + "…"
-                log.write(Text.from_markup(f"[bold cyan]❯[/bold cyan] {preview}"))
+                log.write(Text.from_markup(f"[bold cyan]❯ {escape(content)}[/bold cyan]"))
 
             elif role == "assistant":
-                self._messages.append({"role": "assistant", "content": content})
                 tc = row.get("tool_calls", "")
                 if tc:
                     try:
@@ -3409,8 +3536,7 @@ class WyckoffTUI(App):
                     except (json.JSONDecodeError, TypeError):
                         pass
                 if content:
-                    preview = content if len(content) <= 200 else content[:200] + "…"
-                    log.write(Text.from_markup(f"  [dim]{preview}[/dim]"))
+                    log.write(Markdown(content))
 
         log.write(Text.from_markup("\n[dim]───── 历史消息结束，继续对话 ─────[/dim]\n"))
         log.scroll_end(animate=False)

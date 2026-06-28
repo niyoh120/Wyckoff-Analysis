@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import socket
+
 from agents.local_tools import exec_command, read_file, web_fetch, write_file
+from agents.tool_security import validate_public_http_url
 
 
 def test_exec_command_allows_simple_read_only_command():
@@ -107,6 +110,25 @@ def test_web_fetch_blocks_localhost():
 
     assert result["error"].startswith("安全拦截")
     assert "内网" in result["error"] or "本机" in result["error"]
+
+
+def test_validate_public_url_allows_proxy_fake_ip_for_domain(monkeypatch):
+    url = "https://www.sse.com.cn/disclosure/listedinfo/announcement/"
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, port, type: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("198.18.0.98", port))],
+    )
+
+    assert validate_public_http_url(url) == url
+
+
+def test_validate_public_url_blocks_proxy_fake_ip_literal():
+    result = validate_public_http_url("https://198.18.0.98/")
+
+    assert result["error"].startswith("安全拦截")
+    assert "内网" in result["error"] or "保留地址" in result["error"]
 
 
 def test_web_fetch_blocks_non_http_scheme():

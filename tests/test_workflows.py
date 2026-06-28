@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from cli.runtime import AgentRuntime
-from cli.workflows.dispatch import build_turn_runtime
+from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.router import build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
@@ -84,6 +84,32 @@ def test_dispatch_uses_direct_runtime_for_portfolio_turn():
 
     assert workflow.name == "general_chat"
     assert isinstance(runtime, AgentRuntime)
+
+
+def test_direct_stock_turn_does_not_expose_web_fetch():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="600519",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+    assert runtime.allowed_tools
+    assert "analyze_stock" in runtime.allowed_tools
+    assert "run_backtest" in runtime.allowed_tools
+    assert "update_portfolio" in runtime.allowed_tools
+    assert "execute_skill" not in runtime.allowed_tools
+    assert "web_fetch" not in runtime.allowed_tools
+
+
+def test_direct_url_turn_exposes_web_fetch():
+    tools = infer_direct_allowed_tools("帮我抓取 https://example.com 公告")
+
+    assert "web_fetch" in tools
+    assert "execute_skill" not in tools
+    assert "exec_command" not in tools
 
 
 def test_dispatch_uses_workflow_executor_for_explicit_dynamic_turn():
