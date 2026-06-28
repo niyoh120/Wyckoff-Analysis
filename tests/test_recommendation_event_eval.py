@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-import pytest
-
 from workflows.recommendation_event_eval import (
-    RecommendationEventEvalRequest,
-    _label_update_row,
     _top_k_summary,
-    _validate_persistence_target,
 )
 
 
@@ -32,50 +27,6 @@ def test_top_k_summary_ranks_ai_then_score_then_count() -> None:
     assert top2_ai["hit_count"] == 3
     assert top2_ai["hit_rate_pct"] == 75.0
     assert top2_ai["days_covered"] == 2
-
-
-def test_label_update_row_keeps_partial_non_hit_unknown() -> None:
-    row = _label_update_row(
-        {
-            "id": "row1",
-            "label_ready": False,
-            "hit_target": False,
-            "mfe_horizon_pct": 8.0,
-            "mae_horizon_pct": -3.0,
-        },
-        "now",
-    )
-
-    assert row is not None
-    assert row["label_5d_ready"] is False
-    assert row["hit_10_5d"] is None
-    assert row["mfe_5d_pct"] is None
-    assert row["mae_5d_pct"] is None
-
-
-def test_label_update_row_can_mark_partial_already_hit() -> None:
-    row = _label_update_row(
-        {
-            "id": "row1",
-            "label_ready": False,
-            "hit_target": True,
-            "first_hit_date": 20260626,
-            "days_to_hit": 2,
-        },
-        "now",
-    )
-
-    assert row is not None
-    assert row["label_5d_ready"] is False
-    assert row["hit_10_5d"] is True
-    assert row["first_hit_10_5d_date"] == 20260626
-    assert row["days_to_hit_10_5d"] == 2
-
-
-def test_validate_persistence_target_only_allows_5d_10pct() -> None:
-    _validate_persistence_target(RecommendationEventEvalRequest(horizon_days=5, target_pct=10.0))
-    with pytest.raises(ValueError, match="horizon_days=5"):
-        _validate_persistence_target(RecommendationEventEvalRequest(horizon_days=10, target_pct=10.0))
 
 
 def _event(

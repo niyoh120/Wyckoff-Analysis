@@ -252,7 +252,6 @@ def _run_recommendation_event_eval(request_id: str, payload: dict[str, Any]) -> 
         kline_count=_payload_int(payload, "kline_count", 160),
         output_dir=_payload_str(payload, "output_dir", "artifacts/recommendation_event_eval"),
         top_k=_payload_top_k(payload.get("top_k")),
-        apply_labels=_payload_bool(payload, "apply_labels", False),
     )
     result = build_recommendation_event_eval(request)
     return {
@@ -262,7 +261,6 @@ def _run_recommendation_event_eval(request_id: str, payload: dict[str, Any]) -> 
         "metadata": result["metadata"],
         "summary": result["summary"],
         "daily": result["daily"],
-        "persistence": result["persistence"],
     }
 
 
@@ -283,13 +281,6 @@ def _payload_float(payload: dict[str, Any], key: str, default: float) -> float:
         return float(payload.get(key, default))
     except (TypeError, ValueError):
         return default
-
-
-def _payload_bool(payload: dict[str, Any], key: str, default: bool) -> bool:
-    raw = payload.get(key, default)
-    if isinstance(raw, bool):
-        return raw
-    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _payload_top_k(raw: Any) -> tuple[int, ...]:

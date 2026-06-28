@@ -20,7 +20,7 @@ from integrations.recommendation_performance import (
     resolve_tracking_market,
 )
 from integrations.recommendation_tracking_common import chunked, ohlc_map_from_tickflow_hist
-from integrations.supabase_base import create_admin_client, is_admin_configured, require_server_write_context
+from integrations.supabase_base import create_admin_client, is_admin_configured
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,6 @@ class RecommendationEventEvalRequest:
     kline_count: int = 160
     output_dir: str = "artifacts/recommendation_event_eval"
     top_k: tuple[int, ...] = (1, 3, 5)
-    apply_labels: bool = False
 
 
 def run_recommendation_event_eval(request: RecommendationEventEvalRequest) -> int:
@@ -41,7 +40,6 @@ def run_recommendation_event_eval(request: RecommendationEventEvalRequest) -> in
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_json(output_dir / "summary.json", result["summary"])
     _write_json(output_dir / "events.json", result["events"])
-    _write_json(output_dir / "persistence.json", result["persistence"])
     _write_markdown(output_dir / "summary.md", result)
     summary = result["summary"]["all"]
     print(
@@ -49,10 +47,6 @@ def run_recommendation_event_eval(request: RecommendationEventEvalRequest) -> in
         f"ready={summary['rows_ready']}/{summary['rows_total']} "
         f"hit_rate={summary['hit_rate_pct']}% "
         f"target={request.target_pct}%/{request.horizon_days}d"
-    )
-    print(
-        "[recommendation-event-eval] persistence "
-        f"applied={result['persistence']['applied']} rows_written={result['persistence']['rows_written']}"
     )
     print(f"[recommendation-event-eval] wrote {output_dir}")
     return 0
@@ -71,18 +65,12 @@ def build_recommendation_event_eval(request: RecommendationEventEvalRequest) -> 
     hist_by_code = _fetch_hist_by_code(api_key, sorted(grouped), market, request.kline_count)
     events = _build_events(grouped, hist_by_code, request)
     summary = _build_summary(events, request.top_k)
-    persistence = _persist_event_labels(market, events, request) if request.apply_labels else _read_only_persistence()
     return {
         "metadata": _metadata(request, market, records, grouped),
         "summary": summary,
         "daily": _daily_summary(events),
         "events": events,
-        "persistence": persistence,
     }
-
-
-def _read_only_persistence() -> dict[str, Any]:
-    return {"applied": False, "rows_attempted": 0, "rows_written": 0}
 
 
 def _fetch_records(market: str, max_dates: int) -> list[dict[str, Any]]:
@@ -141,48 +129,6 @@ def _build_events(
             for row in rows
         )
     return sorted(events, key=lambda item: (item.get("recommend_date") or 0, str(item.get("code") or "")))
-
-
-def _persist_event_labels(
-    market: str,
-    events: list[dict[str, Any]],
-    request: RecommendationEventEvalRequest,
-) -> dict[str, Any]:
-    _validate_persistence_target(request)
-    require_server_write_context("persist recommendation event labels")
-    table = TRACKING_TABLE_BY_MARKET[market]
-    client = create_admin_client()
-    now_iso = datetime.now(UTC).isoformat()
-    updates = [_label_update_row(event, now_iso) for event in events]
-    updates = [row for row in updates if row]
-    written = 0
-    for batch in chunked(updates, 500):
-        client.table(table).upsert(batch, on_conflict="id").execute()
-        written += len(batch)
-    return {"applied": True, "rows_attempted": len(updates), "rows_written": written, "table": table}
-
-
-def _validate_persistence_target(request: RecommendationEventEvalRequest) -> None:
-    if int(request.horizon_days) != 5 or abs(float(request.target_pct) - 10.0) > 0.0001:
-        raise ValueError("持久化仅支持 horizon_days=5 且 target_pct=10，对应 hit_10_5d 字段")
-
-
-def _label_update_row(event: dict[str, Any], updated_at: str) -> dict[str, Any] | None:
-    if event.get("id") is None:
-        return None
-    ready = bool(event.get("label_ready"))
-    already_hit = bool(event.get("hit_target"))
-    return {
-        "id": event["id"],
-        "label_5d_ready": ready,
-        "hit_10_5d": already_hit if ready or already_hit else None,
-        "mfe_5d_pct": event.get("mfe_horizon_pct") if ready else None,
-        "mae_5d_pct": event.get("mae_horizon_pct") if ready else None,
-        "close_return_5d_pct": event.get("close_return_horizon_pct") if ready else None,
-        "first_hit_10_5d_date": event.get("first_hit_date"),
-        "days_to_hit_10_5d": event.get("days_to_hit"),
-        "event_label_updated_at": updated_at,
-    }
 
 
 def _build_summary(events: list[dict[str, Any]], top_k: tuple[int, ...]) -> dict[str, Any]:
@@ -262,7 +208,6 @@ def _metadata(
         "target_pct": request.target_pct,
         "max_dates": request.max_dates,
         "kline_count": request.kline_count,
-        "apply_labels": request.apply_labels,
         "records": len(records),
         "codes": len(grouped),
     }

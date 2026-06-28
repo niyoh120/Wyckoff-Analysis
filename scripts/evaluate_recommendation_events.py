@@ -21,7 +21,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--kline-count", type=int, default=160, help="每只股票拉取日 K 数量（默认 160）")
     parser.add_argument("--output-dir", default="artifacts/recommendation_event_eval", help="artifact 输出目录")
     parser.add_argument("--top-k", default="1,3,5", help="逗号分隔 Top-K 列表（默认 1,3,5）")
-    parser.add_argument("--apply-labels", action="store_true", help="将 5 日 +10%% 事件标签写回推荐表")
     return parser.parse_args()
 
 
@@ -36,7 +35,6 @@ def main() -> int:
             kline_count=args.kline_count,
             output_dir=args.output_dir,
             top_k=_parse_top_k(args.top_k),
-            apply_labels=bool(args.apply_labels),
         )
     )
 

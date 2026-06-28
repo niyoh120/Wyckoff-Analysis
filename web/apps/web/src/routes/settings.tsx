@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { ExternalLink, User, ShieldCheck, Database, Brain, Bell, ChevronDown, Eye, EyeOff } from 'lucide-react'
+import { ExternalLink, User, ShieldCheck, Database, Brain, Bell, ChevronDown, Eye, EyeOff, PlugZap } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { PROVIDERS, PROVIDER_LABELS, PROVIDER_BASE_URLS, PROVIDER_DEFAULT_MODELS } from '@wyckoff/shared'
@@ -16,6 +16,11 @@ interface ProviderConfig {
 type SettingsTab = 'capability' | 'sources' | 'model' | 'notifications' | 'account'
 type Translate = ReturnType<typeof usePreferences>['t']
 type SettingsRow = Record<string, any>
+type TestTarget = 'model' | 'dataSource'
+type ConnectivityResult = { ok: boolean; message: string }
+type ConnectivityState = Record<TestTarget, ConnectivityResult | null>
+type ConnectivityRunning = Record<TestTarget, boolean>
+type ToastKind = 'success' | 'error'
 
 const SETTINGS_TABS = [
   { id: 'capability', labelKey: 'settings.capabilityCenter', Icon: ShieldCheck },
@@ -28,6 +33,97 @@ const SETTINGS_TABS = [
 export function SettingsPage() {
   const user = useAuthStore((s) => s.user)
   const { t } = usePreferences()
+  const [activeTab, setActiveTab] = useState<SettingsTab>('capability')
+  const { toast, toastKind, showToast, clearToast } = useSettingsToast()
+  const form = useSettingsForm(user?.id, t, showToast, clearToast)
+  const connectivity = useConnectivityTests({
+    t,
+    showToast,
+    chatProvider: form.chatProvider,
+    activeModelConfig: form.activeModelConfig,
+    tickflowKey: form.tickflowKey,
+  })
+  const canSaveActiveTab = activeTab === 'sources' || activeTab === 'model' || activeTab === 'notifications'
+
+  return (
+    <div className="h-full overflow-auto p-4 sm:p-6 bg-background/50">
+      <div className="mx-auto max-w-5xl">
+        <h1 className="mb-6 bg-gradient-to-r from-primary to-indigo-500 bg-clip-text text-2xl font-bold tracking-tight text-transparent">
+          {t('settings.title')}
+        </h1>
+        <SettingsToast toast={toast} kind={toastKind} />
+        <div className="flex flex-col md:flex-row gap-6 items-start">
+          <SettingsTabs activeTab={activeTab} onChange={setActiveTab} t={t} />
+          <div className="flex-1 min-w-0 w-full animate-fade-in-up">
+            {activeTab === 'account' && user && <AccountPanel email={user.email || ''} id={user.id} t={t} />}
+            {activeTab === 'capability' && (
+              <CapabilityPanel
+                rows={form.settingsCapabilities}
+                summary={form.settingsCapabilitySummary}
+                testing={connectivity.testing}
+                testResults={connectivity.testResults}
+                canTestModel={Boolean(form.activeModelConfig?.api_key && form.activeModelConfig?.model)}
+                canTestDataSource={Boolean(form.tickflowKey.trim())}
+                onTestModel={connectivity.handleModelTest}
+                onTestDataSource={connectivity.handleDataSourceTest}
+                t={t}
+              />
+            )}
+            {activeTab === 'sources' && <SourcesPanel tickflowKey={form.tickflowKey} setTickflowKey={form.setTickflowKey} t={t} />}
+            {activeTab === 'model' && (
+              <ModelPanel chatProvider={form.chatProvider} configs={form.configs} setChatProvider={form.setChatProvider} updateConfig={form.updateConfig} t={t} />
+            )}
+            {activeTab === 'notifications' && (
+              <NotificationsPanel
+                feishuWebhook={form.feishuWebhook}
+                setFeishuWebhook={form.setFeishuWebhook}
+                wecomWebhook={form.wecomWebhook}
+                setWecomWebhook={form.setWecomWebhook}
+                dingtalkWebhook={form.dingtalkWebhook}
+                setDingtalkWebhook={form.setDingtalkWebhook}
+                tgBotToken={form.tgBotToken}
+                setTgBotToken={form.setTgBotToken}
+                tgChatId={form.tgChatId}
+                setTgChatId={form.setTgChatId}
+                t={t}
+              />
+            )}
+            {canSaveActiveTab && <SaveBar saving={form.saving} onSave={form.handleSave} t={t} />}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function useSettingsToast() {
+  const [toast, setToast] = useState('')
+  const [toastKind, setToastKind] = useState<ToastKind>('success')
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  useEffect(() => () => clearTimeout(toastTimerRef.current), [])
+
+  const clearToast = useCallback(() => {
+    clearTimeout(toastTimerRef.current)
+    setToast('')
+  }, [])
+
+  const showToast = useCallback((message: string, kind: ToastKind = 'success') => {
+    setToastKind(kind)
+    setToast(message)
+    clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToast(''), 3000)
+  }, [])
+
+  return { toast, toastKind, showToast, clearToast }
+}
+
+function useSettingsForm(
+  userId: string | undefined,
+  t: Translate,
+  showToast: (message: string, kind?: ToastKind) => void,
+  clearToast: () => void,
+) {
   const [chatProvider, setChatProvider] = useState<Provider>('1route')
   const [configs, setConfigs] = useState<Record<string, ProviderConfig>>(() => buildDefaultProviderConfigs())
   const [tickflowKey, setTickflowKey] = useState('')
@@ -37,10 +133,6 @@ export function SettingsPage() {
   const [tgBotToken, setTgBotToken] = useState('')
   const [tgChatId, setTgChatId] = useState('')
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState('')
-  const [activeTab, setActiveTab] = useState<SettingsTab>('capability')
-  const [toastKind, setToastKind] = useState<'success' | 'error'>('success')
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const activeModelConfig = configs[chatProvider]
   const settingsCapabilities = useMemo(
     () => buildSettingsCapabilityRows({
@@ -54,8 +146,6 @@ export function SettingsPage() {
     () => summarizeSettingsCapabilities(settingsCapabilities),
     [settingsCapabilities],
   )
-
-  useEffect(() => () => clearTimeout(toastTimerRef.current), [])
 
   const loadSettings = useCallback(async (userId: string) => {
     const { data } = await supabase.from('user_settings').select('*').eq('user_id', userId).single()
@@ -71,22 +161,22 @@ export function SettingsPage() {
   }, [])
 
   useEffect(() => {
-    if (user?.id) void loadSettings(user.id)
-  }, [user?.id, loadSettings])
+    if (userId) void loadSettings(userId)
+  }, [userId, loadSettings])
 
-  function updateConfig(provider: string, field: keyof ProviderConfig, value: string) {
+  const updateConfig = useCallback((provider: string, field: keyof ProviderConfig, value: string) => {
     setConfigs((prev) => {
       const current = prev[provider] || { api_key: '', model: '', base_url: '' }
       return { ...prev, [provider]: { ...current, [field]: value } }
     })
-  }
+  }, [])
 
-  async function handleSave() {
-    if (!user) return
+  const handleSave = useCallback(async () => {
+    if (!userId) return
     setSaving(true)
-    setToast('')
+    clearToast()
     const { error } = await supabase.from('user_settings').upsert(buildSettingsPayload({
-      userId: user.id,
+      userId,
       chatProvider,
       configs,
       tickflowKey,
@@ -97,53 +187,97 @@ export function SettingsPage() {
       tgChatId,
     }))
     setSaving(false)
-    setToastKind(error ? 'error' : 'success')
-    setToast(error ? t('settings.saveFailed', { message: error.message }) : t('settings.saved'))
-    clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => setToast(''), 3000)
+    showToast(error ? t('settings.saveFailed', { message: error.message }) : t('settings.saved'), error ? 'error' : 'success')
+  }, [chatProvider, clearToast, configs, dingtalkWebhook, feishuWebhook, showToast, t, tgBotToken, tgChatId, tickflowKey, userId, wecomWebhook])
+
+  return {
+    chatProvider,
+    setChatProvider,
+    configs,
+    tickflowKey,
+    setTickflowKey,
+    feishuWebhook,
+    setFeishuWebhook,
+    wecomWebhook,
+    setWecomWebhook,
+    dingtalkWebhook,
+    setDingtalkWebhook,
+    tgBotToken,
+    setTgBotToken,
+    tgChatId,
+    setTgChatId,
+    saving,
+    activeModelConfig,
+    settingsCapabilities,
+    settingsCapabilitySummary,
+    updateConfig,
+    handleSave,
   }
+}
 
-  const canSaveActiveTab = activeTab === 'sources' || activeTab === 'model' || activeTab === 'notifications'
+function useConnectivityTests(args: {
+  t: Translate
+  showToast: (message: string, kind?: ToastKind) => void
+  chatProvider: Provider
+  activeModelConfig?: ProviderConfig
+  tickflowKey: string
+}) {
+  const { t, showToast, chatProvider, activeModelConfig, tickflowKey } = args
+  const [testing, setTesting] = useState<ConnectivityRunning>({ model: false, dataSource: false })
+  const [testResults, setTestResults] = useState<ConnectivityState>({ model: null, dataSource: null })
 
-  return (
-    <div className="h-full overflow-auto p-4 sm:p-6 bg-background/50">
-      <div className="mx-auto max-w-5xl">
-        <h1 className="mb-6 bg-gradient-to-r from-primary to-indigo-500 bg-clip-text text-2xl font-bold tracking-tight text-transparent">
-          {t('settings.title')}
-        </h1>
-        <SettingsToast toast={toast} kind={toastKind} />
-        <div className="flex flex-col md:flex-row gap-6 items-start">
-          <SettingsTabs activeTab={activeTab} onChange={setActiveTab} t={t} />
-          <div className="flex-1 min-w-0 w-full animate-fade-in-up">
-            {activeTab === 'account' && user && <AccountPanel email={user.email || ''} id={user.id} t={t} />}
-            {activeTab === 'capability' && (
-              <CapabilityPanel rows={settingsCapabilities} summary={settingsCapabilitySummary} t={t} />
-            )}
-            {activeTab === 'sources' && <SourcesPanel tickflowKey={tickflowKey} setTickflowKey={setTickflowKey} t={t} />}
-            {activeTab === 'model' && (
-              <ModelPanel chatProvider={chatProvider} configs={configs} setChatProvider={setChatProvider} updateConfig={updateConfig} t={t} />
-            )}
-            {activeTab === 'notifications' && (
-              <NotificationsPanel
-                feishuWebhook={feishuWebhook}
-                setFeishuWebhook={setFeishuWebhook}
-                wecomWebhook={wecomWebhook}
-                setWecomWebhook={setWecomWebhook}
-                dingtalkWebhook={dingtalkWebhook}
-                setDingtalkWebhook={setDingtalkWebhook}
-                tgBotToken={tgBotToken}
-                setTgBotToken={setTgBotToken}
-                tgChatId={tgChatId}
-                setTgChatId={setTgChatId}
-                t={t}
-              />
-            )}
-            {canSaveActiveTab && <SaveBar saving={saving} onSave={handleSave} t={t} />}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+  const runConnectivityTest = useCallback(async (target: TestTarget, path: string, payload: object) => {
+    setTesting((prev) => ({ ...prev, [target]: true }))
+    setTestResults((prev) => ({ ...prev, [target]: null }))
+    try {
+      const token = await currentAccessToken()
+      if (!token) throw new Error(t('settings.testLoginRequired'))
+      const response = await fetch(apiUrl(path), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      })
+      const data = await response.json().catch(() => ({})) as { ok?: boolean; message?: string; error?: string }
+      if (!response.ok || data.ok !== true) throw new Error(data.error || t('settings.testFailed'))
+      const result = { ok: true, message: data.message || t('settings.testSuccess') }
+      setTestResults((prev) => ({ ...prev, [target]: result }))
+      showToast(result.message)
+    } catch (error) {
+      const result = { ok: false, message: error instanceof Error ? error.message : t('settings.testFailed') }
+      setTestResults((prev) => ({ ...prev, [target]: result }))
+      showToast(result.message, 'error')
+    } finally {
+      setTesting((prev) => ({ ...prev, [target]: false }))
+    }
+  }, [showToast, t])
+
+  const handleModelTest = useCallback(async () => {
+    const config = activeModelConfig
+    if (!config?.api_key || !config.model) {
+      showToast(t('settings.testModelMissing'), 'error')
+      return
+    }
+    if (!window.confirm(t('settings.testModelConfirm'))) return
+    await runConnectivityTest('model', '/api/settings/test-model', {
+      provider: chatProvider,
+      api_key: config.api_key,
+      model: config.model,
+      base_url: config.base_url,
+    })
+  }, [activeModelConfig, chatProvider, runConnectivityTest, showToast, t])
+
+  const handleDataSourceTest = useCallback(async () => {
+    if (!tickflowKey.trim()) {
+      showToast(t('settings.testDataSourceMissing'), 'error')
+      return
+    }
+    if (!window.confirm(t('settings.testDataSourceConfirm'))) return
+    await runConnectivityTest('dataSource', '/api/settings/test-data-source', {
+      tickflow_api_key: tickflowKey,
+    })
+  }, [runConnectivityTest, showToast, t, tickflowKey])
+
+  return { testing, testResults, handleModelTest, handleDataSourceTest }
 }
 
 function SettingsToast({ toast, kind }: { toast: string; kind: 'success' | 'error' }) {
@@ -200,9 +334,25 @@ function AccountPanel({ email, id, t }: { email: string; id: string; t: Translat
   )
 }
 
-function CapabilityPanel({ rows, summary, t }: {
+function CapabilityPanel({
+  rows,
+  summary,
+  testing,
+  testResults,
+  canTestModel,
+  canTestDataSource,
+  onTestModel,
+  onTestDataSource,
+  t,
+}: {
   rows: ReturnType<typeof buildSettingsCapabilityRows>
   summary: ReturnType<typeof summarizeSettingsCapabilities>
+  testing: ConnectivityRunning
+  testResults: ConnectivityState
+  canTestModel: boolean
+  canTestDataSource: boolean
+  onTestModel: () => void
+  onTestDataSource: () => void
   t: Translate
 }) {
   return (
@@ -222,11 +372,82 @@ function CapabilityPanel({ rows, summary, t }: {
         <div className="mt-4 h-2 w-full rounded-full bg-muted overflow-hidden">
           <div className="h-full bg-gradient-to-r from-primary to-indigo-500 transition-all duration-500 rounded-full" style={{ width: `${(summary.readyCount / summary.totalCount) * 100}%` }} />
         </div>
+        <ConnectivityActions
+          testing={testing}
+          testResults={testResults}
+          canTestModel={canTestModel}
+          canTestDataSource={canTestDataSource}
+          onTestModel={onTestModel}
+          onTestDataSource={onTestDataSource}
+          t={t}
+        />
       </div>
       <div className="space-y-3">
         {rows.map((row) => <CapabilityRow key={row.id} row={row} t={t} />)}
       </div>
     </section>
+  )
+}
+
+function ConnectivityActions(props: {
+  testing: ConnectivityRunning
+  testResults: ConnectivityState
+  canTestModel: boolean
+  canTestDataSource: boolean
+  onTestModel: () => void
+  onTestDataSource: () => void
+  t: Translate
+}) {
+  return (
+    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <ConnectivityButton
+        label={props.t('settings.testModel')}
+        hint={props.t('settings.testModelHint')}
+        runningLabel={props.t('settings.testing')}
+        running={props.testing.model}
+        disabled={!props.canTestModel}
+        result={props.testResults.model}
+        onClick={props.onTestModel}
+      />
+      <ConnectivityButton
+        label={props.t('settings.testDataSource')}
+        hint={props.t('settings.testDataSourceHint')}
+        runningLabel={props.t('settings.testing')}
+        running={props.testing.dataSource}
+        disabled={!props.canTestDataSource}
+        result={props.testResults.dataSource}
+        onClick={props.onTestDataSource}
+      />
+    </div>
+  )
+}
+
+function ConnectivityButton({ label, hint, runningLabel, running, disabled, result, onClick }: {
+  label: string
+  hint: string
+  runningLabel: string
+  running: boolean
+  disabled: boolean
+  result: ConnectivityResult | null
+  onClick: () => void
+}) {
+  const resultClass = result?.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-red-600 dark:text-red-300'
+  return (
+    <div className="rounded-xl border border-border bg-background/45 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={running || disabled}
+          className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <PlugZap size={14} />
+          {running ? runningLabel : label}
+        </button>
+        {result && <span className={`text-xs font-medium ${resultClass}`}>{result.message}</span>}
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{hint}</p>
+    </div>
   )
 }
 
@@ -457,6 +678,16 @@ function buildDefaultProviderConfigs(): Record<string, ProviderConfig> {
     model: PROVIDER_DEFAULT_MODELS[provider],
     base_url: PROVIDER_BASE_URLS[provider] || '',
   }]))
+}
+
+async function currentAccessToken(): Promise<string> {
+  const { data } = await supabase.auth.getSession()
+  return data.session?.access_token || ''
+}
+
+function apiUrl(path: string): string {
+  const base = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8787' : '')
+  return `${base.replace(/\/$/, '')}${path}`
 }
 
 function buildProviderConfigsFromSettings(data: SettingsRow): Record<string, ProviderConfig> {

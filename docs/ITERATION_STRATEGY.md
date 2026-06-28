@@ -92,13 +92,13 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 
 ## 方向六：短线冲刺事件评估
 
-**目标**：把“未来 5 个交易日内触及 +10%”从主观期望变成可持续评估的事件标签，同时用胜率、平均收盘收益、盈亏比、MFE/MAE 和下行尾部约束过拟合。
+**目标**：把“未来 5 个交易日内触及 +10%”从主观期望变成可重复的离线评估口径，同时用胜率、平均收盘收益、盈亏比、MFE/MAE 和下行尾部约束过拟合。
 
 当前已落地只读评估：
 - `scripts/evaluate_recommendation_events.py`：读取 `recommendation_tracking`，拉 TickFlow 日 K，输出 `summary.json` / `events.json` / `summary.md`。
 - `core.recommendation_event_metrics.build_horizon_event()`：严格排除推荐日当天，只看推荐日之后未来 N 个交易日。
 - `workflows.web_background_job` 支持 `job_kind=recommendation_event_eval`，可由 GitHub Actions 或 Web 后台任务触发。
-- 默认只读；加 `--apply-labels` 或后台 payload `apply_labels=true` 后才会尝试写回 `recommendation_tracking`。
+- 评估结果仅写 artifact，不写回 `recommendation_tracking`，避免在公开推荐页里增加难解释的短线事件列。
 
 当前 5 日 +10% 评估结果（最新 30 个推荐日，2026-06-28 本地实测）：
 
@@ -122,41 +122,27 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 - 参数变更必须跨不同市场状态复测：强势、震荡、退潮、崩盘日都要覆盖，不能只根据最近 5 个或 30 个推荐日调阈值。
 - 合格方向是“涨的个数更多、平均收益为正、赔率覆盖亏损、尾部回撤受控”，不是追求每一只都涨或每次都触达 +10%。
 
-若要把事件标签持久化到线上表，先执行以下 SQL：
+如果线上表已经执行过早期的事件标签扩展，可用以下 SQL 清理：
 
 ```sql
+drop index if exists public.idx_recommendation_tracking_hit_10_5d;
+
 alter table public.recommendation_tracking
-  add column if not exists hit_10_5d boolean,
-  add column if not exists label_5d_ready boolean default false,
-  add column if not exists mfe_5d_pct numeric,
-  add column if not exists mae_5d_pct numeric,
-  add column if not exists close_return_5d_pct numeric,
-  add column if not exists first_hit_10_5d_date integer,
-  add column if not exists days_to_hit_10_5d integer,
-  add column if not exists event_label_updated_at timestamptz;
-
-create index if not exists idx_recommendation_tracking_hit_10_5d
-  on public.recommendation_tracking (hit_10_5d, recommend_date desc);
+  drop column if exists hit_10_5d,
+  drop column if exists label_5d_ready,
+  drop column if exists mfe_5d_pct,
+  drop column if exists mae_5d_pct,
+  drop column if exists close_return_5d_pct,
+  drop column if exists first_hit_10_5d_date,
+  drop column if exists days_to_hit_10_5d,
+  drop column if exists event_label_updated_at;
 ```
-
-持久化前保持只读评估，避免线上推荐页误把未成熟样本当作失败样本。
-写库时必须满足：
-- 已执行上述 SQL。
-- `WYCKOFF_WRITE_CONTEXT=server_job`。
-- 评估口径为 `horizon_days=5` 且 `target_pct=10`。
 
 只读评估：
 
 ```bash
 .venv/bin/python scripts/evaluate_recommendation_events.py \
   --market cn --horizon-days 5 --target-pct 10 --max-dates 30
-```
-
-写回标签：
-
-```bash
-WYCKOFF_WRITE_CONTEXT=server_job .venv/bin/python scripts/evaluate_recommendation_events.py \
-  --market cn --horizon-days 5 --target-pct 10 --max-dates 30 --apply-labels
 ```
 
 ## 方向三：信号生命周期管理
