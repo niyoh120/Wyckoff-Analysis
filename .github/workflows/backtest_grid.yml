@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - "all_defined"
+          - "recent_2m"
           - "recent_6m"
           - "bull_2020"
           - "bear_2022"
@@ -56,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        period_key: [recent_6m, bull_2020, bear_2022]
+        period_key: [recent_2m, recent_6m, bull_2020, bear_2022]
     env:
       PYTHONUNBUFFERED: "1"
       TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
@@ -71,7 +72,7 @@ jobs:
           INPUT_PERIOD="${{ inputs.period || 'recent_6m' }}"
           MATRIX_PERIOD="${{ matrix.period_key }}"
           ACTIVE="false"
-          if [ "$INPUT_PERIOD" = "all_defined" ] || [ "$INPUT_PERIOD" = "$MATRIX_PERIOD" ]; then
+          if { [ "$INPUT_PERIOD" = "all_defined" ] && [ "$MATRIX_PERIOD" != "recent_2m" ]; } || [ "$INPUT_PERIOD" = "$MATRIX_PERIOD" ]; then
             ACTIVE="true"
           elif [ "$INPUT_PERIOD" = "custom" ] && [ "$MATRIX_PERIOD" = "recent_6m" ]; then
             ACTIVE="true"
@@ -90,7 +91,10 @@ jobs:
           fi
           echo "BT_PERIOD_KEY=${PERIOD}" >> "$GITHUB_ENV"
           echo "period_key=${PERIOD}" >> "$GITHUB_OUTPUT"
-          if [ "$PERIOD" = "bull_2020" ]; then
+          if [ "$PERIOD" = "recent_2m" ]; then
+            echo "BT_END=$(TZ=Asia/Shanghai date -d '-1 day' +%Y-%m-%d)" >> "$GITHUB_ENV"
+            echo "BT_START=$(TZ=Asia/Shanghai date -d '-2 months -1 day' +%Y-%m-%d)" >> "$GITHUB_ENV"
+          elif [ "$PERIOD" = "bull_2020" ]; then
             echo "BT_START=2020-07-01" >> "$GITHUB_ENV"
             echo "BT_END=2021-02-18" >> "$GITHUB_ENV"
           elif [ "$PERIOD" = "bear_2022" ]; then
@@ -165,6 +169,31 @@ jobs:
         trailing_stop: [0]
         take_profit_values: ["0 18"]
         include:
+          - period_key: recent_2m
+            hold_days: 5
+            stop_loss: 0
+            trailing_stop: 0
+            take_profit_values: "0"
+          - period_key: recent_2m
+            hold_days: 10
+            stop_loss: 0
+            trailing_stop: 0
+            take_profit_values: "0"
+          - period_key: recent_2m
+            hold_days: 10
+            stop_loss: -7
+            trailing_stop: 0
+            take_profit_values: "0"
+          - period_key: recent_2m
+            hold_days: 15
+            stop_loss: -8
+            trailing_stop: 0
+            take_profit_values: "18"
+          - period_key: recent_2m
+            hold_days: 20
+            stop_loss: -8
+            trailing_stop: -5
+            take_profit_values: "0"
           - period_key: recent_6m
             hold_days: 5
             stop_loss: 0
@@ -218,7 +247,7 @@ jobs:
           INPUT_PERIOD="${{ inputs.period || 'recent_6m' }}"
           MATRIX_PERIOD="${{ matrix.period_key }}"
           ACTIVE="false"
-          if [ "$INPUT_PERIOD" = "all_defined" ] || [ "$INPUT_PERIOD" = "$MATRIX_PERIOD" ]; then
+          if { [ "$INPUT_PERIOD" = "all_defined" ] && [ "$MATRIX_PERIOD" != "recent_2m" ]; } || [ "$INPUT_PERIOD" = "$MATRIX_PERIOD" ]; then
             ACTIVE="true"
           elif [ "$INPUT_PERIOD" = "custom" ] && [ "$MATRIX_PERIOD" = "recent_6m" ]; then
             ACTIVE="true"
@@ -237,7 +266,10 @@ jobs:
           fi
           echo "BT_PERIOD_KEY=${PERIOD}" >> "$GITHUB_ENV"
           echo "period_key=${PERIOD}" >> "$GITHUB_OUTPUT"
-          if [ "$PERIOD" = "bull_2020" ]; then
+          if [ "$PERIOD" = "recent_2m" ]; then
+            echo "BT_END=$(TZ=Asia/Shanghai date -d '-1 day' +%Y-%m-%d)" >> "$GITHUB_ENV"
+            echo "BT_START=$(TZ=Asia/Shanghai date -d '-2 months -1 day' +%Y-%m-%d)" >> "$GITHUB_ENV"
+          elif [ "$PERIOD" = "bull_2020" ]; then
             echo "BT_START=2020-07-01" >> "$GITHUB_ENV"
             echo "BT_END=2021-02-18" >> "$GITHUB_ENV"
           elif [ "$PERIOD" = "bear_2022" ]; then
@@ -356,6 +388,10 @@ jobs:
             echo "BT_PERIOD_LABEL=recent_6m,bull_2020,bear_2022" >> "$GITHUB_ENV"
             echo "BT_START=multi" >> "$GITHUB_ENV"
             echo "BT_END=multi" >> "$GITHUB_ENV"
+          elif [ "$PERIOD" = "recent_2m" ]; then
+            echo "BT_PERIOD_LABEL=recent_2m" >> "$GITHUB_ENV"
+            echo "BT_END=$(TZ=Asia/Shanghai date -d '-1 day' +%Y-%m-%d)" >> "$GITHUB_ENV"
+            echo "BT_START=$(TZ=Asia/Shanghai date -d '-2 months -1 day' +%Y-%m-%d)" >> "$GITHUB_ENV"
           elif [ "$PERIOD" = "bull_2020" ]; then
             echo "BT_PERIOD_LABEL=bull_2020" >> "$GITHUB_ENV"
             echo "BT_START=2020-07-01" >> "$GITHUB_ENV"
@@ -476,7 +512,7 @@ jobs:
               return parts if len(parts) == 2 else ['', '']
 
           def parse_period(dirname, start, end):
-              m = re.search(r'backtest-grid-(recent_6m|bull_2020|bear_2022|custom)-h', dirname)
+              m = re.search(r'backtest-grid-(recent_2m|recent_6m|bull_2020|bear_2022|custom)-h', dirname)
               if m:
                   return m.group(1)
               if start == '2020-07-01' and end == '2021-02-18':
@@ -517,12 +553,13 @@ jobs:
               return []
 
           period_names = {
+              'recent_2m': '最近2月',
               'recent_6m': '最近6月',
               'bull_2020': '牛市',
               'bear_2022': '熊市',
               'custom': '自定义',
           }
-          period_order = {'recent_6m': 0, 'bull_2020': 1, 'bear_2022': 2, 'custom': 3}
+          period_order = {'recent_2m': 0, 'recent_6m': 1, 'bull_2020': 2, 'bear_2022': 3, 'custom': 4}
           style_names = {
               'slot_equal_4': '等额四仓',
               'probe_add': '观察补仓',
@@ -735,6 +772,9 @@ jobs:
               return (c.get('style', ''), c.get('hold'), c.get('sl'), c.get('tp'), c.get('tr'))
 
           def robust_representative(group):
+              recent_2m = [c for c in group if c.get('period') == 'recent_2m']
+              if recent_2m:
+                  return max(recent_2m, key=rank_value)
               recent = [c for c in group if c.get('period') == 'recent_6m']
               return max(recent or group, key=rank_value)
 

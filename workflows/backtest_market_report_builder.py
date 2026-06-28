@@ -26,13 +26,14 @@ REGIME_LABELS = {
 }
 
 PERIOD_LABELS = {
+    "recent_2m": "最近2个月",
     "recent_6m": "最近6个月",
     "bull_2020": "牛市 2020-07~2021-02",
     "bear_2022": "熊市 2021-12~2022-10",
     "custom": "自定义周期",
 }
 
-PERIOD_ORDER = {"recent_6m": 0, "bull_2020": 1, "bear_2022": 2, "custom": 3}
+PERIOD_ORDER = {"recent_2m": 0, "recent_6m": 1, "bull_2020": 2, "bear_2022": 3, "custom": 4}
 STYLE_ORDER = {
     "slot_equal_4": 0,
     "probe_add": 1,
@@ -101,10 +102,12 @@ def _format_backtest_ranges(cells: list[GridCell]) -> str:
     for cell in cells:
         groups[cell.period_key or _period_label(cell)].append(cell)
     if len(groups) == 1:
-        group = next(iter(groups.values()))
+        key, group = next(iter(groups.items()))
         starts = [c.start for c in group if c.start]
         ends = [c.end for c in group if c.end]
-        return f"{min(starts, default='-')} ~ {max(ends, default='-')}"
+        date_range = f"{min(starts, default='-')} ~ {max(ends, default='-')}"
+        label = PERIOD_LABELS.get(key, key) if key else ""
+        return f"{label}: {date_range}" if label else date_range
 
     parts = []
     for key in sorted(groups, key=_period_sort_key):
@@ -144,6 +147,9 @@ def _cell_cash_return_or_none(cell: GridCell) -> float | None:
 
 
 def _representative_cell(cells: list[GridCell]) -> GridCell:
+    recent_2m = [c for c in cells if c.period_key == "recent_2m"]
+    if recent_2m:
+        return max(recent_2m, key=_cash_sort_key)
     recent = [c for c in cells if c.period_key == "recent_6m"]
     pool = recent or cells
     return max(pool, key=_cash_sort_key)

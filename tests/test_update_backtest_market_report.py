@@ -340,3 +340,43 @@ def test_market_report_labels_zero_stop_loss_as_disabled(tmp_path):
     assert cells[0].stop_loss == 0
     assert "等额四仓 / 5天 / 无SL / 无TP / 无Trail" in report
     assert "SL-0%" not in report
+
+
+def test_market_report_recognizes_recent_2m_fast_grid(tmp_path):
+    from scripts.update_backtest_market_report import build_report, load_grid_cells
+
+    artifact = tmp_path / "backtest-grid-recent_2m-h20-sl8-tp0-tr5"
+    artifact.mkdir()
+    (artifact / "summary_20260427_20260627_h20_n4.md").write_text(
+        "\n".join(
+            [
+                "# Wyckoff Funnel Daily Backtest",
+                "",
+                "- 区间: 2026-04-27 ~ 2026-06-27",
+                "- 每日候选上限: Top 4",
+                "- 股票池: all (sample=0)",
+                "- 绩效引擎: legacy",
+                "- 成交样本: 10",
+                "- 胜率: 40.0%",
+                "- 平均收益: 1.0%",
+                "- 中位收益: 0.5%",
+                "- 夏普比 (Sharpe Ratio): 0.3",
+                "- 卡玛比 (Calmar Ratio): 0.1",
+                "- 最大回撤: -10.0%",
+                "- 组合总收益: 1.0%",
+                "- 初始现金: 100000.00",
+                "- 最终现金: 101000.00",
+                "- 总收益: 1.0%",
+                "- 成交笔数: 4",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    cells = load_grid_cells(tmp_path)
+    report = build_report(cells)
+
+    assert cells[0].period_key == "recent_2m"
+    assert "最近2个月" in report
+    assert "等额四仓 / 20天 / SL-8% / 无TP / Trail-5%" in report

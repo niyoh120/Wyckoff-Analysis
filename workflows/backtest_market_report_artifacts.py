@@ -151,7 +151,7 @@ def _parse_params(dirname: str) -> tuple[int, int, int, int] | None:
 
 
 def _parse_period_key(dirname: str) -> str:
-    match = re.search(r"backtest-grid-(recent_6m|bull_2020|bear_2022|custom)-h", dirname)
+    match = re.search(r"backtest-grid-(recent_2m|recent_6m|bull_2020|bear_2022|custom)-h", dirname)
     return match.group(1) if match else ""
 
 
