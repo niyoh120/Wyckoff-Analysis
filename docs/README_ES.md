@@ -74,11 +74,11 @@ SPA moderna con chat de AI Agent, gestion de cartera, screener de embudo, seguim
 |-----------|-------------|
 | Agente conversacional | Diagnosticos, filtros y reportes activados con lenguaje natural; el LLM orquesta herramientas de forma autonoma; tambien lee/escribe archivos, ejecuta comandos y obtiene contenido web |
 | Skills | Comandos slash integrados (`/screen`, `/checkup`, `/report`, `/strategy`, `/backtest`) para flujos complejos con un toque; extensible por el usuario via `~/.wyckoff/skills/*.md` |
-| Embudo de 5 capas | Escaneo completo de acciones A y universos independientes de Hong Kong / EE. UU. mediante seis canales + resonancia sectorial + micro-disparo |
+| Embudo de linea principal | Escaneo completo de acciones A y universos independientes de Hong Kong / EE. UU. mediante temas dinamicos, ocho canales de fuerza, carriles de candidatos y confirmacion de timing |
 | Reporte IA de 3 campamentos | Logica rota / Reserva / Plataforma de despegue — el LLM clasifica de forma independiente |
 | Diagnostico de cartera | Escaneo masivo: estructura de medias moviles, fase de acumulacion, senales de activacion, estado de stop-loss |
 | Rebalanceo privado | Combina posiciones + candidatas y emite ordenes EXIT / TRIM / HOLD / PROBE / ATTACK, con push a Telegram |
-| Estrategia de compra al cierre | Ejecuta a las 13:50, evaluacion en dos etapas (puntuacion por reglas + revision LLM) para entradas al final del dia |
+| Estrategia de compra al cierre | Se activa manualmente o por automatizacion externa cerca del cierre; evaluacion en dos etapas (puntuacion por reglas + revision LLM) |
 | Confirmacion de senales | Las senales L4 pasan por 1-3 dias de confirmacion de precio antes de ser accionables |
 | Seguimiento de recomendaciones | Sincroniza automaticamente el precio de cierre y calcula el rendimiento acumulado |
 | Backtesting | Simula rendimiento a N dias tras el filtrado del embudo: tasa de aciertos, Sharpe, drawdown maximo |
@@ -202,7 +202,7 @@ Arsenal del agente — 10 herramientas cuantitativas + 5 capacidades generales:
 | `portfolio` | Ver posiciones / escaneo masivo de cartera (cambio de modo) |
 | `update_portfolio` | Agregar / modificar / eliminar posiciones, establecer efectivo, eliminar registros de seguimiento |
 | `get_market_overview` | Panorama general del mercado |
-| `screen_stocks` | Filtrado del mercado completo con embudo de 5 capas (⚡segundo plano) |
+| `screen_stocks` | Filtrado del mercado completo con embudo de linea principal (⚡segundo plano) |
 | `generate_ai_report` | Reporte IA profundo en 3 campamentos (⚡segundo plano) |
 | `generate_strategy_decision` | Decision de permanencia / entrada en posiciones (⚡segundo plano) |
 | `query_history` | Historial de recomendaciones / pool de senales / registros de compra al cierre |
@@ -215,15 +215,16 @@ Arsenal del agente — 10 herramientas cuantitativas + 5 capacidades generales:
 
 El orden y la frecuencia de las llamadas los decide el LLM en tiempo real, sin orquestacion previa. Envia una ruta CSV y lo lee; di "instala un paquete" y lo ejecuta.
 
-## Embudo de 5 capas
+## Embudo de linea principal
 
 | Capa | Nombre | Accion |
 |------|--------|--------|
 | L1 | Eliminar basura | Excluye ST / BSE / STAR Market; capitalizacion >= 3 500 M CNY; volumen diario >= 50 M CNY |
-| L2 | Seleccion de 6 canales | Impulso / Ignicion / Latente / Acumulacion / Volumen minimo / Soporte |
-| L3 | Resonancia sectorial | Filtro por distribucion Top-N de sectores |
-| L4 | Micro-disparo | Cinco senales clave: Spring / LPS / SOS / EVR / Compression |
-| L5 | Juicio IA | Clasificacion LLM en 3 campamentos: Logica rota / Reserva / Plataforma de despegue |
+| L2 | Fuerza de 8 canales | Impulso / Ignicion / Latente / Acumulacion / Volumen minimo / Soporte / Continuacion de tendencia / Aceleracion de ruptura |
+| Mainline | Motor tematico | Calor de conceptos, radar tematico, calidad financiera y timing para detectar candidatas de linea principal |
+| L3 | Resonancia sectorial y conceptual | Filtra sectores debiles y permite excepciones para acciones fuertes y temas confirmados |
+| L4 | Micro-disparo | Spring / LPS / SOS / EVR / Compression / Retroceso de tendencia |
+| L5 | IA + OMS | Revision LLM, confirmacion de senales, confirmacion de cierre y compuertas de riesgo OMS |
 
 ## Automatizacion diaria
 
@@ -232,7 +233,7 @@ Tareas programadas con GitHub Actions integradas en el repositorio:
 | Tarea | Hora (Beijing) | Descripcion |
 |-------|---------------|-------------|
 | Embudo + Reporte IA + Rebalanceo | Dom-Jue 17:17 | Totalmente automatico; resultados enviados a Feishu / Telegram |
-| Estrategia de compra al cierre | Lun-Vie 13:50 | Puntuacion por reglas + revision LLM |
+| Estrategia de compra al cierre | Manual / automatizacion externa | Puntuacion por reglas + revision LLM |
 | Riesgo pre-mercado | Lun-Vie 08:20 | Alerta A50 + VIX |
 | Resumen de limit-up | Lun-Vie 19:25 | Revision de acciones con alza diaria >= 8 % |
 | Repricing de recomendaciones | Dom-Jue 23:00 | Sincroniza precios de cierre |

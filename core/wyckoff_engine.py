@@ -2,7 +2,7 @@
 Wyckoff Funnel 5 层漏斗筛选引擎
 
 Layer 1: 剥离垃圾（ST / 北交所 / 市值 / 成交额）
-Layer 2: 七通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/点火破局）
+Layer 2: 八通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/加速突破/点火破局）
 Layer 2.5: Markup 加速检测
 Layer 2.7: Alpha 候选板（潜在大涨结构 + 龙头跟踪）
 Layer 3: 板块共振（行业分布 Top-N + RPS 动量）
@@ -503,7 +503,7 @@ def layer2_strength_detailed(
     返回：
     - passed: 通过 Layer2 的股票
     - channel_map: code -> 通道标签
-    - pre_ignition_list: 预点火观察池（未通过六通道但结构接近）
+    - pre_ignition_list: 预点火观察池（未通过八通道但结构接近）
     """
     bench_ctx = build_benchmark_context(
         bench_df,

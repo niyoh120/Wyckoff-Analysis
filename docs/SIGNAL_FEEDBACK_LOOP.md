@@ -108,21 +108,24 @@ uv run python scripts/signal_feedback_job.py
 `external_seed_observations` 解决的是“我额外关注的股票，为什么没被漏斗选中”的复盘问题。它记录外部观察名单在当天主漏斗里的真实位置：
 
 - `REJECTED_L1`：基础流动性、ST、财务或股票池过滤未通过。
-- `PASSED_L2`：已经进入六通道主路径。
+- `PASSED_L2`：已经进入八通道强度主路径。
 - `L4_CONFIRMED`：没进 L2，但在外部观察旁路里出现 L4 触发。
 - `WATCH`：通过 L1 但暂时没有 L2/L4 结构。
+
+主线引擎不复用 `external_seed_observations.watch_status` 表示状态；它通过 `candidate_lane=mainline`、`candidate_status=可买主线/主线观察/过热不追` 和 `mainline_score` 等字段进入推荐与信号元数据。
 
 当外部观察名单触发 L4 且没有进入正式候选时，系统会补写 `signal_observations`，`source=external_seed:<source>`，`selection_mode=external_seed_shadow`。这部分只用于后续 outcome 复盘，不影响真实推荐和 AI 候选池。
 
 ## L2 旁路 Shadow
 
-L2 旁路和战略 L2 旁路解决的是“L2 没过，但形态或主线线索值得继续观察”的问题。近期 shadow 归因显示，直接把 L2 旁路送入正式 AI 推荐会显著放大亏损，因此默认只记录样本，不再晋级 AI 候选：
+L2 旁路和战略 L2 旁路解决的是“L2 没过，但形态或主线线索值得继续观察”的问题。它们不同于 `mainline` 正式候选：主线候选必须通过独立 timing gate，旁路默认只做 shadow。近期 shadow 归因显示，直接把 L2 旁路送入正式 AI 推荐会显著放大亏损，因此默认只记录样本，不再晋级 AI 候选：
 
 - `source=l2_bypass_shadow` / `selection_mode=l2_bypass_shadow`：普通 L2 拒绝但 L4 有形态的观察样本。
-- `source=strategic_l2_bypass_shadow` / `selection_mode=strategic_l2_bypass_shadow`：主题主线或 60m 救援结构触发的战略观察样本。
+- `source=strategic_l2_bypass_shadow` / `selection_mode=strategic_l2_bypass_shadow`：主题线索或 60m 救援结构触发的战略观察样本。
+- `source=mainline` / `selection_mode=mainline`：主线引擎输出的正式候选，只有 `可买主线` 才允许进入 AI 候选池。
 - 只有显式打开 `FUNNEL_L2_BYPASS_AI_ENABLED=1` 或 `FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED=1` 时，旁路才允许进入 AI 输入；生产默认关闭。
 
-这部分样本继续写入 `signal_observations` 和后续 `signal_outcomes`，用于验证“哪些 L2 外的 A 股波动结构真的有价值”。在样本不足或收益为负时，不应把旁路改成正式买入入口。
+这部分样本继续写入 `signal_observations` 和后续 `signal_outcomes`，用于验证“哪些 L2 外的 A 股波动结构真的有价值”。在样本不足或收益为负时，不应把旁路改成正式买入入口；真正可买的主线票应走 `mainline_score + timing_score + AI/尾盘确认` 链路。
 
 ## 信号生命周期
 
@@ -181,9 +184,9 @@ registry 只负责控制动态策略是否使用信号；原始 observations 仍
 `signal_observations.features_json.candidate_shadow_score` 记录候选影子评分。它把主漏斗优先级、量价痕迹、起跳板质量、尾盘确认、外部资金佐证和风险扣分合成 0-100 分，用来复盘“哪些候选更像真机会”：
 
 - `score` / `grade`：总分和 S/A/B/C/D 评级。
-- `components.funnel`：主漏斗触发分或优先级分。
+- `components.funnel`：主漏斗触发分、候选车道优先级或主线评分。
 - `components.price_action`：承接、缩量、突破质量和支撑收回等量价痕迹加分。
-- `components.springboard`：ABC 起跳板确认加分。
+- `components.springboard`：起跳板/二次确认质量加分，历史 ABC 仅作为内部特征，不再要求报告按 A+B+C 呈现。
 - `components.tail_confirmation`：尾盘 VWAP、尾盘规则评分和 BUY/WATCH 确认加分。
 - `components.external_capital`：龙虎榜净买、融资买入、大宗交易和大单净买等资金佐证加分。
 - `components.risk_penalty`：派发压力、失败突破、弱收盘、尾盘跌破 VWAP 等扣分。

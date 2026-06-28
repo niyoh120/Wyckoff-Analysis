@@ -74,11 +74,11 @@ Modern React SPA with AI Agent chat, portfolio management, funnel screening, rec
 |---|---|
 | Conversational Agent | Trigger diagnosis, screening, and reports in plain language; the LLM orchestrates tools autonomously; also reads/writes files, executes commands, and fetches web pages |
 | Skills | Built-in slash commands (`/screen`, `/checkup`, `/report`, `/strategy`, `/backtest`) for one-tap complex workflows; user-extensible via `~/.wyckoff/skills/*.md` |
-| Five-Layer Funnel | A-share full-market scan plus independent Hong Kong / US universes via six channels + sector resonance + micro triggers |
+| Mainline Funnel | A-share full-market scan plus independent Hong Kong / US universes via dynamic themes, eight strength channels, candidate lanes, and timing confirmation |
 | AI Three-Camp Report | Logic Bankrupt / Reserve Camp / Springboard — LLM renders an independent verdict |
 | Portfolio Diagnosis | Batch health check: MA structure, accumulation phase, trigger signals, stop-loss status |
 | Private Rebalance | Synthesizes holdings + candidates, outputs EXIT / TRIM / HOLD / PROBE / ATTACK orders, pushes to Telegram |
-| Tail-Buy Strategy | Executes at 13:50, two-stage evaluation (rule scoring + LLM review) for end-of-day entries |
+| Tail-Buy Strategy | Triggered manually or by external automation near the close; two-stage evaluation (rule scoring + LLM review) for end-of-day entries |
 | Signal Confirmation Pool | L4 trigger signals must pass 1-3 day price confirmation before becoming actionable |
 | Wyckoff Pattern Replay | Historical picks auto-sync closing prices and compute cumulative returns |
 | Daily-Bar Backtest | Replays post-funnel N-day returns; reports win rate / Sharpe / max drawdown |
@@ -202,7 +202,7 @@ The agent's arsenal — 10 quant tools + 5 general capabilities:
 | `portfolio` | View holdings / batch portfolio health scan (mode switch) |
 | `update_portfolio` | Add / modify / delete holdings, set available cash, delete tracking records |
 | `get_market_overview` | Broad market temperature overview |
-| `screen_stocks` | Five-layer funnel full-market screening (⚡background) |
+| `screen_stocks` | Mainline funnel full-market screening (⚡background) |
 | `generate_ai_report` | Three-camp AI deep research report (⚡background) |
 | `generate_strategy_decision` | Hold/exit existing positions + new buy decisions (⚡background) |
 | `query_history` | Historical recommendations / signal pool / tail-buy records |
@@ -215,15 +215,16 @@ The agent's arsenal — 10 quant tools + 5 general capabilities:
 
 Tool call order and frequency are decided by the LLM at runtime — no pre-choreography needed. Send a CSV path and it reads it; say "install a package" and it executes.
 
-## Five-Layer Funnel
+## Mainline Funnel
 
 | Layer | Name | What It Does |
 |---|---|---|
 | L1 | Garbage Filter | Remove ST / BSE / STAR Market; market cap >= 3.5 B CNY; avg daily turnover >= 50 M CNY |
-| L2 | Six-Channel Selection | Rally / Ignition / Stealth / Accumulation / Dry Volume / Support |
-| L3 | Sector Resonance | Top-N industry distribution filter |
-| L4 | Micro Triggers | Spring / LPS / SOS / EVR / Compression — five trigger signals |
-| L5 | AI Verdict | LLM three-camp classification: Logic Bankrupt / Reserve / Springboard |
+| L2 | Eight-Channel Strength | Rally / Ignition / Stealth / Accumulation / Dry Volume / Support / Trend Continuation / Breakout Acceleration |
+| Mainline | Theme Engine | Dynamic concept heat, theme radar, financial quality, and timing gates identify tradable mainline candidates |
+| L3 | Sector & Concept Resonance | Filter weak sectors while allowing strong individual stocks and verified themes to bypass fixed Top-N sector limits |
+| L4 | Micro Triggers | Spring / LPS / SOS / EVR / Compression / Trend Pullback |
+| L5 | AI + OMS Verdict | LLM review, signal confirmation, tail-buy confirmation, and OMS risk gates before action |
 
 ## Daily Automation
 
@@ -232,7 +233,7 @@ Built-in GitHub Actions cron jobs:
 | Task | Schedule (Beijing Time) | Description |
 |---|---|---|
 | Funnel + AI Report + Rebalance | Sun–Thu 17:17 | Fully automated; results pushed to Feishu / Telegram |
-| Tail-Buy Strategy | Mon–Fri 13:50 | Rule scoring + LLM review, end-of-day entry screening |
+| Tail-Buy Strategy | Manual / external automation | Rule scoring + LLM review, end-of-day entry screening |
 | Pre-Market Risk | Mon–Fri 08:20 | A50 + VIX alert |
 | Limit-Up Review | Mon–Fri 19:25 | Review stocks that rose >= 8% today |
 | Recommendation Reprice | Sun–Thu 23:00 | Sync closing prices |

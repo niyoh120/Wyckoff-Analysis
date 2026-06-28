@@ -24,7 +24,7 @@ flowchart TB
         S2["Step2 Wyckoff Funnel<br/>workflows/wyckoff_funnel.py"]
         S25["Step2.5 信号确认<br/>pending → confirmed"]
         S26["Step2.6 推荐写库<br/>recommendation_tracking"]
-        S27["Step2.7 起跳板 A/B/C 评分"]
+        S27["Step2.7 起跳板/候选影子评分"]
         S3["Step3 批量 AI 研报<br/>workflows/step3_batch_report.py"]
         S4["Step4 私人 OMS 再平衡<br/>workflows/step4_rebalancer.py"]
     end
@@ -32,7 +32,7 @@ flowchart TB
     subgraph DOWNSTREAM["⬇️ 下游（漏斗运行后消费）"]
         D1["23:30 signal_feedback_job<br/>计算 outcomes / health / registry"]
         D2["次日 08:20 premarket_risk<br/>Step4 买入门控"]
-        D3["次日 13:50 tail_buy_intraday<br/>读 signal_pending 尾盘买入"]
+        D3["次日尾盘 tail_buy_intraday<br/>读 signal_pending 尾盘买入"]
         D4["Web / CLI / MCP<br/>chat-agent 工具调用"]
         D5["回测 backtest_runner<br/>读 funnel_snapshots"]
         D6["recommendation_tracking_reprice<br/>复盘重定价"]
@@ -82,7 +82,7 @@ flowchart TD
 
     S25["Step2.5: run_step2_5()<br/>signal_pending 确认"] --> S26
     S26["Step2.6: prepare_recommendation_payload<br/>→ recommendation_tracking"] --> S27
-    S27["Step2.7: score_springboard_abc<br/>起跳板量化评分"] --> S3
+    S27["Step2.7: score_springboard_abc<br/>起跳板/候选影子评分"] --> S3
 
     S3["Step3: run_step3()<br/>批量 AI 研报"] --> MARK["mark_ai_recommendations<br/>标记起跳板"]
     MARK --> OBS["写 signal_observations<br/>L4 观察样本"]
@@ -110,7 +110,7 @@ flowchart TD
 
 ---
 
-## 三、Step2 漏斗内部：L0 → L5 详细流程
+## 三、Step2 漏斗内部：主线发现 + 多车道详细流程
 
 **核心函数**：`run_funnel_job()` → `core/wyckoff_engine.py`
 
@@ -138,32 +138,39 @@ flowchart TD
         G3 -->|CRASH| T4["极限门槛 + 悬崖检测"]
     end
 
-    subgraph LAYERS["五层漏斗"]
+    subgraph LAYERS["主漏斗与候选车道"]
         L1["L1 layer1_filter<br/>主板/创业板 · 非 ST · 市值≥35亿<br/>成交额≥5000万 · 财务过滤"]
-        L2["L2 layer2_strength_detailed<br/>六通道并行"]
+        ML["Mainline Engine<br/>动态主线发现<br/>概念热度 + 主题雷达 + 财务质量"]
+        L2["L2 layer2_strength_detailed<br/>八通道并行"]
         L2A["主升 Markup"]
-        L2B["点火 SOS Bypass"]
-        L2C["潜伏 Ambush"]
-        L2D["吸筹 Accumulation"]
-        L2E["地量 Dry Volume"]
-        L2F["暗中护盘 RS Divergence"]
-        L3["L3 layer3_sector_resonance<br/>板块共振 + 概念主线<br/>+ ETF L2 注入"]
-        L4["L4 layer4_triggers<br/>SOS / Spring / LPS / EVR / Compression"]
+        L2B["潜伏 Ambush"]
+        L2C["吸筹 Accumulation"]
+        L2D["地量 Dry Volume"]
+        L2E["暗中护盘 RS Divergence"]
+        L2F["趋势延续 Trend Continuation"]
+        L2G["加速突破 Breakout Acceleration"]
+        L2H["点火破局 SOS Bypass"]
+        L3["L3 layer3_sector_resonance<br/>行业/概念共振<br/>强个股与主线绕行"]
+        L4["L4 layer4_triggers<br/>SOS / Spring / LPS / EVR / Compression / Trend Pullback"]
+        LN["Candidate Lane<br/>趋势回踩 / 平台突破 / 强承接"]
+        MLBUY["可买主线<br/>timing_score 过关"]
         L5["L5 layer5_exit_signals<br/>派发 / 止损预警"]
     end
 
-    subgraph BYPASS["旁路池（不进正式 L4 主路径）"]
+    subgraph BYPASS["Shadow 观察池（默认不进正式 AI）"]
         B1["L2 明珠旁路<br/>L1过 + L2拒 + 热门板块 + L4"]
         B2["战略 L2 旁路<br/>主题雷达观察池 + 阶段复核"]
+        B3["外部观察 Shadow<br/>人工关注只验证，不直接推荐"]
     end
 
     subgraph POST["后处理 & 候选分配"]
         R1["watch_score 排序 L3"]
-        R2["Markup / Accum ABC 阶段识别"]
+        R2["Markup / Accum 阶段识别"]
         R3["主题雷达 theme_radar 构建"]
-        R4["候选评分 + 双轨分配"]
-        R4A["Trend 轨：主升 + 点火"]
+        R4["候选评分 + 三轨分配"]
+        R4A["Trend 轨：主升 + 点火 + 趋势延续 + 加速突破"]
         R4B["Accum 轨：潜伏 + 吸筹 + 地量 + 护盘"]
+        R4C["Mainline 轨：可买主线"]
         R5{"FUNNEL_AI_SELECTION_MODE"}
         R5 -->|all_formal_l4| R6["正式 L4 全量送 AI<br/>不含 L3 补位"]
         R5 -->|quota 当前默认| R7["按 regime 静态配额<br/>FUNNEL_AI_*_TREND/ACCUM"]
@@ -171,15 +178,21 @@ flowchart TD
         R8 -->|off| R9["静态配额"]
         R8 -->|shadow| R10["静态出结果 + shadow 差异写库"]
         R8 -->|on| R11["读 signal_health/registry 动态配额"]
-        R12["L2旁路 / 战略旁路 / 主线加权送审"]
-        R14["外部观察 Shadow<br/>只验证不入 AI"]
+        R12["候选车道 / 主线候选<br/>按配额加权送审"]
+        R14["Shadow 观察<br/>只验证不入 AI"]
         R13["飞书推送漏斗报告"]
     end
 
-    PREP --> GATE --> L1 --> L2
+    PREP --> GATE --> L1
     P1 --> P8
-    L2 --> L2A & L2B & L2C & L2D & L2E & L2F
-    L2A & L2B & L2C & L2D & L2E & L2F --> L3 --> L4
+    L1 --> L2
+    L1 --> ML
+    L1 --> LN
+    L2 --> L2A & L2B & L2C & L2D & L2E & L2F & L2G & L2H
+    L2A & L2B & L2C & L2D & L2E & L2F & L2G & L2H --> L3 --> L4
+    ML --> MLBUY
+    MLBUY --> POST
+    LN --> POST
     L1 --> BYPASS
     L4 --> L5
     L4 --> POST
@@ -187,6 +200,15 @@ flowchart TD
     P8 --> POST
     L5 --> POST
 ```
+
+### 正式候选来源
+
+| 来源 | 进入条件 | 是否可直接买 |
+|------|----------|--------------|
+| 传统 Wyckoff | L1/L2/L3 后出现 L4 信号 | 不直接买，先进入 AI/二次确认 |
+| 主线候选 | `mainline_score` 达标，且 timing gate 过关 | 不直接买，仍需 AI/尾盘确认 |
+| 候选车道 | 趋势回踩、平台突破、强承接等结构接近 | 默认观察，质量足够才按配额送审 |
+| Shadow 旁路 | L2 未过但有复盘价值，或外部观察名单 | 不进入正式 AI，除非显式打开开关 |
 
 ### L4 触发信号
 
@@ -197,6 +219,7 @@ flowchart TD
 | LPS | 缩量回踩 | Accum |
 | EVR | 放量不跌 | Trend |
 | Compression | 压缩蓄势 | 通用 |
+| Trend Pullback | 趋势回踩 | Trend / Mainline |
 
 ### 外部观察名单
 
@@ -304,7 +327,7 @@ sequenceDiagram
 | **23:00 日–四** | `recommendation_tracking_reprice.yml` | 下游：复盘重定价 |
 | **23:05** | `db_maintenance.yml` | 下游：清理过期数据 |
 | **23:30** | `signal_feedback.yml` | **下游反馈**：刷新 health / registry |
-| **次日 13:50** | `tail_buy_1420.yml` | **下游执行**：读 `signal_pending` 尾盘策略；pending 只观察，confirmed 才可 BUY |
+| **次日尾盘** | `tail_buy_1420.yml` | **下游执行**：手动或外部自动化触发，读 `signal_pending` 尾盘策略；pending 只观察，confirmed 才可 BUY |
 
 ---
 

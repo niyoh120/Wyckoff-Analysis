@@ -553,18 +553,22 @@ CREATE TABLE chat_log (
 
 Supabase 不可达时静默跳过，使用本地陈旧数据。`wyckoff sync` 可手动触发。
 
-## 五层漏斗引擎
+## 主线漏斗引擎
 
-`core/wyckoff_engine.py`，~60 可调参数（`FunnelConfig`）。
+`core/wyckoff_engine.py` + `core/mainline_engine.py`，通过 `FunnelConfig` 和 `MainlineEngineConfig` 控制传统量价通道、主线发现和候选车道。
 
-| 层 | 名称 | 逻辑 |
+| 组件 | 名称 | 逻辑 |
 |----|------|------|
-| L1 | 剥离垃圾 | 剔除 ST / 北交等非目标板块，默认纳入主板 / 创业板 / 科创板，市值 ≥ 35 亿，成交额 ≥ 5000 万 |
-| L2 | 六通道甄选 | 主升 / 点火 / 潜伏 / 吸筹 / 地量 / 护盘 |
+| L1 | 基础过滤 | 剔除 ST / 北交等非目标板块，默认纳入主板 / 创业板 / 科创板，市值 ≥ 35 亿，成交额 ≥ 5000 万，可叠加财务软过滤 |
+| L2 | 八通道强度 | 主升 / 潜伏 / 吸筹 / 地量 / 暗中护盘 / 趋势延续 / 加速突破 / 点火破局 |
+| Mainline | 主线发现 | 基于概念热度、概念映射、主题雷达和财务质量构建 `可买主线 / 主线观察 / 过热不追` |
+| Candidate Lane | 候选车道 | L1 后的趋势回踩、平台突破、强承接等观察样本，避免只靠传统 Wyckoff 触发 |
 | L2.5 | Markup 识别 | MA50 上穿 MA200 + 角度验证 |
-| L3 | 板块共振 | L2 通过股票行业分布，保留 Top-N 行业 |
-| L4 | 微观狙击 | Spring / LPS / SOS / EVR / Compression 触发信号 |
+| L3 | 行业/概念共振 | 过滤弱板块，同时允许强个股和主线概念绕过固定 Top-N 行业限制 |
+| L4 | 微观狙击 | Spring / LPS / SOS / EVR / Compression / Trend Pullback 等触发信号 |
 | L5 | 退出信号 | 初始止损 -6%、利润激活线 +15%、跟踪止损（高点回撤 -10% 或跌破 MA50）、派发警告（高位缩量 3 天） |
+
+正式推荐不是“过某一层就买”。传统 Wyckoff 候选、主线候选和候选车道会合并进统一候选池，再经过 AI 复核、信号确认、尾盘二次确认和 OMS 风控。
 
 ## 信号确认状态机
 
@@ -605,7 +609,7 @@ flowchart LR
 
 `core/tail_buy/` + `workflows/tail_buy_config.py` + `scripts/tail_buy_intraday_job.py`
 
-策略设计用于盘中 14:00 附近执行，从前日 L4 信号中筛选尾盘买入标的；当前 GitHub Actions 工作流只保留手动触发，不再作为每日自动定时任务。
+策略设计用于尾盘执行，从已确认候选中筛选买入标的；当前 GitHub Actions 工作流只保留 `workflow_dispatch`，日常 14:45 触发由外部自动化负责。
 
 ### 两阶段评估
 
@@ -641,6 +645,7 @@ signal_pending (pending/confirmed)
 | **盘前风控** (`premarket_risk.yml`) | 周一-周五 08:20 | A50 + VIX 预警 |
 | **港股漏斗筛选** (`wyckoff_funnel_hk.yml`) | 周一-周五 16:35 | `market_funnel_job.py --market hk` |
 | **A 股漏斗筛选 + AI 研报 + 决策** (`wyckoff_funnel.yml`) | 周日-周四 17:17 | `daily_job.py` Step2→3→4，若次日非 A 股交易日则跳过，日频写入 `theme_radar_snapshot` |
+| **板块连续性报告** (`sector_continuity.yml`) | 周一-周五 16:10 | 刷新概念热度历史，辅助主线引擎判断延续性 |
 | **涨停复盘** (`review_list_replay.yml`) | 周一-周五 19:25 | 当日涨幅 ≥ 8% 回溯 |
 | **主线雷达周报** (`theme_radar.yml`) | 周五 21:10 | `theme_radar_job.py --with-news`，周频新闻增强复盘 |
 | **形态复盘重定价** (`recommendation_tracking_reprice.yml`) | 周一-周五 23:00 | 同步收盘价、计算收益 |
@@ -649,7 +654,7 @@ signal_pending (pending/confirmed)
 | **美股漏斗筛选** (`wyckoff_funnel_us.yml`) | 周二-周六 05:35 | `market_funnel_job.py --market us` |
 | **美股推荐表现** (`us_recommendation_performance.yml`) | 周二-周六 06:15 | `us_recommendation_performance_job.py` |
 | **数据库维护** (`db_maintenance.yml`) | 周二-周六 06:20 | 清理过期行情、订单、信号、市场信号等滑动窗口数据 |
-| **回测网格** (`backtest_grid.yml`) | 每月 UTC 1 / 15 日 20:00，北京时间次日 04:00 | 3 阶段：快照→12 并行格（3 周期 × 4 job，每格产出 2 个 TP）→聚合通知 |
+| **回测网格** (`backtest_grid.yml`) | 手动触发 | 3 周期 × 多交易风格回放，默认使用 T+1 开盘价入场并跳过一字涨停 |
 
 ### 手动触发工作流
 
@@ -657,7 +662,7 @@ signal_pending (pending/confirmed)
 |-------|------|
 | **尾盘策略** (`tail_buy_1420.yml`) | `tail_buy_intraday_job.py`，当前只手动触发 |
 | **持仓诊断** (`holding_diagnosis.yml`) | `holding_diagnosis_job.py` |
-| **板块连续性报告** (`sector_continuity.yml`) | 计算概念 / 行业热度并持久化 |
+| **板块连续性报告** (`sector_continuity.yml`) | 也可手动补跑概念 / 行业热度 |
 | **Step4 From Supabase** (`step4_from_supabase.yml`) | 从 Supabase 推荐记录补跑 Step4 |
 | **Web 后台任务** (`web_quant_jobs.yml`) | Web 发起的漏斗/研报任务 |
 | **输入预览** (`wyckoff_input_preview.yml`) | dry-run 模式查看漏斗输入 |
