@@ -84,7 +84,7 @@ def test_strategic_bypass_seed_codes_respects_l1_l2_and_scores() -> None:
         min_stock_score=0.55,
     )
 
-    assert seeds == ["000005", "000001"]
+    assert seeds == ["000005", "000001", "000004"]
 
 
 def test_l2_bypass_promotion_can_force_accum_track() -> None:

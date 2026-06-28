@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from workflows.db_maintenance import cleanup_recommendation_table, cleanup_recommendation_tracking
+from workflows.db_maintenance import (
+    RECOMMENDATION_KEEP_DATES,
+    cleanup_recommendation_table,
+    cleanup_recommendation_tracking,
+)
 
 
 @dataclass
@@ -79,6 +83,10 @@ def test_cleanup_recommendation_tracking_keeps_latest_distinct_dates():
     assert status == "ok, keep_dates=3, cutoff=20260430"
     assert count is None
     assert remaining_dates == {20260505, 20260503, 20260430}
+
+
+def test_recommendation_tracking_default_retention_is_latest_30_dates():
+    assert RECOMMENDATION_KEEP_DATES == 30
 
 
 def test_cleanup_recommendation_tracking_dry_run_counts_rows_before_cutoff():

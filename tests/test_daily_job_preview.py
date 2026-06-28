@@ -46,6 +46,8 @@ def test_preview_only_skips_persistence_and_keeps_llm_input_path(monkeypatch, tm
                 "tag": "EVR(二次确认)",
                 "selection_source": "signal_confirmed",
                 "confirm_reason": "守住 10.00",
+                "candidate_lane": "mainline",
+                "candidate_status": "可买主线",
             }
         ]
 
@@ -137,19 +139,36 @@ def test_step3_codes_filter_keeps_only_confirmed_candidates():
     assert blocked == ["000002"]
 
 
-def test_recommendation_write_symbols_keeps_only_confirmed_candidates():
+def test_recommendation_write_symbols_keeps_only_mainline_or_strategic_confirmed_candidates():
     from workflows.daily_job_persistence import recommendation_write_symbols
 
     rows = [
         {"code": "000001", "tag": "SOS（量价点火）"},
         {"code": "000002", "signal_status": "confirmed"},
-        {"code": "000003", "tag": "LPS(确认)"},
-        {"code": "000004", "springboard_combo": "A+C", "springboard_met_count": 2},
+        {
+            "code": "000003",
+            "tag": "LPS(确认)",
+            "candidate_lane": "mainline",
+            "candidate_status": "可买主线",
+        },
+        {
+            "code": "000004",
+            "signal_status": "confirmed",
+            "strategic_theme": "机器人",
+            "strategic_theme_score": 0.72,
+            "strategic_stock_score": 0.66,
+        },
+        {
+            "code": "000005",
+            "signal_status": "confirmed",
+            "candidate_lane": "mainline",
+            "candidate_status": "过热不追",
+        },
     ]
 
     got = recommendation_write_symbols(rows)
 
-    assert [row["code"] for row in got] == ["000002", "000003"]
+    assert [row["code"] for row in got] == ["000003", "000004"]
 
 
 def test_step3_springboard_updates_patch_recommendation_payload():

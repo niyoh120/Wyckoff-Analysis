@@ -143,7 +143,7 @@ def strategic_bypass_seed_codes(
 
 def strategic_bypass_candidate_ok(item: dict, *, min_theme_score: float, min_stock_score: float) -> bool:
     state = str(item.get("state", "") or "").strip().lower()
-    if state in {"decay", "overheated"}:
+    if state == "decay":
         return False
     return (
         safe_float(item.get("theme_score")) >= min_theme_score

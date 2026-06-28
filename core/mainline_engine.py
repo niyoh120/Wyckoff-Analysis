@@ -9,6 +9,13 @@ import pandas as pd
 
 from core.theme_radar import normalize_theme_name
 
+MAINLINE_BUY_STATUS = "可买主线"
+MAINLINE_DIVERGENCE_STATUS = "强主线分歧"
+MAINLINE_OBSERVE_STATUS = "主线观察"
+MAINLINE_AVOID_STATUS = "过热不追"
+TRADEABLE_MAINLINE_STATUSES = {MAINLINE_BUY_STATUS, MAINLINE_DIVERGENCE_STATUS}
+BLOCKING_TIMING_FLAGS = {"鱼尾加速", "放量长上影", "跌破确认支撑", "主题缩量阴跌"}
+
 
 @dataclass(frozen=True)
 class MainlineEngineConfig:
@@ -71,7 +78,7 @@ def build_mainline_candidates(
 
 
 def mainline_candidate_entries(candidates: list[dict[str, Any]], *, max_count: int) -> list[dict[str, Any]]:
-    tradeable = [item for item in candidates if str(item.get("status")) == "可买主线"]
+    tradeable = [item for item in candidates if str(item.get("status")) in TRADEABLE_MAINLINE_STATUSES]
     ranked = sorted(tradeable, key=lambda item: (-float(item.get("mainline_score") or 0), str(item.get("code"))))
     rows = ranked if max_count <= 0 else ranked[:max_count]
     return [_candidate_entry(item) for item in rows]
@@ -170,7 +177,12 @@ def _candidate_from_seed(
 
 
 def _rank_candidates(candidates: list[MainlineCandidate], cfg: MainlineEngineConfig) -> list[MainlineCandidate]:
-    status_rank = {"可买主线": 0, "主线观察": 1, "过热不追": 2}
+    status_rank = {
+        MAINLINE_BUY_STATUS: 0,
+        MAINLINE_DIVERGENCE_STATUS: 1,
+        MAINLINE_OBSERVE_STATUS: 2,
+        MAINLINE_AVOID_STATUS: 3,
+    }
     ranked = sorted(candidates, key=lambda item: (status_rank.get(item.status, 9), -item.mainline_score, item.code))
     buckets: dict[str, int] = {}
     out: list[MainlineCandidate] = []
@@ -246,8 +258,6 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
 
 def _timing_result(metrics: dict[str, float]) -> tuple[float, str, list[str]]:
     risk_flags = _timing_risks(metrics)
-    if "短线过热" in risk_flags:
-        return 0.0, "", risk_flags
     score = _timing_score(metrics)
     entries = _entry_types(metrics, risk_flags)
     return score, " + ".join(entries), risk_flags
@@ -255,8 +265,10 @@ def _timing_result(metrics: dict[str, float]) -> tuple[float, str, list[str]]:
 
 def _timing_risks(metrics: dict[str, float]) -> list[str]:
     risks: list[str] = []
-    if metrics["dist_ma20"] > 16 or metrics["ret20"] > 42:
-        risks.append("短线过热")
+    if _fish_tail_risk(metrics):
+        risks.append("鱼尾加速")
+    elif metrics["dist_ma20"] > 16 or metrics["ret20"] > 42:
+        risks.append("高位抱团")
     if metrics["upper_shadow_pct"] > 5 and metrics["vol_ratio_5_20"] > 1.8 and metrics["close_pos_day"] < 0.45:
         risks.append("放量长上影")
     if metrics["dist_ma20"] < -5 or metrics["dist_ma50"] < -8:
@@ -267,7 +279,7 @@ def _timing_risks(metrics: dict[str, float]) -> list[str]:
 
 
 def _entry_types(metrics: dict[str, float], risk_flags: list[str]) -> list[str]:
-    if any(flag in risk_flags for flag in ("放量长上影", "跌破确认支撑", "主题缩量阴跌")):
+    if any(flag in risk_flags for flag in BLOCKING_TIMING_FLAGS):
         return []
     entries: list[str] = []
     if -2 <= metrics["dist_ma20"] <= 8 and metrics["dist_ma50"] >= -2 and metrics["ret60"] >= 8:
@@ -276,6 +288,18 @@ def _entry_types(metrics: dict[str, float], risk_flags: list[str]) -> list[str]:
         entries.append("主线平台再突破")
     if metrics["dist_ma20"] >= -1 and metrics["vol_ratio_5_20"] <= 0.90 and -6 <= metrics["ret5"] <= 6:
         entries.append("主线缩量强承接")
+    entries.extend(_extended_mainline_entries(metrics, risk_flags))
+    return entries
+
+
+def _extended_mainline_entries(metrics: dict[str, float], risk_flags: list[str]) -> list[str]:
+    if "高位抱团" not in risk_flags or not _high_mainline_support(metrics):
+        return []
+    entries: list[str] = []
+    if -8 <= metrics["ret5"] <= 12 and metrics["vol_ratio_5_20"] <= 1.45:
+        entries.append("主线高位横盘承接")
+    if metrics["close_pos20"] >= 0.78 and metrics["ret20"] <= 65 and metrics["close_pos_day"] >= 0.55:
+        entries.append("主线分歧转强")
     return entries
 
 
@@ -284,7 +308,27 @@ def _timing_score(metrics: dict[str, float]) -> float:
     strength = 0.20 * _clamp((metrics["ret60"] - 5) / 45) + 0.15 * _clamp(metrics["close_pos20"])
     distance = 0.10 * _clamp(1.0 - max(metrics["dist_ma20"] - 8, 0.0) / 14.0)
     volume = 0.10 * _clamp(1.0 - max(metrics["vol_ratio_5_20"] - 1.6, 0.0) / 1.4)
-    return _clamp(trend + strength + distance + volume)
+    extension = 0.12 * float(_high_mainline_support(metrics))
+    return _clamp(trend + strength + distance + volume + extension)
+
+
+def _fish_tail_risk(metrics: dict[str, float]) -> bool:
+    return (
+        metrics["dist_ma20"] > 30
+        or metrics["ret20"] > 68
+        or (metrics["ret20"] > 50 and metrics["vol_ratio_5_20"] > 2.0)
+        or (metrics["upper_shadow_pct"] > 5 and metrics["vol_ratio_5_20"] > 1.8 and metrics["close_pos_day"] < 0.45)
+    )
+
+
+def _high_mainline_support(metrics: dict[str, float]) -> bool:
+    return (
+        metrics["ret60"] >= 25
+        and metrics["dist_ma50"] >= 5
+        and metrics["close_pos20"] >= 0.55
+        and metrics["drawdown60"] <= 18
+        and metrics["vol_ratio_5_20"] <= 2.0
+    )
 
 
 def _stock_role_score(metrics: dict[str, float], radar: dict[str, Any], is_core: bool) -> float:
@@ -316,6 +360,7 @@ def _quality_score(metrics: dict | None) -> float:
 
 def _candidate_entry(item: dict[str, Any]) -> dict[str, Any]:
     score = round(float(item.get("mainline_score") or 0.0) * 100.0, 2)
+    status = str(item.get("status") or MAINLINE_BUY_STATUS)
     return {
         "code": item["code"],
         "track": "trend",
@@ -325,7 +370,7 @@ def _candidate_entry(item: dict[str, Any]) -> dict[str, Any]:
         "score": score,
         "opportunity": f"主线核心票: {item.get('theme')}",
         "timing": str(item.get("entry_type") or ""),
-        "risk": " / ".join(item.get("risk_flags") or []) or "尾盘仍需二次确认",
+        "risk": " / ".join([status, *list(item.get("risk_flags") or [])]) or "尾盘仍需二次确认",
         "state": "Mainline",
         "reasons": list(item.get("reasons") or [])[:5],
     }
@@ -349,16 +394,35 @@ def _status(
     risk_flags: list[str],
     cfg: MainlineEngineConfig,
 ) -> str:
-    if "短线过热" in risk_flags:
-        return "过热不追"
+    if "鱼尾加速" in risk_flags:
+        return MAINLINE_AVOID_STATUS
+    if _high_divergence_is_tradeable(theme_score, role_score, timing_score, entry_type, risk_flags, cfg):
+        return MAINLINE_DIVERGENCE_STATUS
     if (
         theme_score >= cfg.min_theme_score
         and role_score >= cfg.min_stock_score
         and timing_score >= cfg.min_timing_score
         and entry_type
     ):
-        return "可买主线"
-    return "主线观察"
+        return MAINLINE_BUY_STATUS
+    return MAINLINE_OBSERVE_STATUS
+
+
+def _high_divergence_is_tradeable(
+    theme_score: float,
+    role_score: float,
+    timing_score: float,
+    entry_type: str,
+    risk_flags: list[str],
+    cfg: MainlineEngineConfig,
+) -> bool:
+    return (
+        "高位抱团" in risk_flags
+        and theme_score >= cfg.min_theme_score
+        and role_score >= cfg.min_stock_score
+        and timing_score >= cfg.min_timing_score * 0.8
+        and bool(entry_type)
+    )
 
 
 def _metric_score(metrics: dict, keys: tuple[str, ...], weak: float, strong: float, *, reverse: bool) -> float | None:

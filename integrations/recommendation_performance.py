@@ -8,8 +8,13 @@ from typing import Any
 
 import pandas as pd
 
-from core.constants import TABLE_RECOMMENDATION_TRACKING_US
+from core.constants import (
+    TABLE_RECOMMENDATION_TRACKING,
+    TABLE_RECOMMENDATION_TRACKING_HK,
+    TABLE_RECOMMENDATION_TRACKING_US,
+)
 from integrations.recommendation_tracking_common import (
+    chunked,
     fetch_records_from_table,
     ohlc_map_from_tickflow_hist,
     pick_close_on_or_before,
@@ -19,27 +24,55 @@ from integrations.recommendation_tracking_common import (
 )
 from integrations.supabase_base import create_admin_client, is_admin_configured, require_server_write_context
 
+TRACKING_TABLE_BY_MARKET = {
+    "cn": TABLE_RECOMMENDATION_TRACKING,
+    "hk": TABLE_RECOMMENDATION_TRACKING_HK,
+    "us": TABLE_RECOMMENDATION_TRACKING_US,
+}
+
 
 def refresh_us_tracking_performance(max_dates: int = 60, kline_count: int = 160) -> dict[str, Any]:
+    return refresh_tracking_performance("us", max_dates=max_dates, kline_count=kline_count)
+
+
+def refresh_tracking_performance(
+    market: str,
+    *,
+    max_dates: int = 60,
+    kline_count: int = 160,
+) -> dict[str, Any]:
     if not is_admin_configured():
         raise ValueError("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY 未配置")
-    require_server_write_context("refresh US tracking performance")
+    market_key = resolve_tracking_market(market)
+    require_server_write_context(f"refresh {market_key} tracking performance")
     api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
     if not api_key:
         raise ValueError("TICKFLOW_API_KEY 未配置")
 
     client = create_admin_client()
-    records = fetch_records_from_table(client, TABLE_RECOMMENDATION_TRACKING_US, "id,code,recommend_date,initial_price")
+    table = TRACKING_TABLE_BY_MARKET[market_key]
+    records = fetch_records_from_table(client, table, "id,code,recommend_date,initial_price")
     records = latest_market_records(records, max_dates)
     if not records:
-        return empty_us_performance_summary()
+        return empty_performance_summary()
 
-    grouped = _group_records_by_code(records)
-    hist_map = _fetch_us_histories(api_key, sorted(grouped), kline_count)
+    grouped = group_records_by_market_code(records, market_key)
+    symbol_map = _tickflow_symbol_map(sorted(grouped), market_key)
+    hist_map = _fetch_histories(api_key, sorted(set(symbol_map.values())), kline_count)
+    hist_by_code = {code: hist_map.get(symbol) for code, symbol in symbol_map.items()}
     now_iso = datetime.now(UTC).isoformat()
-    updates, codes_no_data, latest_td = build_us_performance_updates(grouped, hist_map, now_iso)
-    written = upsert_to_table(client, TABLE_RECOMMENDATION_TRACKING_US, updates)
-    return us_performance_summary(records, grouped, written, codes_no_data, latest_td, updates)
+    updates, codes_no_data, latest_td = build_market_performance_updates(grouped, hist_by_code, now_iso, market_key)
+    written = upsert_to_table(client, table, updates)
+    return performance_summary(records, grouped, written, codes_no_data, latest_td, updates)
+
+
+def resolve_tracking_market(market: str) -> str:
+    key = str(market or "cn").strip().lower()
+    if key in {"a", "a_share", "ashare"}:
+        key = "cn"
+    if key not in TRACKING_TABLE_BY_MARKET:
+        raise ValueError(f"unsupported market: {market}, must be cn, hk, or us")
+    return key
 
 
 def latest_market_records(records: list[dict[str, Any]], max_dates: int) -> list[dict[str, Any]]:
@@ -57,6 +90,16 @@ def build_us_performance_updates(
     hist_map: dict[str, pd.DataFrame],
     now_iso: str,
 ) -> tuple[list[dict[str, Any]], int, str]:
+    return build_market_performance_updates(grouped, hist_map, now_iso, "us")
+
+
+def build_market_performance_updates(
+    grouped: dict[str, list[dict[str, Any]]],
+    hist_map: dict[str, pd.DataFrame | None],
+    now_iso: str,
+    market: str,
+) -> tuple[list[dict[str, Any]], int, str]:
+    market_key = resolve_tracking_market(market)
     updates: list[dict[str, Any]] = []
     codes_no_data = 0
     latest_td = ""
@@ -67,11 +110,17 @@ def build_us_performance_updates(
             codes_no_data += 1
             continue
         latest_td = max(latest_td, trade_dates[-1])
-        updates.extend(row for row in (_build_us_performance_update(row, code, ohlc, now_iso) for row in rows) if row)
+        updates.extend(
+            row for row in (_build_performance_update(row, code, ohlc, now_iso, market_key) for row in rows) if row
+        )
     return updates, codes_no_data, latest_td
 
 
 def empty_us_performance_summary() -> dict[str, Any]:
+    return empty_performance_summary()
+
+
+def empty_performance_summary() -> dict[str, Any]:
     return {
         "rows_total": 0,
         "rows_updated": 0,
@@ -93,7 +142,18 @@ def us_performance_summary(
     latest_trade_date: str,
     updates: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    summary = empty_us_performance_summary()
+    return performance_summary(records, grouped, written, codes_no_data, latest_trade_date, updates)
+
+
+def performance_summary(
+    records: list[dict[str, Any]],
+    grouped: dict[str, list[dict[str, Any]]],
+    written: int,
+    codes_no_data: int,
+    latest_trade_date: str,
+    updates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary = empty_performance_summary()
     summary.update(
         {
             "rows_total": len(records),
@@ -110,11 +170,22 @@ def us_performance_summary(
     return summary
 
 
-def _build_us_performance_update(
+def group_records_by_market_code(records: list[dict[str, Any]], market: str) -> dict[str, list[dict[str, Any]]]:
+    market_key = resolve_tracking_market(market)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in records:
+        code = _market_code_key(row.get("code"), market_key)
+        if code:
+            grouped.setdefault(code, []).append(row)
+    return grouped
+
+
+def _build_performance_update(
     row: dict[str, Any],
     code: str,
     ohlc: dict[str, dict[str, float]],
     now_iso: str,
+    market: str,
 ) -> dict[str, Any] | None:
     trade_dates = sorted(ohlc)
     recommend_date = recommend_date_to_yyyymmdd(row.get("recommend_date"))
@@ -124,14 +195,15 @@ def _build_us_performance_update(
     entry = safe_float(ohlc.get(entry_date, {}).get("close"), 0.0)
     if entry <= 0:
         entry = safe_float(row.get("initial_price"), 0.0)
+    code_value = int(code) if market == "cn" and code.isdigit() else code
     return _performance_row(
-        row, code, recommend_date, entry, [(day, ohlc[day]) for day in trade_dates if day >= entry_date], now_iso
+        row, code_value, recommend_date, entry, _window_rows(trade_dates, entry_date, ohlc), now_iso
     )
 
 
 def _performance_row(
     row: dict[str, Any],
-    code: str,
+    code: int | str,
     recommend_date: str,
     entry: float,
     window: list[tuple[str, dict[str, float]]],
@@ -165,17 +237,43 @@ def _performance_row(
     }
 
 
-def _group_records_by_code(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in records:
-        code = str(row.get("code") or "").strip()
-        if code:
-            grouped.setdefault(code, []).append(row)
-    return grouped
+def _window_rows(
+    trade_dates: list[str],
+    entry_date: str,
+    ohlc: dict[str, dict[str, float]],
+) -> list[tuple[str, dict[str, float]]]:
+    return [(day, ohlc[day]) for day in trade_dates if day >= entry_date]
 
 
-def _fetch_us_histories(api_key: str, symbols: list[str], kline_count: int) -> dict[str, pd.DataFrame]:
+def _market_code_key(raw_code: Any, market: str) -> str:
+    raw = str(raw_code or "").strip()
+    if market == "cn":
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        return digits[-6:].zfill(6) if digits else ""
+    return raw
+
+
+def _tickflow_symbol_map(codes: list[str], market: str) -> dict[str, str]:
+    if market != "cn":
+        return {code: code for code in codes if code}
+    from integrations.tickflow_client import normalize_cn_symbol
+
+    return {code: symbol for code in codes if (symbol := normalize_cn_symbol(code))}
+
+
+def _fetch_histories(api_key: str, symbols: list[str], kline_count: int) -> dict[str, pd.DataFrame]:
     from integrations.tickflow_client import TickFlowClient
 
     client = TickFlowClient(api_key=api_key)
-    return client.get_klines_batch(symbols, period="1d", count=max(int(kline_count), 1), adjust="forward")
+    hist_map: dict[str, pd.DataFrame] = {}
+    for batch in chunked(symbols, _performance_batch_size()):
+        hist_map.update(client.get_klines_batch(batch, period="1d", count=max(int(kline_count), 1), adjust="forward"))
+    return hist_map
+
+
+def _performance_batch_size() -> int:
+    raw = os.getenv("RECOMMENDATION_PERFORMANCE_BATCH_SIZE", "").strip()
+    try:
+        return max(min(int(float(raw or 80)), 100), 1)
+    except (TypeError, ValueError):
+        return 80

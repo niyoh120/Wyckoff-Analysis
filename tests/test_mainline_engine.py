@@ -27,6 +27,11 @@ def _trend_values(days: int = 140) -> list[float]:
     return [10 + i * 0.05 for i in range(days - 8)] + [16.0, 16.2, 16.4, 16.6, 16.5, 16.4, 16.3, 16.2]
 
 
+def _high_mainline_values() -> list[float]:
+    base = [10 + i * (8 / 109) for i in range(110)]
+    return base + [18.2 + i * 0.4 for i in range(20)]
+
+
 def test_mainline_dynamic_theme_can_bypass_l2_but_requires_timing() -> None:
     candidates = build_mainline_candidates(
         l1_passed=["000001"],
@@ -64,21 +69,40 @@ def test_mainline_blocks_candidate_without_timing_gate() -> None:
     assert mainline_candidate_entries(candidates, max_count=3) == []
 
 
-def test_mainline_overheated_does_not_enter_tradeable_pool() -> None:
-    hot = [10 + i * 0.03 for i in range(110)] + [18 + i * 0.5 for i in range(20)]
+def test_mainline_high_bias_can_enter_divergence_pool() -> None:
     candidates = build_mainline_candidates(
         l1_passed=["000003"],
         l2_passed=["000003"],
         concept_map={"000003": ["消费电子"]},
         concept_heat=[{"name": "消费电子", "pct": 7.2, "net_inflow": 1_100_000_000}],
         theme_radar={"themes": [{"theme": "消费电子", "score": 0.76}], "strategic_candidates": []},
-        df_map={"000003": _frame(hot, volume_tail=2200)},
+        df_map={"000003": _frame(_high_mainline_values())},
+        financial_map={},
+        name_map={},
+        config=MainlineEngineConfig(),
+    )
+
+    assert candidates[0]["status"] == "强主线分歧"
+    assert "高位抱团" in candidates[0]["risk_flags"]
+    assert mainline_candidate_entries(candidates, max_count=3)[0]["signal_key"] == "mainline"
+
+
+def test_mainline_fish_tail_does_not_enter_tradeable_pool() -> None:
+    fish_tail = [10 + i * 0.03 for i in range(110)] + [18 + i * 0.9 for i in range(20)]
+    candidates = build_mainline_candidates(
+        l1_passed=["000004"],
+        l2_passed=["000004"],
+        concept_map={"000004": ["消费电子"]},
+        concept_heat=[{"name": "消费电子", "pct": 7.2, "net_inflow": 1_100_000_000}],
+        theme_radar={"themes": [{"theme": "消费电子", "score": 0.76}], "strategic_candidates": []},
+        df_map={"000004": _frame(fish_tail, volume_tail=2600)},
         financial_map={},
         name_map={},
         config=MainlineEngineConfig(),
     )
 
     assert candidates[0]["status"] == "过热不追"
+    assert "鱼尾加速" in candidates[0]["risk_flags"]
     assert mainline_candidate_entries(candidates, max_count=3) == []
 
 

@@ -197,8 +197,8 @@ def _append_mainline_card_section(lines: list[str], ctx: Any, selected_count: in
     if not ctx.mainline_candidates:
         return
     lines.append("")
-    lines.append(f"**【🎯 可买主线】{len(ctx.mainline_tradeable)} 只**")
-    lines.append(f"动态主线候选，已过量价买点确认；送AI复核 {selected_count} 只")
+    lines.append(f"**【🎯 主线机会】{len(ctx.mainline_tradeable)} 只**")
+    lines.append(f"动态主线候选，区分买点确认与高位分歧承接；送AI复核 {selected_count} 只")
     display_rows = _mainline_display_rows(ctx.mainline_tradeable)
     if not display_rows:
         lines.append("  暂无")
@@ -207,7 +207,7 @@ def _append_mainline_card_section(lines: list[str], ctx: Any, selected_count: in
     omitted = len(ctx.mainline_tradeable) - len(display_rows)
     if omitted > 0:
         lines.append(f"  ... 另 {omitted} 只略")
-    lines.append(f"**主线观察**: {len(ctx.mainline_observe)}只；**过热不追**: {len(ctx.mainline_overheated)}只")
+    lines.append(f"**主线观察**: {len(ctx.mainline_observe)}只；**鱼尾不追**: {len(ctx.mainline_overheated)}只")
 
 
 def _mainline_display_rows(rows: list[dict]) -> list[dict]:
@@ -219,11 +219,12 @@ def _mainline_row(ctx: Any, item: dict) -> str:
     code = str(item.get("code") or "")
     name = str(item.get("name") or ctx.name_map.get(code) or code)
     theme = str(item.get("theme") or "")
+    status = str(item.get("status") or "可买主线")
     entry = str(item.get("entry_type") or "等待确认")
     score = float(item.get("mainline_score") or 0.0) * 100.0
     risk = " / ".join(item.get("risk_flags") or [])
     risk_suffix = f"  风险:{risk}" if risk else ""
-    return f"  {code} {name}  {theme}  {entry}  分{score:.1f}{_confirmation_suffix(ctx, code)}{risk_suffix}"
+    return f"  {code} {name}  {theme}  {status}  {entry}  分{score:.1f}{_confirmation_suffix(ctx, code)}{risk_suffix}"
 
 
 def _confirmation_suffix(ctx: Any, code: str) -> str:

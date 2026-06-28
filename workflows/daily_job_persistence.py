@@ -14,6 +14,10 @@ from integrations.recommendation_payload import (
 from integrations.supabase_market_signal import upsert_market_signal_daily
 from workflows.step4_pipeline import TZ, is_confirmed_step4_candidate
 
+RECOMMENDATION_MAINLINE_STATUSES = {"可买主线", "强主线分歧"}
+RECOMMENDATION_STRATEGIC_MIN_THEME_SCORE = 0.45
+RECOMMENDATION_STRATEGIC_MIN_STOCK_SCORE = 0.55
+
 
 def persist_benchmark_context(
     benchmark_context: dict,
@@ -54,7 +58,7 @@ def persist_recommendations(
     try:
         recommend_date = int(trade_date.replace("-", ""))
         if not write_symbols:
-            log_fn(f"推荐记录入库: raw_count={len(symbols_info)}, write_count=0（二次确认为空，跳过）", logs_path)
+            log_fn(f"推荐记录入库: raw_count={len(symbols_info)}, write_count=0（主线/战略确认为空，跳过）", logs_path)
             return recommend_date, []
         payload = prepare_recommendation_payload(recommend_date, write_symbols)
         write_recommendation_backup(recommend_date, payload, logs_path, ai_codes=None, log_fn=log_fn)
@@ -78,7 +82,37 @@ def recommendation_write_symbols(symbols_info: list[dict]) -> list[dict]:
 def is_recommendation_write_candidate(item: dict) -> bool:
     if not isinstance(item, dict):
         return False
-    return is_confirmed_step4_candidate(item)
+    return is_confirmed_step4_candidate(item) and (
+        _is_mainline_recommendation(item) or _is_strategic_theme_recommendation(item)
+    )
+
+
+def _is_mainline_recommendation(item: dict) -> bool:
+    lane = _clean_text(item.get("candidate_lane") or item.get("signal_key") or item.get("entry_type"))
+    status = _clean_text(item.get("candidate_status") or item.get("status") or item.get("recommend_reason"))
+    return lane == "mainline" and status in RECOMMENDATION_MAINLINE_STATUSES
+
+
+def _is_strategic_theme_recommendation(item: dict) -> bool:
+    state = _clean_text(item.get("strategic_theme_state")).lower()
+    if state == "decay":
+        return False
+    return (
+        bool(_clean_text(item.get("strategic_theme")))
+        and _safe_float(item.get("strategic_theme_score")) >= RECOMMENDATION_STRATEGIC_MIN_THEME_SCORE
+        and _safe_float(item.get("strategic_stock_score")) >= RECOMMENDATION_STRATEGIC_MIN_STOCK_SCORE
+    )
+
+
+def _clean_text(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def write_recommendation_backup(
