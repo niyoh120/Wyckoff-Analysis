@@ -1,6 +1,7 @@
 from workflows.daily_job_common import Step2StageResult
 from workflows.daily_job_runtime import DailyJobConfig
 from workflows.daily_job_step2 import persist_step2_outputs
+from workflows.daily_job_step3 import run_step3_stage
 
 
 def _cfg() -> DailyJobConfig:
@@ -59,3 +60,26 @@ def test_persist_step2_outputs_skips_recommendations_in_observe_only_market(monk
     assert persisted == []
     assert result.details["step3_symbols_info"] == []
     assert result.details["trade_mode"]["mode"] == "observe_only"
+
+
+def test_step3_stage_still_sends_empty_report_when_no_symbols() -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_step3(symbols_info, webhook_url, *_args, benchmark_context=None, **_kwargs):
+        captured["symbols_info"] = symbols_info
+        captured["webhook_url"] = webhook_url
+        captured["benchmark_context"] = benchmark_context
+        return True, "ok", "# 空研报"
+
+    result = run_step3_stage(
+        symbols_info=[],
+        benchmark_context={"regime": "CRASH"},
+        run_step3=fake_run_step3,
+        cfg=_cfg(),
+    )
+
+    assert captured["symbols_info"] == []
+    assert captured["benchmark_context"] == {"regime": "CRASH"}
+    assert result.report_text == "# 空研报"
+    assert result.summary_item["ok"] is True
+    assert result.summary_item["output"] == "0 symbols"

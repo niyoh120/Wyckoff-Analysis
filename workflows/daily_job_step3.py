@@ -6,7 +6,7 @@ from datetime import datetime
 
 import workflows.daily_job_persistence as daily_persistence
 import workflows.daily_signal_observations as signal_observations
-from workflows.daily_job_common import Step2StageResult, Step3StageResult, log_line, run_with_stdout_tee, stage_summary
+from workflows.daily_job_common import Step2StageResult, Step3StageResult, log_line, run_with_stdout_tee
 from workflows.daily_job_runtime import DailyJobConfig
 from workflows.step4_pipeline import TZ, is_confirmed_step4_candidate, latest_trade_date_str
 
@@ -54,10 +54,6 @@ def run_step3_stage(
     run_step3,
     cfg: DailyJobConfig,
 ) -> Step3StageResult:
-    if not symbols_info:
-        log_line("Step3 批量研报: 跳过（无筛选结果）", cfg.logs_path)
-        return Step3StageResult("", [], {}, stage_summary("批量研报", "skipped (no symbols)"))
-
     t0 = datetime.now(TZ)
     step3_ok, step3_err, report_text = _call_step3_report(run_step3, symbols_info, benchmark_context, cfg)
     springboard_codes, springboard_updates = ([], {})

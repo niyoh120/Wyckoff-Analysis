@@ -137,6 +137,15 @@ def _trade_mode_report_line(regime: str) -> str:
     return f"{mode.label} | {mode.action} | {mode.reason}"
 
 
+def _execution_decision_line(regime: str, selected_count: int) -> str:
+    mode = resolve_market_trade_mode(regime)
+    if not mode.allow_ai_review:
+        return "不开新仓；候选仅影子观察，优先处理持仓风控；不从本报告选择买入标的。"
+    if selected_count <= 0:
+        return "暂无可送审标的；不从本报告选择新买入，等待下一次二次确认。"
+    return f"{selected_count}只进入AI复核；需等 Step3 起跳板与 OMS 风控同时确认后才可执行。"
+
+
 def _funnel_card_title() -> str:
     return f"🔬 Wyckoff Funnel {date.today().strftime('%Y-%m-%d')}"
 
@@ -316,6 +325,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → 买点确认事件:{ctx.metrics['total_hits']}",
         f"**大盘水温**: {bench_line}",
         f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
+        f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selected_for_ai))}",
         f"**大盘资金趋势**: {money_line}",
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",
@@ -397,6 +407,7 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → 买点确认:{ctx.unique_hit_count}",
         f"**大盘水温**: {bench_line}",
         f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
+        f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selection.selected_for_ai))}",
         f"**大盘资金趋势**: {money_line}",
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",

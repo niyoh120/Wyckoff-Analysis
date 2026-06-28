@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import pandas as pd
+
 from core.prompts import WYCKOFF_FUNNEL_SYSTEM_PROMPT
 from workflows.step3_candidates import build_step3_candidate_bundle, load_step3_market_context
 from workflows.step3_inputs import (
@@ -162,10 +164,6 @@ def run(
     拉取 OHLCV → 第五步特征工程 → AI 研报 → 飞书/企微/钉钉发送。
     symbols_info: list[{"code", "name", "tag"}] 或 list[str]（向后兼容）。
     """
-    if not symbols_info:
-        print("[step3] 无输入股票，跳过")
-        return (True, "skipped_no_symbols", "")
-
     runtime_config = step3_runtime_config_from_env()
     options = Step3RunOptions(
         webhook_url,
@@ -179,6 +177,16 @@ def run(
         runtime_config,
     )
     items = _normalize_step3_items(symbols_info)
+    if not items:
+        print("[step3] 无输入股票，发送空研报和合规简报")
+        return send_empty_step3_report(
+            options=options,
+            items=[],
+            benchmark_context=benchmark_context or {},
+            selected_df=pd.DataFrame(),
+            rag_veto_preview="",
+            rag_veto_lines=[],
+        )
     print(f"[step3] AI 输入股票数={len(items)}（全量命中输入）")
     from utils.progress import report_progress
 
