@@ -137,11 +137,14 @@ def _member_indicators(series: dict[str, pd.Series]) -> dict[str, pd.Series]:
     high = series["high"]
     low = series["low"]
     volume = series["volume"]
+    vol_base = volume.rolling(20).mean()
+    prev_close = close.shift(1)
+    price_span = high - low
     return {
         "pct": close.pct_change() * 100.0,
-        "vol_ratio": volume / volume.rolling(20).mean().replace(0, pd.NA),
-        "amplitude": (high - low) / close.shift(1).replace(0, pd.NA) * 100.0,
-        "close_pos": ((close - low) / (high - low).replace(0, pd.NA) * 100.0).clip(0, 100).fillna(50.0),
+        "vol_ratio": volume / vol_base.where(vol_base != 0),
+        "amplitude": price_span / prev_close.where(prev_close != 0) * 100.0,
+        "close_pos": ((close - low) / price_span.where(price_span != 0) * 100.0).clip(0, 100).fillna(50.0),
         "close": close,
         "ma20": close.rolling(20).mean(),
         "ma50": close.rolling(50).mean(),

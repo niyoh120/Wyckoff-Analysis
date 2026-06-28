@@ -2,7 +2,7 @@
 
 > 本文描述 A 股 Wyckoff 主漏斗从 GitHub Actions 触发到 Supabase 写库、跨日反馈闭环的完整执行链路。策略逻辑详见 [`../README_STRATEGY.md`](../README_STRATEGY.md)，架构与数据表详见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
-**主入口**：`.github/workflows/wyckoff_funnel.yml` → `scripts/daily_job.py`（周日到周四 **17:17** 北京时间；仅次日为 A 股交易日时继续）
+**主入口**：`.github/workflows/wyckoff_funnel.yml` → `scripts/daily_job.py`（周日到周四 **17:17** 北京时间；周日正常为周一实盘准备候选，仅在次日不是 A 股交易日时跳过）
 
 ---
 
@@ -11,7 +11,7 @@
 ```mermaid
 flowchart TB
     subgraph UPSTREAM["⬆️ 上游（漏斗运行前已存在）"]
-        U1["GitHub Actions 触发<br/>wyckoff_funnel.yml<br/>周日到周四 17:17 北京"]
+        U1["GitHub Actions 触发<br/>wyckoff_funnel.yml<br/>周日到周四 17:17 北京<br/>周日为周一实盘准备候选"]
         U2["环境变量 / Secrets<br/>TICKFLOW / TUSHARE / LLM / Supabase / IM"]
         U3["本地元数据<br/>行业映射 / 概念映射 / 股票池"]
         U4["前日反馈闭环<br/>signal_health_daily<br/>signal_registry"]
@@ -321,12 +321,12 @@ sequenceDiagram
 | 时间（北京） | 工作流 | 与漏斗关系 |
 |-------------|--------|-----------|
 | **08:20** | `premarket_risk.yml` | **上游门控**：A50 + VIX → Step4 次日买入权限 |
-| **周日-周四 17:17** | `wyckoff_funnel.yml` | **主漏斗** daily_job Step2→3→4；次日非 A 股交易日则跳过 |
+| **周日-周四 17:17** | `wyckoff_funnel.yml` | **主漏斗** daily_job Step2→3→4；周日正常为周一实盘准备候选，次日非 A 股交易日才跳过 |
 | **19:25** | `review_list_replay.yml` | 下游：涨停复盘 |
 | **21:10 周五** | `theme_radar.yml` | 下游：主线雷达周报（新闻增强） |
-| **23:00 日–四** | `recommendation_tracking_reprice.yml` | 下游：复盘重定价 |
-| **23:05** | `db_maintenance.yml` | 下游：清理过期数据 |
-| **23:30** | `signal_feedback.yml` | **下游反馈**：刷新 health / registry |
+| **23:00 周一-周五** | `recommendation_tracking_reprice.yml` | 下游：复盘重定价 |
+| **次日 06:20 周二-周六** | `db_maintenance.yml` | 下游：清理过期数据 |
+| **23:30 周一-周五** | `signal_feedback.yml` | **下游反馈**：刷新 health / registry |
 | **次日尾盘** | `tail_buy_1420.yml` | **下游执行**：手动或外部自动化触发，读 `signal_pending` 尾盘策略；pending 只观察，confirmed 才可 BUY |
 
 ---

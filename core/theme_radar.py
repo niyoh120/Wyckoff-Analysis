@@ -143,10 +143,11 @@ def build_theme_radar_snapshot(
     heat = _heat_by_theme(concept_heat)
     history = _history_by_theme(concept_history or {})
     event_map = _events_by_theme(events or [])
-    themes = _theme_universe(heat, history, event_map, concept_map, sector_map)
-    scores = [_score_theme(theme, heat, history, event_map, concept_map, sector_map, features) for theme in themes]
+    member_index = _theme_member_index(concept_map, sector_map)
+    themes = _theme_universe(heat, history, event_map, member_index)
+    scores = [_score_theme(theme, heat, history, event_map, member_index, features) for theme in themes]
     ranked = sorted(scores, key=lambda item: item.score, reverse=True)[: cfg.top_themes]
-    candidates = _build_candidates(ranked, concept_map, sector_map, features, name_map or {}, cfg)
+    candidates = _build_candidates(ranked, member_index, features, name_map or {}, cfg)
     return {
         "trade_date": trade_date,
         "themes": [asdict(item) for item in ranked if item.score >= cfg.min_theme_score],
@@ -288,11 +289,8 @@ def _theme_universe(*parts: Any) -> list[str]:
     themes: set[str] = set()
     for part in parts[:3]:
         themes.update(str(k) for k in part.keys() if str(k).strip())
-    concept_map = parts[3] if len(parts) > 3 else {}
-    sector_map = parts[4] if len(parts) > 4 else {}
-    for concepts in concept_map.values():
-        themes.update(normalize_theme_name(c) for c in concepts or [])
-    themes.update(normalize_theme_name(v) for v in sector_map.values())
+    member_index = parts[3] if len(parts) > 3 else {}
+    themes.update(str(k) for k in member_index.keys() if str(k).strip())
     return sorted(t for t in themes if t and is_actionable_theme_name(t))
 
 
@@ -301,11 +299,10 @@ def _score_theme(
     heat: dict[str, dict[str, Any]],
     history: dict[str, dict[str, Any]],
     events: dict[str, list[dict[str, Any]]],
-    concept_map: dict[str, list[str]],
-    sector_map: dict[str, str],
+    member_index: dict[str, list[str]],
     features: dict[str, dict[str, Any]],
 ) -> ThemeScore:
-    market = _theme_market_metrics(_theme_members(theme, concept_map, sector_map), features)
+    market = _theme_market_metrics(member_index.get(theme, []), features)
     heat_score = float((heat.get(theme) or {}).get("score") or 0.0)
     persistence = float((history.get(theme) or {}).get("score") or 0.0)
     catalyst = _catalyst_score(events.get(theme, []))
@@ -337,14 +334,21 @@ def _score_theme(
 
 
 def _theme_members(theme: str, concept_map: dict[str, list[str]], sector_map: dict[str, str]) -> list[str]:
-    members: set[str] = set()
+    return _theme_member_index(concept_map, sector_map).get(theme, [])
+
+
+def _theme_member_index(concept_map: dict[str, list[str]], sector_map: dict[str, str]) -> dict[str, list[str]]:
+    index: dict[str, set[str]] = {}
     for code, concepts in concept_map.items():
-        if any(normalize_theme_name(c) == theme for c in concepts or []):
-            members.add(str(code))
+        for concept in concepts or []:
+            theme = normalize_theme_name(concept)
+            if theme and is_actionable_theme_name(theme):
+                index.setdefault(theme, set()).add(str(code))
     for code, sector in sector_map.items():
-        if normalize_theme_name(str(sector)) == theme:
-            members.add(str(code))
-    return sorted(members)
+        theme = normalize_theme_name(str(sector))
+        if theme and is_actionable_theme_name(theme):
+            index.setdefault(theme, set()).add(str(code))
+    return {theme: sorted(members) for theme, members in index.items()}
 
 
 def _theme_market_metrics(members: list[str], features: dict[str, dict[str, Any]]) -> dict[str, float]:
@@ -420,8 +424,7 @@ def _theme_evidence(
 
 def _build_candidates(
     themes: list[ThemeScore],
-    concept_map: dict[str, list[str]],
-    sector_map: dict[str, str],
+    member_index: dict[str, list[str]],
     features: dict[str, dict[str, Any]],
     name_map: dict[str, str],
     cfg: ThemeRadarConfig,
@@ -430,7 +433,7 @@ def _build_candidates(
     for theme in themes:
         if theme.score < cfg.min_theme_score:
             continue
-        rows = _candidate_rows(theme, concept_map, sector_map, features, name_map)
+        rows = _candidate_rows(theme, member_index, features, name_map)
         for row in rows[: cfg.max_candidates_per_theme]:
             score = _clamp(0.50 * row["leader_score"] + 0.30 * row["structure_score"] + 0.20 * theme.score)
             if score >= cfg.min_stock_score:
@@ -440,13 +443,12 @@ def _build_candidates(
 
 def _candidate_rows(
     theme: ThemeScore,
-    concept_map: dict[str, list[str]],
-    sector_map: dict[str, str],
+    member_index: dict[str, list[str]],
     features: dict[str, dict[str, Any]],
     name_map: dict[str, str],
 ) -> list[dict[str, Any]]:
     rows = []
-    for code in _theme_members(theme.theme, concept_map, sector_map):
+    for code in member_index.get(theme.theme, []):
         if code in features:
             rows.append({"code": code, "name": name_map.get(code, code), **features[code]})
     rows = sorted(rows, key=lambda row: (row["leader_score"], row["structure_score"]), reverse=True)

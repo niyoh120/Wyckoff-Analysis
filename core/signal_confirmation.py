@@ -235,8 +235,9 @@ def score_springboard_abc(
     low = pd.to_numeric(df_s["low"], errors="coerce")
     volume = pd.to_numeric(df_s["volume"], errors="coerce")
     vol_ma20 = volume.rolling(20).mean()
-    vol_ratio = volume / vol_ma20.replace(0, pd.NA)
-    span = (high - low).replace(0, pd.NA)
+    vol_ratio = volume / vol_ma20.where(vol_ma20 != 0)
+    span = high - low
+    span = span.where(span != 0)
     close_pos = ((close - low) / span * 100).clip(lower=0, upper=100).fillna(50.0)
 
     tail5 = df_s.tail(5)

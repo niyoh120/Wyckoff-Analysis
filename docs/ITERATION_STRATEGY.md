@@ -30,6 +30,7 @@ flowchart LR
 | 方向三：信号生命周期管理 | 新信号孵化、正式上线、观察、退役 | `signal_registry` 维护 `ACTIVE` / `WATCH` / `EXPERIMENTAL` / `RETIRED` | 已落地骨架，阈值待样本校准 |
 | 方向四：外部观察验证 | 验证人工/社区/其它系统关注的股票是否真有结构优势 | `external_seed_observations` 记录 L1/L2/L4 位置，L4 确认样本补写 `signal_observations` | 已落地 shadow 观察 |
 | 方向五：候选影子评分 | 验证“好候选”是否能被更稳定地识别 | `features_json.candidate_shadow_score` 合成漏斗优先级、量价痕迹、起跳板、尾盘确认、外部资金和风险扣分 | 已落地 shadow 特征，待 outcome 校准 |
+| 方向六：短线冲刺事件评估 | 验证推荐股未来 5 个交易日内是否触及 +10% | `evaluate_recommendation_events.py` 生成严格 5 日标签和 Top-K 排序对照，后台任务支持 `recommendation_event_eval` | 已落地只读评估，待持久化标签 |
 
 完整执行链路见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)。
 
@@ -88,6 +89,75 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 - `watch_status`：观察对象是被 L1 拒绝、已过 L2、L4 确认，还是只适合继续观察。
 - `l4_trigger_tags`：外部观察名单是否真的出现 Spring / SOS / LPS / EVR / Compression。
 - `expires_at`：观察有效期，过期后由 maintenance 清理。
+
+## 方向六：短线冲刺事件评估
+
+**目标**：把“未来 5 个交易日内触及 +10%”从主观期望变成可持续评估的事件标签，同时用胜率、平均收盘收益、盈亏比、MFE/MAE 和下行尾部约束过拟合。
+
+当前已落地只读评估：
+- `scripts/evaluate_recommendation_events.py`：读取 `recommendation_tracking`，拉 TickFlow 日 K，输出 `summary.json` / `events.json` / `summary.md`。
+- `core.recommendation_event_metrics.build_horizon_event()`：严格排除推荐日当天，只看推荐日之后未来 N 个交易日。
+- `workflows.web_background_job` 支持 `job_kind=recommendation_event_eval`，可由 GitHub Actions 或 Web 后台任务触发。
+- 默认只读；加 `--apply-labels` 或后台 payload `apply_labels=true` 后才会尝试写回 `recommendation_tracking`。
+
+当前 5 日 +10% 评估结果（最新 30 个推荐日，2026-06-28 本地实测）：
+
+| 口径 | 成熟样本 | 命中率 | 平均 MFE | 平均 MAE |
+|------|----------|--------|----------|----------|
+| 全量推荐 | 740/743 | 29.05% | 8.21% | -8.51% |
+| AI 标记 | 146/149 | 22.60% | 7.24% | -7.91% |
+| 漏斗分 Top1 | 26/28 | 38.46% | 11.27% | -7.81% |
+| 漏斗分 Top3 | 78/81 | 42.31% | 10.35% | -8.52% |
+| 漏斗分 Top5 | 130/133 | 40.00% | 9.76% | -8.52% |
+
+阶段性结论：
+- 目标应定义为“每日 Top-K 冲刺事件命中率”，不是“推荐表每只股票都 5 日涨 10%”。
+- 漏斗分排序已经有有效 lift；默认候选排序应优先看 `funnel_score`，AI 标记更适合作为 Top1 辅助校验、解释和风险提示，不应直接作为 Top3/Top5 主排序轴。
+- 当前最大短板是回撤：命中率有基础，但平均 5 日 MAE 仍接近 -8%，需要后续引入尾盘确认、失败突破和市场状态过滤。
+- 产品层应把“冲刺池 Top1/Top3”和“观察池”分开展示；允许弱市/崩盘日没有新推荐，避免为了填满推荐表稀释信号。
+
+反过拟合约束：
+- 5 日 +10% 命中率只能作为事件标签之一，不能作为唯一调参目标。
+- 推荐质量至少同时看 `close_win_rate_pct`、`avg_close_return_horizon_pct`、`close_payoff_ratio`、`mfe_mae_ratio` 和 `mae_le_neg5_rate_pct`。
+- 参数变更必须跨不同市场状态复测：强势、震荡、退潮、崩盘日都要覆盖，不能只根据最近 5 个或 30 个推荐日调阈值。
+- 合格方向是“涨的个数更多、平均收益为正、赔率覆盖亏损、尾部回撤受控”，不是追求每一只都涨或每次都触达 +10%。
+
+若要把事件标签持久化到线上表，先执行以下 SQL：
+
+```sql
+alter table public.recommendation_tracking
+  add column if not exists hit_10_5d boolean,
+  add column if not exists label_5d_ready boolean default false,
+  add column if not exists mfe_5d_pct numeric,
+  add column if not exists mae_5d_pct numeric,
+  add column if not exists close_return_5d_pct numeric,
+  add column if not exists first_hit_10_5d_date integer,
+  add column if not exists days_to_hit_10_5d integer,
+  add column if not exists event_label_updated_at timestamptz;
+
+create index if not exists idx_recommendation_tracking_hit_10_5d
+  on public.recommendation_tracking (hit_10_5d, recommend_date desc);
+```
+
+持久化前保持只读评估，避免线上推荐页误把未成熟样本当作失败样本。
+写库时必须满足：
+- 已执行上述 SQL。
+- `WYCKOFF_WRITE_CONTEXT=server_job`。
+- 评估口径为 `horizon_days=5` 且 `target_pct=10`。
+
+只读评估：
+
+```bash
+.venv/bin/python scripts/evaluate_recommendation_events.py \
+  --market cn --horizon-days 5 --target-pct 10 --max-dates 30
+```
+
+写回标签：
+
+```bash
+WYCKOFF_WRITE_CONTEXT=server_job .venv/bin/python scripts/evaluate_recommendation_events.py \
+  --market cn --horizon-days 5 --target-pct 10 --max-dates 30 --apply-labels
+```
 
 ## 方向三：信号生命周期管理
 

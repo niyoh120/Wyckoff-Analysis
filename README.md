@@ -167,8 +167,8 @@ wyckoff dashboard
 
 ## 功能亮点
 
-- **对话式 Agent** — 用自然语言触发诊断、筛选、研报，LLM 自主编排 15 个工具
-- **主线漏斗筛选** — A 股全市场约 4500 股动态发现概念主线、八通道强度、候选车道和买点确认，港股 / 美股独立 universe 扫描并写入跟踪复盘表
+- **对话式 Agent** — 用自然语言触发诊断、筛选、研报；CLI、Web、MCP 各自按权限编排多工具
+- **主线漏斗筛选** — A 股全市场约 5000 股动态发现概念主线、八通道强度、候选车道和买点确认，港股 / 美股独立 universe 扫描并写入跟踪复盘表
 - **跨市场** — A 股 / 港股 / 美股漏斗独立 workflow
 - **AI 三阵营研报** — 逻辑破产 / 储备营地 / 起跳板，LLM 独立审判
 - **信号反馈闭环** — 漏斗记录 observations，盘后 feedback 聚合 health / registry，支持 shadow 动态策略验证
@@ -216,7 +216,7 @@ wyckoff dashboard
 | 漏斗、AI 研报、OMS、回测 | [README_STRATEGY.md](README_STRATEGY.md) |
 | 术语速查 | [GLOSSARY.md](GLOSSARY.md) |
 | MCP Server 配置 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#mcp-server) |
-| 密钥与本地配置安全 | [docs/SECRET_MANAGEMENT.md](docs/SECRET_MANAGEMENT.md) |
+| 密钥、Actions Secrets 与本地配置 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#云端存储supabase) |
 
 > **Wiki 深度阅读**：[交易方法论 Wiki](https://github.com/YoungCan-Wang/WyckoffTradingAgent/wiki/01_Finance_Wyckoff_Method) ｜ [技术架构 Wiki](https://github.com/YoungCan-Wang/WyckoffTradingAgent/wiki/03_Tech_Architecture)
 

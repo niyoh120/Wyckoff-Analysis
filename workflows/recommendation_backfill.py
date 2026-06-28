@@ -1,0 +1,360 @@
+"""Safe recommendation_tracking backfill workflow."""
+
+from __future__ import annotations
+
+import json
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Any
+
+from core.constants import TABLE_RECOMMENDATION_TRACKING
+from core.market_trade_mode import resolve_market_trade_mode
+from core.recommendation_payload import (
+    ai_code_ints,
+    build_recommendation_payload,
+    recommendation_backup_rows,
+    springboard_ai_payload,
+)
+from integrations.recommendation_performance import refresh_tracking_performance
+from integrations.recommendation_tracking_common import chunked, fetch_records_from_table
+from integrations.supabase_base import (
+    CLI_WRITE_CONTEXT,
+    WRITE_CONTEXT_ENV,
+    create_admin_client,
+    require_server_write_context,
+)
+from workflows.daily_job_persistence import recommendation_write_symbols
+from workflows.daily_job_step2 import (
+    run_signal_confirmation,
+    run_springboard_scoring,
+)
+from workflows.daily_job_step3 import parse_step3_springboards
+
+
+@dataclass(frozen=True)
+class RecommendationBackfillRequest:
+    dates: tuple[date, ...]
+    output_dir: str
+    apply: bool = False
+    skip_step3: bool = False
+    allow_empty_date: bool = False
+
+
+def run_recommendation_backfill(request: RecommendationBackfillRequest) -> int:
+    target_dates = tuple(sorted(set(request.dates)))
+    if not target_dates:
+        raise ValueError("dates 不能为空")
+    output_dir = Path(request.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if request.apply:
+        require_server_write_context("backfill recommendation_tracking")
+
+    print(f"[recommendation-backfill] target_dates={','.join(d.isoformat() for d in target_dates)}")
+    day_results = [_build_day_result(day, request.skip_step3) for day in target_dates]
+    payloads = _build_payloads(target_dates, day_results)
+    client = create_admin_client()
+    old_rows = _fetch_target_rows(client, target_dates)
+    _write_artifacts(output_dir, target_dates, day_results, payloads, old_rows)
+    _validate_payloads(payloads, allow_empty_date=request.allow_empty_date)
+    if not request.apply:
+        print("[recommendation-backfill] dry-run 完成，未写库。确认 artifact 后加 --apply 执行替换。")
+        return 0
+
+    summary = _replace_target_dates(client, payloads, old_rows)
+    _refresh_performance()
+    _write_json(output_dir / "apply_summary.json", summary)
+    print(
+        "[recommendation-backfill] apply 完成: "
+        f"upserted={summary['rows_upserted']}, stale_deleted={summary['stale_deleted']}"
+    )
+    return 0
+
+
+def _build_day_result(trade_day: date, skip_step3: bool) -> dict[str, Any]:
+    with _day_env(trade_day, skip_step3):
+        from workflows.wyckoff_funnel import run as run_funnel
+
+        ok, symbols_info, benchmark_context, details = run_funnel("", notify=False, return_details=True)
+        if not ok:
+            raise RuntimeError(f"{trade_day.isoformat()} funnel run failed")
+        _prepare_symbols_for_recommendation(symbols_info, details, benchmark_context)
+        write_symbols = recommendation_write_symbols(symbols_info)
+        ai_codes, springboard_updates = _run_step3_if_needed(
+            trade_day,
+            write_symbols,
+            benchmark_context,
+            skip_step3,
+        )
+        return {
+            "trade_date": trade_day.isoformat(),
+            "recommend_date": int(trade_day.strftime("%Y%m%d")),
+            "raw_count": len(symbols_info),
+            "write_count": len(write_symbols),
+            "ai_codes": ai_codes,
+            "springboard_updates": springboard_updates,
+            "benchmark_context": benchmark_context,
+            "symbols_info": write_symbols,
+        }
+
+
+def _prepare_symbols_for_recommendation(
+    symbols_info: list[dict],
+    details: dict,
+    benchmark_context: dict,
+) -> None:
+    run_signal_confirmation(symbols_info, details, benchmark_context, None, dry_run=True)
+    run_springboard_scoring(symbols_info, details)
+    trade_mode = resolve_market_trade_mode((benchmark_context or {}).get("regime"))
+    if not trade_mode.allow_recommendation_write:
+        symbols_info.clear()
+
+
+def _run_step3_if_needed(
+    trade_day: date,
+    write_symbols: list[dict],
+    benchmark_context: dict,
+    skip_step3: bool,
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    if skip_step3 or not write_symbols:
+        return [], {}
+    from integrations.llm_client import get_provider_credentials, resolve_provider_name
+    from workflows.step3_batch_report import run as run_step3
+
+    provider = resolve_provider_name("STEP3_LLM_PROVIDER", "gemini")
+    api_key, model, base_url = get_provider_credentials(provider)
+    ok, reason, report_text = run_step3(
+        write_symbols,
+        webhook_url="",
+        api_key=api_key,
+        model=model,
+        benchmark_context=benchmark_context,
+        notify=False,
+        provider=provider,
+        llm_base_url=base_url,
+    )
+    if not ok:
+        raise RuntimeError(f"{trade_day.isoformat()} Step3 failed: {reason}")
+    return parse_step3_springboards(report_text, write_symbols, None)
+
+
+def _build_payloads(target_dates: tuple[date, ...], day_results: list[dict[str, Any]]) -> dict[int, list[dict]]:
+    client = create_admin_client()
+    target_ints = {int(day.strftime("%Y%m%d")) for day in target_dates}
+    rows = fetch_records_from_table(
+        client,
+        TABLE_RECOMMENDATION_TRACKING,
+        "code,recommend_count,recommend_date",
+    )
+    counts, code_dates = _history_state(
+        [row for row in rows if _int_date(row.get("recommend_date")) not in target_ints]
+    )
+    payloads: dict[int, list[dict]] = {}
+    for result in sorted(day_results, key=lambda item: int(item["recommend_date"])):
+        rec_date = int(result["recommend_date"])
+        rows_for_date = build_recommendation_payload(rec_date, result["symbols_info"], counts, code_dates)
+        _apply_ai_marks(rows_for_date, result["ai_codes"], result["springboard_updates"])
+        payloads[rec_date] = rows_for_date
+        _advance_history(counts, code_dates, rows_for_date)
+    return payloads
+
+
+def _history_state(rows: list[dict[str, Any]]) -> tuple[dict[int, int], dict[int, set[int]]]:
+    counts: dict[int, int] = {}
+    code_dates: dict[int, set[int]] = {}
+    for row in rows:
+        code = _int_code(row.get("code"))
+        rec_date = _int_date(row.get("recommend_date"))
+        if code is None or rec_date is None:
+            continue
+        count = _safe_int(row.get("recommend_count"), 1)
+        counts[code] = max(counts.get(code, 0), count)
+        code_dates.setdefault(code, set()).add(rec_date)
+    return counts, code_dates
+
+
+def _advance_history(counts: dict[int, int], code_dates: dict[int, set[int]], rows: list[dict]) -> None:
+    for row in rows:
+        code = _int_code(row.get("code"))
+        rec_date = _int_date(row.get("recommend_date"))
+        if code is None or rec_date is None:
+            continue
+        counts[code] = max(counts.get(code, 0), _safe_int(row.get("recommend_count"), 1))
+        code_dates.setdefault(code, set()).add(rec_date)
+
+
+def _apply_ai_marks(rows: list[dict], ai_codes: list[str], springboard_updates: dict[str, dict[str, Any]]) -> None:
+    code_map = ai_code_ints(ai_codes)
+    int_to_code6 = {code_int: code6 for code6, code_int in code_map.items()}
+    for row in rows:
+        code = _int_code(row.get("code"))
+        if code is None or code not in int_to_code6:
+            continue
+        row["is_ai_recommended"] = True
+        row.update(springboard_ai_payload(springboard_updates.get(int_to_code6[code])))
+
+
+def _validate_payloads(payloads: dict[int, list[dict]], *, allow_empty_date: bool) -> None:
+    empty_dates = [date_int for date_int, rows in payloads.items() if not rows]
+    if empty_dates and not allow_empty_date:
+        text = ",".join(str(d) for d in empty_dates)
+        raise RuntimeError(f"生成结果存在空日期: {text}；如确认要清空这些日期，请加 --allow-empty-date")
+
+
+def _fetch_target_rows(client, target_dates: tuple[date, ...]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for rec_date in [int(day.strftime("%Y%m%d")) for day in target_dates]:
+        resp = (
+            client.table(TABLE_RECOMMENDATION_TRACKING)
+            .select("*")
+            .eq("recommend_date", rec_date)
+            .order("code", desc=False)
+            .execute()
+        )
+        rows.extend(resp.data or [])
+    return rows
+
+
+def _replace_target_dates(client, payloads: dict[int, list[dict]], old_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    upserted = 0
+    for rows in payloads.values():
+        for batch in chunked(rows, 500):
+            if batch:
+                client.table(TABLE_RECOMMENDATION_TRACKING).upsert(batch, on_conflict="code,recommend_date").execute()
+                upserted += len(batch)
+    stale_ids = _stale_old_row_ids(payloads, old_rows)
+    for batch in chunked(stale_ids, 500):
+        client.table(TABLE_RECOMMENDATION_TRACKING).delete().in_("id", batch).execute()
+    return {
+        "applied_at": datetime.now(UTC).isoformat(),
+        "rows_upserted": upserted,
+        "stale_deleted": len(stale_ids),
+        "dates": sorted(payloads),
+    }
+
+
+def _stale_old_row_ids(payloads: dict[int, list[dict]], old_rows: list[dict[str, Any]]) -> list[Any]:
+    codes_by_date = {
+        rec_date: {_int_code(row.get("code")) for row in rows if _int_code(row.get("code")) is not None}
+        for rec_date, rows in payloads.items()
+    }
+    stale = []
+    for row in old_rows:
+        rec_date = _int_date(row.get("recommend_date"))
+        code = _int_code(row.get("code"))
+        if rec_date not in codes_by_date or code in codes_by_date[rec_date]:
+            continue
+        row_id = row.get("id")
+        if row_id is not None:
+            stale.append(row_id)
+    return stale
+
+
+def _refresh_performance() -> None:
+    summary = refresh_tracking_performance("cn", max_dates=30, kline_count=160)
+    print(
+        "[recommendation-backfill] performance refreshed: "
+        f"rows_updated={summary.get('rows_updated', 0)}, latest_trade_date={summary.get('latest_trade_date', '')}"
+    )
+
+
+def _write_artifacts(
+    output_dir: Path,
+    target_dates: tuple[date, ...],
+    day_results: list[dict[str, Any]],
+    payloads: dict[int, list[dict]],
+    old_rows: list[dict[str, Any]],
+) -> None:
+    _write_json(output_dir / "summary.json", _summary(target_dates, day_results, payloads, old_rows))
+    _write_json(output_dir / "old_rows_backup.json", recommendation_backup_rows(old_rows, ai_codes=None))
+    for rec_date, rows in payloads.items():
+        _write_json(output_dir / f"recommendation_tracking_{rec_date}.json", recommendation_backup_rows(rows, None))
+
+
+def _summary(
+    target_dates: tuple[date, ...],
+    day_results: list[dict[str, Any]],
+    payloads: dict[int, list[dict]],
+    old_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    old_count_by_date: dict[int, int] = {}
+    for row in old_rows:
+        rec_date = _int_date(row.get("recommend_date"))
+        if rec_date is not None:
+            old_count_by_date[rec_date] = old_count_by_date.get(rec_date, 0) + 1
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "target_dates": [day.isoformat() for day in target_dates],
+        "days": [
+            {
+                "recommend_date": int(result["recommend_date"]),
+                "raw_count": result["raw_count"],
+                "write_count": result["write_count"],
+                "payload_count": len(payloads.get(int(result["recommend_date"]), [])),
+                "old_count": old_count_by_date.get(int(result["recommend_date"]), 0),
+                "ai_count": len(result["ai_codes"]),
+            }
+            for result in day_results
+        ],
+    }
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.write_text(json.dumps(_json_safe(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, date | datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple | set):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
+@contextmanager
+def _day_env(trade_day: date, skip_step3: bool) -> Iterator[None]:
+    overrides = {
+        "END_CALENDAR_DAY": trade_day.isoformat(),
+        "FUNNEL_SKIP_FINANCIAL_METRICS": "1",
+        "FUNNEL_DYNAMIC_POLICY": "off",
+        WRITE_CONTEXT_ENV: CLI_WRITE_CONTEXT,
+        "STEP3_ENFORCE_TARGET_TRADE_DATE": "1",
+    }
+    if skip_step3:
+        overrides["STEP3_SKIP_LLM"] = "1"
+    previous = {key: os.environ.get(key) for key in overrides}
+    os.environ.update(overrides)
+    try:
+        yield
+    finally:
+        for key, old_value in previous.items():
+            if old_value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old_value
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _int_date(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_code(value: Any) -> int | None:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return int(digits) if digits else None

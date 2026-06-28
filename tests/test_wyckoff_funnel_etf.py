@@ -123,6 +123,13 @@ def _benchmark_context() -> dict[str, object]:
     }
 
 
+def test_load_financial_metrics_can_be_disabled_for_backfill(monkeypatch):
+    monkeypatch.setenv("FUNNEL_SKIP_FINANCIAL_METRICS", "1")
+    monkeypatch.setenv("TICKFLOW_API_KEY", "should-not-be-used")
+
+    assert funnel_data._load_financial_metrics(["000001"]) == {}
+
+
 def test_rank_etf_candidates_orders_by_strength():
     rows = rank_etf_candidates(
         ["512880", "512480"],

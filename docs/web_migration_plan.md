@@ -1,23 +1,20 @@
 # Wyckoff Web 基建迭代计划（历史路线图）
 
-> 更新于 2026-06-13 | 当前状态：React Web 已承担主要交互入口；Supabase 仍是 Auth、用户配置、持仓、推荐、信号反馈和策略观察的事实数据库。本文保留迁移路线与后续方向，不作为当前架构事实源。当前事实请看 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+> 更新于 2026-06-28 | 当前状态：React Web 已承担主要交互入口；读盘室已迁到 Hono Worker API；Supabase 仍是 Auth、用户配置、持仓、推荐、信号反馈和策略观察的事实数据库。本文保留迁移路线与后续方向，不作为当前架构事实源。当前事实请看 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
 ## 当前架构
 
 ```
 React SPA (Cloudflare Pages)              wyckoff-analysis.pages.dev
-  ├─ Vercel AI SDK (generateText + tools)
+  ├─ @ai-sdk/react useChat + UIMessage parts
   ├─ Supabase JS SDK (Auth + DB)
   │
-  │  POST /api/llm-proxy/chat/completions
-  │  Headers: { X-Target-URL: "https://provider.api/v1" }
+  │  POST /api/chat
   ↓
-Pages Functions (边缘计算)                 同域 /api/*
-  └─ [[path]].ts                          透明代理，转发到 LLM 供应商
-      ├─ 读取 X-Target-URL → 目标地址
-      ├─ 清洗 CF 内部 headers
-      ├─ 转发 request body (streaming)
-      └─ 回传 response (含 SSE stream)
+Pages Functions / Hono Worker             同域 /api/*
+  ├─ /api/chat                            读用户配置、执行工具、返回 UIMessage stream
+  ├─ /api/chat/config                     检查读盘室模型配置
+  └─ /api/llm-proxy/*                     兼容代理，服务行情/LLM 直连能力
   ↓
 LLM Providers (外部)
   ├─ 1Route (https://api.1route.dev/v1)
@@ -33,9 +30,11 @@ Supabase (Auth + PostgreSQL + RLS)        yfyivczvmorpqdyehfmn.supabase.co
 - MarketBar 大盘水温组件（读 market_signal_daily）
 - Git push 自动触发构建部署
 - **Pages Functions /api/llm-proxy** — 解决 LLM 跨域 + 密钥不暴露
-- **读盘室 AI Agent** — Vercel AI SDK + 10 个工具（搜索/持仓/大盘/诊断/选股/研报/策略）
+- **读盘室 AI Agent** — Hono Worker + Vercel AI SDK + 13 个工具（搜索/持仓/大盘/诊断/选股/研报/策略/尾盘/盘中）
+- **UIMessage 化** — 前端使用 `useChat` / `DefaultChatTransport` 渲染消息 parts、工具结果和审批状态
+- **工具审批** — `execute_portfolio_update` 走协议层确认，不再只依赖提示词约束
 - **compatibility 模式** — 兼容 1Route/DeepSeek/通义千问等第三方 OpenAI 接口
-- **reasoning_content 回传** — 支持 DeepSeek R1 thinking 模式多步调用
+- **Gemini SSE 归一化** — 兼容 Gemini OpenAI-compatible 工具流差异，避免前端丢工具调用结果
 - **读盘室模型快捷切换** — 无需跳转设置页
 
 ## 历史目标架构
@@ -80,13 +79,13 @@ Supabase Auth (仅保留登录认证)
 
 ### Phase 2 — Worker API + 数据页面
 
-目标：把 Supabase DB 依赖降到最低，数据 CRUD 走 Worker
+目标：把读盘室长链路后端化；数据 CRUD 仍以 Supabase/RLS 直连为主，Worker 只承接需要服务端执行的能力。
 
-- [ ] Hono Worker 搭建 + wrangler 部署
-- [ ] Auth 中间件（验证 Supabase JWT）
-- [ ] Portfolio 页（持仓 CRUD）
-- [ ] Settings 页（用户配置）
-- [ ] Wyckoff Pattern Replay 页（形态复盘表格）
+- [x] Hono Worker 搭建 + wrangler 配置
+- [x] Auth 中间件（验证 Supabase JWT）
+- [x] `/api/chat` 与 `/api/chat/config`
+- [ ] Portfolio / Settings Worker CRUD 正式接管（当前 Web 页面仍以 Supabase/RLS 直连为主）
+- [x] Wyckoff Pattern Replay / 跟踪页（白名单可见，读取 Supabase 复盘表）
 
 ### Phase 3 — Cloudflare 存储迁移
 
@@ -116,12 +115,13 @@ Supabase Auth (仅保留登录认证)
 
 目标：Web 端完整 Agent 体验
 
-- [ ] `/api/chat` SSE endpoint（Vercel AI SDK + tool calling）
-- [ ] 5 个基础工具：search_stock, portfolio, market_overview, query_history, update_portfolio
-- [ ] Chat UI（useChat hook + streaming + tool call 展示）
-- [ ] analyze_stock 工具（TickFlow OHLCV + Wyckoff 判定）
-- [ ] K 线图组件（TradingView Lightweight Charts）
-- [ ] generate_ai_report / generate_strategy_decision 工具
+- [x] `/api/chat` SSE endpoint（Vercel AI SDK + tool calling）
+- [x] 13 个读盘室工具：search_stock、view_portfolio、market_overview、market_history、query_recommendations、query_tail_buy、plan/execute portfolio update、analyze_stock、screen_stocks、generate_ai_report、generate_strategy_decision、intraday_analysis
+- [x] Chat UI（useChat hook + streaming + tool call 展示）
+- [x] analyze_stock 工具（TickFlow OHLCV + Wyckoff 判定）
+- [x] K 线图组件（Lightweight Charts）
+- [x] generate_ai_report / generate_strategy_decision 工具
+- [x] 消息排队、Gemini SSE 归一化、工具审批与结构化工具卡片
 
 ### Phase 5 — 优化上线
 

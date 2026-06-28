@@ -275,6 +275,9 @@ def _load_market_metadata(window, cfg: FunnelConfig) -> tuple[dict, dict, list[d
 
 
 def _load_financial_metrics(all_symbols: list[str]) -> dict[str, dict]:
+    if os.getenv("FUNNEL_SKIP_FINANCIAL_METRICS", "").strip().lower() in {"1", "true", "yes", "on"}:
+        print("[funnel] TickFlow 财务指标已按环境开关跳过")
+        return {}
     api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
     if not api_key:
         return {}

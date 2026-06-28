@@ -161,7 +161,7 @@ function PromptPanel({ onStart }: { onStart: (value: string) => void }) {
           </div>
         </div>
         <p className="max-w-md text-[10px] leading-relaxed text-muted-foreground/75 font-medium">
-          {t('chat.fullVersionPrefix')} · <code className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-mono border border-border/30">curl -fsSL https://raw.githubusercontent.com/YoungCan-Wang/Wyckoff-Analysis/main/install.sh | bash</code> {t('chat.unlockFull')}
+          {t('chat.fullVersionPrefix')} · <code className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-mono border border-border/30">curl -fsSL https://raw.githubusercontent.com/YoungCan-Wang/WyckoffTradingAgent/main/install.sh | bash</code> {t('chat.unlockFull')}
         </p>
       </div>
     </section>

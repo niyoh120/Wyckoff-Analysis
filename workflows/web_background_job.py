@@ -241,6 +241,65 @@ def _run_batch_ai_report(request_id: str, payload: dict[str, Any]) -> dict[str, 
     }
 
 
+def _run_recommendation_event_eval(request_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    from workflows.recommendation_event_eval import RecommendationEventEvalRequest, build_recommendation_event_eval
+
+    request = RecommendationEventEvalRequest(
+        market=_payload_str(payload, "market", "cn"),
+        horizon_days=_payload_int(payload, "horizon_days", 5),
+        target_pct=_payload_float(payload, "target_pct", 10.0),
+        max_dates=_payload_int(payload, "max_dates", 30),
+        kline_count=_payload_int(payload, "kline_count", 160),
+        output_dir=_payload_str(payload, "output_dir", "artifacts/recommendation_event_eval"),
+        top_k=_payload_top_k(payload.get("top_k")),
+        apply_labels=_payload_bool(payload, "apply_labels", False),
+    )
+    result = build_recommendation_event_eval(request)
+    return {
+        "request_id": request_id,
+        "job_kind": "recommendation_event_eval",
+        "ok": True,
+        "metadata": result["metadata"],
+        "summary": result["summary"],
+        "daily": result["daily"],
+        "persistence": result["persistence"],
+    }
+
+
+def _payload_str(payload: dict[str, Any], key: str, default: str) -> str:
+    value = str(payload.get(key, "") or "").strip()
+    return value or default
+
+
+def _payload_int(payload: dict[str, Any], key: str, default: int) -> int:
+    try:
+        return int(payload.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _payload_float(payload: dict[str, Any], key: str, default: float) -> float:
+    try:
+        return float(payload.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _payload_bool(payload: dict[str, Any], key: str, default: bool) -> bool:
+    raw = payload.get(key, default)
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _payload_top_k(raw: Any) -> tuple[int, ...]:
+    if isinstance(raw, list):
+        values = [int(item) for item in raw if str(item).strip()]
+    else:
+        values = [int(item.strip()) for item in str(raw or "1,3,5").split(",") if item.strip()]
+    return tuple(values or [1, 3, 5])
+
+
 def run_web_background_job(args) -> int:
     payload = _load_payload(args.payload_json)
     requested_by_user_id = str(payload.get("user_id", "") or "").strip()
@@ -272,6 +331,8 @@ def run_web_background_job(args) -> int:
             result = _run_funnel_screen(args.request_id, payload)
         elif args.job_kind == "batch_ai_report":
             result = _run_batch_ai_report(args.request_id, payload)
+        elif args.job_kind == "recommendation_event_eval":
+            result = _run_recommendation_event_eval(args.request_id, payload)
         else:
             raise ValueError(f"不支持的 job_kind: {args.job_kind}")
         base_result.update(result)

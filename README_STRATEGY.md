@@ -34,7 +34,7 @@
 
 ### 定时调度
 
-由 GitHub Actions 在北京时间周日到周四 17:17 自动执行；若次日不是 A 股交易日，`scripts/daily_job.py` 会在主流程前跳过。交易日判定由 `utils/trading_clock.py` 负责。
+由 GitHub Actions 在北京时间周日到周四 17:17 自动执行；周日会正常为周一实盘准备候选，只有次日不是 A 股交易日时，`scripts/daily_job.py` 才会在主流程前跳过。交易日判定由 `utils/trading_clock.py` 负责。
 
 ### 数据窗口
 

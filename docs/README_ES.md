@@ -236,9 +236,9 @@ Tareas programadas con GitHub Actions integradas en el repositorio:
 | Estrategia de compra al cierre | Manual / automatizacion externa | Puntuacion por reglas + revision LLM |
 | Riesgo pre-mercado | Lun-Vie 08:20 | Alerta A50 + VIX |
 | Resumen de limit-up | Lun-Vie 19:25 | Revision de acciones con alza diaria >= 8 % |
-| Repricing de recomendaciones | Dom-Jue 23:00 | Sincroniza precios de cierre |
+| Repricing de recomendaciones | Lun-Vie 23:00 | Sincroniza precios de cierre |
 | Grid de backtest | 1 y 15 de cada mes 04:00 | 8 combos enfocados de parametros → reporte agregado |
-| Mantenimiento de base de datos | Diario 23:05 | Limpia cotizaciones, órdenes, señales y datos de mercado fuera de la ventana |
+| Mantenimiento de base de datos | Mar-Sab 06:20 | Limpia cotizaciones, órdenes, señales y datos de mercado fuera de la ventana |
 
 ## Soporte de modelos
 

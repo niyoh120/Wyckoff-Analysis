@@ -29,6 +29,13 @@ interface Recommendation {
   mfe_price?: number | null
   mae_price?: number | null
   performance_days?: number | null
+  hit_10_5d?: boolean | null
+  label_5d_ready?: boolean | null
+  mfe_5d_pct?: number | null
+  mae_5d_pct?: number | null
+  close_return_5d_pct?: number | null
+  first_hit_10_5d_date?: number | null
+  days_to_hit_10_5d?: number | null
   is_ai_recommended: boolean
   rag_vetoed: boolean
   funnel_score: number | null
@@ -61,6 +68,9 @@ interface SummaryStats {
   best: number | null
   worst: number | null
   totalRecommendations: number
+  eventReadyCount: number
+  eventHitCount: number
+  eventHitRate: number | null
 }
 
 interface TrackingReadyContentProps {
@@ -88,7 +98,7 @@ const RETENTION_DATES = 30
 const TRACKING_PAGE_SIZE = 1000
 const AVG_WINDOWS = [5, 10, 15, 20, 25, 30] as const
 type RecommendationWindow = (typeof AVG_WINDOWS)[number]
-type SortBy = 'date' | 'change' | 'score' | 'count' | 'mfe' | 'mae'
+type SortBy = 'date' | 'change' | 'score' | 'count' | 'mfe' | 'mae' | 'mfe5d'
 type SortOrder = 'desc' | 'asc'
 
 const LOCKED_BENEFITS = [
@@ -427,12 +437,20 @@ function SummaryCards({ selectedWindow, stats }: { selectedWindow: Recommendatio
   const { t } = usePreferences()
 
   return (
-    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
+    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-6">
       <StatCard label={t('tracking.coveredStocks')} value={`${stats.count} ${t('common.stocks')}`} />
       <StatCard label={t('tracking.avgChange', { size: selectedWindow })} value={formatPct(stats.avg)} color={pctColor(stats.avg)} />
       <StatCard label={t('tracking.bestChange')} value={formatPct(stats.best)} color={pctColor(stats.best)} />
       <StatCard label={t('tracking.worstChange')} value={formatPct(stats.worst)} color={pctColor(stats.worst)} />
       <StatCard label={t('tracking.totalRecommendations')} value={`${stats.totalRecommendations} ${t('tracking.times')}`} />
+      {stats.eventReadyCount > 0 && (
+        <StatCard
+          label={t('tracking.hit10_5d')}
+          value={`${(stats.eventHitRate ?? 0).toFixed(1)}%`}
+          color={(stats.eventHitRate ?? 0) >= 30 ? 'text-up' : 'text-muted-foreground'}
+          hint={`${stats.eventHitCount}/${stats.eventReadyCount}`}
+        />
+      )}
     </div>
   )
 }
@@ -517,6 +535,7 @@ function TrackingSortControls({
         <option value="change">{t('tracking.sortChange')}</option>
         {market === 'us' && <option value="mfe">{t('tracking.sortMfe')}</option>}
         {market === 'us' && <option value="mae">{t('tracking.sortMae')}</option>}
+        {market === 'cn' && <option value="mfe5d">{t('tracking.sortMfe5d')}</option>}
         <option value="score">{t('tracking.sortScore')}</option>
         <option value="count">{t('tracking.sortRecommendCount')}</option>
       </select>
@@ -589,6 +608,7 @@ function TrackingTableHead({
         <SortableHeader align="right" active={sortBy === 'change'} label={t('tracking.changePct')} order={sortOrder} onClick={() => onSortChange('change')} />
         <SortableHeader align="right" active={sortBy === 'score'} label={t('tracking.score')} order={sortOrder} onClick={() => onSortChange('score')} />
         <th className="px-3 py-2 text-left font-medium">车道</th>
+        {market === 'cn' && <SortableHeader align="right" active={sortBy === 'mfe5d'} label={t('tracking.hit10_5d')} order={sortOrder} onClick={() => onSortChange('mfe5d')} />}
         {market === 'us' && <UsPerformanceHeaders sortBy={sortBy} sortOrder={sortOrder} onSortChange={onSortChange} />}
         <th className="px-3 py-2 text-center font-medium">{t('tracking.springboard')}</th>
         <th className="px-3 py-2 text-center font-medium">AI</th>
@@ -676,6 +696,7 @@ function TrackingRow({ row, market = 'cn' }: { row: Recommendation; market?: Mar
       <td className="px-3 py-2">
         <CandidateLaneBadge row={row} />
       </td>
+      {market === 'cn' && <CnEventCell row={row} />}
       {market === 'us' && <UsPerformanceCells row={row} />}
       <td className="px-3 py-2 text-center">
         <SpringboardBadge row={row} />
@@ -730,7 +751,8 @@ function springboardCombo(row: Recommendation): string {
 }
 
 function trackingColumnCount(market: MarketTab): number {
-  return market === 'us' ? 13 : 10
+  if (market === 'us') return 13
+  return market === 'cn' ? 11 : 10
 }
 
 function cleanText(value: string | null | undefined): string {
@@ -779,6 +801,40 @@ function UsPerformanceCells({ row }: { row: Recommendation }) {
       <td className="px-3 py-2 text-right text-muted-foreground">{formatPct(row.range_amp_pct ?? null)}</td>
     </>
   )
+}
+
+function CnEventCell({ row }: { row: Recommendation }) {
+  const status = event5dStatus(row)
+  const mfe = row.mfe_5d_pct ?? null
+  const cls = status === 'hit'
+    ? 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+    : status === 'miss'
+      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+      : 'border-border bg-muted text-muted-foreground'
+  return (
+    <td className="px-3 py-2 text-right">
+      <div className="flex flex-col items-end gap-1">
+        <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${cls}`}>
+          {event5dLabel(status)}
+        </span>
+        <span className={`text-xs ${pctColor(mfe)}`}>{formatPct(mfe)}</span>
+      </div>
+    </td>
+  )
+}
+
+function event5dStatus(row: Recommendation): 'hit' | 'miss' | 'pending' | 'unknown' {
+  if (row.hit_10_5d === true) return 'hit'
+  if (row.label_5d_ready === true && row.hit_10_5d === false) return 'miss'
+  if (row.label_5d_ready === false || isFiniteNumber(row.mfe_5d_pct)) return 'pending'
+  return 'unknown'
+}
+
+function event5dLabel(status: ReturnType<typeof event5dStatus>): string {
+  if (status === 'hit') return '已触及'
+  if (status === 'miss') return '未触及'
+  if (status === 'pending') return '观察中'
+  return '未计算'
 }
 
 function WinRatePanel({ rows }: { rows: Recommendation[] }) {
@@ -850,11 +906,12 @@ function buildReturnBuckets(values: number[]): { midPct: number; count: number }
   return buckets
 }
 
-function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
+function StatCard({ label, value, color, hint }: { label: string; value: string; color?: string; hint?: string }) {
   return (
     <div className="rounded-lg border border-border p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={`mt-1 text-lg font-semibold ${color || ''}`}>{value}</div>
+      {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
     </div>
   )
 }
@@ -893,8 +950,20 @@ function buildSummaryStats(rows: Recommendation[]): SummaryStats | null {
   const totalRecommendations = rows.reduce((total, row) => total + recommendationCount(row.recommend_count), 0)
   const activeRows = rows.filter((row) => !row.rag_vetoed)
   const values = activeRows.map((row) => row.change_pct).filter(isFiniteNumber)
+  const eventRows = activeRows.filter((row) => row.label_5d_ready === true || row.hit_10_5d === true)
+  const eventHitCount = eventRows.filter((row) => row.hit_10_5d === true).length
+  const eventHitRate = eventRows.length > 0 ? (eventHitCount / eventRows.length) * 100 : null
   if (values.length === 0) {
-    return { count: rows.length, avg: null, best: null, worst: null, totalRecommendations }
+    return {
+      count: rows.length,
+      avg: null,
+      best: null,
+      worst: null,
+      totalRecommendations,
+      eventReadyCount: eventRows.length,
+      eventHitCount,
+      eventHitRate,
+    }
   }
   const sum = values.reduce((total, value) => total + value, 0)
   return {
@@ -903,6 +972,9 @@ function buildSummaryStats(rows: Recommendation[]): SummaryStats | null {
     best: Math.max(...values),
     worst: Math.min(...values),
     totalRecommendations,
+    eventReadyCount: eventRows.length,
+    eventHitCount,
+    eventHitRate,
   }
 }
 
@@ -921,6 +993,7 @@ function sortRecommendations(rows: Recommendation[], sortBy: SortBy, sortOrder: 
     if (sortBy === 'change') return nullableNumberCompare(a.change_pct, b.change_pct, direction)
     if (sortBy === 'mfe') return nullableNumberCompare(a.mfe_pct, b.mfe_pct, direction)
     if (sortBy === 'mae') return nullableNumberCompare(a.mae_pct, b.mae_pct, direction)
+    if (sortBy === 'mfe5d') return nullableNumberCompare(a.mfe_5d_pct, b.mfe_5d_pct, direction)
     if (sortBy === 'count') return nullableNumberCompare(recommendationCount(a.recommend_count), recommendationCount(b.recommend_count), direction)
     return nullableNumberCompare(a.funnel_score, b.funnel_score, direction)
   })

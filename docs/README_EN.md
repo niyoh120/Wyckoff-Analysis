@@ -236,9 +236,9 @@ Built-in GitHub Actions cron jobs:
 | Tail-Buy Strategy | Manual / external automation | Rule scoring + LLM review, end-of-day entry screening |
 | Pre-Market Risk | Mon–Fri 08:20 | A50 + VIX alert |
 | Limit-Up Review | Mon–Fri 19:25 | Review stocks that rose >= 8% today |
-| Recommendation Reprice | Sun–Thu 23:00 | Sync closing prices |
+| Recommendation Reprice | Mon–Fri 23:00 | Sync closing prices |
 | Backtest Grid | 1st & 15th monthly 04:00 | 8 focused parameter combos → aggregated report |
-| DB Maintenance | Daily 23:05 | Purge stale quotes, orders, signals, market signals, and other rolling-window data |
+| DB Maintenance | Tue–Sat 06:20 | Purge stale quotes, orders, signals, market signals, and other rolling-window data |
 
 ## Model Support
 
