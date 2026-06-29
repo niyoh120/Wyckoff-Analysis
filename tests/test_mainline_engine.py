@@ -6,7 +6,7 @@ from core.mainline_engine import MainlineEngineConfig, build_mainline_candidates
 from core.wyckoff_engine import FunnelConfig, run_funnel
 
 
-def _frame(values: list[float], *, volume_tail: float = 900.0) -> pd.DataFrame:
+def _frame(values: list[float], *, volume_tail: float = 900.0, amount: float = 100_000_000.0) -> pd.DataFrame:
     dates = pd.date_range("2025-01-01", periods=len(values), freq="B")
     volume = [1000.0] * max(len(values) - 5, 0) + [volume_tail] * min(5, len(values))
     return pd.DataFrame(
@@ -17,7 +17,7 @@ def _frame(values: list[float], *, volume_tail: float = 900.0) -> pd.DataFrame:
             "low": [v * 0.98 for v in values],
             "close": values,
             "volume": volume,
-            "amount": [100_000_000.0] * len(values),
+            "amount": [amount] * len(values),
             "pct_chg": pd.Series(values).pct_change().fillna(0.0) * 100.0,
         }
     )
@@ -30,6 +30,12 @@ def _trend_values(days: int = 140) -> list[float]:
 def _high_mainline_values() -> list[float]:
     base = [10 + i * (8 / 109) for i in range(110)]
     return base + [18.2 + i * 0.4 for i in range(20)]
+
+
+def _event_reversal_values() -> list[float]:
+    base = [25 - i * 0.07 for i in range(90)]
+    repair_base = [18.4, 18.1, 17.9, 17.7, 17.5, 17.8, 18.0, 17.7, 17.9, 18.1]
+    return base + repair_base * 5
 
 
 def test_mainline_dynamic_theme_can_bypass_l2_but_requires_timing() -> None:
@@ -49,6 +55,25 @@ def test_mainline_dynamic_theme_can_bypass_l2_but_requires_timing() -> None:
     assert candidates[0]["l2_passed"] is False
     assert candidates[0]["status"] == "主线买点候选"
     assert mainline_candidate_entries(candidates, max_count=3)[0]["signal_key"] == "mainline"
+
+
+def test_mainline_event_reversal_theme_can_bypass_l2_with_liquidity() -> None:
+    candidates = build_mainline_candidates(
+        l1_passed=["000010"],
+        l2_passed=[],
+        concept_map={"000010": ["创新药"]},
+        concept_heat=[{"name": "创新药", "pct": 5.2, "net_inflow": 900_000_000}],
+        theme_radar={"themes": [{"theme": "创新药", "score": 0.70}], "strategic_candidates": []},
+        df_map={"000010": _frame(_event_reversal_values(), amount=200_000_000.0)},
+        financial_map={},
+        name_map={"000010": "事件修复A"},
+        config=MainlineEngineConfig(),
+    )
+
+    assert candidates[0]["theme"] == "创新药医药"
+    assert candidates[0]["status"] == "事件主题修复候选"
+    assert candidates[0]["entry_type"] == "事件主题低位修复"
+    assert mainline_candidate_entries(candidates, max_count=3)
 
 
 def test_mainline_blocks_candidate_without_timing_gate() -> None:
@@ -85,6 +110,28 @@ def test_mainline_high_bias_can_enter_divergence_pool() -> None:
     assert candidates[0]["status"] == "强主线分歧"
     assert "高位抱团" in candidates[0]["risk_flags"]
     assert mainline_candidate_entries(candidates, max_count=3)[0]["signal_key"] == "mainline"
+
+
+def test_mainline_event_reversal_enters_tradeable_pool_before_observe() -> None:
+    candidates = build_mainline_candidates(
+        l1_passed=["000006", "000007"],
+        l2_passed=[],
+        concept_map={"000006": ["创新药"], "000007": ["创新药"]},
+        concept_heat=[{"name": "创新药", "pct": 4.2, "net_inflow": 900_000_000}],
+        theme_radar={"themes": [{"theme": "创新药", "score": 0.70}], "strategic_candidates": []},
+        df_map={
+            "000006": _frame(_event_reversal_values(), amount=180_000_000.0),
+            "000007": _frame([10 + i * 0.02 for i in range(90)] + [10.2] * 30),
+        },
+        financial_map={},
+        name_map={"000006": "修复候选", "000007": "观察候选"},
+        config=MainlineEngineConfig(),
+    )
+
+    assert candidates[0]["code"] == "000006"
+    assert candidates[0]["status"] == "事件主题修复候选"
+    assert "事件主题低位修复" in candidates[0]["entry_type"]
+    assert mainline_candidate_entries(candidates, max_count=3)[0]["code"] == "000006"
 
 
 def test_mainline_fish_tail_does_not_enter_tradeable_pool() -> None:

@@ -516,11 +516,14 @@ def _build_run_artifacts(data) -> FunnelRunArtifacts:
 
 def _mainline_log_counts(candidates: list[dict]) -> str:
     counts = _mainline_status_counts(candidates)
-    return f"买点{counts['主线买点候选']}/分歧{counts['强主线分歧']}/观察{counts['主线观察']}/鱼尾{counts['过热不追']}"
+    return (
+        f"买点{counts['主线买点候选']}/分歧{counts['强主线分歧']}/"
+        f"修复{counts['事件主题修复候选']}/观察{counts['主线观察']}/鱼尾{counts['过热不追']}"
+    )
 
 
 def _mainline_status_counts(candidates: list[dict]) -> dict[str, int]:
-    counts = {"主线买点候选": 0, "强主线分歧": 0, "主线观察": 0, "过热不追": 0}
+    counts = {"主线买点候选": 0, "强主线分歧": 0, "事件主题修复候选": 0, "主线观察": 0, "过热不追": 0}
     for item in candidates or []:
         status = str(item.get("status") or "主线观察")
         counts[status] = counts.get(status, 0) + 1

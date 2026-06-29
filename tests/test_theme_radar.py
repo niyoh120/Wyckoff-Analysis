@@ -98,6 +98,8 @@ def test_theme_radar_normalizes_mainline_aliases() -> None:
     assert normalize_theme_name("MLCC被动元件") == "MLCC被动元件"
     assert normalize_theme_name("陶瓷电容扩产") == "MLCC被动元件"
     assert normalize_theme_name("国产CPU替代") == "国产CPU"
+    assert normalize_theme_name("创新药进入商保目录") == "创新药医药"
+    assert normalize_theme_name("可控核聚变人造太阳") == "核聚变核电"
 
 
 def test_theme_radar_snapshot_round_trip_local_db(tmp_path, monkeypatch) -> None:

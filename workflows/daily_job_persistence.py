@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
+from core.mainline_engine import TRADEABLE_MAINLINE_STATUSES
 from integrations.recommendation_payload import (
     mark_ai_recommendations,
     prepare_recommendation_payload,
@@ -14,7 +15,7 @@ from integrations.recommendation_payload import (
 from integrations.supabase_market_signal import upsert_market_signal_daily
 from workflows.step4_pipeline import TZ, is_confirmed_step4_candidate
 
-RECOMMENDATION_MAINLINE_STATUSES = {"主线买点候选", "强主线分歧"}
+RECOMMENDATION_MAINLINE_STATUSES = TRADEABLE_MAINLINE_STATUSES
 RECOMMENDATION_STRATEGIC_MIN_THEME_SCORE = 0.45
 RECOMMENDATION_STRATEGIC_MIN_STOCK_SCORE = 0.55
 

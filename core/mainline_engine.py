@@ -11,9 +11,12 @@ from core.theme_radar import normalize_theme_name
 
 MAINLINE_BUY_STATUS = "主线买点候选"
 MAINLINE_DIVERGENCE_STATUS = "强主线分歧"
+MAINLINE_EVENT_REVERSAL_STATUS = "事件主题修复候选"
 MAINLINE_OBSERVE_STATUS = "主线观察"
 MAINLINE_AVOID_STATUS = "过热不追"
-TRADEABLE_MAINLINE_STATUSES = {MAINLINE_BUY_STATUS, MAINLINE_DIVERGENCE_STATUS}
+TRADEABLE_MAINLINE_STATUSES = frozenset(
+    {MAINLINE_BUY_STATUS, MAINLINE_DIVERGENCE_STATUS, MAINLINE_EVENT_REVERSAL_STATUS}
+)
 BLOCKING_TIMING_FLAGS = {"鱼尾加速", "放量长上影", "跌破确认支撑", "主题缩量阴跌"}
 
 
@@ -180,8 +183,9 @@ def _rank_candidates(candidates: list[MainlineCandidate], cfg: MainlineEngineCon
     status_rank = {
         MAINLINE_BUY_STATUS: 0,
         MAINLINE_DIVERGENCE_STATUS: 1,
-        MAINLINE_OBSERVE_STATUS: 2,
-        MAINLINE_AVOID_STATUS: 3,
+        MAINLINE_EVENT_REVERSAL_STATUS: 2,
+        MAINLINE_OBSERVE_STATUS: 3,
+        MAINLINE_AVOID_STATUS: 4,
     }
     ranked = sorted(candidates, key=lambda item: (status_rank.get(item.status, 9), -item.mainline_score, item.code))
     buckets: dict[str, int] = {}
@@ -233,6 +237,7 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
     if len(close) < 60:
         return {}
     volume = _numeric_series(ordered, "volume")
+    amount = _numeric_series(ordered, "amount")
     high = _numeric_series(ordered, "high")
     low = _numeric_series(ordered, "low")
     open_ = _numeric_series(ordered, "open")
@@ -253,12 +258,13 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
         "close_pos_day": _day_close_pos(ordered, high, low),
         "upper_shadow_pct": _upper_shadow_pct(ordered, open_, high, close),
         "vol_ratio_5_20": _vol_ratio(volume),
+        "amount20_wan": _amount20_wan(amount),
     }
 
 
 def _timing_result(metrics: dict[str, float]) -> tuple[float, str, list[str]]:
     risk_flags = _timing_risks(metrics)
-    score = _timing_score(metrics)
+    score = _timing_score(metrics, risk_flags)
     entries = _entry_types(metrics, risk_flags)
     return score, " + ".join(entries), risk_flags
 
@@ -279,9 +285,13 @@ def _timing_risks(metrics: dict[str, float]) -> list[str]:
 
 
 def _entry_types(metrics: dict[str, float], risk_flags: list[str]) -> list[str]:
-    if any(flag in risk_flags for flag in BLOCKING_TIMING_FLAGS):
-        return []
     entries: list[str] = []
+    if _event_reversal_entry_ok(metrics, risk_flags):
+        entries.append("事件主题低位修复")
+    if any(flag in risk_flags for flag in BLOCKING_TIMING_FLAGS if flag != "跌破确认支撑"):
+        return entries
+    if "跌破确认支撑" in risk_flags and not entries:
+        return []
     if -2 <= metrics["dist_ma20"] <= 8 and metrics["dist_ma50"] >= -2 and metrics["ret60"] >= 8:
         entries.append("主线回踩MA20")
     if metrics["close_pos20"] >= 0.86 and 4 <= metrics["ret20"] <= 36 and 0.75 <= metrics["vol_ratio_5_20"] <= 2.2:
@@ -303,13 +313,28 @@ def _extended_mainline_entries(metrics: dict[str, float], risk_flags: list[str])
     return entries
 
 
-def _timing_score(metrics: dict[str, float]) -> float:
+def _timing_score(metrics: dict[str, float], risk_flags: list[str]) -> float:
     trend = 0.25 * float(metrics["dist_ma20"] >= -2) + 0.20 * float(metrics["dist_ma50"] >= -3)
     strength = 0.20 * _clamp((metrics["ret60"] - 5) / 45) + 0.15 * _clamp(metrics["close_pos20"])
     distance = 0.10 * _clamp(1.0 - max(metrics["dist_ma20"] - 8, 0.0) / 14.0)
     volume = 0.10 * _clamp(1.0 - max(metrics["vol_ratio_5_20"] - 1.6, 0.0) / 1.4)
     extension = 0.12 * float(_high_mainline_support(metrics))
-    return _clamp(trend + strength + distance + volume + extension)
+    event_reversal = 0.16 * float(_event_reversal_entry_ok(metrics, risk_flags))
+    return _clamp(trend + strength + distance + volume + extension + event_reversal)
+
+
+def _event_reversal_entry_ok(metrics: dict[str, float], risk_flags: list[str]) -> bool:
+    if "鱼尾加速" in risk_flags or "放量长上影" in risk_flags:
+        return False
+    return (
+        metrics["amount20_wan"] >= 12000.0
+        and -28.0 <= metrics["ret20"] <= 18.0
+        and -45.0 <= metrics["ret60"] <= 55.0
+        and -16.0 <= metrics["dist_ma20"] <= 8.0
+        and -28.0 <= metrics["dist_ma50"] <= 12.0
+        and metrics["close_pos20"] >= 0.22
+        and 0.60 <= metrics["vol_ratio_5_20"] <= 2.60
+    )
 
 
 def _fish_tail_risk(metrics: dict[str, float]) -> bool:
@@ -398,6 +423,8 @@ def _status(
         return MAINLINE_AVOID_STATUS
     if _high_divergence_is_tradeable(theme_score, role_score, timing_score, entry_type, risk_flags, cfg):
         return MAINLINE_DIVERGENCE_STATUS
+    if _event_reversal_is_tradeable(theme_score, timing_score, entry_type, risk_flags, cfg):
+        return MAINLINE_EVENT_REVERSAL_STATUS
     if (
         theme_score >= cfg.min_theme_score
         and role_score >= cfg.min_stock_score
@@ -406,6 +433,21 @@ def _status(
     ):
         return MAINLINE_BUY_STATUS
     return MAINLINE_OBSERVE_STATUS
+
+
+def _event_reversal_is_tradeable(
+    theme_score: float,
+    timing_score: float,
+    entry_type: str,
+    risk_flags: list[str],
+    cfg: MainlineEngineConfig,
+) -> bool:
+    return (
+        "事件主题低位修复" in entry_type
+        and theme_score >= max(cfg.min_theme_score - 0.05, 0.45)
+        and timing_score >= max(cfg.min_timing_score * 0.45, 0.24)
+        and not {"鱼尾加速", "放量长上影"} & set(risk_flags)
+    )
 
 
 def _high_divergence_is_tradeable(
@@ -483,6 +525,12 @@ def _vol_ratio(volume: pd.Series) -> float:
         return 1.0
     base = float(volume.tail(20).mean())
     return 1.0 if base <= 0 else float(volume.tail(5).mean()) / base
+
+
+def _amount20_wan(amount: pd.Series) -> float:
+    if len(amount) < 20:
+        return 0.0
+    return float(amount.tail(20).mean()) / 10000.0
 
 
 def _score(theme: float, role: float, quality: float, timing: float) -> float:

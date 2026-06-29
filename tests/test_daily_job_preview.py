@@ -164,11 +164,17 @@ def test_recommendation_write_symbols_keeps_only_mainline_or_strategic_confirmed
             "candidate_lane": "mainline",
             "candidate_status": "过热不追",
         },
+        {
+            "code": "000006",
+            "signal_status": "confirmed",
+            "candidate_lane": "mainline",
+            "candidate_status": "事件主题修复候选",
+        },
     ]
 
     got = recommendation_write_symbols(rows)
 
-    assert [row["code"] for row in got] == ["000003", "000004"]
+    assert [row["code"] for row in got] == ["000003", "000004", "000006"]
 
 
 def test_step3_springboard_updates_patch_recommendation_payload():
