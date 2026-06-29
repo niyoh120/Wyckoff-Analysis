@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from workflows.step3_runtime_config import Step3RuntimeConfig
+from workflows.step3_upstream_selection import finite_numeric_series
 
 DYNAMIC_MAINLINE_BONUS_RATE = 0.15
 DYNAMIC_MAINLINE_TOP_N = 3
@@ -142,7 +143,7 @@ def _fallback_candidates_when_compression_empty(candidates_df: pd.DataFrame, fal
     if candidates_df is None or candidates_df.empty:
         return pd.DataFrame()
     df = candidates_df.copy()
-    df["wyckoff_score"] = pd.to_numeric(df.get("funnel_score"), errors="coerce")
+    df["wyckoff_score"] = finite_numeric_series(df.get("funnel_score"), df.index)
     df = df.sort_values(
         by=["wyckoff_score", "rs_10", "min_vol_ratio_5d"],
         ascending=[False, False, True],

@@ -9,7 +9,11 @@ from core.funnel_taxonomy import source_label
 from workflows.step3_compression import select_compressed_step3_candidates
 from workflows.step3_runtime_config import Step3RuntimeConfig
 from workflows.step3_text import clean_text
-from workflows.step3_upstream_selection import has_upstream_priority_context, select_upstream_priority_candidates
+from workflows.step3_upstream_selection import (
+    finite_numeric_series,
+    has_upstream_priority_context,
+    select_upstream_priority_candidates,
+)
 
 
 def candidate_source_label(row: pd.Series) -> str:
@@ -60,10 +64,10 @@ def select_step3_candidates(
 
 
 def _fill_wyckoff_score(df: pd.DataFrame) -> None:
-    df["wyckoff_score"] = pd.to_numeric(df.get("priority_score"), errors="coerce")
+    df["wyckoff_score"] = finite_numeric_series(df.get("priority_score"), df.index)
     df["wyckoff_score"] = df["wyckoff_score"].where(
         df["wyckoff_score"].notna(),
-        pd.to_numeric(df.get("funnel_score"), errors="coerce"),
+        finite_numeric_series(df.get("funnel_score"), df.index),
     )
 
 

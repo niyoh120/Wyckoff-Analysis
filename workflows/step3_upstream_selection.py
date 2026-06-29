@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import math
+from typing import Any
+
 import pandas as pd
 
 from core.ai_candidate_allocation import fit_ai_candidate_quotas
@@ -14,7 +17,7 @@ def has_upstream_priority_context(candidates_df: pd.DataFrame, runtime_config: S
         return False
     if (
         "priority_score" in candidates_df.columns
-        and pd.to_numeric(candidates_df["priority_score"], errors="coerce").notna().any()
+        and finite_numeric_series(candidates_df["priority_score"], candidates_df.index).notna().any()
     ):
         return True
     return (
@@ -62,10 +65,20 @@ def _prepare_upstream_frame(candidates_df: pd.DataFrame) -> pd.DataFrame:
         df["selection_is_fill"] = df["selection_is_fill"].apply(coerce_bool_like)
     else:
         df["selection_is_fill"] = False
-    df["priority_score"] = pd.to_numeric(df.get("priority_score"), errors="coerce")
+    df["priority_score"] = finite_numeric_series(df.get("priority_score"), df.index)
     return df.sort_values(by=["selection_is_fill", "input_order"], ascending=[True, True], kind="stable").reset_index(
         drop=True
     )
+
+
+def finite_numeric_series(raw: Any, index: pd.Index) -> pd.Series:
+    if raw is None:
+        return pd.Series(pd.NA, index=index, dtype="Float64")
+    converted = pd.to_numeric(raw, errors="coerce")
+    series = converted if isinstance(converted, pd.Series) else pd.Series(converted, index=index)
+    series = series.reindex(index)
+    finite_mask = series.map(lambda value: math.isfinite(float(value)) if pd.notna(value) else False)
+    return series.where(finite_mask)
 
 
 def _priority_ordered(df: pd.DataFrame) -> pd.DataFrame:

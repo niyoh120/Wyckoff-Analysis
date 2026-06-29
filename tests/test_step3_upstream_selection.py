@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from workflows.step3_runtime_config import Step3RuntimeConfig
+from workflows.step3_selection import select_step3_candidates
 from workflows.step3_upstream_selection import select_upstream_priority_candidates
 
 
@@ -48,3 +49,49 @@ def test_upstream_priority_selection_preserves_input_order_without_scores() -> N
     selected = select_upstream_priority_candidates(candidates, Step3RuntimeConfig(), context_cap=2)
 
     assert selected["code"].tolist() == ["T_FIRST", "A_FIRST"]
+
+
+def test_upstream_priority_selection_ignores_nonfinite_scores() -> None:
+    candidates = pd.DataFrame(
+        [
+            {"code": "T_INF", "track": "Trend", "input_order": 0, "priority_score": float("inf")},
+            {"code": "T_GOOD", "track": "Trend", "input_order": 1, "priority_score": 90.0},
+            {"code": "A_GOOD", "track": "Accum", "input_order": 2, "priority_score": 80.0},
+            {"code": "A_NAN", "track": "Accum", "input_order": 3, "priority_score": float("nan")},
+        ]
+    )
+
+    selected = select_upstream_priority_candidates(candidates, Step3RuntimeConfig(), context_cap=2)
+
+    assert selected["code"].tolist() == ["T_GOOD", "A_GOOD"]
+
+
+def test_step3_wyckoff_score_uses_finite_priority_then_funnel() -> None:
+    candidates = pd.DataFrame(
+        [
+            {
+                "code": "P_INF",
+                "track": "Trend",
+                "input_order": 0,
+                "priority_score": float("inf"),
+                "funnel_score": 8.0,
+            },
+            {
+                "code": "F_INF",
+                "track": "Trend",
+                "input_order": 1,
+                "priority_score": float("nan"),
+                "funnel_score": float("inf"),
+            },
+        ]
+    )
+
+    selected = select_step3_candidates(
+        candidates,
+        "NEUTRAL",
+        Step3RuntimeConfig(enable_compression=False, respect_upstream_priority=False),
+    )
+
+    by_code = selected.set_index("code")["wyckoff_score"]
+    assert by_code["P_INF"] == 8.0
+    assert pd.isna(by_code["F_INF"])
