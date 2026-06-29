@@ -290,9 +290,13 @@ def _confirmed_signals(
     trigger_map: dict[str, str] = {}
     for item in pending_pool.tick(ctx.day_df_map, signal_date_str):
         code = str(item.get("code", "")).strip()
-        if code:
+        if not code:
+            continue
+        score = float(item.get("score", 0) or 0)
+        if code not in score_map:
             codes.append(code)
-            score_map[code] = float(item.get("score", 0))
+        if code not in score_map or score > score_map[code]:
+            score_map[code] = score
             track_map[code] = str(item.get("track", "Trend"))
             trigger_map[code] = str(item.get("signal_type", "confirmed"))
     return _ConfirmedSignals(codes, score_map, track_map, trigger_map)

@@ -6,6 +6,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
+from core import backtest_replay as replay_mod
 from core.backtest_execution import ExitSimulationConfig
 from core.backtest_replay import BacktestReplayConfig, replay_backtest
 from core.mainline_engine import MainlineEngineConfig
@@ -119,3 +120,34 @@ def test_replay_backtest_generates_t1_trades(monkeypatch) -> None:
     assert calls["concept_heat"] == [{"name": "CPO", "pct": 3.2}]
     assert calls["financial_map"] == {"000001": {"roe": 12}}
     assert calls["mainline_config"].max_ai_candidates == 2
+
+
+def test_confirmed_signals_dedupes_code_and_keeps_best_score() -> None:
+    class Pending:
+        def write(self, *_args, **_kwargs):
+            return None
+
+        def tick(self, *_args, **_kwargs):
+            return [
+                {"code": "000001", "score": 30.0, "track": "Trend", "signal_type": "sos"},
+                {"code": "000001", "score": 90.0, "track": "Accum", "signal_type": "spring"},
+                {"code": "000001", "score": 20.0, "track": "Trend", "signal_type": "evr"},
+            ]
+
+    ctx = replay_mod._DayContext(
+        idx=0,
+        signal_date=date(2026, 1, 1),
+        entry_target_date=date(2026, 1, 2),
+        day_df_map={"000001": _hist()},
+        name_map={"000001": "平安银行"},
+        day_cfg=FunnelConfig(trading_days=3),
+        result=_result(),
+        regime="NEUTRAL",
+    )
+
+    confirmed = replay_mod._confirmed_signals(ctx, Pending(), {})
+
+    assert confirmed.codes == ["000001"]
+    assert confirmed.score_map == {"000001": 90.0}
+    assert confirmed.track_map == {"000001": "Accum"}
+    assert confirmed.trigger_map == {"000001": "spring"}
