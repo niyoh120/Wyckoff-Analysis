@@ -171,3 +171,39 @@ def test_name_score_map_prefers_highest_scored_source_name() -> None:
 
     assert got["000001"] == (90.0, "spring(确认)")
     assert got["000002"] == (70.0, "tight_base")
+
+
+def test_candidate_entry_duplicate_metadata_stays_consistent_in_replay(monkeypatch) -> None:
+    monkeypatch.setattr("core.backtest_replay.calc_market_breadth", lambda _df_map: {})
+    monkeypatch.setattr(
+        "core.backtest_replay.analyze_benchmark_and_tune_cfg", lambda *_args, **_kwargs: {"regime": "NEUTRAL"}
+    )
+
+    def fake_run_funnel(**_kwargs):
+        return _result()._replace(
+            triggers={},
+            candidate_entries=[
+                {"code": "000001", "track": "future_leader", "entry_type": "launchpad", "score": 80.0},
+                {"code": "000001", "track": "accumulation", "entry_type": "spring", "score": 100.0},
+            ],
+        )
+
+    monkeypatch.setattr("core.backtest_replay.run_funnel", fake_run_funnel)
+    replay_cfg = replace(_config(), selection_mode="tradeable_l4")
+    cfg = FunnelConfig(trading_days=3)
+    cfg.ma_long = 2
+
+    replay = replay_backtest(
+        all_df_map={"000001": _hist()},
+        bench_df=_hist(),
+        trade_dates=[date(2026, 1, day) for day in range(1, 6)],
+        name_map={"000001": "平安银行"},
+        market_cap_map={},
+        sector_map={},
+        base_cfg=cfg,
+        config=replay_cfg,
+    )
+
+    assert replay.records[0].score == 100.0
+    assert replay.records[0].track == "Accum"
+    assert replay.records[0].trigger == "spring"

@@ -227,8 +227,10 @@ def _candidate_entry_maps(entries: list[dict[str, object]]) -> tuple[dict[str, f
         code = str(item.get("code", "")).strip()
         if not code:
             continue
-        score_map[code] = max(score_map.get(code, -9999.0), float(item.get("score", 0.0) or 0.0))
-        track_map.setdefault(code, _candidate_entry_track(item))
+        score = float(item.get("score", 0.0) or 0.0)
+        if code not in score_map or score > score_map[code]:
+            score_map[code] = score
+            track_map[code] = _candidate_entry_track(item)
     return score_map, track_map
 
 

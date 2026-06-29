@@ -260,7 +260,7 @@ def test_tradeable_l4_candidate_board_prioritizes_launchpad_over_formal_score() 
     assert track_map == {"000002": "Trend", "000001": "Accum"}
 
 
-def test_tradeable_l4_candidate_board_keeps_best_duplicate_score_and_selected_track() -> None:
+def test_tradeable_l4_candidate_board_keeps_best_duplicate_score_and_track() -> None:
     result = FunnelResult(
         layer1_symbols=[],
         layer2_symbols=[],
@@ -289,7 +289,7 @@ def test_tradeable_l4_candidate_board_keeps_best_duplicate_score_and_selected_tr
 
     assert codes == ["000001"]
     assert score_map == {"000001": 100.0}
-    assert track_map == {"000001": "Trend"}
+    assert track_map == {"000001": "Accum"}
 
 
 def test_tradeable_l4_candidate_board_selects_trend_lane_entry() -> None:
