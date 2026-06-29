@@ -9,7 +9,7 @@ from dataclasses import replace
 from typing import Any
 
 from cli.workflows.models import WorkflowContext
-from cli.workflows.router import WORKFLOWS, route_workflow
+from cli.workflows.router import WORKFLOWS, route_resume_workflow, route_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -77,20 +77,32 @@ JSON schema:
 
 
 def route_workflow_with_model(user_text: str, provider: Any | None) -> WorkflowContext:
-    """Use the model to decide dynamic workflow routing when deterministic routing is general."""
+    """Use the model as the primary semantic router when it is available."""
 
-    base = route_workflow(user_text)
-    if not base.is_general:
-        return base
+    resumed = route_resume_workflow(user_text)
+    if resumed:
+        return resumed
     decision = _model_decision(user_text, provider)
-    if not _should_use_workflow(decision):
-        return base
+    if decision:
+        return _context_from_model_decision(decision)
+    return route_workflow(user_text)
+
+
+def _context_from_model_decision(decision: dict[str, Any]) -> WorkflowContext:
     return replace(
-        WORKFLOWS["dynamic_task"],
-        route_reason=f"模型判断需要动态 workflow：{decision['reason']}",
+        WORKFLOWS["dynamic_task"] if _should_use_workflow(decision) else WORKFLOWS["general_chat"],
+        route_reason=_model_route_reason(decision),
         route_confidence=float(decision["confidence"]),
         route_matches=("model_router",),
     )
+
+
+def _model_route_reason(decision: dict[str, Any]) -> str:
+    if _should_use_workflow(decision):
+        return f"模型判断需要动态 workflow：{decision['reason']}"
+    if decision["mode"] == "dynamic_workflow":
+        return f"模型动态 workflow 置信度不足，直接处理：{decision['reason']}"
+    return f"模型判断直接处理：{decision['reason']}"
 
 
 def _model_decision(user_text: str, provider: Any | None) -> dict[str, Any] | None:

@@ -204,7 +204,54 @@ def test_dispatch_keeps_direct_runtime_when_model_routes_direct():
     )
 
     assert workflow.name == "general_chat"
+    assert workflow.route_reason == "模型判断直接处理：单只股票诊断"
     assert isinstance(runtime, AgentRuntime)
+
+
+def test_dispatch_model_can_override_explicit_workflow_marker_to_direct():
+    provider = RouterDecisionProvider('{"mode":"direct","confidence":0.93,"reason":"只是解释概念"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="用 workflow 解释一下 workflow 是什么",
+    )
+
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "模型判断直接处理：只是解释概念"
+    assert isinstance(runtime, AgentRuntime)
+
+
+def test_dispatch_keeps_low_confidence_dynamic_decision_direct():
+    provider = RouterDecisionProvider('{"mode":"dynamic_workflow","confidence":0.51,"reason":"可能需要多阶段"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="分阶段看看这个概念怎么理解",
+    )
+
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "模型动态 workflow 置信度不足，直接处理：可能需要多阶段"
+    assert isinstance(runtime, AgentRuntime)
+
+
+def test_dispatch_resume_workflow_bypasses_model_router():
+    provider = RouterDecisionProvider('{"mode":"direct","confidence":0.99,"reason":"看起来像普通文本"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="继续 workflow wf_1",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_reason == "用户明确要求继续已有 workflow"
+    assert provider.chat_calls == []
+    assert isinstance(runtime, WorkflowExecutor)
 
 
 def test_dispatch_accepts_chinese_direct_router_alias():

@@ -96,15 +96,22 @@ WORKFLOWS: dict[str, WorkflowContext] = {
 def route_workflow(user_text: str) -> WorkflowContext:
     """Select only the runtime lane; model planning owns task semantics."""
 
-    text = user_text.lower()
-    resumed = _resume_workflow_context(text)
+    resumed = route_resume_workflow(user_text)
     if resumed:
-        return _with_route(resumed, "用户明确要求继续已有 workflow", 0.95, ("继续 workflow",))
+        return resumed
+    text = user_text.lower()
     if matches := _explicit_dynamic_workflow_matches(text):
         return _with_route(WORKFLOWS["dynamic_task"], "用户显式要求动态 workflow", 0.96, matches)
     if matches := _deep_workflow_matches(text):
         return _with_route(WORKFLOWS["dynamic_task"], "用户要求深度/多阶段研究", 0.86, matches)
     return _with_route(WORKFLOWS["general_chat"], "普通工具型对话交给直接 agent", 0.0, ())
+
+
+def route_resume_workflow(user_text: str) -> WorkflowContext | None:
+    resumed = _resume_workflow_context(user_text.lower())
+    if not resumed:
+        return None
+    return _with_route(resumed, "用户明确要求继续已有 workflow", 0.95, ("继续 workflow",))
 
 
 def build_workflow_system_prompt(workflow: WorkflowContext | None) -> str:
