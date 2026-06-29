@@ -20,7 +20,7 @@ from core.backtest_execution import (
     resolve_trade_exit,
 )
 from core.backtest_selection import combine_trigger_scores, select_ai_input_codes
-from core.candidate_policy import CandidatePolicyConfig, apply_regime_position_filter
+from core.candidate_policy import CandidatePolicyConfig, apply_regime_position_filter, candidate_score_value
 from core.candidate_tracks import candidate_entry_track
 from core.mainline_engine import MainlineEngineConfig
 from core.market_breadth import calc_market_breadth
@@ -292,7 +292,7 @@ def _confirmed_signals(
         code = str(item.get("code", "")).strip()
         if not code:
             continue
-        score = float(item.get("score", 0) or 0)
+        score = candidate_score_value(item.get("score"))
         if code not in score_map:
             codes.append(code)
         if code not in score_map or score > score_map[code]:
@@ -308,8 +308,8 @@ def _merge_confirmed_metadata(
     confirmed: _ConfirmedSignals,
 ) -> None:
     for code, confirmed_score in confirmed.score_map.items():
-        score = float(confirmed_score or 0.0)
-        if code not in score_map or score > float(score_map.get(code, 0.0) or 0.0):
+        score = candidate_score_value(confirmed_score)
+        if code not in score_map or score > candidate_score_value(score_map.get(code)):
             score_map[code] = score
             track_map[code] = confirmed.track_map.get(code, track_map.get(code, ""))
 
@@ -342,7 +342,7 @@ def _name_score_map(result: FunnelResult, confirmed: _ConfirmedSignals) -> dict[
         code = str(item.get("code", "")).strip()
         if code:
             _set_best_trigger_name(
-                out, code, float(item.get("score", 0.0) or 0.0), str(item.get("entry_type", "alpha"))
+                out, code, candidate_score_value(item.get("score")), str(item.get("entry_type", "alpha"))
             )
     for code, signal_type in confirmed.trigger_map.items():
         _set_best_trigger_name(out, code, confirmed.score_map.get(code, 0.0), f"{signal_type}(确认)")
@@ -350,9 +350,10 @@ def _name_score_map(result: FunnelResult, confirmed: _ConfirmedSignals) -> dict[
 
 
 def _set_best_trigger_name(out: dict[str, tuple[float, str]], code: str, score: float, name: str) -> None:
-    current_score = float((out.get(code) or (float("-inf"), ""))[0])
-    if code not in out or float(score or 0.0) > current_score:
-        out[code] = (float(score or 0.0), name)
+    current_score = candidate_score_value((out.get(code) or (0.0, ""))[0])
+    normalized_score = candidate_score_value(score)
+    if code not in out or normalized_score > current_score:
+        out[code] = (normalized_score, name)
 
 
 def _append_trade_records(
@@ -486,7 +487,7 @@ def _make_trade_record(
         code=code,
         name=name_map.get(code, code),
         trigger=trigger_name,
-        score=float(selected.score_map.get(code, 0.0)),
+        score=candidate_score_value(selected.score_map.get(code)),
         entry_close=plan.entry_close,
         exit_close=exit_close,
         ret_pct=(exit_exec - entry_exec) / entry_exec * 100.0 if entry_exec > 0 else 0.0,

@@ -235,7 +235,8 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert run["label"] == "持仓复盘"
         assert run["plan"]["script"]["runtime"]["script_path"].startswith(str(tmp_path / "workflow-runs"))
         assert (tmp_path / "workflow-runs" / "s1" / f"{executor.run.run_id}.json").is_file()
-        assert "自然语言理解" in provider.calls[0]["system_prompt"]
+        assert "最可能的任务意图" in provider.calls[0]["system_prompt"]
+        assert "表达形式本身" in provider.calls[0]["system_prompt"]
         assert "错别字" not in provider.calls[0]["system_prompt"]
         assert "运行上下文" in provider.calls[0]["messages"][0]["content"]
         assert stored_events[0]["event_type"] == "workflow_plan"

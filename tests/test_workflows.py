@@ -62,7 +62,7 @@ def test_workflow_prompt_prefers_model_inference_before_clarifying():
 
     assert "自然语言理解" in prompt
     assert "工具验证" in prompt
-    assert "文字形式本身" in prompt
+    assert "表达形式本身" in prompt
     assert "错别字" not in prompt
 
 
@@ -138,6 +138,7 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
     assert isinstance(runtime, WorkflowExecutor)
     assert provider.chat_calls
     assert provider.chat_calls[0]["tools"] == []
+    assert "最可能的任务意图" in provider.chat_calls[0]["system_prompt"]
     assert "不要按关键词机械判断" in provider.chat_calls[0]["system_prompt"]
 
 
@@ -327,6 +328,7 @@ def test_direct_runtime_prompt_prefers_model_inference_before_clarifying():
     assert events[-1]["text"] == "ok"
     prompt = provider.calls[0]["system_prompt"]
     assert "自然语言理解" in prompt
+    assert "上下文恢复" in prompt
     assert "可用工具验证" in prompt
     assert "写入/交易/高风险确认" in prompt
     assert "谐音" not in prompt
