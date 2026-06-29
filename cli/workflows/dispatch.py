@@ -8,8 +8,8 @@ from typing import Any
 from cli.runtime import AgentRuntime
 from cli.scratchpad import AgentScratchpad
 from cli.workflows.executor import WorkflowExecutor
+from cli.workflows.model_router import route_workflow_with_model
 from cli.workflows.models import WorkflowContext
-from cli.workflows.router import route_workflow
 
 _DIRECT_TOOL_ORDER = (
     "search_stock_by_name",
@@ -52,7 +52,7 @@ def build_turn_runtime(
 ) -> tuple[Any, WorkflowContext]:
     """Return direct runtime for general chat, workflow executor for task turns."""
 
-    workflow = workflow_context or route_workflow(user_text)
+    workflow = workflow_context or route_workflow_with_model(user_text, provider)
     if workflow.is_general and not workflow_script:
         kwargs: dict[str, Any] = {
             "scratchpad": scratchpad,

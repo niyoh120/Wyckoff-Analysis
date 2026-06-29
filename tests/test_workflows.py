@@ -8,6 +8,17 @@ from cli.workflows.router import build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
 
+class RouterDecisionProvider(ScriptedProvider):
+    def __init__(self, decision: str):
+        super().__init__([])
+        self.decision = decision
+        self.chat_calls: list[dict] = []
+
+    def chat(self, messages, tools, system_prompt=""):
+        self.chat_calls.append({"messages": messages, "tools": tools, "system_prompt": system_prompt})
+        return {"type": "text", "text": self.decision}
+
+
 def test_route_workflow_keeps_portfolio_turn_direct():
     workflow = route_workflow("我的持仓有没有要处理的？")
 
@@ -103,6 +114,53 @@ def test_dispatch_uses_direct_runtime_for_portfolio_turn():
         StubToolRegistry(),
         session_id="s1",
         user_text="我的持仓有什么风险？",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+
+
+def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn():
+    provider = RouterDecisionProvider(
+        '{"mode":"dynamic_workflow","confidence":0.84,"reason":"需要先筛选候选，再分析结构和攻防动作"}'
+    )
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_reason == "模型判断需要动态 workflow：需要先筛选候选，再分析结构和攻防动作"
+    assert workflow.route_matches == ("model_router",)
+    assert isinstance(runtime, WorkflowExecutor)
+    assert provider.chat_calls
+    assert provider.chat_calls[0]["tools"] == []
+    assert "不要按关键词机械判断" in provider.chat_calls[0]["system_prompt"]
+
+
+def test_dispatch_keeps_direct_runtime_when_model_routes_direct():
+    provider = RouterDecisionProvider('{"mode":"direct","confidence":0.9,"reason":"单只股票诊断"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="300750 现在怎么看？",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+
+
+def test_dispatch_keeps_direct_runtime_when_model_router_is_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
     )
 
     assert workflow.name == "general_chat"
