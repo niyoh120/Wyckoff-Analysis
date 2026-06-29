@@ -320,11 +320,18 @@ def _task_prompt(task: dict[str, Any], title: str, user_text: str) -> str:
 
 def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
     deps: list[str] = []
-    for field in ("depends_on", "dependencies", "after", "needs"):
+    for field in ("depends_on", "dependsOn", "dependencies", "after", "needs", "requires"):
         value = task.get(field)
         items = value if isinstance(value, (list, tuple)) else [value]
-        deps.extend(_slug(item) for item in items if str(item or "").strip())
+        deps.extend(dep for item in items if (dep := _dependency_id(item)))
     return tuple(dict.fromkeys(dep for dep in deps if dep))
+
+
+def _dependency_id(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("id") or value.get("task_id") or value.get("step_id") or value.get("title")
+    text = str(value or "").strip()
+    return _slug(text) if text else ""
 
 
 def _safe_list(value: Any) -> list[dict[str, Any]]:

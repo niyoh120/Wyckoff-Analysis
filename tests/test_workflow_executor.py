@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 
 from cli.workflows.control import WorkflowControl
-from cli.workflows.executor import WorkflowExecutor
+from cli.workflows.executor import WorkflowExecutor, _phase_batches
+from cli.workflows.models import WorkflowStep
 from cli.workflows.planner import plan_workflow
 from cli.workflows.resume import build_resume_prompt
 from cli.workflows.router import route_workflow
@@ -84,6 +85,31 @@ _DEPENDENT_PLAN_JSON = """{
   "synthesis_prompt": "按依赖顺序汇总。"
 }"""
 
+_OUT_OF_ORDER_DEPENDENT_PLAN_JSON = """{
+  "title": "乱序依赖复核",
+  "phases": [
+    {
+      "id": "review",
+      "tasks": [
+        {
+          "id": "risk_plan",
+          "title": "攻防计划",
+          "agent": "trading",
+          "depends_on": ["scan"],
+          "prompt": "基于扫描结果输出攻防计划"
+        },
+        {
+          "id": "scan",
+          "title": "扫描候选",
+          "agent": "research",
+          "prompt": "先扫描候选"
+        }
+      ]
+    }
+  ],
+  "synthesis_prompt": "按依赖顺序汇总。"
+}"""
+
 _EDITED_PLAN_JSON = """{
   "title": "编辑后脚本",
   "rationale": "用户修改了脚本。",
@@ -126,7 +152,7 @@ def test_workflow_planner_accepts_agent_aliases_and_steps_field():
                             "id": "risk_plan",
                             "title": "攻防计划",
                             "agent": "delegate_to_trading",
-                            "after": "scan",
+                            "dependsOn": [{"id": "scan"}],
                             "instruction": "输出观察、买入和失效条件",
                         },
                     ],
@@ -340,6 +366,50 @@ def test_workflow_executor_respects_task_dependencies_within_phase(tmp_path, mon
         assert events[-1]["text"] == "依赖复核完成。"
     finally:
         _reset_local_db(local_db)
+
+
+def test_workflow_executor_topologically_orders_out_of_order_dependencies(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "扫描完成，候选 A。"}],
+            [{"type": "text_delta", "text": "基于候选 A 制定攻防计划。"}],
+            [{"type": "text_delta", "text": "乱序依赖复核完成。"}],
+        ]
+    )
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(),
+        session_id="s_dep_order",
+        user_text="按依赖复核候选",
+        workflow_context=route_workflow("用 workflow 复核候选"),
+        workflow_script=json.loads(_OUT_OF_ORDER_DEPENDENT_PLAN_JSON),
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "按依赖复核候选"}]))
+
+    try:
+        step_starts = [event for event in events if event["type"] == "workflow_step_start"]
+        assert [event["step"]["step_id"] for event in step_starts] == ["scan", "risk_plan"]
+        assert "先扫描候选" in provider.calls[0]["messages"][0]["content"]
+        assert "扫描完成，候选 A。" in provider.calls[1]["messages"][0]["content"]
+        assert events[-1]["text"] == "乱序依赖复核完成。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_phase_batches_tolerates_external_and_cyclic_dependencies():
+    external = WorkflowStep(step_id="external", title="外部依赖", phase="review", depends_on=("prior_phase",))
+    free = WorkflowStep(step_id="free", title="无依赖", phase="review")
+    assert [[step.step_id for step in batch] for batch in _phase_batches([external, free])] == [["external", "free"]]
+
+    a = WorkflowStep(step_id="a", title="A", phase="cycle", depends_on=("b",))
+    b = WorkflowStep(step_id="b", title="B", phase="cycle", depends_on=("a",))
+    assert [[step.step_id for step in batch] for batch in _phase_batches([a, b])] == [["a"], ["b"]]
 
 
 def test_prepared_workflow_can_be_stopped_before_agents_run(tmp_path, monkeypatch):

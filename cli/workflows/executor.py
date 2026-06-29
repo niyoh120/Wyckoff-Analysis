@@ -369,21 +369,23 @@ def _phase_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
 
 def _dependency_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
     batches: list[list[WorkflowStep]] = []
-    current: list[WorkflowStep] = []
+    remaining = list(steps)
     completed_ids: set[str] = set()
-    current_ids: set[str] = set()
-    for step in steps:
-        deps = {dep for dep in step.depends_on if dep}
-        if current and (deps & current_ids or not deps.issubset(completed_ids | current_ids)):
-            batches.append(current)
-            completed_ids.update(current_ids)
-            current = []
-            current_ids = set()
-        current.append(step)
-        current_ids.add(step.step_id)
-    if current:
-        batches.append(current)
+    phase_ids = {step.step_id for step in steps}
+    while remaining:
+        ready = [step for step in remaining if _phase_dependencies(step, phase_ids).issubset(completed_ids)]
+        if not ready:
+            batches.extend([step] for step in remaining)
+            break
+        batches.append(ready)
+        completed_ids.update(step.step_id for step in ready)
+        ready_ids = {id(step) for step in ready}
+        remaining = [step for step in remaining if id(step) not in ready_ids]
     return batches
+
+
+def _phase_dependencies(step: WorkflowStep, phase_ids: set[str]) -> set[str]:
+    return {dep for dep in step.depends_on if dep in phase_ids}
 
 
 def _max_workers(steps: list[WorkflowStep]) -> int:
