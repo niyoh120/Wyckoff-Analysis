@@ -925,6 +925,10 @@ class TestSymbolPool:
                     "name": "主线候选",
                     "rank_reason": "研报候选#1；优先分 12.50",
                     "priority_score": 12.5,
+                    "selection_source": "mainline",
+                    "track": "Trend",
+                    "stage": "Markup",
+                    "tag": "主线买点确认 | 威科夫候选",
                 }
             ],
             "watch_candidates": [
@@ -933,6 +937,7 @@ class TestSymbolPool:
                     "name": "高分未选",
                     "rank_reason": "SOS",
                     "priority_score": 0.0,
+                    "triggers": ["sos"],
                 }
             ],
         }

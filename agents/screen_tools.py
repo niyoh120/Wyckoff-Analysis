@@ -134,17 +134,22 @@ def _candidate_action_label(trade_mode: dict) -> str:
 
 
 def _candidate_refs(candidates: list[dict], *, limit: int = 5) -> list[dict]:
-    refs: list[dict] = []
-    for row in candidates[:limit]:
-        refs.append(
-            {
-                "code": row.get("code"),
-                "name": row.get("name"),
-                "rank_reason": row.get("rank_reason"),
-                "priority_score": row.get("priority_score"),
-            }
-        )
-    return refs
+    return [_candidate_ref(row) for row in candidates[:limit]]
+
+
+def _candidate_ref(row: dict) -> dict:
+    payload = {
+        "code": row.get("code"),
+        "name": row.get("name"),
+        "rank_reason": row.get("rank_reason"),
+        "priority_score": row.get("priority_score"),
+        "selection_source": row.get("selection_source"),
+        "track": row.get("track"),
+        "stage": row.get("stage"),
+        "tag": row.get("tag"),
+        "triggers": row.get("triggers"),
+    }
+    return {key: value for key, value in payload.items() if value not in (None, "", [])}
 
 
 def _ranked_candidates(
