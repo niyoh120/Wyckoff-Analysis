@@ -17,6 +17,7 @@ def test_build_symbol_report_row_combines_shared_fields() -> None:
         code_to_trigger_keys={"000001": ["sos", "evr", "sos"]},
         code_to_reasons={"000001": ["SOS"]},
         theme_badge_map={"000001": "主线:大金融"},
+        capital_migration_bonus_map={"000001": 4.5},
     )
 
     row = build_symbol_report_row(
@@ -39,4 +40,5 @@ def test_build_symbol_report_row_combines_shared_fields() -> None:
     assert row["sector_state"] == "升温"
     assert row["exit_reason"] == "趋势未破"
     assert row["strategic_theme"] == "大金融"
+    assert row["capital_migration_bonus"] == 4.5
     assert row["tag"] == "SOS、主线:大金融"

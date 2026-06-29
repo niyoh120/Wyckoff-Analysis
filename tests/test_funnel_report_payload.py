@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from core.recommendation_payload import build_recommendation_payload
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_report_payload import display_score, funnel_run_details, selection_source, stage_name
 
@@ -60,3 +61,22 @@ def test_funnel_run_details_keeps_report_payload_fields():
     assert details["selected_for_ai"] == ["000001"]
     assert details["shadow_added"] == ["000001"]
     assert details["name_map"] == {"000001": "平安银行"}
+
+
+def test_recommendation_payload_keeps_capital_migration_bonus():
+    payload = build_recommendation_payload(
+        20260630,
+        [
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "tag": "SOS、资金迁入",
+                "priority_score": 14.5,
+                "capital_migration_bonus": 4.5,
+            }
+        ],
+        {},
+        {},
+    )
+
+    assert payload[0]["capital_migration_bonus"] == 4.5

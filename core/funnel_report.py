@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -18,6 +18,7 @@ class FunnelReportMaps:
     code_to_trigger_keys: dict[str, list[str]]
     code_to_reasons: dict[str, list[str]]
     theme_badge_map: dict[str, str]
+    capital_migration_bonus_map: dict[str, float] = field(default_factory=dict)
 
 
 def build_symbol_report_row(
@@ -52,6 +53,7 @@ def build_symbol_report_row(
     row.update(_sector_fields(row["industry"], maps.sector_rotation_map))
     row.update(_exit_fields(code, maps.exit_signals))
     row.update(theme_report_fields(code, maps.theme_candidate_map, maps.theme_bonus_map))
+    row.update(capital_migration_report_fields(code, maps.capital_migration_bonus_map))
     return row
 
 
@@ -72,6 +74,10 @@ def theme_report_fields(code: str, candidate_map: dict[str, dict], bonus_map: di
         "strategic_theme_state": str(item.get("state", "") or "").strip(),
         "strategic_theme_bonus": _safe_float(bonus_map.get(code)),
     }
+
+
+def capital_migration_report_fields(code: str, bonus_map: dict[str, float]) -> dict[str, float]:
+    return {"capital_migration_bonus": _safe_float(bonus_map.get(code))}
 
 
 def signal_report_fields(

@@ -179,6 +179,7 @@ def _build_render_context_parts(triggers: dict[str, list[tuple[str, float]]], me
         theme_bonus_map,
         score_ctx,
         theme_badge_map,
+        capital_migration_bonus_map,
     )
     return _RenderContextParts(
         metrics=metrics,
@@ -238,6 +239,7 @@ def _build_report_maps(
     theme_bonus_map: dict[str, float],
     score_ctx: _ReviewScoreContext,
     theme_badge_map: dict[str, str],
+    capital_migration_bonus_map: dict[str, float],
 ) -> FunnelReportMaps:
     return FunnelReportMaps(
         name_map,
@@ -250,6 +252,7 @@ def _build_report_maps(
         score_ctx.code_to_trigger_keys,
         score_ctx.code_to_reasons,
         theme_badge_map,
+        capital_migration_bonus_map,
     )
 
 
