@@ -130,6 +130,25 @@ _EDITED_PLAN_JSON = """{
   "synthesis_prompt": "汇总编辑后的任务。"
 }"""
 
+_SCOPED_TOOL_PLAN_JSON = """{
+  "title": "收窄工具复核",
+  "phases": [
+    {
+      "id": "review",
+      "tasks": [
+        {
+          "id": "read_positions",
+          "title": "只读取持仓",
+          "agent": "analysis",
+          "tools": ["portfolio"],
+          "prompt": "读取持仓并输出摘要"
+        }
+      ]
+    }
+  ],
+  "synthesis_prompt": "汇总持仓摘要。"
+}"""
+
 
 def _reset_local_db(local_db) -> None:
     if local_db._conn is not None:
@@ -229,6 +248,7 @@ def test_workflow_planner_maps_tool_named_tasks_to_agents():
 
     assert [step.agent for step in run.steps] == ["research", "trading"]
     assert [step.tools for step in run.steps] == [("delegate_to_research",), ("delegate_to_trading",)]
+    assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
     assert run.steps[1].depends_on == ("scan",)
 
 
@@ -272,6 +292,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert events[0]["plan"]["label"] == "持仓复盘"
         assert events[0]["plan"]["script"]["title"] == "持仓复盘"
         assert events[0]["plan"]["steps"][0]["agent"] == "analysis"
+        assert events[0]["plan"]["steps"][0]["tool_scope"] == []
         assert any(event["type"] == "workflow_step_start" for event in events)
         assert any(event["type"] == "workflow_done" for event in events)
         assert events[-1]["type"] == "done"
@@ -293,6 +314,50 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert detail["step_id"] == "read_positions"
         assert detail["tool_calls"] == ["portfolio"]
         assert "持仓风险低" in detail["result"]
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_executor_scopes_sub_agent_tools_per_step(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    def _portfolio_only_round(_messages, tools, _system_prompt):
+        assert {schema["name"] for schema in tools} == {"portfolio"}
+        return [{"type": "tool_calls", "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {}}]}]
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    schemas = [
+        {"name": "portfolio", "description": "Mock portfolio tool", "parameters": {"type": "object"}},
+        {"name": "analyze_stock", "description": "Mock analyze tool", "parameters": {"type": "object"}},
+        {"name": "generate_ai_report", "description": "Mock report tool", "parameters": {"type": "object"}},
+    ]
+    provider = ScriptedProvider(
+        rounds=[
+            _portfolio_only_round,
+            [{"type": "text_delta", "text": "已读取持仓。"}],
+            [{"type": "text_delta", "text": "持仓摘要完成。"}],
+        ]
+    )
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(schemas=schemas, tool_results={"portfolio": {"positions": []}}),
+        session_id="s_scope",
+        user_text="只读取持仓",
+        workflow_context=route_workflow("用 workflow 复核持仓"),
+        workflow_script=json.loads(_SCOPED_TOOL_PLAN_JSON),
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "只读取持仓"}]))
+
+    try:
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert events[0]["plan"]["steps"][0]["tool_scope"] == ["portfolio"]
+        assert detail["tool_scope"] == ["portfolio"]
+        assert detail["tool_calls"] == ["portfolio"]
+        assert events[-1]["text"] == "持仓摘要完成。"
     finally:
         _reset_local_db(local_db)
 

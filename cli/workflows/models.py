@@ -52,6 +52,7 @@ class WorkflowStep:
     context: str = ""
     phase: str = ""
     depends_on: tuple[str, ...] = ()
+    tool_scope: tuple[str, ...] = ()
     status: str = PENDING
     summary: str = ""
     dynamic: bool = False
@@ -66,6 +67,7 @@ class WorkflowStep:
             "context": self.context,
             "phase": self.phase,
             "depends_on": list(self.depends_on),
+            "tool_scope": list(self.tool_scope),
             "status": self.status,
             "summary": self.summary,
             "dynamic": self.dynamic,
@@ -82,6 +84,7 @@ class WorkflowStep:
             context=str(payload.get("context", "")),
             phase=str(payload.get("phase", "")),
             depends_on=tuple(str(item) for item in payload.get("depends_on") or ()),
+            tool_scope=tuple(str(item) for item in payload.get("tool_scope") or ()),
             status=str(payload.get("status") or PENDING),
             summary=str(payload.get("summary") or ""),
             dynamic=bool(payload.get("dynamic")),

@@ -16,6 +16,7 @@ ALLOWED_WORKFLOW_AGENTS = {"research", "analysis", "trading"}
 MAX_WORKFLOW_STEPS = 1000
 TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
+TOOL_SCOPE_FIELDS = ("tool_scope", "allowed_tools", "tools", "tool")
 
 WORKFLOW_TOOL_AGENTS = {
     "search_stock_by_name": "analysis",
@@ -95,6 +96,7 @@ runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文
           "id": "task_id",
           "title": "任务标题",
           "agent": "可选，research|analysis|trading",
+          "tools": ["可选，本 task 需要的工具名"],
           "depends_on": ["可选，必须先完成的 task id"],
           "prompt": "给该 sub-agent 的完整任务说明",
           "context": "可选，传给该 agent 的上下文"
@@ -290,6 +292,7 @@ def _task_step(
         context=context,
         phase=phase_id,
         depends_on=_task_dependencies(task),
+        tool_scope=_task_tool_scope(task),
         dynamic=True,
     )
 
@@ -347,6 +350,26 @@ def _tool_agent(raw: Any) -> str:
         raw = raw.get("name") or raw.get("tool") or raw.get("id")
     key = re.sub(r"[\s/-]+", "_", str(raw or "").strip().lower()).strip("_")
     return WORKFLOW_TOOL_AGENTS.get(key, "")
+
+
+def _task_tool_scope(task: dict[str, Any]) -> tuple[str, ...]:
+    names: list[str] = []
+    for field in TOOL_SCOPE_FIELDS:
+        value = task.get(field)
+        items = value if isinstance(value, (list, tuple)) else [value]
+        for item in items:
+            if name := _tool_name(item):
+                names.append(name)
+    return tuple(dict.fromkeys(names))
+
+
+def _tool_name(raw: Any) -> str:
+    if isinstance(raw, dict):
+        raw = raw.get("name") or raw.get("tool") or raw.get("id")
+    key = re.sub(r"[\s/-]+", "_", str(raw or "").strip().lower()).strip("_")
+    if key.startswith("delegate_to_"):
+        return ""
+    return key if key in TOOL_SPECS else ""
 
 
 def _task_prompt(task: dict[str, Any], title: str, user_text: str) -> str:

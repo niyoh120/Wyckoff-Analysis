@@ -173,6 +173,7 @@ def run_sub_agent(
     registry,
     on_progress=None,
     cancel_check: Callable[[], bool] | None = None,
+    tool_names: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """启动一个 sub-agent mini loop，通过 on_progress 实时上报事件。"""
     from cli.runtime import AgentRuntime
@@ -181,7 +182,7 @@ def run_sub_agent(
     deadline = started_at + max(1, sub.timeout_seconds)
     proxy = SubAgentToolProxy(
         registry,
-        set(sub.tool_names),
+        _sub_agent_tool_set(sub, tool_names),
         tool_timeout_seconds=sub.tool_timeout_seconds,
         deadline=deadline,
     )
@@ -210,6 +211,13 @@ def run_sub_agent(
         deadline,
         on_progress,
     )
+
+
+def _sub_agent_tool_set(sub: SubAgent, tool_names: tuple[str, ...] | None) -> set[str]:
+    if not tool_names:
+        return set(sub.tool_names)
+    default_tools = set(sub.tool_names)
+    return {name for name in tool_names if name in default_tools}
 
 
 def _run_sub_agent_loop(

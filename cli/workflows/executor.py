@@ -245,6 +245,7 @@ class WorkflowExecutor:
             self.provider,
             self.tools,
             cancel_check=self._cancel_requested,
+            tool_names=step.tool_scope or None,
         )
 
     def _phase_event(self, event_type: str, phase_steps: list[WorkflowStep]) -> RuntimeEvent:
@@ -421,6 +422,7 @@ def _agent_detail(step: WorkflowStep, result: dict[str, Any]) -> dict[str, Any]:
         "phase": step.phase,
         "prompt": _clip(step.prompt, 4000),
         "context": _clip(step.context, 4000),
+        "tool_scope": list(step.tool_scope),
         "status": str(result.get("status", "")),
         "elapsed": result.get("elapsed", 0),
         "tool_calls": list(result.get("tool_calls", []) or [])[:40],
