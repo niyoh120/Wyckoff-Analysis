@@ -64,7 +64,7 @@ def modern_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
                 track=selected_track(selection, code),
                 stage=stage_name(ctx, code),
                 score=display_score(ctx, selection, code),
-                priority_score=float(selection.score_map.get(code, 0.0)),
+                priority_score=display_score(ctx, selection, code),
                 selection_source=selection_source(ctx, code),
                 selection_is_fill=selection_source(ctx, code) == "l3_fill",
                 market_regime=context_regime(ctx),
@@ -148,7 +148,7 @@ def funnel_run_details(
         "selected_for_ai": selection.selected_for_ai,
         "trend_selected": selection.trend_selected,
         "accum_selected": selection.accum_selected,
-        "priority_score_map": selection.score_map,
+        "priority_score_map": display_score_map(ctx, selection),
         "shadow_added": selection.ai_policy.get("shadow_added", []) or [],
         "shadow_removed": selection.ai_policy.get("shadow_removed", []) or [],
         "shadow_score_map": selection.ai_policy.get("shadow_score_map", {}) or {},
@@ -169,6 +169,13 @@ def stage_name(ctx: Any, code: str) -> str:
 def display_score(ctx: Any, selection: FunnelAiSelection, code: str) -> float:
     trigger_score = float(ctx.code_to_total_score.get(code, 0.0) or 0.0)
     return trigger_score if trigger_score > 0 else float(selection.score_map.get(code, 0.0) or 0.0)
+
+
+def display_score_map(ctx: Any, selection: FunnelAiSelection) -> dict[str, float]:
+    out = {str(code): float(score or 0.0) for code, score in (selection.score_map or {}).items()}
+    for code in selection.selected_for_ai:
+        out[str(code)] = display_score(ctx, selection, str(code))
+    return out
 
 
 def legacy_display_score(ctx: Any, code: str) -> float:

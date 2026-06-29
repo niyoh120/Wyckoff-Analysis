@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from core.funnel_report import FunnelReportMaps
 from core.recommendation_payload import build_recommendation_payload
 from workflows.funnel_ai_selection import FunnelAiSelection
-from workflows.funnel_report_payload import display_score, funnel_run_details, selection_source, stage_name
+from workflows.funnel_report_payload import (
+    display_score,
+    display_score_map,
+    funnel_run_details,
+    modern_symbol_rows,
+    selection_source,
+    stage_name,
+)
 
 
 def _ctx(**overrides):
@@ -20,6 +28,7 @@ def _ctx(**overrides):
         "formal_triggers": {},
         "leader_radar_rows": [],
         "leader_radar_symbols": set(),
+        "l2_channel_map": {},
         "l2_bypass_set": set(),
         "markup_symbols": set(),
         "metrics": {"layer3_score_map": {}},
@@ -28,8 +37,25 @@ def _ctx(**overrides):
         "sector_map": {"000001": "银行"},
         "strategic_l2_bypass_set": set(),
         "strategic_l2_bypass_triggers": {},
+        "code_to_reasons": {"000001": ["SOS"]},
+        "theme_badge_map": {},
     }
     base.update(overrides)
+    base.setdefault(
+        "report_maps",
+        FunnelReportMaps(
+            name_map=base["name_map"],
+            sector_map=base["sector_map"],
+            sector_rotation_map={},
+            exit_signals={},
+            latest_close_map={"000001": 10.0},
+            theme_candidate_map={},
+            theme_bonus_map={},
+            code_to_trigger_keys={"000001": ["sos"]},
+            code_to_reasons=base["code_to_reasons"],
+            theme_badge_map=base["theme_badge_map"],
+        ),
+    )
     return SimpleNamespace(**base)
 
 
@@ -52,6 +78,19 @@ def test_funnel_payload_helpers_preserve_stage_source_and_score_priority():
     assert display_score(ctx, _selection(), "000001") == 3.5
 
 
+def test_modern_symbol_rows_use_display_score_as_priority_score():
+    rows = modern_symbol_rows(_ctx(), _selection())
+
+    assert rows[0]["score"] == 3.5
+    assert rows[0]["priority_score"] == 3.5
+
+
+def test_display_score_map_uses_trigger_priority_for_selected_codes():
+    got = display_score_map(_ctx(), _selection())
+
+    assert got["000001"] == 3.5
+
+
 def test_funnel_run_details_keeps_report_payload_fields():
     details = funnel_run_details(_ctx(), _selection(), content="内容", title="标题", symbols=[{"code": "000001"}])
 
@@ -61,6 +100,7 @@ def test_funnel_run_details_keeps_report_payload_fields():
     assert details["selected_for_ai"] == ["000001"]
     assert details["shadow_added"] == ["000001"]
     assert details["name_map"] == {"000001": "平安银行"}
+    assert details["priority_score_map"] == {"000001": 3.5}
 
 
 def test_recommendation_payload_keeps_capital_migration_bonus():
