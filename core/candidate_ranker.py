@@ -202,7 +202,11 @@ def rank_l3_candidates(
         )
     )
     rank_df = _add_watch_score(_add_rank_quantiles(_fill_rank_inputs(rank_df)), top_sectors)
-    rank_df = rank_df.sort_values("watch_score", ascending=False).reset_index(drop=True)
+    rank_df = rank_df.sort_values(
+        by=["watch_score", "trigger_score", "ret20", "ret5", "ret3", "min_vol_ratio_5d", "code"],
+        ascending=[False, False, False, False, False, True, True],
+        kind="stable",
+    ).reset_index(drop=True)
     ranked_symbols = rank_df["code"].astype(str).tolist()
     score_map = {str(r["code"]): float(r["watch_score"]) for _, r in rank_df.iterrows()}
     return (ranked_symbols, score_map)

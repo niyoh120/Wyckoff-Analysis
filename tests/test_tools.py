@@ -215,6 +215,23 @@ class TestCandidateRanker:
         assert ranked[0] == "000001"
         assert score_map["000001"] > score_map["000002"]
 
+    def test_rank_l3_candidates_breaks_watch_score_ties_with_quality_inputs(self):
+        from core.candidate_ranker import rank_l3_candidates
+
+        dates = pd.date_range("2026-01-01", periods=30, freq="D").strftime("%Y-%m-%d")
+        flat = pd.DataFrame({"date": dates, "close": [10.0] * 30, "volume": [1000] * 30})
+
+        ranked, score_map = rank_l3_candidates(
+            ["000003", "000002", "000001"],
+            {"000001": flat.copy(), "000002": flat.copy(), "000003": flat.copy()},
+            {"000001": "行业A", "000002": "行业A", "000003": "行业A"},
+            {"sos": [("000002", 8.0), ("000003", 5.0), ("000001", 8.0)]},
+            [],
+        )
+
+        assert score_map["000001"] == score_map["000002"]
+        assert ranked == ["000001", "000002", "000003"]
+
 
 # ── tools/market_regime ──
 
