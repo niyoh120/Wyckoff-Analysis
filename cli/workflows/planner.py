@@ -8,7 +8,7 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from cli.tools import TOOL_SPECS
+from cli.tools import TOOL_SCHEMAS, TOOL_SPECS
 from cli.workflows.models import WorkflowContext, WorkflowRun, WorkflowStep
 from cli.workflows.router import route_workflow
 
@@ -17,6 +17,7 @@ MAX_WORKFLOW_STEPS = 1000
 TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
 TOOL_SCOPE_FIELDS = ("tool_scope", "allowed_tools", "tools", "tool")
+_TOOL_SCHEMA_BY_NAME = {str(schema.get("name") or ""): schema for schema in TOOL_SCHEMAS}
 
 WORKFLOW_TOOL_AGENTS = {
     "search_stock_by_name": "analysis",
@@ -329,7 +330,7 @@ def _task_agent(task: dict[str, Any], context: WorkflowContext) -> str:
         agent = _tool_agent(raw)
         if agent:
             return agent
-    return _fallback_agent(context)
+    return _fallback_agent(context, _task_fallback_text(task))
 
 
 def _normalize_workflow_agent(raw: Any) -> str:
@@ -364,6 +365,11 @@ def _tool_name(raw: Any) -> str:
     if key.startswith("delegate_to_"):
         return ""
     return key if key in TOOL_SPECS else ""
+
+
+def _task_fallback_text(task: dict[str, Any]) -> str:
+    parts = [str(task.get(field) or "") for field in ("title", "name", "id", *PROMPT_FIELDS)]
+    return "\n".join(part for part in parts if part.strip())
 
 
 def _task_prompt(task: dict[str, Any], title: str, user_text: str) -> str:
@@ -428,7 +434,7 @@ def _slug(value: Any) -> str:
 
 
 def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -> dict[str, Any]:
-    agent = _fallback_agent(context)
+    agent = _fallback_agent(context, user_text)
     return {
         "title": context.label,
         "rationale": reason,
@@ -450,12 +456,71 @@ def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -
     }
 
 
-def _fallback_agent(context: WorkflowContext) -> str:
+def _fallback_agent(context: WorkflowContext, text: str = "") -> str:
     if context.name in {"stock_screen", "backtest"}:
         return "research"
     if context.name == "portfolio_review":
         return "trading"
+    if context.name == "dynamic_task":
+        return _agent_from_tool_semantics(text, context.allowed_tools) or "analysis"
     return "analysis"
+
+
+def _agent_from_tool_semantics(text: str, allowed_tools: tuple[str, ...]) -> str:
+    query_units = _text_units(text)
+    if not query_units:
+        return ""
+    best: tuple[float, str] = (0.0, "")
+    for tool_name in allowed_tools:
+        agent = WORKFLOW_TOOL_AGENTS.get(tool_name, "")
+        if not agent:
+            continue
+        score = _semantic_score(query_units, _tool_semantic_text(tool_name))
+        if score > best[0]:
+            best = (score, agent)
+    return best[1] if best[0] >= 0.12 else ""
+
+
+def _semantic_score(query_units: set[str], candidate: str) -> float:
+    candidate_units = _text_units(candidate)
+    if not candidate_units:
+        return 0.0
+    overlap = len(query_units & candidate_units)
+    return overlap / max(1, min(len(query_units), len(candidate_units)))
+
+
+def _tool_semantic_text(tool_name: str) -> str:
+    spec = TOOL_SPECS.get(tool_name)
+    schema = _TOOL_SCHEMA_BY_NAME.get(tool_name, {})
+    return "\n".join(
+        str(part)
+        for part in (
+            tool_name,
+            spec.display_name if spec else "",
+            schema.get("description", ""),
+            _schema_parameter_text(schema),
+        )
+        if part
+    )
+
+
+def _schema_parameter_text(schema: dict[str, Any]) -> str:
+    params = schema.get("parameters", {})
+    if not isinstance(params, dict):
+        return ""
+    props = params.get("properties", {})
+    if not isinstance(props, dict):
+        return ""
+    return "\n".join(str(item.get("description") or "") for item in props.values() if isinstance(item, dict))
+
+
+def _text_units(text: str) -> set[str]:
+    lowered = str(text or "").lower()
+    units = set(re.findall(r"[a-z0-9_]+", lowered))
+    chinese = re.findall(r"[\u4e00-\u9fff]", lowered)
+    units.update(chinese)
+    units.update("".join(chinese[idx : idx + 2]) for idx in range(max(0, len(chinese) - 1)))
+    return {unit for unit in units if unit}
 
 
 def _fallback_task_prompt(user_text: str) -> str:

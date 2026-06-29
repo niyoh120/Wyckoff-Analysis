@@ -234,6 +234,31 @@ def test_workflow_planner_keeps_subtasks_without_agent_fields():
     assert run.steps[1].prompt == "复核候选结构"
 
 
+def test_workflow_planner_fallback_routes_stock_screening_to_research():
+    run = plan_workflow(
+        "用 workflow 完整做一遍今天的 A 股选股，给出候选、理由和买卖计划",
+        context=route_workflow("用 workflow 完整做一遍今天的 A 股选股，给出候选、理由和买卖计划"),
+    )
+
+    assert len(run.steps) == 1
+    assert run.steps[0].agent == "research"
+    assert run.steps[0].tools == ("delegate_to_research",)
+    assert "用户原文" in run.steps[0].prompt
+    assert "A 股选股" in run.steps[0].prompt
+
+
+def test_workflow_planner_fallback_keeps_stock_diagnosis_on_analysis():
+    run = plan_workflow(
+        "用 workflow 给我做磁场诊断",
+        context=route_workflow("用 workflow 给我做磁场诊断"),
+    )
+
+    assert len(run.steps) == 1
+    assert run.steps[0].agent == "analysis"
+    assert run.steps[0].tools == ("delegate_to_analysis",)
+    assert "磁场诊断" in run.steps[0].prompt
+
+
 def test_workflow_planner_maps_tool_named_tasks_to_agents():
     run = plan_workflow(
         "用 workflow 做选股和攻防计划",
