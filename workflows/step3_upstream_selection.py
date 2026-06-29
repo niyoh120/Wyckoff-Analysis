@@ -45,8 +45,8 @@ def _select_capped_upstream_candidates(
     trend_total = int((df["track"] == "Trend").sum())
     accum_total = int((df["track"] == "Accum").sum())
     trend_cap, accum_cap = fit_ai_candidate_quotas(context_cap, trend_total, accum_total)
-    core_df = df[~df["selection_is_fill"]].copy()
-    fill_df = df[df["selection_is_fill"]].copy()
+    core_df = _priority_ordered(df[~df["selection_is_fill"]])
+    fill_df = _priority_ordered(df[df["selection_is_fill"]])
     selected_df = _take_track_core_candidates(core_df, trend_cap, accum_cap)
     selected_df = _append_remaining_core(selected_df, core_df, context_cap)
     return _append_fill_candidates(selected_df, fill_df, context_cap, runtime_config.max_upstream_fill)
@@ -66,6 +66,12 @@ def _prepare_upstream_frame(candidates_df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values(by=["selection_is_fill", "input_order"], ascending=[True, True], kind="stable").reset_index(
         drop=True
     )
+
+
+def _priority_ordered(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "priority_score" not in df.columns or not df["priority_score"].notna().any():
+        return df.sort_values("input_order", kind="stable")
+    return df.sort_values(by=["priority_score", "input_order"], ascending=[False, True], kind="stable")
 
 
 def _take_track_core_candidates(core_df: pd.DataFrame, trend_cap: int, accum_cap: int) -> pd.DataFrame:
