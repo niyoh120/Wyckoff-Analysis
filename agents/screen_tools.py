@@ -116,8 +116,8 @@ def _action_plan(trade_mode: dict, top_candidates: list[dict]) -> dict:
         "candidate_action": _candidate_action_label(trade_mode),
         "new_buy_allowed": bool(trade_mode.get("allow_recommendation_write")),
         "ai_review_allowed": bool(trade_mode.get("allow_ai_review")),
-        "report_candidates": _candidate_refs(report_candidates),
-        "watch_candidates": _candidate_refs(watch_candidates),
+        "report_candidates": _candidate_refs(report_candidates, trade_mode, "report"),
+        "watch_candidates": _candidate_refs(watch_candidates, trade_mode, "watch"),
     }
 
 
@@ -134,15 +134,16 @@ def _candidate_action_label(trade_mode: dict) -> str:
     return "先复核候选质量"
 
 
-def _candidate_refs(candidates: list[dict], *, limit: int = 5) -> list[dict]:
-    return [_candidate_ref(row) for row in candidates[:limit]]
+def _candidate_refs(candidates: list[dict], trade_mode: dict, bucket: str, *, limit: int = 5) -> list[dict]:
+    return [_candidate_ref(row, trade_mode, bucket) for row in candidates[:limit]]
 
 
-def _candidate_ref(row: dict) -> dict:
+def _candidate_ref(row: dict, trade_mode: dict, bucket: str) -> dict:
     payload = {
         "code": row.get("code"),
         "name": row.get("name"),
         "profile": _candidate_profile(row),
+        "next_step": _candidate_next_step(trade_mode, bucket),
         "rank_reason": row.get("rank_reason"),
         "priority_score": row.get("priority_score"),
         "selection_source": row.get("selection_source"),
@@ -152,6 +153,21 @@ def _candidate_ref(row: dict) -> dict:
         "triggers": row.get("triggers"),
     }
     return {key: value for key, value in payload.items() if value not in (None, "", [])}
+
+
+def _candidate_next_step(trade_mode: dict, bucket: str) -> str:
+    if bucket == "watch":
+        return "观察池跟踪，暂不进入本轮AI复核"
+    mode = str(trade_mode.get("mode") or "").strip()
+    if not bool(trade_mode.get("allow_ai_review")):
+        return "只观察，等待市场风险闸门重新打开"
+    if not bool(trade_mode.get("allow_recommendation_write")):
+        return "可送AI做修复复核，但不写正式推荐"
+    if mode == "confirmation_only":
+        return "进入AI复核，等待二次确认后再行动"
+    if mode == "risk_on":
+        return "进入AI复核，合格后纳入新买候选"
+    return "进入AI复核，先确认候选质量"
 
 
 def _candidate_profile(row: dict) -> str:
