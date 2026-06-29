@@ -45,6 +45,7 @@ CANDIDATE_ENTRY_PRIORITY = {
     "sos": 14,
     "evr": 15,
 }
+UNKNOWN_CANDIDATE_ENTRY_PRIORITY = max(CANDIDATE_ENTRY_PRIORITY.values()) + 1
 
 
 def normalize_candidate_track(raw: Any, *, default: str = "Trend") -> str:
@@ -85,7 +86,7 @@ def candidate_entry_key(
 def candidate_entry_sort_key(item: Mapping[str, Any]) -> tuple[int, float, str]:
     entry_type = candidate_entry_key(item, CANDIDATE_ENTRY_PRIORITY.keys())
     return (
-        CANDIDATE_ENTRY_PRIORITY.get(entry_type, 10),
+        CANDIDATE_ENTRY_PRIORITY.get(entry_type, UNKNOWN_CANDIDATE_ENTRY_PRIORITY),
         -candidate_entry_score(item),
         str(item.get("code", "")),
     )

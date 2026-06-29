@@ -322,6 +322,69 @@ def test_tradeable_l4_candidate_board_keeps_best_duplicate_score_and_track() -> 
     assert track_map == {"000001": "Accum"}
 
 
+def test_tradeable_l4_candidate_board_ranks_by_best_duplicate_entry() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {"code": "000001", "track": "future_leader", "entry_type": "launchpad", "score": 80.0},
+            {"code": "000001", "track": "accumulation", "entry_type": "spring", "score": 100.0},
+            {"code": "000002", "track": "future_leader", "entry_type": "tight_base", "score": 90.0},
+        ],
+    )
+
+    codes, score_map, track_map = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="NEUTRAL",
+        selection_mode="tradeable_l4",
+    )
+
+    assert codes == ["000002", "000001"]
+    assert score_map == {"000002": 90.0, "000001": 100.0}
+    assert track_map == {"000002": "Trend", "000001": "Accum"}
+
+
+def test_tradeable_l4_candidate_board_ranks_unknown_entry_after_known_entries() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {"code": "000001", "track": "future_leader", "entry_type": "unmapped_display_text", "score": 100.0},
+            {"code": "000002", "track": "accumulation", "entry_type": "compression", "score": 80.0},
+        ],
+    )
+
+    codes, _score_map, _track_map = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="NEUTRAL",
+        selection_mode="tradeable_l4",
+    )
+
+    assert codes == ["000002", "000001"]
+
+
 def test_tradeable_l4_candidate_board_normalizes_entry_type_for_loss_guard() -> None:
     result = FunnelResult(
         layer1_symbols=[],

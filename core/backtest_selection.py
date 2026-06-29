@@ -13,7 +13,12 @@ from core.candidate_policy import (
     trigger_sets_by_code,
 )
 from core.candidate_ranker import rank_l3_candidates
-from core.candidate_tracks import candidate_entry_key, candidate_entry_sort_key, normalize_candidate_track
+from core.candidate_tracks import (
+    best_candidate_entry_map,
+    candidate_entry_key,
+    candidate_entry_sort_key,
+    normalize_candidate_track,
+)
 from core.sector_rotation import analyze_sector_rotation
 from core.wyckoff_engine import FunnelConfig, FunnelResult
 
@@ -214,7 +219,7 @@ def _select_candidate_entries(
     regime: str,
     candidate_policy: CandidatePolicyConfig | None,
 ) -> tuple[list[str], dict[str, float], dict[str, str]]:
-    entries = sorted(
+    best_entries = best_candidate_entry_map(
         [
             item
             for item in result.candidate_entries or []
@@ -226,6 +231,9 @@ def _select_candidate_entries(
                 candidate_policy=candidate_policy,
             )
         ],
+    )
+    entries = sorted(
+        best_entries.values(),
         key=candidate_entry_sort_key,
     )
     selected_codes = dedup_order([str(item.get("code", "")).strip() for item in entries])
