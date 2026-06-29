@@ -124,7 +124,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "generate_ai_report",
-        "description": "对指定股票列表生成威科夫三阵营 AI 深度研报（逻辑破产/储备营地/起跳板）。需要 Gemini API Key。最多 10 只。",
+        "description": "对指定股票列表生成威科夫三阵营 AI 深度研报（逻辑破产/储备营地/起跳板）。使用当前会话 LLM 配置，最多 10 只。",
         "parameters": {
             "type": "object",
             "properties": {

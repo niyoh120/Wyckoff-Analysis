@@ -127,3 +127,33 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1
     assert json.loads(stored[0].read_text(encoding="utf-8"))["trigger_groups"]["huge"][0]["blob"] == "x" * 200
+
+
+def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, monkeypatch):
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    report_text = "# 研报\n" + "量价结构良好。" * 500
+    result = {
+        "ok": True,
+        "reason": "ok",
+        "report_text": report_text,
+        "model": "gpt-test",
+        "stock_count": 2,
+        "reviewed_codes": ["000001", "300750"],
+        "reviewed_symbols": [
+            {"code": "000001", "name": "平安银行", "tag": "chat_request"},
+            {"code": "300750", "name": "宁德时代", "tag": "chat_request"},
+        ],
+        "next_action": "研报已完成，可结合持仓和候选进入组合攻防决策",
+        "next_tool": {"tool": "generate_strategy_decision", "args": {}, "reason": "继续组合攻防"},
+    }
+
+    content = format_tool_result_for_context("generate_ai_report", "call_report", result, max_chars=1000)
+
+    assert "result_ref:" in content
+    assert '"reviewed_codes": ["000001", "300750"]' in content
+    assert '"tool": "generate_strategy_decision"' in content
+    assert '"report_excerpt": "# 研报' in content
+    assert report_text not in content
+    stored = list((tmp_path / "tool-results").glob("*.json"))
+    assert len(stored) == 1
+    assert json.loads(stored[0].read_text(encoding="utf-8"))["report_text"] == report_text

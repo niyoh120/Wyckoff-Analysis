@@ -153,6 +153,41 @@ class TestReportBuilder:
         assert "000001" not in result
 
 
+class TestAiReportTool:
+    def test_generate_ai_report_returns_handoff_metadata(self, monkeypatch):
+        from agents import report_tools
+
+        captured = {}
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+        monkeypatch.setattr(
+            report_tools,
+            "code_to_name",
+            lambda code: {"000001": "平安银行", "300750": "宁德时代"}.get(code, code),
+        )
+
+        def fake_run_ai_report(symbols_info, **kwargs):
+            captured["symbols_info"] = symbols_info
+            captured["kwargs"] = kwargs
+            return True, "ok", "# 研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(["000001", " 300750 ", ""])
+
+        assert result["ok"] is True
+        assert result["reviewed_codes"] == ["000001", "300750"]
+        assert result["reviewed_symbols"] == [
+            {"code": "000001", "name": "平安银行", "tag": "chat_request"},
+            {"code": "300750", "name": "宁德时代", "tag": "chat_request"},
+        ]
+        assert result["next_action"] == "研报已完成，可结合持仓和候选进入组合攻防决策"
+        assert result["next_tool"]["tool"] == "generate_strategy_decision"
+        assert captured["symbols_info"] == result["reviewed_symbols"]
+        assert captured["kwargs"]["provider"] == "openai"
+        assert captured["kwargs"]["model"] == "gpt-test"
+
+
 # ── core.candidate_ranker ──
 
 

@@ -120,7 +120,28 @@ def _tool_result_preview(tool_name: str, result: Any, content: str) -> str:
         preview = _screen_stocks_preview(result)
         if preview:
             return preview[:PREVIEW_CHARS]
+    if tool_name == "generate_ai_report" and isinstance(result, dict):
+        preview = _ai_report_preview(result)
+        if preview:
+            return preview[:PREVIEW_CHARS]
     return content[:PREVIEW_CHARS]
+
+
+def _ai_report_preview(result: dict[str, Any]) -> str:
+    payload = _drop_empty_preview_fields(
+        {
+            "ok": result.get("ok"),
+            "reason": result.get("reason"),
+            "model": result.get("model"),
+            "stock_count": result.get("stock_count"),
+            "reviewed_codes": _preview_list(result.get("reviewed_codes"), 12),
+            "reviewed_symbols": _preview_list(result.get("reviewed_symbols"), 12),
+            "next_action": result.get("next_action"),
+            "next_tool": result.get("next_tool"),
+            "report_excerpt": _text_excerpt(result.get("report_text"), 1400),
+        }
+    )
+    return serialize_tool_result(payload) if payload else ""
 
 
 def _screen_stocks_preview(result: dict[str, Any]) -> str:
@@ -143,6 +164,13 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
 
 def _preview_list(value: Any, limit: int) -> list[Any]:
     return list(value[:limit]) if isinstance(value, list) else []
+
+
+def _text_excerpt(value: Any, limit: int) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
 
 
 def _drop_empty_preview_fields(payload: dict[str, Any]) -> dict[str, Any]:
