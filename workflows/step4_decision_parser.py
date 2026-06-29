@@ -79,11 +79,12 @@ def trim_new_buy_decisions(
     return trimmed, dropped, max_new_names
 
 
-def _new_buy_rank_key(dec: DecisionItem) -> tuple[float, float, int]:
+def _new_buy_rank_key(dec: DecisionItem) -> tuple[float, float, float, int]:
+    evidence_score = dec.funnel_score if dec.funnel_score is not None else float("-inf")
+    capital_migration_bonus = dec.capital_migration_bonus if dec.capital_migration_bonus is not None else 0.0
     confidence = dec.confidence if dec.confidence is not None else -1.0
-    funnel_score = dec.funnel_score if dec.funnel_score is not None else float("-inf")
     action_rank = 1 if dec.action == "ATTACK" else 0
-    return (confidence, funnel_score, action_rank)
+    return (evidence_score, capital_migration_bonus, confidence, action_rank)
 
 
 def _parse_bool_like(v: object) -> bool:

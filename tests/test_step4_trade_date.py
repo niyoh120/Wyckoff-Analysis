@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import workflows.step4_results as step4_results
 from workflows import step4_portfolio
 from workflows import step4_rebalancer as step4
-from workflows.step4_decision_parser import max_new_buy_names
+from workflows.step4_decision_parser import max_new_buy_names, trim_new_buy_decisions
 from workflows.step4_decisions import complete_step4_decisions
 from workflows.step4_models import (
     CandidateMeta,
@@ -247,6 +247,49 @@ def test_max_new_buy_names_blocks_bear_rebound() -> None:
 
     assert max_new_buy_names("BEAR_REBOUND", limits) == 0
     assert max_new_buy_names("PANIC_REPAIR", limits) == 0
+
+
+def test_step4_new_buy_trim_prefers_evidence_score_over_model_confidence() -> None:
+    low_score_high_conf = _decision("PROBE")
+    low_score_high_conf.code = "000001"
+    low_score_high_conf.confidence = 0.95
+    low_score_high_conf.funnel_score = 70
+    high_score_low_conf = _decision("PROBE")
+    high_score_low_conf.code = "000002"
+    high_score_low_conf.confidence = 0.55
+    high_score_low_conf.funnel_score = 90
+
+    kept, dropped, max_new_names = trim_new_buy_decisions(
+        [low_score_high_conf, high_score_low_conf],
+        held_codes=set(),
+        market_regime="NEUTRAL",
+        limits=NewBuyLimits(neutral=1),
+    )
+
+    assert max_new_names == 1
+    assert [item.code for item in kept] == ["000002"]
+    assert dropped == ["000001"]
+
+
+def test_step4_new_buy_trim_uses_capital_migration_as_score_tiebreaker() -> None:
+    outflow = _decision("PROBE")
+    outflow.code = "000001"
+    outflow.funnel_score = 90
+    outflow.capital_migration_bonus = -3.0
+    inflow = _decision("PROBE")
+    inflow.code = "000002"
+    inflow.funnel_score = 90
+    inflow.capital_migration_bonus = 4.5
+
+    kept, dropped, _max_new_names = trim_new_buy_decisions(
+        [outflow, inflow],
+        held_codes=set(),
+        market_regime="NEUTRAL",
+        limits=NewBuyLimits(neutral=1),
+    )
+
+    assert [item.code for item in kept] == ["000002"]
+    assert dropped == ["000001"]
 
 
 def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):
