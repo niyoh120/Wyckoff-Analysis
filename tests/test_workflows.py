@@ -278,6 +278,38 @@ def test_dispatch_keeps_direct_runtime_when_model_router_is_unavailable():
 
     assert workflow.name == "general_chat"
     assert isinstance(runtime, AgentRuntime)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
+    assert workflow.route_matches == ("model_router_fallback",)
+
+
+def test_dispatch_surfaces_invalid_model_router_json():
+    provider = RouterDecisionProvider("这不是 JSON")
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
+    assert workflow.route_matches == ("model_router_fallback",)
+
+
+def test_dispatch_keeps_explicit_workflow_when_model_router_is_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="用 workflow 做一个持仓风险复盘",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），沿用兜底路由：用户显式要求动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "用 workflow")
 
 
 def test_direct_runtime_prompt_prefers_model_inference_before_clarifying():

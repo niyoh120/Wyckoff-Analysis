@@ -82,10 +82,10 @@ def route_workflow_with_model(user_text: str, provider: Any | None) -> WorkflowC
     resumed = route_resume_workflow(user_text)
     if resumed:
         return resumed
-    decision = _model_decision(user_text, provider)
+    decision, fallback_reason = _model_decision(user_text, provider)
     if decision:
         return _context_from_model_decision(decision)
-    return route_workflow(user_text)
+    return _context_with_router_fallback(route_workflow(user_text), fallback_reason)
 
 
 def _context_from_model_decision(decision: dict[str, Any]) -> WorkflowContext:
@@ -105,16 +105,45 @@ def _model_route_reason(decision: dict[str, Any]) -> str:
     return f"模型判断直接处理：{decision['reason']}"
 
 
-def _model_decision(user_text: str, provider: Any | None) -> dict[str, Any] | None:
+def _model_decision(user_text: str, provider: Any | None) -> tuple[dict[str, Any] | None, str]:
     if provider is None:
-        return None
+        return None, "provider_unavailable"
     messages = [{"role": "user", "content": f"用户请求:\n{user_text}\n\n请输出 routing JSON。"}]
     try:
         response = _router_response(provider, messages)
-        return _parse_decision(response)
+        if response is None:
+            return None, "router_response_unavailable"
+        decision = _parse_decision(response)
+        if decision is None:
+            return None, "invalid_router_decision"
+        return decision, ""
     except Exception:
         logger.debug("model workflow router failed", exc_info=True)
-        return None
+        return None, "router_error"
+
+
+def _context_with_router_fallback(context: WorkflowContext, fallback_reason: str) -> WorkflowContext:
+    if not fallback_reason:
+        return context
+    reason = _fallback_route_reason(context, fallback_reason)
+    matches = tuple(dict.fromkeys(("model_router_fallback", *context.route_matches)))
+    return replace(context, route_reason=reason, route_matches=matches)
+
+
+def _fallback_route_reason(context: WorkflowContext, fallback_reason: str) -> str:
+    label = _fallback_reason_label(fallback_reason)
+    if context.is_general:
+        return f"模型路由不可用（{label}），直接 agent 处理"
+    return f"模型路由不可用（{label}），沿用兜底路由：{context.route_reason}"
+
+
+def _fallback_reason_label(reason: str) -> str:
+    return {
+        "provider_unavailable": "无 provider",
+        "router_response_unavailable": "无路由响应",
+        "invalid_router_decision": "路由 JSON 无效",
+        "router_error": "调用异常",
+    }.get(reason, "未知原因")
 
 
 def _router_response(provider: Any, messages: list[dict[str, Any]]) -> dict[str, Any] | None:
