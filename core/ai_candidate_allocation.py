@@ -6,6 +6,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.candidate_tracks import normalize_candidate_track
+
 TREND_CHANNEL_TAGS = {"主升通道", "趋势延续", "点火破局", "加速突破"}
 ACCUM_CHANNEL_TAGS = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护盘"}
 HIT_KEYS = ("sos", "spring", "lps", "evr", "compression", "trend_pullback")
@@ -180,7 +182,7 @@ def _entry_candidate_pools(result: Any, sos_hit_set: set[str]) -> CandidatePools
         code = str(item.get("code", "")).strip()
         if not code or _is_blocked_exit(result, code, sos_hit_set):
             continue
-        target = pools.accum if str(item.get("track", "")).strip() == "accumulation" else pools.trend
+        target = pools.accum if normalize_candidate_track(item.get("track")) == "Accum" else pools.trend
         target.append((code, float(item.get("score", 0.0) or 0.0), False))
     return pools
 

@@ -13,6 +13,7 @@ from core.candidate_policy import (
     trigger_sets_by_code,
 )
 from core.candidate_ranker import rank_l3_candidates
+from core.candidate_tracks import normalize_candidate_track
 from core.sector_rotation import analyze_sector_rotation
 from core.wyckoff_engine import FunnelConfig, FunnelResult
 
@@ -235,7 +236,7 @@ def _candidate_entry_maps(entries: list[dict[str, object]]) -> tuple[dict[str, f
 
 
 def _candidate_entry_track(item: dict[str, object]) -> str:
-    return "Accum" if str(item.get("track", "")).strip() == "accumulation" else "Trend"
+    return normalize_candidate_track(item.get("track"))
 
 
 def candidate_entry_loss_guard(
