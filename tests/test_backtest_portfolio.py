@@ -37,6 +37,40 @@ def test_build_portfolio_nav_preserves_equal_cash_allocation() -> None:
     assert nav_df["positions_count"].tolist() == [2, 0]
 
 
+def test_build_portfolio_nav_score_mode_ignores_invalid_scores() -> None:
+    trades = pd.DataFrame(
+        [
+            {
+                "code": "BAD",
+                "signal_date": "2026-02-01",
+                "exit_date": "2026-02-03",
+                "score": "bad",
+                "ret_pct": 100,
+            },
+            {
+                "code": "INF",
+                "signal_date": "2026-02-01",
+                "exit_date": "2026-02-03",
+                "score": float("inf"),
+                "ret_pct": 100,
+            },
+            {
+                "code": "GOOD",
+                "signal_date": "2026-02-01",
+                "exit_date": "2026-02-03",
+                "score": 4.25,
+                "ret_pct": 10,
+            },
+        ]
+    )
+
+    nav_df = build_portfolio_nav(trades, initial_capital=1000, max_concurrent=3, weight_mode="score")
+
+    assert nav_df["nav"].round(2).tolist() == [1000.0, 1095.0]
+    assert nav_df["cash"].round(2).tolist() == [50.0, 1095.0]
+    assert nav_df["positions_count"].tolist() == [1, 0]
+
+
 def test_calc_portfolio_metrics_reports_final_nav() -> None:
     nav_df = build_portfolio_nav(_sample_trades(), initial_capital=1000, max_concurrent=2)
     metrics = calc_portfolio_metrics(nav_df, initial_capital=1000)

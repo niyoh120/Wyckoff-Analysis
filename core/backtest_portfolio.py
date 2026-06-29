@@ -8,8 +8,10 @@ from typing import Any
 import pandas as pd
 
 from core.backtest_metrics import calc_cvar95_pct, calc_information_ratio, calc_sharpe_ratio
+from core.candidate_policy import candidate_score_value
 
 PORTFOLIO_NAV_COLUMNS = ["date", "nav", "daily_ret_pct", "cash", "positions_count"]
+_SCORE_VALUE_COL = "_score_value"
 
 
 def build_portfolio_nav(
@@ -113,7 +115,7 @@ def _open_signals_for_day(
     slots_available = max(max_concurrent - len(active_positions), 0)
     if slots_available <= 0 or new_signals.empty:
         return cash, active_positions
-    selected = new_signals.sort_values("score", ascending=False).head(slots_available)
+    selected = _rank_signals(new_signals).head(slots_available)
     allocable = cash * 0.95
     for (_, row), weight in zip(selected.iterrows(), _signal_weights(selected, weight_mode), strict=False):
         entry_capital = allocable * float(weight)
@@ -127,11 +129,27 @@ def _open_signals_for_day(
 def _signal_weights(new_signals: pd.DataFrame, weight_mode: str) -> pd.Series:
     count = len(new_signals)
     if weight_mode == "score" and "score" in new_signals.columns:
-        scores = pd.to_numeric(new_signals["score"], errors="coerce").fillna(1.0)
+        scores = _signal_score_series(new_signals).clip(lower=0.0)
         total_score = scores.sum()
         if total_score > 0:
             return scores / total_score
     return pd.Series([1.0 / count] * count, index=new_signals.index)
+
+
+def _rank_signals(new_signals: pd.DataFrame) -> pd.DataFrame:
+    ranked = new_signals.assign(**{_SCORE_VALUE_COL: _signal_score_series(new_signals)})
+    sort_cols = [_SCORE_VALUE_COL]
+    ascending = [False]
+    if "code" in ranked.columns:
+        sort_cols.append("code")
+        ascending.append(True)
+    return ranked.sort_values(sort_cols, ascending=ascending).drop(columns=[_SCORE_VALUE_COL])
+
+
+def _signal_score_series(new_signals: pd.DataFrame) -> pd.Series:
+    if "score" not in new_signals.columns:
+        return pd.Series([0.0] * len(new_signals), index=new_signals.index)
+    return new_signals["score"].map(candidate_score_value)
 
 
 def _position_from_signal(row: pd.Series, entry_capital: float) -> dict[str, Any]:
