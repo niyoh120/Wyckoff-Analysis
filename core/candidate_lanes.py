@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from core.candidate_tracks import candidate_entry_key
+
 
 def build_l1_candidate_lane_entries(
     *,
@@ -243,11 +245,7 @@ def _entry_rank(item: dict[str, Any]) -> tuple[int, float, str]:
 
 
 def _rank_key(item: dict[str, Any], priority: dict[str, int]) -> str:
-    for key in ("signal_key", "lane", "entry_type"):
-        value = str(item.get(key, "") or "")
-        if value in priority:
-            return value
-    return str(item.get("entry_type", "") or item.get("signal_key", ""))
+    return candidate_entry_key(item, priority.keys(), fields=("signal_key", "lane", "entry_type"))
 
 
 def _num(df: pd.DataFrame, column: str) -> pd.Series:

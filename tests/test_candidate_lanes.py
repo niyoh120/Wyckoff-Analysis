@@ -62,3 +62,12 @@ def test_merge_candidate_entries_prefers_mainline_then_lane_priority() -> None:
     )
 
     assert [item["entry_type"] for item in merged] == ["主线回踩MA20", "trend_lane_pullback"]
+
+
+def test_merge_candidate_entries_normalizes_lane_key_aliases() -> None:
+    merged = merge_candidate_entries(
+        [{"code": "000001", "entry_type": "sos", "score": 99.0}],
+        [{"code": "000001", "entry_type": "Trend-Lane-Pullback", "score": 76.0}],
+    )
+
+    assert [item["entry_type"] for item in merged] == ["Trend-Lane-Pullback"]

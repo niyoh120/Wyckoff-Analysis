@@ -13,7 +13,7 @@ from core.candidate_policy import (
     trigger_sets_by_code,
 )
 from core.candidate_ranker import rank_l3_candidates
-from core.candidate_tracks import normalize_candidate_track
+from core.candidate_tracks import candidate_entry_key, normalize_candidate_track
 from core.sector_rotation import analyze_sector_rotation
 from core.wyckoff_engine import FunnelConfig, FunnelResult
 
@@ -21,6 +21,18 @@ TRADEABLE_L4_SELECTION_MODES = {"tradeable_l4"}
 STRICT_L4_SELECTION_MODES = {"quality_l4", "strict_l4"}
 FORMAL_L4_SELECTION_MODES = {"all_formal_l4", "all_l4", "full_formal_l4", "full_l4"}
 LEGACY_SELECTION_MODES = {"legacy_full_hits", "legacy_hits", "all_hits", "classic"}
+LOSS_GUARD_ENTRY_KEYS = {
+    "compression",
+    "early_breakout",
+    "evr",
+    "lps",
+    "spring",
+    "sos",
+    "trend_breakout",
+    "trend_lane_pullback",
+    "trend_pullback",
+    "volatile_pullback",
+}
 
 
 def combine_trigger_scores(triggers: dict[str, list[tuple[str, float]]]) -> dict[str, tuple[float, str]]:
@@ -250,7 +262,7 @@ def candidate_entry_loss_guard(
     code = str(item.get("code", "")).strip()
     if not code:
         return "empty_code"
-    entry_type = str(item.get("entry_type", "") or item.get("signal_key", "")).strip()
+    entry_type = candidate_entry_key(item, LOSS_GUARD_ENTRY_KEYS)
     return loss_guard_reason(
         code,
         regime,

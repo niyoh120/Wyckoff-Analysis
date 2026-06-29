@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.candidate_tracks import normalize_candidate_track
+from core.candidate_tracks import candidate_entry_key, normalize_candidate_track
 
 TREND_CHANNEL_TAGS = {"主升通道", "趋势延续", "点火破局", "加速突破"}
 ACCUM_CHANNEL_TAGS = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护盘"}
@@ -76,7 +76,7 @@ def candidate_entry_sort_key(item: dict[str, Any]) -> tuple[int, float, str]:
         "sos": 14,
         "evr": 15,
     }
-    entry_type = str(item.get("entry_type", "") or item.get("signal_key", "")).strip()
+    entry_type = candidate_entry_key(item, priority.keys())
     return (priority.get(entry_type, 10), -float(item.get("score", 0.0) or 0.0), str(item.get("code", "")))
 
 
