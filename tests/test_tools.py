@@ -914,6 +914,33 @@ class TestSymbolPool:
             "allow_ai_review": False,
             "allow_recommendation_write": False,
         }
+        assert result["decision_brief"] == {
+            "market_gate": "风险规避 / 不新增买入 / 大盘风险闸门关闭",
+            "next_action": "只观察，不新增买入",
+            "report_focus": [
+                {
+                    "code": "000004",
+                    "name": "主线候选",
+                    "quality": "高优先级研报候选",
+                    "evidence": "趋势线 / 主升阶段 / 主线买点；研报候选#1；优先分 12.50",
+                    "next_step": "只观察，等待市场风险闸门重新打开",
+                    "summary": (
+                        "000004 主线候选: 趋势线 / 主升阶段 / 主线买点；研报候选#1；优先分 12.50；"
+                        "只观察，等待市场风险闸门重新打开"
+                    ),
+                }
+            ],
+            "watch_focus": [
+                {
+                    "code": "000001",
+                    "name": "高分未选",
+                    "quality": "强观察候选",
+                    "evidence": "触发:SOS；SOS",
+                    "next_step": "观察池跟踪，暂不进入本轮AI复核",
+                    "summary": "000001 高分未选: 触发:SOS；SOS；观察池跟踪，暂不进入本轮AI复核",
+                }
+            ],
+        }
         assert result["action_plan"] == {
             "primary_action": "不新增买入",
             "candidate_action": "只观察，不新增买入",
@@ -923,6 +950,7 @@ class TestSymbolPool:
                 {
                     "code": "000004",
                     "name": "主线候选",
+                    "quality": "高优先级研报候选",
                     "profile": "趋势线 / 主升阶段 / 主线买点",
                     "next_step": "只观察，等待市场风险闸门重新打开",
                     "rank_reason": "研报候选#1；优先分 12.50",
@@ -937,6 +965,7 @@ class TestSymbolPool:
                 {
                     "code": "000001",
                     "name": "高分未选",
+                    "quality": "强观察候选",
                     "profile": "触发:SOS",
                     "next_step": "观察池跟踪，暂不进入本轮AI复核",
                     "rank_reason": "SOS",

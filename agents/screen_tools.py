@@ -44,6 +44,7 @@ def screen_stocks(board: str = "all", tool_context: ToolContext | None = None) -
             "board": board,
             "summary": _screen_summary(metrics, symbols),
             "trade_mode": trade_mode,
+            "decision_brief": _decision_brief(trade_mode, top_candidates),
             "action_plan": _action_plan(trade_mode, top_candidates),
             "top_candidates": top_candidates,
             "trigger_groups": trigger_groups,
@@ -121,6 +122,25 @@ def _action_plan(trade_mode: dict, top_candidates: list[dict]) -> dict:
     }
 
 
+def _decision_brief(trade_mode: dict, top_candidates: list[dict]) -> dict:
+    report_candidates = [row for row in top_candidates if row.get("selected_for_report")]
+    watch_candidates = [row for row in top_candidates if not row.get("selected_for_report")]
+    return {
+        "market_gate": _market_gate_line(trade_mode),
+        "next_action": _candidate_action_label(trade_mode),
+        "report_focus": _candidate_brief_items(report_candidates, trade_mode, "report"),
+        "watch_focus": _candidate_brief_items(watch_candidates, trade_mode, "watch"),
+    }
+
+
+def _market_gate_line(trade_mode: dict) -> str:
+    label = str(trade_mode.get("label") or trade_mode.get("regime") or "").strip()
+    action = str(trade_mode.get("action") or _candidate_action_label(trade_mode)).strip()
+    reason = str(trade_mode.get("reason") or "").strip()
+    parts = [part for part in (label, action, reason) if part]
+    return " / ".join(parts) or "市场闸门未提供"
+
+
 def _candidate_action_label(trade_mode: dict) -> str:
     mode = str(trade_mode.get("mode") or "").strip()
     if mode == "observe_only":
@@ -138,10 +158,32 @@ def _candidate_refs(candidates: list[dict], trade_mode: dict, bucket: str, *, li
     return [_candidate_ref(row, trade_mode, bucket) for row in candidates[:limit]]
 
 
+def _candidate_brief_items(candidates: list[dict], trade_mode: dict, bucket: str, *, limit: int = 5) -> list[dict]:
+    return [_candidate_brief_item(row, trade_mode, bucket) for row in candidates[:limit]]
+
+
+def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str) -> dict:
+    profile = _candidate_profile(row)
+    rank_reason = str(row.get("rank_reason") or "").strip()
+    next_step = _candidate_next_step(trade_mode, bucket)
+    evidence = "；".join(part for part in (profile, rank_reason) if part) or "候选证据不足"
+    code = str(row.get("code") or "").strip()
+    name = str(row.get("name") or code).strip()
+    return {
+        "code": code,
+        "name": name,
+        "quality": _candidate_quality_label(row),
+        "evidence": evidence,
+        "next_step": next_step,
+        "summary": f"{code} {name}: {evidence}；{next_step}",
+    }
+
+
 def _candidate_ref(row: dict, trade_mode: dict, bucket: str) -> dict:
     payload = {
         "code": row.get("code"),
         "name": row.get("name"),
+        "quality": _candidate_quality_label(row),
         "profile": _candidate_profile(row),
         "next_step": _candidate_next_step(trade_mode, bucket),
         "rank_reason": row.get("rank_reason"),
@@ -153,6 +195,19 @@ def _candidate_ref(row: dict, trade_mode: dict, bucket: str) -> dict:
         "triggers": row.get("triggers"),
     }
     return {key: value for key, value in payload.items() if value not in (None, "", [])}
+
+
+def _candidate_quality_label(row: dict) -> str:
+    priority = candidate_score_value(row.get("priority_score"))
+    score = candidate_score_value(row.get("score"))
+    trigger_count = len(row.get("triggers") or [])
+    if row.get("selected_for_report") and priority >= 10:
+        return "高优先级研报候选"
+    if row.get("selected_for_report"):
+        return "研报候选"
+    if score >= 8 or trigger_count >= 2:
+        return "强观察候选"
+    return "观察候选"
 
 
 def _candidate_next_step(trade_mode: dict, bucket: str) -> str:
