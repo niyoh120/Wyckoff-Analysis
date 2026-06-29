@@ -14,8 +14,25 @@ from cli.workflows.router import route_workflow
 
 ALLOWED_WORKFLOW_AGENTS = {"research", "analysis", "trading"}
 MAX_WORKFLOW_STEPS = 1000
-TASK_LIST_FIELDS = ("tasks", "steps", "items")
-PROMPT_FIELDS = ("prompt", "instruction", "task", "description", "goal", "objective")
+TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions")
+PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
+
+WORKFLOW_TOOL_AGENTS = {
+    "search_stock_by_name": "analysis",
+    "analyze_stock": "analysis",
+    "generate_ai_report": "analysis",
+    "portfolio": "trading",
+    "generate_strategy_decision": "trading",
+    "update_portfolio": "trading",
+    "screen_stocks": "research",
+    "run_backtest": "research",
+    "check_background_tasks": "research",
+    "get_market_overview": "research",
+    "get_market_history": "research",
+    "query_history": "research",
+    "web_fetch": "research",
+    "read_file": "research",
+}
 
 WORKFLOW_AGENT_ALIASES = {
     "research": "research",
@@ -57,7 +74,7 @@ WORKFLOW_AGENT_ALIASES = {
 _PLAN_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的动态 workflow 编排器。
 
-你必须根据用户输入生成一个可执行 workflow script。script 不是解释文本，只能是 JSON。
+根据用户输入生成一个可执行 workflow script。script 不是解释文本，只能是 JSON。
 runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文件、写文件、跑 shell 或访问网络。
 
 可用 agent:
@@ -77,7 +94,7 @@ runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文
         {
           "id": "task_id",
           "title": "任务标题",
-          "agent": "research|analysis|trading",
+          "agent": "可选，research|analysis|trading",
           "depends_on": ["可选，必须先完成的 task id"],
           "prompt": "给该 sub-agent 的完整任务说明",
           "context": "可选，传给该 agent 的上下文"
@@ -93,6 +110,7 @@ runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文
 - phases 总任务数 1-1000 个。
 - 同一 phase 内的 task 会并发执行；有依赖关系的 task 必须拆到后续 phase。
 - 如果用 depends_on/after/needs/dependencies 表达 task 依赖，runtime 会按依赖顺序切批执行。
+- 如果任务已经通过 tool/标题/prompt 表达清楚，agent 字段可以省略，runtime 会按工具或上下文选择执行 agent。
 - 任务拆分围绕用户当前目标；能单步完成就生成 1 个 task，需要事实收集/分析/决策链路时再拆分。
 - 按用户最可能的任务意图恢复上下文，不要把表达形式本身当作额外 task 或澄清理由。
 - 能用工具验证的事实交给 sub-agent 验证；不要因为可搜索或可读取的信息先问用户。
@@ -222,8 +240,8 @@ def _strip_json_fence(text: str) -> str:
 def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowContext) -> list[WorkflowStep]:
     steps: list[WorkflowStep] = []
     args_text = _runtime_args(script)
-    for phase in _script_phases(script):
-        steps.extend(_phase_steps(phase, user_text, args_text))
+    for phase in _script_phases(script, context):
+        steps.extend(_phase_steps(phase, user_text, args_text, context))
         if len(steps) >= MAX_WORKFLOW_STEPS:
             break
     steps = _filter_runtime_steps(steps, script)
@@ -233,18 +251,29 @@ def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowConte
     return _script_steps(fallback, user_text, context)
 
 
-def _phase_steps(phase: dict[str, Any], user_text: str, args_text: str) -> list[WorkflowStep]:
+def _phase_steps(
+    phase: dict[str, Any],
+    user_text: str,
+    args_text: str,
+    context: WorkflowContext,
+) -> list[WorkflowStep]:
     phase_id = _slug(phase.get("id") or phase.get("title") or "phase")
     steps: list[WorkflowStep] = []
-    for task in _phase_tasks(phase):
-        step = _task_step(task, phase_id, user_text, args_text)
+    for task in _phase_tasks(phase, context):
+        step = _task_step(task, phase_id, user_text, args_text, context)
         if step:
             steps.append(step)
     return steps
 
 
-def _task_step(task: dict[str, Any], phase_id: str, user_text: str, args_text: str) -> WorkflowStep | None:
-    agent = _task_agent(task)
+def _task_step(
+    task: dict[str, Any],
+    phase_id: str,
+    user_text: str,
+    args_text: str,
+    context: WorkflowContext,
+) -> WorkflowStep | None:
+    agent = _task_agent(task, context)
     if not agent:
         return None
     title = str(task.get("title") or task.get("name") or task.get("id") or f"{agent} task").strip()
@@ -265,23 +294,23 @@ def _task_step(task: dict[str, Any], phase_id: str, user_text: str, args_text: s
     )
 
 
-def _script_phases(script: dict[str, Any]) -> list[dict[str, Any]]:
+def _script_phases(script: dict[str, Any], context: WorkflowContext) -> list[dict[str, Any]]:
     phases = _safe_list(script.get("phases"))
     if phases:
         return phases
     tasks = _first_task_list(script)
     if tasks:
         return [{"id": "top_level", "title": script.get("title") or "动态任务", "tasks": tasks}]
-    if _task_agent(script):
+    if _task_agent(script, context):
         return [{"id": "top_level", "title": script.get("title") or "动态任务", "tasks": [script]}]
     return []
 
 
-def _phase_tasks(phase: dict[str, Any]) -> list[dict[str, Any]]:
+def _phase_tasks(phase: dict[str, Any], context: WorkflowContext) -> list[dict[str, Any]]:
     tasks = _first_task_list(phase)
     if tasks:
         return tasks
-    return [phase] if _task_agent(phase) else []
+    return [phase] if _task_agent(phase, context) else []
 
 
 def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -292,7 +321,7 @@ def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def _task_agent(task: dict[str, Any]) -> str:
+def _task_agent(task: dict[str, Any], context: WorkflowContext) -> str:
     candidates: list[Any] = [task.get("agent"), task.get("role"), task.get("assignee"), task.get("tool")]
     tools = task.get("tools")
     candidates.extend(tools if isinstance(tools, (list, tuple)) else [tools])
@@ -300,7 +329,10 @@ def _task_agent(task: dict[str, Any]) -> str:
         agent = _normalize_workflow_agent(raw)
         if agent:
             return agent
-    return ""
+        agent = _tool_agent(raw)
+        if agent:
+            return agent
+    return _fallback_agent(context)
 
 
 def _normalize_workflow_agent(raw: Any) -> str:
@@ -308,6 +340,13 @@ def _normalize_workflow_agent(raw: Any) -> str:
     key = re.sub(r"_agent$", "", key)
     agent = WORKFLOW_AGENT_ALIASES.get(key, "")
     return agent if agent in ALLOWED_WORKFLOW_AGENTS else ""
+
+
+def _tool_agent(raw: Any) -> str:
+    if isinstance(raw, dict):
+        raw = raw.get("name") or raw.get("tool") or raw.get("id")
+    key = re.sub(r"[\s/-]+", "_", str(raw or "").strip().lower()).strip("_")
+    return WORKFLOW_TOOL_AGENTS.get(key, "")
 
 
 def _task_prompt(task: dict[str, Any], title: str, user_text: str) -> str:

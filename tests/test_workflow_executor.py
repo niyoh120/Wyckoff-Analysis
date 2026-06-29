@@ -7,7 +7,7 @@ from cli.workflows.executor import WorkflowExecutor, _phase_batches
 from cli.workflows.models import WorkflowStep
 from cli.workflows.planner import plan_workflow
 from cli.workflows.resume import build_resume_prompt
-from cli.workflows.router import route_workflow
+from cli.workflows.router import WORKFLOWS, route_workflow
 from cli.workflows.store import get_workflow_run, load_workflow_events
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
@@ -182,6 +182,54 @@ def test_workflow_planner_accepts_top_level_task_script():
     assert run.steps[0].agent == "analysis"
     assert run.steps[0].phase == "top_level"
     assert run.steps[0].prompt == "诊断 300750 的量价结构"
+
+
+def test_workflow_planner_keeps_subtasks_without_agent_fields():
+    run = plan_workflow(
+        "帮我做今日选股",
+        context=WORKFLOWS["stock_screen"],
+        workflow_script={
+            "title": "自然拆分选股",
+            "phases": [
+                {
+                    "id": "screen",
+                    "subtasks": [
+                        {"id": "collect", "title": "收集候选", "prompt": "跑全市场候选扫描"},
+                        {"id": "review", "title": "复核结构", "after": "collect", "instructions": "复核候选结构"},
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert [step.step_id for step in run.steps] == ["collect", "review"]
+    assert [step.agent for step in run.steps] == ["research", "research"]
+    assert run.steps[1].depends_on == ("collect",)
+    assert run.steps[1].prompt == "复核候选结构"
+
+
+def test_workflow_planner_maps_tool_named_tasks_to_agents():
+    run = plan_workflow(
+        "用 workflow 做选股和攻防计划",
+        context=route_workflow("用 workflow 做选股和攻防计划"),
+        workflow_script={
+            "title": "工具式脚本",
+            "steps": [
+                {"id": "scan", "title": "扫描候选", "tool": "screen_stocks", "prompt": "扫描今日候选"},
+                {
+                    "id": "plan",
+                    "title": "攻防计划",
+                    "tool": {"name": "generate_strategy_decision"},
+                    "after": "scan",
+                    "prompt": "输出候选攻防计划",
+                },
+            ],
+        },
+    )
+
+    assert [step.agent for step in run.steps] == ["research", "trading"]
+    assert [step.tools for step in run.steps] == [("delegate_to_research",), ("delegate_to_trading",)]
+    assert run.steps[1].depends_on == ("scan",)
 
 
 def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
