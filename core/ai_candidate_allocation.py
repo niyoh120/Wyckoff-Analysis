@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -518,6 +519,8 @@ def _layer3_rank_bonus(code: str, l3_score_map: dict[str, float]) -> float:
     try:
         score = float(l3_score_map.get(code, 0.0) or 0.0)
     except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(score):
         return 0.0
     return min(max(score, 0.0), 1.2) * 8.0
 
