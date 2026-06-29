@@ -23,28 +23,6 @@ class TurnExpectation:
     required_args: dict[str, str] = field(default_factory=dict)
 
 
-_PORTFOLIO_VIEW_PHRASES = (
-    "我有什么持仓",
-    "我的持仓有什么",
-    "持仓列表",
-    "我买了啥",
-    "我买了什么",
-    "持仓情况",
-    "仓位情况",
-)
-
-_PORTFOLIO_DIAGNOSE_PHRASES = (
-    "我持仓怎么样",
-    "帮我看看持仓",
-    "帮我看下持仓",
-    "持仓健康吗",
-    "持仓体检",
-    "体检一下持仓",
-    "帮我审一下持仓",
-    "审判我的持仓",
-    "审一下持仓",
-)
-
 _PORTFOLIO_SUBJECT_HINTS = (
     "持仓",
     "仓位",
@@ -85,16 +63,11 @@ _GENERIC_DIAGNOSE_HINTS = (
     "日线",
 )
 
-_PURE_FOLLOWUP_DIAGNOSE_PHRASES = (
-    "做一下体检",
-    "做个体检",
-    "体检一下",
+_PORTFOLIO_FOLLOWUP_DIAGNOSE_HINTS = (
     "体检",
-    "审判",
-    "健康吗",
     "健康",
     "诊断",
-    "审一下",
+    "审",
 )
 
 _AFFIRMATIVE_PHRASES = (
@@ -207,7 +180,7 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
 
     previous_context = _recent_context_text(messages[:-1], limit=4)
     if (
-        any(phrase in last_user for phrase in _PURE_FOLLOWUP_DIAGNOSE_PHRASES)
+        any(hint in last_user for hint in _PORTFOLIO_FOLLOWUP_DIAGNOSE_HINTS)
         or (
             any(hint in last_user for hint in _GENERIC_DIAGNOSE_HINTS)
             and any(ref in last_user for ref in _PORTFOLIO_FOLLOWUP_REFERENCES)
@@ -223,7 +196,7 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
         last_user in _AFFIRMATIVE_PHRASES
         and (
             any(hint in previous_context for hint in _GENERIC_DIAGNOSE_HINTS)
-            or any(hint in previous_context for hint in _PURE_FOLLOWUP_DIAGNOSE_PHRASES)
+            or any(hint in previous_context for hint in _PORTFOLIO_FOLLOWUP_DIAGNOSE_HINTS)
         )
         and any(marker in previous_context for marker in _PORTFOLIO_CONTEXT_MARKERS)
     ):
@@ -237,14 +210,10 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
 
 
 def _portfolio_view_expected(text: str) -> bool:
-    if any(phrase in text for phrase in _PORTFOLIO_VIEW_PHRASES):
-        return True
     return _mentions_portfolio_subject(text) and any(hint in text for hint in _PORTFOLIO_VIEW_HINTS)
 
 
 def _portfolio_diagnose_expected(text: str) -> bool:
-    if any(phrase in text for phrase in _PORTFOLIO_DIAGNOSE_PHRASES):
-        return True
     return _mentions_portfolio_subject(text) and any(hint in text for hint in _PORTFOLIO_DIAGNOSE_HINTS)
 
 
