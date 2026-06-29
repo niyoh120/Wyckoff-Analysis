@@ -55,6 +55,41 @@ def test_evaluate_day_reports_selected_trigger(monkeypatch):
     assert "触发" in row.reason
 
 
+def test_trigger_scores_treats_invalid_scores_as_zero() -> None:
+    scores = diag.trigger_scores(
+        {
+            "sos": [
+                ("AAPL.US", float("inf")),
+                ("AAPL.US", float("nan")),
+                ("AAPL.US", "bad"),
+            ],
+            "spring": [("AAPL.US", 12.5)],
+            "lps": [("MSFT.US", 99.0)],
+        },
+        "AAPL.US",
+    )
+
+    assert scores == {"sos": 0.0, "spring": 12.5}
+
+
+def test_candidate_lane_scores_treats_invalid_scores_as_zero(monkeypatch) -> None:
+    symbol = diag.SymbolSpec("us", "AAPL.US", "美股")
+    ctx = diag.ReplayContext({"AAPL.US": "Apple"}, {}, {}, None)
+    monkeypatch.setattr(
+        diag,
+        "build_l1_candidate_lane_entries",
+        lambda **_kwargs: [
+            {"code": "AAPL.US", "signal_key": "launchpad", "score": float("inf")},
+            {"code": "AAPL.US", "entry_type": "tight_base", "score": "bad"},
+            {"code": "MSFT.US", "entry_type": "other", "score": 99.0},
+        ],
+    )
+
+    scores = diag.candidate_lane_scores(symbol, _daily_frame(), ctx, ["AAPL.US"], [], {})
+
+    assert scores == {"launchpad": 0.0, "tight_base": 0.0}
+
+
 def test_evaluate_day_reports_l4_miss(monkeypatch):
     symbol = diag.SymbolSpec("us", "AAPL.US", "美股")
     cfg = diag.config_for_symbol(symbol, 220)

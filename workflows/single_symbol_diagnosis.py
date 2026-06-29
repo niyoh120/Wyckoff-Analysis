@@ -11,7 +11,7 @@ from typing import Any
 import pandas as pd
 
 from core.candidate_lanes import build_l1_candidate_lane_entries
-from core.candidate_policy import loss_guard_reason
+from core.candidate_policy import candidate_score_value, loss_guard_reason
 from core.candidate_ranker import TRIGGER_LABELS, TRIGGER_SHORT_LABELS
 from core.signal_confirmation import score_springboard_abc
 from core.wyckoff_engine import (
@@ -217,7 +217,9 @@ def candidate_lane_scores(
         limit=10,
     )
     return {
-        str(item.get("signal_key") or item.get("entry_type") or "candidate_lane"): float(item.get("score") or 0.0)
+        str(item.get("signal_key") or item.get("entry_type") or "candidate_lane"): candidate_score_value(
+            item.get("score")
+        )
         for item in entries
         if str(item.get("code", "")).strip() == spec.symbol
     }
@@ -251,7 +253,7 @@ def trigger_scores(triggers: dict[str, list[tuple[str, float]]], symbol: str) ->
     for trigger, rows in triggers.items():
         for code, score in rows:
             if code == symbol:
-                out[trigger] = max(out.get(trigger, 0.0), float(score))
+                out[trigger] = max(out.get(trigger, 0.0), candidate_score_value(score))
     return out
 
 

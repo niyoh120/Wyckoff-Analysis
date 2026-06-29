@@ -39,6 +39,38 @@ def test_analyze_stock_price_returns_price_records(monkeypatch) -> None:
     assert result["tickflow_limit_hint"] == "TickFlow fallback"
 
 
+def test_analyze_stock_price_sanitizes_bad_ohlcv(monkeypatch) -> None:
+    rows = pd.DataFrame(
+        [
+            {
+                "日期": "2026-06-18",
+                "开盘": "bad",
+                "最高": float("inf"),
+                "最低": float("-inf"),
+                "收盘": float("nan"),
+                "成交量": "bad",
+                "涨跌幅": float("nan"),
+            }
+        ]
+    )
+
+    monkeypatch.setattr(diagnosis_tools, "ensure_tushare_token", lambda _ctx: None)
+    monkeypatch.setattr("integrations.stock_hist_repository.get_stock_hist", lambda *_args, **_kwargs: rows)
+
+    result = diagnosis_tools.analyze_stock("000001", mode="price", days=1)
+
+    assert result["latest_close"] is None
+    assert result["data"][0] == {
+        "date": "2026-06-18",
+        "open": None,
+        "high": None,
+        "low": None,
+        "close": None,
+        "volume": 0,
+        "pct_chg": None,
+    }
+
+
 def test_analyze_stock_rejects_unknown_mode(monkeypatch) -> None:
     monkeypatch.setattr(diagnosis_tools, "ensure_tushare_token", lambda _ctx: None)
 

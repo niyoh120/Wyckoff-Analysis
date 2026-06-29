@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, timedelta
+from typing import Any
 
 from agents.stock_data_helpers import (
     code_to_name,
@@ -49,7 +51,7 @@ def _price_result(code: str, days: int, end_date: date) -> dict:
     payload = {
         "code": code,
         "days": len(df),
-        "latest_close": round(float(latest.get("close", 0)), 2),
+        "latest_close": _round_number(latest.get("close")),
         "latest_date": str(latest.get("date", "")),
         "data_status": "ok",
         **hist_meta,
@@ -64,12 +66,12 @@ def _price_records(df) -> list[dict]:
     return [
         {
             "date": str(row.get("date", "")),
-            "open": round(float(row.get("open", 0)), 2),
-            "high": round(float(row.get("high", 0)), 2),
-            "low": round(float(row.get("low", 0)), 2),
-            "close": round(float(row.get("close", 0)), 2),
-            "volume": int(row.get("volume", 0)),
-            "pct_chg": round(float(row.get("pct_chg", 0)), 2),
+            "open": _round_number(row.get("open")),
+            "high": _round_number(row.get("high")),
+            "low": _round_number(row.get("low")),
+            "close": _round_number(row.get("close")),
+            "volume": _safe_int(row.get("volume")),
+            "pct_chg": _round_number(row.get("pct_chg")),
         }
         for _, row in df.iterrows()
     ]
@@ -103,8 +105,8 @@ def _diagnostic_payload(d, text: str, latest_date: str, metadata: dict) -> dict:
         "code": d.code,
         "name": d.name,
         "health": d.health,
-        "pnl_pct": round(d.pnl_pct, 2),
-        "latest_close": d.latest_close,
+        "pnl_pct": _round_number(d.pnl_pct),
+        "latest_close": _round_number(d.latest_close),
         "ma_pattern": d.ma_pattern,
         "l2_channel": d.l2_channel,
         "track": d.track,
@@ -112,18 +114,31 @@ def _diagnostic_payload(d, text: str, latest_date: str, metadata: dict) -> dict:
         "l4_triggers": d.l4_triggers,
         "candidate_lane": d.candidate_lane,
         "candidate_entry_type": d.candidate_entry_type,
-        "candidate_score": d.candidate_score,
+        "candidate_score": _round_number(d.candidate_score),
         "exit_signal": d.exit_signal,
         "stop_loss_status": d.stop_loss_status,
-        "vol_ratio_20_60": round(d.vol_ratio_20_60, 2),
-        "range_60d_pct": round(d.range_60d_pct, 1),
-        "ret_10d_pct": round(d.ret_10d_pct, 1),
-        "ret_20d_pct": round(d.ret_20d_pct, 1),
-        "from_year_high_pct": round(d.from_year_high_pct, 1),
-        "from_year_low_pct": round(d.from_year_low_pct, 1),
+        "vol_ratio_20_60": _round_number(d.vol_ratio_20_60),
+        "range_60d_pct": _round_number(d.range_60d_pct, 1),
+        "ret_10d_pct": _round_number(d.ret_10d_pct, 1),
+        "ret_20d_pct": _round_number(d.ret_20d_pct, 1),
+        "from_year_high_pct": _round_number(d.from_year_high_pct, 1),
+        "from_year_low_pct": _round_number(d.from_year_low_pct, 1),
         "health_reasons": d.health_reasons,
         "formatted_text": text,
         "data_status": "ok",
         "latest_date": latest_date,
         **metadata,
     }
+
+
+def _round_number(value: Any, digits: int = 2) -> float | None:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(out, digits) if math.isfinite(out) else None
+
+
+def _safe_int(value: Any) -> int:
+    rounded = _round_number(value, 0)
+    return int(rounded) if rounded is not None else 0
