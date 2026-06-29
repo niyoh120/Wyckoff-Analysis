@@ -22,6 +22,7 @@ DEFAULT_MAX_OUTPUT_TOKENS = 2048
 logger = logging.getLogger(__name__)
 
 _STOCK_CODE_RE = re.compile(r"(?<!\d)\d{6}(?!\d)")
+_DATE_RE = re.compile(r"(?<!\d)(20\d{2})(?:[-/.年])(\d{1,2})(?:[-/.月])(\d{1,2})日?(?!\d)")
 _PROHIBITED_TERMS = (
     "模型",
     "候选池",
@@ -30,6 +31,7 @@ _PROHIBITED_TERMS = (
     "完整研报",
     "内部流程",
     "样本入库",
+    "脱敏",
     "买入",
     "卖出",
     "建仓",
@@ -83,6 +85,23 @@ def _fmt_number(value: Any, digits: int = 2) -> str:
     if pd.isna(num):
         return "待更新"
     return f"{float(num):.{digits}f}"
+
+
+def _fmt_trade_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    text = raw.replace("/", "-").replace(".", "-")
+    if re.fullmatch(r"\d{8}", text):
+        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+    match = _DATE_RE.search(text)
+    if match:
+        year, month, day = match.groups()
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    if re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}", text):
+        year, month, day = text.split("-")
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    return raw
 
 
 def _regime_label(regime: Any) -> str:
@@ -166,8 +185,9 @@ def build_public_payload(
     ctx = benchmark_context or {}
     df = selected_df.copy() if isinstance(selected_df, pd.DataFrame) else pd.DataFrame()
     ops_set = {str(code).strip() for code in (ops_codes or []) if str(code).strip()}
+    trade_date = _fmt_trade_date(ctx.get("trade_date") or ctx.get("end_trade_date") or "")
     payload: dict[str, Any] = {
-        "trade_date": str(ctx.get("trade_date") or ctx.get("end_trade_date") or ""),
+        "trade_date": trade_date,
         "market": _market_payload(ctx),
         "etf": _etf_payload(ctx),
         "sample_stats": {
@@ -260,6 +280,7 @@ def _risk_flags(payload: dict[str, Any]) -> list[str]:
 def _render_payload_text(payload: dict[str, Any]) -> str:
     lines = [
         "请写成可直接转发给普通读者的市场观察，不要提模型、候选池、操作池、RAG或内部流程。",
+        f"报告日期: {payload.get('trade_date') or '待更新'}",
         *_render_market_payload_lines(payload.get("market") or {}),
         *_render_etf_payload_lines(payload.get("etf") or {}),
         *_render_wyckoff_payload_lines(payload),
@@ -350,12 +371,26 @@ def _system_prompt() -> str:
 - 不要提“模型、候选池、操作池、RAG、完整研报、内部流程、样本入库”等背景词。
 - 允许使用威科夫语气分析指数和ETF：供应、需求、承接、测试、吸筹、推进、回撤、派发压力。
 - 若引用结构触发，必须翻成普通读者能理解的中文含义，不要堆英文缩写。
+- 若正文需要写日期，只能使用输入里的“报告日期”，不得编造、脱敏或改写日期。
 - 输出应像一篇可直接转发的短评，普通读者无需知道系统背景也能读懂。
 - 输出中文 Markdown，结构固定为：大盘结构、ETF温度、威科夫解读、观察要点、风险提示。
 """
 
 
-def validate_compliance_report(text: str, *, forbidden_names: list[str] | None = None) -> ComplianceValidation:
+def _dates_in_text(text: str) -> set[str]:
+    dates = set()
+    for match in _DATE_RE.finditer(text or ""):
+        year, month, day = match.groups()
+        dates.add(f"{int(year):04d}-{int(month):02d}-{int(day):02d}")
+    return dates
+
+
+def validate_compliance_report(
+    text: str,
+    *,
+    forbidden_names: list[str] | None = None,
+    expected_trade_date: str | None = None,
+) -> ComplianceValidation:
     reasons: list[str] = []
     body = text or ""
     if _STOCK_CODE_RE.search(body):
@@ -369,6 +404,11 @@ def validate_compliance_report(text: str, *, forbidden_names: list[str] | None =
         if len(clean) >= 2 and clean in body:
             reasons.append("contains_stock_name")
             break
+    expected_date = _fmt_trade_date(expected_trade_date)
+    if expected_date:
+        bad_dates = _dates_in_text(body) - {expected_date}
+        if bad_dates:
+            reasons.append("contains_wrong_date")
     return ComplianceValidation(ok=not reasons, reasons=tuple(reasons))
 
 
@@ -376,6 +416,7 @@ def render_compliance_fallback(payload: dict[str, Any]) -> str:
     market = payload.get("market") or {}
     lines = [
         "## 今日市场观察简报",
+        f"日期：{payload.get('trade_date') or '待更新'}",
         "",
         *_fallback_market_lines(market),
         *_fallback_etf_lines(payload.get("etf") or {}),
@@ -516,7 +557,11 @@ def generate_compliance_brief(
         except Exception as exc:
             logger.warning("[step3][compliance] %s 生成失败: %s", llm_config.source, exc)
             return fallback
-        validation = validate_compliance_report(text, forbidden_names=forbidden_names)
+        validation = validate_compliance_report(
+            text,
+            forbidden_names=forbidden_names,
+            expected_trade_date=str(payload.get("trade_date") or ""),
+        )
         if validation.ok:
             logger.info("[step3][compliance] 使用 %s 模型生成合规简报: %s", llm_config.source, llm_config.model)
             return text.rstrip() + "\n"

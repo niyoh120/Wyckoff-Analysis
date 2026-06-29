@@ -16,11 +16,13 @@ from integrations.fetch_a_share_csv import resolve_trading_window
 from integrations.funnel_snapshot import dump_full_fetch_snapshot
 from integrations.index_data_source import fetch_index_hist
 from integrations.market_metadata import (
+    CONCEPT_HEAT_HISTORY,
     detect_theme_lines,
     fetch_concept_heat,
     fetch_concept_map,
     fetch_market_cap_map,
     fetch_sector_map,
+    stale_json_cache,
     update_concept_heat_history,
 )
 from tools.data_fetcher import fetch_all_ohlcv
@@ -75,6 +77,7 @@ class FunnelReferenceData:
     sector_map: dict[str, str]
     concept_map: dict[str, list[str]]
     concept_heat: list[dict]
+    concept_heat_history: dict[str, dict]
     hot_concepts: list
     market_cap_map: dict[str, float]
     financial_map: dict[str, dict]
@@ -241,7 +244,9 @@ def _resolve_executor_mode(raw: str | None) -> str:
     return mode if mode in {"thread", "process"} else "process"
 
 
-def _load_market_metadata(window, cfg: FunnelConfig) -> tuple[dict, dict, list[dict], list, dict[str, float]]:
+def _load_market_metadata(
+    window, cfg: FunnelConfig
+) -> tuple[dict, dict, list[dict], dict[str, dict], list, dict[str, float]]:
     print("[funnel] 加载行业映射...")
     try:
         sector_map = fetch_sector_map()
@@ -262,6 +267,9 @@ def _load_market_metadata(window, cfg: FunnelConfig) -> tuple[dict, dict, list[d
         concept_heat = []
     if concept_heat:
         update_concept_heat_history(window.end_trade_date.isoformat(), concept_heat, top_n=cfg.theme_line_top_n)
+    concept_history = stale_json_cache(CONCEPT_HEAT_HISTORY, {})
+    if not isinstance(concept_history, dict):
+        concept_history = {}
     hot_concepts = detect_theme_lines(min_days=cfg.theme_line_min_days)
     print("[funnel] 加载市值数据...")
     try:
@@ -271,7 +279,7 @@ def _load_market_metadata(window, cfg: FunnelConfig) -> tuple[dict, dict, list[d
         market_cap_map = {}
     if not market_cap_map:
         print("[funnel] ⚠️ 市值数据为空（TUSHARE_TOKEN 可能缺失/失效），Layer1 将跳过市值过滤")
-    return sector_map, concept_map, concept_heat, hot_concepts, market_cap_map
+    return sector_map, concept_map, concept_heat, concept_history, hot_concepts, market_cap_map
 
 
 def _load_financial_metrics(all_symbols: list[str]) -> dict[str, dict]:
@@ -310,11 +318,14 @@ def _load_stock_names() -> dict[str, str]:
 
 
 def _load_reference_data(all_symbols: list[str], window, cfg: FunnelConfig) -> FunnelReferenceData:
-    sector_map, concept_map, concept_heat, hot_concepts, market_cap_map = _load_market_metadata(window, cfg)
+    sector_map, concept_map, concept_heat, concept_history, hot_concepts, market_cap_map = _load_market_metadata(
+        window, cfg
+    )
     return FunnelReferenceData(
         sector_map=sector_map,
         concept_map=concept_map,
         concept_heat=concept_heat,
+        concept_heat_history=concept_history,
         hot_concepts=hot_concepts,
         market_cap_map=market_cap_map,
         financial_map=_load_financial_metrics(all_symbols),

@@ -100,6 +100,20 @@ def _amount_distribution_report_line(benchmark_context: dict | None) -> str:
     return f"成交额分布：{state}，样本 {sample} 只。"
 
 
+def _capital_migration_report_lines(metrics: dict | None) -> list[str]:
+    migration = (metrics or {}).get("capital_migration") or {}
+    if not migration:
+        return []
+    summary = str(migration.get("summary") or "暂无明确资金迁徙信号").strip()
+    confidence = str(migration.get("confidence") or "low").strip()
+    lines = [f"**资金迁徙雷达**: {summary} | 置信度 {confidence}"]
+    for item in (migration.get("rotation") or [])[:2]:
+        text = str(item or "").strip()
+        if text:
+            lines.append(f"  - {text}")
+    return lines
+
+
 def _pv_policy_shadow_report_line(benchmark_context: dict | None) -> str:
     if not benchmark_context:
         return ""
@@ -392,6 +406,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
         f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selected_for_ai))}",
         f"**大盘资金趋势**: {money_line}",
+        *_capital_migration_report_lines(ctx.metrics),
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",
         f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
@@ -474,6 +489,7 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
         f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selection.selected_for_ai))}",
         f"**大盘资金趋势**: {money_line}",
+        *_capital_migration_report_lines(ctx.metrics),
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",
         f"**推演策略 Shadow**: {pv_shadow_line or '无'}",

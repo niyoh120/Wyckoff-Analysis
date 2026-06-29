@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from core.candidate_policy import apply_loss_guard, rerank_selected_codes
+from core.capital_migration import build_capital_migration_report
 from core.funnel_etf import etf_metrics
 from core.theme_radar import summarize_theme_radar
 from core.wyckoff_engine import (
@@ -375,9 +376,17 @@ def _layer_metrics(layers: FunnelLayerOutputs) -> dict:
 def _theme_metrics(inputs: FunnelMetricsInputs, ranked_l3_symbols: list[str]) -> dict:
     ref_data = inputs.ref_data
     layers = inputs.layers
+    capital_migration = build_capital_migration_report(
+        trade_date=inputs.window.end_trade_date.isoformat(),
+        concept_heat=ref_data.concept_heat,
+        concept_history=ref_data.concept_heat_history,
+        sector_rotation=layers.sector_rotation,
+        theme_radar=layers.theme_radar_current,
+    )
     return {
         "concept_heat": ref_data.concept_heat[:20],
         "concept_heat_full": ref_data.concept_heat,
+        "capital_migration": capital_migration,
         "theme_lines": ref_data.hot_concepts,
         "theme_radar": layers.theme_radar,
         "theme_radar_current": layers.theme_radar_current,

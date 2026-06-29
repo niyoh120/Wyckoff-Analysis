@@ -52,6 +52,7 @@ def test_public_payload_includes_market_and_etf_metrics_without_codes():
 
     payload = build_public_payload(
         benchmark_context={
+            "trade_date": "20260629",
             "regime": "RISK_ON",
             "close": 3200.12,
             "ma50": 3150.5,
@@ -70,6 +71,7 @@ def test_public_payload_includes_market_and_etf_metrics_without_codes():
     )
 
     text = json.dumps(payload, ensure_ascii=False)
+    assert payload["trade_date"] == "2026-06-29"
     assert payload["market"]["regime_label"] == "风险偏好回升"
     assert payload["etf"]["l2_passed"] == 3
     assert payload["etf"]["strong_themes"] == ["半导体", "证券"]
@@ -100,6 +102,19 @@ def test_validate_compliance_report_blocks_codes_names_and_action_terms():
     assert any(reason.startswith("contains_term:") for reason in result.reasons)
 
 
+def test_validate_compliance_report_rejects_wrong_date():
+    from core.compliance_report import validate_compliance_report
+
+    result = validate_compliance_report(
+        "市场观察简报\n日期：2025年3月25日（脱敏）\n大盘结构正常。",
+        expected_trade_date="2026-06-29",
+    )
+
+    assert not result.ok
+    assert "contains_term:脱敏" in result.reasons
+    assert "contains_wrong_date" in result.reasons
+
+
 def test_resolve_compliance_llm_uses_efficiency(monkeypatch):
     from workflows.compliance_report_config import compliance_llm_config_from_env
 
@@ -118,7 +133,7 @@ def test_generate_compliance_brief_fallback_has_no_stock_identifiers():
     from core.compliance_report import generate_compliance_brief
 
     text = generate_compliance_brief(
-        benchmark_context={"regime": "RISK_OFF", "breadth": {"ratio_pct": 20}},
+        benchmark_context={"trade_date": "20260629", "regime": "RISK_OFF", "breadth": {"ratio_pct": 20}},
         selected_df=_sample_df(),
         ops_codes=["600000"],
         code_name={"600000": "浦发银行", "300001": "特锐德"},
@@ -129,6 +144,7 @@ def test_generate_compliance_brief_fallback_has_no_stock_identifiers():
     assert "浦发银行" not in text
     assert "特锐德" not in text
     assert "市场观察简报" in text
+    assert "日期：2026-06-29" in text
     assert "大盘结构" in text
     assert "ETF温度" in text
     assert "模型" not in text
@@ -160,3 +176,26 @@ def test_generate_compliance_brief_rejects_bad_llm_output():
     assert "600000" not in text
     assert "浦发银行" not in text
     assert "买入" not in text
+
+
+def test_generate_compliance_brief_rejects_wrong_llm_date():
+    import core.compliance_report as cr
+
+    config = cr.ComplianceLLMConfig(
+        provider="efficiency",
+        api_key="eff-key",
+        model="mimo-v2.5-pro",
+        base_url="https://example.com/v1",
+        source="efficiency",
+        retries=0,
+    )
+
+    text = cr.generate_compliance_brief(
+        benchmark_context={"trade_date": "20260629", "regime": "NEUTRAL"},
+        selected_df=_sample_df(),
+        llm_config=config,
+        llm_caller=lambda **_kwargs: "市场观察简报\n日期：2025年3月25日（脱敏）\n\n大盘结构\n正常。",
+    )
+
+    assert "2025年3月25日" not in text
+    assert "日期：2026-06-29" in text
