@@ -82,3 +82,35 @@ def test_attribution_report_groups_candidate_shadow_grade():
     assert stats["_data_lineage"]["coverage_grade"]["5"]["thin"]["big_loss_rate_pct"] == 100.0
     assert stats["_data_lineage"]["evidence_key"]["5"]["intraday_tail"]["avg_return_pct"] == 6.0
     assert stats["_data_lineage"]["coverage_summary"]["5"]["avg_coverage_score"] == 65.0
+
+
+def test_attribution_stats_ignore_nonfinite_scores_and_returns():
+    import workflows.strategy_attribution_stats as stats_mod
+
+    observations = [
+        {"id": 1, "priority_score": float("inf"), "features_json": {"candidate_shadow_score": {"score": float("inf")}}},
+        {"id": 2, "priority_score": 10.0},
+        {"id": 3, "priority_score": 20.0},
+        {"id": 4, "priority_score": 30.0},
+        {"id": 5, "priority_score": 40.0},
+        {"id": 6, "priority_score": 30.0},
+    ]
+    outcomes = [
+        {"observation_id": 1, "horizon_days": 5, "code": "BAD_SCORE", "return_pct": 99.0},
+        {"observation_id": 2, "horizon_days": 5, "code": "LOW1", "return_pct": -1.0},
+        {"observation_id": 3, "horizon_days": 5, "code": "LOW2", "return_pct": 1.0},
+        {"observation_id": 4, "horizon_days": 5, "code": "MID", "return_pct": 3.0},
+        {"observation_id": 5, "horizon_days": 5, "code": "HIGH", "return_pct": 4.0},
+        {"observation_id": 6, "horizon_days": 5, "code": "BAD_RETURN", "return_pct": float("inf")},
+    ]
+
+    joined = stats_mod.join_outcomes(outcomes, observations)
+    score_stats = stats_mod.score_stats_json(joined, [5])
+    ranked = stats_mod.ranked_outcomes(joined, 5, reverse=True)
+
+    assert joined[0]["candidate_shadow_score"] is None
+    assert score_stats["5"]["low"]["count"] == 2
+    assert score_stats["5"]["mid"]["count"] == 1
+    assert score_stats["5"]["high"]["count"] == 1
+    assert score_stats["5"]["high"]["avg_return_pct"] == 4.0
+    assert "BAD_RETURN" not in {row["code"] for row in ranked}

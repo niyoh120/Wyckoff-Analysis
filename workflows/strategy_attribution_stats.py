@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from collections import defaultdict
 from datetime import date
@@ -126,9 +127,10 @@ def num(raw: Any) -> float | None:
     try:
         if raw is None or str(raw).strip() == "":
             return None
-        return float(raw)
+        value = float(raw)
     except (TypeError, ValueError):
         return None
+    return value if math.isfinite(value) else None
 
 
 _OBSERVATION_FIELDS = (
