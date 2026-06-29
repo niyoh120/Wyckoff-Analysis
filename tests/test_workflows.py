@@ -5,6 +5,7 @@ from cli.runtime import AgentRuntime
 from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
 from cli.workflows.executor import WorkflowExecutor
+from cli.workflows.model_router import _ROUTER_SYSTEM_PROMPT
 from cli.workflows.router import build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
@@ -160,6 +161,15 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
     assert "不要按关键词机械判断" in router_prompt
     assert "查看持仓" not in router_prompt
     assert "单只股票诊断" not in router_prompt
+
+
+def test_model_router_prompt_keeps_direct_as_default_chat_path():
+    assert "默认选择 direct" in _ROUTER_SYSTEM_PROMPT
+    assert "一个清楚目标在一轮内能完成" in _ROUTER_SYSTEM_PROMPT
+    assert "持续编排" in _ROUTER_SYSTEM_PROMPT
+    assert "错别字、谐音、省略和口语化先交给 direct agent 理解" in _ROUTER_SYSTEM_PROMPT
+    assert "查看持仓" not in _ROUTER_SYSTEM_PROMPT
+    assert "单只股票诊断" not in _ROUTER_SYSTEM_PROMPT
 
 
 def test_dispatch_accepts_flexible_model_router_aliases():
