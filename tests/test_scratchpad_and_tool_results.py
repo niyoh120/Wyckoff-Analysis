@@ -95,7 +95,16 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
             "market_gate": "风险规避 / 不新增买入",
             "report_focus": [{"summary": "300750 宁德时代: LPS+SOS；只观察"}],
         },
-        "action_plan": {"candidate_action": "只观察，不新增买入", "new_buy_allowed": False},
+        "action_plan": {
+            "candidate_action": "只观察，不新增买入",
+            "new_buy_allowed": False,
+            "review_targets": {
+                "codes": ["300750"],
+                "status": "ready",
+                "tool": "generate_ai_report",
+                "args": {"stock_codes": ["300750"]},
+            },
+        },
         "trigger_groups": {"huge": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(100)]},
         "top_candidates": [
             {"code": "300750", "name": "宁德时代", "score": 96.5, "triggers": ["lps", "sos"]},
@@ -111,7 +120,8 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     assert '"decision_brief": {"market_gate": "风险规避 / 不新增买入"' in content
     assert "300750 宁德时代: LPS+SOS；只观察" in content
     assert '"trade_mode": {"regime": "RISK_OFF", "action": "不新增买入"}' in content
-    assert '"action_plan": {"candidate_action": "只观察，不新增买入", "new_buy_allowed": false}' in content
+    assert '"tool": "generate_ai_report"' in content
+    assert '"args": {"stock_codes": ["300750"]}' in content
     assert "完整 trigger_groups 已写入 result_ref" in content
     assert '"trigger_groups"' not in content
     stored = list((tmp_path / "tool-results").glob("*.json"))

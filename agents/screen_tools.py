@@ -117,6 +117,7 @@ def _action_plan(trade_mode: dict, top_candidates: list[dict]) -> dict:
         "candidate_action": _candidate_action_label(trade_mode),
         "new_buy_allowed": bool(trade_mode.get("allow_recommendation_write")),
         "ai_review_allowed": bool(trade_mode.get("allow_ai_review")),
+        "review_targets": _review_targets(report_candidates, trade_mode),
         "report_candidates": _candidate_refs(report_candidates, trade_mode, "report"),
         "watch_candidates": _candidate_refs(watch_candidates, trade_mode, "watch"),
     }
@@ -131,6 +132,33 @@ def _decision_brief(trade_mode: dict, top_candidates: list[dict]) -> dict:
         "report_focus": _candidate_brief_items(report_candidates, trade_mode, "report"),
         "watch_focus": _candidate_brief_items(watch_candidates, trade_mode, "watch"),
     }
+
+
+def _review_targets(report_candidates: list[dict], trade_mode: dict) -> dict:
+    codes = [str(row.get("code") or "").strip() for row in report_candidates if str(row.get("code") or "").strip()]
+    payload = {
+        "codes": codes[:10],
+        "status": _review_target_status(codes, trade_mode),
+        "reason": _review_target_reason(codes, trade_mode),
+    }
+    if payload["status"] == "ready":
+        payload["tool"] = "generate_ai_report"
+        payload["args"] = {"stock_codes": payload["codes"]}
+    return payload
+
+
+def _review_target_status(codes: list[str], trade_mode: dict) -> str:
+    if not codes:
+        return "empty"
+    return "ready" if bool(trade_mode.get("allow_ai_review")) else "blocked"
+
+
+def _review_target_reason(codes: list[str], trade_mode: dict) -> str:
+    if not codes:
+        return "本轮没有研报候选"
+    if bool(trade_mode.get("allow_ai_review")):
+        return "候选已可进入 AI 研报复核"
+    return str(trade_mode.get("reason") or "市场风险闸门未打开，暂不进入 AI 研报复核")
 
 
 def _market_gate_line(trade_mode: dict) -> str:

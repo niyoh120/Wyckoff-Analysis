@@ -946,6 +946,11 @@ class TestSymbolPool:
             "candidate_action": "只观察，不新增买入",
             "new_buy_allowed": False,
             "ai_review_allowed": False,
+            "review_targets": {
+                "codes": ["000004"],
+                "status": "blocked",
+                "reason": "大盘风险闸门关闭",
+            },
             "report_candidates": [
                 {
                     "code": "000004",
@@ -983,3 +988,53 @@ class TestSymbolPool:
         assert first["tag"] == "主线买点确认 | 威科夫候选"
         assert first["rank_reason"] == "研报候选#1；优先分 12.50"
         assert result["top_candidates"][1]["code"] == "000001"
+
+    def test_screen_stocks_exposes_ready_ai_review_targets(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000004",
+                        "name": "主线候选",
+                        "priority_rank": 1,
+                        "priority_score": 11.0,
+                    },
+                    {
+                        "code": "000005",
+                        "name": "二号候选",
+                        "priority_rank": 2,
+                        "priority_score": 8.0,
+                    },
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {},
+                    "trade_mode": {
+                        "mode": "risk_on",
+                        "action": "允许新增买入",
+                        "allow_ai_review": True,
+                        "allow_recommendation_write": True,
+                    },
+                    "name_map": {},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        assert result["action_plan"]["review_targets"] == {
+            "codes": ["000004", "000005"],
+            "status": "ready",
+            "reason": "候选已可进入 AI 研报复核",
+            "tool": "generate_ai_report",
+            "args": {"stock_codes": ["000004", "000005"]},
+        }
