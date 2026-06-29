@@ -99,12 +99,12 @@ def test_route_workflow_explicit_dynamic_opt_in():
     assert workflow.route_reason == "用户显式要求动态 workflow"
 
 
-def test_route_workflow_deep_research_opt_in():
+def test_route_workflow_leaves_deep_research_to_model_router():
     workflow = route_workflow("分阶段深度研究一下今天的市场风险")
 
-    assert workflow.name == "dynamic_task"
-    assert workflow.route_reason == "用户要求深度/多阶段研究"
-    assert workflow.route_matches == ("深度研究", "分阶段")
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "普通工具型对话交给直接 agent"
+    assert workflow.route_matches == ()
 
 
 def test_route_workflow_explaining_workflow_stays_general():
@@ -155,8 +155,11 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
     assert isinstance(runtime, WorkflowExecutor)
     assert provider.chat_calls
     assert provider.chat_calls[0]["tools"] == []
-    assert "最可能的任务意图" in provider.chat_calls[0]["system_prompt"]
-    assert "不要按关键词机械判断" in provider.chat_calls[0]["system_prompt"]
+    router_prompt = provider.chat_calls[0]["system_prompt"]
+    assert "最可能的任务意图" in router_prompt
+    assert "不要按关键词机械判断" in router_prompt
+    assert "查看持仓" not in router_prompt
+    assert "单只股票诊断" not in router_prompt
 
 
 def test_dispatch_accepts_flexible_model_router_aliases():

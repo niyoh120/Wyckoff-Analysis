@@ -102,8 +102,6 @@ def route_workflow(user_text: str) -> WorkflowContext:
     text = user_text.lower()
     if matches := _explicit_dynamic_workflow_matches(text):
         return _with_route(WORKFLOWS["dynamic_task"], "用户显式要求动态 workflow", 0.96, matches)
-    if matches := _deep_workflow_matches(text):
-        return _with_route(WORKFLOWS["dynamic_task"], "用户要求深度/多阶段研究", 0.86, matches)
     return _with_route(WORKFLOWS["general_chat"], "普通工具型对话交给直接 agent", 0.0, ())
 
 
@@ -134,21 +132,6 @@ def build_workflow_system_prompt(workflow: WorkflowContext | None) -> str:
 
 def _explicit_dynamic_workflow_matches(text: str) -> tuple[str, ...]:
     markers = ("ultracode", "用 workflow", "使用 workflow", "以 workflow", "用动态 workflow", "动态 workflow 跑")
-    return tuple(marker for marker in markers if marker in text)
-
-
-def _deep_workflow_matches(text: str) -> tuple[str, ...]:
-    markers = (
-        "/deep-research",
-        "deep research",
-        "深度研究",
-        "多代理",
-        "多 agent",
-        "并发",
-        "分阶段",
-        "全流程",
-        "系统性研究",
-    )
     return tuple(marker for marker in markers if marker in text)
 
 

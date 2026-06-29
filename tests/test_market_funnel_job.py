@@ -89,6 +89,22 @@ def test_candidate_rows_keep_raw_trigger_strength():
     assert rows[0]["latest_trade_date"] == 20250101
 
 
+def test_candidate_rows_sanitize_invalid_scores():
+    rows = _candidate_rows(
+        {"sos": [("BAD.US", "bad"), ("INF.US", float("inf")), ("NAN.US", float("nan")), ("GOOD.US", 4.25)]},
+        name_map={},
+        df_map={},
+    )
+
+    assert rows[0]["symbol"] == "GOOD.US"
+    assert {row["symbol"]: row["score"] for row in rows} == {
+        "BAD.US": 0.0,
+        "INF.US": 0.0,
+        "NAN.US": 0.0,
+        "GOOD.US": 4.25,
+    }
+
+
 def test_rank_quotes_prefers_liquidity_not_absolute_change():
     ranked = market_data.rank_quotes(
         {

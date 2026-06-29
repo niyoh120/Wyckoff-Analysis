@@ -13,6 +13,7 @@ from typing import Any
 
 import pandas as pd
 
+from core.candidate_policy import candidate_score_value
 from core.candidate_ranker import TRIGGER_LABELS
 from core.wyckoff_engine import (
     FunnelConfig,
@@ -169,7 +170,7 @@ def _candidate_rows(
                 symbol,
                 {"symbol": symbol, "name": name_map.get(symbol, symbol), "score": 0.0, "triggers": []},
             )
-            item["score"] = float(item["score"]) + float(score)
+            item["score"] = candidate_score_value(item["score"]) + candidate_score_value(score)
             item["triggers"].append(TRIGGER_LABELS.get(trigger, trigger))
     out = list(rows.values())
     for item in out:
@@ -177,7 +178,7 @@ def _candidate_rows(
         item["latest_close"] = latest_close
         if latest_trade_date is not None:
             item["latest_trade_date"] = latest_trade_date
-    out.sort(key=lambda item: float(item["score"]), reverse=True)
+    out.sort(key=lambda item: candidate_score_value(item.get("score")), reverse=True)
     return out
 
 
