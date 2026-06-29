@@ -273,11 +273,15 @@ def extract_stock_codes(text: str) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for code in re.findall(r"\b\d{6}\b", text):
-        if code in seen:
+        if code in seen or not _is_supported_external_report_code(code):
             continue
         seen.add(code)
         out.append(code)
     return out
+
+
+def _is_supported_external_report_code(code: str) -> bool:
+    return bool(re.fullmatch(r"[0134568]\d{5}", code))
 
 
 def parse_float_like(raw: object) -> float | None:

@@ -7,6 +7,7 @@ from workflows.step4_payload import (
     build_candidate_meta_map,
     candidate_context_line,
     collect_step4_candidates,
+    extract_stock_codes,
     prepare_step4_payload_context,
     prepend_candidate_context,
 )
@@ -107,6 +108,12 @@ def test_collect_step4_candidates_caps_external_report_fallback_codes() -> None:
     assert [item["code"] for item in candidate_items] == ["000390", "000391"]
     assert allowed_codes == {"000390", "000391"}
     assert set(meta_map) == {"000390", "000391"}
+
+
+def test_extract_stock_codes_filters_date_like_numeric_noise() -> None:
+    text = "报告日 202606，批次 999999，候选 000390 159919 300750 600519 833575。"
+
+    assert extract_stock_codes(text) == ["000390", "159919", "300750", "600519", "833575"]
 
 
 def test_prepare_step4_payload_context_reports_external_candidate_truncation(monkeypatch) -> None:
