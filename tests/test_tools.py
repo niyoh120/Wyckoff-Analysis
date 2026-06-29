@@ -885,7 +885,7 @@ class TestSymbolPool:
                     "priority_score_map": {"000004": 12.5},
                     "trade_mode": {
                         "regime": "RISK_OFF",
-                        "mode": "blocked",
+                        "mode": "observe_only",
                         "label": "风险规避",
                         "action": "不新增买入",
                         "reason": "大盘风险闸门关闭",
@@ -907,12 +907,34 @@ class TestSymbolPool:
         assert result["summary"]["report_candidates"] == 1
         assert result["trade_mode"] == {
             "regime": "RISK_OFF",
-            "mode": "blocked",
+            "mode": "observe_only",
             "label": "风险规避",
             "action": "不新增买入",
             "reason": "大盘风险闸门关闭",
             "allow_ai_review": False,
             "allow_recommendation_write": False,
+        }
+        assert result["action_plan"] == {
+            "primary_action": "不新增买入",
+            "candidate_action": "只观察，不新增买入",
+            "new_buy_allowed": False,
+            "ai_review_allowed": False,
+            "report_candidates": [
+                {
+                    "code": "000004",
+                    "name": "主线候选",
+                    "rank_reason": "研报候选#1；优先分 12.50",
+                    "priority_score": 12.5,
+                }
+            ],
+            "watch_candidates": [
+                {
+                    "code": "000001",
+                    "name": "高分未选",
+                    "rank_reason": "SOS",
+                    "priority_score": 0.0,
+                }
+            ],
         }
         assert first["code"] == "000004"
         assert first["selected_for_report"] is True

@@ -36,12 +36,15 @@ def screen_stocks(board: str = "all", tool_context: ToolContext | None = None) -
         ok, symbols, _bench_ctx, details = _run_funnel_with_board(board)
         metrics = details.get("metrics") or {}
         trigger_groups = _trigger_summary(details)
+        trade_mode = _trade_mode_summary(details)
+        top_candidates = _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details)
         return {
             "ok": bool(ok),
             "board": board,
             "summary": _screen_summary(metrics, symbols),
-            "trade_mode": _trade_mode_summary(details),
-            "top_candidates": _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details),
+            "trade_mode": trade_mode,
+            "action_plan": _action_plan(trade_mode, top_candidates),
+            "top_candidates": top_candidates,
             "trigger_groups": trigger_groups,
             "top_sectors": metrics.get("top_sectors", []),
             "symbols_for_report": symbols,
@@ -102,6 +105,46 @@ def _trade_mode_summary(details: dict) -> dict:
         "allow_recommendation_write",
     )
     return {field: mode[field] for field in fields if field in mode}
+
+
+def _action_plan(trade_mode: dict, top_candidates: list[dict]) -> dict:
+    report_candidates = [row for row in top_candidates if row.get("selected_for_report")]
+    watch_candidates = [row for row in top_candidates if not row.get("selected_for_report")]
+    return {
+        "primary_action": str(trade_mode.get("action") or _candidate_action_label(trade_mode)),
+        "candidate_action": _candidate_action_label(trade_mode),
+        "new_buy_allowed": bool(trade_mode.get("allow_recommendation_write")),
+        "ai_review_allowed": bool(trade_mode.get("allow_ai_review")),
+        "report_candidates": _candidate_refs(report_candidates),
+        "watch_candidates": _candidate_refs(watch_candidates),
+    }
+
+
+def _candidate_action_label(trade_mode: dict) -> str:
+    mode = str(trade_mode.get("mode") or "").strip()
+    if mode == "observe_only":
+        return "只观察，不新增买入"
+    if mode == "repair_review":
+        return "修复复核，暂不写正式推荐"
+    if mode == "confirmation_only":
+        return "等待二次确认后再行动"
+    if mode == "risk_on":
+        return "允许候选进入AI复核"
+    return "先复核候选质量"
+
+
+def _candidate_refs(candidates: list[dict], *, limit: int = 5) -> list[dict]:
+    refs: list[dict] = []
+    for row in candidates[:limit]:
+        refs.append(
+            {
+                "code": row.get("code"),
+                "name": row.get("name"),
+                "rank_reason": row.get("rank_reason"),
+                "priority_score": row.get("priority_score"),
+            }
+        )
+    return refs
 
 
 def _ranked_candidates(
