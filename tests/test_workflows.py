@@ -158,7 +158,7 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
     assert provider.chat_calls[0]["tools"] == []
     router_prompt = provider.chat_calls[0]["system_prompt"]
     assert "最可能的任务意图" in router_prompt
-    assert "不要按关键词机械判断" in router_prompt
+    assert "不要按关键词、字面表达或固定模板机械判断" in router_prompt
     assert "查看持仓" not in router_prompt
     assert "单只股票诊断" not in router_prompt
 
@@ -167,7 +167,9 @@ def test_model_router_prompt_keeps_direct_as_default_chat_path():
     assert "默认选择 direct" in _ROUTER_SYSTEM_PROMPT
     assert "一个清楚目标在一轮内能完成" in _ROUTER_SYSTEM_PROMPT
     assert "持续编排" in _ROUTER_SYSTEM_PROMPT
-    assert "错别字、谐音、省略和口语化先交给 direct agent 理解" in _ROUTER_SYSTEM_PROMPT
+    assert "固定模板机械判断" in _ROUTER_SYSTEM_PROMPT
+    assert "错别字" not in _ROUTER_SYSTEM_PROMPT
+    assert "谐音" not in _ROUTER_SYSTEM_PROMPT
     assert "查看持仓" not in _ROUTER_SYSTEM_PROMPT
     assert "单只股票诊断" not in _ROUTER_SYSTEM_PROMPT
 
@@ -410,6 +412,13 @@ def test_direct_local_task_tools_are_not_keyword_gated():
     assert "write_file" in tools
     assert "exec_command" in tools
     assert "execute_skill" not in tools
+
+
+def test_tool_descriptions_do_not_use_user_phrase_triggers():
+    descriptions = "\n".join(str(schema.get("description") or "") for schema in TOOL_SCHEMAS)
+
+    assert "用户问" not in descriptions
+    assert "时调用" not in descriptions
 
 
 def test_dispatch_uses_workflow_executor_for_explicit_dynamic_turn():

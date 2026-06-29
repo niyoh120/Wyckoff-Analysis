@@ -94,7 +94,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "get_market_history",
-        "description": "回看 A 股主要指数过去 N 个交易日的日线量价关系。用户问过去、近 N 日、回看、阶段位置时使用。",
+        "description": "回看 A 股主要指数过去 N 个交易日的日线量价关系，用于分析阶段位置、近期结构和量价变化。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -198,7 +198,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "check_background_tasks",
-        "description": "查询后台任务执行状态。用户问'扫描好了没''任务进度'时调用。",
+        "description": "查询后台任务执行状态，用于跟踪扫描、回测、研报等异步任务的进度和结果。",
         "parameters": {
             "type": "object",
             "properties": {},
@@ -206,7 +206,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "run_backtest",
-        "description": "回测威科夫五层漏斗策略的历史表现。耗时 3-10 分钟，后台执行。用户问'帮我回测''跑个回测'时调用。",
+        "description": "回测威科夫五层漏斗策略的历史表现。耗时 3-10 分钟，后台执行。",
         "parameters": {
             "type": "object",
             "properties": {

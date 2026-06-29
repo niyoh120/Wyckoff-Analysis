@@ -67,7 +67,7 @@ dynamic_workflow:
 
 要求:
 - 按用户最可能的任务意图判断，不要把表达形式当作澄清理由。
-- 不要按关键词机械判断；错别字、谐音、省略和口语化先交给 direct agent 理解。
+- 不要按关键词、字面表达或固定模板机械判断；以语义任务边界决定 runtime。
 - confidence 只表示你的把握，runtime 不会用它覆盖你的 mode 判断。
 - 只输出 JSON，不要 Markdown。
 
