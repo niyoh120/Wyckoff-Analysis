@@ -39,6 +39,7 @@ def test_candidate_context_line_exposes_score_source_and_capital_migration() -> 
         {
             "code": "000390",
             "priority_score": 91,
+            "layer3_quality_score": 0.82,
             "capital_migration_bonus": 4.5,
             "selection_source": "二次确认",
             "candidate_lane": "mainline",
@@ -46,6 +47,7 @@ def test_candidate_context_line_exposes_score_source_and_capital_migration() -> 
     )
 
     assert "score=91.00" in line
+    assert "L3质量=0.82" in line
     assert "资金迁移加分=+4.50" in line
     assert "来源=二次确认" in line
     assert "通道=mainline" in line

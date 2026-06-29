@@ -19,6 +19,7 @@ class FunnelReportMaps:
     code_to_reasons: dict[str, list[str]]
     theme_badge_map: dict[str, str]
     capital_migration_bonus_map: dict[str, float] = field(default_factory=dict)
+    layer3_score_map: dict[str, float] = field(default_factory=dict)
 
 
 def build_symbol_report_row(
@@ -46,6 +47,7 @@ def build_symbol_report_row(
         "priority_rank": rank,
         "selection_source": selection_source,
         "selection_is_fill": bool(selection_is_fill),
+        "layer3_quality_score": _safe_float(maps.layer3_score_map.get(code)),
         "initial_price": float(maps.latest_close_map.get(code, 0.0) or 0.0),
         "industry": _industry(code, maps.sector_map),
     }

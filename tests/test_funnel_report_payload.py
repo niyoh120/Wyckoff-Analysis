@@ -55,6 +55,7 @@ def _ctx(**overrides):
             code_to_trigger_keys={"000001": ["sos"]},
             code_to_reasons=base["code_to_reasons"],
             theme_badge_map=base["theme_badge_map"],
+            layer3_score_map=base["metrics"].get("layer3_score_map", {}) or {},
         ),
     )
     return SimpleNamespace(**base)
@@ -80,10 +81,11 @@ def test_funnel_payload_helpers_preserve_stage_source_and_score_priority():
 
 
 def test_modern_symbol_rows_use_display_score_as_priority_score():
-    rows = modern_symbol_rows(_ctx(), _selection())
+    rows = modern_symbol_rows(_ctx(metrics={"layer3_score_map": {"000001": 0.82}}), _selection())
 
     assert rows[0]["score"] == 3.5
     assert rows[0]["priority_score"] == 3.5
+    assert rows[0]["layer3_quality_score"] == 0.82
 
 
 def test_legacy_symbol_rows_infer_candidate_track_from_entry_type():

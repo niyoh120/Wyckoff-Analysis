@@ -330,6 +330,9 @@ def candidate_context_line(item: dict) -> str:
     score = candidate_score(item)
     if score is not None:
         parts.append(f"score={score:.2f}")
+    layer3_score = parse_float_like(item.get("layer3_quality_score"))
+    if layer3_score is not None and layer3_score > 0:
+        parts.append(f"L3质量={layer3_score:.2f}")
     bonus = parse_float_like(item.get("capital_migration_bonus"))
     if bonus is not None and abs(bonus) > 1e-9:
         label = "资金迁移加分" if bonus > 0 else "资金迁移扣分"

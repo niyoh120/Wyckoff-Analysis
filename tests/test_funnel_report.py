@@ -18,6 +18,7 @@ def test_build_symbol_report_row_combines_shared_fields() -> None:
         code_to_reasons={"000001": ["SOS"]},
         theme_badge_map={"000001": "主线:大金融"},
         capital_migration_bonus_map={"000001": 4.5},
+        layer3_score_map={"000001": 0.82},
     )
 
     row = build_symbol_report_row(
@@ -41,4 +42,5 @@ def test_build_symbol_report_row_combines_shared_fields() -> None:
     assert row["exit_reason"] == "趋势未破"
     assert row["strategic_theme"] == "大金融"
     assert row["capital_migration_bonus"] == 4.5
+    assert row["layer3_quality_score"] == 0.82
     assert row["tag"] == "SOS、主线:大金融"

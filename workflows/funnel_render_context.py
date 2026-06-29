@@ -181,6 +181,7 @@ def _build_render_context_parts(triggers: dict[str, list[tuple[str, float]]], me
         score_ctx,
         theme_badge_map,
         capital_migration_bonus_map,
+        metrics.get("layer3_score_map", {}) or {},
     )
     return _RenderContextParts(
         metrics=metrics,
@@ -241,6 +242,7 @@ def _build_report_maps(
     score_ctx: _ReviewScoreContext,
     theme_badge_map: dict[str, str],
     capital_migration_bonus_map: dict[str, float],
+    layer3_score_map: dict[str, float],
 ) -> FunnelReportMaps:
     return FunnelReportMaps(
         name_map,
@@ -254,6 +256,7 @@ def _build_report_maps(
         score_ctx.code_to_reasons,
         theme_badge_map,
         capital_migration_bonus_map,
+        layer3_score_map,
     )
 
 
