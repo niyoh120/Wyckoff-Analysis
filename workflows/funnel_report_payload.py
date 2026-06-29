@@ -168,7 +168,8 @@ def stage_name(ctx: Any, code: str) -> str:
 
 def display_score(ctx: Any, selection: FunnelAiSelection, code: str) -> float:
     trigger_score = float(ctx.code_to_total_score.get(code, 0.0) or 0.0)
-    return trigger_score if trigger_score > 0 else float(selection.score_map.get(code, 0.0) or 0.0)
+    selection_score = float(selection.score_map.get(code, 0.0) or 0.0)
+    return max(trigger_score, selection_score)
 
 
 def display_score_map(ctx: Any, selection: FunnelAiSelection) -> dict[str, float]:

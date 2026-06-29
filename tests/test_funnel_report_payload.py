@@ -85,6 +85,19 @@ def test_modern_symbol_rows_use_display_score_as_priority_score():
     assert rows[0]["priority_score"] == 3.5
 
 
+def test_display_score_keeps_stronger_selection_score():
+    selection = FunnelAiSelection(
+        selected_for_ai=["000001"],
+        trend_selected=["000001"],
+        accum_selected=[],
+        score_map={"000001": 9.0},
+        ai_policy={},
+        theme_promoted_count=0,
+    )
+
+    assert display_score(_ctx(), selection, "000001") == 9.0
+
+
 def test_display_score_map_uses_trigger_priority_for_selected_codes():
     got = display_score_map(_ctx(), _selection())
 

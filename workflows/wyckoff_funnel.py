@@ -290,6 +290,7 @@ def _apply_ai_post_filters(
     if dropped:
         ai_policy["loss_guard_dropped"] = dropped
         print(f"[funnel] loss guard过滤候选: {dropped}")
+    _sync_selected_score_map(selected_for_ai, score_map, ctx.code_to_total_score)
     min_score = float(ctx.metrics.get("min_funnel_score", 0.0) or 0.0)
     if score_map and min_score > 0:
         before = len(selected_for_ai)
@@ -307,6 +308,21 @@ def _apply_ai_post_filters(
         [c for c in selected_for_ai if c in trend_set],
         [c for c in selected_for_ai if c in accum_set],
     )
+
+
+def _sync_selected_score_map(
+    selected_for_ai: list[str],
+    score_map: dict[str, float],
+    code_to_total_score: dict[str, float],
+) -> None:
+    for code in selected_for_ai:
+        code_s = str(code).strip()
+        if not code_s:
+            continue
+        score_map[code_s] = max(
+            float(score_map.get(code_s, 0.0) or 0.0),
+            float(code_to_total_score.get(code_s, 0.0) or 0.0),
+        )
 
 
 def _build_funnel_metrics(inputs: FunnelMetricsInputs) -> dict:
