@@ -207,3 +207,48 @@ def test_candidate_entry_duplicate_metadata_stays_consistent_in_replay(monkeypat
     assert replay.records[0].score == 100.0
     assert replay.records[0].track == "Accum"
     assert replay.records[0].trigger == "spring"
+
+
+def test_low_score_confirmed_signal_does_not_downgrade_funnel_candidate(monkeypatch) -> None:
+    class Pending:
+        def __init__(self):
+            self.written = False
+
+        def write(self, *_args, **_kwargs):
+            self.written = True
+
+        def tick(self, *_args, **_kwargs):
+            return [{"code": "000001", "score": 20.0, "track": "Trend", "signal_type": "evr"}]
+
+    monkeypatch.setattr("core.backtest_replay.calc_market_breadth", lambda _df_map: {})
+    monkeypatch.setattr(
+        "core.backtest_replay.analyze_benchmark_and_tune_cfg", lambda *_args, **_kwargs: {"regime": "NEUTRAL"}
+    )
+    monkeypatch.setattr(
+        "core.backtest_replay.run_funnel",
+        lambda **_kwargs: _result()._replace(
+            triggers={},
+            candidate_entries=[
+                {"code": "000001", "track": "accumulation", "entry_type": "spring", "score": 100.0},
+            ],
+        ),
+    )
+    monkeypatch.setattr("core.backtest_replay.PendingPool", Pending)
+    replay_cfg = replace(_config(), selection_mode="tradeable_l4", pending_mode="both")
+    cfg = FunnelConfig(trading_days=3)
+    cfg.ma_long = 2
+
+    replay = replay_backtest(
+        all_df_map={"000001": _hist()},
+        bench_df=_hist(),
+        trade_dates=[date(2026, 1, day) for day in range(1, 6)],
+        name_map={"000001": "平安银行"},
+        market_cap_map={},
+        sector_map={},
+        base_cfg=cfg,
+        config=replay_cfg,
+    )
+
+    assert replay.records[0].score == 100.0
+    assert replay.records[0].track == "Accum"
+    assert replay.records[0].trigger == "spring"

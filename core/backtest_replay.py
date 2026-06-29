@@ -265,8 +265,7 @@ def _select_ranked_codes(
         ai_allocation=config.ai_allocation,
     )
     ranked_codes = _merge_codes(selected_codes, confirmed.codes, config.pending_mode, config.pending_merge_order)
-    score_map.update(confirmed.score_map)
-    track_map.update(confirmed.track_map)
+    _merge_confirmed_metadata(score_map, track_map, confirmed)
     ranked_codes = _apply_selection_guards(ranked_codes, ctx, config)
     if not ranked_codes:
         return None, len(confirmed.codes)
@@ -300,6 +299,18 @@ def _confirmed_signals(
             track_map[code] = str(item.get("track", "Trend"))
             trigger_map[code] = str(item.get("signal_type", "confirmed"))
     return _ConfirmedSignals(codes, score_map, track_map, trigger_map)
+
+
+def _merge_confirmed_metadata(
+    score_map: dict[str, float],
+    track_map: dict[str, str],
+    confirmed: _ConfirmedSignals,
+) -> None:
+    for code, confirmed_score in confirmed.score_map.items():
+        score = float(confirmed_score or 0.0)
+        if code not in score_map or score > float(score_map.get(code, 0.0) or 0.0):
+            score_map[code] = score
+            track_map[code] = confirmed.track_map.get(code, track_map.get(code, ""))
 
 
 def _merge_codes(selected: list[str], confirmed: list[str], pending_mode: str, merge_order: str) -> list[str]:
