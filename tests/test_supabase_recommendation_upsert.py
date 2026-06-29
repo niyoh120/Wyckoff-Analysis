@@ -152,6 +152,40 @@ def test_upsert_recommendations_dedupes_same_code_same_date(monkeypatch):
     assert client.upserts[0][0]["springboard_evidence"]["a_hits"][0]["date"] == "2026-05-18"
 
 
+def test_upsert_recommendations_ignores_nonfinite_scores_when_deduping(monkeypatch):
+    client = FakeSupabaseClient()
+    _enable_fake_supabase(monkeypatch, client)
+
+    ok = upsert_recommendations(
+        20260518,
+        [
+            {
+                "code": "600203",
+                "name": "福日电子",
+                "initial_price": 10.0,
+                "funnel_score": 6.0,
+                "primary_signal": "evr",
+                "selection_source": "l3_fill",
+            },
+            {
+                "code": "600203",
+                "name": "福日电子",
+                "initial_price": 10.5,
+                "funnel_score": float("inf"),
+                "priority_score": float("nan"),
+                "primary_signal": "sos",
+                "selection_source": "l4_hit",
+            },
+        ],
+    )
+
+    assert ok is True
+    row = client.upserts[0][0]
+    assert row["funnel_score"] == 6.0
+    assert row["primary_signal"] == "evr"
+    assert row["selection_source"] == "l3_fill"
+
+
 def test_upsert_recommendations_preserves_candidate_metadata(monkeypatch):
     client = FakeSupabaseClient()
     _enable_fake_supabase(monkeypatch, client)
@@ -265,6 +299,28 @@ def test_write_recommendation_backup_artifact_marks_ai_and_sql(tmp_path):
     assert "array['sos', 'lps']::text[]" in sql
     assert '\'{"c_support": {"touch_dates": ["2026-05-24"]}}\'::jsonb' in sql
     assert "'O''Reilly setup'" in sql
+
+
+def test_write_recommendation_backup_artifact_sanitizes_nonfinite_numbers(tmp_path):
+    rows = [
+        {
+            "code": 600203,
+            "recommend_date": 20260526,
+            "funnel_score": float("inf"),
+            "priority_score": float("nan"),
+            "updated_at": "2026-05-26T10:00:00+00:00",
+        }
+    ]
+
+    write_recommendation_backup_artifact(20260526, rows, str(tmp_path))
+
+    data = json.loads((tmp_path / "recommendation_tracking_20260526.json").read_text(encoding="utf-8"))
+    assert data["rows"][0]["funnel_score"] is None
+    assert data["rows"][0]["priority_score"] is None
+
+    sql = (tmp_path / "recommendation_tracking_20260526.sql").read_text(encoding="utf-8")
+    assert "Infinity" not in sql
+    assert "NaN" not in sql
 
 
 def test_mark_ai_recommendations_updates_step3_springboard_fields(monkeypatch):

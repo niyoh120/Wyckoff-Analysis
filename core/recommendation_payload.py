@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC, datetime
 from typing import Any
 
@@ -107,7 +108,7 @@ def merge_recommendation_payload_row(existing: dict[str, Any], row: dict[str, An
         existing["name"] = row["name"]
     old_score = existing.get("funnel_score")
     new_score = row.get("funnel_score")
-    if new_score is not None and (old_score is None or float(new_score) > float(old_score)):
+    if new_score is not None and (old_score is None or _finite_float(new_score) > _finite_float(old_score)):
         existing["funnel_score"] = new_score
         existing["recommend_reason"] = row.get("recommend_reason", "")
         _copy_recommendation_attribution(existing, row)
@@ -163,6 +164,8 @@ def clean_backup_value(value: Any) -> Any:
             return None
     except (TypeError, ValueError):
         pass
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     if isinstance(value, str | int | float | bool):
         return value
     return str(value)
@@ -239,10 +242,8 @@ def _extract_recommendation_score(row: dict[str, Any]) -> float | None:
         raw_score = row.get(score_key)
         if raw_score is None or raw_score == "":
             continue
-        try:
-            return float(raw_score)
-        except Exception:
-            continue
+        if (score := _optional_float(raw_score)) is not None:
+            return score
     return None
 
 
@@ -351,7 +352,7 @@ def _optional_float(raw: Any) -> float | None:
         value = float(raw)
     except Exception:
         return None
-    return value if pd.notna(value) else None
+    return value if pd.notna(value) and math.isfinite(value) else None
 
 
 def _optional_int(raw: Any) -> int | None:
@@ -418,9 +419,17 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None or value == "":
             return default
-        return float(value)
+        return _finite_float(value, default)
     except Exception:
         return default
+
+
+def _finite_float(value: Any, default: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+    except Exception:
+        return default
+    return parsed if math.isfinite(parsed) else default
 
 
 def _code6(raw: Any) -> str:
