@@ -82,3 +82,28 @@ def test_default_tool_result_budget_offloads_medium_json(tmp_path, monkeypatch):
 
     assert "result_ref:" in content
     assert len(list((tmp_path / "tool-results").glob("*.json"))) == 1
+
+
+def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path, monkeypatch):
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    result = {
+        "ok": True,
+        "board": "chinext",
+        "summary": {"total_scanned": 2000},
+        "trigger_groups": {"huge": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(100)]},
+        "top_candidates": [
+            {"code": "300750", "name": "宁德时代", "score": 96.5, "triggers": ["lps", "sos"]},
+        ],
+        "symbols_for_report": ["300750"],
+    }
+
+    content = format_tool_result_for_context("screen_stocks", "call_screen", result, max_chars=1000)
+
+    assert "result_ref:" in content
+    assert '"top_candidates": [{"code": "300750"' in content
+    assert "宁德时代" in content
+    assert "完整 trigger_groups 已写入 result_ref" in content
+    assert '"trigger_groups"' not in content
+    stored = list((tmp_path / "tool-results").glob("*.json"))
+    assert len(stored) == 1
+    assert json.loads(stored[0].read_text(encoding="utf-8"))["trigger_groups"]["huge"][0]["blob"] == "x" * 200

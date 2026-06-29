@@ -115,6 +115,41 @@ def _offloaded_tool_result_message(tool_name: str, node_id: str, path: Path, siz
     )
 
 
+def _tool_result_preview(tool_name: str, result: Any, content: str) -> str:
+    if tool_name == "screen_stocks" and isinstance(result, dict):
+        preview = _screen_stocks_preview(result)
+        if preview:
+            return preview[:PREVIEW_CHARS]
+    return content[:PREVIEW_CHARS]
+
+
+def _screen_stocks_preview(result: dict[str, Any]) -> str:
+    payload = _drop_empty_preview_fields(
+        {
+            "ok": result.get("ok"),
+            "board": result.get("board"),
+            "summary": result.get("summary"),
+            "top_candidates": _preview_list(result.get("top_candidates"), 10),
+            "symbols_for_report": _preview_list(result.get("symbols_for_report"), 12),
+            "top_sectors": _preview_list(result.get("top_sectors"), 6),
+            "omitted": "完整 trigger_groups 已写入 result_ref" if result.get("trigger_groups") else "",
+        }
+    )
+    return serialize_tool_result(payload) if payload else ""
+
+
+def _preview_list(value: Any, limit: int) -> list[Any]:
+    return list(value[:limit]) if isinstance(value, list) else []
+
+
+def _drop_empty_preview_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in payload.items()
+        if value is not None and value != "" and value != [] and value != {}
+    }
+
+
 def format_tool_result_for_context(
     tool_name: str,
     tool_call_id: str,
@@ -135,5 +170,5 @@ def format_tool_result_for_context(
     node_id = _tool_node_id(tool_name, tool_call_id, content)
     path = persist_large_tool_result(tool_name, tool_call_id, content, node_id=node_id)
     size_kb = max(1, round(len(content.encode("utf-8")) / 1024))
-    preview = content[:PREVIEW_CHARS]
+    preview = _tool_result_preview(tool_name, result, content)
     return _offloaded_tool_result_message(tool_name, node_id, path, size_kb, preview)
