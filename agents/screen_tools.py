@@ -8,6 +8,7 @@ from typing import Any
 from agents.tool_context import ToolContext, ensure_tushare_token
 from core.candidate_policy import candidate_score_value
 from core.candidate_ranker import TRIGGER_SHORT_LABELS
+from core.funnel_taxonomy import source_label
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,7 @@ def _candidate_ref(row: dict) -> dict:
     payload = {
         "code": row.get("code"),
         "name": row.get("name"),
+        "profile": _candidate_profile(row),
         "rank_reason": row.get("rank_reason"),
         "priority_score": row.get("priority_score"),
         "selection_source": row.get("selection_source"),
@@ -150,6 +152,32 @@ def _candidate_ref(row: dict) -> dict:
         "triggers": row.get("triggers"),
     }
     return {key: value for key, value in payload.items() if value not in (None, "", [])}
+
+
+def _candidate_profile(row: dict) -> str:
+    parts = [
+        _track_label(row.get("track")),
+        _stage_label(row.get("stage")),
+        source_label(str(row.get("selection_source") or "")),
+        _trigger_profile(row.get("triggers")),
+    ]
+    return " / ".join(dict.fromkeys(part for part in parts if part))
+
+
+def _track_label(raw: object) -> str:
+    return {"Trend": "趋势线", "Accum": "吸筹线"}.get(str(raw or "").strip(), "")
+
+
+def _stage_label(raw: object) -> str:
+    stage = str(raw or "").strip()
+    return {"Markup": "主升阶段", "Accum_B": "吸筹B段", "Accum_C": "吸筹C段"}.get(stage, stage)
+
+
+def _trigger_profile(raw: object) -> str:
+    if not isinstance(raw, list):
+        return ""
+    labels = [TRIGGER_SHORT_LABELS.get(str(trigger), str(trigger)) for trigger in raw[:4] if str(trigger)]
+    return f"触发:{'+'.join(labels)}" if labels else ""
 
 
 def _ranked_candidates(

@@ -923,6 +923,7 @@ class TestSymbolPool:
                 {
                     "code": "000004",
                     "name": "主线候选",
+                    "profile": "趋势线 / 主升阶段 / 主线买点",
                     "rank_reason": "研报候选#1；优先分 12.50",
                     "priority_score": 12.5,
                     "selection_source": "mainline",
@@ -935,6 +936,7 @@ class TestSymbolPool:
                 {
                     "code": "000001",
                     "name": "高分未选",
+                    "profile": "触发:SOS",
                     "rank_reason": "SOS",
                     "priority_score": 0.0,
                     "triggers": ["sos"],
