@@ -12,9 +12,35 @@ DEFAULT_STEP4_ORDER_CONFIG = Step4OrderConfig()
 _SENTINEL = object()
 
 
-def _format_wyckoff_context(track: str, stage: str, tag: str) -> str:
+def _format_wyckoff_context(
+    track: str,
+    stage: str,
+    tag: str,
+    *,
+    funnel_score: float | None = None,
+    capital_migration_bonus: float | None = None,
+    source_type: str = "",
+) -> str:
     parts = [x for x in [clean_text(track), clean_text(stage), clean_text(tag)] if x]
+    if funnel_score is not None:
+        parts.append(f"score={float(funnel_score):.2f}")
+    if capital_migration_bonus is not None and abs(float(capital_migration_bonus)) > 1e-9:
+        parts.append(f"资金迁移={float(capital_migration_bonus):+.2f}")
+    source = clean_text(source_type)
+    if source:
+        parts.append(f"source={source}")
     return " | ".join(parts)
+
+
+def _decision_wyckoff_context(dec: DecisionItem) -> str:
+    return _format_wyckoff_context(
+        dec.wyckoff_track,
+        dec.wyckoff_stage,
+        dec.wyckoff_tag,
+        funnel_score=dec.funnel_score,
+        capital_migration_bonus=dec.capital_migration_bonus,
+        source_type=dec.source_type,
+    )
 
 
 def _resolve_chase_limits(
@@ -77,7 +103,14 @@ def _resolve_chase_limits(
 
     pct_limit = min(max(pct_limit, config.chase_gap_pct_min), config.chase_gap_pct_max)
     atr_limit = min(max(atr_limit, config.chase_atr_mult_min), config.chase_atr_mult_max)
-    context = _format_wyckoff_context(track, stage, tag)
+    context = _format_wyckoff_context(
+        track,
+        stage,
+        tag,
+        funnel_score=dec.funnel_score,
+        capital_migration_bonus=dec.capital_migration_bonus,
+        source_type=dec.source_type,
+    )
     return (pct_limit, atr_limit, "/".join(profile_parts), context)
 
 
@@ -157,6 +190,7 @@ class WyckoffOrderEngine:
             effective_stop_loss=effective_stop_loss,
             slippage_bps=self.SLIPPAGE_BPS,
             audit="; ".join(audit_parts + ["hold"]),
+            wyckoff_context=_decision_wyckoff_context(dec),
         )
 
     def _build_order_context(self, dec: DecisionItem) -> OrderContext | ExecutionTicket:
@@ -293,6 +327,7 @@ class WyckoffOrderEngine:
             effective_stop_loss=ctx.effective_stop_loss,
             slippage_bps=self.SLIPPAGE_BPS,
             audit="; ".join(audit_parts),
+            wyckoff_context=_decision_wyckoff_context(ctx.dec),
         )
 
     def _process_exit(self, ctx: OrderContext) -> ExecutionTicket:
@@ -349,7 +384,7 @@ class WyckoffOrderEngine:
 
     def _resolve_entry_limits(self, ctx: OrderContext) -> tuple[float | None, str, str]:
         chase_profile = ""
-        wyckoff_context = _format_wyckoff_context(ctx.dec.wyckoff_track, ctx.dec.wyckoff_stage, ctx.dec.wyckoff_tag)
+        wyckoff_context = _decision_wyckoff_context(ctx.dec)
         if ctx.action not in {"PROBE", "ATTACK"}:
             return None, chase_profile, wyckoff_context
         gap_pct_limit, atr_mult_limit, chase_profile, wyckoff_context = _resolve_chase_limits(
@@ -554,4 +589,5 @@ class WyckoffOrderEngine:
             effective_stop_loss=dec.stop_loss,
             slippage_bps=self.SLIPPAGE_BPS,
             audit=f"reject:{reason}",
+            wyckoff_context=_decision_wyckoff_context(dec),
         )

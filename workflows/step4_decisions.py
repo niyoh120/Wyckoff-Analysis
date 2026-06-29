@@ -131,6 +131,9 @@ def _attach_candidate_meta(
                 wyckoff_tag=meta.tag or dec.wyckoff_tag,
                 funnel_score=meta.funnel_score if dec.funnel_score is None else dec.funnel_score,
                 source_type=meta.source_type or dec.source_type,
+                capital_migration_bonus=(
+                    meta.capital_migration_bonus if dec.capital_migration_bonus is None else dec.capital_migration_bonus
+                ),
             )
         )
     return out

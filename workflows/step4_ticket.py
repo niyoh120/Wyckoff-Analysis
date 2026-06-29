@@ -51,6 +51,11 @@ def _fmt_ticket_stop(value: float | None) -> str:
     return "-" if value is None else f"{value:.2f}"
 
 
+def _append_ticket_context(lines: list[str], ticket: ExecutionTicket) -> None:
+    if ticket.wyckoff_context:
+        lines.append(f"  结构：{ticket.wyckoff_context}")
+
+
 def _render_sell_ticket_lines(sells: list[ExecutionTicket], *, atr_period: int) -> list[str]:
     lines = [f"🟥 [卖出动作 SELL] ({len(sells)})"]
     if not sells:
@@ -62,6 +67,7 @@ def _render_sell_ticket_lines(sells: list[ExecutionTicket], *, atr_period: int) 
         )
         if ticket.atr14 is not None:
             lines.append(f"  风控：ATR{atr_period}={ticket.atr14:.3f} | 滑点={ticket.slippage_bps * 100:.2f}%")
+        _append_ticket_context(lines, ticket)
         lines.append(f"  触发：{_ticket_first_sentence(ticket.tape_condition)}")
         lines.append(f"  失效：{_ticket_first_sentence(ticket.invalidate_condition)}")
         lines.append(f"  理由：{_ticket_first_sentence(ticket.reason)}")
@@ -79,6 +85,7 @@ def _render_hold_ticket_lines(holds: list[ExecutionTicket], *, atr_period: int) 
             lines.append(
                 f"  风控：ATR{atr_period}={ticket.atr14:.3f} | 动态止损={_fmt_ticket_stop(ticket.effective_stop_loss)}"
             )
+        _append_ticket_context(lines, ticket)
         lines.append(f"  观察：{_ticket_first_sentence(ticket.reason)}")
         lines.append(f"  触发：{_ticket_first_sentence(ticket.tape_condition)}")
         lines.append(f"  失效：{_ticket_first_sentence(ticket.invalidate_condition)}")
@@ -97,8 +104,7 @@ def _render_buy_ticket_lines(approved_buy: list[ExecutionTicket], *, atr_period:
         lines.append(f"  下单：{ticket.shares} 股 | 占用：{ticket.amount:.2f} 元 | 参考价：{price_hint}")
         if ticket.chase_profile:
             lines.append(f"  分层：{ticket.chase_profile}")
-        if ticket.wyckoff_context:
-            lines.append(f"  结构：{ticket.wyckoff_context}")
+        _append_ticket_context(lines, ticket)
         if ticket.max_entry_price is not None:
             lines.append(f"  🛑 【防追高限价】明日开盘价若 > {ticket.max_entry_price:.2f} 元，请放弃买入！")
         lines.append(
@@ -125,6 +131,7 @@ def _render_blocked_ticket_lines(blocked: list[ExecutionTicket]) -> list[str]:
     for ticket in blocked:
         lines.append(f"- ⬛ NO_TRADE | {ticket.code} {ticket.name} | 原动作：{ticket.action}")
         lines.append(f"  原因：{_ticket_first_sentence(ticket.reason)}")
+        _append_ticket_context(lines, ticket)
         if ticket.audit:
             lines.append(f"  审计：{_ticket_first_sentence(ticket.audit)}")
         lines.append("")

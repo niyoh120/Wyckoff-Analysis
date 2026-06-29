@@ -5,10 +5,19 @@ import workflows.step4_results as step4_results
 from workflows import step4_portfolio
 from workflows import step4_rebalancer as step4
 from workflows.step4_decision_parser import max_new_buy_names
-from workflows.step4_models import DecisionItem, ExecutionTicket, NewBuyLimits, PositionItem
+from workflows.step4_decisions import complete_step4_decisions
+from workflows.step4_models import (
+    CandidateMeta,
+    DecisionItem,
+    ExecutionTicket,
+    NewBuyLimits,
+    PortfolioState,
+    PositionItem,
+)
 from workflows.step4_order_config import step4_order_config_from_env
 from workflows.step4_order_engine import WyckoffOrderEngine
 from workflows.step4_runtime_config import step4_runtime_config_from_env
+from workflows.step4_ticket import render_trade_ticket
 
 
 def _decision(action: str, *, is_add_on: bool = False) -> DecisionItem:
@@ -118,6 +127,97 @@ def test_order_engine_uses_explicit_buy_block_config():
     assert cash == 50000
     assert tickets[0].status == "NO_TRADE"
     assert "regime=NEUTRAL" in tickets[0].reason
+
+
+def test_candidate_attribution_reaches_buy_ticket_and_persistence_row():
+    decision = DecisionItem(
+        code="000390",
+        name="晨光",
+        action="PROBE",
+        entry_zone_min=9.8,
+        entry_zone_max=10.1,
+        stop_loss=9.0,
+        trim_ratio=None,
+        tape_condition="放量高收",
+        invalidate_condition="跌破9.0",
+        is_add_on=False,
+        reason="起跳板确认",
+        confidence=0.8,
+    )
+    decisions = complete_step4_decisions(
+        [decision],
+        PortfolioState(free_cash=50000, total_equity=100000, positions=[]),
+        {
+            "000390": CandidateMeta(
+                code="000390",
+                name="晨光",
+                tag="confirmed",
+                track="Trend",
+                stage="Markup",
+                funnel_score=91,
+                capital_migration_bonus=4.5,
+                source_type="supabase_recommendation_tracking",
+            )
+        },
+        "RISK_ON",
+        step4.Step4RuntimeConfig(),
+    )
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={"000390": 10.0},
+        atr_map={"000390": 0.2},
+        market_regime="RISK_ON",
+    )
+
+    tickets, _cash = engine.process(decisions)
+    report = render_trade_ticket("RISK_ON", 100000, 50000, _cash, tickets, atr_period=14)
+    rows = step4_results.build_step4_ticket_rows(tickets)
+
+    assert tickets[0].status == "APPROVED"
+    assert "score=91.00" in tickets[0].wyckoff_context
+    assert "资金迁移=+4.50" in report
+    assert "source=supabase_recommendation_tracking" in rows[0]["reason"]
+    assert rows[0]["wyckoff_context"] == tickets[0].wyckoff_context
+
+
+def test_blocked_buy_ticket_renders_candidate_context():
+    decision = DecisionItem(
+        code="000390",
+        name="晨光",
+        action="PROBE",
+        entry_zone_min=9.8,
+        entry_zone_max=10.1,
+        stop_loss=9.0,
+        trim_ratio=None,
+        tape_condition="放量高收",
+        invalidate_condition="跌破9.0",
+        is_add_on=False,
+        reason="起跳板确认",
+        confidence=0.8,
+        funnel_score=91,
+        capital_migration_bonus=-3.25,
+        source_type="supabase_recommendation_tracking",
+        wyckoff_track="Accum",
+        wyckoff_stage="Accum_C",
+        wyckoff_tag="confirmed",
+    )
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={"000390": 10.0},
+        atr_map={"000390": 0.2},
+        market_regime="RISK_OFF",
+    )
+
+    tickets, cash = engine.process([decision])
+    report = render_trade_ticket("RISK_OFF", 100000, 50000, cash, tickets, atr_period=14)
+
+    assert tickets[0].status == "NO_TRADE"
+    assert "资金迁移=-3.25" in report
+    assert "source=supabase_recommendation_tracking" in report
 
 
 def test_step4_order_config_from_env_normalizes_values(monkeypatch):

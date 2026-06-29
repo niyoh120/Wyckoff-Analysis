@@ -80,23 +80,34 @@ def build_step4_ticket_rows(tickets: list[ExecutionTicket]) -> list[dict]:
             "stop_loss": ticket.stop_loss,
             "max_loss": ticket.max_loss,
             "drawdown_ratio": ticket.drawdown_ratio,
-            "reason": (ticket.reason + (f" | audit={ticket.audit}" if ticket.audit else "")).strip(),
+            "reason": _ticket_reason(ticket),
             "tape_condition": ticket.tape_condition,
             "invalidate_condition": ticket.invalidate_condition,
+            "wyckoff_context": ticket.wyckoff_context,
         }
         for ticket in tickets
     ]
+
+
+def _ticket_reason(ticket: ExecutionTicket) -> str:
+    parts = [ticket.reason]
+    if ticket.wyckoff_context:
+        parts.append(f"context={ticket.wyckoff_context}")
+    if ticket.audit:
+        parts.append(f"audit={ticket.audit}")
+    return " | ".join(part for part in parts if part).strip()
 
 
 def log_step4_reject_audit(tickets: list[ExecutionTicket]) -> None:
     for ticket in tickets:
         if ticket.status != "APPROVED":
             logger.info(
-                "[reject_audit] code=%s, action=%s, reason=%s, audit=%s",
+                "[reject_audit] code=%s, action=%s, reason=%s, audit=%s, context=%s",
                 ticket.code,
                 ticket.action,
                 ticket.reason,
                 ticket.audit,
+                ticket.wyckoff_context,
             )
     reject_cnt = sum(1 for ticket in tickets if ticket.status != "APPROVED")
     if reject_cnt:

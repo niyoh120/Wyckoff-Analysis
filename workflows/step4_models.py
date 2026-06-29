@@ -43,6 +43,7 @@ class DecisionItem:
     wyckoff_stage: str = ""
     wyckoff_tag: str = ""
     source_type: str = ""
+    capital_migration_bonus: float | None = None
 
 
 @dataclass
