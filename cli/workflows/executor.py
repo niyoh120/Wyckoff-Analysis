@@ -271,13 +271,13 @@ class WorkflowExecutor:
 
     def _mark_step_start(self, step: WorkflowStep) -> RuntimeEvent:
         step.status = RUNNING
-        step.summary = f"{step.agent}: start"
+        step.summary = "start"
         return self._save_step_event("workflow_step_start", step, {"type": "workflow_task_start"})
 
     def _mark_step_done(self, step: WorkflowStep, result: dict[str, Any]) -> RuntimeEvent:
         status = str(result.get("status", ""))
         step.status = COMPLETED if status == "completed" else FAILED
-        step.summary = _brief_agent_result(step, result)
+        step.summary = _brief_agent_result(result)
         return self._save_step_event(
             "workflow_step_done",
             step,
@@ -393,12 +393,12 @@ def _max_workers(steps: list[WorkflowStep]) -> int:
     return max(1, min(len(steps), MAX_CONCURRENT_AGENTS))
 
 
-def _brief_agent_result(step: WorkflowStep, result: dict[str, Any]) -> str:
+def _brief_agent_result(result: dict[str, Any]) -> str:
     status = str(result.get("status", ""))
     elapsed = float(result.get("elapsed", 0.0))
     if result.get("error"):
-        return f"{step.agent}: {status} {str(result['error'])[:100]}"
-    return f"{step.agent}: {status} {elapsed:.1f}s"
+        return f"{status} {str(result['error'])[:100]}"
+    return f"{status} {elapsed:.1f}s"
 
 
 def _source_payload(event: RuntimeEvent) -> dict[str, Any]:

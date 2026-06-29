@@ -75,13 +75,8 @@ WORKFLOW_AGENT_ALIASES = {
 _PLAN_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的动态 workflow 编排器。
 
-根据用户输入生成一个可执行 workflow script。script 不是解释文本，只能是 JSON。
-runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文件、写文件、跑 shell 或访问网络。
-
-可用 agent:
-- research: 数据收集、市场水温、历史记录、扫描、回测任务提交
-- analysis: 个股/持仓结构诊断、研报分析、量价解释
-- trading: 去留决策、攻防计划、风险动作
+根据用户输入生成一个可执行 workflow script。script 是任务计划，不是解释文本，只能是 JSON。
+自然语言理解、上下文恢复和任务拆分由你完成；runtime 只负责工具边界、并发、持久化和安全控制。
 
 输出 JSON schema:
 {
@@ -95,16 +90,15 @@ runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文
         {
           "id": "task_id",
           "title": "任务标题",
-          "agent": "可选，research|analysis|trading",
           "tools": ["可选，本 task 需要的工具名"],
           "depends_on": ["可选，必须先完成的 task id"],
-          "prompt": "给该 sub-agent 的完整任务说明",
-          "context": "可选，传给该 agent 的上下文"
+          "prompt": "完整任务说明",
+          "context": "可选上下文"
         }
       ]
     }
   ],
-  "synthesis_prompt": "最终汇总时应该如何整合各 agent 结果"
+  "synthesis_prompt": "最终汇总时应该如何整合结果"
 }
 
 运行边界:
@@ -112,10 +106,10 @@ runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文
 - phases 总任务数 1-1000 个。
 - 同一 phase 内的 task 会并发执行；有依赖关系的 task 必须拆到后续 phase。
 - 如果用 depends_on/after/needs/dependencies 表达 task 依赖，runtime 会按依赖顺序切批执行。
-- 如果任务已经通过 tool/标题/prompt 表达清楚，agent 字段可以省略，runtime 会按工具或上下文选择执行 agent。
+- 不需要选择内部执行角色；如果历史脚本带有 agent/role 字段，runtime 会兼容处理。
 - 任务拆分围绕用户当前目标；能单步完成就生成 1 个 task，需要事实收集/分析/决策链路时再拆分。
 - 按用户最可能的任务意图恢复上下文，不要把表达形式本身当作额外 task 或澄清理由。
-- 能用工具验证的事实交给 sub-agent 验证；不要因为可搜索或可读取的信息先问用户。
+- 能用工具验证的事实交给 task 验证；不要因为可搜索或可读取的信息先问用户。
 - 只有执行对象仍不明确，或会产生写入、交易、高风险动作时才澄清。
 - 不要生成会写入持仓、交易或文件的任务。
 """
@@ -195,7 +189,7 @@ def _planner_user_prompt(user_text: str, context: WorkflowContext, tools: Any | 
         f"用户请求:\n{user_text}\n\n"
         f"运行上下文: {context.label} ({context.name})\n"
         f"路由原因: {context.route_reason or '-'}\n\n"
-        f"当前可用工具摘要（供你决定 agent 任务边界，不要直接调用）:\n{catalog}\n\n"
+        f"当前可用工具摘要（供你决定任务边界，不要直接调用）:\n{catalog}\n\n"
         "请生成 workflow JSON。"
     )
 

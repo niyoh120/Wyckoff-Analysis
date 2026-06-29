@@ -438,10 +438,11 @@ def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
     mark = {"running": "→", "completed": "✓", "failed": "✗", "skipped": "·"}.get(status, "·")
     color = {"running": "yellow", "completed": "green", "failed": "red", "skipped": "dim"}.get(status, "dim")
     title = escape(str(step.get("title", "")))
-    summary = escape(str(step.get("summary", "")))
+    summary = _workflow_visible_summary(step)
     label = {"running": "运行中", "completed": "完成", "failed": "失败", "skipped": "跳过"}.get(status, status)
     meta = _workflow_step_meta(step, label)
-    write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{meta} {summary}[/dim]"))
+    suffix = f" {summary}" if summary else ""
+    write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{meta}{suffix}[/dim]"))
     scroll()
 
 
@@ -450,21 +451,33 @@ def _workflow_detail_step_line(step: dict[str, Any]) -> str:
     title = escape(str(step.get("title") or step_id))
     summary = escape(str(step.get("summary", "")))
     status = str(step.get("status", "") or "pending")
-    meta = _workflow_step_meta(step, status)
+    meta = _workflow_step_meta(step, status, include_debug=True)
     suffix = f" {summary}" if summary else ""
     return f"    - [dim]{step_id}[/dim] {title} [dim]{meta}{suffix}[/dim]"
 
 
-def _workflow_step_meta(step: dict[str, Any], label: str) -> str:
-    agent = escape(str(step.get("agent", "") or "agent"))
-    tool_scope = [escape(str(item)) for item in step.get("tool_scope", []) if str(item)]
-    parts = [agent]
-    if tool_scope:
-        parts.append(f"工具：{', '.join(tool_scope[:4])}")
-        if len(tool_scope) > 4:
-            parts.append(f"+{len(tool_scope) - 4}")
+def _workflow_step_meta(step: dict[str, Any], label: str, *, include_debug: bool = False) -> str:
+    parts: list[str] = []
+    if include_debug:
+        parts.append(escape(str(step.get("agent", "") or "agent")))
+        tool_scope = [escape(str(item)) for item in step.get("tool_scope", []) if str(item)]
+        if tool_scope:
+            parts.append(f"工具：{', '.join(tool_scope[:4])}")
+            if len(tool_scope) > 4:
+                parts.append(f"+{len(tool_scope) - 4}")
     parts.append(escape(label))
     return " · ".join(parts)
+
+
+def _workflow_visible_summary(step: dict[str, Any]) -> str:
+    summary = str(step.get("summary", "") or "").strip()
+    if not summary:
+        return ""
+    for prefix in ("research:", "analysis:", "trading:", "agent:"):
+        if summary.startswith(prefix):
+            summary = summary[len(prefix) :].strip()
+            break
+    return "" if summary in {"start", "running"} else escape(summary)
 
 
 def _display_workflow_phase_event(event: dict[str, Any], write, scroll) -> None:
@@ -474,9 +487,9 @@ def _display_workflow_phase_event(event: dict[str, Any], write, scroll) -> None:
     parallel = bool(event.get("parallel"))
     if event.get("type") == "workflow_phase_start":
         mode = "并发" if parallel else "顺序"
-        write(Text.from_markup(f"    [bold]phase[/bold] {phase} [dim]{mode} · {count} agent[/dim]"))
+        write(Text.from_markup(f"    [bold]阶段[/bold] {phase} [dim]{mode} · {count} task[/dim]"))
     else:
-        write(Text.from_markup(f"    [green]phase done[/green] [dim]{phase}[/dim]"))
+        write(Text.from_markup(f"    [green]阶段完成[/green] [dim]{phase}[/dim]"))
     scroll()
 
 

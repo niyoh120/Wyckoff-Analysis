@@ -105,7 +105,7 @@ def test_display_final_response_replaces_streamed_raw_text():
     assert isinstance(log.lines[1], Markdown)
 
 
-def test_display_workflow_plan_event_includes_route_reason():
+def test_display_workflow_plan_event_includes_route_reason_without_internal_scope():
     writes = []
     scrolled = []
 
@@ -127,11 +127,12 @@ def test_display_workflow_plan_event_includes_route_reason():
     assert "检测到策略回测意图" in str(writes[1])
     assert "命中：回测" in str(writes[1])
     assert "待执行" in str(writes[2])
-    assert "工具：run_backtest" in str(writes[2])
+    assert "工具：run_backtest" not in str(writes[2])
+    assert "research" not in str(writes[2])
     assert scrolled == [True]
 
 
-def test_display_workflow_step_event_includes_tool_scope():
+def test_display_workflow_step_event_hides_internal_scope():
     writes = []
     scrolled = []
 
@@ -151,8 +152,9 @@ def test_display_workflow_step_event_includes_tool_scope():
 
     rendered = str(writes[0])
     assert "读取持仓" in rendered
-    assert "工具：portfolio, analyze_stock" in rendered
     assert "运行中" in rendered
+    assert "工具：portfolio, analyze_stock" not in rendered
+    assert "analysis:" not in rendered
     assert scrolled == [True]
 
 

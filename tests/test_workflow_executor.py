@@ -5,7 +5,7 @@ import json
 from cli.workflows.control import WorkflowControl
 from cli.workflows.executor import WorkflowExecutor, _phase_batches
 from cli.workflows.models import WorkflowStep
-from cli.workflows.planner import plan_workflow
+from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, plan_workflow
 from cli.workflows.resume import build_resume_prompt
 from cli.workflows.router import WORKFLOWS, route_workflow
 from cli.workflows.store import get_workflow_run, load_workflow_events
@@ -154,6 +154,13 @@ def _reset_local_db(local_db) -> None:
     if local_db._conn is not None:
         local_db._conn.close()
     local_db._conn = None
+
+
+def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
+    assert "自然语言理解、上下文恢复和任务拆分由你完成" in _PLAN_SYSTEM_PROMPT
+    assert "不需要选择内部执行角色" in _PLAN_SYSTEM_PROMPT
+    assert "可用 agent" not in _PLAN_SYSTEM_PROMPT
+    assert '"agent": "可选，research|analysis|trading"' not in _PLAN_SYSTEM_PROMPT
 
 
 def test_workflow_planner_accepts_agent_aliases_and_steps_field():
