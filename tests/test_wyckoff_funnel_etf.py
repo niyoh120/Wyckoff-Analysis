@@ -287,6 +287,14 @@ def test_merge_trigger_maps_keeps_bypass_l4_hits():
     assert merged["evr"] == [("000002", 2.0)]
 
 
+def test_merge_trigger_maps_treats_invalid_scores_as_zero():
+    merged = merge_trigger_maps(
+        {"lps": [("000001", "bad"), ("000002", float("inf")), ("000003", float("nan"))]},
+    )
+
+    assert merged["lps"] == [("000001", 0.0), ("000002", 0.0), ("000003", 0.0)]
+
+
 def test_promote_l2_bypass_for_ai_assigns_tracks_and_scores():
     selected = ["000001"]
     trend = ["000001"]
@@ -319,6 +327,37 @@ def test_rank_l2_bypass_pool_orders_by_score_then_code():
     )
 
     assert ranked == ["000002", "000003", "000001"]
+
+
+def test_rank_l2_bypass_pool_treats_invalid_scores_as_zero():
+    ranked = rank_l2_bypass_pool(
+        ["GOOD", "BAD", "INF", "NAN"],
+        {"GOOD": 2.0, "BAD": "bad", "INF": float("inf"), "NAN": float("nan")},
+    )
+
+    assert ranked == ["GOOD", "BAD", "INF", "NAN"]
+
+
+def test_promote_l2_bypass_for_ai_sanitizes_score_map():
+    selected: list[str] = []
+    trend: list[str] = []
+    accum: list[str] = []
+    score_map: dict[str, float] = {}
+
+    added = promote_l2_bypass_for_ai(
+        selected,
+        trend,
+        accum,
+        ["000001"],
+        {"000001": float("nan")},
+        {"000001": ["evr"]},
+        score_map,
+        enabled=True,
+        cap=1,
+    )
+
+    assert added == 1
+    assert score_map == {"000001": 0.0}
 
 
 def test_promote_l2_bypass_for_ai_respects_budget():

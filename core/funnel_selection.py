@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core.candidate_policy import candidate_score_value
 from core.candidate_ranker import TRIGGER_LABELS
 from core.funnel_theme import is_accum_trigger, promotion_limits
 
@@ -32,7 +33,7 @@ def split_selected_tracks(
 
 def rank_l2_bypass_pool(l2_bypass_pool: list[str], code_to_total_score: dict[str, float]) -> list[str]:
     clean_pool = {str(code).strip() for code in l2_bypass_pool if str(code).strip()}
-    return sorted(clean_pool, key=lambda c: (-code_to_total_score.get(c, 0.0), c))
+    return sorted(clean_pool, key=lambda c: (-candidate_score_value(code_to_total_score.get(c)), c))
 
 
 def should_force_quota_selection(regime: str, full_mode_enabled: bool, *, defensive_force_quota: bool) -> bool:
@@ -133,7 +134,7 @@ def _merge_trigger_source(
             code_s = str(code).strip()
             dedupe_key = (str(key), code_s)
             if code_s and dedupe_key not in seen:
-                bucket.append((code_s, float(score or 0.0)))
+                bucket.append((code_s, candidate_score_value(score)))
                 seen.add(dedupe_key)
 
 
@@ -161,7 +162,7 @@ def _append_promoted_codes(
             added += 1
             item_left = _decrement_optional(item_left)
             total_left = _decrement_optional(total_left)
-        score_map.setdefault(code, float(code_to_total_score.get(code, 0.0) or 0.0))
+        score_map.setdefault(code, candidate_score_value(code_to_total_score.get(code)))
         _append_track_once(code, trend_selected, accum_selected, track_seen, accum_codes, code_to_trigger_keys)
     return added
 

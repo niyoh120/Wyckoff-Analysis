@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
+from core.candidate_policy import candidate_score_value
 from core.theme_radar import normalize_theme_name
 
 
@@ -79,7 +82,7 @@ def append_theme_reasons(code_to_reasons: dict[str, list[str]], badge_map: dict[
 def apply_theme_bonus_to_scores(score_map: dict[str, float], bonus_map: dict[str, float]) -> None:
     for code, bonus in bonus_map.items():
         if code in score_map:
-            score_map[code] = float(score_map.get(code, 0.0) or 0.0) + float(bonus)
+            score_map[code] = candidate_score_value(score_map.get(code)) + candidate_score_value(bonus)
 
 
 def is_accum_trigger(keys: list[str]) -> bool:
@@ -108,7 +111,7 @@ def promote_theme_l4_for_ai(
     total_cap: int | None = None,
 ) -> int:
     ranked = [code for code in formal_hit_set if code in bonus_map]
-    ranked.sort(key=lambda c: (-float(code_to_total_score.get(c, 0.0) or 0.0), c))
+    ranked.sort(key=lambda c: (-candidate_score_value(code_to_total_score.get(c)), c))
     selected_seen = set(selected_for_ai)
     track_seen = set(trend_selected) | set(accum_selected)
     item_left, total_left = promotion_limits(selected_for_ai, promotion_cap, total_cap)
@@ -207,9 +210,10 @@ def empty_theme_snapshot(trade_date: str) -> dict:
 
 def safe_float(value: object, default: float = 0.0) -> float:
     try:
-        return float(value)
+        normalized = float(value)
     except (TypeError, ValueError):
-        return default
+        return candidate_score_value(default)
+    return normalized if math.isfinite(normalized) else candidate_score_value(default)
 
 
 def _theme_bonus_score(item: dict) -> float:
@@ -252,7 +256,7 @@ def _append_theme_promotions(
 ) -> int:
     added = 0
     for code in ranked:
-        score_map.setdefault(code, float(code_to_total_score.get(code, 0.0) or 0.0))
+        score_map.setdefault(code, candidate_score_value(code_to_total_score.get(code)))
         if code not in selected_seen:
             if item_left == 0 or total_left == 0:
                 break

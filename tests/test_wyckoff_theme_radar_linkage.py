@@ -28,6 +28,31 @@ def test_theme_bonus_promotes_formal_l4_candidate() -> None:
     assert score_map["000001"] == 19.0
 
 
+def test_theme_promotion_sanitizes_invalid_total_score() -> None:
+    from core.funnel_theme import promote_theme_l4_for_ai
+
+    selected: list[str] = []
+    trend_selected: list[str] = []
+    accum_selected: list[str] = []
+    score_map: dict[str, float] = {}
+
+    added = promote_theme_l4_for_ai(
+        selected,
+        trend_selected,
+        accum_selected,
+        {"000001"},
+        {"000001": 12.0},
+        {"000001": float("nan")},
+        {"000001": ["sos"]},
+        score_map,
+        promotion_cap=6,
+    )
+
+    assert added == 1
+    assert selected == ["000001"]
+    assert score_map == {"000001": 0.0}
+
+
 def test_theme_promotion_respects_total_cap() -> None:
     from core.funnel_theme import promote_theme_l4_for_ai
 
@@ -192,6 +217,16 @@ def test_zero_theme_bonus_disables_theme_bonus_map() -> None:
     from core.funnel_theme import theme_bonus_map
 
     assert theme_bonus_map({"000001": {"theme_score": 1.0, "stock_score": 1.0}}, 0.0) == {}
+
+
+def test_apply_theme_bonus_to_scores_sanitizes_invalid_values() -> None:
+    from core.funnel_theme import apply_theme_bonus_to_scores
+
+    score_map = {"000001": float("nan"), "000002": 4.0}
+
+    apply_theme_bonus_to_scores(score_map, {"000001": 8.0, "000002": float("inf")})
+
+    assert score_map == {"000001": 8.0, "000002": 4.0}
 
 
 def test_capital_migration_bonus_map_scores_inflow_and_outflow() -> None:
