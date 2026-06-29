@@ -818,3 +818,61 @@ class TestSymbolPool:
 
         assert [row["score"] for row in result["trigger_groups"]["sos"]] == [0.0, 0.0, 0.0, 12.35]
         assert result["trigger_groups"]["sos"][0]["name"] == "平安银行"
+
+    def test_screen_stocks_returns_ranked_unique_top_candidates(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                ["000002", "000004"],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {
+                        "lps": [("000001", 6.0), ("000002", 8.0)],
+                        "sos": [("000001", 9.5), ("000003", 7.0)],
+                    },
+                    "name_map": {"000001": "候选一", "000002": "候选二", "000004": "补充候选"},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        assert result["board"] == "all"
+        assert result["top_candidates"] == [
+            {
+                "code": "000001",
+                "name": "候选一",
+                "score": 9.5,
+                "triggers": ["lps", "sos"],
+                "selected_for_report": False,
+            },
+            {
+                "code": "000002",
+                "name": "候选二",
+                "score": 8.0,
+                "triggers": ["lps"],
+                "selected_for_report": True,
+            },
+            {
+                "code": "000003",
+                "name": "000003",
+                "score": 7.0,
+                "triggers": ["sos"],
+                "selected_for_report": False,
+            },
+            {
+                "code": "000004",
+                "name": "补充候选",
+                "score": 0.0,
+                "triggers": [],
+                "selected_for_report": True,
+            },
+        ]
