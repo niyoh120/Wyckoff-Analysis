@@ -8,35 +8,20 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from cli.tools import TOOL_SCHEMAS, TOOL_SPECS
+from cli.tools import TOOL_SPECS
 from cli.workflows.models import WorkflowContext, WorkflowRun, WorkflowStep
 from cli.workflows.router import route_workflow
 
-ALLOWED_WORKFLOW_AGENTS = {"research", "analysis", "trading"}
+ALLOWED_WORKFLOW_AGENTS = {"task", "research", "analysis", "trading"}
 MAX_WORKFLOW_STEPS = 1000
 TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
 TOOL_SCOPE_FIELDS = ("tool_scope", "allowed_tools", "tools", "tool")
-_TOOL_SCHEMA_BY_NAME = {str(schema.get("name") or ""): schema for schema in TOOL_SCHEMAS}
-
-WORKFLOW_TOOL_AGENTS = {
-    "search_stock_by_name": "analysis",
-    "analyze_stock": "analysis",
-    "generate_ai_report": "analysis",
-    "portfolio": "trading",
-    "generate_strategy_decision": "trading",
-    "update_portfolio": "trading",
-    "screen_stocks": "research",
-    "run_backtest": "research",
-    "check_background_tasks": "research",
-    "get_market_overview": "research",
-    "get_market_history": "research",
-    "query_history": "research",
-    "web_fetch": "research",
-    "read_file": "research",
-}
 
 WORKFLOW_AGENT_ALIASES = {
+    "task": "task",
+    "workflow_task": "task",
+    "dynamic_task": "task",
     "research": "research",
     "researcher": "research",
     "delegate_to_research": "research",
@@ -91,7 +76,7 @@ _PLAN_SYSTEM_PROMPT = """\
         {
           "id": "task_id",
           "title": "任务标题",
-          "tools": ["可选，本 task 需要的工具名"],
+          "tools": ["可选，本 task 允许使用的具体工具名；不写则 runtime 按上下文提供工具"],
           "depends_on": ["可选，必须先完成的 task id"],
           "prompt": "完整任务说明",
           "context": "可选上下文"
@@ -107,7 +92,8 @@ _PLAN_SYSTEM_PROMPT = """\
 - phases 总任务数 1-1000 个。
 - 同一 phase 内的 task 会并发执行；有依赖关系的 task 必须拆到后续 phase。
 - 如果用 depends_on/after/needs/dependencies 表达 task 依赖，runtime 会按依赖顺序切批执行。
-- 不需要选择内部执行角色；如果历史脚本带有 agent/role 字段，runtime 会兼容处理。
+- 不需要选择内部执行角色；不要填写 agent/role，历史脚本带有这些字段时 runtime 才兼容处理。
+- 如果某个 task 只应看部分工具，用 tools 限定具体工具；不要用工具名表达自然语言意图。
 - 任务拆分围绕用户当前目标；能单步完成就生成 1 个 task，需要事实收集/分析/决策链路时再拆分。
 - 按用户最可能的任务意图恢复上下文，不要把表达形式本身当作额外 task 或澄清理由。
 - 能用工具验证的事实交给 task 验证；不要因为可搜索或可读取的信息先问用户。
@@ -196,7 +182,7 @@ def _planner_user_prompt(user_text: str, context: WorkflowContext, tools: Any | 
 
 
 def _tool_catalog(tools: Any | None, context: WorkflowContext) -> str:
-    allowed = set(context.allowed_tools or TOOL_SPECS)
+    allowed = _planner_visible_tools(context.allowed_tools or tuple(TOOL_SPECS))
     try:
         names = [schema["name"] for schema in tools.schemas(allowed)][:24] if tools else sorted(allowed)[:24]
     except Exception:
@@ -204,6 +190,10 @@ def _tool_catalog(tools: Any | None, context: WorkflowContext) -> str:
     return "\n".join(
         f"- {name}: {TOOL_SPECS.get(name).display_name if TOOL_SPECS.get(name) else name}" for name in names
     )
+
+
+def _planner_visible_tools(names: tuple[str, ...]) -> set[str]:
+    return {name for name in names if name and not name.startswith("delegate_to_")}
 
 
 def _collect_planner_text(provider: Any, prompt: str) -> str:
@@ -281,7 +271,7 @@ def _task_step(
     return WorkflowStep(
         step_id=step_id,
         title=title[:80],
-        tools=(f"delegate_to_{agent}",),
+        tools=_agent_delegate_tools(agent),
         agent=agent,
         prompt=prompt,
         context=context,
@@ -290,6 +280,10 @@ def _task_step(
         tool_scope=_task_tool_scope(task),
         dynamic=True,
     )
+
+
+def _agent_delegate_tools(agent: str) -> tuple[str, ...]:
+    return () if agent == "task" else (f"delegate_to_{agent}",)
 
 
 def _script_phases(script: dict[str, Any], context: WorkflowContext) -> list[dict[str, Any]]:
@@ -320,16 +314,12 @@ def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _task_agent(task: dict[str, Any], context: WorkflowContext) -> str:
-    candidates: list[Any] = [task.get("agent"), task.get("role"), task.get("assignee"), task.get("tool")]
-    tools = task.get("tools")
-    candidates.extend(tools if isinstance(tools, (list, tuple)) else [tools])
-    for raw in candidates:
+    for raw in (task.get("agent"), task.get("role"), task.get("assignee")):
         agent = _normalize_workflow_agent(raw)
         if agent:
             return agent
-        agent = _tool_agent(raw)
-        if agent:
-            return agent
+    if _task_tool_scope(task):
+        return "task"
     return _fallback_agent(context, _task_fallback_text(task))
 
 
@@ -338,13 +328,6 @@ def _normalize_workflow_agent(raw: Any) -> str:
     key = re.sub(r"_agent$", "", key)
     agent = WORKFLOW_AGENT_ALIASES.get(key, "")
     return agent if agent in ALLOWED_WORKFLOW_AGENTS else ""
-
-
-def _tool_agent(raw: Any) -> str:
-    if isinstance(raw, dict):
-        raw = raw.get("name") or raw.get("tool") or raw.get("id")
-    key = re.sub(r"[\s/-]+", "_", str(raw or "").strip().lower()).strip("_")
-    return WORKFLOW_TOOL_AGENTS.get(key, "")
 
 
 def _task_tool_scope(task: dict[str, Any]) -> tuple[str, ...]:
@@ -456,71 +439,8 @@ def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -
     }
 
 
-def _fallback_agent(context: WorkflowContext, text: str = "") -> str:
-    if context.name in {"stock_screen", "backtest"}:
-        return "research"
-    if context.name == "portfolio_review":
-        return "trading"
-    if context.name == "dynamic_task":
-        return _agent_from_tool_semantics(text, context.allowed_tools) or "analysis"
-    return "analysis"
-
-
-def _agent_from_tool_semantics(text: str, allowed_tools: tuple[str, ...]) -> str:
-    query_units = _text_units(text)
-    if not query_units:
-        return ""
-    best: tuple[float, str] = (0.0, "")
-    for tool_name in allowed_tools:
-        agent = WORKFLOW_TOOL_AGENTS.get(tool_name, "")
-        if not agent:
-            continue
-        score = _semantic_score(query_units, _tool_semantic_text(tool_name))
-        if score > best[0]:
-            best = (score, agent)
-    return best[1] if best[0] >= 0.12 else ""
-
-
-def _semantic_score(query_units: set[str], candidate: str) -> float:
-    candidate_units = _text_units(candidate)
-    if not candidate_units:
-        return 0.0
-    overlap = len(query_units & candidate_units)
-    return overlap / max(1, min(len(query_units), len(candidate_units)))
-
-
-def _tool_semantic_text(tool_name: str) -> str:
-    spec = TOOL_SPECS.get(tool_name)
-    schema = _TOOL_SCHEMA_BY_NAME.get(tool_name, {})
-    return "\n".join(
-        str(part)
-        for part in (
-            tool_name,
-            spec.display_name if spec else "",
-            schema.get("description", ""),
-            _schema_parameter_text(schema),
-        )
-        if part
-    )
-
-
-def _schema_parameter_text(schema: dict[str, Any]) -> str:
-    params = schema.get("parameters", {})
-    if not isinstance(params, dict):
-        return ""
-    props = params.get("properties", {})
-    if not isinstance(props, dict):
-        return ""
-    return "\n".join(str(item.get("description") or "") for item in props.values() if isinstance(item, dict))
-
-
-def _text_units(text: str) -> set[str]:
-    lowered = str(text or "").lower()
-    units = set(re.findall(r"[a-z0-9_]+", lowered))
-    chinese = re.findall(r"[\u4e00-\u9fff]", lowered)
-    units.update(chinese)
-    units.update("".join(chinese[idx : idx + 2]) for idx in range(max(0, len(chinese) - 1)))
-    return {unit for unit in units if unit}
+def _fallback_agent(_context: WorkflowContext, _text: str = "") -> str:
+    return "task"
 
 
 def _fallback_task_prompt(user_text: str) -> str:

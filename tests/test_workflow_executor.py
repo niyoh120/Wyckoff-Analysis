@@ -139,7 +139,6 @@ _SCOPED_TOOL_PLAN_JSON = """{
         {
           "id": "read_positions",
           "title": "只读取持仓",
-          "agent": "analysis",
           "tools": ["portfolio"],
           "prompt": "读取持仓并输出摘要"
         }
@@ -159,6 +158,7 @@ def _reset_local_db(local_db) -> None:
 def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
     assert "自然语言理解、上下文恢复和任务拆分由你完成" in _PLAN_SYSTEM_PROMPT
     assert "不需要选择内部执行角色" in _PLAN_SYSTEM_PROMPT
+    assert "不要填写 agent/role" in _PLAN_SYSTEM_PROMPT
     assert "可用 agent" not in _PLAN_SYSTEM_PROMPT
     assert '"agent": "可选，research|analysis|trading"' not in _PLAN_SYSTEM_PROMPT
 
@@ -229,37 +229,38 @@ def test_workflow_planner_keeps_subtasks_without_agent_fields():
     )
 
     assert [step.step_id for step in run.steps] == ["collect", "review"]
-    assert [step.agent for step in run.steps] == ["research", "research"]
+    assert [step.agent for step in run.steps] == ["task", "task"]
+    assert [step.tools for step in run.steps] == [(), ()]
     assert run.steps[1].depends_on == ("collect",)
     assert run.steps[1].prompt == "复核候选结构"
 
 
-def test_workflow_planner_fallback_routes_stock_screening_to_research():
+def test_workflow_planner_fallback_uses_generic_task_executor():
     run = plan_workflow(
         "用 workflow 完整做一遍今天的 A 股选股，给出候选、理由和买卖计划",
         context=route_workflow("用 workflow 完整做一遍今天的 A 股选股，给出候选、理由和买卖计划"),
     )
 
     assert len(run.steps) == 1
-    assert run.steps[0].agent == "research"
-    assert run.steps[0].tools == ("delegate_to_research",)
+    assert run.steps[0].agent == "task"
+    assert run.steps[0].tools == ()
     assert "用户原文" in run.steps[0].prompt
     assert "A 股选股" in run.steps[0].prompt
 
 
-def test_workflow_planner_fallback_keeps_stock_diagnosis_on_analysis():
+def test_workflow_planner_fallback_keeps_typo_like_task_model_authored():
     run = plan_workflow(
         "用 workflow 给我做磁场诊断",
         context=route_workflow("用 workflow 给我做磁场诊断"),
     )
 
     assert len(run.steps) == 1
-    assert run.steps[0].agent == "analysis"
-    assert run.steps[0].tools == ("delegate_to_analysis",)
+    assert run.steps[0].agent == "task"
+    assert run.steps[0].tools == ()
     assert "磁场诊断" in run.steps[0].prompt
 
 
-def test_workflow_planner_maps_tool_named_tasks_to_agents():
+def test_workflow_planner_treats_tool_named_tasks_as_task_scopes():
     run = plan_workflow(
         "用 workflow 做选股和攻防计划",
         context=route_workflow("用 workflow 做选股和攻防计划"),
@@ -278,8 +279,8 @@ def test_workflow_planner_maps_tool_named_tasks_to_agents():
         },
     )
 
-    assert [step.agent for step in run.steps] == ["research", "trading"]
-    assert [step.tools for step in run.steps] == [("delegate_to_research",), ("delegate_to_trading",)]
+    assert [step.agent for step in run.steps] == ["task", "task"]
+    assert [step.tools for step in run.steps] == [(), ()]
     assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
     assert run.steps[1].depends_on == ("scan",)
 
@@ -390,6 +391,51 @@ def test_workflow_executor_scopes_sub_agent_tools_per_step(tmp_path, monkeypatch
         assert detail["tool_scope"] == ["portfolio"]
         assert detail["tool_calls"] == ["portfolio"]
         assert events[-1]["text"] == "持仓摘要完成。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_executor_bounds_generic_task_tools_by_workflow_context(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    def _bounded_round(_messages, tools, _system_prompt):
+        exposed = {schema["name"] for schema in tools}
+        assert "portfolio" in exposed
+        assert "ask_user_question" in exposed
+        assert "run_backtest" not in exposed
+        return [{"type": "text_delta", "text": "已按持仓上下文复盘。"}]
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            _bounded_round,
+            [{"type": "text_delta", "text": "复盘完成。"}],
+        ]
+    )
+    schemas = [
+        {"name": "portfolio", "description": "Mock portfolio tool", "parameters": {"type": "object"}},
+        {"name": "run_backtest", "description": "Mock backtest tool", "parameters": {"type": "object"}},
+        {"name": "ask_user_question", "description": "Mock ask tool", "parameters": {"type": "object"}},
+    ]
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(schemas=schemas, tool_results={"portfolio": {"positions": []}}),
+        session_id="s_bound",
+        user_text="复盘持仓",
+        workflow_context=WORKFLOWS["portfolio_review"],
+        workflow_script={
+            "title": "持仓动态任务",
+            "tasks": [{"id": "review", "title": "复盘持仓", "prompt": "读取持仓并判断风险"}],
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "复盘持仓"}]))
+
+    try:
+        assert events[0]["plan"]["steps"][0]["agent"] == "task"
+        assert events[-1]["text"] == "复盘完成。"
     finally:
         _reset_local_db(local_db)
 

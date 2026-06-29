@@ -10,7 +10,14 @@ from typing import Any
 
 from cli.runtime import RuntimeEvent
 from cli.scratchpad import AgentScratchpad
-from cli.sub_agents import ANALYSIS_AGENT, RESEARCH_AGENT, TRADING_AGENT, SubAgent, run_sub_agent
+from cli.sub_agents import (
+    ANALYSIS_AGENT,
+    RESEARCH_AGENT,
+    TRADING_AGENT,
+    WORKFLOW_TASK_AGENT,
+    SubAgent,
+    run_sub_agent,
+)
 from cli.workflows.control import WorkflowControl
 from cli.workflows.models import (
     COMPLETED,
@@ -26,6 +33,7 @@ from cli.workflows.planner import plan_workflow
 from cli.workflows.store import append_workflow_event, persist_workflow_script, save_workflow_run
 
 _AGENTS: dict[str, SubAgent] = {
+    "task": WORKFLOW_TASK_AGENT,
     "research": RESEARCH_AGENT,
     "analysis": ANALYSIS_AGENT,
     "trading": TRADING_AGENT,
@@ -245,7 +253,7 @@ class WorkflowExecutor:
             self.provider,
             self.tools,
             cancel_check=self._cancel_requested,
-            tool_names=step.tool_scope or None,
+            tool_names=_step_tool_names(step, self._require_run().allowed_tools),
         )
 
     def _phase_event(self, event_type: str, phase_steps: list[WorkflowStep]) -> RuntimeEvent:
@@ -387,6 +395,18 @@ def _dependency_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
 
 def _phase_dependencies(step: WorkflowStep, phase_ids: set[str]) -> set[str]:
     return {dep for dep in step.depends_on if dep in phase_ids}
+
+
+def _step_tool_names(step: WorkflowStep, allowed_tools: tuple[str, ...]) -> tuple[str, ...] | None:
+    allowed = _concrete_tools(allowed_tools)
+    if not allowed:
+        return step.tool_scope or None
+    scope = tuple(name for name in (step.tool_scope or allowed) if name in allowed)
+    return scope or None
+
+
+def _concrete_tools(names: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(name for name in names if name and not name.startswith("delegate_to_"))
 
 
 def _max_workers(steps: list[WorkflowStep]) -> int:

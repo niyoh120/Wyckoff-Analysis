@@ -16,6 +16,7 @@ from cli.sub_agent_prompts import (
     ANALYSIS_AGENT_PROMPT,
     RESEARCH_AGENT_PROMPT,
     TRADING_AGENT_PROMPT,
+    WORKFLOW_TASK_AGENT_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,31 @@ TRADING_AGENT = SubAgent(
         "analyze_stock",
         "get_market_overview",
         "get_market_history",
+    ),
+)
+
+WORKFLOW_TASK_AGENT = SubAgent(
+    name="task",
+    description="动态任务：按模型脚本执行单个 workflow task",
+    system_prompt=WORKFLOW_TASK_AGENT_PROMPT,
+    timeout_seconds=180,
+    max_tool_rounds=8,
+    context_budget_tokens=20_000,
+    result_budget_chars=2_500,
+    tool_timeout_seconds=75,
+    tool_names=(
+        "search_stock_by_name",
+        "analyze_stock",
+        "portfolio",
+        "get_market_overview",
+        "get_market_history",
+        "query_history",
+        "screen_stocks",
+        "run_backtest",
+        "check_background_tasks",
+        "generate_ai_report",
+        "generate_strategy_decision",
+        "ask_user_question",
     ),
 )
 
