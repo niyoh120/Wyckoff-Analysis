@@ -209,6 +209,41 @@ class TestAllocateAiCandidates:
         assert accum == ["000001"]
         assert scores["000001"] == 80.0
 
+    def test_candidate_entry_infers_accum_quota_from_entry_type_when_track_missing(self):
+        result = FunnelResult(
+            layer1_symbols=["000001"],
+            layer2_symbols=["000001"],
+            layer3_symbols=["000001"],
+            top_sectors=[],
+            triggers={},
+            stage_map={},
+            markup_symbols=[],
+            exit_signals={},
+            channel_map={},
+            leader_radar_symbols=[],
+            leader_radar_rows=[],
+            candidate_entries=[
+                {"code": "000001", "score": 80.0, "entry_type": "lps"},
+            ],
+        )
+
+        trend, accum, scores = allocate_ai_candidates(
+            result,
+            [],
+            "NEUTRAL",
+            policy_override={
+                "total_cap": 1,
+                "trend_quota": 1,
+                "accum_quota": 1,
+                "max_trend_l3_fill": 0,
+                "max_accum_l3_fill": 0,
+            },
+        )
+
+        assert trend == []
+        assert accum == ["000001"]
+        assert scores["000001"] == 80.0
+
     def test_sector_cap_skips_blocked_candidate_and_continues_filling_quota(self):
         result = FunnelResult(
             layer1_symbols=["000001", "000002", "000003"],

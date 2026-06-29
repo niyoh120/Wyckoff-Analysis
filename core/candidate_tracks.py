@@ -52,10 +52,9 @@ def normalize_candidate_track(raw: Any, *, default: str = "Trend") -> str:
     """Return canonical Trend/Accum for candidate entry track values."""
 
     key = normalize_candidate_entry_key(raw)
-    if key in ACCUM_TRACK_KEYS:
-        return "Accum"
-    if key in TREND_TRACK_KEYS:
-        return "Trend"
+    track = _track_for_key(key)
+    if track:
+        return track
     return "Accum" if default == "Accum" else "Trend"
 
 
@@ -81,6 +80,19 @@ def candidate_entry_key(
         if not known or key in known:
             return key
     return fallback
+
+
+def candidate_entry_track(
+    item: Mapping[str, Any],
+    *,
+    default: str = "Trend",
+    fields: tuple[str, ...] = ("track", "signal_key", "lane", "entry_type"),
+) -> str:
+    for field in fields:
+        track = _track_for_key(normalize_candidate_entry_key(item.get(field)))
+        if track:
+            return track
+    return "Accum" if default == "Accum" else "Trend"
 
 
 def candidate_entry_sort_key(item: Mapping[str, Any]) -> tuple[int, float, str]:
@@ -117,3 +129,11 @@ def best_candidate_entry_map(entries: Iterable[Mapping[str, Any]]) -> dict[str, 
         if current is None or stronger_candidate_entry(item, current):
             result[code] = dict(item or {})
     return result
+
+
+def _track_for_key(key: str) -> str:
+    if key in ACCUM_TRACK_KEYS:
+        return "Accum"
+    if key in TREND_TRACK_KEYS:
+        return "Trend"
+    return ""

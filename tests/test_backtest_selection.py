@@ -448,6 +448,37 @@ def test_tradeable_l4_candidate_board_accepts_accum_track_alias() -> None:
     assert track_map == {"000001": "Accum"}
 
 
+def test_tradeable_l4_candidate_board_infers_accum_track_from_entry_type() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {"code": "000001", "entry_type": "spring", "score": 100.0},
+        ],
+    )
+
+    codes, score_map, track_map = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="NEUTRAL",
+        selection_mode="tradeable_l4",
+    )
+
+    assert codes == ["000001"]
+    assert score_map == {"000001": 100.0}
+    assert track_map == {"000001": "Accum"}
+
+
 def test_tradeable_l4_candidate_board_selects_trend_lane_entry() -> None:
     result = FunnelResult(
         layer1_symbols=[],

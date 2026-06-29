@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.candidate_metadata import build_candidate_metadata_map, code6
+from core.candidate_tracks import candidate_entry_track
 from core.funnel_report import build_symbol_report_row, candidate_reason_text
 from core.funnel_taxonomy import source_label
 from core.market_trade_mode import resolve_market_trade_mode
@@ -25,8 +26,7 @@ def legacy_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
 
     def infer_track(code: str) -> str:
         if code in ctx.candidate_entry_map:
-            track = str(ctx.candidate_entry_map[code].get("track", "")).strip()
-            return "Accum" if track == "accumulation" else "Trend"
+            return candidate_entry_track(ctx.candidate_entry_map[code])
         if code in sos_hit_set or code in evr_hit_set:
             return "Trend"
         return "Accum" if code in spring_hit_set or code in lps_hit_set else "Trend"

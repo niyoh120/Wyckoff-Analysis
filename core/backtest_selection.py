@@ -17,7 +17,7 @@ from core.candidate_tracks import (
     best_candidate_entry_map,
     candidate_entry_key,
     candidate_entry_sort_key,
-    normalize_candidate_track,
+    candidate_entry_track,
 )
 from core.sector_rotation import analyze_sector_rotation
 from core.wyckoff_engine import FunnelConfig, FunnelResult
@@ -256,7 +256,7 @@ def _candidate_entry_maps(entries: list[dict[str, object]]) -> tuple[dict[str, f
 
 
 def _candidate_entry_track(item: dict[str, object]) -> str:
-    return normalize_candidate_track(item.get("track"))
+    return candidate_entry_track(item)
 
 
 def candidate_entry_loss_guard(
