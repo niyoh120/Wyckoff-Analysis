@@ -18,6 +18,11 @@ from workflows.tail_buy_delivery import (
 )
 from workflows.tail_buy_holdings import analyze_holdings_actions, build_holdings_markdown
 from workflows.tail_buy_llm_overlay import apply_tail_buy_depth_filter, run_llm_overlay
+from workflows.tail_buy_market_repair import (
+    append_intraday_market_reminder,
+    apply_intraday_market_mode,
+    resolve_intraday_market_mode,
+)
 from workflows.tail_buy_rule_scan import log_fetch_error_summary, run_rule_scan, run_rule_scan_batch
 from workflows.tail_buy_runtime import (
     TailBuyCandidateRun,
@@ -220,6 +225,14 @@ def _run_tail_buy_trading_day(request: TailBuyJobRequest, config: TailBuyRuntime
         return 1
     prev_trade_date, today_trade_date, pending_candidates, candidate_source_desc = inputs
     tickflow_client = TickFlowClient(api_key=config.tickflow_api_key, max_retries=config.tickflow_task_retries)
+    market_reminder = resolve_market_reminder(today_trade_date)
+    market_mode, market_mode_reason = resolve_intraday_market_mode(
+        tickflow_client,
+        market_reminder=market_reminder,
+        logs_path=config.logs_path,
+    )
+    apply_intraday_market_mode(pending_candidates, mode=market_mode, logs_path=config.logs_path)
+    market_reminder = append_intraday_market_reminder(market_reminder, market_mode, market_mode_reason)
     holdings_section = build_tail_buy_holdings_section(
         tickflow_client=tickflow_client,
         pending_candidates=pending_candidates,
@@ -233,6 +246,7 @@ def _run_tail_buy_trading_day(request: TailBuyJobRequest, config: TailBuyRuntime
         run_result=run_result,
         prev_trade_date=prev_trade_date,
         today_trade_date=today_trade_date,
+        market_reminder=market_reminder,
         candidate_source_desc=candidate_source_desc,
         holdings_section=holdings_section,
         elapsed=elapsed,
@@ -247,6 +261,7 @@ def _finalize_tail_buy_run(
     run_result: TailBuyCandidateRun,
     prev_trade_date: str,
     today_trade_date: str,
+    market_reminder: str,
     candidate_source_desc: str,
     holdings_section: str,
     elapsed: float,
@@ -257,7 +272,7 @@ def _finalize_tail_buy_run(
     feishu_ok, tg_ok = send_tail_buy_report(
         config=config,
         prev_trade_date=prev_trade_date,
-        market_reminder=resolve_market_reminder(today_trade_date),
+        market_reminder=market_reminder,
         candidate_source_desc=candidate_source_desc,
         holdings_section=holdings_section,
         run_result=run_result,

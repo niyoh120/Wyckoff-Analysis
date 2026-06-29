@@ -84,9 +84,7 @@ def persist_step2_outputs(step2: Step2StageResult, cfg: DailyJobConfig) -> tuple
             "reason": trade_mode.reason,
         }
         step2.details["step3_symbols_info"] = (
-            daily_persistence.recommendation_write_symbols(step2.symbols_info)
-            if trade_mode.allow_recommendation_write
-            else []
+            daily_persistence.recommendation_write_symbols(step2.symbols_info) if trade_mode.allow_ai_review else []
         )
         log_line(
             "Step2.8 AI研报输入收口: "

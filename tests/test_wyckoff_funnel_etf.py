@@ -442,7 +442,7 @@ def test_loss_guard_bear_rebound_bans_pure_lps_even_with_score():
     assert dropped == {"单LPS仅观察": 1}
 
 
-def test_select_base_ai_candidates_blocks_observe_only_market():
+def test_select_base_ai_candidates_repair_mode_uses_empty_base_quota():
     selected, trend, accum, score_map, ai_policy, use_full = funnel_ai_selection.select_base_ai_candidates(
         metrics={},
         triggers={"sos": [("000001", 3.0)]},
@@ -459,10 +459,41 @@ def test_select_base_ai_candidates_blocks_observe_only_market():
     assert selected == []
     assert trend == []
     assert accum == []
-    assert score_map == {}
-    assert ai_policy["total_cap"] == 0
-    assert ai_policy["trade_mode"] == "observe_only"
+    assert score_map == {"000001": 25.0}
+    assert ai_policy["total_cap"] == 8
+    assert ai_policy["trend_quota"] == 0
+    assert ai_policy["accum_quota"] == 0
     assert use_full is False
+
+
+def test_promote_review_candidates_caps_repair_mainline_review(monkeypatch):
+    monkeypatch.setattr(funnel_ai_selection, "FUNNEL_MAINLINE_MAX_AI_CANDIDATES", 3)
+    selected: list[str] = []
+    trend: list[str] = []
+    accum: list[str] = []
+
+    bypass_added, strategic_added, theme_added, mainline_added = funnel_ai_selection.promote_review_candidates(
+        selected,
+        trend,
+        accum,
+        {
+            "l2_bypass": [],
+            "strategic_l2_bypass": [],
+            "strategic_accum": set(),
+            "formal_hit": set(),
+            "mainline": ["000001", "000002", "000003"],
+        },
+        code_to_total_score={"000001": 5.0, "000002": 4.0, "000003": 3.0},
+        code_to_trigger_keys={"000001": ["mainline"], "000002": ["mainline"], "000003": ["mainline"]},
+        score_map={},
+        ai_policy={"total_cap": 8},
+        use_full_ai_selection=False,
+        theme_bonus_map={},
+        regime="PANIC_REPAIR",
+    )
+
+    assert (bypass_added, strategic_added, theme_added, mainline_added) == (0, 0, 0, 2)
+    assert selected == ["000001", "000002"]
 
 
 def test_promote_review_candidates_blocks_neutral_bypass(monkeypatch):

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from core.tail_buy.models import TailBuyCandidate
 from workflows import tail_buy_intraday_job as job
+from workflows.tail_buy_market_repair import apply_intraday_market_mode
 from workflows.tail_buy_utils import current_time
 
 
@@ -73,3 +74,16 @@ def test_single_rule_scan_marks_deferred_candidates(monkeypatch) -> None:
     assert [item.code for item in result] == ["000001", "000002"]
     assert "限流保护" in str(deferred.fetch_error)
     assert deferred.rule_reasons == [deferred.fetch_error]
+
+
+def test_apply_intraday_repair_mode_only_overrides_weak_candidates() -> None:
+    weak = _candidate("000001")
+    weak.market_regime = "CRASH"
+    neutral = _candidate("000002")
+    neutral.market_regime = "NEUTRAL"
+
+    changed = apply_intraday_market_mode([weak, neutral], mode="PANIC_REPAIR_INTRADAY")
+
+    assert changed == 1
+    assert weak.market_regime == "PANIC_REPAIR_INTRADAY"
+    assert neutral.market_regime == "NEUTRAL"

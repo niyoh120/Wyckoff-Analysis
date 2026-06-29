@@ -168,7 +168,7 @@ def test_upsert_recommendations_preserves_candidate_metadata(monkeypatch):
                 "candidate_lane": "mainline",
                 "entry_type": "主线平台再突破",
                 "signal_key": "mainline",
-                "candidate_status": "可买主线",
+                "candidate_status": "主线买点候选",
                 "candidate_reasons": {"theme": "CPO"},
                 "mainline_score": 0.86,
                 "theme_score": 0.8,
@@ -182,7 +182,7 @@ def test_upsert_recommendations_preserves_candidate_metadata(monkeypatch):
     assert row["strategy_version"] == "candidate_lane_v1"
     assert row["candidate_lane"] == "mainline"
     assert row["entry_type"] == "主线平台再突破"
-    assert row["candidate_status"] == "可买主线"
+    assert row["candidate_status"] == "主线买点候选"
     assert row["candidate_reasons"] == {"theme": "CPO"}
     assert row["mainline_score"] == 0.86
     assert row["timing_score"] == 0.72

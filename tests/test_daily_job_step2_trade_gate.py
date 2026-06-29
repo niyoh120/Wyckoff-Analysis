@@ -25,7 +25,7 @@ def _cfg() -> DailyJobConfig:
     )
 
 
-def test_persist_step2_outputs_skips_recommendations_in_observe_only_market(monkeypatch) -> None:
+def test_persist_step2_outputs_allows_step3_review_without_recommendation_write(monkeypatch) -> None:
     import workflows.daily_job_step2 as step2_module
 
     persisted: list[str] = []
@@ -57,9 +57,9 @@ def test_persist_step2_outputs_skips_recommendations_in_observe_only_market(monk
 
     assert recommend_date is None
     assert payload == []
-    assert persisted == []
-    assert result.details["step3_symbols_info"] == []
-    assert result.details["trade_mode"]["mode"] == "observe_only"
+    assert persisted == ["filtered"]
+    assert result.details["step3_symbols_info"] == [{"code": "000001", "name": "平安银行"}]
+    assert result.details["trade_mode"]["mode"] == "repair_review"
 
 
 def test_step3_stage_still_sends_empty_report_when_no_symbols() -> None:

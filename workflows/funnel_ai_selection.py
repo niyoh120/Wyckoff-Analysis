@@ -163,6 +163,11 @@ def promote_review_candidates(
             promotion_cap=FUNNEL_THEME_RADAR_PROMOTE_CAP,
             total_cap=ai_total_cap,
         )
+    mainline_cap = int(pools.get("mainline_cap") or FUNNEL_MAINLINE_MAX_AI_CANDIDATES)
+    mainline_total_cap: int | None = None
+    if not trade_mode.allow_recommendation_write:
+        mainline_cap = min(mainline_cap, 2)
+        mainline_total_cap = 2
     mainline_added = _promote_mainline_for_ai(
         selected_for_ai,
         trend_selected,
@@ -172,7 +177,8 @@ def promote_review_candidates(
         code_to_trigger_keys,
         score_map,
         enabled=trade_mode.allow_ai_review,
-        cap=int(pools.get("mainline_cap") or FUNNEL_MAINLINE_MAX_AI_CANDIDATES),
+        cap=mainline_cap,
+        total_cap=mainline_total_cap,
     )
     ai_policy["mainline_added_count"] = mainline_added
     return bypass_added, strategic_added, theme_added, mainline_added
@@ -189,6 +195,7 @@ def _promote_mainline_for_ai(
     *,
     enabled: bool,
     cap: int,
+    total_cap: int | None = None,
 ) -> int:
     return promote_l2_bypass_for_ai(
         selected_for_ai,
@@ -200,7 +207,7 @@ def _promote_mainline_for_ai(
         score_map,
         enabled=enabled,
         cap=cap,
-        total_cap=None,
+        total_cap=total_cap,
     )
 
 

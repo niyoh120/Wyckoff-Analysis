@@ -9,7 +9,7 @@ import pandas as pd
 
 from core.theme_radar import normalize_theme_name
 
-MAINLINE_BUY_STATUS = "可买主线"
+MAINLINE_BUY_STATUS = "主线买点候选"
 MAINLINE_DIVERGENCE_STATUS = "强主线分歧"
 MAINLINE_OBSERVE_STATUS = "主线观察"
 MAINLINE_AVOID_STATUS = "过热不追"

@@ -497,6 +497,40 @@ def _panic_reasons(
     return reasons
 
 
+def _money_flow_panic_reason(money_flow: dict | None) -> str:
+    if not money_flow:
+        return ""
+    trend = str(money_flow.get("trend") or "").strip().lower()
+    score = _safe_float(money_flow.get("score"))
+    up_down_ratio = _safe_float(money_flow.get("up_down_amount_ratio"))
+    if trend == "retreat" and score is not None and score <= -20.0:
+        return f"money_flow_retreat={score:.1f}<=阈值-20.0"
+    if up_down_ratio is not None and up_down_ratio <= 0.55 and score is not None and score <= -12.0:
+        return f"up_down_amount_ratio={up_down_ratio:.2f}<=阈值0.55"
+    return ""
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _confirmed_panic_reasons(raw_reasons: list[str], money_flow: dict | None) -> list[str]:
+    price_reasons = [reason for reason in raw_reasons if reason.startswith(("main_day_drop", "smallcap_day_drop"))]
+    breadth_reasons = [reason for reason in raw_reasons if reason.startswith(("breadth_ratio", "breadth_delta"))]
+    money_reason = _money_flow_panic_reason(money_flow)
+    confirmation_reasons = [*breadth_reasons]
+    if money_reason:
+        confirmation_reasons.append(money_reason)
+    if price_reasons and confirmation_reasons:
+        return price_reasons + confirmation_reasons
+    return []
+
+
 def _repair_reasons(
     main: MainBenchmarkMetrics,
     small: SmallcapMetrics,
@@ -528,11 +562,15 @@ def _apply_panic_repair_regime(
     small: SmallcapMetrics,
     breadth_ratio: float | None,
     breadth_delta: float | None,
+    money_flow: dict | None,
     regime_config: MarketRegimeConfig,
 ) -> tuple[str, list[str], list[str]]:
     panic_reasons = _panic_reasons(main, small, breadth_ratio, breadth_delta, regime_config)
+    confirmed_panic = _confirmed_panic_reasons(panic_reasons, money_flow)
+    if confirmed_panic:
+        return "CRASH", confirmed_panic, []
     if panic_reasons:
-        return "CRASH", panic_reasons, []
+        regime = "RISK_OFF"
     if not regime_config.panic_repair_enabled:
         return regime, [], []
     repair_reasons = _repair_reasons(main, small, regime_config)
@@ -773,6 +811,7 @@ def analyze_benchmark_and_tune_cfg(
         small,
         breadth_ratio,
         breadth_delta,
+        money_flow_context,
         runtime,
     )
     regime, bear_rebound_reasons = _apply_bear_rebound_regime(regime, main)

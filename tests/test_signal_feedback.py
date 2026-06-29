@@ -231,7 +231,7 @@ def test_build_signal_observations_writes_candidate_metadata():
                 "candidate_lane": "mainline",
                 "entry_type": "主线平台再突破",
                 "signal_key": "mainline",
-                "candidate_status": "可买主线",
+                "candidate_status": "主线买点候选",
                 "mainline_score": 0.86,
                 "timing_score": 0.72,
             }
@@ -242,7 +242,7 @@ def test_build_signal_observations_writes_candidate_metadata():
     assert row["strategy_version"] == "candidate_lane_v1"
     assert row["candidate_lane"] == "mainline"
     assert row["entry_type"] == "主线平台再突破"
-    assert row["candidate_status"] == "可买主线"
+    assert row["candidate_status"] == "主线买点候选"
     assert row["features_json"]["candidate_metadata"]["mainline_score"] == 0.86
     assert row["features_json"]["candidate_metadata"]["timing_score"] == 0.72
 

@@ -30,6 +30,12 @@ def _benchmark_df(closes: list[float]) -> pd.DataFrame:
     )
 
 
+def _benchmark_with_last_drop(drop_pct: float) -> pd.DataFrame:
+    closes = [100.0 + i * 0.2 for i in range(220)]
+    closes[-1] = closes[-2] * (1.0 + drop_pct / 100.0)
+    return _benchmark_df(closes)
+
+
 # ── utils.env ──
 
 
@@ -358,6 +364,73 @@ class TestMarketRegime:
 
         assert result["regime"] == "RISK_ON"
         assert result["bear_rebound_triggered"] is False
+
+    def test_single_index_drop_needs_confirmation_before_crash(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_with_last_drop(-1.5),
+            None,
+            FunnelConfig(),
+            breadth={"ratio_pct": 60.0, "delta_pct": -2.0, "sample_size": 100},
+            money_flow={"trend": "neutral", "score": 0.0},
+        )
+
+        assert result["regime"] == "RISK_OFF"
+        assert result["panic_reasons"] == []
+
+    def test_two_index_drop_without_breadth_or_money_confirmation_stays_risk_off(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_with_last_drop(-1.5),
+            _benchmark_with_last_drop(-3.0),
+            FunnelConfig(),
+            breadth={"ratio_pct": 60.0, "delta_pct": -2.0, "sample_size": 100},
+        )
+
+        assert result["regime"] == "RISK_OFF"
+        assert result["panic_reasons"] == []
+
+    def test_index_drop_with_breadth_confirmation_confirms_crash(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_with_last_drop(-1.5),
+            _benchmark_with_last_drop(-3.0),
+            FunnelConfig(),
+            breadth={"ratio_pct": 12.0, "delta_pct": -25.0, "sample_size": 100},
+        )
+
+        assert result["regime"] == "CRASH"
+        assert any("main_day_drop" in item for item in result["panic_reasons"])
+        assert any("breadth_" in item for item in result["panic_reasons"])
+
+    def test_money_flow_retreat_confirms_crash(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_with_last_drop(-1.5),
+            None,
+            FunnelConfig(),
+            breadth={"ratio_pct": 60.0, "delta_pct": -2.0, "sample_size": 100},
+            money_flow={"trend": "retreat", "score": -25.0},
+        )
+
+        assert result["regime"] == "CRASH"
+        assert any("money_flow_retreat" in item for item in result["panic_reasons"])
 
 
 # ── tools/data_fetcher ──

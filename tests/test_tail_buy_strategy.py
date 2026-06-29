@@ -265,6 +265,25 @@ def test_tail_buy_blocks_defensive_regime_single_evr():
     assert "RISK_OFF单EVR只观察" in "；".join(out.rule_reasons)
 
 
+def test_tail_buy_blocks_intraday_repair_single_sos():
+    candidate = TailBuyCandidate(
+        code="300308",
+        name="中际旭创",
+        signal_date="2026-06-12",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=3.6,
+        market_regime="PANIC_REPAIR_INTRADAY",
+        snap={"snap_support": 88.0},
+    )
+    df = _make_intraday_df(start=90.0, end=94.0, tail_boost=0.8, tail_volume_mult=1.8)
+
+    out = evaluate_rule_decision(candidate, df, style="hybrid")
+
+    assert out.rule_decision == DECISION_SKIP
+    assert "PANIC_REPAIR_INTRADAY单SOS只观察" in "；".join(out.rule_reasons)
+
+
 def test_confirmed_tail_signal_skips_blowoff_reversal():
     candidate = TailBuyCandidate(
         code="002217",

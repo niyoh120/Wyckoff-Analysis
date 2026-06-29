@@ -465,8 +465,8 @@ def _log_funnel_summary(metrics: dict, inputs: FunnelMetricsInputs) -> None:
         f"(主升={counts['momentum']}, 潜伏={counts['ambush']}, 吸筹={counts['accum']}, "
         f"地量={counts['dry_vol']}, 护盘={counts['rs_div']}, 趋势={counts['trend_cont']}, 点火={counts['sos']}), "
         f"L3={metrics['layer3']}, 命中={inputs.candidates.total_hits}, "
-        f"Top板块={inputs.layers.top_sectors}, 主线={inputs.ref_data.hot_concepts[:3] if inputs.ref_data.hot_concepts else []}, "
-        f"战略旁路={len(inputs.strategic.pool)}, 主线={_mainline_log_counts(inputs.layers.mainline_candidates)}, "
+        f"Top板块={inputs.layers.top_sectors}, 热门概念={inputs.ref_data.hot_concepts[:3] if inputs.ref_data.hot_concepts else []}, "
+        f"战略旁路={len(inputs.strategic.pool)}, 主线候选分布={_mainline_log_counts(inputs.layers.mainline_candidates)}, "
         f"Alpha候选={len(inputs.candidates.candidate_entries)}, "
         f"趋势观察={len(inputs.layers.leader_radar_rows)}, 各触发={metrics['by_trigger']}"
     )
@@ -507,11 +507,11 @@ def _build_run_artifacts(data) -> FunnelRunArtifacts:
 
 def _mainline_log_counts(candidates: list[dict]) -> str:
     counts = _mainline_status_counts(candidates)
-    return f"可买{counts['可买主线']}/分歧{counts['强主线分歧']}/观察{counts['主线观察']}/鱼尾{counts['过热不追']}"
+    return f"买点{counts['主线买点候选']}/分歧{counts['强主线分歧']}/观察{counts['主线观察']}/鱼尾{counts['过热不追']}"
 
 
 def _mainline_status_counts(candidates: list[dict]) -> dict[str, int]:
-    counts = {"可买主线": 0, "强主线分歧": 0, "主线观察": 0, "过热不追": 0}
+    counts = {"主线买点候选": 0, "强主线分歧": 0, "主线观察": 0, "过热不追": 0}
     for item in candidates or []:
         status = str(item.get("status") or "主线观察")
         counts[status] = counts.get(status, 0) + 1

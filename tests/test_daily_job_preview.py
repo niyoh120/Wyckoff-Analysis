@@ -47,7 +47,7 @@ def test_preview_only_skips_persistence_and_keeps_llm_input_path(monkeypatch, tm
                 "selection_source": "signal_confirmed",
                 "confirm_reason": "守住 10.00",
                 "candidate_lane": "mainline",
-                "candidate_status": "可买主线",
+                "candidate_status": "主线买点候选",
             }
         ]
 
@@ -149,7 +149,7 @@ def test_recommendation_write_symbols_keeps_only_mainline_or_strategic_confirmed
             "code": "000003",
             "tag": "LPS(确认)",
             "candidate_lane": "mainline",
-            "candidate_status": "可买主线",
+            "candidate_status": "主线买点候选",
         },
         {
             "code": "000004",

@@ -1,11 +1,20 @@
 from core.market_trade_mode import resolve_market_trade_mode
 
 
-def test_trade_mode_blocks_new_buy_in_weak_market() -> None:
-    mode = resolve_market_trade_mode("bear_rebound")
+def test_trade_mode_blocks_new_buy_in_risk_off_market() -> None:
+    mode = resolve_market_trade_mode("RISK_OFF")
 
     assert mode.mode == "observe_only"
     assert mode.allow_ai_review is False
+    assert mode.allow_recommendation_write is False
+    assert mode.allow_bypass_review is False
+
+
+def test_trade_mode_allows_repair_review_without_write() -> None:
+    mode = resolve_market_trade_mode("bear_rebound")
+
+    assert mode.mode == "repair_review"
+    assert mode.allow_ai_review is True
     assert mode.allow_recommendation_write is False
     assert mode.allow_bypass_review is False
 

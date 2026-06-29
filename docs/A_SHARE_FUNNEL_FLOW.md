@@ -153,7 +153,7 @@ flowchart TD
         L3["L3 layer3_sector_resonance<br/>行业/概念共振<br/>强个股与主线绕行"]
         L4["L4 layer4_triggers<br/>SOS / Spring / LPS / EVR / Compression / Trend Pullback"]
         LN["Candidate Lane<br/>趋势回踩 / 平台突破 / 强承接"]
-        MLBUY["可买主线<br/>timing_score 过关"]
+        MLBUY["主线买点候选<br/>timing_score 过关"]
         L5["L5 layer5_exit_signals<br/>派发 / 止损预警"]
     end
 
@@ -170,7 +170,7 @@ flowchart TD
         R4["候选评分 + 三轨分配"]
         R4A["Trend 轨：主升 + 点火 + 趋势延续 + 加速突破"]
         R4B["Accum 轨：潜伏 + 吸筹 + 地量 + 护盘"]
-        R4C["Mainline 轨：可买主线"]
+        R4C["Mainline 轨：主线买点候选"]
         R5{"FUNNEL_AI_SELECTION_MODE"}
         R5 -->|all_formal_l4| R6["正式 L4 全量送 AI<br/>不含 L3 补位"]
         R5 -->|quota 当前默认| R7["按 regime 静态配额<br/>FUNNEL_AI_*_TREND/ACCUM"]

@@ -141,9 +141,74 @@ def _execution_decision_line(regime: str, selected_count: int) -> str:
     mode = resolve_market_trade_mode(regime)
     if not mode.allow_ai_review:
         return "不开新仓；候选仅影子观察，优先处理持仓风控；不从本报告选择买入标的。"
+    if not mode.allow_recommendation_write:
+        return "修复复核；允许少量候选进入AI研报，但不写正式推荐，尾盘任务和人工二次确认后再决定。"
     if selected_count <= 0:
         return "暂无可送审标的；不从本报告选择新买入，等待下一次二次确认。"
     return f"{selected_count}只进入AI复核；需等 Step3 起跳板与 OMS 风控同时确认后才可执行。"
+
+
+def _today_conclusion_line(ctx: Any, selected_count: int) -> str:
+    mode = resolve_market_trade_mode(ctx.regime)
+    if not mode.allow_ai_review:
+        conclusion = "不开仓"
+    elif not mode.allow_recommendation_write:
+        conclusion = "修复观察"
+    elif selected_count > 0:
+        conclusion = "可尾盘确认"
+    else:
+        conclusion = "只观察"
+    return f"**今日结论**: {conclusion} | {mode.label}"
+
+
+def _trigger_reason_line(ctx: Any, money_line: str) -> str:
+    bench = ctx.benchmark_context or {}
+    reasons = _first_non_empty_reason_group(
+        bench.get("panic_reasons"),
+        bench.get("repair_reasons"),
+        bench.get("bear_rebound_reasons"),
+    )
+    if reasons:
+        return "**触发原因**: " + "；".join(reasons[:3])
+    return f"**触发原因**: {money_line}"
+
+
+def _first_non_empty_reason_group(*groups: object) -> list[str]:
+    for group in groups:
+        values = [str(x).strip() for x in (group or []) if str(x).strip()]
+        if values:
+            return values
+    return []
+
+
+def _tomorrow_action_line(ctx: Any, selected_count: int) -> str:
+    mode = resolve_market_trade_mode(ctx.regime)
+    if not mode.allow_ai_review:
+        action = "不用旧报告下单；只处理持仓风控，观察主线修复是否延续。"
+    elif not mode.allow_recommendation_write:
+        action = "看 Step3 与尾盘任务的二次确认；不自动写推荐，不自动开仓。"
+    elif selected_count > 0:
+        action = "只在尾盘确认未破支撑、未冲高回落、量价健康后再考虑。"
+    else:
+        action = "等待下一轮漏斗或尾盘二次确认，不提前追。"
+    return f"**明日动作**: {action}"
+
+
+def _candidate_brief_line(ctx: Any, selected_count: int) -> str:
+    return (
+        f"**候选摘要**: AI输入{selected_count}只 / 买点确认{ctx.unique_hit_count}只 / "
+        f"主线买点候选{len(ctx.mainline_tradeable)}只 / 观察池{len(ctx.theme_candidate_map)}只"
+    )
+
+
+def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[str]:
+    return [
+        _today_conclusion_line(ctx, selected_count),
+        _trigger_reason_line(ctx, money_line),
+        _tomorrow_action_line(ctx, selected_count),
+        _candidate_brief_line(ctx, selected_count),
+        "",
+    ]
 
 
 def _funnel_card_title() -> str:
@@ -206,8 +271,8 @@ def _append_mainline_card_section(lines: list[str], ctx: Any, selected_count: in
     if not ctx.mainline_candidates:
         return
     lines.append("")
-    lines.append(f"**【🎯 主线机会】{len(ctx.mainline_tradeable)} 只**")
-    lines.append(f"动态主线候选，区分买点确认与高位分歧承接；送AI复核 {selected_count} 只")
+    lines.append(f"**【🎯 主线买点候选】{len(ctx.mainline_tradeable)} 只**")
+    lines.append(f"动态主线候选，仍需市场总闸和尾盘确认；送AI复核 {selected_count} 只")
     display_rows = _mainline_display_rows(ctx.mainline_tradeable)
     if not display_rows:
         lines.append("  暂无")
@@ -228,7 +293,7 @@ def _mainline_row(ctx: Any, item: dict) -> str:
     code = str(item.get("code") or "")
     name = str(item.get("name") or ctx.name_map.get(code) or code)
     theme = str(item.get("theme") or "")
-    status = str(item.get("status") or "可买主线")
+    status = str(item.get("status") or "主线买点候选")
     entry = str(item.get("entry_type") or "等待确认")
     score = float(item.get("mainline_score") or 0.0) * 100.0
     risk = " / ".join(item.get("risk_flags") or [])
@@ -314,7 +379,7 @@ def _append_legacy_selected_sections(lines: list[str], ctx: Any, selected_for_ai
 def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str]:
     bench_line, money_line, amount_line, pv_line, pv_shadow_line = _market_report_lines(ctx.benchmark_context)
     selected_for_ai = selection.selected_for_ai
-    lines = [
+    lines = _top_summary_lines(ctx, len(selected_for_ai), money_line) + [
         (
             f"**股票池**: 主板{ctx.metrics['pool_main']} + 创业板{ctx.metrics['pool_chinext']} "
             f"+ 科创板{ctx.metrics['pool_star']} -> 去重{ctx.metrics['pool_merged']} "
@@ -335,7 +400,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         (
             f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / 买点确认{ctx.theme_l4_count}只 / "
             f"战略主题观察{len(ctx.strategic_l2_bypass_pool)}只 / "
-            f"主线可买{len(ctx.mainline_tradeable)}只 / 加权送审{selection.theme_promoted_count}只"
+            f"主线买点候选{len(ctx.mainline_tradeable)}只 / 加权送审{selection.theme_promoted_count}只"
         ),
         f"**候选池**: 买点确认{ctx.unique_hit_count}只 / 形态旁路{len(ctx.l2_bypass_pool)}只 "
         f"-> AI输入{len(selected_for_ai)}只 "
@@ -396,7 +461,7 @@ def _print_modern_selection_summary(ctx: Any, selection: FunnelAiSelection, coun
 def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[str, int]) -> list[str]:
     bench_line, money_line, amount_line, pv_line, pv_shadow_line = _market_report_lines(ctx.benchmark_context)
     policy = selection.ai_policy
-    lines = [
+    lines = _top_summary_lines(ctx, len(selection.selected_for_ai), money_line) + [
         (
             f"**股票池**: 主板{ctx.metrics['pool_main']} + 创业板{ctx.metrics['pool_chinext']} "
             f"+ 科创板{ctx.metrics['pool_star']} -> 去重{ctx.metrics['pool_merged']} "
@@ -417,7 +482,7 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         (
             f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / 买点确认{ctx.theme_l4_count}只 / "
             f"战略主题观察{len(ctx.strategic_l2_bypass_pool)}只 / "
-            f"主线可买{len(ctx.mainline_tradeable)}只 / 主线送审{selection.mainline_promoted_count}只"
+            f"主线买点候选{len(ctx.mainline_tradeable)}只 / 主线送审{selection.mainline_promoted_count}只"
         ),
         f"**候选池**: 买点确认{ctx.unique_hit_count}只 / 形态旁路{len(ctx.l2_bypass_pool)}只 "
         f"-> AI输入{len(selection.selected_for_ai)}只 "

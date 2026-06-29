@@ -751,7 +751,8 @@ function labelCandidateTerm(value: string): string {
     lps: 'LPS缩量回踩',
     spring: 'Spring震仓',
     Lane: '候选车道',
-    可买主线: '可买主线',
+    可买主线: '主线买点候选',
+    主线买点候选: '主线买点候选',
     主线观察: '主线观察',
     过热不追: '过热不追',
   }

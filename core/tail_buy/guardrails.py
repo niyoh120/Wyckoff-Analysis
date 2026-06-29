@@ -4,7 +4,9 @@ from typing import Any
 
 from core.tail_buy.models import TailBuyCandidate, normalize_regime, safe_float
 
-DEFENSIVE_TAIL_REGIMES = {"RISK_OFF", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}
+DEFENSIVE_TAIL_REGIMES = {"RISK_OFF", "PANIC_REPAIR", "CRASH", "BLACK_SWAN", "CRASH_INTRADAY"}
+REPAIR_TAIL_REGIMES = {"PANIC_REPAIR_INTRADAY"}
+NAKED_MOMENTUM_SIGNALS = {"sos", "evr"}
 
 
 def tail_hard_veto_reasons(features: dict[str, Any]) -> list[str]:
@@ -28,6 +30,8 @@ def tail_entry_veto_reasons(features: dict[str, Any], signal_type: str, market_r
         reasons.append("缺少确认支撑位，尾盘不买")
     if st_lower == "evr" and regime in DEFENSIVE_TAIL_REGIMES:
         reasons.append(f"{regime}单EVR只观察，尾盘不买")
+    if st_lower in NAKED_MOMENTUM_SIGNALS and regime in REPAIR_TAIL_REGIMES:
+        reasons.append(f"{regime}单{st_lower.upper()}只观察，尾盘不买")
     return reasons
 
 

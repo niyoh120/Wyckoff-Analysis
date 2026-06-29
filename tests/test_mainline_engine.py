@@ -47,7 +47,7 @@ def test_mainline_dynamic_theme_can_bypass_l2_but_requires_timing() -> None:
 
     assert candidates[0]["theme"] == "军工信息化"
     assert candidates[0]["l2_passed"] is False
-    assert candidates[0]["status"] == "可买主线"
+    assert candidates[0]["status"] == "主线买点候选"
     assert mainline_candidate_entries(candidates, max_count=3)[0]["signal_key"] == "mainline"
 
 

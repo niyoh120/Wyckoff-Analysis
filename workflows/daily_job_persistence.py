@@ -14,7 +14,7 @@ from integrations.recommendation_payload import (
 from integrations.supabase_market_signal import upsert_market_signal_daily
 from workflows.step4_pipeline import TZ, is_confirmed_step4_candidate
 
-RECOMMENDATION_MAINLINE_STATUSES = {"可买主线", "强主线分歧"}
+RECOMMENDATION_MAINLINE_STATUSES = {"主线买点候选", "强主线分歧"}
 RECOMMENDATION_STRATEGIC_MIN_THEME_SCORE = 0.45
 RECOMMENDATION_STRATEGIC_MIN_STOCK_SCORE = 0.55
 

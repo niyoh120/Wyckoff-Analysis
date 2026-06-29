@@ -321,10 +321,10 @@ def _render_context_from_parts(parts: _RenderContextParts) -> FunnelRenderContex
         candidate_entries=parts.candidate_entries,
         candidate_entry_map=parts.candidate_entry_map,
         mainline_candidates=parts.mainline_candidates,
-        mainline_tradeable=_mainline_by_status(parts.mainline_candidates, {"可买主线", "强主线分歧"}),
+        mainline_tradeable=_mainline_by_status(parts.mainline_candidates, {"主线买点候选", "强主线分歧"}),
         mainline_observe=_mainline_by_status(parts.mainline_candidates, "主线观察"),
         mainline_overheated=_mainline_by_status(parts.mainline_candidates, "过热不追"),
-        mainline_tradeable_codes=_mainline_codes_by_status(parts.mainline_candidates, {"可买主线", "强主线分歧"}),
+        mainline_tradeable_codes=_mainline_codes_by_status(parts.mainline_candidates, {"主线买点候选", "强主线分歧"}),
         mainline_candidate_set={
             str(row.get("code", "")).strip() for row in parts.mainline_candidates if row.get("code")
         },
