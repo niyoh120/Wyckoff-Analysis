@@ -846,33 +846,59 @@ class TestSymbolPool:
         result = screen_tools.screen_stocks()
 
         assert result["board"] == "all"
-        assert result["top_candidates"] == [
-            {
-                "code": "000001",
-                "name": "候选一",
-                "score": 9.5,
-                "triggers": ["lps", "sos"],
-                "selected_for_report": False,
-            },
-            {
-                "code": "000002",
-                "name": "候选二",
-                "score": 8.0,
-                "triggers": ["lps"],
-                "selected_for_report": True,
-            },
-            {
-                "code": "000003",
-                "name": "000003",
-                "score": 7.0,
-                "triggers": ["sos"],
-                "selected_for_report": False,
-            },
-            {
-                "code": "000004",
-                "name": "补充候选",
-                "score": 0.0,
-                "triggers": [],
-                "selected_for_report": True,
-            },
-        ]
+        candidates = result["top_candidates"]
+        assert [row["code"] for row in candidates] == ["000002", "000004", "000001", "000003"]
+        assert candidates[0]["selected_for_report"] is True
+        assert candidates[0]["priority_rank"] == 1
+        assert candidates[0]["score"] == 8.0
+        assert candidates[0]["rank_reason"] == "研报候选#1；LPS"
+        assert candidates[1]["selected_for_report"] is True
+        assert candidates[1]["priority_rank"] == 2
+        assert candidates[2]["selected_for_report"] is False
+        assert candidates[2]["triggers"] == ["lps", "sos"]
+
+    def test_screen_stocks_uses_report_row_metadata_for_top_candidates(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000004",
+                        "name": "主线候选",
+                        "priority_rank": 1,
+                        "priority_score": 12.5,
+                        "selection_source": "mainline",
+                        "track": "Trend",
+                        "stage": "Markup",
+                        "tag": "主线买点确认 | 威科夫候选",
+                    }
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {"sos": [("000001", 99.0)]},
+                    "priority_score_map": {"000004": 12.5},
+                    "name_map": {"000001": "高分未选"},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        first = result["top_candidates"][0]
+        assert first["code"] == "000004"
+        assert first["selected_for_report"] is True
+        assert first["priority_score"] == 12.5
+        assert first["selection_source"] == "mainline"
+        assert first["track"] == "Trend"
+        assert first["stage"] == "Markup"
+        assert first["tag"] == "主线买点确认 | 威科夫候选"
+        assert first["rank_reason"] == "研报候选#1；优先分 12.50"
+        assert result["top_candidates"][1]["code"] == "000001"
