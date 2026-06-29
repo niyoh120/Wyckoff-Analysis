@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from workflows.step4_models import PositionItem
-from workflows.step4_payload import build_candidate_meta_map, candidate_context_line, prepend_candidate_context
+from workflows.step4_models import PortfolioState, PositionItem
+from workflows.step4_payload import (
+    build_candidate_meta_map,
+    candidate_context_line,
+    collect_step4_candidates,
+    prepend_candidate_context,
+)
 
 
 def test_build_candidate_meta_map_keeps_capital_migration_bonus_and_source() -> None:
@@ -58,3 +63,27 @@ def test_build_candidate_meta_map_preserves_existing_holding_source() -> None:
     )
 
     assert meta_map["000001"].source_type == "holding"
+
+
+def test_collect_step4_candidates_promotes_external_report_codes_to_payload_items() -> None:
+    portfolio = PortfolioState(
+        free_cash=10000,
+        total_equity=20000,
+        positions=[PositionItem(code="000001", name="平安银行", cost=10, buy_dt="2026-05-10", shares=1000)],
+    )
+
+    candidate_codes, candidate_items, allowed_codes, meta_map, name_map = collect_step4_candidates(
+        portfolio,
+        candidate_meta=None,
+        external_report="重点观察 000390，持仓 000001 不重复。",
+    )
+
+    assert candidate_codes == ["000390"]
+    assert candidate_items == [
+        {"code": "000390", "name": "000390", "tag": "外部报告候选", "source_type": "external_report"}
+    ]
+    assert allowed_codes == {"000001", "000390"}
+    assert meta_map["000390"].source_type == "external_report"
+    assert meta_map["000390"].tag == "外部报告候选"
+    assert meta_map["000001"].source_type == "holding"
+    assert name_map["000390"] == "000390"

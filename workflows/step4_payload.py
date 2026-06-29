@@ -100,13 +100,25 @@ def collect_step4_candidates(
                 continue
             seen_candidate_codes.add(code)
             candidate_codes.append(code)
+            candidate_items.append(_external_report_candidate_item(code))
     allowed_codes = set(position_codes + candidate_codes)
-    candidate_meta_map = build_candidate_meta_map(candidate_meta, portfolio.positions)
+    candidate_meta_map = build_candidate_meta_map(
+        candidate_meta if candidate_meta is not None else candidate_items, portfolio.positions
+    )
     name_map = {p.code: p.name for p in portfolio.positions}
     for code, meta in candidate_meta_map.items():
         if code in allowed_codes and code not in name_map:
             name_map[code] = meta.name or code
     return candidate_codes, candidate_items, allowed_codes, candidate_meta_map, name_map
+
+
+def _external_report_candidate_item(code: str) -> dict[str, str]:
+    return {
+        "code": code,
+        "name": code,
+        "tag": "外部报告候选",
+        "source_type": "external_report",
+    }
 
 
 def build_candidate_meta_map(
