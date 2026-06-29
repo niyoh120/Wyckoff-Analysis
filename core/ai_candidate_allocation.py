@@ -630,9 +630,7 @@ def _append_scored_codes(
 
 def _score_map(pools: CandidatePools) -> dict[str, float]:
     out: dict[str, float] = {}
-    for code, score, _is_fill in pools.trend:
-        out[code] = score
-    for code, score, _is_fill in pools.accum:
+    for code, score, _is_fill in pools.trend + pools.accum:
         out[code] = max(out.get(code, -9999.0), score)
     return out
 
