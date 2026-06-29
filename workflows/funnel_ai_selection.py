@@ -265,7 +265,7 @@ def full_formal_ai_selection(
         "max_trend_l3_fill": 0,
         "max_accum_l3_fill": 0,
     }
-    score_map = {c: float(code_to_best_score.get(c, 0.0)) for c in selected_for_ai}
+    score_map = {c: candidate_score_value(code_to_best_score.get(c)) for c in selected_for_ai}
     print(
         f"[funnel] AI候选分配完成(full_formal_l4): "
         f"Trend={len(trend_selected)}, Accum={len(accum_selected)}, total={len(selected_for_ai)}, "

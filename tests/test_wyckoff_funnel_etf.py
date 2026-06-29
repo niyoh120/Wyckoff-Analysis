@@ -265,6 +265,19 @@ def test_full_formal_ai_selection_respects_hard_cap(monkeypatch):
     assert policy["formal_l4_cap"] == 2
 
 
+def test_full_formal_ai_selection_sanitizes_score_map(monkeypatch):
+    monkeypatch.setattr(funnel_ai_selection, "FUNNEL_FULL_FORMAL_L4_MAX", 0)
+
+    selected, _trend, _accum, score_map, _policy = funnel_ai_selection.full_formal_ai_selection(
+        ["GOOD", "BAD", "INF", "NAN"],
+        {"GOOD": 4.25, "BAD": "bad", "INF": float("inf"), "NAN": float("nan")},
+        {"GOOD": ["sos"], "BAD": ["lps"], "INF": ["spring"], "NAN": ["compression"]},
+    )
+
+    assert selected == ["GOOD", "BAD", "INF", "NAN"]
+    assert score_map == {"GOOD": 4.25, "BAD": 0.0, "INF": 0.0, "NAN": 0.0}
+
+
 def test_policy_shadow_meta_sanitizes_scores():
     meta = funnel_ai_selection._policy_shadow_meta(
         True,
