@@ -109,7 +109,8 @@ class WorkflowRun:
 
     @property
     def label(self) -> str:
-        return self.context.label
+        title = " ".join(str(self.script.get("title") or "").split())
+        return title[:80] if title else self.context.label
 
     def plan_payload(self) -> dict[str, Any]:
         return {

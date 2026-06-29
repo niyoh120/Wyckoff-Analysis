@@ -163,8 +163,10 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
     stored_events = load_workflow_events(executor.run.run_id)
     try:
         assert events[0]["type"] == "workflow_plan"
+        assert events[0]["label"] == "持仓复盘"
         assert events[0]["route"]["reason"] == "用户显式要求动态 workflow"
         assert events[0]["plan"]["route"]["matches"] == ["用 workflow"]
+        assert events[0]["plan"]["label"] == "持仓复盘"
         assert events[0]["plan"]["script"]["title"] == "持仓复盘"
         assert events[0]["plan"]["steps"][0]["agent"] == "analysis"
         assert any(event["type"] == "workflow_step_start" for event in events)
@@ -175,6 +177,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert "汇总持仓风险和下一步动作" in provider.calls[3]["messages"][0]["content"]
         assert run and run["status"] == "completed"
         assert run["workflow"] == "dynamic_task"
+        assert run["label"] == "持仓复盘"
         assert run["plan"]["script"]["runtime"]["script_path"].startswith(str(tmp_path / "workflow-runs"))
         assert (tmp_path / "workflow-runs" / "s1" / f"{executor.run.run_id}.json").is_file()
         assert "自然语言理解" in provider.calls[0]["system_prompt"]
