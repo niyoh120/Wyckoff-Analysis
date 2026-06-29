@@ -129,7 +129,7 @@ def test_direct_runtime_prompt_prefers_model_inference_before_clarifying():
     assert "谐音" not in prompt
 
 
-def test_direct_stock_turn_does_not_expose_web_fetch():
+def test_direct_turn_exposes_bounded_tools_without_keyword_gate():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
         StubToolRegistry(),
@@ -143,16 +143,21 @@ def test_direct_stock_turn_does_not_expose_web_fetch():
     assert "analyze_stock" in runtime.allowed_tools
     assert "run_backtest" in runtime.allowed_tools
     assert "update_portfolio" in runtime.allowed_tools
+    assert "read_file" in runtime.allowed_tools
+    assert "web_fetch" in runtime.allowed_tools
+    assert "exec_command" in runtime.allowed_tools
+    assert "write_file" in runtime.allowed_tools
     assert "execute_skill" not in runtime.allowed_tools
-    assert "web_fetch" not in runtime.allowed_tools
 
 
-def test_direct_url_turn_exposes_web_fetch():
-    tools = infer_direct_allowed_tools("帮我抓取 https://example.com 公告")
+def test_direct_local_task_tools_are_not_keyword_gated():
+    tools = infer_direct_allowed_tools("token 在 .env 里，帮我发 pypi patch 版")
 
+    assert "read_file" in tools
     assert "web_fetch" in tools
+    assert "write_file" in tools
+    assert "exec_command" in tools
     assert "execute_skill" not in tools
-    assert "exec_command" not in tools
 
 
 def test_dispatch_uses_workflow_executor_for_explicit_dynamic_turn():

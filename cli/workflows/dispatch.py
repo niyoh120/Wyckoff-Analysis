@@ -33,12 +33,6 @@ _DIRECT_TOOL_ORDER = (
     "web_fetch",
     "exec_command",
 )
-_LOCAL_TOOLS = {"read_file", "write_file", "web_fetch", "exec_command"}
-_SAFE_DIRECT_TOOLS = frozenset(tool for tool in _DIRECT_TOOL_ORDER if tool not in _LOCAL_TOOLS)
-_WEB_FETCH_MARKERS = ("http://", "https://", "网页", "链接", "url", "公告", "新闻", "抓取")
-_READ_FILE_MARKERS = ("读取文件", "读文件", "打开文件", ".csv", ".xlsx", ".xls", ".json", ".md")
-_WRITE_FILE_MARKERS = ("写入文件", "写文件", "导出", "保存到", "生成文件")
-_COMMAND_MARKERS = ("执行命令", "运行命令", "shell", "终端命令")
 
 
 def build_turn_runtime(
@@ -88,20 +82,6 @@ def build_turn_runtime(
 
 
 def infer_direct_allowed_tools(user_text: str) -> tuple[str, ...]:
-    """Limit local tools in direct chat unless the user clearly asks for them."""
+    """Expose bounded direct-chat tools without keyword-gating intent."""
 
-    text = str(user_text or "").lower()
-    allowed = set(_SAFE_DIRECT_TOOLS)
-    if _has_any(text, _WEB_FETCH_MARKERS):
-        allowed.add("web_fetch")
-    if _has_any(text, _READ_FILE_MARKERS):
-        allowed.add("read_file")
-    if _has_any(text, _WRITE_FILE_MARKERS):
-        allowed.update(("read_file", "write_file"))
-    if _has_any(text, _COMMAND_MARKERS):
-        allowed.add("exec_command")
-    return tuple(tool for tool in _DIRECT_TOOL_ORDER if tool in allowed)
-
-
-def _has_any(text: str, markers: tuple[str, ...]) -> bool:
-    return any(marker in text for marker in markers)
+    return _DIRECT_TOOL_ORDER
