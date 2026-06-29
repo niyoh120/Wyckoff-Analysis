@@ -264,6 +264,21 @@ def test_shadow_observation_inputs_build_added_and_removed_sources():
     assert score_map["000001"] == 3.5
 
 
+def test_shadow_observation_inputs_sanitizes_scores():
+    from workflows.daily_signal_observations import shadow_observation_inputs
+
+    triggers, source_map, score_map = shadow_observation_inputs(
+        {
+            "shadow_added": ["000001", "000002"],
+            "shadow_score_map": {"000001": "bad", "000002": float("nan"), "000003": float("inf")},
+        }
+    )
+
+    assert triggers == {"shadow_added": [("000001", 0.0), ("000002", 0.0)]}
+    assert source_map == {"000001": "shadow_added", "000002": "shadow_added"}
+    assert score_map == {"000001": 0.0, "000002": 0.0, "000003": 0.0}
+
+
 def test_persist_signal_observations_reports_write_failure(monkeypatch):
     import integrations.supabase_signal_feedback as signal_feedback
     from workflows.daily_signal_observations import persist_signal_observations

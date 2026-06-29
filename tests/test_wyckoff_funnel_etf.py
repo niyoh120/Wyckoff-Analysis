@@ -265,6 +265,18 @@ def test_full_formal_ai_selection_respects_hard_cap(monkeypatch):
     assert policy["formal_l4_cap"] == 2
 
 
+def test_policy_shadow_meta_sanitizes_scores():
+    meta = funnel_ai_selection._policy_shadow_meta(
+        True,
+        ["000001", "000002", "000003"],
+        ["000001"],
+        ["000002"],
+        {"000001": 3.5, "000002": "bad", "000003": float("nan")},
+    )
+
+    assert meta["shadow_score_map"] == {"000001": 3.5, "000002": 0.0, "000003": 0.0}
+
+
 def test_merge_trigger_maps_keeps_bypass_l4_hits():
     merged = merge_trigger_maps(
         {"lps": [("000001", 1.0)], "evr": [("000002", 2.0)]},

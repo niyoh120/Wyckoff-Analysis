@@ -11,6 +11,7 @@ from core.ai_candidate_allocation import (
     allocate_ai_candidates,
     resolve_ai_candidate_policy,
 )
+from core.candidate_policy import candidate_score_value
 from core.dynamic_policy import (
     DynamicPolicyConfig,
     build_signal_weight_map,
@@ -467,7 +468,7 @@ def _policy_shadow_meta(
         "shadow_selected": shadow_selected,
         "shadow_added": diff_added,
         "shadow_removed": diff_removed,
-        "shadow_score_map": {code: float(score_map.get(code, 0.0) or 0.0) for code in shadow_selected},
+        "shadow_score_map": {code: candidate_score_value(score_map.get(code)) for code in shadow_selected},
     }
 
 

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from core.candidate_metadata import build_candidate_metadata_map, candidate_signal_triggers, merge_trigger_maps
+from core.candidate_policy import candidate_score_value
 
 LogFn = Callable[[str, str | None], None]
 
@@ -21,7 +22,11 @@ def apply_step3_springboard_updates(payload: list[dict], updates: dict[str, dict
 
 
 def shadow_observation_inputs(step2_details: dict) -> tuple[dict[str, list[tuple[str, float]]], dict[str, str], dict]:
-    score_map = step2_details.get("shadow_score_map") or {}
+    score_map = {
+        str(code).strip(): candidate_score_value(score)
+        for code, score in (step2_details.get("shadow_score_map") or {}).items()
+        if str(code).strip()
+    }
     triggers: dict[str, list[tuple[str, float]]] = {}
     source_map: dict[str, str] = {}
     for signal_type, source_key in (("shadow_added", "shadow_added"), ("shadow_removed", "shadow_removed")):
@@ -29,7 +34,7 @@ def shadow_observation_inputs(step2_details: dict) -> tuple[dict[str, list[tuple
         for code in step2_details.get(signal_type, []) or []:
             code_s = str(code).strip()
             if code_s:
-                rows.append((code_s, float(score_map.get(code_s, 0.0) or 0.0)))
+                rows.append((code_s, candidate_score_value(score_map.get(code_s))))
                 source_map[code_s] = source_key
         if rows:
             triggers[signal_type] = rows

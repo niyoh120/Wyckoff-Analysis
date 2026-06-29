@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.candidate_metadata import build_candidate_metadata_map, code6
+from core.candidate_policy import candidate_score_value
 from core.candidate_tracks import candidate_entry_track
 from core.funnel_report import build_symbol_report_row, candidate_reason_text
 from core.funnel_taxonomy import source_label
@@ -167,13 +168,13 @@ def stage_name(ctx: Any, code: str) -> str:
 
 
 def display_score(ctx: Any, selection: FunnelAiSelection, code: str) -> float:
-    trigger_score = float(ctx.code_to_total_score.get(code, 0.0) or 0.0)
-    selection_score = float(selection.score_map.get(code, 0.0) or 0.0)
+    trigger_score = candidate_score_value(ctx.code_to_total_score.get(code))
+    selection_score = candidate_score_value(selection.score_map.get(code))
     return max(trigger_score, selection_score)
 
 
 def display_score_map(ctx: Any, selection: FunnelAiSelection) -> dict[str, float]:
-    out = {str(code): float(score or 0.0) for code, score in (selection.score_map or {}).items()}
+    out = {str(code): candidate_score_value(score) for code, score in (selection.score_map or {}).items()}
     for code in selection.selected_for_ai:
         out[str(code)] = display_score(ctx, selection, str(code))
     return out
@@ -181,7 +182,7 @@ def display_score_map(ctx: Any, selection: FunnelAiSelection) -> dict[str, float
 
 def legacy_display_score(ctx: Any, code: str) -> float:
     fallback = (ctx.metrics.get("layer3_score_map", {}) or {}).get(code, 0.0)
-    return float(ctx.code_to_total_score.get(code, 0.0) or fallback)
+    return candidate_score_value(ctx.code_to_total_score.get(code)) or candidate_score_value(fallback)
 
 
 def legacy_selection_source(ctx: Any, code: str) -> str:

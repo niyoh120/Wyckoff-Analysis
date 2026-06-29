@@ -115,6 +115,21 @@ def test_display_score_map_uses_trigger_priority_for_selected_codes():
     assert got["000001"] == 3.5
 
 
+def test_display_score_map_treats_invalid_scores_as_zero():
+    selection = FunnelAiSelection(
+        selected_for_ai=["000001"],
+        trend_selected=["000001"],
+        accum_selected=[],
+        score_map={"000001": "bad", "000002": float("inf")},
+        ai_policy={},
+        theme_promoted_count=0,
+    )
+    ctx = _ctx(code_to_total_score={"000001": float("nan")})
+
+    assert display_score(ctx, selection, "000001") == 0.0
+    assert display_score_map(ctx, selection) == {"000001": 0.0, "000002": 0.0}
+
+
 def test_funnel_run_details_keeps_report_payload_fields():
     details = funnel_run_details(_ctx(), _selection(), content="内容", title="标题", symbols=[{"code": "000001"}])
 
