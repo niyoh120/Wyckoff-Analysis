@@ -129,6 +129,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "ok": result.get("ok"),
             "board": result.get("board"),
             "summary": result.get("summary"),
+            "trade_mode": result.get("trade_mode"),
             "top_candidates": _preview_list(result.get("top_candidates"), 10),
             "symbols_for_report": _preview_list(result.get("symbols_for_report"), 12),
             "top_sectors": _preview_list(result.get("top_sectors"), 6),

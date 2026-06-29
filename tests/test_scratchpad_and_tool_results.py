@@ -90,6 +90,7 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
         "ok": True,
         "board": "chinext",
         "summary": {"total_scanned": 2000},
+        "trade_mode": {"regime": "RISK_OFF", "action": "不新增买入"},
         "trigger_groups": {"huge": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(100)]},
         "top_candidates": [
             {"code": "300750", "name": "宁德时代", "score": 96.5, "triggers": ["lps", "sos"]},
@@ -102,6 +103,7 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     assert "result_ref:" in content
     assert '"top_candidates": [{"code": "300750"' in content
     assert "宁德时代" in content
+    assert '"trade_mode": {"regime": "RISK_OFF", "action": "不新增买入"}' in content
     assert "完整 trigger_groups 已写入 result_ref" in content
     assert '"trigger_groups"' not in content
     stored = list((tmp_path / "tool-results").glob("*.json"))

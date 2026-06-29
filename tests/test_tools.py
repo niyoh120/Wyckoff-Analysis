@@ -846,6 +846,7 @@ class TestSymbolPool:
         result = screen_tools.screen_stocks()
 
         assert result["board"] == "all"
+        assert result["summary"]["report_candidates"] == 2
         candidates = result["top_candidates"]
         assert [row["code"] for row in candidates] == ["000002", "000004", "000001", "000003"]
         assert candidates[0]["selected_for_report"] is True
@@ -882,6 +883,16 @@ class TestSymbolPool:
                     "metrics": {},
                     "triggers": {"sos": [("000001", 99.0)]},
                     "priority_score_map": {"000004": 12.5},
+                    "trade_mode": {
+                        "regime": "RISK_OFF",
+                        "mode": "blocked",
+                        "label": "风险规避",
+                        "action": "不新增买入",
+                        "reason": "大盘风险闸门关闭",
+                        "allow_ai_review": False,
+                        "allow_recommendation_write": False,
+                        "internal_note": "not exposed",
+                    },
                     "name_map": {"000001": "高分未选"},
                 },
             )
@@ -893,6 +904,16 @@ class TestSymbolPool:
         result = screen_tools.screen_stocks()
 
         first = result["top_candidates"][0]
+        assert result["summary"]["report_candidates"] == 1
+        assert result["trade_mode"] == {
+            "regime": "RISK_OFF",
+            "mode": "blocked",
+            "label": "风险规避",
+            "action": "不新增买入",
+            "reason": "大盘风险闸门关闭",
+            "allow_ai_review": False,
+            "allow_recommendation_write": False,
+        }
         assert first["code"] == "000004"
         assert first["selected_for_report"] is True
         assert first["priority_score"] == 12.5

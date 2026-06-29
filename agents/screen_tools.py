@@ -39,12 +39,8 @@ def screen_stocks(board: str = "all", tool_context: ToolContext | None = None) -
         return {
             "ok": bool(ok),
             "board": board,
-            "summary": {
-                "total_scanned": int(metrics.get("total_symbols", 0)),
-                "layer1_passed": int(metrics.get("layer1", 0)),
-                "layer2_passed": int(metrics.get("layer2", 0)),
-                "layer3_passed": int(metrics.get("layer3", 0)),
-            },
+            "summary": _screen_summary(metrics, symbols),
+            "trade_mode": _trade_mode_summary(details),
             "top_candidates": _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details),
             "trigger_groups": trigger_groups,
             "top_sectors": metrics.get("top_sectors", []),
@@ -80,6 +76,32 @@ def _trigger_summary(details: dict) -> dict:
         ]
         for trigger_name, rows in triggers.items()
     }
+
+
+def _screen_summary(metrics: dict, symbols_for_report: list[Any]) -> dict:
+    return {
+        "total_scanned": int(metrics.get("total_symbols", 0)),
+        "layer1_passed": int(metrics.get("layer1", 0)),
+        "layer2_passed": int(metrics.get("layer2", 0)),
+        "layer3_passed": int(metrics.get("layer3", 0)),
+        "report_candidates": len(_report_rows(symbols_for_report)),
+    }
+
+
+def _trade_mode_summary(details: dict) -> dict:
+    mode = details.get("trade_mode") if isinstance(details, dict) else {}
+    if not isinstance(mode, dict):
+        return {}
+    fields = (
+        "regime",
+        "mode",
+        "label",
+        "action",
+        "reason",
+        "allow_ai_review",
+        "allow_recommendation_write",
+    )
+    return {field: mode[field] for field in fields if field in mode}
 
 
 def _ranked_candidates(
