@@ -405,8 +405,8 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
     visible_steps = steps[:20] if isinstance(steps, list) else []
     for idx, step in enumerate(visible_steps, start=1):
         title = escape(str(step.get("title", "")))
-        agent = escape(str(step.get("agent", "") or "agent"))
-        write(Text.from_markup(f"    [dim]{idx}.[/dim] {title} [dim]{agent} · 待执行[/dim]"))
+        meta = _workflow_step_meta(step, "待执行")
+        write(Text.from_markup(f"    [dim]{idx}.[/dim] {title} [dim]{meta}[/dim]"))
     if isinstance(steps, list) and len(steps) > len(visible_steps):
         write(
             Text.from_markup(
@@ -439,10 +439,22 @@ def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
     color = {"running": "yellow", "completed": "green", "failed": "red", "skipped": "dim"}.get(status, "dim")
     title = escape(str(step.get("title", "")))
     summary = escape(str(step.get("summary", "")))
-    agent = escape(str(step.get("agent", "") or "agent"))
     label = {"running": "运行中", "completed": "完成", "failed": "失败", "skipped": "跳过"}.get(status, status)
-    write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{agent} · {label} {summary}[/dim]"))
+    meta = _workflow_step_meta(step, label)
+    write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{meta} {summary}[/dim]"))
     scroll()
+
+
+def _workflow_step_meta(step: dict[str, Any], label: str) -> str:
+    agent = escape(str(step.get("agent", "") or "agent"))
+    tool_scope = [escape(str(item)) for item in step.get("tool_scope", []) if str(item)]
+    parts = [agent]
+    if tool_scope:
+        parts.append(f"工具：{', '.join(tool_scope[:4])}")
+        if len(tool_scope) > 4:
+            parts.append(f"+{len(tool_scope) - 4}")
+    parts.append(escape(label))
+    return " · ".join(parts)
 
 
 def _display_workflow_phase_event(event: dict[str, Any], write, scroll) -> None:

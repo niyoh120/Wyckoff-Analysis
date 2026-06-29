@@ -9,6 +9,7 @@ from rich.markdown import Markdown
 from cli.tui import (
     _display_final_response,
     _display_workflow_plan_event,
+    _display_workflow_step_event,
     _pending_workflow_reply_intent,
     _pop_lines,
     _replace_streamed_response,
@@ -113,7 +114,7 @@ def test_display_workflow_plan_event_includes_route_reason():
             "workflow": "backtest",
             "label": "策略回测",
             "route": {"reason": "检测到策略回测意图", "matches": ["回测"], "confidence": 0.9},
-            "plan": {"steps": [{"title": "执行回测任务"}]},
+            "plan": {"steps": [{"title": "执行回测任务", "agent": "research", "tool_scope": ["run_backtest"]}]},
         },
         writes.append,
         lambda: scrolled.append(True),
@@ -125,6 +126,32 @@ def test_display_workflow_plan_event_includes_route_reason():
     assert "检测到策略回测意图" in str(writes[1])
     assert "命中：回测" in str(writes[1])
     assert "待执行" in str(writes[2])
+    assert "工具：run_backtest" in str(writes[2])
+    assert scrolled == [True]
+
+
+def test_display_workflow_step_event_includes_tool_scope():
+    writes = []
+    scrolled = []
+
+    _display_workflow_step_event(
+        {
+            "step": {
+                "title": "读取持仓",
+                "agent": "analysis",
+                "status": "running",
+                "tool_scope": ["portfolio", "analyze_stock"],
+                "summary": "analysis: start",
+            }
+        },
+        writes.append,
+        lambda: scrolled.append(True),
+    )
+
+    rendered = str(writes[0])
+    assert "读取持仓" in rendered
+    assert "工具：portfolio, analyze_stock" in rendered
+    assert "运行中" in rendered
     assert scrolled == [True]
 
 
