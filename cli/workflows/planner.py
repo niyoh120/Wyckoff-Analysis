@@ -14,6 +14,45 @@ from cli.workflows.router import route_workflow
 
 ALLOWED_WORKFLOW_AGENTS = {"research", "analysis", "trading"}
 MAX_WORKFLOW_STEPS = 1000
+TASK_LIST_FIELDS = ("tasks", "steps", "items")
+PROMPT_FIELDS = ("prompt", "instruction", "task", "description", "goal", "objective")
+
+WORKFLOW_AGENT_ALIASES = {
+    "research": "research",
+    "researcher": "research",
+    "delegate_to_research": "research",
+    "data": "research",
+    "market": "research",
+    "scan": "research",
+    "backtest": "research",
+    "研究": "research",
+    "调研": "research",
+    "数据": "research",
+    "扫描": "research",
+    "回测": "research",
+    "analysis": "analysis",
+    "analyst": "analysis",
+    "delegate_to_analysis": "analysis",
+    "diagnosis": "analysis",
+    "diagnose": "analysis",
+    "structure": "analysis",
+    "分析": "analysis",
+    "诊断": "analysis",
+    "结构": "analysis",
+    "复盘": "analysis",
+    "trading": "trading",
+    "trader": "trading",
+    "trade": "trading",
+    "delegate_to_trading": "trading",
+    "decision": "trading",
+    "risk": "trading",
+    "action": "trading",
+    "交易": "trading",
+    "决策": "trading",
+    "风控": "trading",
+    "攻防": "trading",
+    "动作": "trading",
+}
 
 _PLAN_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的动态 workflow 编排器。
@@ -181,7 +220,7 @@ def _strip_json_fence(text: str) -> str:
 def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowContext) -> list[WorkflowStep]:
     steps: list[WorkflowStep] = []
     args_text = _runtime_args(script)
-    for phase in _safe_list(script.get("phases")):
+    for phase in _script_phases(script):
         steps.extend(_phase_steps(phase, user_text, args_text))
         if len(steps) >= MAX_WORKFLOW_STEPS:
             break
@@ -195,7 +234,7 @@ def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowConte
 def _phase_steps(phase: dict[str, Any], user_text: str, args_text: str) -> list[WorkflowStep]:
     phase_id = _slug(phase.get("id") or phase.get("title") or "phase")
     steps: list[WorkflowStep] = []
-    for task in _safe_list(phase.get("tasks")):
+    for task in _phase_tasks(phase):
         step = _task_step(task, phase_id, user_text, args_text)
         if step:
             steps.append(step)
@@ -203,11 +242,11 @@ def _phase_steps(phase: dict[str, Any], user_text: str, args_text: str) -> list[
 
 
 def _task_step(task: dict[str, Any], phase_id: str, user_text: str, args_text: str) -> WorkflowStep | None:
-    agent = str(task.get("agent", "")).strip().lower()
-    if agent not in ALLOWED_WORKFLOW_AGENTS:
+    agent = _task_agent(task)
+    if not agent:
         return None
-    title = str(task.get("title") or task.get("id") or f"{agent} task").strip()
-    prompt = str(task.get("prompt") or title or user_text).strip()
+    title = str(task.get("title") or task.get("name") or task.get("id") or f"{agent} task").strip()
+    prompt = _task_prompt(task, title, user_text)
     prompt = _render_runtime_args(prompt, args_text)
     context = _render_runtime_args(str(task.get("context") or "").strip(), args_text)
     step_id = _slug(task.get("id") or title)
@@ -221,6 +260,59 @@ def _task_step(task: dict[str, Any], phase_id: str, user_text: str, args_text: s
         phase=phase_id,
         dynamic=True,
     )
+
+
+def _script_phases(script: dict[str, Any]) -> list[dict[str, Any]]:
+    phases = _safe_list(script.get("phases"))
+    if phases:
+        return phases
+    tasks = _first_task_list(script)
+    if tasks:
+        return [{"id": "top_level", "title": script.get("title") or "动态任务", "tasks": tasks}]
+    if _task_agent(script):
+        return [{"id": "top_level", "title": script.get("title") or "动态任务", "tasks": [script]}]
+    return []
+
+
+def _phase_tasks(phase: dict[str, Any]) -> list[dict[str, Any]]:
+    tasks = _first_task_list(phase)
+    if tasks:
+        return tasks
+    return [phase] if _task_agent(phase) else []
+
+
+def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    for field in TASK_LIST_FIELDS:
+        items = _safe_list(payload.get(field))
+        if items:
+            return items
+    return []
+
+
+def _task_agent(task: dict[str, Any]) -> str:
+    candidates: list[Any] = [task.get("agent"), task.get("role"), task.get("assignee"), task.get("tool")]
+    tools = task.get("tools")
+    candidates.extend(tools if isinstance(tools, (list, tuple)) else [tools])
+    for raw in candidates:
+        agent = _normalize_workflow_agent(raw)
+        if agent:
+            return agent
+    return ""
+
+
+def _normalize_workflow_agent(raw: Any) -> str:
+    key = re.sub(r"[\s/-]+", "_", str(raw or "").strip().lower()).strip("_")
+    key = re.sub(r"_agent$", "", key)
+    agent = WORKFLOW_AGENT_ALIASES.get(key, "")
+    return agent if agent in ALLOWED_WORKFLOW_AGENTS else ""
+
+
+def _task_prompt(task: dict[str, Any], title: str, user_text: str) -> str:
+    for field in PROMPT_FIELDS:
+        value = str(task.get(field) or "").strip()
+        if value:
+            return value
+    return title or user_text
 
 
 def _safe_list(value: Any) -> list[dict[str, Any]]:

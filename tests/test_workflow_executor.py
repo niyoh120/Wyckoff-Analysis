@@ -4,6 +4,7 @@ import json
 
 from cli.workflows.control import WorkflowControl
 from cli.workflows.executor import WorkflowExecutor
+from cli.workflows.planner import plan_workflow
 from cli.workflows.resume import build_resume_prompt
 from cli.workflows.router import route_workflow
 from cli.workflows.store import get_workflow_run, load_workflow_events
@@ -81,6 +82,51 @@ def _reset_local_db(local_db) -> None:
     if local_db._conn is not None:
         local_db._conn.close()
     local_db._conn = None
+
+
+def test_workflow_planner_accepts_agent_aliases_and_steps_field():
+    run = plan_workflow(
+        "用 workflow 做完整选股和攻防计划",
+        context=route_workflow("用 workflow 做完整选股和攻防计划"),
+        workflow_script={
+            "title": "选股攻防",
+            "phases": [
+                {
+                    "id": "fanout",
+                    "steps": [
+                        {"id": "scan", "title": "扫描候选", "agent": "研究", "prompt": "筛选候选股票"},
+                        {
+                            "id": "risk_plan",
+                            "title": "攻防计划",
+                            "agent": "delegate_to_trading",
+                            "instruction": "输出观察、买入和失效条件",
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert [step.agent for step in run.steps] == ["research", "trading"]
+    assert [step.tools for step in run.steps] == [("delegate_to_research",), ("delegate_to_trading",)]
+    assert run.steps[1].prompt == "输出观察、买入和失效条件"
+    assert run.script["runtime"]["planner"] == "stored_script"
+
+
+def test_workflow_planner_accepts_top_level_task_script():
+    run = plan_workflow(
+        "用 workflow 诊断 300750",
+        context=route_workflow("用 workflow 诊断 300750"),
+        workflow_script={
+            "title": "单股诊断",
+            "steps": [{"id": "structure", "role": "分析", "task": "诊断 300750 的量价结构"}],
+        },
+    )
+
+    assert len(run.steps) == 1
+    assert run.steps[0].agent == "analysis"
+    assert run.steps[0].phase == "top_level"
+    assert run.steps[0].prompt == "诊断 300750 的量价结构"
 
 
 def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
