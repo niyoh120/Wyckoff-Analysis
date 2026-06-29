@@ -216,9 +216,20 @@ def _select_candidate_entries(
         key=candidate_entry_sort_key,
     )
     selected_codes = dedup_order([str(item.get("code", "")).strip() for item in entries])
-    score_map = {str(item.get("code", "")).strip(): float(item.get("score", 0.0) or 0.0) for item in entries}
-    track_map = {str(item.get("code", "")).strip(): _candidate_entry_track(item) for item in entries}
+    score_map, track_map = _candidate_entry_maps(entries)
     return selected_codes, score_map, track_map
+
+
+def _candidate_entry_maps(entries: list[dict[str, object]]) -> tuple[dict[str, float], dict[str, str]]:
+    score_map: dict[str, float] = {}
+    track_map: dict[str, str] = {}
+    for item in entries:
+        code = str(item.get("code", "")).strip()
+        if not code:
+            continue
+        score_map[code] = max(score_map.get(code, -9999.0), float(item.get("score", 0.0) or 0.0))
+        track_map.setdefault(code, _candidate_entry_track(item))
+    return score_map, track_map
 
 
 def _candidate_entry_track(item: dict[str, object]) -> str:
