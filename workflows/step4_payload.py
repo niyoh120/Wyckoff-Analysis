@@ -21,6 +21,10 @@ from workflows.step4_text import clean_text, normalize_stage, normalize_track
 
 logger = logging.getLogger(__name__)
 
+_EXTERNAL_REPORT_CODE_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(?:SH|SZ|BJ)?\.?([0134568]\d{5})(?:\.(?:SH|SZ|BJ))?(?![A-Za-z0-9])"
+)
+
 _append_spot_bar_if_needed = partial(
     append_spot_bar_if_needed,
     env_prefix="STEP4",
@@ -272,7 +276,7 @@ def extract_stock_codes(text: str) -> list[str]:
         return []
     seen: set[str] = set()
     out: list[str] = []
-    for code in re.findall(r"\b\d{6}\b", text):
+    for code in _EXTERNAL_REPORT_CODE_RE.findall(text):
         if code in seen or not _is_supported_external_report_code(code):
             continue
         seen.add(code)

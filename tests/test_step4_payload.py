@@ -116,6 +116,12 @@ def test_extract_stock_codes_filters_date_like_numeric_noise() -> None:
     assert extract_stock_codes(text) == ["000390", "159919", "300750", "600519", "833575"]
 
 
+def test_extract_stock_codes_accepts_exchange_prefixed_and_suffixed_symbols() -> None:
+    text = "候选 SH600519、sz000001、000390.SZ、833575.BJ，重复 sh600519。"
+
+    assert extract_stock_codes(text) == ["600519", "000001", "000390", "833575"]
+
+
 def test_prepare_step4_payload_context_reports_external_candidate_truncation(monkeypatch) -> None:
     portfolio = PortfolioState(
         free_cash=10000,
