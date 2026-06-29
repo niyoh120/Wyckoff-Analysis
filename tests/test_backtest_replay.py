@@ -153,6 +153,32 @@ def test_confirmed_signals_dedupes_code_and_keeps_best_score() -> None:
     assert confirmed.trigger_map == {"000001": "spring"}
 
 
+def test_confirmed_signals_infer_track_from_signal_type_when_track_missing() -> None:
+    class Pending:
+        def write(self, *_args, **_kwargs):
+            return None
+
+        def tick(self, *_args, **_kwargs):
+            return [{"code": "000001", "score": 90.0, "signal_type": "spring"}]
+
+    ctx = replay_mod._DayContext(
+        idx=0,
+        signal_date=date(2026, 1, 1),
+        entry_target_date=date(2026, 1, 2),
+        day_df_map={"000001": _hist()},
+        name_map={"000001": "平安银行"},
+        day_cfg=FunnelConfig(trading_days=3),
+        result=_result(),
+        regime="NEUTRAL",
+    )
+
+    confirmed = replay_mod._confirmed_signals(ctx, Pending(), {})
+
+    assert confirmed.score_map == {"000001": 90.0}
+    assert confirmed.track_map == {"000001": "Accum"}
+    assert confirmed.trigger_map == {"000001": "spring"}
+
+
 def test_name_score_map_prefers_highest_scored_source_name() -> None:
     result = _result()._replace(
         candidate_entries=[

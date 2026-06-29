@@ -21,6 +21,7 @@ from core.backtest_execution import (
 )
 from core.backtest_selection import combine_trigger_scores, select_ai_input_codes
 from core.candidate_policy import CandidatePolicyConfig, apply_regime_position_filter
+from core.candidate_tracks import candidate_entry_track
 from core.mainline_engine import MainlineEngineConfig
 from core.market_breadth import calc_market_breadth
 from core.signal_confirmation import PendingPool, score_springboard_abc
@@ -296,7 +297,7 @@ def _confirmed_signals(
             codes.append(code)
         if code not in score_map or score > score_map[code]:
             score_map[code] = score
-            track_map[code] = str(item.get("track", "Trend"))
+            track_map[code] = candidate_entry_track(item, fields=("track", "signal_type"))
             trigger_map[code] = str(item.get("signal_type", "confirmed"))
     return _ConfirmedSignals(codes, score_map, track_map, trigger_map)
 
