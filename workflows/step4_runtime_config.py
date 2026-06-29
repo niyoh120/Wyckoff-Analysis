@@ -16,6 +16,7 @@ def step4_runtime_config_from_env() -> Step4RuntimeConfig:
         max_output_tokens=max(_env_int("STEP4_MAX_OUTPUT_TOKENS", 8192), 1),
         atr_period=max(_env_int("STEP4_ATR_PERIOD", 14), 1),
         max_workers=max(_env_int("STEP4_MAX_WORKERS", 8), 1),
+        max_external_report_candidates=max(_env_int("STEP4_MAX_EXTERNAL_REPORT_CANDIDATES", 12), 0),
         new_buy_limits=NewBuyLimits(
             risk_on=max(_env_int("STEP4_MAX_NEW_BUYS_RISK_ON", 2), 0),
             caution=max(_env_int("STEP4_MAX_NEW_BUYS_CAUTION", 1), 0),

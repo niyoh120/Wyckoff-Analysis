@@ -373,6 +373,7 @@ def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):
     monkeypatch.setenv("STEP4_TRADING_DAYS", "0")
     monkeypatch.setenv("STEP4_MAX_OUTPUT_TOKENS", "bad")
     monkeypatch.setenv("STEP4_MAX_WORKERS", "-2")
+    monkeypatch.setenv("STEP4_MAX_EXTERNAL_REPORT_CANDIDATES", "0")
     monkeypatch.setenv("STEP4_MAX_NEW_BUYS_RISK_ON", "-1")
     monkeypatch.setenv("STEP4_MAX_NEW_BUYS_CAUTION", "3")
     monkeypatch.setenv("STEP4_ENFORCE_TARGET_TRADE_DATE", "yes")
@@ -382,6 +383,7 @@ def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):
     assert cfg.trading_days == 1
     assert cfg.max_output_tokens == 8192
     assert cfg.max_workers == 1
+    assert cfg.max_external_report_candidates == 0
     assert cfg.new_buy_limits.risk_on == 0
     assert cfg.new_buy_limits.caution == 3
     assert cfg.enforce_target_trade_date is True

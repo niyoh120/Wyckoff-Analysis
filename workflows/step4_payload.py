@@ -38,6 +38,7 @@ def prepare_step4_payload_context(
     atr_period: int,
     max_workers: int,
     enforce_target_trade_date: bool,
+    max_external_report_candidates: int = 12,
 ) -> Step4PayloadContext:
     positions_payload, position_failures, live_value, latest_price_map, atr_map = format_position_payload(
         portfolio.positions,
@@ -49,7 +50,10 @@ def prepare_step4_payload_context(
     total_equity = float(portfolio.free_cash + live_value)
     _log_total_equity_drift(portfolio, total_equity)
     candidate_codes, candidate_items, allowed_codes, candidate_meta_map, name_map = collect_step4_candidates(
-        portfolio, candidate_meta, external_report
+        portfolio,
+        candidate_meta,
+        external_report,
+        max_external_report_candidates=max_external_report_candidates,
     )
     candidate_payload, candidate_failures, candidate_latest_price_map, candidate_atr_map = format_candidate_payload(
         candidate_items,
@@ -79,6 +83,8 @@ def collect_step4_candidates(
     portfolio: PortfolioState,
     candidate_meta: list[dict] | None,
     external_report: str,
+    *,
+    max_external_report_candidates: int = 12,
 ) -> tuple[list[str], list[dict], set[str], dict[str, CandidateMeta], dict[str, str]]:
     position_codes = [p.code for p in portfolio.positions]
     position_code_set = set(position_codes)
@@ -94,13 +100,15 @@ def collect_step4_candidates(
         seen_candidate_codes.add(code)
         candidate_codes.append(code)
         candidate_items.append(dict(item))
-    if candidate_meta is None:
+    if candidate_meta is None and max_external_report_candidates > 0:
         for code in extract_stock_codes(external_report):
             if code in position_code_set or code in seen_candidate_codes:
                 continue
             seen_candidate_codes.add(code)
             candidate_codes.append(code)
             candidate_items.append(_external_report_candidate_item(code))
+            if len(candidate_codes) >= max_external_report_candidates:
+                break
     allowed_codes = set(position_codes + candidate_codes)
     candidate_meta_map = build_candidate_meta_map(
         candidate_meta if candidate_meta is not None else candidate_items, portfolio.positions

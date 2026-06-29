@@ -120,6 +120,7 @@ class Step4RuntimeConfig:
     max_output_tokens: int = 8192
     atr_period: int = 14
     max_workers: int = 8
+    max_external_report_candidates: int = 12
     new_buy_limits: NewBuyLimits = field(default_factory=NewBuyLimits)
 
 

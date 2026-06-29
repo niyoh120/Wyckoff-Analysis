@@ -76,6 +76,7 @@ def test_collect_step4_candidates_promotes_external_report_codes_to_payload_item
         portfolio,
         candidate_meta=None,
         external_report="重点观察 000390，持仓 000001 不重复。",
+        max_external_report_candidates=12,
     )
 
     assert candidate_codes == ["000390"]
@@ -87,3 +88,19 @@ def test_collect_step4_candidates_promotes_external_report_codes_to_payload_item
     assert meta_map["000390"].tag == "外部报告候选"
     assert meta_map["000001"].source_type == "holding"
     assert name_map["000390"] == "000390"
+
+
+def test_collect_step4_candidates_caps_external_report_fallback_codes() -> None:
+    portfolio = PortfolioState(free_cash=10000, total_equity=20000, positions=[])
+
+    candidate_codes, candidate_items, allowed_codes, meta_map, _name_map = collect_step4_candidates(
+        portfolio,
+        candidate_meta=None,
+        external_report="000390 000391 000392 000393",
+        max_external_report_candidates=2,
+    )
+
+    assert candidate_codes == ["000390", "000391"]
+    assert [item["code"] for item in candidate_items] == ["000390", "000391"]
+    assert allowed_codes == {"000390", "000391"}
+    assert set(meta_map) == {"000390", "000391"}

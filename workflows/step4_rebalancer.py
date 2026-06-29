@@ -150,6 +150,7 @@ def _prepare_step4_input_context(
         atr_period=runtime_config.atr_period,
         max_workers=runtime_config.max_workers,
         enforce_target_trade_date=runtime_config.enforce_target_trade_date,
+        max_external_report_candidates=runtime_config.max_external_report_candidates,
     )
     market_signal_row = _load_market_signal_for_trade_date(trade_date)
     if market_signal_row:
