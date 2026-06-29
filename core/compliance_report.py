@@ -10,6 +10,7 @@ template fallback own the safety boundary.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -72,19 +73,26 @@ class ComplianceValidation:
 
 
 def fmt_pct(value: Any) -> str:
-    num = pd.to_numeric(value, errors="coerce")
-    if pd.isna(num):
+    num = _finite_float(value)
+    if num is None:
         return "待更新"
-    x = float(num)
-    sign = "+" if x >= 0 else ""
-    return f"{sign}{x:.2f}%"
+    sign = "+" if num >= 0 else ""
+    return f"{sign}{num:.2f}%"
 
 
 def _fmt_number(value: Any, digits: int = 2) -> str:
+    num = _finite_float(value)
+    if num is None:
+        return "待更新"
+    return f"{num:.{digits}f}"
+
+
+def _finite_float(value: Any) -> float | None:
     num = pd.to_numeric(value, errors="coerce")
     if pd.isna(num):
-        return "待更新"
-    return f"{float(num):.{digits}f}"
+        return None
+    out = float(num)
+    return out if math.isfinite(out) else None
 
 
 def _fmt_trade_date(value: Any) -> str:
@@ -261,8 +269,16 @@ def _text_series(df: pd.DataFrame, column: str) -> pd.Series:
 def _candidate_score_series(df: pd.DataFrame) -> pd.Series:
     priority_raw = df["priority_score"] if "priority_score" in df.columns else pd.Series(pd.NA, index=df.index)
     funnel_raw = df["funnel_score"] if "funnel_score" in df.columns else pd.Series(pd.NA, index=df.index)
-    score = pd.to_numeric(priority_raw, errors="coerce")
-    return score.where(score.notna(), pd.to_numeric(funnel_raw, errors="coerce"))
+    score = _finite_numeric_series(priority_raw, df.index)
+    return score.where(score.notna(), _finite_numeric_series(funnel_raw, df.index))
+
+
+def _finite_numeric_series(raw: Any, index: pd.Index) -> pd.Series:
+    converted = pd.to_numeric(raw, errors="coerce")
+    series = converted if isinstance(converted, pd.Series) else pd.Series(converted, index=index)
+    series = series.reindex(index)
+    finite_mask = series.map(lambda value: math.isfinite(float(value)) if pd.notna(value) else False)
+    return series.where(finite_mask)
 
 
 def _risk_flags(payload: dict[str, Any]) -> list[str]:

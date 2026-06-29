@@ -78,6 +78,40 @@ def test_public_payload_includes_market_and_etf_metrics_without_codes():
     assert "512480" not in text
 
 
+def test_public_payload_sanitizes_nonfinite_market_metrics():
+    from core.compliance_report import build_public_payload
+
+    payload = build_public_payload(
+        benchmark_context={
+            "regime": "NEUTRAL",
+            "close": float("inf"),
+            "main_today_pct": float("-inf"),
+            "breadth": {"ratio_pct": "Infinity"},
+        },
+        selected_df=_sample_df(),
+    )
+
+    assert payload["market"]["close"] == "待更新"
+    assert payload["market"]["main_today_pct"] == "待更新"
+    assert payload["market"]["breadth_ratio"] == "待更新"
+
+
+def test_public_payload_sector_buckets_ignore_nonfinite_scores():
+    from core.compliance_report import build_public_payload
+
+    selected_df = pd.DataFrame(
+        [
+            {"industry": "银行", "priority_score": float("inf"), "funnel_score": 0.2},
+            {"industry": "电力设备", "priority_score": float("nan"), "funnel_score": float("inf")},
+        ]
+    )
+
+    payload = build_public_payload(benchmark_context={"regime": "NEUTRAL"}, selected_df=selected_df)
+
+    by_industry = {item["industry"]: item["score_bucket"] for item in payload["sector_stats"]}
+    assert by_industry == {"银行": "低", "电力设备": "低"}
+
+
 def test_public_payload_handles_missing_industry_column():
     from core.compliance_report import build_public_payload
 
