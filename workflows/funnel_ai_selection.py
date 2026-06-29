@@ -129,10 +129,12 @@ def promote_review_candidates(
     use_full_ai_selection: bool,
     theme_bonus_map: dict[str, float],
     regime: str,
+    capital_migration_bonus_map: dict[str, float] | None = None,
 ) -> tuple[int, int, int, int]:
     trade_mode = resolve_market_trade_mode(regime)
     if not use_full_ai_selection:
         apply_theme_bonus_to_scores(score_map, theme_bonus_map)
+        apply_theme_bonus_to_scores(score_map, capital_migration_bonus_map or {})
     ai_total_cap = int(ai_policy.get("total_cap") or 0)
     bypass_added, strategic_added = promote_bypass_groups(
         selected_for_ai,

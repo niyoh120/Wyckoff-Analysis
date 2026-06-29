@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core.theme_radar import normalize_theme_name
+
 
 def theme_candidate_map(snapshot: dict) -> dict[str, dict]:
     out: dict[str, dict] = {}
@@ -33,6 +35,39 @@ def theme_bonus_map(candidate_map: dict[str, dict], bonus_max: float) -> dict[st
         if score > 0:
             bonuses[code] = round(score * bonus_max, 4)
     return bonuses
+
+
+def capital_migration_bonus_map(
+    candidate_map: dict[str, dict],
+    migration: dict | None,
+    *,
+    bonus_max: float,
+    penalty_max: float,
+) -> dict[str, float]:
+    if not candidate_map or not migration:
+        return {}
+    inflow_scores = _migration_theme_scores(migration.get("inflow"), bonus_max)
+    outflow_scores = _migration_theme_scores(migration.get("outflow"), penalty_max)
+    adjustments: dict[str, float] = {}
+    for code, item in candidate_map.items():
+        theme = _normalized_theme(item.get("theme"))
+        if not theme:
+            continue
+        adjustment = inflow_scores.get(theme, 0.0) - outflow_scores.get(theme, 0.0)
+        if adjustment:
+            adjustments[code] = round(adjustment, 4)
+    return adjustments
+
+
+def capital_migration_badge_map(candidate_map: dict[str, dict], bonus_map: dict[str, float]) -> dict[str, str]:
+    badges: dict[str, str] = {}
+    for code, adjustment in bonus_map.items():
+        theme = str((candidate_map.get(code) or {}).get("theme") or "").strip()
+        if not theme:
+            continue
+        label = "资金迁入" if adjustment > 0 else "资金撤出"
+        badges[code] = f"{label}:{theme}({adjustment:+.1f})"
+    return badges
 
 
 def append_theme_reasons(code_to_reasons: dict[str, list[str]], badge_map: dict[str, str]) -> None:
@@ -181,6 +216,25 @@ def _theme_bonus_score(item: dict) -> float:
     theme_score = safe_float(item.get("theme_score"))
     stock_score = safe_float(item.get("stock_score"))
     return max(min(0.55 * theme_score + 0.45 * stock_score, 1.0), 0.0)
+
+
+def _migration_theme_scores(rows: object, max_score: float) -> dict[str, float]:
+    if max_score <= 0 or not isinstance(rows, list):
+        return {}
+    scores: dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        theme = _normalized_theme(row.get("theme"))
+        score = safe_float(row.get("score"))
+        if theme and score > 0:
+            scores[theme] = max(scores.get(theme, 0.0), min(score, 1.0) * max_score)
+    return scores
+
+
+def _normalized_theme(raw: object) -> str:
+    text = str(raw or "").strip()
+    return normalize_theme_name(text) or text
 
 
 def _append_theme_promotions(

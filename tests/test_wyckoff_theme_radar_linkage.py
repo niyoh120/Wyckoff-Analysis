@@ -192,3 +192,28 @@ def test_zero_theme_bonus_disables_theme_bonus_map() -> None:
     from core.funnel_theme import theme_bonus_map
 
     assert theme_bonus_map({"000001": {"theme_score": 1.0, "stock_score": 1.0}}, 0.0) == {}
+
+
+def test_capital_migration_bonus_map_scores_inflow_and_outflow() -> None:
+    from core.funnel_theme import capital_migration_badge_map, capital_migration_bonus_map
+
+    candidate_map = {
+        "000001": {"theme": "光模块"},
+        "000002": {"theme": "创新药医药"},
+        "000003": {"theme": "机器人"},
+    }
+    bonus_map = capital_migration_bonus_map(
+        candidate_map,
+        {
+            "inflow": [{"theme": "CPO", "score": 0.75}],
+            "outflow": [{"theme": "医药", "score": 0.50}],
+        },
+        bonus_max=6.0,
+        penalty_max=8.0,
+    )
+
+    assert bonus_map == {"000001": 4.5, "000002": -4.0}
+    assert capital_migration_badge_map(candidate_map, bonus_map) == {
+        "000001": "资金迁入:光模块(+4.5)",
+        "000002": "资金撤出:创新药医药(-4.0)",
+    }

@@ -37,3 +37,36 @@ def test_render_context_treats_event_reversal_mainline_as_tradeable(monkeypatch)
 
     assert ctx.mainline_tradeable_codes == ["000006"]
     assert [row["code"] for row in ctx.mainline_tradeable] == ["000006"]
+
+
+def test_render_context_scores_capital_migration_theme_candidates(monkeypatch) -> None:
+    import workflows.funnel_render_context as render_context
+
+    monkeypatch.setattr(render_context, "load_stock_name_map", lambda: {})
+    monkeypatch.setattr(render_context, "fetch_sector_map", lambda: {})
+    monkeypatch.setattr(render_context, "FUNNEL_THEME_RADAR_BONUS_MAX", 0.0)
+    monkeypatch.setattr(render_context, "FUNNEL_CAPITAL_MIGRATION_BONUS_MAX", 6.0)
+    monkeypatch.setattr(render_context, "FUNNEL_CAPITAL_MIGRATION_PENALTY_MAX", 8.0)
+
+    ctx = render_context.build_render_context(
+        {"sos": [("000001", 10.0), ("000002", 10.0)]},
+        {
+            "theme_radar": {
+                "strategic_candidates": [
+                    {"code": "000001", "theme": "光模块", "theme_score": 0.8, "stock_score": 0.7},
+                    {"code": "000002", "theme": "创新药医药", "theme_score": 0.7, "stock_score": 0.7},
+                ]
+            },
+            "capital_migration": {
+                "inflow": [{"theme": "CPO", "score": 0.75}],
+                "outflow": [{"theme": "医药", "score": 0.50}],
+            },
+        },
+    )
+
+    assert ctx.capital_migration_bonus_map == {"000001": 4.5, "000002": -4.0}
+    assert ctx.code_to_total_score["000001"] == 14.5
+    assert ctx.code_to_total_score["000002"] == 6.0
+    assert ctx.formal_sorted_codes == ["000001", "000002"]
+    assert "资金迁入:光模块(+4.5)" in ctx.code_to_reasons["000001"]
+    assert "资金撤出:创新药医药(-4.0)" in ctx.code_to_reasons["000002"]

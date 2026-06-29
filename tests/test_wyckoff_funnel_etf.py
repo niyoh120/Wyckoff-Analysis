@@ -530,6 +530,36 @@ def test_promote_review_candidates_blocks_neutral_bypass(monkeypatch):
     assert accum == []
 
 
+def test_promote_review_candidates_applies_capital_migration_score_map():
+    selected = ["000001"]
+    trend = ["000001"]
+    accum: list[str] = []
+    score_map = {"000001": 10.0}
+
+    funnel_ai_selection.promote_review_candidates(
+        selected,
+        trend,
+        accum,
+        {
+            "l2_bypass": [],
+            "strategic_l2_bypass": [],
+            "strategic_accum": set(),
+            "formal_hit": set(),
+            "mainline": [],
+        },
+        code_to_total_score={"000001": 10.0},
+        code_to_trigger_keys={"000001": ["sos"]},
+        score_map=score_map,
+        ai_policy={"total_cap": 4},
+        use_full_ai_selection=False,
+        theme_bonus_map={},
+        regime="RISK_ON",
+        capital_migration_bonus_map={"000001": 4.5},
+    )
+
+    assert score_map["000001"] == 14.5
+
+
 def test_loss_guard_risk_on_bans_pure_trend_pullback():
     kept, trend_kept, accum_kept, dropped = apply_loss_guard(
         ["000001"],

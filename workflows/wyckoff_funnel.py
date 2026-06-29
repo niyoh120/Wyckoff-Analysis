@@ -242,6 +242,7 @@ def _select_run_ai_candidates(
         use_full_ai_selection,
         ctx.theme_bonus_map,
         ctx.regime,
+        capital_migration_bonus_map=ctx.capital_migration_bonus_map,
     )
     selected_for_ai, trend_selected, accum_selected = _apply_ai_post_filters(
         ctx, selected_for_ai, trend_selected, accum_selected, score_map, ai_policy
