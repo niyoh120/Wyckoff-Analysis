@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from core.ai_candidate_allocation import candidate_entry_sort_key
+from core.candidate_tracks import candidate_entry_key, normalize_candidate_entry_key
+
 STRATEGY_VERSION_CANDIDATE_LANE_V1 = "candidate_lane_v1"
 
 CANDIDATE_ATTRIBUTION_COLUMNS = (
@@ -35,11 +38,16 @@ def build_candidate_metadata_map(
     mainline_candidates: list[dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
+    best_entries: dict[str, dict[str, Any]] = {}
     mainline_by_code = {code6(item.get("code")): item for item in mainline_candidates or [] if code6(item.get("code"))}
     for item in candidate_entries or []:
         code = code6(item.get("code"))
         if not code:
             continue
+        current = best_entries.get(code)
+        if current is None or _stronger_candidate_entry(item, current):
+            best_entries[code] = item
+    for code, item in best_entries.items():
         result[code] = candidate_entry_metadata(item, mainline_by_code.get(code))
     for code, item in mainline_by_code.items():
         result.setdefault(code, mainline_metadata(item))
@@ -52,7 +60,8 @@ def candidate_entry_metadata(item: dict[str, Any], mainline: dict[str, Any] | No
         "strategy_version": STRATEGY_VERSION_CANDIDATE_LANE_V1,
         "candidate_lane": lane,
         "entry_type": _text(item.get("entry_type")) or lane,
-        "signal_key": normalize_signal_key(item.get("signal_key") or item.get("entry_type") or lane),
+        "signal_key": candidate_entry_key(item, fields=("signal_key", "lane", "entry_type"))
+        or normalize_signal_key(lane),
         "candidate_status": _text(item.get("state")) or _text((mainline or {}).get("status")),
         "candidate_timing": _text(item.get("timing")) or _text((mainline or {}).get("entry_type")),
         "candidate_risk": _text(item.get("risk")) or _join_texts((mainline or {}).get("risk_flags")),
@@ -85,14 +94,21 @@ def mainline_metadata(item: dict[str, Any]) -> dict[str, Any]:
 
 def candidate_signal_triggers(candidate_entries: list[dict[str, Any]] | None) -> dict[str, list[tuple[str, float]]]:
     triggers: dict[str, list[tuple[str, float]]] = {}
-    seen: set[tuple[str, str]] = set()
+    best_scores: dict[tuple[str, str], float] = {}
+    order: list[tuple[str, str]] = []
     for item in candidate_entries or []:
         code = code6(item.get("code"))
-        signal_key = normalize_signal_key(item.get("signal_key") or item.get("entry_type") or item.get("lane"))
-        if not code or not signal_key or (code, signal_key) in seen:
+        signal_key = candidate_entry_key(item, fields=("signal_key", "lane", "entry_type"))
+        if not code or not signal_key:
             continue
-        seen.add((code, signal_key))
-        triggers.setdefault(signal_key, []).append((code, _score(item)))
+        key = (code, signal_key)
+        if key not in best_scores:
+            order.append(key)
+            best_scores[key] = _score(item)
+        else:
+            best_scores[key] = max(best_scores[key], _score(item))
+    for code, signal_key in order:
+        triggers.setdefault(signal_key, []).append((code, best_scores[(code, signal_key)]))
     return triggers
 
 
@@ -114,10 +130,15 @@ def merge_trigger_maps(*maps: dict[str, list[tuple[str, float]]] | None) -> dict
 
 
 def normalize_signal_key(raw: Any) -> str:
-    text = str(raw or "").strip().lower()
-    if not text:
-        return ""
-    return text.replace(" ", "_").replace("-", "_")
+    return normalize_candidate_entry_key(raw)
+
+
+def _stronger_candidate_entry(new_item: dict[str, Any], current: dict[str, Any]) -> bool:
+    new_score = _score(new_item)
+    current_score = _score(current)
+    if new_score != current_score:
+        return new_score > current_score
+    return candidate_entry_sort_key(new_item) < candidate_entry_sort_key(current)
 
 
 def _mainline_score_fields(item: dict[str, Any]) -> dict[str, Any]:
