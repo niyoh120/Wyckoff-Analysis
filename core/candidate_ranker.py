@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core.candidate_policy import candidate_score_value
 from core.sector_rotation import SECTOR_STATE_SCORE_BONUS
 
 # ── 全局常量 ──
@@ -82,7 +83,9 @@ def _trigger_score_map(triggers: dict[str, list[tuple[str, float]]]) -> dict[str
     score_map: dict[str, float] = {}
     for key in TRIGGER_LABELS:
         for code, score in triggers.get(key, []):
-            score_map[code] = max(score_map.get(code, 0.0), float(score))
+            code_s = str(code).strip()
+            if code_s:
+                score_map[code_s] = max(candidate_score_value(score_map.get(code_s)), candidate_score_value(score))
     return score_map
 
 
@@ -125,7 +128,7 @@ def _candidate_rank_rows(
                 "ret5": ret5,
                 "ret3": ret3,
                 "min_vol_ratio_5d": min_vol_ratio_5d,
-                "trigger_score": float(trigger_score_map.get(code, 0.0)),
+                "trigger_score": candidate_score_value(trigger_score_map.get(code)),
                 "l2_channel": str(channel_map.get(code, "") or "未标注通道"),
                 "sector_state": str((rotation_map.get(industry, {}) or {}).get("state", "") or ""),
             }

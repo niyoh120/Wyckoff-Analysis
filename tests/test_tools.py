@@ -254,6 +254,24 @@ class TestCandidateRanker:
         assert ranked[0] == "000001"
         assert score_map["000001"] > score_map["000002"]
 
+    def test_rank_l3_candidates_treats_invalid_trigger_scores_as_zero(self):
+        from core.candidate_ranker import rank_l3_candidates
+
+        dates = pd.date_range("2026-01-01", periods=30, freq="D").strftime("%Y-%m-%d")
+        flat = pd.DataFrame({"date": dates, "close": [10.0] * 30, "volume": [1000] * 30})
+
+        ranked, score_map = rank_l3_candidates(
+            ["GOOD", "BAD", "INF", "NAN"],
+            {code: flat.copy() for code in ("GOOD", "BAD", "INF", "NAN")},
+            {code: "行业A" for code in ("GOOD", "BAD", "INF", "NAN")},
+            {"sos": [("GOOD", 8.0), ("BAD", "bad"), ("INF", float("inf")), ("NAN", float("nan"))]},
+            [],
+        )
+
+        assert ranked[0] == "GOOD"
+        assert score_map["GOOD"] > score_map["BAD"]
+        assert score_map["BAD"] == score_map["INF"] == score_map["NAN"]
+
     def test_extension_penalty_series_handles_bad_return_values(self):
         from core.candidate_ranker import _extension_penalty_series
 
