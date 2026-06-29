@@ -141,6 +141,37 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
     assert "不要按关键词机械判断" in provider.chat_calls[0]["system_prompt"]
 
 
+def test_dispatch_accepts_flexible_model_router_aliases():
+    provider = RouterDecisionProvider('{"route":"动态工作流","score":"84%","reason":"需要多阶段筛选和攻防计划"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_confidence == 0.84
+    assert workflow.route_reason == "模型判断需要动态 workflow：需要多阶段筛选和攻防计划"
+    assert isinstance(runtime, WorkflowExecutor)
+
+
+def test_dispatch_accepts_boolean_workflow_router_flag():
+    provider = RouterDecisionProvider('{"workflow":true,"probability":88,"reason":"需要完整研究链路"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="研究一下今天哪些方向值得重点跟踪",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_confidence == 0.88
+    assert isinstance(runtime, WorkflowExecutor)
+
+
 def test_dispatch_keeps_direct_runtime_when_model_routes_direct():
     provider = RouterDecisionProvider('{"mode":"direct","confidence":0.9,"reason":"单只股票诊断"}')
 
@@ -149,6 +180,20 @@ def test_dispatch_keeps_direct_runtime_when_model_routes_direct():
         StubToolRegistry(),
         session_id="s1",
         user_text="300750 现在怎么看？",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+
+
+def test_dispatch_accepts_chinese_direct_router_alias():
+    provider = RouterDecisionProvider('{"mode":"直接回答","confidence":"95%","reason":"单轮问题"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="解释一下 workflow 是什么",
     )
 
     assert workflow.name == "general_chat"

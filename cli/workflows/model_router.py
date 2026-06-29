@@ -15,6 +15,41 @@ logger = logging.getLogger(__name__)
 
 MIN_WORKFLOW_CONFIDENCE = 0.67
 _MAX_REASON_CHARS = 120
+_MODE_FIELDS = ("mode", "route", "decision", "type")
+_CONFIDENCE_FIELDS = ("confidence", "score", "probability", "置信度")
+_WORKFLOW_FLAG_FIELDS = ("workflow", "use_workflow", "dynamic_workflow")
+_DIRECT_ALIASES = {
+    "chat",
+    "direct",
+    "direct_agent",
+    "general",
+    "general_chat",
+    "normal",
+    "普通",
+    "普通对话",
+    "直接",
+    "直接回答",
+    "直答",
+    "自由对话",
+}
+_WORKFLOW_ALIASES = {
+    "dynamic",
+    "dynamic_task",
+    "dynamic_workflow",
+    "multi_agent",
+    "multi_step",
+    "plan",
+    "task",
+    "task_workflow",
+    "workflow",
+    "分阶段",
+    "动态",
+    "动态workflow",
+    "动态任务",
+    "动态工作流",
+    "动态编排",
+    "编排",
+}
 
 _ROUTER_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的 turn router。用户只会在 agent 内聊天，不会输入专门命令。
@@ -80,16 +115,13 @@ def _parse_decision(response: Any) -> dict[str, Any] | None:
         payload = _loads_json(str(response.get("text") or ""))
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
-    mode = str(payload.get("mode", "")).strip().lower()
-    if mode not in {"direct", "dynamic_workflow"}:
+    mode = _decision_mode(payload)
+    if not mode:
         return None
-    try:
-        confidence = float(payload.get("confidence", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        confidence = 0.0
+    confidence = _decision_confidence(payload)
     return {
         "mode": mode,
-        "confidence": max(0.0, min(confidence, 1.0)),
+        "confidence": confidence,
         "reason": _clean_reason(payload.get("reason")),
     }
 
@@ -114,6 +146,69 @@ def _loads_json(text: str) -> dict[str, Any]:
 def _clean_reason(value: Any) -> str:
     reason = re.sub(r"\s+", " ", str(value or "")).strip()
     return reason[:_MAX_REASON_CHARS] or "需要多阶段任务编排"
+
+
+def _decision_mode(payload: dict[str, Any]) -> str:
+    for field in _MODE_FIELDS:
+        mode = _normalize_mode(payload.get(field))
+        if mode:
+            return mode
+    for field in _WORKFLOW_FLAG_FIELDS:
+        mode = _workflow_flag_mode(payload.get(field))
+        if mode:
+            return mode
+    return ""
+
+
+def _normalize_mode(value: Any) -> str:
+    key = _normalize_mode_key(value)
+    if key in _DIRECT_ALIASES:
+        return "direct"
+    if key in _WORKFLOW_ALIASES:
+        return "dynamic_workflow"
+    return ""
+
+
+def _normalize_mode_key(value: Any) -> str:
+    key = re.sub(r"[\s/-]+", "_", str(value or "").strip().lower()).strip("_")
+    return key.replace("工作流", "workflow")
+
+
+def _workflow_flag_mode(value: Any) -> str:
+    if isinstance(value, bool):
+        return "dynamic_workflow" if value else "direct"
+    key = _normalize_mode_key(value)
+    if key in {"1", "true", "yes", "y", "需要", "是"}:
+        return "dynamic_workflow"
+    if key in {"0", "false", "no", "n", "不需要", "否"}:
+        return "direct"
+    return _normalize_mode(value)
+
+
+def _decision_confidence(payload: dict[str, Any]) -> float:
+    for field in _CONFIDENCE_FIELDS:
+        confidence = _parse_confidence(payload.get(field))
+        if confidence is not None:
+            return confidence
+    return 0.0
+
+
+def _parse_confidence(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        multiplier = 0.01 if text.endswith("%") else 1.0
+        value = text.rstrip("%").strip()
+    else:
+        multiplier = 1.0
+    try:
+        confidence = float(value) * multiplier
+    except (TypeError, ValueError):
+        return None
+    if confidence > 1.0:
+        confidence /= 100.0
+    return max(0.0, min(confidence, 1.0))
 
 
 def _should_use_workflow(decision: dict[str, Any] | None) -> bool:
