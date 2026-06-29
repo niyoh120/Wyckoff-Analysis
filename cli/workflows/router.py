@@ -85,8 +85,8 @@ WORKFLOWS: dict[str, WorkflowContext] = {
             *ASK_TOOLS,
         ),
         system_hint=(
-            "当前 workflow 是模型生成的动态任务。让模型自行决定 phase/task；"
-            "先处理错别字、简称和口语省略，并用工具验证可能解释。"
+            "当前 workflow 是模型生成的动态任务。语义理解、错别字归一和 task 拆分都交给模型；"
+            "代码只限制可用工具和执行边界。"
         ),
     ),
     "general_chat": WorkflowContext(name="general_chat", label="自由对话"),
@@ -104,6 +104,8 @@ def route_workflow(user_text: str) -> WorkflowContext:
         return _with_route(WORKFLOWS["dynamic_task"], "用户显式要求动态 workflow", 0.96, matches)
     if matches := _deep_workflow_matches(text):
         return _with_route(WORKFLOWS["dynamic_task"], "用户要求深度/多阶段研究", 0.86, matches)
+    if matches := _natural_task_matches(text):
+        return _with_route(WORKFLOWS["dynamic_task"], "检测到自然语言任务请求", 0.72, matches)
     return _with_route(WORKFLOWS["general_chat"], "普通工具型对话交给直接 agent", 0.0, ())
 
 
@@ -120,8 +122,8 @@ def build_workflow_system_prompt(workflow: WorkflowContext | None) -> str:
         f"{route_line}"
         f"Allowed tools for this turn: {tools}\n"
         f"{workflow.system_hint}\n"
-        "Prefer model inference and tool probing for typos, aliases, and omitted context. "
-        "Ask the user only when the missing input cannot be inferred safely.\n"
+        "Typos, aliases, and omitted context are model-owned interpretation work. "
+        "先用工具验证事实，再考虑向用户提问。\n"
         "</workflow-runtime>"
     )
 
@@ -148,6 +150,36 @@ def _deep_workflow_matches(text: str) -> tuple[str, ...]:
         "系统性研究",
     )
     return tuple(marker for marker in markers if marker in text)
+
+
+def _natural_task_matches(text: str) -> tuple[str, ...]:
+    if _workflow_meta_question(text):
+        return ()
+    markers = (
+        "诊断",
+        "复盘",
+        "研究",
+        "分析",
+        "扫描",
+        "选股",
+        "筛选",
+        "回测",
+        "报告",
+        "方案",
+        "计划",
+        "排查",
+        "梳理",
+        "整理",
+        "比较",
+        "对比",
+    )
+    return _matched_keywords(text, markers)
+
+
+def _workflow_meta_question(text: str) -> bool:
+    if "workflow" not in text:
+        return False
+    return any(marker in text for marker in ("是什么", "解释", "介绍", "怎么用", "帮助", "help"))
 
 
 def _with_route(

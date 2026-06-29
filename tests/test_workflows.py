@@ -15,16 +15,20 @@ def test_route_workflow_keeps_portfolio_turn_direct():
     assert workflow.route_reason == "普通工具型对话交给直接 agent"
 
 
-def test_route_workflow_keeps_typo_like_portfolio_turn_direct():
+def test_route_workflow_routes_task_like_typo_to_dynamic_workflow():
     workflow = route_workflow("给我做磁场诊断")
 
-    assert workflow.name == "general_chat"
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_reason == "检测到自然语言任务请求"
+    assert workflow.route_matches == ("诊断",)
 
 
-def test_route_workflow_keeps_backtest_turn_direct():
+def test_route_workflow_routes_backtest_task_to_dynamic_workflow():
     workflow = route_workflow("帮我回测 2023 年参数")
 
-    assert workflow.name == "general_chat"
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_reason == "检测到自然语言任务请求"
+    assert workflow.route_matches == ("回测",)
 
 
 def test_route_workflow_keeps_stock_diagnosis_direct():
@@ -47,13 +51,13 @@ def test_workflow_prompt_prefers_model_inference_before_clarifying():
 
     assert "错别字" in prompt
     assert "工具验证" in prompt
-    assert "Ask the user only" in prompt
+    assert "model-owned" in prompt
 
 
 def test_ask_user_question_schema_makes_clarification_last_resort():
     schema = next(item for item in TOOL_SCHEMAS if item["name"] == "ask_user_question")
 
-    assert "仅在工具探测" in schema["description"]
+    assert "先用上下文和工具恢复语义" in schema["description"]
     assert "优先使用" not in schema["description"]
 
 
@@ -109,17 +113,17 @@ def test_direct_runtime_prompt_prefers_model_inference_before_clarifying():
         provider,
         StubToolRegistry(),
         session_id="s1",
-        user_text="给我做磁场诊断",
+        user_text="磁场这个词是不是错别字？",
     )
 
-    events = list(runtime.run_stream([{"role": "user", "content": "给我做磁场诊断"}]))
+    events = list(runtime.run_stream([{"role": "user", "content": "磁场这个词是不是错别字？"}]))
 
     assert workflow.name == "general_chat"
     assert events[-1]["text"] == "ok"
     prompt = provider.calls[0]["system_prompt"]
     assert "错别字" in prompt
-    assert "portfolio" in prompt
-    assert "ask_user_question 只在" in prompt
+    assert "可用工具验证" in prompt
+    assert "执行对象仍不明确" in prompt
 
 
 def test_direct_stock_turn_does_not_expose_web_fetch():
@@ -154,6 +158,18 @@ def test_dispatch_uses_workflow_executor_for_explicit_dynamic_turn():
         StubToolRegistry(),
         session_id="s1",
         user_text="用 workflow 做一个持仓风险复盘",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+
+
+def test_dispatch_uses_workflow_executor_for_natural_task_turn():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="给我做磁场诊断",
     )
 
     assert workflow.name == "dynamic_task"
