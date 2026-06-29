@@ -222,7 +222,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "ask_user_question",
-        "description": "向用户提出一个明确问题，用于澄清缺失参数、二次确认或交互式单选。在需要用户输入时优先使用此工具。",
+        "description": "向用户提出一个明确问题。仅在工具探测和上下文推断都无法安全恢复关键参数，或需要高风险确认时使用；不要把错别字、简称、可搜索股票名或可读取持仓交回给用户澄清。",
         "parameters": {
             "type": "object",
             "properties": {

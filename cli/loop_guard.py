@@ -44,6 +44,39 @@ _PORTFOLIO_DIAGNOSE_PHRASES = (
     "审一下持仓",
 )
 
+_PORTFOLIO_SUBJECT_HINTS = (
+    "持仓",
+    "仓位",
+    "持股",
+    "账户",
+    "我买",
+)
+
+_PORTFOLIO_VIEW_HINTS = (
+    "看",
+    "查",
+    "列",
+    "列表",
+    "情况",
+    "有什么",
+    "啥",
+    "什么",
+    "多少",
+)
+
+_PORTFOLIO_DIAGNOSE_HINTS = (
+    "怎么样",
+    "健康",
+    "体检",
+    "诊断",
+    "审",
+    "分析",
+    "风险",
+    "处理",
+    "去留",
+    "要不要动",
+)
+
 _GENERIC_DIAGNOSE_HINTS = (
     "分析",
     "走势",
@@ -157,18 +190,18 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
     if not last_user:
         return None
 
-    if any(phrase in last_user for phrase in _PORTFOLIO_VIEW_PHRASES):
-        return TurnExpectation(
-            required_tool="portfolio",
-            reason="持仓列表查询必须先拉真实持仓数据。",
-            required_args={"mode": "view"},
-        )
-
-    if any(phrase in last_user for phrase in _PORTFOLIO_DIAGNOSE_PHRASES):
+    if _portfolio_diagnose_expected(last_user):
         return TurnExpectation(
             required_tool="portfolio",
             reason="持仓体检必须先调用持仓诊断工具。",
             required_args={"mode": "diagnose"},
+        )
+
+    if _portfolio_view_expected(last_user):
+        return TurnExpectation(
+            required_tool="portfolio",
+            reason="持仓列表查询必须先拉真实持仓数据。",
+            required_args={"mode": "view"},
         )
 
     previous_context = _recent_context_text(messages[:-1], limit=4)
@@ -200,6 +233,22 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
         )
 
     return None
+
+
+def _portfolio_view_expected(text: str) -> bool:
+    if any(phrase in text for phrase in _PORTFOLIO_VIEW_PHRASES):
+        return True
+    return _mentions_portfolio_subject(text) and any(hint in text for hint in _PORTFOLIO_VIEW_HINTS)
+
+
+def _portfolio_diagnose_expected(text: str) -> bool:
+    if any(phrase in text for phrase in _PORTFOLIO_DIAGNOSE_PHRASES):
+        return True
+    return _mentions_portfolio_subject(text) and any(hint in text for hint in _PORTFOLIO_DIAGNOSE_HINTS)
+
+
+def _mentions_portfolio_subject(text: str) -> bool:
+    return any(hint in text for hint in _PORTFOLIO_SUBJECT_HINTS)
 
 
 def missing_required_tool(

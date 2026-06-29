@@ -170,7 +170,7 @@ def test_runtime_answers_all_tool_calls_when_doom_loop_aborts_round():
             "portfolio": {"positions": []},
         }
     )
-    messages = [{"role": "user", "content": "反复查 000001 后再看持仓"}]
+    messages = [{"role": "user", "content": "反复查 000001 后再取附加数据"}]
 
     events = list(AgentRuntime(provider, tools).run_stream(messages))
 
@@ -184,7 +184,18 @@ def test_runtime_answers_all_tool_calls_when_doom_loop_aborts_round():
 
 
 def test_runtime_filters_tools_for_workflow_scope():
-    provider = ScriptedProvider(rounds=[[{"type": "text_delta", "text": "ok"}]])
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "diagnose"}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "ok"}],
+        ]
+    )
     tools = StubToolRegistry(
         schemas=[
             {"name": "portfolio", "description": "p", "parameters": {"type": "object", "properties": {}}},
@@ -233,7 +244,7 @@ def test_runtime_blocks_tool_outside_workflow_scope():
 
     events = list(
         AgentRuntime(provider, tools, workflow=WORKFLOWS["portfolio_review"]).run_stream(
-            [{"role": "user", "content": "我的持仓怎么样"}]
+            [{"role": "user", "content": "帮我跑回测"}]
         )
     )
 

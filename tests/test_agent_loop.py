@@ -53,6 +53,22 @@ def test_resolve_turn_expectation_handles_portfolio_daily_trend_followup():
     assert expectation.required_tool == "portfolio"
 
 
+def test_resolve_turn_expectation_handles_colloquial_portfolio_view():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "你看我持仓呀"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "portfolio"
+    assert expectation.required_args == {"mode": "view"}
+
+
+def test_resolve_turn_expectation_handles_portfolio_risk_without_fixed_phrase():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "账户里这些仓位有什么风险"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "portfolio"
+    assert expectation.required_args == {"mode": "diagnose"}
+
+
 def test_resolve_turn_expectation_does_not_hijack_explicit_stock_after_portfolio_context():
     messages = [
         {"role": "user", "content": "跟我的持仓股票做一下未来的预测"},

@@ -52,11 +52,12 @@ runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文
 - 只输出 JSON，不要 Markdown，不要代码块。
 - phases 总任务数 1-1000 个。
 - 同一 phase 内的 task 会并发执行；有依赖关系的 task 必须拆到后续 phase。
-- 普通单轮工具型请求不要拆成模板化多阶段；1 个能直接执行的 task 更好。
+- 任务拆分由用户真实意图决定，禁止套用历史固定模板；普通单轮工具型请求用 1 个可执行 task。
 - 用户可能有错别字、简称或口语省略；先按上下文推断最可能含义，并在 task prompt 里要求 sub-agent 用工具验证。
 - 如果可用工具能读取或推断信息，task prompt 必须要求 sub-agent 先调用工具探测，例如 portfolio 读取持仓、search_stock_by_name 识别股票、analyze_stock 诊断个股、get_market_overview 读取市场。
-- 只有可用工具也无法获得的必需参数才允许澄清；不要为了更完整而先问用户。
-- 缺少不可替代的关键参数时，生成一个 task 说明如何澄清；不要把可由模型理解或工具验证的信息交回给用户。
+- 遇到“我/我的/持仓/仓位/买了啥/账户”这类账户问题，优先生成读取 portfolio 的 task；不要反问持仓代码。
+- 只有同时满足“可用工具无法验证”和“缺口会改变执行对象或存在安全风险”时，才允许生成 ask_user_question 澄清 task。
+- 澄清 task 必须写明为什么工具无法恢复；不要把错别字、简称、可搜索股票名或可读取持仓交回给用户。
 - 不要生成会写入持仓、交易或文件的任务。
 """
 
@@ -275,7 +276,7 @@ def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -
                         "id": "agent_task",
                         "title": "让 sub-agent 处理用户请求",
                         "agent": agent,
-                        "prompt": user_text,
+                        "prompt": _fallback_task_prompt(user_text),
                     }
                 ],
             }
@@ -290,3 +291,11 @@ def _fallback_agent(context: WorkflowContext) -> str:
     if context.name == "portfolio_review":
         return "trading"
     return "analysis"
+
+
+def _fallback_task_prompt(user_text: str) -> str:
+    return (
+        "直接处理用户请求。先按上下文修正可能的错别字、简称和口语省略，并用可用工具读取或验证事实；"
+        "只有工具无法恢复关键参数或涉及高风险确认时，才向用户澄清。\n\n"
+        f"用户原文：{user_text}"
+    )

@@ -92,6 +92,12 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
     provider = ScriptedProvider(
         rounds=[
             [{"type": "text_delta", "text": _PLAN_JSON}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "diagnose"}}],
+                }
+            ],
             [{"type": "text_delta", "text": "持仓风险低，继续观察。"}],
             [{"type": "text_delta", "text": "持仓复盘完成。"}],
         ]
@@ -120,7 +126,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert events[-1]["type"] == "done"
         assert events[-1]["text"] == "持仓复盘完成。"
         assert "只看核心仓位" in provider.calls[1]["messages"][0]["content"]
-        assert "汇总持仓风险和下一步动作" in provider.calls[2]["messages"][0]["content"]
+        assert "汇总持仓风险和下一步动作" in provider.calls[3]["messages"][0]["content"]
         assert run and run["status"] == "completed"
         assert run["workflow"] == "dynamic_task"
         assert run["plan"]["script"]["runtime"]["script_path"].startswith(str(tmp_path / "workflow-runs"))
@@ -131,7 +137,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         done_event = next(row for row in stored_events if row["event_type"] == "workflow_step_done")
         detail = done_event["payload"]["source"]["agent_detail"]
         assert detail["step_id"] == "read_positions"
-        assert detail["tool_calls"] == []
+        assert detail["tool_calls"] == ["portfolio"]
         assert "持仓风险低" in detail["result"]
     finally:
         _reset_local_db(local_db)
@@ -145,6 +151,12 @@ def test_workflow_executor_reruns_stored_script_without_replanning(tmp_path, mon
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     provider = ScriptedProvider(
         rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "diagnose"}}],
+                }
+            ],
             [{"type": "text_delta", "text": "复跑后的持仓风险低。"}],
             [{"type": "text_delta", "text": "已按原脚本复跑完成。"}],
         ]
@@ -165,7 +177,7 @@ def test_workflow_executor_reruns_stored_script_without_replanning(tmp_path, mon
         assert events[0]["type"] == "workflow_plan"
         assert events[0]["plan"]["script"]["runtime"]["rerun_of"] == "wf_old"
         assert events[-1]["text"] == "已按原脚本复跑完成。"
-        assert len(provider.calls) == 2
+        assert len(provider.calls) == 3
         assert "动态 workflow 编排器" not in provider.calls[0]["system_prompt"]
     finally:
         _reset_local_db(local_db)

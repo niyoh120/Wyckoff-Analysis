@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from cli.runtime import AgentRuntime
+from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.router import build_workflow_system_prompt, route_workflow
@@ -47,6 +48,13 @@ def test_workflow_prompt_prefers_model_inference_before_clarifying():
     assert "错别字" in prompt
     assert "工具验证" in prompt
     assert "Ask the user only" in prompt
+
+
+def test_ask_user_question_schema_makes_clarification_last_resort():
+    schema = next(item for item in TOOL_SCHEMAS if item["name"] == "ask_user_question")
+
+    assert "仅在工具探测" in schema["description"]
+    assert "优先使用" not in schema["description"]
 
 
 def test_route_workflow_explicit_dynamic_opt_in():
