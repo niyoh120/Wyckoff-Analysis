@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from cli.__main__ import _workflow_step_cli_line
 from cli.runtime import AgentRuntime
 from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
@@ -24,6 +25,22 @@ def test_route_workflow_keeps_portfolio_turn_direct():
 
     assert workflow.name == "general_chat"
     assert workflow.route_reason == "普通工具型对话交给直接 agent"
+
+
+def test_workflow_step_cli_line_includes_agent_and_tool_scope():
+    line = _workflow_step_cli_line(
+        {
+            "status": "completed",
+            "title": "读取持仓",
+            "agent": "analysis",
+            "tool_scope": ["portfolio", "analyze_stock"],
+            "summary": "analysis: completed",
+        }
+    )
+
+    assert "[completed] 读取持仓" in line
+    assert "analysis tools=portfolio,analyze_stock" in line
+    assert "analysis: completed" in line
 
 
 def test_route_workflow_keeps_task_like_typo_direct_for_model_inference():

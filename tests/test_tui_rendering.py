@@ -15,6 +15,7 @@ from cli.tui import (
     _replace_streamed_response,
     _settle_markdown_render,
     _workflow_control_intent,
+    _workflow_detail_step_line,
     _write_counted,
 )
 
@@ -153,6 +154,24 @@ def test_display_workflow_step_event_includes_tool_scope():
     assert "工具：portfolio, analyze_stock" in rendered
     assert "运行中" in rendered
     assert scrolled == [True]
+
+
+def test_workflow_detail_step_line_includes_tool_scope():
+    line = _workflow_detail_step_line(
+        {
+            "step_id": "read_positions",
+            "title": "读取持仓",
+            "agent": "analysis",
+            "status": "completed",
+            "tool_scope": ["portfolio"],
+            "summary": "analysis: completed 1.2s",
+        }
+    )
+
+    assert "read_positions" in line
+    assert "工具：portfolio" in line
+    assert "completed" in line
+    assert "analysis: completed" in line
 
 
 def test_workflow_control_intent_requires_explicit_control_action():

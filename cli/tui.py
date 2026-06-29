@@ -445,6 +445,16 @@ def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
     scroll()
 
 
+def _workflow_detail_step_line(step: dict[str, Any]) -> str:
+    step_id = escape(str(step.get("step_id") or step.get("id") or "task"))
+    title = escape(str(step.get("title") or step_id))
+    summary = escape(str(step.get("summary", "")))
+    status = str(step.get("status", "") or "pending")
+    meta = _workflow_step_meta(step, status)
+    suffix = f" {summary}" if summary else ""
+    return f"    - [dim]{step_id}[/dim] {title} [dim]{meta}{suffix}[/dim]"
+
+
 def _workflow_step_meta(step: dict[str, Any], label: str) -> str:
     agent = escape(str(step.get("agent", "") or "agent"))
     tool_scope = [escape(str(item)) for item in step.get("tool_scope", []) if str(item)]
@@ -1937,16 +1947,10 @@ class WyckoffTUI(App):
         runtime = script.get("runtime", {}) if isinstance(script.get("runtime"), dict) else {}
         if runtime.get("script_path"):
             lines.append(f"  [dim]脚本文件：{escape(str(runtime.get('script_path')))}[/dim]")
-        for phase in script.get("phases", []):
-            if not isinstance(phase, dict):
-                continue
-            lines.append(f"  [bold]{escape(str(phase.get('title') or phase.get('id') or 'phase'))}[/bold]")
-            for task in phase.get("tasks", []):
-                if isinstance(task, dict):
-                    title = escape(str(task.get("title") or task.get("id") or "task"))
-                    agent = escape(str(task.get("agent") or "agent"))
-                    step_id = escape(str(task.get("id") or title))
-                    lines.append(f"    - [dim]{step_id}[/dim] {agent} · {title}")
+        steps = run.get("plan", {}).get("steps", [])
+        if isinstance(steps, list) and steps:
+            lines.append("  [bold]步骤[/bold]")
+            lines.extend(_workflow_detail_step_line(step) for step in steps if isinstance(step, dict))
         log.write(Text.from_markup("\n".join(lines)))
 
     def _show_workflow_script(self, run_id: str, log) -> None:

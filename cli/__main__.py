@@ -964,7 +964,25 @@ def _cmd_workflow_show(run_id: str) -> None:
     print(f"{run['run_id']}  {run['status']}  {run['label']}")
     print(f"用户输入: {run.get('user_text', '')}")
     for idx, step in enumerate(run.get("plan", {}).get("steps", []), start=1):
-        print(f"  {idx}. [{step.get('status', '')}] {step.get('title', '')}  {step.get('summary', '')}")
+        print(f"  {idx}. {_workflow_step_cli_line(step)}")
+
+
+def _workflow_step_cli_line(step: dict) -> str:
+    status = step.get("status", "")
+    title = step.get("title", "")
+    agent = step.get("agent", "") or "agent"
+    summary = step.get("summary", "")
+    tools = _workflow_step_tool_label(step)
+    return f"[{status}] {title}  {agent}{tools}  {summary}"
+
+
+def _workflow_step_tool_label(step: dict) -> str:
+    tools = [str(item) for item in step.get("tool_scope", []) if str(item)]
+    if not tools:
+        return ""
+    visible = ",".join(tools[:4])
+    suffix = f",+{len(tools) - 4}" if len(tools) > 4 else ""
+    return f" tools={visible}{suffix}"
 
 
 def _cmd_workflow_events(run_id: str, limit: int) -> None:
