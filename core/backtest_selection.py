@@ -46,11 +46,13 @@ def combine_trigger_scores(triggers: dict[str, list[tuple[str, float]]]) -> dict
     score_map: dict[str, float] = {}
     for key, pairs in triggers.items():
         for code, score in pairs:
-            if code not in reason_map:
-                reason_map[code] = []
-                score_map[code] = float(score)
-            reason_map[code].append(key)
-            score_map[code] = max(score_map.get(code, 0.0), float(score))
+            code_s = str(code).strip()
+            if not code_s:
+                continue
+            if code_s not in reason_map:
+                reason_map[code_s] = []
+            reason_map[code_s].append(key)
+            score_map[code_s] = max(candidate_score_value(score_map.get(code_s)), candidate_score_value(score))
     return {code: (score_map.get(code, 0.0), "、".join(reasons)) for code, reasons in reason_map.items()}
 
 
@@ -130,7 +132,7 @@ def select_ai_input_codes(
     ai_allocation: AiCandidateAllocationConfig | None = None,
 ) -> tuple[list[str], dict[str, float], dict[str, str]]:
     merged_trigger_map = combine_trigger_scores(result.triggers)
-    hit_score_map = {code: float(value[0]) for code, value in merged_trigger_map.items()}
+    hit_score_map = {code: candidate_score_value(value[0]) for code, value in merged_trigger_map.items()}
     sorted_hit_codes = sorted(merged_trigger_map.keys(), key=lambda code: -hit_score_map.get(code, 0.0))
     l4_selection = _select_l4_mode_codes(
         result=result,
@@ -249,7 +251,7 @@ def _candidate_entry_maps(entries: list[dict[str, object]]) -> tuple[dict[str, f
         code = str(item.get("code", "")).strip()
         if not code:
             continue
-        score = float(item.get("score", 0.0) or 0.0)
+        score = candidate_score_value(item.get("score"))
         if code not in score_map or score > score_map[code]:
             score_map[code] = score
             track_map[code] = _candidate_entry_track(item)
@@ -276,7 +278,7 @@ def candidate_entry_loss_guard(
         code,
         regime,
         [entry_type],
-        float(item.get("score", 0.0) or 0.0),
+        candidate_score_value(item.get("score")),
         str(result.channel_map.get(code, "") or ""),
         day_df_map,
         config=candidate_policy,

@@ -49,6 +49,34 @@ def test_rerank_selected_codes_treats_invalid_scores_as_zero() -> None:
     assert ranked == ["GOOD", "BAD", "INF", "NAN"]
 
 
+def test_all_formal_l4_selection_treats_invalid_trigger_scores_as_zero() -> None:
+    result = FunnelResult(
+        layer1_symbols=["GOOD", "BAD", "INF", "NAN"],
+        layer2_symbols=["GOOD", "BAD", "INF", "NAN"],
+        layer3_symbols=["GOOD", "BAD", "INF", "NAN"],
+        top_sectors=[],
+        triggers={"sos": [("GOOD", 2.0), ("BAD", "bad"), ("INF", float("inf")), ("NAN", float("nan"))]},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+    )
+
+    codes, score_map, track_map = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="NEUTRAL",
+        selection_mode="all_formal_l4",
+    )
+
+    assert codes == ["GOOD", "BAD", "INF", "NAN"]
+    assert score_map == {"GOOD": 2.0, "BAD": 0.0, "INF": 0.0, "NAN": 0.0}
+    assert track_map == {"GOOD": "Trend", "BAD": "Trend", "INF": "Trend", "NAN": "Trend"}
+
+
 def test_all_formal_l4_selection_excludes_stage_only_candidates() -> None:
     result = FunnelResult(
         layer1_symbols=["000001", "000002"],
@@ -522,6 +550,39 @@ def test_tradeable_l4_candidate_board_selects_trend_lane_entry() -> None:
     assert codes == ["000001"]
     assert score_map == {"000001": 82.0}
     assert track_map == {"000001": "Trend"}
+
+
+def test_tradeable_l4_candidate_board_treats_invalid_scores_as_zero() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {"code": "BAD", "track": "trend", "entry_type": "trend_lane_pullback", "score": "bad"},
+            {"code": "INF", "track": "trend", "entry_type": "trend_lane_pullback", "score": float("inf")},
+            {"code": "NAN", "track": "trend", "entry_type": "trend_lane_pullback", "score": float("nan")},
+        ],
+    )
+
+    codes, score_map, track_map = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="NEUTRAL",
+        selection_mode="tradeable_l4",
+    )
+
+    assert codes == ["BAD", "INF", "NAN"]
+    assert score_map == {"BAD": 0.0, "INF": 0.0, "NAN": 0.0}
+    assert track_map == {"BAD": "Trend", "INF": "Trend", "NAN": "Trend"}
 
 
 def test_regime_position_filter_blocks_defensive_regimes() -> None:
