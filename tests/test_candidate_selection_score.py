@@ -93,3 +93,31 @@ def test_candidate_shadow_score_falls_back_to_trigger_score_only():
         "risk_penalty": 0.0,
     }
     assert score["score_inputs"]["trigger_score"] == 10.0
+
+
+def test_candidate_shadow_score_sanitizes_nonfinite_inputs():
+    score = score_candidate_shadow(
+        signal_type="sos",
+        trigger_score=float("inf"),
+        priority_score=float("-inf"),
+        footprint={"breakout_quality_score": "Infinity", "supply_pressure_score": float("inf")},
+        intraday_tail={"tail_score": float("nan"), "dist_vwap_pct": float("-inf")},
+        source_context={
+            "lhb": {"net_buy": float("inf")},
+            "margin": {"margin_buy": "Infinity", "margin_repay": 1},
+            "tick_large_order": {"large_net_amount_yuan": float("-inf")},
+        },
+    )
+
+    assert score["score"] == 0.0
+    assert score["components"] == {
+        "funnel": 0.0,
+        "price_action": 0.0,
+        "springboard": 0.0,
+        "tail_confirmation": 0.0,
+        "external_capital": 0.0,
+        "risk_penalty": 0.0,
+    }
+    assert score["score_inputs"] == {"trigger_score": 0.0, "priority_score": 0.0}
+    assert score["positive_tags"] == []
+    assert score["negative_tags"] == []
