@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import sys
 import traceback
@@ -11,11 +12,14 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from core.candidate_policy import candidate_score_value
 from tools.funnel_public import public_funnel_metrics
 
 
 def _sanitize(obj: Any) -> Any:
-    if obj is None or isinstance(obj, (str, int, float, bool)):
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if obj is None or isinstance(obj, (str, int, bool)):
         return obj
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
@@ -107,7 +111,7 @@ def _run_funnel_screen(request_id: str, payload: dict[str, Any]) -> dict[str, An
                     "code": code_s,
                     "name": str(name_map.get(code_s, code_s)),
                     "industry": str(sector_map.get(code_s, "") or "未知行业"),
-                    "score": float(score),
+                    "score": candidate_score_value(score),
                 }
             )
         trigger_groups[str(trigger_name)] = group_rows

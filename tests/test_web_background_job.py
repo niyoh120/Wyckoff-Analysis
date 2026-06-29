@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import sys
 from argparse import Namespace
 from datetime import date
+from types import ModuleType
 
 from workflows import web_background_job as workflow
 
@@ -16,11 +18,49 @@ def test_load_payload_accepts_only_dict_json() -> None:
 def test_write_result_sanitizes_dates(tmp_path) -> None:
     target = tmp_path / "result.json"
 
-    workflow._write_result(str(target), {"today": date(2026, 6, 23), "items": {1, 2}})
+    workflow._write_result(
+        str(target),
+        {
+            "today": date(2026, 6, 23),
+            "items": {1, 2},
+            "nan_float": float("nan"),
+            "inf_float": float("inf"),
+        },
+    )
 
     payload = json.loads(target.read_text(encoding="utf-8"))
     assert payload["today"] == "2026-06-23"
     assert sorted(payload["items"]) == [1, 2]
+    assert payload["nan_float"] is None
+    assert payload["inf_float"] is None
+
+
+def test_run_funnel_screen_sanitizes_nonfinite_trigger_scores(monkeypatch) -> None:
+    fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+    def fake_run_funnel(*_args, **_kwargs):
+        return (
+            True,
+            [],
+            {},
+            {
+                "metrics": {},
+                "triggers": {"sos": [("000001", float("inf")), ("000002", float("nan")), ("000003", "bad")]},
+                "name_map": {"000001": "平安银行"},
+                "sector_map": {"000001": "银行"},
+            },
+        )
+
+    fake_pipeline.run = fake_run_funnel
+    monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+
+    result = workflow._run_funnel_screen("req-score", {})
+
+    assert result["trigger_groups"]["sos"] == [
+        {"code": "000001", "name": "平安银行", "industry": "银行", "score": 0.0},
+        {"code": "000002", "name": "000002", "industry": "未知行业", "score": 0.0},
+        {"code": "000003", "name": "000003", "industry": "未知行业", "score": 0.0},
+    ]
 
 
 def test_run_web_background_job_writes_error_for_unknown_kind(tmp_path) -> None:

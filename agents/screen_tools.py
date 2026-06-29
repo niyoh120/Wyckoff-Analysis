@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from agents.tool_context import ToolContext, ensure_tushare_token
+from core.candidate_policy import candidate_score_value
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,11 @@ def _trigger_summary(details: dict) -> dict:
     name_map = details.get("name_map") or {}
     return {
         trigger_name: [
-            {"code": str(code), "name": str(name_map.get(str(code), code)), "score": round(float(score), 2)}
+            {
+                "code": str(code),
+                "name": str(name_map.get(str(code), code)),
+                "score": round(candidate_score_value(score), 2),
+            }
             for code, score in rows
         ]
         for trigger_name, rows in triggers.items()

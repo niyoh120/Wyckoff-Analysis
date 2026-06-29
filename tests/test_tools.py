@@ -785,3 +785,36 @@ class TestSymbolPool:
         assert os.environ["FUNNEL_POOL_MODE"] == "manual"
         assert os.environ["FUNNEL_POOL_BOARD"] == "chinext"
         assert os.environ["FUNNEL_EXECUTOR_MODE"] == "process"
+
+    def test_screen_stocks_sanitizes_nonfinite_trigger_scores(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {
+                        "sos": [
+                            ("000001", float("inf")),
+                            ("000002", float("nan")),
+                            ("000003", "bad"),
+                            ("000004", 12.345),
+                        ]
+                    },
+                    "name_map": {"000001": "平安银行"},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        assert [row["score"] for row in result["trigger_groups"]["sos"]] == [0.0, 0.0, 0.0, 12.35]
+        assert result["trigger_groups"]["sos"][0]["name"] == "平安银行"
