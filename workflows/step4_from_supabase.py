@@ -124,7 +124,9 @@ def fetch_recommendation_rows(recommend_date: int) -> list[dict[str, Any]]:
             client.table(TABLE_RECOMMENDATION_TRACKING)
             .select(
                 "code,name,recommend_reason,initial_price,current_price,"
-                "funnel_score,is_ai_recommended,recommend_count,recommend_date"
+                "funnel_score,priority_score,capital_migration_bonus,selection_source,"
+                "stage,industry,candidate_lane,entry_type,candidate_status,candidate_risk,"
+                "is_ai_recommended,recommend_count,recommend_date"
             )
             .eq("recommend_date", recommend_date)
             .execute()
@@ -139,13 +141,22 @@ def recommendation_item(row: dict[str, Any]) -> dict | None:
     if not code:
         return None
     score = row.get("funnel_score")
+    priority_score = row.get("priority_score") if row.get("priority_score") not in (None, "") else score
     return {
         "code": code,
         "name": str(row.get("name") or code).strip(),
         "tag": str(row.get("recommend_reason") or "").strip(),
         "score": score,
-        "priority_score": score,
+        "priority_score": priority_score,
         "funnel_score": score,
+        "capital_migration_bonus": row.get("capital_migration_bonus"),
+        "selection_source": row.get("selection_source"),
+        "stage": row.get("stage"),
+        "industry": row.get("industry"),
+        "candidate_lane": row.get("candidate_lane"),
+        "entry_type": row.get("entry_type"),
+        "candidate_status": row.get("candidate_status"),
+        "candidate_risk": row.get("candidate_risk"),
         "initial_price": row.get("initial_price"),
         "current_price": row.get("current_price"),
         "recommend_count": row.get("recommend_count"),
@@ -158,7 +169,10 @@ def build_external_report(recommend_date: int, symbols_info: list[dict], ai_code
     lines = [f"Supabase复用今日Step3起跳板候选，recommend_date={recommend_date}，候选={', '.join(ai_codes)}。"]
     for item in symbols_info:
         if item["code"] in ai_set:
+            capital_bonus = item.get("capital_migration_bonus")
+            capital_text = f" | capital_migration={capital_bonus}" if capital_bonus not in (None, "") else ""
             lines.append(
-                f"- {item['code']} {item['name']} | {item.get('tag') or '-'} | score={item.get('funnel_score')}"
+                f"- {item['code']} {item['name']} | {item.get('tag') or '-'} | "
+                f"score={item.get('funnel_score')}{capital_text}"
             )
     return "\n".join(lines)

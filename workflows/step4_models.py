@@ -133,6 +133,7 @@ class CandidateMeta:
     sector_state_code: str = ""
     sector_note: str = ""
     funnel_score: float | None = None
+    capital_migration_bonus: float | None = None
     exit_signal: str = ""
     exit_price: float | None = None
     exit_reason: str = ""

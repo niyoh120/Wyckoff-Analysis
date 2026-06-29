@@ -20,6 +20,10 @@ def test_load_recommendations_maps_rows(monkeypatch):
                 "name": "晨光",
                 "recommend_reason": "confirmed",
                 "funnel_score": 88,
+                "priority_score": 91,
+                "capital_migration_bonus": 4.5,
+                "selection_source": "二次确认",
+                "candidate_lane": "mainline",
                 "is_ai_recommended": True,
             },
             {"code": "bad", "name": "坏行", "funnel_score": 10, "is_ai_recommended": False},
@@ -30,9 +34,14 @@ def test_load_recommendations_maps_rows(monkeypatch):
     symbols_info, ai_codes = workflow.load_recommendations(20260621)
 
     assert [item["code"] for item in symbols_info] == ["000390", "bad"]
-    assert symbols_info[0]["priority_score"] == 88
+    assert symbols_info[0]["priority_score"] == 91
+    assert symbols_info[0]["capital_migration_bonus"] == 4.5
+    assert symbols_info[0]["selection_source"] == "二次确认"
+    assert symbols_info[0]["candidate_lane"] == "mainline"
     assert symbols_info[0]["source_type"] == "supabase_recommendation_tracking"
     assert ai_codes == ["000390"]
+    report = workflow.build_external_report(20260621, symbols_info, ai_codes)
+    assert "capital_migration=4.5" in report
 
 
 def test_run_step4_from_supabase_delegates_pipeline(monkeypatch):

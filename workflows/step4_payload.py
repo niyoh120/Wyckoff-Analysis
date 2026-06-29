@@ -130,11 +130,12 @@ def build_candidate_meta_map(
             sector_state=clean_text(item.get("sector_state")),
             sector_state_code=clean_text(item.get("sector_state_code")),
             sector_note=clean_text(item.get("sector_note")),
-            funnel_score=parse_float_like(item.get("score")),
+            funnel_score=candidate_score(item),
+            capital_migration_bonus=parse_float_like(item.get("capital_migration_bonus")),
             exit_signal=clean_text(item.get("exit_signal")),
             exit_price=parse_float_like(item.get("exit_price")),
             exit_reason=clean_text(item.get("exit_reason")),
-            source_type="external",
+            source_type=clean_text(item.get("source_type")) or "external",
         )
     for pos in positions:
         existing = meta_map.get(pos.code)
@@ -231,6 +232,56 @@ def parse_float_like(raw: object) -> float | None:
     except Exception:
         logger.debug("parse_float_like failed for %s", raw, exc_info=True)
         return None
+
+
+def candidate_score(item: dict) -> float | None:
+    for key in ("priority_score", "score", "funnel_score"):
+        score = parse_float_like(item.get(key))
+        if score is not None:
+            return score
+    return None
+
+
+def candidate_source(item: dict) -> str:
+    return (
+        clean_text(item.get("selection_source"))
+        or clean_text(item.get("source_type"))
+        or clean_text(item.get("candidate_lane"))
+    )
+
+
+def candidate_status(item: dict) -> str:
+    return (
+        clean_text(item.get("signal_status"))
+        or clean_text(item.get("status"))
+        or clean_text(item.get("candidate_status"))
+    )
+
+
+def candidate_context_line(item: dict) -> str:
+    parts: list[str] = []
+    score = candidate_score(item)
+    if score is not None:
+        parts.append(f"score={score:.2f}")
+    bonus = parse_float_like(item.get("capital_migration_bonus"))
+    if bonus is not None and abs(bonus) > 1e-9:
+        label = "资金迁移加分" if bonus > 0 else "资金迁移扣分"
+        parts.append(f"{label}={bonus:+.2f}")
+    source = candidate_source(item)
+    if source:
+        parts.append(f"来源={source}")
+    lane = clean_text(item.get("candidate_lane")) or clean_text(item.get("entry_type"))
+    if lane:
+        parts.append(f"通道={lane}")
+    return f"  [候选归因] {' | '.join(parts)}\n" if parts else ""
+
+
+def prepend_candidate_context(payload: str, item: dict) -> str:
+    line = candidate_context_line(item)
+    if not line:
+        return payload
+    head, sep, tail = payload.partition("\n")
+    return f"{head}\n{line}{tail}" if sep else f"{payload}\n{line.rstrip()}"
 
 
 def format_position_payload(
@@ -473,15 +524,20 @@ def _process_one_candidate(
             industry=clean_text(item.get("industry")) or None,
             track=clean_text(item.get("track")) or None,
             stage=clean_text(item.get("stage")) or None,
-            funnel_score=parse_float_like(item.get("score")),
+            funnel_score=candidate_score(item),
             sector_state=clean_text(item.get("sector_state")) or None,
             sector_state_code=clean_text(item.get("sector_state_code")) or None,
             sector_note=clean_text(item.get("sector_note")) or None,
             exit_signal=clean_text(item.get("exit_signal")) or None,
             exit_price=parse_float_like(item.get("exit_price")),
             exit_reason=clean_text(item.get("exit_reason")) or None,
+            springboard_grade=clean_text(item.get("springboard_grade")) or None,
+            candidate_source=candidate_source(item) or None,
+            signal_status=candidate_status(item) or None,
+            confirm_date=clean_text(item.get("confirm_date")) or None,
+            confirm_reason=clean_text(item.get("confirm_reason")) or None,
         )
-        return (payload, "", latest_close, atr14)
+        return (prepend_candidate_context(payload, item), "", latest_close, atr14)
     except Exception as e:
         return ("", f"{code}:{e}", None, None)
 
