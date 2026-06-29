@@ -254,6 +254,15 @@ class TestCandidateRanker:
         assert ranked[0] == "000001"
         assert score_map["000001"] > score_map["000002"]
 
+    def test_extension_penalty_series_handles_bad_return_values(self):
+        from core.candidate_ranker import _extension_penalty_series
+
+        penalty = _extension_penalty_series(pd.DataFrame({"ret20": [None, "bad", 100.0], "ret5": [None, "bad", 40.0]}))
+
+        assert penalty.iloc[0] == 0.0
+        assert penalty.iloc[1] == 0.0
+        assert abs(penalty.iloc[2] - 0.4) < 1e-9
+
 
 # ── tools/market_regime ──
 

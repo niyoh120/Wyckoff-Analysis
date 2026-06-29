@@ -159,7 +159,7 @@ def _add_watch_score(rank_df: pd.DataFrame, top_sectors: list[str]) -> pd.DataFr
     hot_sector_set = set(top_sectors or [])
     rank_df["hot_bonus"] = rank_df["industry"].isin(hot_sector_set).astype(float) * 0.02
     rank_df["sector_bonus"] = rank_df["sector_state"].map(lambda x: float(SECTOR_STATE_SCORE_BONUS.get(str(x), 0.0)))
-    rank_df["extension_penalty"] = rank_df.apply(_extension_penalty, axis=1)
+    rank_df["extension_penalty"] = _extension_penalty_series(rank_df)
     rank_df["watch_score"] = (
         0.25 * rank_df["q20"]
         + 0.20 * rank_df["q5"]
@@ -173,12 +173,18 @@ def _add_watch_score(rank_df: pd.DataFrame, top_sectors: list[str]) -> pd.DataFr
     return rank_df
 
 
-def _extension_penalty(row: pd.Series) -> float:
-    ret20 = float(row.get("ret20", 0.0) or 0.0)
-    ret5 = float(row.get("ret5", 0.0) or 0.0)
-    ret20_penalty = min(max((ret20 - 45.0) / 55.0, 0.0), 1.0) * 0.30
-    ret5_penalty = min(max((ret5 - 18.0) / 22.0, 0.0), 1.0) * 0.10
+def _extension_penalty_series(rank_df: pd.DataFrame) -> pd.Series:
+    ret20 = _numeric_rank_column(rank_df, "ret20")
+    ret5 = _numeric_rank_column(rank_df, "ret5")
+    ret20_penalty = ((ret20 - 45.0) / 55.0).clip(lower=0.0, upper=1.0) * 0.30
+    ret5_penalty = ((ret5 - 18.0) / 22.0).clip(lower=0.0, upper=1.0) * 0.10
     return ret20_penalty + ret5_penalty
+
+
+def _numeric_rank_column(rank_df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in rank_df:
+        return pd.Series(0.0, index=rank_df.index)
+    return pd.to_numeric(rank_df[column], errors="coerce").fillna(0.0)
 
 
 def rank_l3_candidates(
