@@ -222,7 +222,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "ask_user_question",
-        "description": "向用户提出一个明确问题。模型应先用上下文和工具恢复语义；只有执行对象仍不明确，或需要高风险确认时使用。",
+        "description": "向用户提出一个明确问题。模型应先根据上下文和工具判断；只有执行对象仍不明确，或需要写入/交易/高风险确认时使用。",
         "parameters": {
             "type": "object",
             "properties": {

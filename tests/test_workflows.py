@@ -49,15 +49,17 @@ def test_workflow_prompt_prefers_model_inference_before_clarifying():
     workflow = route_workflow("用 workflow 给我做磁场诊断")
     prompt = build_workflow_system_prompt(workflow)
 
-    assert "错别字" in prompt
+    assert "自然语言理解" in prompt
     assert "工具验证" in prompt
-    assert "model-owned" in prompt
+    assert "文字形式本身" in prompt
+    assert "错别字" not in prompt
 
 
 def test_ask_user_question_schema_makes_clarification_last_resort():
     schema = next(item for item in TOOL_SCHEMAS if item["name"] == "ask_user_question")
 
-    assert "先用上下文和工具恢复语义" in schema["description"]
+    assert "先根据上下文和工具判断" in schema["description"]
+    assert "写入/交易/高风险确认" in schema["description"]
     assert "优先使用" not in schema["description"]
 
 
@@ -121,9 +123,10 @@ def test_direct_runtime_prompt_prefers_model_inference_before_clarifying():
     assert workflow.name == "general_chat"
     assert events[-1]["text"] == "ok"
     prompt = provider.calls[0]["system_prompt"]
-    assert "错别字" in prompt
+    assert "自然语言理解" in prompt
     assert "可用工具验证" in prompt
-    assert "执行对象仍不明确" in prompt
+    assert "写入/交易/高风险确认" in prompt
+    assert "谐音" not in prompt
 
 
 def test_direct_stock_turn_does_not_expose_web_fetch():

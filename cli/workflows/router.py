@@ -85,8 +85,8 @@ WORKFLOWS: dict[str, WorkflowContext] = {
             *ASK_TOOLS,
         ),
         system_hint=(
-            "当前 workflow 是模型生成的动态任务。语义理解、错别字归一和 task 拆分都交给模型；"
-            "代码只限制可用工具和执行边界。"
+            "当前 workflow 是模型生成的动态任务。自然语言理解和 task 拆分由模型完成；"
+            "代码只限制工具、写入和高风险动作边界。"
         ),
     ),
     "general_chat": WorkflowContext(name="general_chat", label="自由对话"),
@@ -120,8 +120,7 @@ def build_workflow_system_prompt(workflow: WorkflowContext | None) -> str:
         f"{route_line}"
         f"Allowed tools for this turn: {tools}\n"
         f"{workflow.system_hint}\n"
-        "Typos, aliases, and omitted context are model-owned interpretation work. "
-        "先用工具验证事实，再考虑向用户提问。\n"
+        "不要为文字形式本身增加澄清步骤；先用工具验证事实，再考虑向用户提问。\n"
         "</workflow-runtime>"
     )
 

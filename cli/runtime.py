@@ -47,9 +47,9 @@ _INTERNAL_RETRY_MARKER = "_internal_retry"
 _DIRECT_TOOL_USE_PROMPT = """\
 
 <tool-use>
-错别字、谐音、简称和口语省略属于模型的语义理解工作。
+自然语言理解由模型完成，代码只限制工具、写入和高风险动作边界。
 用户请求涉及持仓、股票或市场事实时，优先用可用工具验证。
-只有执行对象仍不明确，或需要高风险确认时，才使用 ask_user_question。
+只有执行对象仍不明确，或需要写入/交易/高风险确认时，才使用 ask_user_question。
 </tool-use>"""
 
 
