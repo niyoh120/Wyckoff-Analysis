@@ -106,6 +106,39 @@ class TestAllocateAiCandidates:
 
         assert scores["000001"] > scores["000002"]
 
+    def test_layer3_score_breaks_same_trigger_priority_ties(self):
+        result = FunnelResult(
+            layer1_symbols=["000001", "000002"],
+            layer2_symbols=["000001", "000002"],
+            layer3_symbols=["000001", "000002"],
+            top_sectors=[],
+            triggers={"sos": [("000002", 5.0), ("000001", 5.0)]},
+            stage_map={},
+            markup_symbols=[],
+            exit_signals={},
+            channel_map={"000001": "点火破局", "000002": "点火破局"},
+            leader_radar_symbols=[],
+            leader_radar_rows=[],
+            layer3_score_map={"000001": 1.0, "000002": 0.2},
+        )
+
+        trend, accum, scores = allocate_ai_candidates(
+            result,
+            ["000001", "000002"],
+            "NEUTRAL",
+            policy_override={
+                "total_cap": 2,
+                "trend_quota": 2,
+                "accum_quota": 0,
+                "max_trend_l3_fill": 0,
+                "max_accum_l3_fill": 0,
+            },
+        )
+
+        assert trend == ["000001", "000002"]
+        assert accum == []
+        assert scores["000001"] > scores["000002"]
+
     def test_score_map_keeps_best_score_when_candidate_sources_overlap(self):
         result = FunnelResult(
             layer1_symbols=["000001"],

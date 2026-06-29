@@ -352,6 +352,7 @@ class FunnelResult(NamedTuple):
     leader_radar_symbols: list[str]
     leader_radar_rows: list[dict[str, Any]]
     candidate_entries: list[dict[str, Any]] = []
+    layer3_score_map: dict[str, float] = {}
 
 
 class _FunnelLayerState(NamedTuple):

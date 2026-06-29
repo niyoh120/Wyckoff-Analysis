@@ -363,6 +363,7 @@ def _candidate_result(metrics: dict, triggers: dict[str, list[tuple[str, float]]
         leader_radar_symbols=metrics.get("leader_radar_symbols", []) or [],
         leader_radar_rows=metrics.get("leader_radar_rows", []) or [],
         candidate_entries=metrics.get("candidate_entries", []) or [],
+        layer3_score_map=metrics.get("layer3_score_map", {}) or {},
     )
 
 

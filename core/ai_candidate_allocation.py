@@ -491,6 +491,7 @@ def _build_candidate_priority_scorer(
     trend_pb_hits = hit_sets.get("trend_pullback", set())
     sos_hits = hit_sets.get("sos", set())
     other_hits = spring_hits | lps_hits | evr_hits | compression_hits | trend_pb_hits
+    l3_score_map = _result_map(result, "layer3_score_map")
 
     def score(code: str, is_trend_side: bool) -> float:
         value = _stage_score(_stage_name(result, code), is_trend_side)
@@ -507,9 +508,18 @@ def _build_candidate_priority_scorer(
             signal_weight_map,
         )
         value += _track_alignment_bonus(code, is_trend_side, hit_sets, signal_weight_map)
+        value += _layer3_rank_bonus(code, l3_score_map)
         return value + _exit_penalty(result, code)
 
     return score
+
+
+def _layer3_rank_bonus(code: str, l3_score_map: dict[str, float]) -> float:
+    try:
+        score = float(l3_score_map.get(code, 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return min(max(score, 0.0), 1.2) * 8.0
 
 
 def _trigger_score(
