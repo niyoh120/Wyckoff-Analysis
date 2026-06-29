@@ -138,3 +138,65 @@ class TestAllocateAiCandidates:
 
         assert trend == ["000001", "000003"]
         assert accum == []
+
+    def test_available_track_backfills_when_other_track_has_no_candidates(self):
+        result = FunnelResult(
+            layer1_symbols=["000001", "000002", "000003"],
+            layer2_symbols=["000001", "000002", "000003"],
+            layer3_symbols=["000001", "000002", "000003"],
+            top_sectors=[],
+            triggers={"sos": [("000001", 9.0), ("000002", 8.0), ("000003", 7.0)]},
+            stage_map={},
+            markup_symbols=[],
+            exit_signals={},
+            channel_map={"000001": "点火破局", "000002": "点火破局", "000003": "点火破局"},
+            leader_radar_symbols=[],
+            leader_radar_rows=[],
+        )
+
+        trend, accum, _scores = allocate_ai_candidates(
+            result,
+            [],
+            "NEUTRAL",
+            policy_override={
+                "total_cap": 3,
+                "trend_quota": 1,
+                "accum_quota": 2,
+                "max_trend_l3_fill": 0,
+                "max_accum_l3_fill": 0,
+            },
+        )
+
+        assert trend == ["000001", "000002", "000003"]
+        assert accum == []
+
+    def test_zero_quota_track_stays_disabled_during_backfill(self):
+        result = FunnelResult(
+            layer1_symbols=["000001", "000002"],
+            layer2_symbols=["000001", "000002"],
+            layer3_symbols=["000001", "000002"],
+            top_sectors=[],
+            triggers={"sos": [("000001", 9.0), ("000002", 8.0)]},
+            stage_map={},
+            markup_symbols=[],
+            exit_signals={},
+            channel_map={"000001": "点火破局", "000002": "点火破局"},
+            leader_radar_symbols=[],
+            leader_radar_rows=[],
+        )
+
+        trend, accum, _scores = allocate_ai_candidates(
+            result,
+            [],
+            "NEUTRAL",
+            policy_override={
+                "total_cap": 2,
+                "trend_quota": 0,
+                "accum_quota": 2,
+                "max_trend_l3_fill": 0,
+                "max_accum_l3_fill": 0,
+            },
+        )
+
+        assert trend == []
+        assert accum == []

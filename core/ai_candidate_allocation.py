@@ -304,7 +304,67 @@ def _select_by_quota(
             progressed = added or progressed
         if not progressed:
             break
+    _backfill_remaining_slots(
+        state,
+        policy,
+        trend_candidates,
+        accum_candidates,
+        trend_idx,
+        accum_idx,
+        trend_fill_map,
+        accum_fill_map,
+        sector_map,
+        max_per_sector,
+    )
     return state
+
+
+def _backfill_remaining_slots(
+    state: SelectionState,
+    policy: AllocationPolicy,
+    trend_candidates: list[str],
+    accum_candidates: list[str],
+    trend_idx: int,
+    accum_idx: int,
+    trend_fill_map: dict[str, bool],
+    accum_fill_map: dict[str, bool],
+    sector_map: dict[str, str] | None,
+    max_per_sector: int,
+) -> None:
+    while len(state.selected_seen) < policy.total_cap:
+        progressed = False
+        if policy.trend_quota > 0 and trend_idx < len(trend_candidates):
+            added, trend_idx = _advance_track(
+                "Trend",
+                trend_candidates,
+                trend_idx,
+                state,
+                policy,
+                trend_fill_map,
+                accum_fill_map,
+                sector_map,
+                max_per_sector,
+                ignore_track_quota=True,
+            )
+            progressed = added or progressed
+        if len(state.selected_seen) >= policy.total_cap:
+            break
+        if policy.accum_quota > 0 and accum_idx < len(accum_candidates):
+            added, accum_idx = _advance_track(
+                "Accum",
+                accum_candidates,
+                accum_idx,
+                state,
+                policy,
+                trend_fill_map,
+                accum_fill_map,
+                sector_map,
+                max_per_sector,
+                ignore_track_quota=True,
+            )
+            progressed = added or progressed
+        if not progressed:
+            break
 
 
 def _advance_track(
@@ -317,6 +377,8 @@ def _advance_track(
     accum_fill_map: dict[str, bool],
     sector_map: dict[str, str] | None,
     max_per_sector: int,
+    *,
+    ignore_track_quota: bool = False,
 ) -> tuple[bool, int]:
     while idx < len(candidates):
         code = candidates[idx]
@@ -324,7 +386,15 @@ def _advance_track(
         if code in state.selected_seen:
             continue
         if _try_add_candidate(
-            code, track_name, state, policy, trend_fill_map, accum_fill_map, sector_map, max_per_sector
+            code,
+            track_name,
+            state,
+            policy,
+            trend_fill_map,
+            accum_fill_map,
+            sector_map,
+            max_per_sector,
+            ignore_track_quota=ignore_track_quota,
         ):
             return True, idx
     return False, idx
@@ -339,13 +409,23 @@ def _try_add_candidate(
     accum_fill_map: dict[str, bool],
     sector_map: dict[str, str] | None,
     max_per_sector: int,
+    *,
+    ignore_track_quota: bool = False,
 ) -> bool:
     if len(state.selected_seen) >= policy.total_cap:
         return False
     sector = _blocked_sector(code, state.sector_counts, sector_map, max_per_sector)
     if sector is None:
         return False
-    if not _append_track_selection(code, track_name, state, policy, trend_fill_map, accum_fill_map):
+    if not _append_track_selection(
+        code,
+        track_name,
+        state,
+        policy,
+        trend_fill_map,
+        accum_fill_map,
+        ignore_track_quota=ignore_track_quota,
+    ):
         return False
     if sector:
         state.sector_counts[sector] = state.sector_counts.get(sector, 0) + 1
@@ -360,18 +440,20 @@ def _append_track_selection(
     policy: AllocationPolicy,
     trend_fill_map: dict[str, bool],
     accum_fill_map: dict[str, bool],
+    *,
+    ignore_track_quota: bool = False,
 ) -> bool:
     if track_name == "Trend":
         if trend_fill_map.get(code, False) and state.trend_l3_fill_used >= policy.max_trend_l3_fill:
             return False
-        if len(state.trend_selected) >= policy.trend_quota:
+        if not ignore_track_quota and len(state.trend_selected) >= policy.trend_quota:
             return False
         state.trend_selected.append(code)
         state.trend_l3_fill_used += int(trend_fill_map.get(code, False))
         return True
     if accum_fill_map.get(code, False) and state.accum_l3_fill_used >= policy.max_accum_l3_fill:
         return False
-    if len(state.accum_selected) >= policy.accum_quota:
+    if not ignore_track_quota and len(state.accum_selected) >= policy.accum_quota:
         return False
     state.accum_selected.append(code)
     state.accum_l3_fill_used += int(accum_fill_map.get(code, False))
