@@ -123,6 +123,24 @@ def test_run_sub_agent_basic():
     assert result["policy"]["fallback_tools"] == []
 
 
+def test_run_sub_agent_does_not_enforce_top_level_screening_expectation():
+    provider = ScriptedProvider([[{"type": "text_delta", "text": "扫描完成，候选 A。"}]])
+    registry = StubToolRegistry(tool_results={"screen_stocks": {"symbols_for_report": ["000001"]}})
+
+    result = run_sub_agent(
+        RESEARCH_AGENT,
+        task="先扫描候选",
+        context="phase=review",
+        provider=provider,
+        registry=registry,
+    )
+
+    assert result["status"] == "completed"
+    assert result["result"] == "扫描完成，候选 A。"
+    assert result["tool_calls"] == []
+    assert registry.calls == []
+
+
 def test_run_sub_agent_with_tool_call():
     provider = ScriptedProvider(
         [

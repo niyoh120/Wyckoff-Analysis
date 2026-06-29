@@ -157,6 +157,7 @@ class AgentRuntime:
         stream_chunk_timeout: float = STREAM_CHUNK_TIMEOUT,
         allowed_tools: set[str] | tuple[str, ...] | None = None,
         workflow: Any | None = None,
+        enforce_turn_expectations: bool = True,
     ) -> None:
         self.provider = provider
         self.tools = tools
@@ -168,6 +169,7 @@ class AgentRuntime:
         tool_scope = tuple(allowed_tools or workflow_tools or ())
         self.allowed_tools = set(tool_scope) if tool_scope else None
         self.workflow = workflow
+        self.enforce_turn_expectations = enforce_turn_expectations
 
     def run_stream(
         self,
@@ -180,7 +182,7 @@ class AgentRuntime:
         if self.tools and hasattr(self.tools, "_tool_context") and self.tools._tool_context:
             self.tools._tool_context.state["session_id"] = self._session_id()
         state = RunState(started_at=time.monotonic())
-        expectation = resolve_turn_expectation(messages)
+        expectation = resolve_turn_expectation(messages) if self.enforce_turn_expectations else None
         model_name = getattr(self.provider, "name", "")
         workflow_event = self._workflow_start_event()
         if workflow_event:

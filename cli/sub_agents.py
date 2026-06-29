@@ -198,6 +198,7 @@ def run_sub_agent(
         max_tool_rounds=sub.max_tool_rounds,
         cancel_check=cancelled,
         stream_chunk_timeout=min(60.0, float(sub.timeout_seconds)),
+        enforce_turn_expectations=False,
     )
 
     return _run_sub_agent_loop(

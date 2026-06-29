@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from cli.loop_guard import resolve_turn_expectation
 from cli.runtime import AgentRuntime, partition_tool_calls
 from cli.workflows.router import WORKFLOWS
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
@@ -155,6 +156,44 @@ def test_runtime_accepts_any_portfolio_mode_for_soft_expectation():
 
     assert not [e for e in events if e["type"] == "retry"]
     assert events[-1]["text"] == "已读取持仓。"
+
+
+def test_runtime_retries_when_stock_screening_request_skips_tool():
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "我先给你讲一下选股框架。"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {"board": "chinext"}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "创业板候选已筛出。"}],
+        ]
+    )
+    tools = StubToolRegistry(tool_results={"screen_stocks": {"symbols_for_report": ["300750"]}})
+    messages = [{"role": "user", "content": "帮我筛选创业板今天有什么好股票"}]
+
+    events = list(AgentRuntime(provider, tools).run_stream(messages))
+
+    retries = [e for e in events if e["type"] == "retry"]
+    assert len(retries) == 1
+    assert retries[0]["required_tool"] == "screen_stocks"
+    assert '建议参数：board="chinext"' in retries[0]["message"]
+    assert events[-1]["text"] == "创业板候选已筛出。"
+
+
+def test_turn_expectation_does_not_screen_past_recommendation_review():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "过去推荐的表现怎么样"}])
+
+    assert expectation is None
+
+
+def test_turn_expectation_does_not_rescreen_existing_candidates():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "基于候选 A 制定攻防计划"}])
+
+    assert expectation is None
 
 
 def test_runtime_answers_all_tool_calls_when_doom_loop_aborts_round():

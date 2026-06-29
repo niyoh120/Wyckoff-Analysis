@@ -108,9 +108,65 @@ _PORTFOLIO_CONTEXT_MARKERS = (
     "portfolio",
 )
 
+_STOCK_SCREEN_HINTS = (
+    "选股",
+    "筛选",
+    "筛股票",
+    "扫描",
+    "好股票",
+    "好股",
+    "推荐股票",
+    "推荐标的",
+    "买什么",
+    "买哪",
+)
+
+_STOCK_SCREEN_TARGET_HINTS = (
+    "机会池",
+    "候选",
+)
+
+_STOCK_SCREEN_TARGET_ACTIONS = (
+    "给",
+    "找",
+    "筛",
+    "挑",
+    "跑",
+    "扫描",
+    "推荐",
+    "有什么",
+    "哪些",
+)
+
+_STOCK_SCREEN_CONTEXT_HINTS = (
+    "股票",
+    "标的",
+    "票",
+    "a股",
+    "a 股",
+)
+
+_STOCK_SCREEN_INTENT_HINTS = (
+    "推荐",
+    "机会",
+    "值得关注",
+    "值得跟踪",
+    "挑",
+)
+
+_STOCK_SCREEN_REVIEW_HINTS = (
+    "过去",
+    "之前",
+    "历史",
+    "表现",
+    "复盘",
+    "推荐记录",
+)
+
 _TOOL_CN_NAMES = {
     "portfolio": "持仓数据",
     "analyze_stock": "个股分析",
+    "screen_stocks": "全市场扫描",
 }
 
 _CURRENT_USER_OPEN = "<current-user-message>"
@@ -178,6 +234,13 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
             suggested_args={"mode": "view"},
         )
 
+    if _stock_screen_expected(last_user):
+        return TurnExpectation(
+            required_tool="screen_stocks",
+            reason="真实选股/候选请求需要先运行筛选工具。",
+            suggested_args={"board": _screen_board_hint(last_user)},
+        )
+
     previous_context = _recent_context_text(messages[:-1], limit=4)
     if (
         any(hint in last_user for hint in _PORTFOLIO_FOLLOWUP_DIAGNOSE_HINTS)
@@ -219,6 +282,30 @@ def _portfolio_diagnose_expected(text: str) -> bool:
 
 def _mentions_portfolio_subject(text: str) -> bool:
     return any(hint in text for hint in _PORTFOLIO_SUBJECT_HINTS)
+
+
+def _stock_screen_expected(text: str) -> bool:
+    if any(hint in text for hint in _STOCK_SCREEN_REVIEW_HINTS):
+        return False
+    if any(hint in text for hint in _STOCK_SCREEN_HINTS):
+        return True
+    if any(hint in text for hint in _STOCK_SCREEN_TARGET_HINTS) and any(
+        hint in text for hint in _STOCK_SCREEN_TARGET_ACTIONS
+    ):
+        return True
+    return any(hint in text for hint in _STOCK_SCREEN_CONTEXT_HINTS) and any(
+        hint in text for hint in _STOCK_SCREEN_INTENT_HINTS
+    )
+
+
+def _screen_board_hint(text: str) -> str:
+    if "创业板" in text:
+        return "chinext"
+    if "科创" in text:
+        return "star"
+    if "主板" in text:
+        return "main"
+    return "all"
 
 
 def missing_required_tool(
