@@ -329,10 +329,18 @@ def _name_score_map(result: FunnelResult, confirmed: _ConfirmedSignals) -> dict[
     for item in result.candidate_entries or []:
         code = str(item.get("code", "")).strip()
         if code:
-            out.setdefault(code, (float(item.get("score", 0.0) or 0.0), str(item.get("entry_type", "alpha"))))
+            _set_best_trigger_name(
+                out, code, float(item.get("score", 0.0) or 0.0), str(item.get("entry_type", "alpha"))
+            )
     for code, signal_type in confirmed.trigger_map.items():
-        out.setdefault(code, (confirmed.score_map.get(code, 0.0), f"{signal_type}(确认)"))
+        _set_best_trigger_name(out, code, confirmed.score_map.get(code, 0.0), f"{signal_type}(确认)")
     return out
+
+
+def _set_best_trigger_name(out: dict[str, tuple[float, str]], code: str, score: float, name: str) -> None:
+    current_score = float((out.get(code) or (float("-inf"), ""))[0])
+    if code not in out or float(score or 0.0) > current_score:
+        out[code] = (float(score or 0.0), name)
 
 
 def _append_trade_records(

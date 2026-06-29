@@ -151,3 +151,23 @@ def test_confirmed_signals_dedupes_code_and_keeps_best_score() -> None:
     assert confirmed.score_map == {"000001": 90.0}
     assert confirmed.track_map == {"000001": "Accum"}
     assert confirmed.trigger_map == {"000001": "spring"}
+
+
+def test_name_score_map_prefers_highest_scored_source_name() -> None:
+    result = _result()._replace(
+        candidate_entries=[
+            {"code": "000001", "entry_type": "launchpad", "score": 80.0},
+            {"code": "000002", "entry_type": "tight_base", "score": 70.0},
+        ]
+    )
+    confirmed = replay_mod._ConfirmedSignals(
+        codes=["000001"],
+        score_map={"000001": 90.0},
+        track_map={"000001": "Accum"},
+        trigger_map={"000001": "spring"},
+    )
+
+    got = replay_mod._name_score_map(result, confirmed)
+
+    assert got["000001"] == (90.0, "spring(确认)")
+    assert got["000002"] == (70.0, "tight_base")
