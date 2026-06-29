@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core.candidate_tracks import normalize_candidate_track
 from tools.debug_io import dump_model_input
 from tools.report_builder import generate_stock_payload
 from tools.track_prompt_builder import build_track_user_message
@@ -157,8 +158,7 @@ def _build_stock_payload(
 
 
 def _track_key(row: pd.Series) -> str:
-    track_key = str(row.get("track", "")).strip()
-    return track_key if track_key in {"Trend", "Accum"} else "Trend"
+    return normalize_candidate_track(row.get("track"))
 
 
 def _policy_text(row: pd.Series) -> str | None:

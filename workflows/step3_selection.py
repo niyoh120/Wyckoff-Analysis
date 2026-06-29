@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core.candidate_tracks import normalize_candidate_track
 from core.funnel_taxonomy import source_label
 from workflows.step3_compression import select_compressed_step3_candidates
 from workflows.step3_runtime_config import Step3RuntimeConfig
@@ -31,8 +32,7 @@ def normalize_step3_candidates(candidate_rows: list[dict]) -> pd.DataFrame:
     candidates_df["input_order"] = (
         candidates_df["input_order"].fillna(pd.Series(range(len(candidates_df)), index=candidates_df.index)).astype(int)
     )
-    candidates_df["track"] = candidates_df.get("track", "").astype(str).str.strip()
-    candidates_df.loc[~candidates_df["track"].isin(["Trend", "Accum"]), "track"] = "Trend"
+    candidates_df["track"] = candidates_df.get("track", "").map(normalize_candidate_track)
     candidates_df["policy_tag"] = ""
     return candidates_df
 
