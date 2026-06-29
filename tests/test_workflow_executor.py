@@ -125,6 +125,8 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert run["workflow"] == "dynamic_task"
         assert run["plan"]["script"]["runtime"]["script_path"].startswith(str(tmp_path / "workflow-runs"))
         assert (tmp_path / "workflow-runs" / "s1" / f"{executor.run.run_id}.json").is_file()
+        assert "错别字" in provider.calls[0]["system_prompt"]
+        assert "运行上下文" in provider.calls[0]["messages"][0]["content"]
         assert stored_events[0]["event_type"] == "workflow_plan"
         done_event = next(row for row in stored_events if row["event_type"] == "workflow_step_done")
         detail = done_event["payload"]["source"]["agent_detail"]

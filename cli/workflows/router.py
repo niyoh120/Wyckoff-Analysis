@@ -1,4 +1,4 @@
-"""Conservative workflow router for selecting when to enter dynamic workflows."""
+"""Workflow router for model-authored task scripts."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ WORKFLOWS: dict[str, WorkflowContext] = {
             "delegate_to_trading",
             *ASK_TOOLS,
         ),
-        system_hint="当前 workflow 是持仓复盘。先读取或诊断持仓；不要主动跑回测、全市场扫描或写文件。",
+        system_hint="当前 workflow 是历史持仓复盘上下文。先用工具读取事实，再让模型决定最小 task 拆分。",
     ),
     "backtest": WorkflowContext(
         name="backtest",
@@ -33,7 +33,7 @@ WORKFLOWS: dict[str, WorkflowContext] = {
             "delegate_to_research",
             *ASK_TOOLS,
         ),
-        system_hint="当前 workflow 是策略回测。缺少时间、参数或股票池时先调用 ask_user_question 澄清。",
+        system_hint="当前 workflow 是历史策略回测上下文。优先用已有默认值和工具探测可推断参数。",
     ),
     "stock_screen": WorkflowContext(
         name="stock_screen",
@@ -48,7 +48,7 @@ WORKFLOWS: dict[str, WorkflowContext] = {
             "delegate_to_analysis",
             *ASK_TOOLS,
         ),
-        system_hint="当前 workflow 是选股扫描。优先跑筛选或查询候选池；不要读取用户持仓，除非用户明确要求。",
+        system_hint="当前 workflow 是历史选股扫描上下文。优先让模型生成必要的数据收集和筛选 task。",
     ),
     "stock_diagnosis": WorkflowContext(
         name="stock_diagnosis",
@@ -62,7 +62,7 @@ WORKFLOWS: dict[str, WorkflowContext] = {
             "delegate_to_analysis",
             *ASK_TOOLS,
         ),
-        system_hint="当前 workflow 是个股诊断。围绕用户点名股票分析价格、结构、触发位和失效位。",
+        system_hint="当前 workflow 是历史个股诊断上下文。先识别股票，再围绕结构和风险生成 task。",
     ),
     "dynamic_task": WorkflowContext(
         name="dynamic_task",
@@ -84,14 +84,17 @@ WORKFLOWS: dict[str, WorkflowContext] = {
             "delegate_to_trading",
             *ASK_TOOLS,
         ),
-        system_hint="当前 workflow 是用户显式要求的动态任务。让模型生成 phase/task；缺少关键参数时先澄清。",
+        system_hint=(
+            "当前 workflow 是模型生成的动态任务。让模型自行决定 phase/task；"
+            "先处理错别字、简称和口语省略，并用工具验证可能解释。"
+        ),
     ),
     "general_chat": WorkflowContext(name="general_chat", label="自由对话"),
 }
 
 
 def route_workflow(user_text: str) -> WorkflowContext:
-    """Select a bounded workflow for the current turn using conservative rules."""
+    """Select only the runtime lane; model planning owns task semantics."""
 
     text = user_text.lower()
     resumed = _resume_workflow_context(text)
@@ -117,7 +120,8 @@ def build_workflow_system_prompt(workflow: WorkflowContext | None) -> str:
         f"{route_line}"
         f"Allowed tools for this turn: {tools}\n"
         f"{workflow.system_hint}\n"
-        "If the user goal is underspecified, call ask_user_question instead of guessing.\n"
+        "Prefer model inference and tool probing for typos, aliases, and omitted context. "
+        "Ask the user only when the missing input cannot be inferred safely.\n"
         "</workflow-runtime>"
     )
 
@@ -167,4 +171,4 @@ def _resume_workflow_context(text: str) -> WorkflowContext | None:
         workflow = WORKFLOWS[name]
         if name in text or workflow.label in text:
             return workflow
-    return WORKFLOWS["general_chat"]
+    return WORKFLOWS["dynamic_task"]

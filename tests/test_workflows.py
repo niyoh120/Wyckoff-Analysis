@@ -40,6 +40,15 @@ def test_build_workflow_prompt_is_empty_for_general_chat():
     assert workflow.route_reason == "普通工具型对话交给直接 agent"
 
 
+def test_workflow_prompt_prefers_model_inference_before_clarifying():
+    workflow = route_workflow("用 workflow 给我做磁场诊断")
+    prompt = build_workflow_system_prompt(workflow)
+
+    assert "错别字" in prompt
+    assert "工具验证" in prompt
+    assert "Ask the user only" in prompt
+
+
 def test_route_workflow_explicit_dynamic_opt_in():
     workflow = route_workflow("用 workflow 帮我研究一下今天的市场风险")
 
@@ -128,4 +137,11 @@ def test_route_workflow_resume_uses_original_label():
     workflow = route_workflow("继续 workflow wf_1\n类型: 持仓复盘")
 
     assert workflow.name == "portfolio_review"
+    assert workflow.route_reason == "用户明确要求继续已有 workflow"
+
+
+def test_route_workflow_resume_without_label_stays_dynamic():
+    workflow = route_workflow("继续 workflow wf_1")
+
+    assert workflow.name == "dynamic_task"
     assert workflow.route_reason == "用户明确要求继续已有 workflow"
