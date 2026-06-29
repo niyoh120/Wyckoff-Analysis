@@ -159,6 +159,7 @@ def _add_watch_score(rank_df: pd.DataFrame, top_sectors: list[str]) -> pd.DataFr
     hot_sector_set = set(top_sectors or [])
     rank_df["hot_bonus"] = rank_df["industry"].isin(hot_sector_set).astype(float) * 0.02
     rank_df["sector_bonus"] = rank_df["sector_state"].map(lambda x: float(SECTOR_STATE_SCORE_BONUS.get(str(x), 0.0)))
+    rank_df["extension_penalty"] = rank_df.apply(_extension_penalty, axis=1)
     rank_df["watch_score"] = (
         0.25 * rank_df["q20"]
         + 0.20 * rank_df["q5"]
@@ -167,8 +168,17 @@ def _add_watch_score(rank_df: pd.DataFrame, top_sectors: list[str]) -> pd.DataFr
         + 0.30 * rank_df["trigger_q"]
         + rank_df["hot_bonus"]
         + rank_df["sector_bonus"]
+        - rank_df["extension_penalty"]
     )
     return rank_df
+
+
+def _extension_penalty(row: pd.Series) -> float:
+    ret20 = float(row.get("ret20", 0.0) or 0.0)
+    ret5 = float(row.get("ret5", 0.0) or 0.0)
+    ret20_penalty = min(max((ret20 - 45.0) / 55.0, 0.0), 1.0) * 0.30
+    ret5_penalty = min(max((ret5 - 18.0) / 22.0, 0.0), 1.0) * 0.10
+    return ret20_penalty + ret5_penalty
 
 
 def rank_l3_candidates(
@@ -187,6 +197,7 @@ def rank_l3_candidates(
       0.25 * q20 (20日动量) + 0.20 * q5 (5日) + 0.05 * q3 (3日)
       + 0.20 * dry_q (缩量程度) + 0.30 * trigger_q (Wyckoff 触发强度)
       + hot_bonus (热门板块) + sector_bonus (板块轮动状态)
+      - extension_penalty (短线过热/加速延展)
     """
     if not l3_symbols:
         return ([], {})
@@ -203,8 +214,8 @@ def rank_l3_candidates(
     )
     rank_df = _add_watch_score(_add_rank_quantiles(_fill_rank_inputs(rank_df)), top_sectors)
     rank_df = rank_df.sort_values(
-        by=["watch_score", "trigger_score", "ret20", "ret5", "ret3", "min_vol_ratio_5d", "code"],
-        ascending=[False, False, False, False, False, True, True],
+        by=["watch_score", "trigger_score", "extension_penalty", "ret20", "ret5", "ret3", "min_vol_ratio_5d", "code"],
+        ascending=[False, False, True, False, False, False, True, True],
         kind="stable",
     ).reset_index(drop=True)
     ranked_symbols = rank_df["code"].astype(str).tolist()

@@ -232,6 +232,28 @@ class TestCandidateRanker:
         assert score_map["000001"] == score_map["000002"]
         assert ranked == ["000001", "000002", "000003"]
 
+    def test_rank_l3_candidates_penalizes_overextended_momentum(self):
+        from core.candidate_ranker import rank_l3_candidates
+
+        dates = pd.date_range("2026-01-01", periods=30, freq="D").strftime("%Y-%m-%d")
+        healthy = [10.0] * 9 + [10.0 + i * 0.10 for i in range(21)]
+        overheated = [10.0] * 9 + [10.0 + i * 0.55 for i in range(21)]
+        df_map = {
+            "000001": pd.DataFrame({"date": dates, "close": healthy, "volume": [1000] * 30}),
+            "000002": pd.DataFrame({"date": dates, "close": overheated, "volume": [1000] * 30}),
+        }
+
+        ranked, score_map = rank_l3_candidates(
+            ["000002", "000001"],
+            df_map,
+            {"000001": "行业A", "000002": "行业A"},
+            {"sos": [("000001", 8.0), ("000002", 8.0)]},
+            [],
+        )
+
+        assert ranked[0] == "000001"
+        assert score_map["000001"] > score_map["000002"]
+
 
 # ── tools/market_regime ──
 

@@ -9,6 +9,7 @@ from rich.markdown import Markdown
 from cli.tui import (
     _display_final_response,
     _display_workflow_plan_event,
+    _pending_workflow_reply_intent,
     _pop_lines,
     _replace_streamed_response,
     _settle_markdown_render,
@@ -135,3 +136,10 @@ def test_workflow_control_intent_requires_explicit_control_action():
     assert _workflow_control_intent("批准 workflow wf_abc123") == ("approve", "wf_abc123")
     assert _workflow_control_intent("暂停 workflow wf_abc123") == ("pause", "wf_abc123")
     assert _workflow_control_intent("停止 workflow wf_abc123") == ("stop", "wf_abc123")
+
+
+def test_pending_workflow_reply_intent_accepts_chat_style_approval():
+    assert _pending_workflow_reply_intent("好") == "approve"
+    assert _pending_workflow_reply_intent("开始吧") == "approve"
+    assert _pending_workflow_reply_intent("取消") == "deny"
+    assert _pending_workflow_reply_intent("解释一下 workflow 是什么") == ""

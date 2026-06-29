@@ -41,6 +41,33 @@ _KITTY_ENABLE = "\x1b[>1u"
 _KITTY_DISABLE = "\x1b[<u"
 _CSI_U_IME_RE = re.compile(r"\x1b\[\d+(?::\d+)*;;([\d:]+)u")
 _WORKFLOW_ID_RE = re.compile(r"\bwf_[A-Za-z0-9_-]+\b")
+_PENDING_WORKFLOW_APPROVE_REPLIES = {
+    "go",
+    "ok",
+    "y",
+    "yes",
+    "可以",
+    "好",
+    "好的",
+    "开始",
+    "开始吧",
+    "继续",
+    "继续吧",
+    "跑",
+    "跑吧",
+    "运行",
+}
+_PENDING_WORKFLOW_DENY_REPLIES = {
+    "n",
+    "no",
+    "不用",
+    "不用了",
+    "不要",
+    "先不要",
+    "取消",
+    "取消吧",
+    "算了",
+}
 _BUSY_FORCE_EXIT_WINDOW = 1.5
 _HARD_EXIT_DELAY = 1.0
 
@@ -527,6 +554,15 @@ def _workflow_control_intent(text: str) -> tuple[str, str] | None:
     if any(token in text for token in ("查看", "显示", "打开", "看看")) or "show" in lower:
         return "show", run_id
     return None
+
+
+def _pending_workflow_reply_intent(text: str) -> str:
+    normalized = re.sub(r"[\s。！!,.，、]+", "", text.lower())
+    if normalized in _PENDING_WORKFLOW_APPROVE_REPLIES:
+        return "approve"
+    if normalized in _PENDING_WORKFLOW_DENY_REPLIES:
+        return "deny"
+    return ""
 
 
 def _split_workflow_name_args(name_part: str, rest: str) -> tuple[str, str]:
@@ -1829,6 +1865,9 @@ class WyckoffTUI(App):
 
     def _handle_workflow_control_text(self, text: str, log) -> bool:
         intent = _workflow_control_intent(text)
+        if not intent and len(self._pending_workflows) == 1:
+            pending_intent = _pending_workflow_reply_intent(text)
+            intent = (pending_intent, "") if pending_intent else None
         if not intent:
             return False
         action, run_id = intent
@@ -3071,7 +3110,7 @@ class WyckoffTUI(App):
             model_name=state.model_name,
             provider_name=state.provider_name,
         )
-        ack = f"workflow {run_id} 等待批准。使用 /workflow approve {run_id} 运行，/workflow deny {run_id} 取消。"
+        ack = f"workflow {run_id} 等待批准。回复“开始”运行，回复“取消”停止。"
         self._messages.append({"role": "assistant", "content": ack})
         self._chatlog_save(
             "assistant",
@@ -3082,7 +3121,7 @@ class WyckoffTUI(App):
                 {"workflow_pending_approval": True, "workflow_run_id": run_id}, ensure_ascii=False
             ),
         )
-        write(Text.from_markup(f"  [yellow]等待批准[/yellow] [dim]/workflow approve {escape(run_id)}[/dim]"))
+        write(Text.from_markup("  [yellow]等待批准[/yellow] [dim]回复“开始”运行 · 回复“取消”停止[/dim]"))
         scroll()
         return True
 
