@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from workflows.step4_models import PortfolioState, PositionItem
 from workflows.step4_payload import (
     build_candidate_meta_map,
     candidate_context_line,
     collect_step4_candidates,
+    prepare_step4_payload_context,
     prepend_candidate_context,
 )
 
@@ -104,3 +107,36 @@ def test_collect_step4_candidates_caps_external_report_fallback_codes() -> None:
     assert [item["code"] for item in candidate_items] == ["000390", "000391"]
     assert allowed_codes == {"000390", "000391"}
     assert set(meta_map) == {"000390", "000391"}
+
+
+def test_prepare_step4_payload_context_reports_external_candidate_truncation(monkeypatch) -> None:
+    portfolio = PortfolioState(
+        free_cash=10000,
+        total_equity=10000,
+        positions=[PositionItem(code="000001", name="平安银行", cost=10, buy_dt="2026-05-10", shares=1000)],
+    )
+    captured: dict[str, list[str]] = {}
+    monkeypatch.setattr(
+        "workflows.step4_payload.format_position_payload",
+        lambda *_args, **_kwargs: ("", [], 0.0, {}, {}),
+    )
+
+    def fake_format_candidate_payload(items, *_args, **_kwargs):
+        captured["codes"] = [item["code"] for item in items]
+        return "candidate payload", [], {}, {}
+
+    monkeypatch.setattr("workflows.step4_payload.format_candidate_payload", fake_format_candidate_payload)
+
+    payload = prepare_step4_payload_context(
+        portfolio,
+        SimpleNamespace(),
+        "000390 000391 000392 000001 000390",
+        candidate_meta=None,
+        atr_period=14,
+        max_workers=1,
+        enforce_target_trade_date=False,
+        max_external_report_candidates=2,
+    )
+
+    assert captured["codes"] == ["000390", "000391"]
+    assert payload.candidate_failures == ["external_report_candidates_truncated: kept=2, dropped=1, limit=2"]

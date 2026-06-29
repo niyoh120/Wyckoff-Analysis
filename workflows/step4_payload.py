@@ -62,6 +62,15 @@ def prepare_step4_payload_context(
         max_workers=max_workers,
         enforce_target_trade_date=enforce_target_trade_date,
     )
+    truncation_note = _external_report_candidate_truncation_note(
+        portfolio,
+        candidate_meta,
+        external_report,
+        selected_count=len(candidate_codes),
+        max_external_report_candidates=max_external_report_candidates,
+    )
+    if truncation_note:
+        candidate_failures.append(truncation_note)
     latest_price_map.update(candidate_latest_price_map)
     atr_map.update(candidate_atr_map)
     return Step4PayloadContext(
@@ -127,6 +136,36 @@ def _external_report_candidate_item(code: str) -> dict[str, str]:
         "tag": "外部报告候选",
         "source_type": "external_report",
     }
+
+
+def _external_report_candidate_truncation_note(
+    portfolio: PortfolioState,
+    candidate_meta: list[dict] | None,
+    external_report: str,
+    *,
+    selected_count: int,
+    max_external_report_candidates: int,
+) -> str:
+    if candidate_meta is not None or max_external_report_candidates <= 0:
+        return ""
+    held_codes = {p.code for p in portfolio.positions}
+    total_candidates = _external_report_candidate_count(external_report, held_codes)
+    if total_candidates <= selected_count:
+        return ""
+    dropped = total_candidates - selected_count
+    return (
+        "external_report_candidates_truncated:"
+        f" kept={selected_count}, dropped={dropped}, limit={max_external_report_candidates}"
+    )
+
+
+def _external_report_candidate_count(external_report: str, held_codes: set[str]) -> int:
+    seen: set[str] = set()
+    for code in extract_stock_codes(external_report):
+        if code in held_codes or code in seen:
+            continue
+        seen.add(code)
+    return len(seen)
 
 
 def build_candidate_meta_map(
