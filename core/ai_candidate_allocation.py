@@ -323,9 +323,10 @@ def _advance_track(
         idx += 1
         if code in state.selected_seen:
             continue
-        return _try_add_candidate(
+        if _try_add_candidate(
             code, track_name, state, policy, trend_fill_map, accum_fill_map, sector_map, max_per_sector
-        ), idx
+        ):
+            return True, idx
     return False, idx
 
 
