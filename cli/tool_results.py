@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -20,7 +21,24 @@ _SAFE_RE = re.compile(r"[^a-zA-Z0-9_.-]+")
 def serialize_tool_result(result: Any) -> str:
     """Serialize a tool result exactly once for message context."""
 
-    return json.dumps(result, ensure_ascii=False, default=str)
+    return json.dumps(_json_safe(result), ensure_ascii=False, default=str, allow_nan=False)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if hasattr(value, "item"):
+        try:
+            return _json_safe(value.item())
+        except Exception:
+            return str(value)
+    return value
 
 
 def _safe_part(value: str) -> str:

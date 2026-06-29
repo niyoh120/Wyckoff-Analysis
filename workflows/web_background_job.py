@@ -31,7 +31,7 @@ def _sanitize(obj: Any) -> Any:
         from contextlib import suppress
 
         with suppress(Exception):
-            return obj.item()
+            return _sanitize(obj.item())
     return str(obj)
 
 
@@ -39,7 +39,7 @@ def _write_result(path: str, payload: dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("w", encoding="utf-8") as f:
-        json.dump(_sanitize(payload), f, ensure_ascii=False, indent=2)
+        json.dump(_sanitize(payload), f, ensure_ascii=False, indent=2, allow_nan=False)
 
 
 def _load_payload(raw: str) -> dict[str, Any]:

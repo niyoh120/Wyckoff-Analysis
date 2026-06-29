@@ -9,6 +9,14 @@ from types import ModuleType
 from workflows import web_background_job as workflow
 
 
+class _Scalar:
+    def __init__(self, value: float):
+        self.value = value
+
+    def item(self) -> float:
+        return self.value
+
+
 def test_load_payload_accepts_only_dict_json() -> None:
     assert workflow._load_payload('{"job": "x"}') == {"job": "x"}
     assert workflow._load_payload("[1, 2]") == {}
@@ -25,6 +33,7 @@ def test_write_result_sanitizes_dates(tmp_path) -> None:
             "items": {1, 2},
             "nan_float": float("nan"),
             "inf_float": float("inf"),
+            "scalar_nan": _Scalar(float("nan")),
         },
     )
 
@@ -33,6 +42,7 @@ def test_write_result_sanitizes_dates(tmp_path) -> None:
     assert sorted(payload["items"]) == [1, 2]
     assert payload["nan_float"] is None
     assert payload["inf_float"] is None
+    assert payload["scalar_nan"] is None
 
 
 def test_run_funnel_screen_sanitizes_nonfinite_trigger_scores(monkeypatch) -> None:

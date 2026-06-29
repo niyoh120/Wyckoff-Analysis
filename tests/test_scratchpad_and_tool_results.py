@@ -3,7 +3,15 @@ from __future__ import annotations
 import json
 
 from cli.scratchpad import AgentScratchpad
-from cli.tool_results import INLINE_TOOL_RESULT_MAX_CHARS, format_tool_result_for_context
+from cli.tool_results import INLINE_TOOL_RESULT_MAX_CHARS, format_tool_result_for_context, serialize_tool_result
+
+
+class _Scalar:
+    def __init__(self, value: float):
+        self.value = value
+
+    def item(self) -> float:
+        return self.value
 
 
 def test_scratchpad_records_jsonl_and_redacts_secrets(tmp_path):
@@ -29,6 +37,24 @@ def test_scratchpad_records_jsonl_and_redacts_secrets(tmp_path):
     assert tool_entry["result"]["token"] == "***REDACTED***"
     assert tool_entry["durationMs"] == 12
     assert lines[2]["contextArchive"]["archive_ref"] == "archive://session_x/ctx_1"
+
+
+def test_tool_result_serialization_replaces_nonfinite_numbers() -> None:
+    content = serialize_tool_result(
+        {
+            "nan_score": float("nan"),
+            "inf_score": float("inf"),
+            "nested": [float("-inf"), _Scalar(float("nan")), 12.5],
+        }
+    )
+
+    assert "NaN" not in content
+    assert "Infinity" not in content
+    assert json.loads(content) == {
+        "nan_score": None,
+        "inf_score": None,
+        "nested": [None, None, 12.5],
+    }
 
 
 def test_large_tool_result_is_persisted_with_preview(tmp_path, monkeypatch):
