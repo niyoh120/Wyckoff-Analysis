@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
@@ -112,7 +113,17 @@ def rerank_selected_codes(codes: list[str], score_map: dict[str, float]) -> list
         if code_s and code_s not in seen:
             deduped.append(code_s)
             seen.add(code_s)
-    return sorted(deduped, key=lambda c: (-float(score_map.get(c, 0.0) or 0.0), c))
+    return sorted(deduped, key=lambda c: (-candidate_score_value(score_map.get(c)), c))
+
+
+def candidate_score_value(raw: object) -> float:
+    if raw is None or isinstance(raw, bool):
+        return 0.0
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    return value if math.isfinite(value) else 0.0
 
 
 def _normalize_keys(trigger_keys: Iterable[str]) -> set[str]:
@@ -322,7 +333,7 @@ def apply_loss_guard(
             code,
             regime,
             code_to_trigger_keys.get(code, []),
-            float(code_to_total_score.get(code, 0.0) or 0.0),
+            candidate_score_value(code_to_total_score.get(code)),
             str(channel_map.get(code, "") or ""),
             df_map,
             config=config,

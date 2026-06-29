@@ -8,6 +8,7 @@ from core.ai_candidate_allocation import AiCandidateAllocationConfig, allocate_a
 from core.candidate_policy import (
     CandidatePolicyConfig,
     apply_loss_guard,
+    candidate_score_value,
     is_tradeable_l4_trigger_combo,
     loss_guard_reason,
     trigger_sets_by_code,
@@ -320,5 +321,5 @@ def _select_quota_mode(
 def _apply_min_score(selected_codes: list[str], score_map: dict[str, float]) -> list[str]:
     min_score = float(getattr(FunnelConfig, "min_funnel_score", 0.15) or 0)
     if min_score > 0 and score_map:
-        return [code for code in selected_codes if score_map.get(code, 0.0) >= min_score]
+        return [code for code in selected_codes if candidate_score_value(score_map.get(code)) >= min_score]
     return selected_codes

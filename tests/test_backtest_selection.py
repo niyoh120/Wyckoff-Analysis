@@ -4,7 +4,12 @@ import pandas as pd
 
 from core.backtest_metrics import calc_stratified_stats
 from core.backtest_selection import select_ai_input_codes
-from core.candidate_policy import CandidatePolicyConfig, apply_regime_position_filter, loss_guard_reason
+from core.candidate_policy import (
+    CandidatePolicyConfig,
+    apply_regime_position_filter,
+    loss_guard_reason,
+    rerank_selected_codes,
+)
 from core.wyckoff_engine import FunnelResult
 
 
@@ -33,6 +38,15 @@ def _low_confirmation_df(rows: int = 80) -> pd.DataFrame:
             "volume": [1000.0 for _ in closes],
         }
     )
+
+
+def test_rerank_selected_codes_treats_invalid_scores_as_zero() -> None:
+    ranked = rerank_selected_codes(
+        ["BAD", "GOOD", "NAN", "INF"],
+        {"BAD": "bad", "GOOD": 2.0, "NAN": float("nan"), "INF": float("inf")},
+    )
+
+    assert ranked == ["GOOD", "BAD", "INF", "NAN"]
 
 
 def test_all_formal_l4_selection_excludes_stage_only_candidates() -> None:
