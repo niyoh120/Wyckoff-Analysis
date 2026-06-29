@@ -228,6 +228,51 @@ def test_portfolio_style_concentrated_swap_replaces_weak_holding() -> None:
     assert summary["cash_portfolio_style_swaps"] == 1
 
 
+def test_portfolio_style_concentrated_swap_sanitizes_nonfinite_scores() -> None:
+    rows = [
+        {
+            "code": "000001",
+            "name": "S1",
+            "signal_date": "2026-01-02",
+            "entry_date": "2026-01-05",
+            "exit_date": "2026-02-01",
+            "entry_close": 10.0,
+            "exit_close": 9.0,
+            "score": float("inf"),
+        },
+        {
+            "code": "000002",
+            "name": "S2",
+            "signal_date": "2026-01-02",
+            "entry_date": "2026-01-05",
+            "exit_date": "2026-02-01",
+            "entry_close": 10.0,
+            "exit_close": 9.0,
+            "score": float("inf"),
+        },
+        {
+            "code": "000003",
+            "name": "S3",
+            "signal_date": "2026-01-06",
+            "entry_date": "2026-01-07",
+            "exit_date": "2026-02-03",
+            "entry_close": 10.0,
+            "exit_close": 12.0,
+            "score": 2.0,
+        },
+    ]
+
+    closed, _nav, summary = simulate_cash_portfolio(
+        pd.DataFrame(rows),
+        CashPortfolioConfig(initial_cash=100_000, portfolio_style="concentrated_swap"),
+        mark_price_fn=lambda code, day: 10.2 if code == "000001" and day == date(2026, 1, 7) else None,
+    )
+
+    assert "style_swap" in set(closed["exit_reason"])
+    assert summary["cash_portfolio_style_swaps"] == 1
+    assert set(closed["score"]) == {0.0, 2.0}
+
+
 def test_expand_portfolio_styles_preset() -> None:
     assert expand_portfolio_styles("all_core") == [
         "slot_equal_4",

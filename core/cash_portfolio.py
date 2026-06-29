@@ -9,6 +9,8 @@ from typing import Any
 
 import pandas as pd
 
+from core.candidate_policy import candidate_score_value
+
 SUPPORTED_PORTFOLIO_STYLES = (
     "slot_equal_4",
     "probe_add",
@@ -115,7 +117,7 @@ def _active_codes(active: list[dict[str, Any]]) -> set[str]:
 
 
 def _row_score(row: pd.Series) -> float:
-    return float(pd.to_numeric(pd.Series([row.get("score", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    return candidate_score_value(row.get("score"))
 
 
 def _shares_for_budget(price: float, cash: float, budget: float, config: CashPortfolioConfig) -> int:
@@ -363,7 +365,7 @@ def _is_trend_signal(row: pd.Series) -> bool:
 def _weakest_active_code(active: list[dict[str, Any]]) -> tuple[str, float]:
     scores: dict[str, float] = {}
     for pos in active:
-        scores[pos["code"]] = max(scores.get(pos["code"], float("-inf")), float(pos.get("score", 0.0)))
+        scores[pos["code"]] = max(scores.get(pos["code"], float("-inf")), candidate_score_value(pos.get("score")))
     return min(scores.items(), key=lambda item: item[1]) if scores else ("", 0.0)
 
 
