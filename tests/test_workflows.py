@@ -15,20 +15,20 @@ def test_route_workflow_keeps_portfolio_turn_direct():
     assert workflow.route_reason == "普通工具型对话交给直接 agent"
 
 
-def test_route_workflow_routes_task_like_typo_to_dynamic_workflow():
+def test_route_workflow_keeps_task_like_typo_direct_for_model_inference():
     workflow = route_workflow("给我做磁场诊断")
 
-    assert workflow.name == "dynamic_task"
-    assert workflow.route_reason == "检测到自然语言任务请求"
-    assert workflow.route_matches == ("诊断",)
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "普通工具型对话交给直接 agent"
+    assert workflow.route_matches == ()
 
 
-def test_route_workflow_routes_backtest_task_to_dynamic_workflow():
+def test_route_workflow_keeps_single_tool_backtest_direct():
     workflow = route_workflow("帮我回测 2023 年参数")
 
-    assert workflow.name == "dynamic_task"
-    assert workflow.route_reason == "检测到自然语言任务请求"
-    assert workflow.route_matches == ("回测",)
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "普通工具型对话交给直接 agent"
+    assert workflow.route_matches == ()
 
 
 def test_route_workflow_keeps_stock_diagnosis_direct():
@@ -164,7 +164,7 @@ def test_dispatch_uses_workflow_executor_for_explicit_dynamic_turn():
     assert isinstance(runtime, WorkflowExecutor)
 
 
-def test_dispatch_uses_workflow_executor_for_natural_task_turn():
+def test_dispatch_uses_direct_runtime_for_natural_task_turn():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
         StubToolRegistry(),
@@ -172,8 +172,8 @@ def test_dispatch_uses_workflow_executor_for_natural_task_turn():
         user_text="给我做磁场诊断",
     )
 
-    assert workflow.name == "dynamic_task"
-    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
 
 
 def test_route_workflow_resume_uses_original_label():
