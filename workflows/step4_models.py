@@ -44,6 +44,7 @@ class DecisionItem:
     wyckoff_tag: str = ""
     source_type: str = ""
     capital_migration_bonus: float | None = None
+    system_reject_reason: str = ""
 
 
 @dataclass

@@ -557,6 +557,8 @@ class WyckoffOrderEngine:
         return self._build_buy_ticket(ctx, price_for_calc, max_entry_price, chase_profile, wyckoff_context)
 
     def _process_one(self, dec: DecisionItem) -> ExecutionTicket:
+        if dec.system_reject_reason:
+            return self._no_trade(dec, dec.name or dec.code, dec.system_reject_reason)
         ctx = self._prepare_order_context(dec)
         if isinstance(ctx, ExecutionTicket):
             return ctx

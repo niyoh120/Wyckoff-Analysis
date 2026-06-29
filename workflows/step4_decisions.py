@@ -57,9 +57,10 @@ def complete_step4_decisions(
             )
         )
     decisions = _attach_candidate_meta(decisions, candidate_meta_map)
-    decisions, dropped, max_new_names = trim_new_buy_decisions(
+    held_codes = {p.code for p in portfolio.positions}
+    kept_decisions, dropped, max_new_names = trim_new_buy_decisions(
         decisions,
-        held_codes={p.code for p in portfolio.positions},
+        held_codes=held_codes,
         market_regime=market_regime,
         limits=runtime_config.new_buy_limits,
     )
@@ -70,7 +71,13 @@ def complete_step4_decisions(
             max_new_names,
             ",".join(dropped),
         )
-    return decisions
+    return _append_rejected_new_buys(
+        kept_decisions,
+        decisions,
+        dropped,
+        market_regime=market_regime,
+        max_new_names=max_new_names,
+    )
 
 
 def backfill_step4_decision_market_data(
@@ -137,6 +144,26 @@ def _attach_candidate_meta(
             )
         )
     return out
+
+
+def _append_rejected_new_buys(
+    kept_decisions: list[DecisionItem],
+    all_decisions: list[DecisionItem],
+    dropped_codes: list[str],
+    *,
+    market_regime: str,
+    max_new_names: int,
+) -> list[DecisionItem]:
+    if not dropped_codes:
+        return kept_decisions
+    dropped_set = set(dropped_codes)
+    reason = f"组合级限购拦截: regime={market_regime}, max_new_buy_names={max_new_names}"
+    rejected = [
+        replace(dec, system_reject_reason=reason)
+        for dec in all_decisions
+        if dec.code in dropped_set and dec.action in {"PROBE", "ATTACK"}
+    ]
+    return kept_decisions + rejected
 
 
 def _fetch_step4_decision_market_data(

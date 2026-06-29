@@ -292,6 +292,54 @@ def test_step4_new_buy_trim_uses_capital_migration_as_score_tiebreaker() -> None
     assert dropped == ["000001"]
 
 
+def test_step4_new_buy_cap_rejected_candidate_becomes_no_trade_ticket() -> None:
+    weak = _decision("PROBE")
+    weak.code = "000001"
+    weak.name = "弱候选"
+    weak.funnel_score = 70
+    weak.source_type = "supabase_recommendation_tracking"
+    weak.wyckoff_track = "Accum"
+    weak.wyckoff_stage = "Accum_C"
+    strong = _decision("PROBE")
+    strong.code = "000002"
+    strong.name = "强候选"
+    strong.funnel_score = 90
+    strong.source_type = "supabase_recommendation_tracking"
+    strong.wyckoff_track = "Trend"
+    strong.wyckoff_stage = "Markup"
+
+    decisions = complete_step4_decisions(
+        [weak, strong],
+        PortfolioState(free_cash=50000, total_equity=100000, positions=[]),
+        {},
+        "NEUTRAL",
+        step4.Step4RuntimeConfig(new_buy_limits=NewBuyLimits(neutral=1)),
+    )
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={"000002": 9.5},
+        atr_map={"000002": 0.2},
+        market_regime="NEUTRAL",
+    )
+
+    tickets, cash = engine.process(decisions)
+    report = render_trade_ticket("NEUTRAL", 100000, 50000, cash, tickets, atr_period=14)
+    rows = step4_results.build_step4_ticket_rows(tickets)
+    by_code = {ticket.code: ticket for ticket in tickets}
+
+    assert by_code["000002"].status == "APPROVED"
+    assert by_code["000001"].status == "NO_TRADE"
+    assert "组合级限购拦截" in by_code["000001"].reason
+    assert "max_new_buy_names=1" in by_code["000001"].reason
+    assert "score=70.00" in by_code["000001"].wyckoff_context
+    assert "组合级限购拦截" in report
+    rejected_row = next(row for row in rows if row["code"] == "000001")
+    assert rejected_row["status"] == "NO_TRADE"
+    assert "audit=reject:组合级限购拦截" in rejected_row["reason"]
+
+
 def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):
     monkeypatch.setenv("STEP4_TRADING_DAYS", "0")
     monkeypatch.setenv("STEP4_MAX_OUTPUT_TOKENS", "bad")
