@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from core.candidate_policy import candidate_score_value
 from core.candidate_ranker import TRIGGER_LABELS
 from core.candidate_tracks import best_candidate_entry_map, candidate_entry_key
 from core.funnel_report import FunnelReportMaps
@@ -285,7 +286,7 @@ def _build_review_score_context(
         capital_migration_badge_map=capital_migration_badge_map,
         capital_migration_bonus_map=capital_migration_bonus_map,
     )
-    sorted_codes = sorted(code_to_reasons.keys(), key=lambda c: -code_to_total_score.get(c, 0))
+    sorted_codes = sorted(code_to_reasons.keys(), key=lambda c: -candidate_score_value(code_to_total_score.get(c)))
     return _ReviewScoreContext(
         review_triggers,
         formal_hit_set,
@@ -399,7 +400,9 @@ def _add_trigger_reasons(
         for code, score in review_triggers.get(key, []):
             code_to_reasons.setdefault(code, []).append(label)
             code_to_trigger_keys.setdefault(code, []).append(key)
-            code_to_total_score[code] = code_to_total_score.get(code, 0.0) + score
+            code_to_total_score[code] = candidate_score_value(code_to_total_score.get(code)) + candidate_score_value(
+                score
+            )
 
 
 def _add_candidate_entry_reasons(
@@ -416,7 +419,8 @@ def _add_candidate_entry_reasons(
         code_to_reasons.setdefault(code, [])
         code_to_trigger_keys.setdefault(code, [])
         code_to_total_score[code] = max(
-            float(code_to_total_score.get(code, 0.0) or 0.0), float(item.get("score", 0.0) or 0.0)
+            candidate_score_value(code_to_total_score.get(code)),
+            candidate_score_value(item.get("score")),
         )
         if reason_text not in code_to_reasons[code]:
             code_to_reasons[code].append(reason_text)

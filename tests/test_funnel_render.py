@@ -91,3 +91,39 @@ def test_render_context_normalizes_candidate_entry_keys_and_keeps_best_entry(mon
     assert ctx.candidate_entry_map["000001"]["entry_type"] == "Early-Breakout"
     assert ctx.code_to_trigger_keys["000001"] == ["early_breakout"]
     assert ctx.code_to_total_score["000001"] == 90.0
+
+
+def test_render_context_sanitizes_invalid_trigger_scores(monkeypatch) -> None:
+    import workflows.funnel_render_context as render_context
+
+    monkeypatch.setattr(render_context, "load_stock_name_map", lambda: {})
+    monkeypatch.setattr(render_context, "fetch_sector_map", lambda: {})
+
+    ctx = render_context.build_render_context(
+        {"sos": [("BAD", "bad"), ("INF", float("inf")), ("NAN", float("nan")), ("GOOD", 4.25)]},
+        {},
+    )
+
+    assert ctx.code_to_total_score == {"BAD": 0.0, "INF": 0.0, "NAN": 0.0, "GOOD": 4.25}
+    assert ctx.formal_sorted_codes[0] == "GOOD"
+
+
+def test_render_context_sanitizes_invalid_candidate_entry_scores(monkeypatch) -> None:
+    import workflows.funnel_render_context as render_context
+
+    monkeypatch.setattr(render_context, "load_stock_name_map", lambda: {})
+    monkeypatch.setattr(render_context, "fetch_sector_map", lambda: {})
+
+    ctx = render_context.build_render_context(
+        {},
+        {
+            "candidate_entries": [
+                {"code": "BAD", "entry_type": "launchpad", "score": "bad"},
+                {"code": "INF", "entry_type": "launchpad", "score": float("inf")},
+                {"code": "NAN", "entry_type": "launchpad", "score": float("nan")},
+                {"code": "GOOD", "entry_type": "launchpad", "score": 8.0},
+            ]
+        },
+    )
+
+    assert ctx.code_to_total_score == {"BAD": 0.0, "INF": 0.0, "NAN": 0.0, "GOOD": 8.0}
