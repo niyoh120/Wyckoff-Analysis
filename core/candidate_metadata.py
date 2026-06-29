@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
+from core.candidate_policy import candidate_score_value
 from core.candidate_tracks import (
     candidate_entry_key,
     normalize_candidate_entry_key,
@@ -158,10 +160,7 @@ def _score(item: dict[str, Any]) -> float:
 
 
 def _float(raw: Any) -> float:
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return 0.0
+    return candidate_score_value(raw)
 
 
 def _optional_float(raw: Any) -> float | None:
@@ -169,7 +168,7 @@ def _optional_float(raw: Any) -> float | None:
         value = float(raw)
     except (TypeError, ValueError):
         return None
-    return value
+    return value if math.isfinite(value) else None
 
 
 def _text(raw: Any) -> str | None:

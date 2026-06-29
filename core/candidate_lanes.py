@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from core.candidate_tracks import candidate_entry_key
+from core.candidate_tracks import candidate_entry_key, candidate_entry_score, sanitized_candidate_entry
 
 
 def build_l1_candidate_lane_entries(
@@ -28,7 +28,7 @@ def build_l1_candidate_lane_entries(
         for code in l1_symbols
     ]
     valid = [row for row in rows if row]
-    valid.sort(key=lambda item: (-float(item.get("score", 0.0) or 0.0), str(item.get("code"))))
+    valid.sort(key=lambda item: (-candidate_entry_score(item), str(item.get("code"))))
     return valid[: max(int(limit), 0)] if limit > 0 else valid
 
 
@@ -41,7 +41,7 @@ def merge_candidate_entries(*groups: list[dict[str, Any]]) -> list[dict[str, Any
                 continue
             current = merged.get(code)
             if current is None or _entry_rank(item) < _entry_rank(current):
-                merged[code] = item
+                merged[code] = sanitized_candidate_entry(item)
     return sorted(merged.values(), key=_entry_rank)
 
 
@@ -241,7 +241,7 @@ def _entry_rank(item: dict[str, Any]) -> tuple[int, float, str]:
         "wyckoff_structure": 4,
     }
     rank_key = _rank_key(item, priority)
-    return (priority.get(rank_key, 20), -float(item.get("score", 0.0) or 0.0), str(item.get("code", "")))
+    return (priority.get(rank_key, 20), -candidate_entry_score(item), str(item.get("code", "")))
 
 
 def _rank_key(item: dict[str, Any], priority: dict[str, int]) -> str:

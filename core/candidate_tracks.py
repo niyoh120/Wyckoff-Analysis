@@ -6,6 +6,8 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from core.candidate_policy import candidate_score_value
+
 ACCUM_TRACK_KEYS = {
     "accum",
     "accumulation",
@@ -105,10 +107,7 @@ def candidate_entry_sort_key(item: Mapping[str, Any]) -> tuple[int, float, str]:
 
 
 def candidate_entry_score(item: Mapping[str, Any]) -> float:
-    try:
-        return float(item.get("score", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
+    return candidate_score_value(item.get("score"))
 
 
 def stronger_candidate_entry(new_item: Mapping[str, Any], current: Mapping[str, Any]) -> bool:
@@ -127,8 +126,14 @@ def best_candidate_entry_map(entries: Iterable[Mapping[str, Any]]) -> dict[str, 
             continue
         current = result.get(code)
         if current is None or stronger_candidate_entry(item, current):
-            result[code] = dict(item or {})
+            result[code] = sanitized_candidate_entry(item)
     return result
+
+
+def sanitized_candidate_entry(item: Mapping[str, Any]) -> dict[str, Any]:
+    out = dict(item or {})
+    out["score"] = candidate_entry_score(item)
+    return out
 
 
 def _track_for_key(key: str) -> str:

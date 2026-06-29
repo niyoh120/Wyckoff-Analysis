@@ -71,3 +71,13 @@ def test_merge_candidate_entries_normalizes_lane_key_aliases() -> None:
     )
 
     assert [item["entry_type"] for item in merged] == ["Trend-Lane-Pullback"]
+
+
+def test_merge_candidate_entries_treats_invalid_scores_as_zero() -> None:
+    merged = merge_candidate_entries(
+        [{"code": "000001", "entry_type": "spring", "score": float("nan")}],
+        [{"code": "000001", "entry_type": "spring", "score": 80.0}],
+        [{"code": "000002", "entry_type": "spring", "score": float("inf")}],
+    )
+
+    assert [(item["code"], item["score"]) for item in merged] == [("000001", 80.0), ("000002", 0.0)]
