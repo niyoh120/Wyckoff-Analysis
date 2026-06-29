@@ -224,7 +224,7 @@ def test_dispatch_model_can_override_explicit_workflow_marker_to_direct():
     assert isinstance(runtime, AgentRuntime)
 
 
-def test_dispatch_keeps_low_confidence_dynamic_decision_direct():
+def test_dispatch_respects_low_confidence_dynamic_decision():
     provider = RouterDecisionProvider('{"mode":"dynamic_workflow","confidence":0.51,"reason":"可能需要多阶段"}')
 
     runtime, workflow = build_turn_runtime(
@@ -234,9 +234,26 @@ def test_dispatch_keeps_low_confidence_dynamic_decision_direct():
         user_text="分阶段看看这个概念怎么理解",
     )
 
-    assert workflow.name == "general_chat"
-    assert workflow.route_reason == "模型动态 workflow 置信度不足，直接处理：可能需要多阶段"
-    assert isinstance(runtime, AgentRuntime)
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_reason == "模型判断需要动态 workflow：可能需要多阶段"
+    assert workflow.route_confidence == 0.51
+    assert isinstance(runtime, WorkflowExecutor)
+
+
+def test_dispatch_treats_confidence_as_diagnostic_only():
+    provider = RouterDecisionProvider('{"mode":"dynamic_workflow","reason":"模型认为需要拆分"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我完整复盘持仓，再给出攻防计划",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_confidence == 0.0
+    assert workflow.route_reason == "模型判断需要动态 workflow：模型认为需要拆分"
+    assert isinstance(runtime, WorkflowExecutor)
 
 
 def test_dispatch_resume_workflow_bypasses_model_router():

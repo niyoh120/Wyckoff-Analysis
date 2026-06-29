@@ -13,7 +13,6 @@ from cli.workflows.router import WORKFLOWS, route_resume_workflow, route_workflo
 
 logger = logging.getLogger(__name__)
 
-MIN_WORKFLOW_CONFIDENCE = 0.67
 _MAX_REASON_CHARS = 120
 _MODE_FIELDS = ("mode", "route", "decision", "type")
 _CONFIDENCE_FIELDS = ("confidence", "score", "probability", "置信度")
@@ -68,7 +67,7 @@ dynamic_workflow:
 要求:
 - 按用户最可能的任务意图判断，不要把表达形式当作澄清理由。
 - 不要按关键词机械判断。
-- 不确定时选 direct。
+- confidence 只表示你的把握，runtime 不会用它覆盖你的 mode 判断。
 - 只输出 JSON，不要 Markdown。
 
 JSON schema:
@@ -100,8 +99,6 @@ def _context_from_model_decision(decision: dict[str, Any]) -> WorkflowContext:
 def _model_route_reason(decision: dict[str, Any]) -> str:
     if _should_use_workflow(decision):
         return f"模型判断需要动态 workflow：{decision['reason']}"
-    if decision["mode"] == "dynamic_workflow":
-        return f"模型动态 workflow 置信度不足，直接处理：{decision['reason']}"
     return f"模型判断直接处理：{decision['reason']}"
 
 
@@ -277,4 +274,4 @@ def _parse_confidence(value: Any) -> float | None:
 def _should_use_workflow(decision: dict[str, Any] | None) -> bool:
     if not decision:
         return False
-    return decision["mode"] == "dynamic_workflow" and decision["confidence"] >= MIN_WORKFLOW_CONFIDENCE
+    return decision["mode"] == "dynamic_workflow"
