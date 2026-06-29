@@ -34,6 +34,7 @@ class Step3RuntimeConfig:
     require_confirmed_operation: bool = True
     enforce_target_trade_date: bool = False
     llm_fallback_providers: tuple[str, ...] = ()
+    history_max_workers: int = 6
 
 
 def step3_runtime_config_from_env() -> Step3RuntimeConfig:
@@ -60,6 +61,7 @@ def step3_runtime_config_from_env() -> Step3RuntimeConfig:
         require_confirmed_operation=_env_bool("STEP3_REQUIRE_CONFIRMED_OPERATION", True),
         enforce_target_trade_date=_env_bool("STEP3_ENFORCE_TARGET_TRADE_DATE", False),
         llm_fallback_providers=_env_csv("STEP3_LLM_FALLBACK_PROVIDERS"),
+        history_max_workers=max(_env_int("STEP3_HISTORY_MAX_WORKERS", 6), 1),
     )
 
 

@@ -79,6 +79,7 @@ def test_step3_runtime_config_from_env_normalizes_values(monkeypatch):
     monkeypatch.setenv("STEP3_SKIP_LLM", "yes")
     monkeypatch.setenv("STEP3_GEMINI_MODEL_FALLBACK", "gemini-backup")
     monkeypatch.setenv("STEP3_LLM_FALLBACK_PROVIDERS", "efficiency, gemini")
+    monkeypatch.setenv("STEP3_HISTORY_MAX_WORKERS", "0")
 
     cfg = step3_runtime_config_from_env()
 
@@ -90,6 +91,7 @@ def test_step3_runtime_config_from_env_normalizes_values(monkeypatch):
     assert cfg.skip_llm is True
     assert cfg.gemini_model_fallback == "gemini-backup"
     assert cfg.llm_fallback_providers == ("efficiency", "gemini")
+    assert cfg.history_max_workers == 1
 
 
 def test_step3_runtime_config_rejects_legacy_report_style(monkeypatch):

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from functools import partial
 
 import pandas as pd
@@ -26,6 +28,15 @@ _append_spot_bar_if_needed = partial(
     env_prefix="STEP3",
     zero_fallback=True,
 )
+
+
+@dataclass(frozen=True)
+class _HistoryLoadResult:
+    item_order: int
+    item: dict
+    code: str
+    df: pd.DataFrame | None
+    failed_reason: str
 
 
 def load_step3_market_context(
@@ -57,24 +68,86 @@ def build_step3_candidate_bundle(
     context: Step3MarketContext,
     runtime_config: Step3RuntimeConfig,
 ) -> Step3CandidateBundle:
+    results = _load_step3_histories(items, context, runtime_config)
+    return _step3_candidate_bundle_from_history(results, context)
+
+
+def _load_step3_histories(
+    items: list[dict],
+    context: Step3MarketContext,
+    runtime_config: Step3RuntimeConfig,
+) -> list[_HistoryLoadResult]:
+    max_workers = min(max(runtime_config.history_max_workers, 1), len(items) or 1)
+    if max_workers <= 1 or len(items) <= 1:
+        return [
+            _load_step3_history_result(
+                item_order,
+                item,
+                context.window,
+                runtime_config.enforce_target_trade_date,
+            )
+            for item_order, item in enumerate(items)
+        ]
+    return _load_step3_histories_parallel(items, context, runtime_config, max_workers)
+
+
+def _load_step3_histories_parallel(
+    items: list[dict],
+    context: Step3MarketContext,
+    runtime_config: Step3RuntimeConfig,
+    max_workers: int,
+) -> list[_HistoryLoadResult]:
+    ordered: list[_HistoryLoadResult | None] = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="step3-history") as pool:
+        futures = [
+            pool.submit(
+                _load_step3_history_result,
+                item_order,
+                item,
+                context.window,
+                runtime_config.enforce_target_trade_date,
+            )
+            for item_order, item in enumerate(items)
+        ]
+        for future in as_completed(futures):
+            result = future.result()
+            ordered[result.item_order] = result
+    return [result for result in ordered if result is not None]
+
+
+def _load_step3_history_result(
+    item_order: int,
+    item: dict,
+    window: object,
+    enforce_target_trade_date: bool,
+) -> _HistoryLoadResult:
+    code = str(item.get("code") or "").strip()
+    if not code:
+        return _HistoryLoadResult(item_order, item, "", None, "missing code")
+    try:
+        df, failed_reason = _load_step3_history(
+            code,
+            window,
+            enforce_target_trade_date=enforce_target_trade_date,
+        )
+        return _HistoryLoadResult(item_order, item, code, df, failed_reason or "")
+    except Exception as e:
+        return _HistoryLoadResult(item_order, item, code, None, str(e))
+
+
+def _step3_candidate_bundle_from_history(
+    results: list[_HistoryLoadResult],
+    context: Step3MarketContext,
+) -> Step3CandidateBundle:
     failed: list[tuple[str, str]] = []
     candidate_rows: list[dict] = []
     code_to_df: dict[str, pd.DataFrame] = {}
-    for item_order, item in enumerate(items):
-        code = item["code"]
-        try:
-            df, failed_reason = _load_step3_history(
-                code,
-                context.window,
-                enforce_target_trade_date=runtime_config.enforce_target_trade_date,
-            )
-            if failed_reason or df is None:
-                failed.append((code, failed_reason or "empty dataframe"))
-                continue
-            code_to_df[code] = df
-            candidate_rows.append(_build_step3_candidate_row(item_order, item, df, context))
-        except Exception as e:
-            failed.append((code, str(e)))
+    for result in results:
+        if result.failed_reason or result.df is None:
+            failed.append((result.code, result.failed_reason or "empty dataframe"))
+            continue
+        code_to_df[result.code] = result.df
+        candidate_rows.append(_build_step3_candidate_row(result.item_order, result.item, result.df, context))
     return Step3CandidateBundle(
         candidates_df=normalize_step3_candidates(candidate_rows),
         code_to_df=code_to_df,
