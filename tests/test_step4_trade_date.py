@@ -5,7 +5,7 @@ import workflows.step4_results as step4_results
 from workflows import step4_portfolio
 from workflows import step4_rebalancer as step4
 from workflows.step4_decision_parser import max_new_buy_names, trim_new_buy_decisions
-from workflows.step4_decisions import complete_step4_decisions
+from workflows.step4_decisions import backfill_step4_decision_market_data, complete_step4_decisions
 from workflows.step4_models import (
     CandidateMeta,
     DecisionItem,
@@ -338,6 +338,35 @@ def test_step4_new_buy_cap_rejected_candidate_becomes_no_trade_ticket() -> None:
     rejected_row = next(row for row in rows if row["code"] == "000001")
     assert rejected_row["status"] == "NO_TRADE"
     assert "audit=reject:组合级限购拦截" in rejected_row["reason"]
+
+
+def test_step4_market_backfill_skips_system_rejected_decisions(monkeypatch) -> None:
+    rejected = _decision("PROBE")
+    rejected.code = "000001"
+    rejected.system_reject_reason = "组合级限购拦截"
+    active = _decision("PROBE")
+    active.code = "000002"
+    fetched: list[str] = []
+
+    def fake_fetch(code, _window, _runtime_config):
+        fetched.append(code)
+        return code, 0.2, 9.5
+
+    monkeypatch.setattr("workflows.step4_decisions._fetch_step4_decision_market_data", fake_fetch)
+    latest_price_map: dict[str, float] = {}
+    atr_map: dict[str, float] = {}
+
+    backfill_step4_decision_market_data(
+        [rejected, active],
+        SimpleNamespace(),
+        latest_price_map,
+        atr_map,
+        step4.Step4RuntimeConfig(max_workers=1),
+    )
+
+    assert fetched == ["000002"]
+    assert latest_price_map == {"000002": 9.5}
+    assert atr_map == {"000002": 0.2}
 
 
 def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):

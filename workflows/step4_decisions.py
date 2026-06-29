@@ -87,7 +87,11 @@ def backfill_step4_decision_market_data(
     atr_map: dict[str, float],
     runtime_config: Step4RuntimeConfig,
 ) -> None:
-    missing_codes = [decision.code for decision in decisions if decision.code not in latest_price_map]
+    missing_codes = [
+        decision.code
+        for decision in decisions
+        if not decision.system_reject_reason and decision.code not in latest_price_map
+    ]
     if not missing_codes:
         return
     with ThreadPoolExecutor(max_workers=runtime_config.max_workers) as executor:
