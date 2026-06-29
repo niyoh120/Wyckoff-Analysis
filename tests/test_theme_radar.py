@@ -67,6 +67,33 @@ def test_theme_radar_ranks_long_horizon_leaders_inside_theme() -> None:
     assert candidates[0]["near_high_120d"] is True
 
 
+def test_theme_radar_keeps_one_best_theme_per_strategic_candidate() -> None:
+    snapshot = build_theme_radar_snapshot(
+        trade_date="2026-05-27",
+        concept_heat=[
+            {"name": "半导体", "pct": 5.0, "net_inflow": 900_000_000},
+            {"name": "光模块", "pct": 2.0, "net_inflow": 100_000_000},
+        ],
+        concept_history={"2026-05-27": {"半导体": {"pct": 5.0, "inflow": 900_000_000}}},
+        concept_map={
+            "000001": ["半导体", "CPO"],
+            "000002": ["光模块"],
+        },
+        sector_map={"000001": "半导体", "000002": "通信设备"},
+        df_map={
+            "000001": _compound_frame(10, 0.005),
+            "000002": _compound_frame(10, 0.004),
+        },
+        config=ThemeRadarConfig(min_theme_score=0.0, min_stock_score=0.0),
+        name_map={"000001": "跨主题龙头", "000002": "跟随股"},
+    )
+
+    rows = [item for item in snapshot["strategic_candidates"] if item["code"] == "000001"]
+
+    assert len(rows) == 1
+    assert rows[0]["theme"] == "芯片半导体"
+
+
 def test_theme_radar_filters_non_actionable_index_noise() -> None:
     snapshot = build_theme_radar_snapshot(
         trade_date="2026-05-27",

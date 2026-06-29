@@ -452,7 +452,35 @@ def _build_candidates(
             score = _clamp(0.50 * row["leader_score"] + 0.30 * row["structure_score"] + 0.20 * theme.score)
             if score >= cfg.min_stock_score:
                 candidates.append(_candidate_from_row(row, theme, score))
-    return sorted(candidates, key=lambda item: item.stock_score, reverse=True)
+    return _rank_unique_candidates(candidates)
+
+
+def _rank_unique_candidates(candidates: list[StrategicCandidate]) -> list[StrategicCandidate]:
+    best_by_code: dict[str, StrategicCandidate] = {}
+    for candidate in candidates:
+        current = best_by_code.get(candidate.code)
+        if current is None or _candidate_quality_key(candidate) > _candidate_quality_key(current):
+            best_by_code[candidate.code] = candidate
+    return sorted(best_by_code.values(), key=_candidate_sort_key)
+
+
+def _candidate_quality_key(candidate: StrategicCandidate) -> tuple[float, float, float, int]:
+    return (
+        float(candidate.stock_score),
+        float(candidate.theme_score),
+        float(candidate.leader_score),
+        -int(candidate.theme_rank),
+    )
+
+
+def _candidate_sort_key(candidate: StrategicCandidate) -> tuple[float, float, float, int, str]:
+    return (
+        -float(candidate.stock_score),
+        -float(candidate.theme_score),
+        -float(candidate.leader_score),
+        int(candidate.theme_rank),
+        candidate.code,
+    )
 
 
 def _candidate_rows(
