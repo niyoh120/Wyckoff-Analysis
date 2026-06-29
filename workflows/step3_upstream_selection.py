@@ -34,7 +34,7 @@ def select_upstream_priority_candidates(
     else:
         selected_df = _select_capped_upstream_candidates(df, runtime_config, context_cap)
     _log_upstream_selection(candidates_df, selected_df, context_cap)
-    return selected_df.sort_values("input_order", kind="stable").reset_index(drop=True)
+    return selected_df.reset_index(drop=True)
 
 
 def _select_capped_upstream_candidates(
