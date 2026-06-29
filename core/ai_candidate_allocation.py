@@ -267,10 +267,9 @@ def _select_by_quota(
     max_per_sector: int,
 ) -> SelectionState:
     state = SelectionState()
-    trend_candidates = _dedup_order([c for c, _s, _fill in pools.trend])
-    accum_candidates = _dedup_order([c for c, _s, _fill in pools.accum])
-    trend_fill_map = {code: is_fill for code, _score, is_fill in pools.trend}
-    accum_fill_map = {code: is_fill for code, _score, is_fill in pools.accum}
+    trend_candidates, accum_candidates = _track_candidate_codes(pools, policy)
+    trend_fill_map = _track_fill_map(pools.trend)
+    accum_fill_map = _track_fill_map(pools.accum)
     trend_idx = accum_idx = 0
 
     while _can_select_more(state, policy, trend_idx, accum_idx, trend_candidates, accum_candidates):
@@ -317,6 +316,46 @@ def _select_by_quota(
         max_per_sector,
     )
     return state
+
+
+def _track_candidate_codes(pools: CandidatePools, policy: AllocationPolicy) -> tuple[list[str], list[str]]:
+    owner = _best_track_by_code(pools, policy)
+    trend_candidates = [
+        code for code in _dedup_order([c for c, _s, _fill in pools.trend]) if owner.get(code) == "Trend"
+    ]
+    accum_candidates = [
+        code for code in _dedup_order([c for c, _s, _fill in pools.accum]) if owner.get(code) == "Accum"
+    ]
+    return trend_candidates, accum_candidates
+
+
+def _best_track_by_code(pools: CandidatePools, policy: AllocationPolicy) -> dict[str, str]:
+    best: dict[str, tuple[tuple[float, int, int], str]] = {}
+    if policy.trend_quota > 0:
+        _record_track_owner(best, "Trend", pools.trend)
+    if policy.accum_quota > 0:
+        _record_track_owner(best, "Accum", pools.accum)
+    return {code: track for code, (_key, track) in best.items()}
+
+
+def _record_track_owner(
+    best: dict[str, tuple[tuple[float, int, int], str]],
+    track: str,
+    candidates: list[tuple[str, float, bool]],
+) -> None:
+    track_priority = 1 if track == "Trend" else 0
+    for order, (code, score, _is_fill) in enumerate(candidates):
+        key = (float(score or 0.0), track_priority, -order)
+        if code and (code not in best or key > best[code][0]):
+            best[code] = (key, track)
+
+
+def _track_fill_map(candidates: list[tuple[str, float, bool]]) -> dict[str, bool]:
+    out: dict[str, bool] = {}
+    for code, _score, is_fill in candidates:
+        if code not in out or not is_fill:
+            out[code] = bool(is_fill)
+    return out
 
 
 def _backfill_remaining_slots(

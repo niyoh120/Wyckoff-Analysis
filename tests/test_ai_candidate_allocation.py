@@ -139,6 +139,41 @@ class TestAllocateAiCandidates:
         assert accum == []
         assert scores["000001"] > 1.0
 
+    def test_cross_track_duplicate_uses_stronger_track_assignment(self):
+        result = FunnelResult(
+            layer1_symbols=["000001"],
+            layer2_symbols=["000001"],
+            layer3_symbols=["000001"],
+            top_sectors=[],
+            triggers={"evr": [("000001", 1.0)]},
+            stage_map={},
+            markup_symbols=[],
+            exit_signals={},
+            channel_map={},
+            leader_radar_symbols=[],
+            leader_radar_rows=[],
+            candidate_entries=[
+                {"code": "000001", "score": 80.0, "track": "accumulation", "entry_type": "spring"},
+            ],
+        )
+
+        trend, accum, scores = allocate_ai_candidates(
+            result,
+            [],
+            "NEUTRAL",
+            policy_override={
+                "total_cap": 1,
+                "trend_quota": 1,
+                "accum_quota": 1,
+                "max_trend_l3_fill": 0,
+                "max_accum_l3_fill": 0,
+            },
+        )
+
+        assert trend == []
+        assert accum == ["000001"]
+        assert scores["000001"] == 80.0
+
     def test_sector_cap_skips_blocked_candidate_and_continues_filling_quota(self):
         result = FunnelResult(
             layer1_symbols=["000001", "000002", "000003"],
