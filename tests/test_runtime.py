@@ -130,8 +130,31 @@ def test_runtime_emits_retry_event_when_required_tool_is_skipped():
     retries = [e for e in events if e["type"] == "retry"]
     assert len(retries) == 1
     assert retries[0]["required_tool"] == "portfolio"
+    assert '建议参数：mode="diagnose"' in retries[0]["message"]
     assert "不要重复计划" in retries[0]["message"]
     assert events[-1]["text"] == "体检完成。"
+
+
+def test_runtime_accepts_any_portfolio_mode_for_soft_expectation():
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "view"}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "已读取持仓。"}],
+        ]
+    )
+    tools = StubToolRegistry(tool_results={"portfolio": {"positions": []}})
+    messages = [{"role": "user", "content": "账户里这些仓位有什么风险"}]
+
+    events = list(AgentRuntime(provider, tools).run_stream(messages))
+
+    assert not [e for e in events if e["type"] == "retry"]
+    assert events[-1]["text"] == "已读取持仓。"
 
 
 def test_runtime_answers_all_tool_calls_when_doom_loop_aborts_round():

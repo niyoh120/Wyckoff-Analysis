@@ -132,6 +132,16 @@ class TestLoopGuardRequiredArgs:
         exp = TurnExpectation(required_tool="portfolio", reason="test")
         assert missing_required_tool(exp, [("portfolio", {})]) is False
 
+    def test_suggested_args_do_not_block_other_args(self):
+        from cli.loop_guard import TurnExpectation, missing_required_tool
+
+        exp = TurnExpectation(
+            required_tool="portfolio",
+            reason="test",
+            suggested_args={"mode": "diagnose"},
+        )
+        assert missing_required_tool(exp, [("portfolio", {"mode": "view"})]) is False
+
     def test_backward_compat_str_entries(self):
         from cli.loop_guard import TurnExpectation, missing_required_tool
 

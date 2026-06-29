@@ -44,6 +44,13 @@ RuntimeEvent = dict[str, Any]
 
 STREAM_CHUNK_TIMEOUT = 60.0
 _INTERNAL_RETRY_MARKER = "_internal_retry"
+_DIRECT_TOOL_USE_PROMPT = """\
+
+<tool-use>
+用户可能有错别字、谐音、简称或口语省略。先按上下文推断最可能含义，并用可用工具验证事实。
+涉及“我/我的/持仓/仓位/账户/买了啥”等当前账户问题时，先调用 portfolio 读取真实数据，不要反问持仓代码。
+ask_user_question 只在工具和上下文都无法恢复关键参数，或涉及高风险确认时使用。
+</tool-use>"""
 
 
 def _iter_with_timeout(stream, timeout: float, cancel_check: Callable[[], bool] | None = None):
@@ -253,6 +260,8 @@ class AgentRuntime:
 
     def _prepare_system_prompt(self, system_prompt: str) -> str:
         system_prompt += build_workflow_system_prompt(self.workflow)
+        if not self.workflow:
+            system_prompt += _DIRECT_TOOL_USE_PROMPT
         try:
             return self._append_skills_prompt(system_prompt)
         except Exception:

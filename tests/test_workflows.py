@@ -103,6 +103,25 @@ def test_dispatch_uses_direct_runtime_for_portfolio_turn():
     assert isinstance(runtime, AgentRuntime)
 
 
+def test_direct_runtime_prompt_prefers_model_inference_before_clarifying():
+    provider = ScriptedProvider([[{"type": "text_delta", "text": "ok"}]])
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="给我做磁场诊断",
+    )
+
+    events = list(runtime.run_stream([{"role": "user", "content": "给我做磁场诊断"}]))
+
+    assert workflow.name == "general_chat"
+    assert events[-1]["text"] == "ok"
+    prompt = provider.calls[0]["system_prompt"]
+    assert "错别字" in prompt
+    assert "portfolio" in prompt
+    assert "ask_user_question 只在" in prompt
+
+
 def test_direct_stock_turn_does_not_expose_web_fetch():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),

@@ -19,6 +19,7 @@ class TurnExpectation:
 
     required_tool: str
     reason: str
+    suggested_args: dict[str, str] = field(default_factory=dict)
     required_args: dict[str, str] = field(default_factory=dict)
 
 
@@ -193,15 +194,15 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
     if _portfolio_diagnose_expected(last_user):
         return TurnExpectation(
             required_tool="portfolio",
-            reason="持仓体检必须先调用持仓诊断工具。",
-            required_args={"mode": "diagnose"},
+            reason="持仓体检需要先读取真实持仓数据。",
+            suggested_args={"mode": "diagnose"},
         )
 
     if _portfolio_view_expected(last_user):
         return TurnExpectation(
             required_tool="portfolio",
-            reason="持仓列表查询必须先拉真实持仓数据。",
-            required_args={"mode": "view"},
+            reason="持仓列表查询需要先读取真实持仓数据。",
+            suggested_args={"mode": "view"},
         )
 
     previous_context = _recent_context_text(messages[:-1], limit=4)
@@ -214,8 +215,8 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
     ) and any(marker in previous_context for marker in _PORTFOLIO_CONTEXT_MARKERS):
         return TurnExpectation(
             required_tool="portfolio",
-            reason="上一轮上下文已经明确在讨论持仓，这一轮体检需要继续做持仓诊断。",
-            required_args={"mode": "diagnose"},
+            reason="上一轮上下文已经明确在讨论持仓，这一轮需要先读取真实持仓数据。",
+            suggested_args={"mode": "diagnose"},
         )
 
     if (
@@ -228,8 +229,8 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
     ):
         return TurnExpectation(
             required_tool="portfolio",
-            reason="用户承接上一轮持仓体检/分析邀请，必须继续调用持仓诊断工具。",
-            required_args={"mode": "diagnose"},
+            reason="用户承接上一轮持仓体检/分析邀请，需要先读取真实持仓数据。",
+            suggested_args={"mode": "diagnose"},
         )
 
     return None
@@ -287,6 +288,9 @@ def build_retry_user_message(expectation: TurnExpectation, assistant_text: str =
     if expectation.required_args:
         pairs = ", ".join(f'{k}="{v}"' for k, v in expectation.required_args.items())
         call_hint = f"`{expectation.required_tool}({pairs})`"
+    elif expectation.suggested_args:
+        pairs = ", ".join(f'{k}="{v}"' for k, v in expectation.suggested_args.items())
+        call_hint = f"`{expectation.required_tool}`（建议参数：{pairs}，可按上下文调整）"
     else:
         call_hint = f"`{expectation.required_tool}`"
     return (

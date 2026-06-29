@@ -58,7 +58,8 @@ def test_resolve_turn_expectation_handles_colloquial_portfolio_view():
 
     assert expectation is not None
     assert expectation.required_tool == "portfolio"
-    assert expectation.required_args == {"mode": "view"}
+    assert expectation.required_args == {}
+    assert expectation.suggested_args == {"mode": "view"}
 
 
 def test_resolve_turn_expectation_handles_portfolio_risk_without_fixed_phrase():
@@ -66,7 +67,8 @@ def test_resolve_turn_expectation_handles_portfolio_risk_without_fixed_phrase():
 
     assert expectation is not None
     assert expectation.required_tool == "portfolio"
-    assert expectation.required_args == {"mode": "diagnose"}
+    assert expectation.required_args == {}
+    assert expectation.suggested_args == {"mode": "diagnose"}
 
 
 def test_resolve_turn_expectation_does_not_hijack_explicit_stock_after_portfolio_context():
