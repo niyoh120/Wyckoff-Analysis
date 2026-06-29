@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from core.ai_candidate_allocation import AiCandidateAllocationConfig, allocate_ai_candidates, candidate_entry_sort_key
+from core.ai_candidate_allocation import AiCandidateAllocationConfig, allocate_ai_candidates
 from core.candidate_policy import (
     CandidatePolicyConfig,
     apply_loss_guard,
@@ -13,7 +13,7 @@ from core.candidate_policy import (
     trigger_sets_by_code,
 )
 from core.candidate_ranker import rank_l3_candidates
-from core.candidate_tracks import candidate_entry_key, normalize_candidate_track
+from core.candidate_tracks import candidate_entry_key, candidate_entry_sort_key, normalize_candidate_track
 from core.sector_rotation import analyze_sector_rotation
 from core.wyckoff_engine import FunnelConfig, FunnelResult
 

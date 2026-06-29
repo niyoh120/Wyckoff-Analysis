@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.candidate_tracks import candidate_entry_key, normalize_candidate_track
+from core.candidate_tracks import candidate_entry_sort_key, normalize_candidate_track
 
 TREND_CHANNEL_TAGS = {"主升通道", "趋势延续", "点火破局", "加速突破"}
 ACCUM_CHANNEL_TAGS = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护盘"}
@@ -55,29 +55,6 @@ class SelectionState:
     sector_counts: dict[str, int] = field(default_factory=dict)
     trend_l3_fill_used: int = 0
     accum_l3_fill_used: int = 0
-
-
-def candidate_entry_sort_key(item: dict[str, Any]) -> tuple[int, float, str]:
-    priority = {
-        "launchpad": 0,
-        "tight_base": 1,
-        "early_breakout": 2,
-        "mainline": 3,
-        "trend_lane_pullback": 4,
-        "trend_breakout": 5,
-        "sector_strength": 6,
-        "volatile_pullback": 7,
-        "accumulation_ready": 8,
-        "spring": 9,
-        "lps": 10,
-        "compression": 11,
-        "trend_pullback": 12,
-        "wyckoff_structure": 13,
-        "sos": 14,
-        "evr": 15,
-    }
-    entry_type = candidate_entry_key(item, priority.keys())
-    return (priority.get(entry_type, 10), -float(item.get("score", 0.0) or 0.0), str(item.get("code", "")))
 
 
 def fit_ai_candidate_quotas(total_cap: int, trend_quota: int, accum_quota: int) -> tuple[int, int]:

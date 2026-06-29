@@ -11,6 +11,7 @@ from datetime import date, timedelta
 import pandas as pd
 
 from core.candidate_ranker import TRIGGER_LABELS
+from core.candidate_tracks import best_candidate_entry_map
 from core.funnel_taxonomy import (
     REVIEW_STAGE_BASE_REJECT,
     REVIEW_STAGE_CANDIDATE_HIT,
@@ -215,12 +216,7 @@ def blocked_exit_signal_map(exit_signals: dict[str, dict] | None) -> dict[str, d
 
 
 def build_candidate_entry_map(entries: list[dict]) -> dict[str, dict]:
-    result: dict[str, dict] = {}
-    for item in entries or []:
-        code = str((item or {}).get("code", "")).strip()
-        if code:
-            result[code] = dict(item or {})
-    return result
+    return best_candidate_entry_map(entries)
 
 
 def explain_candidate_entry(code: str, entry_map: dict[str, dict]) -> str:

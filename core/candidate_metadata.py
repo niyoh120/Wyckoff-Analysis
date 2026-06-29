@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from core.ai_candidate_allocation import candidate_entry_sort_key
-from core.candidate_tracks import candidate_entry_key, normalize_candidate_entry_key
+from core.candidate_tracks import (
+    candidate_entry_key,
+    normalize_candidate_entry_key,
+    stronger_candidate_entry,
+)
 
 STRATEGY_VERSION_CANDIDATE_LANE_V1 = "candidate_lane_v1"
 
@@ -134,11 +137,7 @@ def normalize_signal_key(raw: Any) -> str:
 
 
 def _stronger_candidate_entry(new_item: dict[str, Any], current: dict[str, Any]) -> bool:
-    new_score = _score(new_item)
-    current_score = _score(current)
-    if new_score != current_score:
-        return new_score > current_score
-    return candidate_entry_sort_key(new_item) < candidate_entry_sort_key(current)
+    return stronger_candidate_entry(new_item, current)
 
 
 def _mainline_score_fields(item: dict[str, Any]) -> dict[str, Any]:

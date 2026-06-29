@@ -70,3 +70,24 @@ def test_render_context_scores_capital_migration_theme_candidates(monkeypatch) -
     assert ctx.formal_sorted_codes == ["000001", "000002"]
     assert "资金迁入:光模块(+4.5)" in ctx.code_to_reasons["000001"]
     assert "资金撤出:创新药医药(-4.0)" in ctx.code_to_reasons["000002"]
+
+
+def test_render_context_normalizes_candidate_entry_keys_and_keeps_best_entry(monkeypatch) -> None:
+    import workflows.funnel_render_context as render_context
+
+    monkeypatch.setattr(render_context, "load_stock_name_map", lambda: {})
+    monkeypatch.setattr(render_context, "fetch_sector_map", lambda: {})
+
+    ctx = render_context.build_render_context(
+        {},
+        {
+            "candidate_entries": [
+                {"code": "000001", "entry_type": "launchpad", "score": 80.0},
+                {"code": "000001", "entry_type": "Early-Breakout", "score": 90.0},
+            ]
+        },
+    )
+
+    assert ctx.candidate_entry_map["000001"]["entry_type"] == "Early-Breakout"
+    assert ctx.code_to_trigger_keys["000001"] == ["early_breakout"]
+    assert ctx.code_to_total_score["000001"] == 90.0

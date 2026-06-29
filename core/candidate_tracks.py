@@ -27,6 +27,25 @@ TREND_TRACK_KEYS = {
     "trend_pullback",
 }
 
+CANDIDATE_ENTRY_PRIORITY = {
+    "launchpad": 0,
+    "tight_base": 1,
+    "early_breakout": 2,
+    "mainline": 3,
+    "trend_lane_pullback": 4,
+    "trend_breakout": 5,
+    "sector_strength": 6,
+    "volatile_pullback": 7,
+    "accumulation_ready": 8,
+    "spring": 9,
+    "lps": 10,
+    "compression": 11,
+    "trend_pullback": 12,
+    "wyckoff_structure": 13,
+    "sos": 14,
+    "evr": 15,
+}
+
 
 def normalize_candidate_track(raw: Any, *, default: str = "Trend") -> str:
     """Return canonical Trend/Accum for candidate entry track values."""
@@ -61,3 +80,39 @@ def candidate_entry_key(
         if not known or key in known:
             return key
     return fallback
+
+
+def candidate_entry_sort_key(item: Mapping[str, Any]) -> tuple[int, float, str]:
+    entry_type = candidate_entry_key(item, CANDIDATE_ENTRY_PRIORITY.keys())
+    return (
+        CANDIDATE_ENTRY_PRIORITY.get(entry_type, 10),
+        -candidate_entry_score(item),
+        str(item.get("code", "")),
+    )
+
+
+def candidate_entry_score(item: Mapping[str, Any]) -> float:
+    try:
+        return float(item.get("score", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def stronger_candidate_entry(new_item: Mapping[str, Any], current: Mapping[str, Any]) -> bool:
+    new_score = candidate_entry_score(new_item)
+    current_score = candidate_entry_score(current)
+    if new_score != current_score:
+        return new_score > current_score
+    return candidate_entry_sort_key(new_item) < candidate_entry_sort_key(current)
+
+
+def best_candidate_entry_map(entries: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for item in entries or []:
+        code = str((item or {}).get("code", "")).strip()
+        if not code:
+            continue
+        current = result.get(code)
+        if current is None or stronger_candidate_entry(item, current):
+            result[code] = dict(item or {})
+    return result

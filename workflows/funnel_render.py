@@ -7,6 +7,7 @@ from datetime import date
 from typing import Any
 
 from core.candidate_ranker import TRIGGER_GROUP_ORDER, TRIGGER_GROUP_TITLES, TRIGGER_LABELS, TRIGGER_SHORT_LABELS
+from core.candidate_tracks import candidate_entry_key
 from core.funnel_etf import append_etf_section
 from core.funnel_sections import append_formal_l4_sections, score_star
 from core.market_trade_mode import resolve_market_trade_mode
@@ -341,10 +342,9 @@ def _confirmation_label(ctx: Any, code: str) -> str:
 def _confirmation_signal_keys(ctx: Any, code: str) -> list[str]:
     keys = list((getattr(ctx, "code_to_trigger_keys", {}) or {}).get(code, []) or [])
     entry = (getattr(ctx, "candidate_entry_map", {}) or {}).get(code) or {}
-    for field in ("signal_key", "entry_type", "lane"):
-        value = str(entry.get(field, "") or "").strip()
-        if value:
-            keys.append(value)
+    entry_key = candidate_entry_key(entry, fields=("signal_key", "lane", "entry_type"))
+    if entry_key:
+        keys.append(entry_key)
     if code in getattr(ctx, "mainline_candidate_set", set()):
         keys.append("mainline")
     out: list[str] = []

@@ -107,6 +107,18 @@ def test_classify_review_code_reports_new_candidate_before_old_l2_gate():
     assert "强趋势平台突破" in reason
 
 
+def test_build_candidate_entry_map_keeps_highest_scored_duplicate() -> None:
+    entry_map = build_candidate_entry_map(
+        [
+            {"code": "000001", "entry_type": "launchpad", "score": 80.0},
+            {"code": "000001", "entry_type": "spring", "score": 100.0},
+        ]
+    )
+
+    assert entry_map["000001"]["entry_type"] == "spring"
+    assert entry_map["000001"]["score"] == 100.0
+
+
 def test_find_big_gainers_derives_pct_from_close():
     df = pd.DataFrame(
         {

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from core.candidate_ranker import TRIGGER_LABELS
+from core.candidate_tracks import best_candidate_entry_map, candidate_entry_key
 from core.funnel_report import FunnelReportMaps
 from core.funnel_selection import merge_trigger_maps, rank_l2_bypass_pool
 from core.funnel_theme import append_theme_reasons, apply_theme_bonus_to_scores
@@ -354,7 +355,7 @@ def _load_run_reference_maps(
 
 
 def _entry_map(candidate_entries: list[dict]) -> dict[str, dict]:
-    return {str(item.get("code", "")).strip(): item for item in candidate_entries if str(item.get("code", "")).strip()}
+    return best_candidate_entry_map(candidate_entries)
 
 
 def _build_review_score_maps(
@@ -405,7 +406,7 @@ def _add_candidate_entry_reasons(
     code_to_total_score: dict[str, float],
 ) -> None:
     for code, item in candidate_entry_map.items():
-        signal_key = str(item.get("signal_key") or item.get("entry_type") or "alpha_candidate")
+        signal_key = candidate_entry_key(item, fields=("signal_key", "lane", "entry_type")) or "alpha_candidate"
         entry_type = str(item.get("entry_type") or signal_key)
         reasons = [str(x).strip() for x in item.get("reasons", []) if str(x).strip()]
         reason_text = f"{entry_type}: " + " / ".join(reasons[:3]) if reasons else entry_type

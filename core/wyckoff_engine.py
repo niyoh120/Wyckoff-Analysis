@@ -18,8 +18,8 @@ from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 
-from core.ai_candidate_allocation import candidate_entry_sort_key
 from core.candidate_lanes import build_l1_candidate_lane_entries, merge_candidate_entries
+from core.candidate_tracks import candidate_entry_sort_key
 from core.layer2_strength import (
     build_benchmark_context,
     build_rps_context,
