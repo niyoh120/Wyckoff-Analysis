@@ -341,6 +341,8 @@ class WorkflowExecutor:
 
 def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> str:
     lines = [f"phase={step.phase}"]
+    if step.depends_on:
+        lines.append(f"depends_on={', '.join(step.depends_on)}")
     if step.context:
         lines.extend(["", "task context:", step.context])
     if not prior_results:
@@ -352,12 +354,35 @@ def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> st
 
 def _phase_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
     batches: list[list[WorkflowStep]] = []
+    phase_steps: list[WorkflowStep] = []
     for step in steps:
         phase = step.phase or step.step_id
-        if not batches or (batches[-1][0].phase or batches[-1][0].step_id) != phase:
-            batches.append([step])
+        if not phase_steps or (phase_steps[-1].phase or phase_steps[-1].step_id) == phase:
+            phase_steps.append(step)
         else:
-            batches[-1].append(step)
+            batches.extend(_dependency_batches(phase_steps))
+            phase_steps = [step]
+    if phase_steps:
+        batches.extend(_dependency_batches(phase_steps))
+    return batches
+
+
+def _dependency_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
+    batches: list[list[WorkflowStep]] = []
+    current: list[WorkflowStep] = []
+    completed_ids: set[str] = set()
+    current_ids: set[str] = set()
+    for step in steps:
+        deps = {dep for dep in step.depends_on if dep}
+        if current and (deps & current_ids or not deps.issubset(completed_ids | current_ids)):
+            batches.append(current)
+            completed_ids.update(current_ids)
+            current = []
+            current_ids = set()
+        current.append(step)
+        current_ids.add(step.step_id)
+    if current:
+        batches.append(current)
     return batches
 
 

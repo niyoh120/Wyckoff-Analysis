@@ -51,6 +51,7 @@ class WorkflowStep:
     prompt: str = ""
     context: str = ""
     phase: str = ""
+    depends_on: tuple[str, ...] = ()
     status: str = PENDING
     summary: str = ""
     dynamic: bool = False
@@ -64,6 +65,7 @@ class WorkflowStep:
             "prompt": self.prompt,
             "context": self.context,
             "phase": self.phase,
+            "depends_on": list(self.depends_on),
             "status": self.status,
             "summary": self.summary,
             "dynamic": self.dynamic,
@@ -79,6 +81,7 @@ class WorkflowStep:
             prompt=str(payload.get("prompt", "")),
             context=str(payload.get("context", "")),
             phase=str(payload.get("phase", "")),
+            depends_on=tuple(str(item) for item in payload.get("depends_on") or ()),
             status=str(payload.get("status") or PENDING),
             summary=str(payload.get("summary") or ""),
             dynamic=bool(payload.get("dynamic")),

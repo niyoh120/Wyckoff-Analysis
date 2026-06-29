@@ -57,6 +57,33 @@ _PARALLEL_PLAN_JSON = """{
   "synthesis_prompt": "合并两个视角。"
 }"""
 
+_DEPENDENT_PLAN_JSON = """{
+  "title": "依赖复核",
+  "rationale": "同一阶段内按模型声明的 task 依赖分批执行。",
+  "phases": [
+    {
+      "id": "review",
+      "title": "复核阶段",
+      "tasks": [
+        {
+          "id": "scan",
+          "title": "扫描候选",
+          "agent": "research",
+          "prompt": "先扫描候选"
+        },
+        {
+          "id": "risk_plan",
+          "title": "攻防计划",
+          "agent": "trading",
+          "depends_on": ["scan"],
+          "prompt": "基于扫描结果输出攻防计划"
+        }
+      ]
+    }
+  ],
+  "synthesis_prompt": "按依赖顺序汇总。"
+}"""
+
 _EDITED_PLAN_JSON = """{
   "title": "编辑后脚本",
   "rationale": "用户修改了脚本。",
@@ -99,6 +126,7 @@ def test_workflow_planner_accepts_agent_aliases_and_steps_field():
                             "id": "risk_plan",
                             "title": "攻防计划",
                             "agent": "delegate_to_trading",
+                            "after": "scan",
                             "instruction": "输出观察、买入和失效条件",
                         },
                     ],
@@ -110,6 +138,7 @@ def test_workflow_planner_accepts_agent_aliases_and_steps_field():
     assert [step.agent for step in run.steps] == ["research", "trading"]
     assert [step.tools for step in run.steps] == [("delegate_to_research",), ("delegate_to_trading",)]
     assert run.steps[1].prompt == "输出观察、买入和失效条件"
+    assert run.steps[1].depends_on == ("scan",)
     assert run.script["runtime"]["planner"] == "stored_script"
 
 
@@ -270,6 +299,45 @@ def test_workflow_executor_runs_same_phase_tasks_in_parallel(tmp_path, monkeypat
         assert "本次运行输入" in provider.calls[0]["messages"][0]["content"]
         assert "300750" in provider.calls[0]["messages"][0]["content"]
         assert events[-1]["text"] == "两个视角已合并。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_executor_respects_task_dependencies_within_phase(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "扫描完成，候选 A。"}],
+            [{"type": "text_delta", "text": "基于候选 A 制定攻防计划。"}],
+            [{"type": "text_delta", "text": "依赖复核完成。"}],
+        ]
+    )
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(),
+        session_id="s_dep",
+        user_text="按依赖复核候选",
+        workflow_context=route_workflow("用 workflow 复核候选"),
+        workflow_script=json.loads(_DEPENDENT_PLAN_JSON),
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "按依赖复核候选"}]))
+
+    try:
+        step_starts = [event for event in events if event["type"] == "workflow_step_start"]
+        step_dones = [event for event in events if event["type"] == "workflow_step_done"]
+        phase_starts = [event for event in events if event["type"] == "workflow_phase_start"]
+        assert [event["step"]["step_id"] for event in step_starts] == ["scan", "risk_plan"]
+        assert step_starts[1]["step"]["depends_on"] == ["scan"]
+        assert events.index(step_dones[0]) < events.index(step_starts[1])
+        assert [event["parallel"] for event in phase_starts] == [False, False]
+        assert "depends_on=scan" in provider.calls[1]["messages"][0]["content"]
+        assert "扫描完成，候选 A。" in provider.calls[1]["messages"][0]["content"]
+        assert events[-1]["text"] == "依赖复核完成。"
     finally:
         _reset_local_db(local_db)
 

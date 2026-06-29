@@ -78,6 +78,7 @@ runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文
           "id": "task_id",
           "title": "任务标题",
           "agent": "research|analysis|trading",
+          "depends_on": ["可选，必须先完成的 task id"],
           "prompt": "给该 sub-agent 的完整任务说明",
           "context": "可选，传给该 agent 的上下文"
         }
@@ -91,6 +92,7 @@ runtime 会按 JSON 调度 sub-agent；你不能假设 script 可以直接读文
 - 只输出 JSON，不要 Markdown，不要代码块。
 - phases 总任务数 1-1000 个。
 - 同一 phase 内的 task 会并发执行；有依赖关系的 task 必须拆到后续 phase。
+- 如果用 depends_on/after/needs/dependencies 表达 task 依赖，runtime 会按依赖顺序切批执行。
 - 任务拆分由用户真实意图决定，禁止套用历史固定模板；普通单轮工具型请求用 1 个可执行 task。
 - 自然语言理解由模型完成；不要为文字形式本身增加额外模板或澄清步骤。
 - 能用工具验证的事实交给 sub-agent 验证；不要因为可搜索或可读取的信息先问用户。
@@ -258,6 +260,7 @@ def _task_step(task: dict[str, Any], phase_id: str, user_text: str, args_text: s
         prompt=prompt,
         context=context,
         phase=phase_id,
+        depends_on=_task_dependencies(task),
         dynamic=True,
     )
 
@@ -313,6 +316,15 @@ def _task_prompt(task: dict[str, Any], title: str, user_text: str) -> str:
         if value:
             return value
     return title or user_text
+
+
+def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
+    deps: list[str] = []
+    for field in ("depends_on", "dependencies", "after", "needs"):
+        value = task.get(field)
+        items = value if isinstance(value, (list, tuple)) else [value]
+        deps.extend(_slug(item) for item in items if str(item or "").strip())
+    return tuple(dict.fromkeys(dep for dep in deps if dep))
 
 
 def _safe_list(value: Any) -> list[dict[str, Any]]:
