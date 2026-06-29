@@ -94,18 +94,40 @@ def route_workflow_with_model(user_text: str, provider: Any | None) -> WorkflowC
 
 
 def _model_decision(user_text: str, provider: Any | None) -> dict[str, Any] | None:
-    if provider is None or not hasattr(provider, "chat"):
+    if provider is None:
         return None
+    messages = [{"role": "user", "content": f"用户请求:\n{user_text}\n\n请输出 routing JSON。"}]
     try:
-        response = provider.chat(
-            [{"role": "user", "content": f"用户请求:\n{user_text}\n\n请输出 routing JSON。"}],
-            [],
-            _ROUTER_SYSTEM_PROMPT,
-        )
+        response = _router_response(provider, messages)
         return _parse_decision(response)
     except Exception:
         logger.debug("model workflow router failed", exc_info=True)
         return None
+
+
+def _router_response(provider: Any, messages: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if hasattr(provider, "chat"):
+        try:
+            return provider.chat(messages, [], _ROUTER_SYSTEM_PROMPT)
+        except NotImplementedError:
+            if not getattr(provider, "use_chat_stream_for_routing", False):
+                return None
+    if not hasattr(provider, "chat_stream"):
+        return None
+    text = _collect_stream_text(provider.chat_stream(messages, [], _ROUTER_SYSTEM_PROMPT))
+    return {"type": "text", "text": text} if text else None
+
+
+def _collect_stream_text(chunks: Any) -> str:
+    parts: list[str] = []
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        if chunk.get("type") == "tool_calls":
+            return ""
+        if chunk.get("type") == "text_delta":
+            parts.append(str(chunk.get("text", "")))
+    return "".join(parts).strip()
 
 
 def _parse_decision(response: Any) -> dict[str, Any] | None:

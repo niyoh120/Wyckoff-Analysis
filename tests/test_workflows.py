@@ -172,6 +172,27 @@ def test_dispatch_accepts_boolean_workflow_router_flag():
     assert isinstance(runtime, WorkflowExecutor)
 
 
+def test_dispatch_uses_streaming_router_when_chat_is_unimplemented():
+    provider = ScriptedProvider(
+        [[{"type": "text_delta", "text": '{"mode":"dynamic_workflow","confidence":0.82,"reason":"需要多阶段选股"}'}]]
+    )
+    provider.use_chat_stream_for_routing = True
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我完整做一遍今天的A股选股",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_confidence == 0.82
+    assert workflow.route_reason == "模型判断需要动态 workflow：需要多阶段选股"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert provider.calls[0]["tools"] == []
+    assert "turn router" in provider.calls[0]["system_prompt"]
+
+
 def test_dispatch_keeps_direct_runtime_when_model_routes_direct():
     provider = RouterDecisionProvider('{"mode":"direct","confidence":0.9,"reason":"单只股票诊断"}')
 
