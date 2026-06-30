@@ -196,6 +196,21 @@ def test_turn_expectation_does_not_rescreen_existing_candidates():
     assert expectation is None
 
 
+def test_turn_expectation_ignores_background_system_notification():
+    expectation = resolve_turn_expectation(
+        [
+            {"role": "user", "content": "帮我筛选创业板今天有什么好股票"},
+            {
+                "role": "user",
+                "content": "[SYSTEM NOTIFICATION - NOT USER INPUT]\n后台筛选完成，候选 300750。",
+                "_system_notification": True,
+            },
+        ]
+    )
+
+    assert expectation is None
+
+
 def test_runtime_answers_all_tool_calls_when_doom_loop_aborts_round():
     provider = ScriptedProvider(
         rounds=[

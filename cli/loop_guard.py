@@ -194,6 +194,8 @@ def _message_text(message: dict[str, Any]) -> str:
 
 def _last_user_text(messages: list[dict[str, Any]]) -> str:
     for message in reversed(messages):
+        if message.get("_system_notification"):
+            continue
         if message.get("role") == "user":
             text = _message_text(message)
             if text:
@@ -204,6 +206,8 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
 def _recent_context_text(messages: list[dict[str, Any]], *, limit: int = 4) -> str:
     pieces: list[str] = []
     for message in messages[-limit:]:
+        if message.get("_system_notification"):
+            continue
         text = _message_text(message)
         if text:
             pieces.append(_normalize_text(text))
@@ -214,6 +218,8 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
     """Infer whether this turn must call a specific tool before answering."""
 
     if not messages:
+        return None
+    if messages[-1].get("_system_notification"):
         return None
 
     last_user = _last_user_text(messages)

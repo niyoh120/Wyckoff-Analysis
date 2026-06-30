@@ -8,13 +8,16 @@ from rich.markdown import Markdown
 
 from cli.tui import (
     _background_task_summary,
+    _chatlog_role_for_turn,
     _display_final_response,
     _display_workflow_plan_event,
     _display_workflow_step_event,
+    _is_system_notification_message,
     _pending_workflow_reply_intent,
     _pop_lines,
     _replace_streamed_response,
     _settle_markdown_render,
+    _system_notification_queue_item,
     _workflow_control_intent,
     _workflow_detail_step_line,
     _write_counted,
@@ -214,3 +217,14 @@ def test_background_task_summary_uses_tool_result_preview_for_large_screen_resul
     assert '"trigger_groups"' not in summary
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1
+
+
+def test_system_notification_queue_item_is_not_user_chat_role():
+    item = _system_notification_queue_item("后台任务完成")
+    message = {"role": "user", "content": item["content"], "_system_notification": True}
+
+    assert item == {"type": "system_notification", "content": "后台任务完成"}
+    assert _is_system_notification_message(message)
+    assert not _is_system_notification_message({"role": "user", "content": "后台任务完成"})
+    assert _chatlog_role_for_turn(system_notification=True) == "system"
+    assert _chatlog_role_for_turn(system_notification=False) == "user"

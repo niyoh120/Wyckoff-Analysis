@@ -153,6 +153,7 @@ from cli.runtime import AgentCancelled
 from cli.scratchpad import AgentScratchpad
 from cli.workflows.dispatch import build_turn_runtime
 from cli.workflows.executor import WorkflowExecutor
+from cli.workflows.router import WORKFLOWS
 from core.prompts import with_current_time
 
 
@@ -255,6 +256,7 @@ class _TurnRunState:
     scratchpad: AgentScratchpad | None
     model_name: str
     provider_name: str
+    system_notification: bool = False
     workflow_run_id: str = ""
     workflow_name: str = ""
     executed_tool_summaries: list[dict[str, object]] = field(default_factory=list)
@@ -685,6 +687,18 @@ def _background_task_summary(tool_name: str, task_id: str, result: Any, *, max_c
     except Exception:
         summary = json.dumps(result, ensure_ascii=False, default=str)
         return summary if len(summary) <= max_chars else summary[:max_chars] + "..."
+
+
+def _system_notification_queue_item(content: str) -> dict[str, str]:
+    return {"type": "system_notification", "content": content}
+
+
+def _is_system_notification_message(message: dict[str, Any]) -> bool:
+    return bool(message.get("_system_notification"))
+
+
+def _chatlog_role_for_turn(system_notification: bool) -> str:
+    return "system" if system_notification else "user"
 
 
 def _compaction_panel(event: dict[str, Any]):
@@ -1287,7 +1301,7 @@ class WyckoffTUI(App):
         self._busy = False
         self._cancel_event = threading.Event()
         self._last_ctrl_c: float = 0.0
-        self._queue: deque[str] = deque()
+        self._queue: deque[Any] = deque()
         self._workflow_override: _WorkflowOverride | None = None
         self._pending_workflows: dict[str, _PendingWorkflowLaunch] = {}
         self._session_id = uuid.uuid4().hex[:12]
@@ -1659,6 +1673,20 @@ class WyckoffTUI(App):
         self._messages.append(user_message)
         self._start_spinner("thinking")
         self._run_agent()
+
+    def _send_system_notification(self, text: str) -> None:
+        log = self.query_one("#chat-log", ChatLog)
+        log.write(Text(""))
+        log.write(Text.from_markup("  [dim]↳ 后台结果已回传给 agent[/dim]"))
+        self._messages.append({"role": "user", "content": text, "_system_notification": True})
+        self._start_spinner("处理后台结果")
+        self._run_agent()
+
+    def _dispatch_queued_item(self, item: Any) -> None:
+        if isinstance(item, dict) and item.get("type") == "system_notification":
+            self._send_system_notification(str(item.get("content", "")))
+            return
+        self._send_message(str(item))
 
     # ----- 斜杠命令 -----
 
@@ -2969,8 +2997,11 @@ class WyckoffTUI(App):
         if not self._messages:
             return -1, ""
         turn_index = len(self._messages) - 1
-        user_text = self._messages[turn_index].get("content", "")
-        memory_context = self._messages[turn_index].pop("_memory_context", "")
+        message = self._messages[turn_index]
+        user_text = message.get("content", "")
+        if _is_system_notification_message(message):
+            return turn_index, user_text
+        memory_context = message.pop("_memory_context", "")
         if not memory_context:
             return turn_index, user_text
         try:
@@ -2997,12 +3028,15 @@ class WyckoffTUI(App):
 
     def _create_turn_run_state(self) -> _TurnRunState:
         turn_user_index, user_text = self._prepare_turn_memory_context()
+        message = self._messages[turn_user_index] if 0 <= turn_user_index < len(self._messages) else {}
+        system_notification = _is_system_notification_message(message)
         return _TurnRunState(
             turn_user_index=turn_user_index,
             user_text=user_text,
-            scratchpad=self._create_scratchpad(user_text),
+            scratchpad=None if system_notification else self._create_scratchpad(user_text),
             model_name=getattr(self._provider, "name", "") if self._provider else "",
             provider_name=self._state.get("provider_name", "") if self._state else "",
+            system_notification=system_notification,
         )
 
     def _drop_current_turn_messages(self) -> None:
@@ -3027,7 +3061,15 @@ class WyckoffTUI(App):
         self.call_from_thread(self._update_status)
         self._restore_turn_user_message(state.turn_user_index)
 
-        chatlog_save("user", state.user_text, model=state.model_name, provider=state.provider_name)
+        turn_role = _chatlog_role_for_turn(state.system_notification)
+        turn_metadata = {"system_notification": True} if state.system_notification else {}
+        chatlog_save(
+            turn_role,
+            state.user_text,
+            model=state.model_name,
+            provider=state.provider_name,
+            metadata_json=json.dumps(turn_metadata, ensure_ascii=False) if turn_metadata else "",
+        )
         tool_calls_json = (
             json.dumps(state.executed_tool_summaries, ensure_ascii=False) if state.executed_tool_summaries else ""
         )
@@ -3084,7 +3126,15 @@ class WyckoffTUI(App):
             type(e).__name__,
             str(e)[:500],
         )
-        chatlog_save("user", state.user_text, model=state.model_name, provider=state.provider_name)
+        turn_role = _chatlog_role_for_turn(state.system_notification)
+        turn_metadata = {"system_notification": True} if state.system_notification else {}
+        chatlog_save(
+            turn_role,
+            state.user_text,
+            model=state.model_name,
+            provider=state.provider_name,
+            metadata_json=json.dumps(turn_metadata, ensure_ascii=False) if turn_metadata else "",
+        )
         chatlog_save(
             "error",
             "",
@@ -3371,6 +3421,7 @@ class WyckoffTUI(App):
 
             workflow_override = self._workflow_override
             self._workflow_override = None
+            workflow_context = WORKFLOWS["general_chat"] if state.system_notification else None
             runtime, workflow_context = build_turn_runtime(
                 self._provider,
                 self._tools,
@@ -3378,7 +3429,7 @@ class WyckoffTUI(App):
                 user_text=state.user_text,
                 scratchpad=state.scratchpad,
                 cancel_check=self._cancel_event.is_set,
-                workflow_context=workflow_override.context if workflow_override else None,
+                workflow_context=workflow_context or (workflow_override.context if workflow_override else None),
                 workflow_script=workflow_override.script if workflow_override else None,
                 workflow_source_run_id=workflow_override.source_run_id if workflow_override else "",
                 workflow_args=workflow_override.args if workflow_override else None,
@@ -3410,7 +3461,7 @@ class WyckoffTUI(App):
                 self._tools._tool_context.on_progress = None
             if self._queue:
                 next_msg = self._queue.popleft()
-                self.call_from_thread(self._send_message, next_msg)
+                self.call_from_thread(self._dispatch_queued_item, next_msg)
 
     # ----- 后台任务回调 -----
 
@@ -3489,10 +3540,10 @@ class WyckoffTUI(App):
             "</task-notification>\n"
             "</system-reminder>"
         )
-        self._queue.append(notification)
+        self._queue.append(_system_notification_queue_item(notification))
         # 空闲时自动触发
         if not self._busy:
-            self.call_from_thread(self._send_message, self._queue.popleft())
+            self.call_from_thread(self._dispatch_queued_item, self._queue.popleft())
 
     # ----- Actions -----
 
