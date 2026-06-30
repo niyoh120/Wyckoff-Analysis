@@ -17,6 +17,32 @@ _MAX_REASON_CHARS = 120
 _VALID_MODES = {"direct", "dynamic_workflow"}
 _MODE_FIELDS = ("mode", "route", "runtime", "execution_mode")
 _WORKFLOW_FLAG_FIELDS = ("workflow", "use_workflow", "dynamic_workflow", "needs_workflow")
+_MODE_ALIASES = {
+    "direct": {
+        "chat",
+        "general",
+        "general_chat",
+        "normal",
+        "直接",
+        "直接回答",
+        "直接处理",
+        "普通对话",
+        "普通聊天",
+        "直答",
+    },
+    "dynamic_workflow": {
+        "dynamic",
+        "dynamic workflow",
+        "workflow",
+        "work_flow",
+        "多阶段",
+        "动态 workflow",
+        "动态任务",
+        "动态工作流",
+        "工作流",
+        "计划执行",
+    },
+}
 
 _ROUTER_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的 runtime router。用户只会在 agent 内聊天。
@@ -175,7 +201,12 @@ def _decision_mode(payload: dict[str, Any]) -> str:
 
 def _mode_value(value: Any) -> str:
     text = _normalize_mode_text(value)
-    return text if text in _VALID_MODES else ""
+    if text in _VALID_MODES:
+        return text
+    for mode, aliases in _MODE_ALIASES.items():
+        if text in aliases:
+            return mode
+    return ""
 
 
 def _normalize_mode_text(value: Any) -> str:

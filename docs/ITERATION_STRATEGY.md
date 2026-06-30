@@ -39,6 +39,8 @@ flowchart LR
 
 CLI agent 默认让模型负责错别字、同义表达、上下文恢复和任务拆分；harness 只保留工具边界、写入确认、并发、持久化、超时和循环保护。基于固定短语强制某个工具的旧式 turn expectation 已降级为显式严格模式：只有设置 `WYCKOFF_STRICT_TOOL_EXPECTATIONS=1` 或测试显式开启时才会强制重试。
 
+runtime router 的输出仍提示模型使用标准 `direct` / `dynamic_workflow` JSON，但解析器会容忍中文别名、`workflow` 别名和百分比置信度。这里的宽松只作用于模型路由结果，不重新按用户原话做关键词分类，避免“用户聊天自然、代码格式很死”的体验。
+
 ## 方向一：信号衰减监控
 
 **目标**：按信号类型追踪推荐质量，识别正在失效的信号。
