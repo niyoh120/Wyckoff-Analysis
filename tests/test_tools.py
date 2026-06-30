@@ -1169,6 +1169,49 @@ class TestSymbolPool:
         assert first["rank_reason"] == "研报候选#1；优先分 12.50"
         assert result["top_candidates"][1]["code"] == "000001"
 
+    def test_screen_stocks_enriches_watch_candidates_from_candidate_metadata(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {"launchpad": [("000007", 8.0)]},
+                    "candidate_entries": [
+                        {
+                            "code": "000007",
+                            "entry_type": "launchpad",
+                            "state": "Markup",
+                            "score": 80.0,
+                        }
+                    ],
+                    "name_map": {"000007": "启动平台"},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+        candidate = result["top_candidates"][0]
+        primary_pick = result["selection_brief"]["primary_pick"]
+        watch_candidate = result["action_plan"]["watch_candidates"][0]
+
+        assert candidate["track"] == "Trend"
+        assert candidate["stage"] == "Markup"
+        assert candidate["selection_source"] == "alpha_candidate"
+        assert candidate["candidate_lane"] == "launchpad"
+        assert candidate["entry_type"] == "launchpad"
+        assert "趋势线 / 主升阶段 / 启动平台 / 候选车道" in primary_pick["why"]
+        assert primary_pick["candidate_lane"] == "launchpad"
+        assert watch_candidate["candidate_lane"] == "launchpad"
+
     def test_screen_stocks_exposes_ready_ai_review_targets(self, monkeypatch):
         from agents import screen_tools
         from agents.tool_context import ToolContext

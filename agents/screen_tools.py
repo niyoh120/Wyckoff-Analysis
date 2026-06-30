@@ -6,9 +6,11 @@ import logging
 from typing import Any
 
 from agents.tool_context import ToolContext, ensure_tushare_token
+from core.candidate_metadata import build_candidate_metadata_map, code6
 from core.candidate_policy import candidate_score_value
 from core.candidate_ranker import TRIGGER_SHORT_LABELS
-from core.funnel_taxonomy import source_label
+from core.candidate_tracks import candidate_entry_track
+from core.funnel_taxonomy import lane_label, source_label
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +200,8 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str) -> dict:
             "score": row.get("score"),
             "track": row.get("track"),
             "stage": row.get("stage"),
+            "candidate_lane": row.get("candidate_lane"),
+            "entry_type": row.get("entry_type"),
         }
     )
 
@@ -315,6 +319,8 @@ def _candidate_ref(row: dict, trade_mode: dict, bucket: str) -> dict:
         "track": row.get("track"),
         "stage": row.get("stage"),
         "tag": row.get("tag"),
+        "candidate_lane": row.get("candidate_lane"),
+        "entry_type": row.get("entry_type"),
         "triggers": row.get("triggers"),
     }
     return {key: value for key, value in payload.items() if value not in (None, "", [])}
@@ -352,10 +358,15 @@ def _candidate_profile(row: dict) -> str:
     parts = [
         _track_label(row.get("track")),
         _stage_label(row.get("stage")),
+        _lane_profile(row),
         source_label(str(row.get("selection_source") or "")),
         _trigger_profile(row.get("triggers")),
     ]
     return " / ".join(dict.fromkeys(part for part in parts if part))
+
+
+def _lane_profile(row: dict) -> str:
+    return lane_label(str(row.get("candidate_lane") or row.get("entry_type") or "").strip())
 
 
 def _track_label(raw: object) -> str:
@@ -385,6 +396,7 @@ def _ranked_candidates(
     selected_rows = _report_rows(symbols_for_report)
     selected = set(selected_rows)
     priority_scores = _priority_score_map(details or {}, selected_rows)
+    metadata_map = _candidate_metadata_map(details or {})
     rows: dict[str, dict] = {}
     for trigger_name, candidates in trigger_groups.items():
         for candidate in candidates:
@@ -393,18 +405,41 @@ def _ranked_candidates(
                 continue
             row = rows.setdefault(
                 code,
-                _candidate_row(code, candidate.get("name") or name_map.get(code), selected_rows.get(code), selected),
+                _candidate_row(
+                    code,
+                    candidate.get("name") or name_map.get(code),
+                    selected_rows.get(code),
+                    selected,
+                    _metadata_for_code(metadata_map, code),
+                ),
             )
             row["score"] = max(float(row["score"]), candidate_score_value(candidate.get("score")))
             row["priority_score"] = max(float(row["priority_score"]), candidate_score_value(priority_scores.get(code)))
             if trigger_name not in row["triggers"]:
                 row["triggers"].append(trigger_name)
     for code, report_row in selected_rows.items():
-        row = rows.setdefault(code, _candidate_row(code, name_map.get(code), report_row, selected))
+        row = rows.setdefault(
+            code, _candidate_row(code, name_map.get(code), report_row, selected, _metadata_for_code(metadata_map, code))
+        )
         row["priority_score"] = max(float(row["priority_score"]), candidate_score_value(priority_scores.get(code)))
     ranked = list(rows.values())
     ranked.sort(key=_candidate_sort_key)
     return [_final_candidate_row(row) for row in ranked[:limit]]
+
+
+def _candidate_metadata_map(details: dict) -> dict[str, dict[str, Any]]:
+    return build_candidate_metadata_map(
+        _safe_dict_list(details.get("candidate_entries")),
+        _safe_dict_list(details.get("mainline_candidates")),
+    )
+
+
+def _safe_dict_list(value: Any) -> list[dict[str, Any]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _metadata_for_code(metadata_map: dict[str, dict[str, Any]], code: str) -> dict[str, Any]:
+    return metadata_map.get(code6(code)) or metadata_map.get(str(code or "").strip()) or {}
 
 
 def _report_rows(symbols_for_report: list[Any]) -> dict[str, dict]:
@@ -433,8 +468,15 @@ def _priority_score_map(details: dict, selected_rows: dict[str, dict]) -> dict[s
     return scores
 
 
-def _candidate_row(code: str, name: object, report_row: dict | None, selected: set[str]) -> dict:
+def _candidate_row(
+    code: str,
+    name: object,
+    report_row: dict | None,
+    selected: set[str],
+    metadata: dict[str, Any] | None = None,
+) -> dict:
     report_row = report_row or {}
+    metadata = metadata or {}
     return {
         "code": code,
         "name": str(report_row.get("name") or name or code),
@@ -443,11 +485,30 @@ def _candidate_row(code: str, name: object, report_row: dict | None, selected: s
         "priority_rank": int(report_row.get("priority_rank") or report_row.get("_report_order") or 0),
         "triggers": [],
         "selected_for_report": code in selected,
-        "selection_source": str(report_row.get("selection_source") or "").strip(),
-        "track": str(report_row.get("track") or "").strip(),
-        "stage": str(report_row.get("stage") or "").strip(),
-        "tag": str(report_row.get("tag") or "").strip(),
+        "selection_source": str(report_row.get("selection_source") or _metadata_selection_source(metadata)).strip(),
+        "track": str(report_row.get("track") or _metadata_track(metadata)).strip(),
+        "stage": str(report_row.get("stage") or metadata.get("candidate_status") or "").strip(),
+        "tag": str(report_row.get("tag") or _metadata_tag(metadata)).strip(),
+        "candidate_lane": str(report_row.get("candidate_lane") or metadata.get("candidate_lane") or "").strip(),
+        "entry_type": str(report_row.get("entry_type") or metadata.get("entry_type") or "").strip(),
     }
+
+
+def _metadata_selection_source(metadata: dict[str, Any]) -> str:
+    lane = str(metadata.get("candidate_lane") or "").strip()
+    if lane == "mainline":
+        return "mainline"
+    return "alpha_candidate" if metadata else ""
+
+
+def _metadata_track(metadata: dict[str, Any]) -> str:
+    if not any(metadata.get(field) for field in ("candidate_lane", "signal_key", "entry_type")):
+        return ""
+    return candidate_entry_track(metadata, default="", fields=("candidate_lane", "signal_key", "entry_type"))
+
+
+def _metadata_tag(metadata: dict[str, Any]) -> str:
+    return str(metadata.get("entry_type") or metadata.get("signal_key") or metadata.get("candidate_lane") or "").strip()
 
 
 def _candidate_sort_key(row: dict) -> tuple:
@@ -474,6 +535,8 @@ def _final_candidate_row(row: dict) -> dict:
         "track": row["track"],
         "stage": row["stage"],
         "tag": row["tag"],
+        "candidate_lane": row["candidate_lane"],
+        "entry_type": row["entry_type"],
         "rank_reason": _rank_reason(row),
     }
 
