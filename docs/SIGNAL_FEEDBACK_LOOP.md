@@ -196,6 +196,19 @@ registry 只负责控制动态策略是否使用信号；原始 observations 仍
 
 `strategy_attribution_report.py` 会把 `candidate_shadow_score.grade` 聚合进 `score_bucket_stats_json._candidate_shadow_grade`，Web 端策略归因页展示 S/A/B/C/D 各档在不同持有周期下的胜率、平均收益、大涨率、大跌率和平均回撤。
 
+## Entry Quality
+
+`signal_observations.features_json.entry_quality` 记录 Step3 候选的入场质量评分。它聚合相对强弱、缩量回踩、200 日线偏离和 20 日平均成交额，用于验证“同样进入候选池时，哪些入场位置更值得优先看”：
+
+- `score` / `grade`：0-100 分和 S/A/B/C/D 评级。
+- `tag`：进入 Step3 prompt 的中文摘要，例如 `入场质量A(75.0)`。
+- `risk_flags`：弱于指数、缩量不足、追高延展、成交额偏低等风险标签。
+- `priority_bucket`：按候选优先级粗分桶，用于在相近 priority 下观察入场质量差异。
+
+这部分只写入 `features_json` 做 outcome 复盘，不新增候选表，不直接改变正式候选、AI 候选池或 Step4。当前 Step3 只在相近优先级候选之间把入场质量作为 tie-breaker；后续是否提高权重，需要看 `signal_outcomes` 和归因快照。
+
+`strategy_attribution_report.py` 会把 `entry_quality.grade` 聚合进 `score_bucket_stats_json._entry_quality_grade`，Web 端策略归因页展示 S/A/B/C/D 各档在不同持有周期下的胜率、平均收益、大涨率、大跌率和平均回撤；涨跌幅样本行也会显示当时的入场质量和风险标签。
+
 ## Shadow 复盘怎么看
 
 Shadow 模式不会影响真实推荐。它的价值是回答三个问题：

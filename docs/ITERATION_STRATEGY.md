@@ -30,6 +30,7 @@ flowchart LR
 | 方向三：信号生命周期管理 | 新信号孵化、正式上线、观察、退役 | `signal_registry` 维护 `ACTIVE` / `WATCH` / `EXPERIMENTAL` / `RETIRED` | 已落地骨架，阈值待样本校准 |
 | 方向四：外部观察验证 | 验证人工/社区/其它系统关注的股票是否真有结构优势 | `external_seed_observations` 记录 L1/L2/L4 位置，L4 确认样本补写 `signal_observations` | 已落地 shadow 观察 |
 | 方向五：候选影子评分 | 验证“好候选”是否能被更稳定地识别 | `features_json.candidate_shadow_score` 合成漏斗优先级、量价痕迹、起跳板、尾盘确认、外部资金和风险扣分 | 已落地 shadow 特征，待 outcome 校准 |
+| 方向五补充：入场质量归因 | 验证相近候选中“更好的入场位置”是否更容易跑赢 | `features_json.entry_quality` 记录 Step3 入场质量评分，归因页按 S/A/B/C/D 展示后续表现 | 已落地 observation + Web 归因展示，待样本校准 |
 | 方向六：短线冲刺事件评估 | 验证推荐股未来 5 个交易日内是否触及 +10% | `evaluate_recommendation_events.py` 生成严格 5 日标签和 Top-K 排序对照，后台任务支持 `recommendation_event_eval` | 已落地只读评估，待持久化标签 |
 
 完整执行链路见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)。
@@ -58,6 +59,7 @@ flowchart TD
 - `features_json.intraday_tail_confirmation` 记录正式候选的尾盘 1m VWAP、尾段量能、聪明钱和尾盘确认分，用于验证日线候选是否被尾盘分钟线确认；当前只做复盘特征，不参与候选排序。
 - `features_json.source_context` 记录龙虎榜、融资融券、大宗交易和可选逐笔大单等外部资金佐证；当前只做解释和复盘特征，不参与候选排序。
 - `features_json.candidate_shadow_score` 记录候选影子评分，把上述证据汇总成 0-100 分和 S/A/B/C/D 评级；当前只做复盘特征，不参与候选排序。
+- `features_json.entry_quality` 记录 Step3 入场质量评分，把相对强弱、缩量、200 日线偏离和成交额转为 S/A/B/C/D；当前只做复盘特征，Step3 仅在相近优先级候选中用作 tie-breaker。
 
 ## 方向二：多策略动态分配
 

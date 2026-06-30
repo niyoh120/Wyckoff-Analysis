@@ -58,6 +58,9 @@ interface StockOutcome {
   return_pct?: number
   candidate_shadow_score?: number | null
   candidate_shadow_grade?: string | null
+  entry_quality_score?: number | null
+  entry_quality_grade?: string | null
+  entry_quality_risk_flags?: string[] | null
   data_lineage_coverage_score?: number | null
   data_lineage_coverage_grade?: string | null
   data_lineage_evidence_keys?: string[] | null
@@ -134,6 +137,10 @@ function ReportView({ report }: { report: AttributionReport }) {
     () => flattenCandidateShadowStats(report.score_bucket_stats_json),
     [report.score_bucket_stats_json],
   )
+  const entryQualityRows = useMemo(
+    () => flattenEntryQualityStats(report.score_bucket_stats_json),
+    [report.score_bucket_stats_json],
+  )
   const dataLineageRows = useMemo(
     () => flattenDataLineageStats(report.score_bucket_stats_json),
     [report.score_bucket_stats_json],
@@ -148,6 +155,7 @@ function ReportView({ report }: { report: AttributionReport }) {
       <ObservationCoverage rows={observationCoverageRows} />
       <Recommendations rows={report.recommendations_json} />
       <CandidateShadowStats rows={candidateShadowRows} />
+      <EntryQualityStats rows={entryQualityRows} />
       <DataLineageStats rows={dataLineageRows} />
       <SignalStats rows={signalRows} />
       <OutcomeTables winners={report.top_winners_json} losers={report.top_losers_json} />
@@ -247,6 +255,48 @@ function CandidateShadowStats({ rows }: { rows: Array<{ horizon: string; grade: 
   }
   return (
     <Panel title="候选影子分表现">
+      <div className="overflow-auto">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="text-xs text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="py-2">周期</th>
+              <th>评级</th>
+              <th>样本</th>
+              <th>均值</th>
+              <th>中位数</th>
+              <th>胜率</th>
+              <th>大涨</th>
+              <th>大跌</th>
+              <th>平均回撤</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ horizon, grade, stats }) => (
+              <tr key={`${horizon}-${grade}`} className="border-b border-border/60">
+                <td className="py-2">{horizon}</td>
+                <td className="font-medium">{formatGrade(grade)}</td>
+                <td>{stats.count ?? 0}</td>
+                <td className={tone(stats.avg_return_pct)}>{fmtPct(stats.avg_return_pct)}</td>
+                <td className={tone(stats.median_return_pct)}>{fmtPct(stats.median_return_pct)}</td>
+                <td>{fmtPct(stats.win_rate_pct)}</td>
+                <td>{fmtPct(stats.big_win_rate_pct)}</td>
+                <td>{fmtPct(stats.big_loss_rate_pct)}</td>
+                <td className={tone(stats.avg_drawdown_pct)}>{fmtPct(stats.avg_drawdown_pct)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  )
+}
+
+function EntryQualityStats({ rows }: { rows: Array<{ horizon: string; grade: string; stats: MetricStats }> }) {
+  if (!rows.length) {
+    return <Panel title="入场质量表现"><p className="text-sm text-muted-foreground">暂无入场质量样本。</p></Panel>
+  }
+  return (
+    <Panel title="入场质量表现">
       <div className="overflow-auto">
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="text-xs text-muted-foreground">
@@ -424,6 +474,10 @@ function OutcomeTable({ title, rows }: { title: string; rows: StockOutcome[] }) 
                 {row.trade_date} · {row.signal_type || '-'} · {row.track || '-'} · 影子分 {fmtScore(row.candidate_shadow_score)} · {formatGrade(row.candidate_shadow_grade)}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
+                入场质量 {formatGrade(row.entry_quality_grade)} {fmtScore(row.entry_quality_score)}
+                {row.entry_quality_risk_flags?.length ? ` · 风险 ${row.entry_quality_risk_flags.join('/')}` : ''}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
                 证据 {formatCoverageGrade(row.data_lineage_coverage_grade)} {fmtScore(row.data_lineage_coverage_score)}
                 {row.data_lineage_evidence_keys?.length ? ` · ${row.data_lineage_evidence_keys.map(formatEvidenceKey).join('/')}` : ''}
               </div>
@@ -521,6 +575,21 @@ function flattenSignalStats(data: AttributionReport['signal_stats_json']) {
 
 function flattenCandidateShadowStats(data: JsonMap | undefined) {
   const raw = data?._candidate_shadow_grade
+  if (!raw || typeof raw !== 'object') return []
+  const gradeOrder: Record<string, number> = { S: 0, A: 1, B: 2, C: 3, D: 4, unknown: 5 }
+  return Object.entries(raw as Record<string, Record<string, MetricStats>>)
+    .flatMap(([horizon, stats]) =>
+      Object.entries(stats || {}).map(([grade, item]) => ({ horizon, grade, stats: item })),
+    )
+    .sort((a, b) => {
+      const horizonDiff = Number(a.horizon) - Number(b.horizon)
+      if (Number.isFinite(horizonDiff) && horizonDiff !== 0) return horizonDiff
+      return (gradeOrder[a.grade] ?? 99) - (gradeOrder[b.grade] ?? 99)
+    })
+}
+
+function flattenEntryQualityStats(data: JsonMap | undefined) {
+  const raw = data?._entry_quality_grade
   if (!raw || typeof raw !== 'object') return []
   const gradeOrder: Record<string, number> = { S: 0, A: 1, B: 2, C: 3, D: 4, unknown: 5 }
   return Object.entries(raw as Record<string, Record<string, MetricStats>>)
