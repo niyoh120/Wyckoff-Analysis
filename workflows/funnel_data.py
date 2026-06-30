@@ -109,6 +109,7 @@ def prepare_funnel_job_data(
     *,
     enforce_target_trade_date: bool = False,
     pool_board: str | None = None,
+    pool_limit_count: int | None = None,
     executor_mode: str | None = None,
 ) -> FunnelJobData:
     cfg = FunnelConfig(trading_days=TRADING_DAYS)
@@ -119,7 +120,7 @@ def prepare_funnel_job_data(
     )
     start_s = window.start_trade_date.strftime("%Y%m%d")
     end_s = window.end_trade_date.strftime("%Y%m%d")
-    pool = _resolve_funnel_symbol_pool(pool_board)
+    pool = _resolve_funnel_symbol_pool(pool_board, pool_limit_count=pool_limit_count)
     ref_data = _load_reference_data(pool.symbols, window, cfg)
     bench_df, smallcap_df = _load_benchmark_indices(start_s, end_s)
     all_df_map, fetch_stats = fetch_all_ohlcv(
@@ -202,12 +203,30 @@ def _resolve_external_seed_pool(all_symbols: list[str]) -> tuple[ExternalSeedCon
     return seed_cfg, merged, added
 
 
-def _resolve_funnel_symbol_pool(pool_board: str | None = None) -> FunnelSymbolPool:
+def _resolve_pool_limit_count(pool_limit_count: int | None) -> int:
+    if pool_limit_count is None:
+        return parse_int_env("FUNNEL_POOL_LIMIT_COUNT", 0)
+    return max(int(pool_limit_count or 0), 0)
+
+
+def _resolve_funnel_symbol_pool(
+    pool_board: str | None = None,
+    *,
+    pool_limit_count: int | None = None,
+) -> FunnelSymbolPool:
+    limit_count = _resolve_pool_limit_count(pool_limit_count)
     if pool_board:
         all_symbols, pool_name_map, pool_stats = resolve_symbol_pool(
             pool_mode="board",
             board_name=pool_board,
-            limit_count=parse_int_env("FUNNEL_POOL_LIMIT_COUNT", 0),
+            limit_count=limit_count,
+        )
+    elif pool_limit_count is not None:
+        all_symbols, pool_name_map, pool_stats = resolve_symbol_pool(
+            pool_mode=os.getenv("FUNNEL_POOL_MODE", ""),
+            board_name=os.getenv("FUNNEL_POOL_BOARD", ""),
+            manual_symbols=os.getenv("FUNNEL_POOL_MANUAL_SYMBOLS", ""),
+            limit_count=limit_count,
         )
     else:
         all_symbols, pool_name_map, pool_stats = resolve_symbol_pool_from_env()

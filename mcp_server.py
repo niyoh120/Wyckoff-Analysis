@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from tools.funnel_public import public_funnel_details
 
 mcp = FastMCP("wyckoff")
+_MAX_SCAN_LIMIT = 3000
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +44,20 @@ def _build_ctx():
 
 
 _ctx = _build_ctx()
+
+
+def _normalize_scan_limit(limit: int | None) -> int | None:
+    if limit in (None, ""):
+        return None
+    try:
+        value = int(limit)
+    except (TypeError, ValueError):
+        raise ValueError("limit 必须是正整数，或留空表示全量扫描") from None
+    if value < 0:
+        raise ValueError("limit 必须是正整数，或留空表示全量扫描")
+    if value > _MAX_SCAN_LIMIT:
+        raise ValueError(f"limit 最大支持 {_MAX_SCAN_LIMIT}；全量扫描请不要传 limit")
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -112,14 +127,18 @@ def get_market_overview() -> dict:
 
 
 @mcp.tool()
-def screen_stocks(board: Literal["all", "main_chinext", "main", "chinext", "star", "bse"] = "all") -> dict:
+def screen_stocks(
+    board: Literal["all", "main_chinext", "main", "chinext", "star", "bse"] = "all",
+    limit: int | None = None,
+) -> dict:
     """运行 Wyckoff 五层漏斗筛选，从全市场筛选结构性机会股票。
 
     **调用时机**：用户说"帮我选股"、"今天有什么机会"、"跑一下漏斗"时调用。
     **注意**：耗时 2-3 分钟，请提前告知用户需要等待。
+    **快速试扫**：limit 可限制扫描股票池前 N 只；全量扫描请留空。
     **结果处理**：返回候选股票列表和分数，请用专业但易懂的方式呈现。
     """
-    return _screen_stocks(board=board, tool_context=_ctx)
+    return _screen_stocks(board=board, limit=limit, tool_context=_ctx)
 
 
 @mcp.tool()
@@ -276,11 +295,15 @@ def intraday_rescue_check(code: str) -> dict:
 
 
 @mcp.tool()
-def run_funnel_simulation(board: Literal["all", "main_chinext", "main", "chinext", "star", "bse"] = "all") -> dict:
+def run_funnel_simulation(
+    board: Literal["all", "main_chinext", "main", "chinext", "star", "bse"] = "all",
+    limit: int | None = None,
+) -> dict:
     """运行 Wyckoff 五层漏斗仿真，返回原始结构数据。
 
     **调用时机**：用户说"今天有什么机会"、"帮我复盘并推荐"时调用。与 screen_stocks 类似但返回更底层的原始数据。
     **注意**：耗时 30-60 秒，请耐心等待。
+    **快速试扫**：limit 可限制扫描股票池前 N 只；全量扫描请留空。
     **结果处理**：candidates 是最终候选列表，details 含每层的筛选计数和触发信号明细。
     请用专业研报格式输出，不要直接扔原始 JSON。
     """
@@ -289,6 +312,10 @@ def run_funnel_simulation(board: Literal["all", "main_chinext", "main", "chinext
         board_name = "main_chinext_star"
     if board_name not in {"all", "main_chinext_star", "main", "chinext", "star", "bse"}:
         return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star / bse"}
+    try:
+        pool_limit = _normalize_scan_limit(limit)
+    except ValueError as exc:
+        return {"error": str(exc)}
 
     from workflows.wyckoff_funnel import run as run_funnel
 
@@ -297,6 +324,7 @@ def run_funnel_simulation(board: Literal["all", "main_chinext", "main", "chinext
         notify=False,
         return_details=True,
         pool_board=board_name,
+        pool_limit_count=pool_limit,
         executor_mode="thread",
     )
 

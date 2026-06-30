@@ -52,12 +52,32 @@ def test_run_funnel_simulation_maps_main_chinext_without_mutating_env(monkeypatc
     monkeypatch.setenv("FUNNEL_POOL_BOARD", "chinext")
     monkeypatch.setenv("FUNNEL_EXECUTOR_MODE", "process")
 
-    result = mcp_server.run_funnel_simulation(board="main_chinext")
+    result = mcp_server.run_funnel_simulation(board="main_chinext", limit=12)
 
     assert result["success"] is True
     assert captured_kwargs["pool_board"] == "main_chinext_star"
+    assert captured_kwargs["pool_limit_count"] == 12
     assert captured_kwargs["executor_mode"] == "thread"
     assert result["details"] == {"metrics": {"layer1": 1}}
     assert os.environ["FUNNEL_POOL_MODE"] == "manual"
     assert os.environ["FUNNEL_POOL_BOARD"] == "chinext"
     assert os.environ["FUNNEL_EXECUTOR_MODE"] == "process"
+
+
+def test_run_funnel_simulation_rejects_invalid_limit_before_pipeline(monkeypatch):
+    mcp_server = import_mcp_server(monkeypatch)
+    called = False
+
+    def fake_run(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        return True, [], {}, {}
+
+    fake_funnel = ModuleType("workflows.wyckoff_funnel")
+    fake_funnel.run = fake_run
+    monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_funnel)
+
+    result = mcp_server.run_funnel_simulation(limit=3001)
+
+    assert "limit 最大支持 3000" in result["error"]
+    assert called is False

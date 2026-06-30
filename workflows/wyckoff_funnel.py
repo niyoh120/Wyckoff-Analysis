@@ -510,6 +510,7 @@ def _pool_fetch_metrics(inputs: FunnelMetricsInputs) -> dict:
         "pool_bse": pool.bse_count,
         "pool_merged": pool.merged_count,
         "pool_st_excluded": pool.st_excluded_count,
+        "pool_limit": int(pool.stats.get("pool_limit", 0) or 0),
         "pool_batches": pool.total_batches,
         "end_trade_date": inputs.window.end_trade_date.isoformat(),
         "fetch_ok": int(inputs.fetch_stats.get("fetch_ok", len(inputs.all_df_map)) or 0),
@@ -733,6 +734,7 @@ def run_funnel_job(
     include_debug_context: bool = False,
     direct_source: bool = False,
     pool_board: str | None = None,
+    pool_limit_count: int | None = None,
     executor_mode: str | None = None,
 ) -> tuple[dict[str, list[tuple[str, float]]], dict]:
     """执行 Wyckoff Funnel，返回 (triggers, metrics)。"""
@@ -740,6 +742,7 @@ def run_funnel_job(
         direct_source,
         enforce_target_trade_date=ENFORCE_TARGET_TRADE_DATE,
         pool_board=pool_board,
+        pool_limit_count=pool_limit_count,
         executor_mode=executor_mode,
     )
     artifacts = _build_run_artifacts(data)
@@ -780,6 +783,7 @@ def run(
     notify: bool = True,
     return_details: bool = False,
     pool_board: str | None = None,
+    pool_limit_count: int | None = None,
     executor_mode: str | None = None,
 ) -> tuple[bool, list[dict], dict] | tuple[bool, list[dict], dict, dict]:
     """
@@ -787,7 +791,11 @@ def run(
     返回 (成功与否, 用于研报的股票信息列表, 大盘上下文)。
     每项为 {"code": str, "name": str, "tag": str}。
     """
-    triggers, metrics = run_funnel_job(pool_board=pool_board, executor_mode=executor_mode)
+    triggers, metrics = run_funnel_job(
+        pool_board=pool_board,
+        pool_limit_count=pool_limit_count,
+        executor_mode=executor_mode,
+    )
     render_ctx = build_render_context(triggers, metrics)
     full_formal, legacy_selection, legacy_card = _selection_mode_flags()
     l3_ranked_symbols = [str(c).strip() for c in (metrics.get("layer3_symbols", []) or []) if str(c).strip()]

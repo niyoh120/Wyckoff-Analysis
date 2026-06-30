@@ -15,6 +15,7 @@ from core.funnel_taxonomy import lane_label, source_label
 logger = logging.getLogger(__name__)
 
 _VALID_BOARDS = {"all", "main", "chinext", "star", "bse", "main_chinext_star"}
+_MAX_SCAN_LIMIT = 3000
 _BOARD_ALIAS = {
     "gem": "chinext",
     "创业板": "chinext",
@@ -32,22 +33,25 @@ _BOARD_ALIAS = {
 }
 
 
-def screen_stocks(board: str = "all", tool_context: ToolContext | None = None) -> dict:
+def screen_stocks(board: str = "all", limit: int | None = None, tool_context: ToolContext | None = None) -> dict:
     """运行 Wyckoff 五层漏斗筛选。"""
     try:
         ensure_tushare_token(tool_context)
         board = _normalize_board(board)
         if board not in _VALID_BOARDS:
             return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star / bse"}
-        ok, symbols, _bench_ctx, details = _run_funnel_with_board(board)
+        pool_limit = _normalize_scan_limit(limit)
+        ok, symbols, _bench_ctx, details = _run_funnel_with_board(board, pool_limit=pool_limit)
         metrics = details.get("metrics") or {}
         trigger_groups = _trigger_summary(details)
         trade_mode = _trade_mode_summary(details)
         top_candidates = _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details)
+        summary = _screen_summary(metrics, symbols)
         result = {
             "ok": bool(ok),
             "board": board,
-            "summary": _screen_summary(metrics, symbols),
+            "scan_scope": _scan_scope(board, summary, metrics),
+            "summary": summary,
             "trade_mode": trade_mode,
             "decision_brief": _decision_brief(trade_mode, top_candidates),
             "selection_brief": _selection_brief(trade_mode, top_candidates),
@@ -69,12 +73,27 @@ def _normalize_board(board: str) -> str:
     return _BOARD_ALIAS.get(board, board)
 
 
+def _normalize_scan_limit(limit: int | None) -> int | None:
+    if limit in (None, ""):
+        return None
+    try:
+        value = int(limit)
+    except (TypeError, ValueError):
+        raise ValueError("limit 必须是正整数，或留空表示全量扫描") from None
+    if value < 0:
+        raise ValueError("limit 必须是正整数，或留空表示全量扫描")
+    if value > _MAX_SCAN_LIMIT:
+        raise ValueError(f"limit 最大支持 {_MAX_SCAN_LIMIT}；全量扫描请不要传 limit")
+    return value
+
+
 def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, Any]) -> None:
     if tool_context is None:
         return
     tool_context.state["last_screen_result"] = {
         "ok": result.get("ok"),
         "board": result.get("board"),
+        "scan_scope": result.get("scan_scope", {}),
         "summary": result.get("summary", {}),
         "trade_mode": result.get("trade_mode", {}),
         "decision_brief": result.get("decision_brief", {}),
@@ -85,10 +104,17 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
     }
 
 
-def _run_funnel_with_board(board: str):
+def _run_funnel_with_board(board: str, *, pool_limit: int | None):
     from workflows.wyckoff_funnel import run as run_funnel
 
-    return run_funnel("", notify=False, return_details=True, pool_board=board, executor_mode="thread")
+    return run_funnel(
+        "",
+        notify=False,
+        return_details=True,
+        pool_board=board,
+        pool_limit_count=pool_limit,
+        executor_mode="thread",
+    )
 
 
 def _trigger_summary(details: dict) -> dict:
@@ -110,10 +136,22 @@ def _trigger_summary(details: dict) -> dict:
 def _screen_summary(metrics: dict, symbols_for_report: list[Any]) -> dict:
     return {
         "total_scanned": int(metrics.get("total_symbols", 0)),
+        "scan_limit": int(metrics.get("pool_limit", 0) or 0),
         "layer1_passed": int(metrics.get("layer1", 0)),
         "layer2_passed": int(metrics.get("layer2", 0)),
         "layer3_passed": int(metrics.get("layer3", 0)),
         "report_candidates": len(_report_rows(symbols_for_report)),
+    }
+
+
+def _scan_scope(board: str, summary: dict, metrics: dict) -> dict:
+    limit = int(metrics.get("pool_limit", 0) or 0)
+    scope = "bounded" if limit > 0 else "full"
+    return {
+        "scope": scope,
+        "board": board,
+        "limit": limit,
+        "total_scanned": int(summary.get("total_scanned", 0) or 0),
     }
 
 

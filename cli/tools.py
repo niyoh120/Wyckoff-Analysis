@@ -122,6 +122,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                         "'chinext'（创业板）、'star'（科创板）、'bse'（北交所）"
                     ),
                 },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3000,
+                    "description": "可选。仅扫描股票池前 N 只，用于快速试扫；全量扫描请不要传。",
+                },
             },
         },
     },

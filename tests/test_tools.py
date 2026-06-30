@@ -1331,6 +1331,42 @@ class TestSymbolPool:
         assert stats["pool_mode"] == "board"
         assert stats["pool_star"] == 1
 
+    def test_funnel_data_explicit_limit_overrides_env_without_mutation(self, monkeypatch):
+        from workflows import funnel_data
+
+        captured = {}
+
+        def fake_resolve_symbol_pool(**kwargs):
+            captured.update(kwargs)
+            return (
+                ["000001", "000002"],
+                {"000001": "平安银行", "000002": "万科A"},
+                {
+                    "pool_mode": kwargs.get("pool_mode", ""),
+                    "pool_main": 2,
+                    "pool_chinext": 0,
+                    "pool_star": 0,
+                    "pool_bse": 0,
+                    "pool_merged": 2,
+                    "pool_st_excluded": 0,
+                    "pool_limit": kwargs.get("limit_count", 0),
+                },
+            )
+
+        monkeypatch.setenv("FUNNEL_POOL_LIMIT_COUNT", "99")
+        monkeypatch.setattr(funnel_data, "resolve_symbol_pool", fake_resolve_symbol_pool)
+        monkeypatch.setattr(
+            funnel_data,
+            "_resolve_external_seed_pool",
+            lambda symbols: (SimpleNamespace(enabled=False), symbols, 0),
+        )
+
+        pool = funnel_data._resolve_funnel_symbol_pool("main", pool_limit_count=12)
+
+        assert captured == {"pool_mode": "board", "board_name": "main", "limit_count": 12}
+        assert pool.stats["pool_limit"] == 12
+        assert os.environ["FUNNEL_POOL_LIMIT_COUNT"] == "99"
+
     def test_main_chinext_alias_keeps_legacy_non_bse_boards(self, monkeypatch):
         from tools import symbol_pool
 
@@ -1362,7 +1398,12 @@ class TestSymbolPool:
 
         def fake_run_funnel(*args, **kwargs):
             captured_kwargs.update(kwargs)
-            return True, [], {}, {"metrics": {}, "triggers": {}, "name_map": {}}
+            return (
+                True,
+                [],
+                {},
+                {"metrics": {"pool_limit": kwargs.get("pool_limit_count", 0)}, "triggers": {}, "name_map": {}},
+            )
 
         fake_pipeline.run = fake_run_funnel
         monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
@@ -1371,14 +1412,73 @@ class TestSymbolPool:
         monkeypatch.setenv("FUNNEL_POOL_BOARD", "chinext")
         monkeypatch.setenv("FUNNEL_EXECUTOR_MODE", "process")
 
-        result = screen_tools.screen_stocks(board="main_chinext")
+        result = screen_tools.screen_stocks(board="main_chinext", limit=25)
 
         assert "error" not in result
         assert captured_kwargs["pool_board"] == "main_chinext_star"
+        assert captured_kwargs["pool_limit_count"] == 25
         assert captured_kwargs["executor_mode"] == "thread"
+        assert result["scan_scope"] == {
+            "scope": "bounded",
+            "board": "main_chinext_star",
+            "limit": 25,
+            "total_scanned": 0,
+        }
         assert os.environ["FUNNEL_POOL_MODE"] == "manual"
         assert os.environ["FUNNEL_POOL_BOARD"] == "chinext"
         assert os.environ["FUNNEL_EXECUTOR_MODE"] == "process"
+
+    def test_screen_stocks_surfaces_bounded_scan_scope(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [],
+                {},
+                {"metrics": {"total_symbols": 10, "pool_limit": 25}, "triggers": {}, "name_map": {}},
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(limit=25)
+
+        assert result["scan_scope"] == {"scope": "bounded", "board": "all", "limit": 25, "total_scanned": 10}
+        assert result["summary"]["scan_limit"] == 25
+
+    def test_screen_stocks_without_limit_preserves_env_limit(self, monkeypatch):
+        from agents import screen_tools
+
+        captured_kwargs = {}
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return True, [], {}, {"metrics": {"pool_limit": 99}, "triggers": {}, "name_map": {}}
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setenv("FUNNEL_POOL_LIMIT_COUNT", "99")
+
+        result = screen_tools.screen_stocks()
+
+        assert captured_kwargs["pool_limit_count"] is None
+        assert result["scan_scope"]["limit"] == 99
+        assert os.environ["FUNNEL_POOL_LIMIT_COUNT"] == "99"
+
+    def test_screen_stocks_rejects_invalid_scan_limit(self, monkeypatch):
+        from agents import screen_tools
+
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(limit=3001)
+
+        assert "limit 最大支持 3000" in result["error"]
 
     def test_screen_stocks_sanitizes_nonfinite_trigger_scores(self, monkeypatch):
         from agents import screen_tools

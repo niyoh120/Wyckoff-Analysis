@@ -219,11 +219,13 @@ def _candidate_brief_line(ctx: Any, selected_count: int) -> str:
 def _pool_summary_line(metrics: dict) -> str:
     bse = int(metrics.get("pool_bse") or 0)
     bse_part = f" + 北交{bse}" if bse > 0 else ""
+    pool_limit = int(metrics.get("pool_limit") or 0)
+    limit_part = f"，快扫前{pool_limit}只" if pool_limit > 0 else ""
     return (
         f"**股票池**: 主板{metrics['pool_main']} + 创业板{metrics['pool_chinext']} "
         f"+ 科创板{metrics['pool_star']}{bse_part} -> 去重{metrics['pool_merged']} "
         f"-> 去ST{metrics['pool_st_excluded']} = {metrics['total_symbols']} "
-        f"(共{metrics['pool_batches']}批)"
+        f"(共{metrics['pool_batches']}批{limit_part})"
     )
 
 

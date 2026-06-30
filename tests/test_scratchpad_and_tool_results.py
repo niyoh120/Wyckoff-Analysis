@@ -90,6 +90,7 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     result = {
         "ok": True,
         "board": "chinext",
+        "scan_scope": {"scope": "bounded", "board": "chinext", "limit": 200, "total_scanned": 200},
         "summary": {"total_scanned": 2000},
         "trade_mode": {"regime": "RISK_OFF", "action": "不新增买入"},
         "decision_brief": {
@@ -150,6 +151,7 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     assert "宁德时代" in content
     assert '"decision_brief": {"market_gate": "风险规避 / 不新增买入"' in content
     assert '"selection_brief": {"status": "ready_for_ai_review"' in content
+    assert '"scan_scope": {"scope": "bounded", "board": "chinext", "limit": 200, "total_scanned": 200}' in content
     assert "本轮首选可进入 AI 研报复核: 300750 宁德时代" in content
     assert "300750 宁德时代: LPS+SOS；只观察" in content
     assert '"risk_factors": ["大盘风险闸门关闭"]' in content

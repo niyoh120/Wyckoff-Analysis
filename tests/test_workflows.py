@@ -93,6 +93,16 @@ def test_ask_user_question_schema_makes_clarification_last_resort():
     assert "优先使用" not in schema["description"]
 
 
+def test_screen_stocks_schema_exposes_optional_scan_limit():
+    schema = next(item for item in TOOL_SCHEMAS if item["name"] == "screen_stocks")
+    limit = schema["parameters"]["properties"]["limit"]
+
+    assert limit["type"] == "integer"
+    assert limit["maximum"] == 3000
+    assert "快速试扫" in limit["description"]
+    assert "全量扫描请不要传" in limit["description"]
+
+
 def test_route_workflow_explicit_dynamic_opt_in():
     workflow = route_workflow("用 workflow 帮我研究一下今天的市场风险")
 
