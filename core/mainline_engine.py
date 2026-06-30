@@ -61,6 +61,7 @@ def build_mainline_candidates(
     concept_map: dict[str, list[str]],
     concept_heat: list[dict[str, Any]],
     theme_radar: dict[str, Any],
+    theme_activity: dict[str, Any] | None = None,
     df_map: dict[str, pd.DataFrame],
     financial_map: dict[str, dict],
     name_map: dict[str, str],
@@ -71,7 +72,7 @@ def build_mainline_candidates(
         return []
     l1_set = {str(code).strip() for code in l1_passed if str(code).strip()}
     l2_set = {str(code).strip() for code in l2_passed if str(code).strip()}
-    theme_scores = _theme_scores(concept_heat, theme_radar, cfg)
+    theme_scores = _theme_scores(concept_heat, theme_radar, theme_activity or {}, cfg)
     seeds = _mainline_seed_map(l1_set, concept_map, theme_scores, theme_radar, cfg)
     candidates = [
         _candidate_from_seed(code, seed, l2_set, df_map, financial_map, name_map, theme_scores, cfg)
@@ -207,6 +208,7 @@ def _seed_theme_score(seed: dict[str, Any], theme: str, theme_scores: dict[str, 
 def _theme_scores(
     concept_heat: list[dict[str, Any]],
     theme_radar: dict[str, Any],
+    theme_activity: dict[str, Any],
     cfg: MainlineEngineConfig,
 ) -> dict[str, float]:
     scores: dict[str, float] = {}
@@ -222,6 +224,10 @@ def _theme_scores(
         theme = _mainline_theme(item.get("name"), cfg)
         if theme:
             scores[theme] = max(scores.get(theme, 0.0), _heat_score(item, rank))
+    for item in theme_activity.get("themes") or []:
+        theme = _mainline_theme(item.get("theme"), cfg)
+        if theme:
+            scores[theme] = max(scores.get(theme, 0.0), _safe_float(item.get("score")))
     return scores
 
 

@@ -36,3 +36,21 @@ def test_detect_theme_lines_uses_consecutive_recent_history(tmp_path, monkeypatc
     monkeypatch.setattr(market_metadata, "CONCEPT_HEAT_HISTORY", history)
 
     assert market_metadata.detect_theme_lines(min_days=3) == ["AI算力"]
+
+
+def test_update_concept_heat_history_keeps_pct_and_inflow_leaders(tmp_path, monkeypatch) -> None:
+    history = tmp_path / "concept_heat_history.json"
+    monkeypatch.setattr(market_metadata, "CONCEPT_HEAT_HISTORY", history)
+    monkeypatch.setattr(market_metadata, "_upsert_concept_heat_history", lambda *_args, **_kwargs: None)
+
+    market_metadata.update_concept_heat_history(
+        "2026-06-30",
+        [
+            {"name": "资金强", "pct": 1.0, "net_inflow": 100.0},
+            {"name": "机器人", "pct": 6.0, "net_inflow": 5.0},
+        ],
+        top_n=1,
+    )
+
+    data = json.loads(history.read_text(encoding="utf-8"))
+    assert set(data["2026-06-30"]) == {"资金强", "机器人"}

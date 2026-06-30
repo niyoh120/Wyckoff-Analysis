@@ -72,3 +72,27 @@ def test_capital_migration_requires_positive_inflow_for_inflow_bucket() -> None:
 
     assert report["inflow"] == []
     assert report["summary"] == "暂无明确资金迁徙信号"
+
+
+def test_capital_migration_exposes_stock_level_theme_activity() -> None:
+    report = build_capital_migration_report(
+        trade_date="2026-06-30",
+        concept_heat=[{"name": "芯片", "pct": 5.0, "net_inflow": 500.0}],
+        concept_history={},
+        sector_rotation={"state_map": {}},
+        theme_radar={},
+        theme_activity={
+            "themes": [
+                {
+                    "theme": "机器人",
+                    "score": 0.66,
+                    "median_ret": 4.2,
+                    "up_ratio": 0.82,
+                    "strong_count": 18,
+                }
+            ]
+        },
+    )
+
+    assert report["activity"][0]["theme"] == "机器人"
+    assert "上涨占比82%" in report["activity"][0]["evidence"]

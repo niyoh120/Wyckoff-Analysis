@@ -25,6 +25,7 @@ def build_capital_migration_report(
     concept_history: dict[str, dict[str, Any]] | None,
     sector_rotation: dict[str, Any] | None,
     theme_radar: dict[str, Any] | None,
+    theme_activity: dict[str, Any] | None = None,
     config: CapitalMigrationConfig | None = None,
 ) -> dict[str, Any]:
     cfg = config or CapitalMigrationConfig()
@@ -33,6 +34,7 @@ def build_capital_migration_report(
     radar_map = _theme_radar_map(theme_radar or {})
     inflow = _top_inflow_rows(current, radar_map, cfg)
     outflow = _top_outflow_rows(current, previous, sector_rotation or {}, cfg)
+    activity = _theme_activity_rows(theme_activity or {}, inflow)
     summary = _summary(inflow, outflow)
     return {
         "version": "capital_migration_v1",
@@ -41,6 +43,7 @@ def build_capital_migration_report(
         "confidence": _confidence(inflow, outflow),
         "inflow": inflow,
         "outflow": outflow,
+        "activity": activity,
         "rotation": _rotation_lines(inflow, outflow),
     }
 
@@ -111,6 +114,33 @@ def _top_outflow_rows(
     rows = _history_outflows(current, previous) + _sector_outflows(sector_rotation)
     merged = _dedupe_outflows(rows)
     return sorted(merged, key=lambda item: (-float(item["score"]), item["theme"]))[: cfg.outflow_limit]
+
+
+def _theme_activity_rows(theme_activity: dict[str, Any], inflow: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    inflow_themes = {str(row.get("theme") or "") for row in inflow}
+    rows = []
+    for item in theme_activity.get("themes") or []:
+        theme = str(item.get("theme") or "").strip()
+        score = _num(item.get("score"))
+        if not theme or theme in inflow_themes or score < 0.48:
+            continue
+        rows.append(
+            {
+                "theme": theme,
+                "score": round(score, 4),
+                "evidence": _activity_evidence(item),
+                "source": "theme_activity",
+            }
+        )
+    return sorted(rows, key=lambda item: (-float(item["score"]), item["theme"]))[:5]
+
+
+def _activity_evidence(item: dict[str, Any]) -> str:
+    return (
+        f"成分股中位{_fmt_pct(item.get('median_ret'))}，"
+        f"上涨占比{_fmt_percent_ratio(item.get('up_ratio'))}，"
+        f"强势{int(_num(item.get('strong_count')))}只"
+    )
 
 
 def _history_outflows(current: dict[str, dict[str, Any]], previous: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -270,6 +300,10 @@ def _fmt_pct(value: Any) -> str:
 
 def _fmt_ratio(value: Any) -> str:
     return f"{_num(value):.2f}x"
+
+
+def _fmt_percent_ratio(value: Any) -> str:
+    return f"{_num(value) * 100.0:.0f}%"
 
 
 def _fmt_money(value: Any) -> str:

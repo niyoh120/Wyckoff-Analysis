@@ -27,6 +27,8 @@ from core.layer2_strength import (
     evaluate_layer2_symbol,
 )
 from core.mainline_engine import MainlineEngineConfig, build_mainline_candidates, mainline_candidate_entries
+from core.theme_activity import build_theme_activity_snapshot
+from core.theme_radar import normalize_theme_name
 
 logger = logging.getLogger(__name__)
 
@@ -653,6 +655,7 @@ def _rank_and_filter_sectors(
     heat_min = cfg.sector_heat_bypass_min_count
     heat_bypass = {s for s, c in ranked if heat_min > 0 and c >= heat_min}
     hot_set = set(hot_concepts or [])
+    normalized_hot_set = {normalize_theme_name(item) for item in hot_set}
 
     keep_sectors: list[str] = list(heat_bypass)
     for s, c in ranked:
@@ -661,7 +664,7 @@ def _rank_and_filter_sectors(
         str_val = sector_strength_map.get(s, 0.0)
         normal_pass = c >= threshold and pass_ratio_map.get(s, 0.0) >= pass_threshold and str_val >= strength_threshold
         super_pass = c >= min_count and str_val >= super_threshold
-        hot_pass = s in hot_set and c >= min_count
+        hot_pass = (s in hot_set or normalize_theme_name(s) in normalized_hot_set) and c >= min_count
         if normal_pass or super_pass or hot_pass:
             keep_sectors.append(s)
     if not keep_sectors:
@@ -671,7 +674,12 @@ def _rank_and_filter_sectors(
 
     keep_sectors_sorted = sorted(
         keep_sectors,
-        key=lambda s: (-(1.0 if s in hot_set else 0.0), -sector_strength_map.get(s, 0.0), -counts.get(s, 0), s),
+        key=lambda s: (
+            -(1.0 if s in hot_set or normalize_theme_name(s) in normalized_hot_set else 0.0),
+            -sector_strength_map.get(s, 0.0),
+            -counts.get(s, 0),
+            s,
+        ),
     )
     top_n = max(int(cfg.top_n_sectors), 0)
     top_sectors = keep_sectors_sorted[:top_n] if top_n > 0 else keep_sectors_sorted
@@ -725,15 +733,19 @@ def layer3_sector_resonance(
     top_sector_set = set(top_sectors)
     keep_sector_set = set(keep_sectors_sorted)
     hot_set = set(hot_concepts or [])
+    normalized_hot_set = {normalize_theme_name(item) for item in hot_set}
     filtered: list[str] = []
     for sym in symbols:
         sym_secs = set(sym_sectors.get(sym, []))
+        sym_theme_secs = {normalize_theme_name(s) for s in sym_secs}
         sym_strength = strength_map.get(sym, 0.0)
         if sym_secs & top_sector_set:
             filtered.append(sym)
         elif sym_secs & keep_sector_set and sym_strength >= cfg.l3_keep_strength_min:
             filtered.append(sym)
-        elif sym_secs & hot_set and sym_strength >= cfg.l3_hot_leader_strength_min:
+        elif (
+            sym_secs & hot_set or sym_theme_secs & normalized_hot_set
+        ) and sym_strength >= cfg.l3_hot_leader_strength_min:
             filtered.append(sym)
         elif sym_strength >= cfg.l3_leader_strength_min:
             filtered.append(sym)
@@ -2416,6 +2428,7 @@ def _candidate_entries_for_result(
         l1,
         l2,
         df_map,
+        sector_map=sector_map,
         concept_map=concept_map,
         concept_heat=concept_heat,
         theme_radar=theme_radar,
@@ -2431,6 +2444,7 @@ def _mainline_entries_for_result(
     l2: list[str],
     df_map: dict[str, pd.DataFrame],
     *,
+    sector_map: dict[str, str] | None,
     concept_map: dict[str, list[str]] | None,
     concept_heat: list[dict[str, Any]] | None,
     theme_radar: dict[str, Any] | None,
@@ -2440,12 +2454,20 @@ def _mainline_entries_for_result(
 ) -> list[dict[str, Any]]:
     if mainline_config is None or not mainline_config.enabled:
         return []
+    theme_activity = build_theme_activity_snapshot(
+        trade_date="",
+        df_map=df_map,
+        concept_map=concept_map or {},
+        sector_map=sector_map or {},
+        concept_heat=concept_heat or [],
+    )
     candidates = build_mainline_candidates(
         l1_passed=l1,
         l2_passed=l2,
         concept_map=concept_map or {},
         concept_heat=concept_heat or [],
         theme_radar=theme_radar or {},
+        theme_activity=theme_activity,
         df_map=df_map,
         financial_map=financial_map or {},
         name_map=name_map or {},

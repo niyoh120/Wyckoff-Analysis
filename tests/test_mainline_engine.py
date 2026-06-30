@@ -76,6 +76,25 @@ def test_mainline_event_reversal_theme_can_bypass_l2_with_liquidity() -> None:
     assert mainline_candidate_entries(candidates, max_count=3)
 
 
+def test_mainline_can_seed_candidates_from_theme_activity() -> None:
+    candidates = build_mainline_candidates(
+        l1_passed=["000011"],
+        l2_passed=[],
+        concept_map={"000011": ["减速器"]},
+        concept_heat=[],
+        theme_radar={"themes": [], "strategic_candidates": []},
+        theme_activity={"themes": [{"theme": "机器人", "score": 0.72}]},
+        df_map={"000011": _frame(_event_reversal_values(), amount=200_000_000.0)},
+        financial_map={},
+        name_map={"000011": "活跃主题A"},
+        config=MainlineEngineConfig(),
+    )
+
+    assert candidates[0]["theme"] == "机器人"
+    assert candidates[0]["source"] == "concept_map"
+    assert mainline_candidate_entries(candidates, max_count=3)
+
+
 def test_mainline_blocks_candidate_without_timing_gate() -> None:
     weak = [10 + i * 0.03 for i in range(120)] + [10.0, 9.8, 9.5, 9.2, 9.1]
     candidates = build_mainline_candidates(
@@ -92,6 +111,24 @@ def test_mainline_blocks_candidate_without_timing_gate() -> None:
 
     assert candidates[0]["status"] == "主线观察"
     assert mainline_candidate_entries(candidates, max_count=3) == []
+
+
+def test_mainline_theme_activity_can_seed_alias_theme_without_concept_heat() -> None:
+    candidates = build_mainline_candidates(
+        l1_passed=["000011"],
+        l2_passed=[],
+        concept_map={"000011": ["减速器"]},
+        concept_heat=[],
+        theme_radar={"themes": [], "strategic_candidates": []},
+        theme_activity={"themes": [{"theme": "机器人", "score": 0.74}]},
+        df_map={"000011": _frame(_trend_values())},
+        financial_map={},
+        name_map={"000011": "机器人链A"},
+        config=MainlineEngineConfig(),
+    )
+
+    assert candidates[0]["theme"] == "机器人"
+    assert candidates[0]["status"] == "主线买点候选"
 
 
 def test_mainline_high_bias_can_enter_divergence_pool() -> None:

@@ -112,7 +112,22 @@ def _capital_migration_report_lines(metrics: dict | None) -> list[str]:
         text = str(item or "").strip()
         if text:
             lines.append(f"  - {text}")
+    activity = _capital_migration_activity_line(migration)
+    if activity:
+        lines.append(f"  - {activity}")
     return lines
+
+
+def _capital_migration_activity_line(migration: dict) -> str:
+    rows = list(migration.get("activity") or [])[:5]
+    if not rows:
+        return ""
+    return "异动: " + "； ".join(f"{row['theme']}({row['evidence']})" for row in rows)
+
+
+def _theme_activity_report_line(metrics: dict | None) -> str:
+    text = str((metrics or {}).get("theme_activity_summary") or "").strip()
+    return f"**今日异动主题**: {text}" if text else ""
 
 
 def _pv_policy_shadow_report_line(benchmark_context: dict | None) -> str:
@@ -431,6 +446,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selected_for_ai))}",
         f"**大盘资金趋势**: {money_line}",
         *_capital_migration_report_lines(ctx.metrics),
+        _theme_activity_report_line(ctx.metrics),
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",
         f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
@@ -448,7 +464,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         f"战略主题 {sum(1 for c in selected_for_ai if c in ctx.strategic_l2_bypass_set)} / "
         f"主线 {sum(1 for c in selected_for_ai if c in ctx.mainline_candidate_set)}; "
         f"旁路预算 {FUNNEL_L2_BYPASS_AI_CAP or 'unlimited'})",
-        f"**Top 行业**: {', '.join(ctx.metrics['top_sectors']) if ctx.metrics['top_sectors'] else '无'}",
+        f"**候选集中概念**: {', '.join(ctx.metrics['top_sectors']) if ctx.metrics['top_sectors'] else '无'}",
         "",
     ]
     if ctx.external_seed_line:
@@ -512,6 +528,7 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selection.selected_for_ai))}",
         f"**大盘资金趋势**: {money_line}",
         *_capital_migration_report_lines(ctx.metrics),
+        _theme_activity_report_line(ctx.metrics),
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",
         f"**推演策略 Shadow**: {pv_shadow_line or '无'}",
@@ -529,7 +546,7 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         f"阶段补位{counts['l3_only']} / 形态旁路 {counts['bypass_selected']} / "
         f"战略主题 {counts['strategic_selected']} / 主线 {counts['mainline_selected']}; "
         f"旁路预算 {FUNNEL_L2_BYPASS_AI_CAP or 'unlimited'})",
-        f"**Top 行业**: {', '.join(ctx.metrics['top_sectors']) if ctx.metrics['top_sectors'] else '无'}",
+        f"**候选集中概念**: {', '.join(ctx.metrics['top_sectors']) if ctx.metrics['top_sectors'] else '无'}",
         "",
     ]
     if ctx.external_seed_line:

@@ -485,3 +485,80 @@ class TestSectorHeatBypass:
         )
         assert "A1" in result
         assert "A2" in result
+
+    def test_hot_concept_matches_normalized_aliases(self):
+        cfg = FunnelConfig()
+        cfg.sector_min_count = 1
+        cfg.l3_keep_strength_min = 0.0
+        n = 30
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        closes = [10.0 + i * 0.1 for i in range(n)]
+        df_map = {
+            code: pd.DataFrame(
+                {
+                    "date": dates,
+                    "open": closes,
+                    "close": closes,
+                    "high": [c * 1.02 for c in closes],
+                    "low": [c * 0.98 for c in closes],
+                    "volume": [1_000_000] * n,
+                }
+            )
+            for code in ["R1", "R2", "B1"]
+        }
+        result, top = layer3_sector_resonance(
+            ["R1", "R2", "B1"],
+            {"B1": "银行"},
+            cfg,
+            base_symbols=["R1", "R2", "B1"],
+            df_map=df_map,
+            concept_map={"R1": ["减速器"], "R2": ["机器视觉"], "B1": ["银行"]},
+            hot_concepts=["机器人"],
+        )
+
+        assert {"R1", "R2"} <= set(result)
+        assert {"减速器", "机器视觉"} & set(top)
+
+    def test_hot_concepts_match_normalized_theme_aliases(self):
+        cfg = FunnelConfig()
+        cfg.sector_min_count = 2
+        cfg.top_n_sectors = 1
+        cfg.l3_hot_leader_strength_min = 0.50
+        dates = pd.date_range("2024-01-01", periods=30, freq="B")
+
+        def frame(start: float, step: float) -> pd.DataFrame:
+            closes = [start + i * step for i in range(30)]
+            return pd.DataFrame(
+                {
+                    "date": dates,
+                    "open": closes,
+                    "close": closes,
+                    "high": [c * 1.02 for c in closes],
+                    "low": [c * 0.98 for c in closes],
+                    "volume": [1_000_000] * 30,
+                }
+            )
+
+        df_map = {
+            "A1": frame(10.0, 0.30),
+            "B1": frame(10.0, 0.01),
+            "B2": frame(10.0, 0.01),
+            "B3": frame(10.0, 0.01),
+        }
+        result, top = layer3_sector_resonance(
+            ["A1", "B1", "B2", "B3"],
+            {},
+            cfg,
+            base_symbols=["A1", "B1", "B2", "B3"],
+            df_map=df_map,
+            concept_map={
+                "A1": ["减速器"],
+                "B1": ["银行"],
+                "B2": ["银行"],
+                "B3": ["银行"],
+            },
+            hot_concepts=["机器人"],
+        )
+
+        assert top == ["银行"]
+        assert "A1" in result

@@ -18,7 +18,13 @@ logger = logging.getLogger(__name__)
 
 def _top_heat_items(heat: list[dict[str, Any]], top_n: int) -> list[dict[str, Any]]:
     clean = [item for item in heat if is_actionable_theme_name(str(item.get("name", "")))]
-    return sorted(clean, key=lambda x: x.get("net_inflow", 0), reverse=True)[: max(int(top_n), 1)]
+    limit = max(int(top_n), 1)
+    selected: dict[str, dict[str, Any]] = {}
+    for item in sorted(clean, key=lambda x: x.get("net_inflow", 0), reverse=True)[:limit]:
+        selected[str(item.get("name"))] = item
+    for item in sorted(clean, key=lambda x: x.get("pct", 0), reverse=True)[:limit]:
+        selected[str(item.get("name"))] = item
+    return list(selected.values())
 
 
 def upsert_concept_heat_history(trade_date: str, heat: list[dict[str, Any]], top_n: int = 20) -> int:

@@ -121,11 +121,22 @@ def fetch_concept_heat() -> list[dict[str, Any]]:
 
 def update_concept_heat_history(today: str, heat: list[dict[str, Any]], top_n: int = 20) -> None:
     history = stale_json_cache(CONCEPT_HEAT_HISTORY, {})
-    top_items = sorted(heat, key=lambda x: x.get("net_inflow", 0), reverse=True)[:top_n]
+    top_items = _top_heat_items(heat, top_n)
     history[today] = {it["name"]: {"pct": it["pct"], "inflow": it["net_inflow"]} for it in top_items}
     sorted_dates = sorted(history.keys(), reverse=True)[:20]
     write_json_cache(CONCEPT_HEAT_HISTORY, {d: history[d] for d in sorted_dates}, "concept_heat_history_write")
     _upsert_concept_heat_history(today, heat, top_n)
+
+
+def _top_heat_items(heat: list[dict[str, Any]], top_n: int) -> list[dict[str, Any]]:
+    clean = [item for item in heat if str(item.get("name", "")).strip()]
+    limit = max(int(top_n), 1)
+    selected: dict[str, dict[str, Any]] = {}
+    for item in sorted(clean, key=lambda x: x.get("net_inflow", 0), reverse=True)[:limit]:
+        selected[str(item.get("name"))] = item
+    for item in sorted(clean, key=lambda x: x.get("pct", 0), reverse=True)[:limit]:
+        selected[str(item.get("name"))] = item
+    return list(selected.values())
 
 
 def detect_theme_lines(min_days: int = 3) -> list[str]:

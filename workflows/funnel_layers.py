@@ -12,6 +12,7 @@ from core.funnel_theme import empty_theme_snapshot, select_linked_theme_radar
 from core.funnel_theme import theme_candidate_map as build_theme_candidate_map
 from core.mainline_engine import build_mainline_candidates
 from core.sector_rotation import analyze_sector_rotation
+from core.theme_activity import build_theme_activity_snapshot
 from core.theme_radar import build_theme_radar_snapshot
 from core.wyckoff_engine import (
     FunnelConfig,
@@ -48,6 +49,7 @@ class FunnelLayerOutputs:
     theme_radar_current: dict
     theme_radar: dict
     theme_radar_source: str
+    theme_activity: dict
     theme_candidate_map: dict
     mainline_candidates: list[dict]
     mainline_ai_cap: int
@@ -69,8 +71,17 @@ def run_base_funnel_layers(
     _report_progress("漏斗筛选", "L1~L4 计算中", 0.85)
     l1_input = list(all_df_map.keys())
     l1_passed, l2_passed, l2_channel_map = _run_strength_layers(l1_input, all_df_map, bench_df, cfg, ref_data)
+    theme_activity = _build_theme_activity(window, ref_data, all_df_map)
     l3_passed, top_sectors, sector_rotation = _run_sector_layer(
-        l1_passed, l2_passed, all_df_map, cfg, ref_data, etf_l2_passed, etf_sector_map, etf_df_map
+        l1_passed,
+        l2_passed,
+        all_df_map,
+        cfg,
+        ref_data,
+        etf_l2_passed,
+        etf_sector_map,
+        etf_df_map,
+        _activity_hot_concepts(theme_activity),
     )
     benchmark_context["sector_rotation"] = sector_rotation
     triggers = layer4_triggers(
@@ -85,6 +96,7 @@ def run_base_funnel_layers(
         concept_map=ref_data.concept_map,
         concept_heat=ref_data.concept_heat,
         theme_radar=theme_current,
+        theme_activity=theme_activity,
         df_map=all_df_map,
         financial_map=ref_data.financial_map,
         name_map=ref_data.name_map,
@@ -104,6 +116,7 @@ def run_base_funnel_layers(
         theme_radar_current=theme_current,
         theme_radar=theme_radar,
         theme_radar_source=theme_source,
+        theme_activity=theme_activity,
         theme_candidate_map=build_theme_candidate_map(theme_radar),
         mainline_candidates=mainline_candidates,
         mainline_ai_cap=mainline_cfg.max_ai_candidates,
@@ -139,6 +152,7 @@ def _run_sector_layer(
     etf_l2_passed: list[str],
     etf_sector_map: dict[str, str],
     etf_df_map: dict[str, pd.DataFrame],
+    activity_hot_concepts: list[str],
 ) -> tuple[list[str], list[str], dict]:
     etf_codes = set(etf_sector_map)
     l3_raw, top_sectors = layer3_sector_resonance(
@@ -148,7 +162,7 @@ def _run_sector_layer(
         base_symbols=l1_passed + list(etf_codes & set(etf_df_map)),
         df_map=all_df_map,
         concept_map=ref_data.concept_map,
-        hot_concepts=ref_data.hot_concepts,
+        hot_concepts=list(dict.fromkeys([*ref_data.hot_concepts, *activity_hot_concepts])),
     )
     l3_passed = [s for s in l3_raw if s not in etf_codes]
     sector_rotation = analyze_sector_rotation(
@@ -159,6 +173,32 @@ def _run_sector_layer(
     )
     print(f"[funnel] 板块轮动温度计: {sector_rotation.get('headline', '无')}")
     return l3_passed, top_sectors, sector_rotation
+
+
+def _build_theme_activity(window, ref_data: FunnelReferenceData, all_df_map: dict[str, pd.DataFrame]) -> dict:
+    return build_theme_activity_snapshot(
+        trade_date=window.end_trade_date.isoformat(),
+        df_map=all_df_map,
+        concept_map=ref_data.concept_map,
+        sector_map=ref_data.sector_map,
+        concept_heat=ref_data.concept_heat,
+    )
+
+
+def _activity_hot_concepts(theme_activity: dict) -> list[str]:
+    rows: list[str] = []
+    for item in theme_activity.get("themes") or []:
+        theme = str(item.get("theme") or "").strip()
+        if theme and _safe_float(item.get("score")) >= 0.48:
+            rows.append(theme)
+    return rows[:8]
+
+
+def _safe_float(raw) -> float:
+    try:
+        return float(raw or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _build_theme_context(

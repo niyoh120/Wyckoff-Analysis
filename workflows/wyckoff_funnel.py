@@ -20,6 +20,7 @@ from core.candidate_tracks import candidate_entry_track
 from core.capital_migration import build_capital_migration_report
 from core.cn_boards import is_main_or_chinext, is_star_or_bse
 from core.funnel_etf import etf_metrics
+from core.theme_activity import summarize_theme_activity
 from core.theme_radar import summarize_theme_radar
 from core.wyckoff_engine import (
     FunnelConfig,
@@ -548,16 +549,20 @@ def _layer_metrics(layers: FunnelLayerOutputs) -> dict:
 def _theme_metrics(inputs: FunnelMetricsInputs, ranked_l3_symbols: list[str]) -> dict:
     ref_data = inputs.ref_data
     layers = inputs.layers
+    theme_activity = layers.theme_activity
     capital_migration = build_capital_migration_report(
         trade_date=inputs.window.end_trade_date.isoformat(),
         concept_heat=ref_data.concept_heat,
         concept_history=ref_data.concept_heat_history,
         sector_rotation=layers.sector_rotation,
         theme_radar=layers.theme_radar_current,
+        theme_activity=theme_activity,
     )
     return {
         "concept_heat": ref_data.concept_heat[:20],
         "concept_heat_full": ref_data.concept_heat,
+        "theme_activity": theme_activity,
+        "theme_activity_summary": summarize_theme_activity(theme_activity),
         "capital_migration": capital_migration,
         "theme_lines": ref_data.hot_concepts,
         "theme_radar": layers.theme_radar,
