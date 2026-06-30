@@ -1216,6 +1216,32 @@ class TestSymbolPool:
         assert symbols == ["688001"]
         assert stats["pool_star"] == 1
 
+    def test_board_pool_excludes_st_symbols(self, monkeypatch):
+        from tools import symbol_pool
+
+        monkeypatch.setenv("FUNNEL_POOL_MODE", "board")
+        monkeypatch.setenv("FUNNEL_POOL_BOARD", "all")
+        monkeypatch.delenv("FUNNEL_POOL_LIMIT_COUNT", raising=False)
+        boards = {
+            "all": [
+                {"code": "000001", "name": "平安银行"},
+                {"code": "000002", "name": "ST样本"},
+                {"code": "830000", "name": "北交样本"},
+            ],
+            "main": [{"code": "000001", "name": "平安银行"}, {"code": "000002", "name": "ST样本"}],
+            "chinext": [],
+            "star": [],
+            "bse": [{"code": "830000", "name": "北交样本"}],
+        }
+        monkeypatch.setattr(symbol_pool, "get_stocks_by_board", lambda board: boards[board])
+
+        symbols, name_map, stats = symbol_pool.resolve_symbol_pool_from_env()
+
+        assert symbols == ["000001", "830000"]
+        assert name_map == {"000001": "平安银行", "830000": "北交样本"}
+        assert stats["pool_merged"] == 3
+        assert stats["pool_st_excluded"] == 1
+
     def test_explicit_board_pool_ignores_env_mode(self, monkeypatch):
         from tools import symbol_pool
 

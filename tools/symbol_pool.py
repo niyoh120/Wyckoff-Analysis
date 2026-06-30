@@ -90,10 +90,16 @@ def _merge_code_to_name(items: list[dict[str, str]]) -> dict[str, str]:
 def _symbols_from_map(
     code_to_name: dict[str, str],
     limit_count: int,
-) -> tuple[list[str], dict[str, str], int]:
+) -> tuple[list[str], dict[str, str], int, int]:
     merged_symbols = normalize_symbols(list(code_to_name.keys()))
-    symbols = merged_symbols[:limit_count] if limit_count > 0 else merged_symbols
-    return symbols, {code: code_to_name.get(code, "") for code in symbols}, len(merged_symbols)
+    st_set = _st_symbol_set(merged_symbols, code_to_name)
+    filtered_symbols = [sym for sym in merged_symbols if sym not in st_set]
+    symbols = filtered_symbols[:limit_count] if limit_count > 0 else filtered_symbols
+    return symbols, {code: code_to_name.get(code, "") for code in symbols}, len(merged_symbols), len(st_set)
+
+
+def _st_symbol_set(symbols: list[str], code_to_name: dict[str, str]) -> set[str]:
+    return {sym for sym in symbols if "ST" in code_to_name.get(sym, "").upper()}
 
 
 def _board_items(board: str) -> list[dict[str, str]]:
@@ -120,7 +126,7 @@ def _resolve_board_pool(
         items = _board_items("main") + _board_items("chinext") + _board_items("star")
     else:
         items = get_stocks_by_board(board_name)
-    symbols, name_map, merged = _symbols_from_map(_merge_code_to_name(items), limit_count)
+    symbols, name_map, merged, st_excluded = _symbols_from_map(_merge_code_to_name(items), limit_count)
     if board_name == "all":
         main, chinext, star, bse = _board_counts()
     else:
@@ -145,7 +151,7 @@ def _resolve_board_pool(
             star=star,
             bse=bse,
             merged=merged,
-            st_excluded=0,
+            st_excluded=st_excluded,
             limit=limit_count,
         ),
     )
@@ -158,7 +164,7 @@ def _resolve_default_pool(limit_count: int) -> tuple[list[str], dict[str, str], 
     bse_items = _board_items("bse")
     code_to_name = _merge_code_to_name(main_items + chinext_items + star_items + bse_items)
     merged_symbols = normalize_symbols(list(code_to_name.keys()))
-    st_set = {sym for sym in merged_symbols if "ST" in code_to_name.get(sym, "").upper()}
+    st_set = _st_symbol_set(merged_symbols, code_to_name)
     all_symbols = [sym for sym in merged_symbols if sym not in st_set]
     if limit_count > 0:
         all_symbols = all_symbols[:limit_count]
