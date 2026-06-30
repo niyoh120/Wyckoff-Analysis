@@ -278,6 +278,30 @@ def test_workflow_planner_accepts_keyed_phase_and_task_objects():
     assert run.steps[2].depends_on == ("scan", "market")
 
 
+def test_workflow_planner_splits_inline_tool_and_dependency_fields():
+    run = plan_workflow(
+        "用 workflow 做候选扫描和市场水温后再决策",
+        context=route_workflow("用 workflow 做候选扫描和市场水温后再决策"),
+        workflow_script={
+            "title": "逗号字段脚本",
+            "tasks": [
+                {"id": "scan", "title": "扫描候选", "tools": "选股，市场水温", "prompt": "扫描候选并读取市场水温"},
+                {
+                    "id": "plan",
+                    "title": "生成攻防计划",
+                    "tool": "策略决策",
+                    "depends_on": "scan, market",
+                    "prompt": "基于候选和市场环境生成攻防计划",
+                },
+            ],
+        },
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks", "get_market_overview")
+    assert run.steps[1].tool_scope == ("generate_strategy_decision",)
+    assert run.steps[1].depends_on == ("scan", "market")
+
+
 def test_workflow_planner_keeps_subtasks_without_agent_fields():
     run = plan_workflow(
         "帮我做今日选股",

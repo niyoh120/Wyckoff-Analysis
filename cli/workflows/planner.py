@@ -357,9 +357,7 @@ def _normalize_workflow_agent(raw: Any) -> str:
 def _task_tool_scope(task: dict[str, Any]) -> tuple[str, ...]:
     names: list[str] = []
     for field in TOOL_SCOPE_FIELDS:
-        value = task.get(field)
-        items = value if isinstance(value, (list, tuple)) else [value]
-        for item in items:
+        for item in _field_items(task.get(field)):
             if name := _tool_name(item):
                 names.append(name)
     return tuple(dict.fromkeys(names))
@@ -402,9 +400,7 @@ def _task_prompt(task: dict[str, Any], title: str, user_text: str) -> str:
 def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
     deps: list[str] = []
     for field in ("depends_on", "dependsOn", "dependencies", "after", "needs", "requires"):
-        value = task.get(field)
-        items = value if isinstance(value, (list, tuple)) else [value]
-        deps.extend(dep for item in items if (dep := _dependency_id(item)))
+        deps.extend(dep for item in _field_items(task.get(field)) if (dep := _dependency_id(item)))
     return tuple(dict.fromkeys(dep for dep in deps if dep))
 
 
@@ -413,6 +409,16 @@ def _dependency_id(value: Any) -> str:
         value = value.get("id") or value.get("task_id") or value.get("step_id") or value.get("title")
     text = str(value or "").strip()
     return _slug(text) if text else ""
+
+
+def _field_items(value: Any) -> list[Any]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    if isinstance(value, str):
+        return [part for part in re.split(r"[,，、\n]+", value) if part.strip()]
+    return [value]
 
 
 def _safe_list(value: Any) -> list[dict[str, Any]]:
