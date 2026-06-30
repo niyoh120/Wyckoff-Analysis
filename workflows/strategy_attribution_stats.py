@@ -92,7 +92,7 @@ def shadow_stats(
         "count": len(shadow_rows),
         "avg_added": round(added / len(shadow_rows), 2),
         "avg_removed": round(removed / len(shadow_rows), 2),
-        "latest": shadow_rows[-1],
+        "latest": _shadow_latest_summary(shadow_rows[-1]),
         "outcome_stats": _shadow_outcome_stats(shadow_rows, outcome_rows, horizons),
     }
 
@@ -360,6 +360,42 @@ def _shadow_outcome_stats(
         }
         for horizon in horizons
     }
+
+
+def _shadow_latest_summary(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "trade_date": row.get("trade_date"),
+        "regime": row.get("regime"),
+        "schema_version": row.get("schema_version") or "legacy",
+        "snapshot_level": row.get("snapshot_level") or "full",
+        "selection_summary": row.get("selection_summary") or _legacy_selection_summary(row),
+        "policy_summary": row.get("policy_summary") or {},
+        "registry_summary": row.get("registry_summary") or _legacy_snapshot_count(row, "registry_snapshot"),
+        "health_summary": row.get("health_summary") or _legacy_snapshot_count(row, "health_snapshot"),
+    }
+
+
+def _legacy_selection_summary(row: dict[str, Any]) -> dict[str, Any]:
+    base = row.get("base_selected") or []
+    shadow = row.get("shadow_selected") or []
+    added = row.get("diff_added") or []
+    removed = row.get("diff_removed") or []
+    base_set = {str(code) for code in base}
+    shadow_set = {str(code) for code in shadow}
+    overlap = len(base_set & shadow_set)
+    return {
+        "base_count": len(base),
+        "shadow_count": len(shadow),
+        "overlap_count": overlap,
+        "diff_added_count": len(added),
+        "diff_removed_count": len(removed),
+        "jaccard": round(overlap / max(len(base_set | shadow_set), 1), 4),
+    }
+
+
+def _legacy_snapshot_count(row: dict[str, Any], key: str) -> dict[str, Any]:
+    snapshot = row.get(key) or []
+    return {"count": len(snapshot), "legacy_full_snapshot": bool(snapshot)}
 
 
 def _recommendation_rows(horizon: str, stats_by_signal: dict[str, Any]) -> list[dict[str, str]]:

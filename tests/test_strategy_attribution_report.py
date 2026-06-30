@@ -84,6 +84,42 @@ def test_attribution_report_groups_candidate_shadow_grade():
     assert stats["_data_lineage"]["coverage_summary"]["5"]["avg_coverage_score"] == 65.0
 
 
+def test_attribution_shadow_latest_uses_compact_summary():
+    import workflows.strategy_attribution_stats as stats_mod
+
+    shadow_rows = [
+        {
+            "trade_date": "2026-06-30",
+            "regime": "RISK_ON",
+            "schema_version": "shadow_policy_v2",
+            "snapshot_level": "summary",
+            "base_selected": ["000001", "000002"],
+            "shadow_selected": ["000002", "000003"],
+            "diff_added": ["000003"],
+            "diff_removed": ["000001"],
+            "registry_snapshot": [{"signal_type": "sos"}],
+            "health_snapshot": [{"signal_type": "sos"}],
+            "selection_summary": {"base_count": 2, "shadow_count": 2, "diff_added_count": 1},
+            "policy_summary": {"signal_weight_count": 2},
+            "registry_summary": {"count": 12},
+            "health_summary": {"count": 30},
+        }
+    ]
+
+    stats = stats_mod.shadow_stats(shadow_rows, [], [5])
+
+    assert stats["latest"] == {
+        "trade_date": "2026-06-30",
+        "regime": "RISK_ON",
+        "schema_version": "shadow_policy_v2",
+        "snapshot_level": "summary",
+        "selection_summary": {"base_count": 2, "shadow_count": 2, "diff_added_count": 1},
+        "policy_summary": {"signal_weight_count": 2},
+        "registry_summary": {"count": 12},
+        "health_summary": {"count": 30},
+    }
+
+
 def test_attribution_stats_ignore_nonfinite_scores_and_returns():
     import workflows.strategy_attribution_stats as stats_mod
 

@@ -48,6 +48,8 @@ from workflows.funnel_settings import (
     FUNNEL_THEME_RADAR_PROMOTE_CAP,
 )
 
+SHADOW_POLICY_SCHEMA_VERSION = "shadow_policy_v2"
+
 
 @dataclass(frozen=True)
 class FunnelAiSelection:
@@ -436,19 +438,29 @@ def _policy_shadow_row(
     diff_removed: list[str],
     regime: str,
 ) -> dict:
+    registry_rows = ai_policy.get("_registry_rows") or []
+    health_rows = ai_policy.get("_health_rows") or []
+    base_policy = _public_policy(ai_policy)
+    shadow_policy = _public_policy(ai_policy.get("_shadow_policy") or {})
     return {
         "market": "cn",
         "trade_date": str(metrics.get("end_trade_date") or date.today().isoformat()),
         "regime": str(regime or "NEUTRAL").strip().upper() or "NEUTRAL",
-        "base_policy": _public_policy(ai_policy),
-        "shadow_policy": _public_policy(ai_policy.get("_shadow_policy") or {}),
+        "schema_version": SHADOW_POLICY_SCHEMA_VERSION,
+        "snapshot_level": "summary",
+        "base_policy": base_policy,
+        "shadow_policy": shadow_policy,
         "signal_weights": ai_policy.get("_signal_weights") or {},
         "base_selected": selected_for_ai,
         "shadow_selected": shadow_selected,
         "diff_added": diff_added,
         "diff_removed": diff_removed,
-        "registry_snapshot": ai_policy.get("_registry_rows") or [],
-        "health_snapshot": ai_policy.get("_health_rows") or [],
+        "selection_summary": _selection_summary(selected_for_ai, shadow_selected, diff_added, diff_removed),
+        "policy_summary": _policy_summary(base_policy, shadow_policy, ai_policy.get("_signal_weights") or {}),
+        "registry_summary": _registry_summary(registry_rows),
+        "health_summary": _health_summary(health_rows),
+        "registry_snapshot": [],
+        "health_snapshot": [],
         "updated_at": datetime.now(CN_TZ).isoformat(),
     }
 
@@ -474,3 +486,95 @@ def _policy_shadow_meta(
 
 def _public_policy(policy: dict) -> dict:
     return {key: value for key, value in policy.items() if not str(key).startswith("_")}
+
+
+def _selection_summary(
+    selected_for_ai: list[str],
+    shadow_selected: list[str],
+    diff_added: list[str],
+    diff_removed: list[str],
+) -> dict:
+    base_set = set(selected_for_ai)
+    shadow_set = set(shadow_selected)
+    overlap = len(base_set & shadow_set)
+    return {
+        "base_count": len(selected_for_ai),
+        "shadow_count": len(shadow_selected),
+        "overlap_count": overlap,
+        "diff_added_count": len(diff_added),
+        "diff_removed_count": len(diff_removed),
+        "jaccard": round(overlap / max(len(base_set | shadow_set), 1), 4),
+    }
+
+
+def _policy_summary(base_policy: dict, shadow_policy: dict, signal_weights: dict) -> dict:
+    return {
+        "base": _policy_core(base_policy),
+        "shadow": _policy_core(shadow_policy),
+        "signal_weight_count": len(signal_weights),
+        "downweighted_signals": _weighted_signals(signal_weights, upper_bound=0.999),
+        "upweighted_signals": _weighted_signals(signal_weights, lower_bound=1.001),
+    }
+
+
+def _policy_core(policy: dict) -> dict:
+    keys = (
+        "quota_family",
+        "total_cap",
+        "trend_quota",
+        "accum_quota",
+        "requested_trend_quota",
+        "requested_accum_quota",
+    )
+    return {key: policy.get(key) for key in keys if policy.get(key) is not None}
+
+
+def _weighted_signals(weights: dict, *, lower_bound: float = 0.0, upper_bound: float = float("inf")) -> list[dict]:
+    rows = []
+    for signal, raw_weight in weights.items():
+        weight = _candidate_score_value(raw_weight)
+        if lower_bound <= weight <= upper_bound:
+            rows.append({"signal_type": str(signal), "weight": weight})
+    return sorted(rows, key=lambda row: (row["weight"], row["signal_type"]))[:20]
+
+
+def _registry_summary(rows: list[dict]) -> dict:
+    by_status: dict[str, int] = {}
+    changed: list[dict] = []
+    for row in rows:
+        status = str(row.get("status") or "UNKNOWN").strip().upper() or "UNKNOWN"
+        by_status[status] = by_status.get(status, 0) + 1
+        weight = _candidate_score_value(row.get("weight_multiplier"), default=1.0)
+        if status != "ACTIVE" or abs(weight - 1.0) > 0.0001:
+            changed.append(_signal_policy_item(row, state=status, weight=weight))
+    return {"count": len(rows), "by_status": by_status, "changed": changed[:30]}
+
+
+def _health_summary(rows: list[dict]) -> dict:
+    by_state: dict[str, int] = {}
+    changed: list[dict] = []
+    for row in rows:
+        state = str(row.get("health_state") or "UNKNOWN").strip().upper() or "UNKNOWN"
+        by_state[state] = by_state.get(state, 0) + 1
+        weight = _candidate_score_value(row.get("weight_multiplier"), default=1.0)
+        if state not in {"HEALTHY", "NEUTRAL"} or abs(weight - 1.0) > 0.0001:
+            changed.append(_signal_policy_item(row, state=state, weight=weight))
+    return {"count": len(rows), "by_state": by_state, "changed": changed[:30]}
+
+
+def _signal_policy_item(row: dict, *, state: str, weight: float) -> dict:
+    return {
+        "signal_type": str(row.get("signal_type") or ""),
+        "regime": str(row.get("regime") or "ALL"),
+        "horizon_days": int(row.get("horizon_days") or 0),
+        "state": state,
+        "weight": weight,
+        "sample_count": int(row.get("sample_count") or 0),
+        "avg_return_pct": row.get("avg_return_pct"),
+    }
+
+
+def _candidate_score_value(raw: object, *, default: float = 0.0) -> float:
+    if raw is None or raw == "":
+        return default
+    return candidate_score_value(raw)

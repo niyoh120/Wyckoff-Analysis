@@ -671,6 +671,50 @@ def test_attach_shadow_policy_preserves_base_policy():
     assert base["_signal_weights"] == {"sos": 0.8}
 
 
+def test_policy_shadow_row_stores_compact_summaries():
+    from workflows.funnel_ai_selection import _policy_shadow_row
+
+    row = _policy_shadow_row(
+        {
+            "trend_quota": 8,
+            "accum_quota": 4,
+            "quota_family": "FULL_FORMAL_L4",
+            "_shadow_policy": {"trend_quota": 3, "accum_quota": 5, "quota_family": "RISK_ON+DYNAMIC"},
+            "_signal_weights": {"sos": 0.8, "spring": 1.2},
+            "_registry_rows": [
+                {"signal_type": "sos", "status": "ACTIVE", "weight_multiplier": 1.0},
+                {"signal_type": "lps", "status": "WATCH", "weight_multiplier": 0.5, "sample_count": 22},
+            ],
+            "_health_rows": [
+                {
+                    "signal_type": "lps",
+                    "regime": "RISK_ON",
+                    "horizon_days": 5,
+                    "health_state": "DECAYED",
+                    "weight_multiplier": 0.4,
+                    "sample_count": 18,
+                    "avg_return_pct": -3.2,
+                }
+            ],
+        },
+        {"end_trade_date": "2026-06-30"},
+        ["000001", "000002"],
+        ["000002", "000003"],
+        ["000003"],
+        ["000001"],
+        "RISK_ON",
+    )
+
+    assert row["schema_version"] == "shadow_policy_v2"
+    assert row["snapshot_level"] == "summary"
+    assert row["selection_summary"]["jaccard"] == 0.3333
+    assert row["policy_summary"]["downweighted_signals"] == [{"signal_type": "sos", "weight": 0.8}]
+    assert row["registry_summary"]["by_status"] == {"ACTIVE": 1, "WATCH": 1}
+    assert row["health_summary"]["changed"][0]["state"] == "DECAYED"
+    assert row["registry_snapshot"] == []
+    assert row["health_snapshot"] == []
+
+
 def test_signal_feedback_job_builds_outcome_rows():
     obs = {
         "id": 1,
