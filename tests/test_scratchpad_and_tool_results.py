@@ -172,6 +172,7 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
             "primary_pick": {
                 "code": "300750",
                 "name": "宁德时代",
+                "quality_factors": ["高优先级研报候选", "趋势线"],
                 "risk_factors": ["大盘风险闸门关闭"],
                 "action_status": "blocked_by_market_gate",
                 "next_step": "只观察，等待风险闸门重新打开",
@@ -181,6 +182,7 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
             {
                 "code": "000001",
                 "name": "平安银行",
+                "why": "触发:SOS；缩量回踩",
                 "risk_factors": ["未进入本轮研报候选"],
                 "action_status": "watch_only",
             }
@@ -191,8 +193,8 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
 
     assert lines == [
         "本轮首选可进入 AI 研报复核: 300750 宁德时代",
-        "300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 下一步: 只观察，等待风险闸门重新打开",
-        "000001 平安银行 · 观察池 · 风险: 未进入本轮研报候选",
+        "300750 宁德时代 · 风险闸门关闭 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察，等待风险闸门重新打开",
+        "000001 平安银行 · 观察池 · 亮点: 触发:SOS；缩量回踩 · 风险: 未进入本轮研报候选",
     ]
 
 

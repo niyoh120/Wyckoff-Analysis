@@ -176,6 +176,7 @@ def test_tool_result_view_surfaces_screen_candidate_risk():
                     "primary_pick": {
                         "code": "300750",
                         "name": "宁德时代",
+                        "quality_factors": ["高优先级研报候选", "趋势线"],
                         "risk_factors": ["大盘风险闸门关闭"],
                         "action_status": "blocked_by_market_gate",
                         "next_step": "只观察",
@@ -189,9 +190,10 @@ def test_tool_result_view_surfaces_screen_candidate_risk():
     rendered = str(renderable)
     assert summary["brief"] == [
         "本轮首选可进入 AI 研报复核: 300750 宁德时代",
-        "300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 下一步: 只观察",
+        "300750 宁德时代 · 风险闸门关闭 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察",
     ]
     assert "screen_stocks" in rendered
+    assert "高优先级研报候选" in rendered
     assert "风险闸门关闭" in rendered
     assert "大盘风险闸门关闭" in rendered
 

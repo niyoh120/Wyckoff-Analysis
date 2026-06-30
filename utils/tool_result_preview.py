@@ -150,7 +150,12 @@ def _dedupe_candidate_rows(rows: list[Any]) -> list[dict[str, Any]]:
 
 def _candidate_brief_line(row: dict[str, Any]) -> str:
     name = _candidate_name(row)
-    parts = [_action_status_label(row.get("action_status")), _brief_risk(row), _brief_next_step(row)]
+    parts = [
+        _action_status_label(row.get("action_status")),
+        _brief_quality(row),
+        _brief_risk(row),
+        _brief_next_step(row),
+    ]
     detail = " · ".join(part for part in parts if part)
     return f"{name} · {detail}" if detail else name
 
@@ -174,6 +179,14 @@ def _action_status_label(value: Any) -> str:
 def _brief_risk(row: dict[str, Any]) -> str:
     risks = [str(item).strip() for item in _preview_list(row.get("risk_factors"), 2) if str(item).strip()]
     return f"风险: {'；'.join(risks)}" if risks else ""
+
+
+def _brief_quality(row: dict[str, Any]) -> str:
+    factors = [str(item).strip() for item in _preview_list(row.get("quality_factors"), 2) if str(item).strip()]
+    if factors:
+        return f"亮点: {'；'.join(factors)}"
+    text = _text_excerpt(row.get("why") or row.get("evidence") or row.get("rank_reason"), 80)
+    return f"亮点: {text}" if text else ""
 
 
 def _brief_next_step(row: dict[str, Any]) -> str:
