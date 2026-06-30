@@ -130,7 +130,7 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     assert '"trade_mode": {"regime": "RISK_OFF", "action": "不新增买入"}' in content
     assert '"tool": "generate_ai_report"' in content
     assert '"args": {"stock_codes": ["300750"]}' in content
-    assert "完整 trigger_groups 已写入 result_ref" in content
+    assert "完整 trigger_groups 已保留在完整结果中" in content
     assert '"trigger_groups"' not in content
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1

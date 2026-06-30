@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from integrations.local_db import get_db
+from integrations.local_db import background_task_result_summary, get_db
 
 # ---------------------------------------------------------------------------
 # Chat log — 对话记录
@@ -75,9 +75,7 @@ def save_background_task_result(
 ) -> int:
     """Persist a completed CLI background task result for dashboard history."""
     result_json = json.dumps(result, ensure_ascii=False, default=str)
-    summary = result_json
-    if len(summary) > 2000:
-        summary = summary[:2000] + "..."
+    summary = background_task_result_summary(tool_name, task_id, result, result_json)
     conn = get_db()
     with conn:
         cur = conn.execute(

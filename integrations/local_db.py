@@ -436,7 +436,7 @@ def _backfill_background_tasks_from_chat_log(conn: sqlite3.Connection) -> None:
             except json.JSONDecodeError:
                 payload = {"raw": raw_json}
         result_json = json.dumps(payload, ensure_ascii=False, default=str)
-        summary = result_json[:2000] + ("..." if len(result_json) > 2000 else "")
+        summary = background_task_result_summary(tool_name, f"chatlog_{row['id']}", payload, result_json)
         conn.execute(
             """INSERT OR IGNORE INTO background_task_result
                (task_id, session_id, tool_name, status, result_json, summary, created_at)
@@ -1319,9 +1319,7 @@ def save_background_task_result(
 ) -> int:
     """Persist a completed CLI background task result for dashboard history."""
     result_json = json.dumps(result, ensure_ascii=False, default=str)
-    summary = result_json
-    if len(summary) > 2000:
-        summary = summary[:2000] + "..."
+    summary = background_task_result_summary(tool_name, task_id, result, result_json)
     conn = get_db()
     with conn:
         cur = conn.execute(
@@ -1331,6 +1329,24 @@ def save_background_task_result(
             (task_id, session_id, tool_name, status, result_json, summary),
         )
         return cur.lastrowid or 0
+
+
+def background_task_result_summary(
+    tool_name: str,
+    task_id: str,
+    result: Any,
+    result_json: str | None = None,
+) -> str:
+    try:
+        from utils.tool_result_preview import serialize_tool_result, tool_result_preview
+
+        content = result_json if result_json is not None else serialize_tool_result(result)
+        if len(content) <= 3000:
+            return content
+        return tool_result_preview(tool_name, result, content)
+    except Exception:
+        raw = result_json if result_json is not None else json.dumps(result, ensure_ascii=False, default=str)
+        return raw[:2000] + ("..." if len(raw) > 2000 else "")
 
 
 def load_background_task_results(*, limit: int = 100) -> list[dict]:
