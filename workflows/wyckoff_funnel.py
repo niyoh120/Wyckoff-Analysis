@@ -359,9 +359,7 @@ def _apply_market_mix_guard(
             score_map[code] = score
             additions.append(code)
     if not additions:
-        ai_policy["market_mix_guard_reason"] = (
-            _market_mix_guard_reason(best_score) + " 当前 AI 候选已达上限，且主板/创业候选未强于现有科创/北交候选。"
-        )
+        ai_policy["market_mix_guard_reason"] = _market_mix_full_cap_reason(best_score)
         return selected_for_ai, trend_selected, accum_selected
     ai_policy["market_mix_guard_added"] = additions
     if replacements:
@@ -451,6 +449,13 @@ def _market_mix_guard_reason(best_score: float | None) -> str:
     if best_score is None:
         return base + "当前没有通过硬风险检查的主板/创业候选。"
     return base + f"主板/创业最高候选分 {best_score:.1f}，低于市场均衡补入门槛 {FUNNEL_MARKET_MIX_MIN_SCORE:.1f}。"
+
+
+def _market_mix_full_cap_reason(best_score: float | None) -> str:
+    base = "最终候选集中在科创/北交；当前 AI 候选已达上限。"
+    if best_score is None:
+        return base + "没有可用于替换的主板/创业候选。"
+    return base + f"主板/创业最高候选分 {best_score:.1f}，未强于现有科创/北交候选。"
 
 
 def _candidate_has_hard_risk(item: dict) -> bool:

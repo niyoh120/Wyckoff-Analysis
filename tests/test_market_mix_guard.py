@@ -106,6 +106,8 @@ def test_market_mix_guard_does_not_exceed_total_cap_for_weaker_main_candidate(mo
     assert accum == []
     assert "market_mix_guard_added" not in ai_policy
     assert "已达上限" in ai_policy["market_mix_guard_reason"]
+    assert "未强于现有科创/北交候选" in ai_policy["market_mix_guard_reason"]
+    assert "低于市场均衡补入门槛" not in ai_policy["market_mix_guard_reason"]
 
 
 def test_market_mix_guard_records_reason_when_no_main_or_chinext_candidate(monkeypatch) -> None:
