@@ -1511,6 +1511,8 @@ class TestSymbolPool:
                         "优先分 12.50",
                         "只观察，等待市场风险闸门重新打开",
                     ],
+                    "risk_factors": ["大盘风险闸门关闭"],
+                    "action_status": "blocked_by_market_gate",
                     "next_step": "只观察，等待市场风险闸门重新打开",
                     "summary": (
                         "000004 主线候选: 趋势线 / 主升阶段 / 主线买点；研报候选#1；优先分 12.50；"
@@ -1525,6 +1527,8 @@ class TestSymbolPool:
                     "quality": "强观察候选",
                     "evidence": "触发:SOS；SOS",
                     "quality_factors": ["强观察候选", "触发:SOS", "SOS", "观察池跟踪，暂不进入本轮AI复核"],
+                    "risk_factors": ["未进入本轮研报候选", "观察池，不进入本轮AI复核"],
+                    "action_status": "watch_only",
                     "next_step": "观察池跟踪，暂不进入本轮AI复核",
                     "summary": "000001 高分未选: 触发:SOS；SOS；观察池跟踪，暂不进入本轮AI复核",
                 }
@@ -1548,6 +1552,8 @@ class TestSymbolPool:
                     "优先分 12.50",
                     "只观察，等待市场风险闸门重新打开",
                 ],
+                "risk_factors": ["大盘风险闸门关闭"],
+                "action_status": "blocked_by_market_gate",
                 "next_step": "只观察，等待市场风险闸门重新打开",
                 "priority_score": 12.5,
                 "score": 0.0,
@@ -1569,6 +1575,8 @@ class TestSymbolPool:
                         "优先分 12.50",
                         "只观察，等待市场风险闸门重新打开",
                     ],
+                    "risk_factors": ["大盘风险闸门关闭"],
+                    "action_status": "blocked_by_market_gate",
                     "next_step": "只观察，等待市场风险闸门重新打开",
                     "priority_score": 12.5,
                     "score": 0.0,
@@ -1604,6 +1612,8 @@ class TestSymbolPool:
                         "优先分 12.50",
                         "只观察，等待市场风险闸门重新打开",
                     ],
+                    "risk_factors": ["大盘风险闸门关闭"],
+                    "action_status": "blocked_by_market_gate",
                     "priority_score": 12.5,
                     "selection_source": "mainline",
                     "track": "Trend",
@@ -1620,6 +1630,8 @@ class TestSymbolPool:
                     "next_step": "观察池跟踪，暂不进入本轮AI复核",
                     "rank_reason": "SOS",
                     "quality_factors": ["强观察候选", "触发:SOS", "SOS", "观察池跟踪，暂不进入本轮AI复核"],
+                    "risk_factors": ["未进入本轮研报候选", "观察池，不进入本轮AI复核"],
+                    "action_status": "watch_only",
                     "priority_score": 0.0,
                     "triggers": ["sos"],
                 }
@@ -1641,7 +1653,9 @@ class TestSymbolPool:
             "研报候选#1",
             "优先分 12.50",
         ]
+        assert first["risk_factors"] == []
         assert result["top_candidates"][1]["code"] == "000001"
+        assert result["top_candidates"][1]["risk_factors"] == ["未进入本轮研报候选"]
 
     def test_screen_stocks_enriches_watch_candidates_from_candidate_metadata(self, monkeypatch):
         from agents import screen_tools

@@ -200,6 +200,8 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str) -> dict:
             "tier": _candidate_quality_label(row),
             "why": why,
             "quality_factors": _candidate_quality_factors(row, next_step=next_step),
+            "risk_factors": _candidate_risk_factors(row, trade_mode, bucket),
+            "action_status": _candidate_action_status(trade_mode, bucket),
             "next_step": next_step,
             "priority_score": row.get("priority_score"),
             "score": row.get("score"),
@@ -307,6 +309,8 @@ def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str) -> dict:
         "quality": _candidate_quality_label(row),
         "evidence": evidence,
         "quality_factors": _candidate_quality_factors(row, next_step=next_step),
+        "risk_factors": _candidate_risk_factors(row, trade_mode, bucket),
+        "action_status": _candidate_action_status(trade_mode, bucket),
         "next_step": next_step,
         "summary": f"{code} {name}: {evidence}；{next_step}",
     }
@@ -322,6 +326,8 @@ def _candidate_ref(row: dict, trade_mode: dict, bucket: str) -> dict:
         "next_step": next_step,
         "rank_reason": row.get("rank_reason"),
         "quality_factors": _candidate_quality_factors(row, next_step=next_step),
+        "risk_factors": _candidate_risk_factors(row, trade_mode, bucket),
+        "action_status": _candidate_action_status(trade_mode, bucket),
         "priority_score": row.get("priority_score"),
         "selection_source": row.get("selection_source"),
         "track": row.get("track"),
@@ -362,6 +368,19 @@ def _candidate_next_step(trade_mode: dict, bucket: str) -> str:
     return "进入AI复核，先确认候选质量"
 
 
+def _candidate_action_status(trade_mode: dict, bucket: str) -> str:
+    if bucket == "watch":
+        return "watch_only"
+    mode = str(trade_mode.get("mode") or "").strip()
+    if not bool(trade_mode.get("allow_ai_review")):
+        return "blocked_by_market_gate"
+    if not bool(trade_mode.get("allow_recommendation_write")):
+        return "repair_review_only"
+    if mode == "confirmation_only":
+        return "confirmation_required"
+    return "ready_for_ai_review"
+
+
 def _candidate_profile(row: dict) -> str:
     parts = [
         _track_label(row.get("track")),
@@ -380,6 +399,29 @@ def _candidate_quality_factors(row: dict, *, next_step: str = "") -> list[str]:
     if next_step:
         factors.append(next_step)
     return list(dict.fromkeys(factor for factor in factors if factor))
+
+
+def _candidate_risk_factors(row: dict, trade_mode: dict | None = None, bucket: str = "") -> list[str]:
+    factors: list[str] = []
+    if bucket == "watch" or not bool(row.get("selected_for_report")):
+        factors.append("未进入本轮研报候选")
+    if not row.get("triggers") and not row.get("selected_for_report"):
+        factors.append("触发信号未列明")
+    if trade_mode:
+        factors.extend(_trade_mode_risk_factors(trade_mode, bucket))
+    return list(dict.fromkeys(factor for factor in factors if factor))
+
+
+def _trade_mode_risk_factors(trade_mode: dict, bucket: str) -> list[str]:
+    if bucket == "watch":
+        return ["观察池，不进入本轮AI复核"]
+    if not bool(trade_mode.get("allow_ai_review")):
+        return [str(trade_mode.get("reason") or "市场风险闸门未打开")]
+    if not bool(trade_mode.get("allow_recommendation_write")):
+        return ["只做修复复核，不写正式推荐"]
+    if str(trade_mode.get("mode") or "").strip() == "confirmation_only":
+        return ["等待二次确认后再行动"]
+    return []
 
 
 def _split_factor_text(text: str, sep: str) -> list[str]:
@@ -562,6 +604,7 @@ def _final_candidate_row(row: dict) -> dict:
         "rank_reason": rank_reason,
     }
     payload["quality_factors"] = _candidate_quality_factors(payload)
+    payload["risk_factors"] = _candidate_risk_factors(payload)
     return payload
 
 
