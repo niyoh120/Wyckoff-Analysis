@@ -241,6 +241,43 @@ def test_workflow_planner_accepts_top_level_task_script():
     assert run.steps[0].prompt == "诊断 300750 的量价结构"
 
 
+def test_workflow_planner_accepts_keyed_phase_and_task_objects():
+    run = plan_workflow(
+        "用 workflow 做完整选股和攻防计划",
+        context=route_workflow("用 workflow 做完整选股和攻防计划"),
+        workflow_script={
+            "title": "对象式脚本",
+            "phases": {
+                "collect": {
+                    "tasks": {
+                        "scan": {"title": "扫描候选", "tools": ["选股"], "prompt": "扫描今日候选"},
+                        "market": {"title": "读取水温", "tools": ["市场水温"], "prompt": "读取市场水温"},
+                    }
+                },
+                "decision": {
+                    "tasks": {
+                        "plan": {
+                            "title": "攻防计划",
+                            "tools": ["策略决策"],
+                            "after": ["scan", "market"],
+                            "prompt": "整合候选和市场水温输出攻防计划",
+                        }
+                    }
+                },
+            },
+        },
+    )
+
+    assert [step.step_id for step in run.steps] == ["scan", "market", "plan"]
+    assert [step.phase for step in run.steps] == ["collect", "collect", "decision"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("screen_stocks",),
+        ("get_market_overview",),
+        ("generate_strategy_decision",),
+    ]
+    assert run.steps[2].depends_on == ("scan", "market")
+
+
 def test_workflow_planner_keeps_subtasks_without_agent_fields():
     run = plan_workflow(
         "帮我做今日选股",

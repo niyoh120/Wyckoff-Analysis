@@ -416,9 +416,20 @@ def _dependency_id(value: Any) -> str:
 
 
 def _safe_list(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        return [_keyed_payload(key, item) for key, item in value.items() if isinstance(item, dict)]
+    return []
+
+
+def _keyed_payload(key: Any, item: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(item)
+    key_text = str(key or "").strip()
+    if key_text:
+        payload.setdefault("id", key_text)
+        payload.setdefault("title", key_text)
+    return payload
 
 
 def _runtime_args(script: dict[str, Any]) -> str:
