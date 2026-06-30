@@ -184,6 +184,35 @@ def test_runtime_retries_when_stock_screening_request_skips_tool():
     assert events[-1]["text"] == "创业板候选已筛出。"
 
 
+def test_runtime_does_not_retry_stock_screening_explanation_question():
+    provider = ScriptedProvider([[{"type": "text_delta", "text": "这套选股逻辑先看阶段、量价和市场门控。"}]])
+    tools = StubToolRegistry(tool_results={"screen_stocks": {"symbols_for_report": ["300750"]}})
+    messages = [{"role": "user", "content": "讲讲你的选股逻辑是什么"}]
+
+    events = list(AgentRuntime(provider, tools).run_stream(messages))
+
+    assert not [e for e in events if e["type"] == "retry"]
+    assert tools.calls == []
+    assert events[-1]["text"] == "这套选股逻辑先看阶段、量价和市场门控。"
+
+
+def test_turn_expectation_does_not_force_tool_for_concept_questions():
+    assert resolve_turn_expectation([{"role": "user", "content": "选股规则是什么"}]) is None
+    assert resolve_turn_expectation([{"role": "user", "content": "持仓管理是什么"}]) is None
+
+
+def test_turn_expectation_still_forces_tool_for_concrete_concept_wording():
+    screen = resolve_turn_expectation([{"role": "user", "content": "今天怎么选创业板好股票"}])
+    portfolio = resolve_turn_expectation([{"role": "user", "content": "解释一下我的持仓风险"}])
+
+    assert screen is not None
+    assert screen.required_tool == "screen_stocks"
+    assert screen.suggested_args == {"board": "chinext"}
+    assert portfolio is not None
+    assert portfolio.required_tool == "portfolio"
+    assert portfolio.suggested_args == {"mode": "diagnose"}
+
+
 def test_turn_expectation_does_not_screen_past_recommendation_review():
     expectation = resolve_turn_expectation([{"role": "user", "content": "过去推荐的表现怎么样"}])
 

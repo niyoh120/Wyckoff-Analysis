@@ -163,6 +163,47 @@ _STOCK_SCREEN_REVIEW_HINTS = (
     "推荐记录",
 )
 
+_EXPLANATION_ONLY_HINTS = (
+    "是什么",
+    "什么意思",
+    "啥意思",
+    "为什么",
+    "原理",
+    "逻辑",
+    "规则",
+    "方法",
+    "流程",
+    "框架",
+    "标准",
+    "口径",
+    "怎么做",
+    "如何做",
+    "怎么选",
+    "如何选",
+    "讲讲",
+    "介绍",
+    "解释",
+    "说明",
+)
+
+_CONCRETE_DATA_HINTS = (
+    "我的",
+    "我买",
+    "我持",
+    "账户里",
+    "这些",
+    "这几个",
+    "上述",
+    "上面",
+    "今天",
+    "最新",
+    "本轮",
+    "这轮",
+    "创业板",
+    "科创",
+    "主板",
+)
+
 _TOOL_CN_NAMES = {
     "portfolio": "持仓数据",
     "analyze_stock": "个股分析",
@@ -279,11 +320,19 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
 
 
 def _portfolio_view_expected(text: str) -> bool:
-    return _mentions_portfolio_subject(text) and any(hint in text for hint in _PORTFOLIO_VIEW_HINTS)
+    return (
+        not _explanation_only_question(text)
+        and _mentions_portfolio_subject(text)
+        and any(hint in text for hint in _PORTFOLIO_VIEW_HINTS)
+    )
 
 
 def _portfolio_diagnose_expected(text: str) -> bool:
-    return _mentions_portfolio_subject(text) and any(hint in text for hint in _PORTFOLIO_DIAGNOSE_HINTS)
+    return (
+        not _explanation_only_question(text)
+        and _mentions_portfolio_subject(text)
+        and any(hint in text for hint in _PORTFOLIO_DIAGNOSE_HINTS)
+    )
 
 
 def _mentions_portfolio_subject(text: str) -> bool:
@@ -291,6 +340,8 @@ def _mentions_portfolio_subject(text: str) -> bool:
 
 
 def _stock_screen_expected(text: str) -> bool:
+    if _explanation_only_question(text):
+        return False
     if any(hint in text for hint in _STOCK_SCREEN_REVIEW_HINTS):
         return False
     if any(hint in text for hint in _STOCK_SCREEN_HINTS):
@@ -301,6 +352,12 @@ def _stock_screen_expected(text: str) -> bool:
         return True
     return any(hint in text for hint in _STOCK_SCREEN_CONTEXT_HINTS) and any(
         hint in text for hint in _STOCK_SCREEN_INTENT_HINTS
+    )
+
+
+def _explanation_only_question(text: str) -> bool:
+    return any(hint in text for hint in _EXPLANATION_ONLY_HINTS) and not any(
+        hint in text for hint in _CONCRETE_DATA_HINTS
     )
 
 
