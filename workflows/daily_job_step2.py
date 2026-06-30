@@ -6,7 +6,7 @@ from datetime import datetime
 
 import workflows.daily_job_persistence as daily_persistence
 import workflows.daily_signal_observations as signal_observations
-from core.market_trade_mode import resolve_market_trade_mode
+from core.market_trade_mode import MarketTradeMode, resolve_market_trade_mode
 from workflows.daily_job_common import Step2StageResult, log_line
 from workflows.daily_job_runtime import DailyJobConfig
 from workflows.step4_pipeline import TZ, latest_trade_date_str
@@ -59,6 +59,7 @@ def run_step2_stage(run_step2, webhook: str, preview_only: bool, logs_path: str 
 
 
 def persist_step2_outputs(step2: Step2StageResult, cfg: DailyJobConfig) -> tuple[int | None, list[dict]]:
+    trade_mode = resolve_market_trade_mode((step2.benchmark_context or {}).get("regime"))
     if not step2.blocking_failure and step2.benchmark_context:
         daily_persistence.persist_benchmark_context(
             step2.benchmark_context,
@@ -72,38 +73,42 @@ def persist_step2_outputs(step2: Step2StageResult, cfg: DailyJobConfig) -> tuple
         run_signal_confirmation(
             step2.symbols_info, step2.details, step2.benchmark_context, cfg.logs_path, dry_run=cfg.preview_only
         )
-    if step2.symbols_info and step2.details:
-        scored = run_springboard_scoring(step2.symbols_info, step2.details)
-        log_line(f"Step2.7 起跳板评分: scored={scored}/{len(step2.symbols_info)}", cfg.logs_path)
-        trade_mode = resolve_market_trade_mode((step2.benchmark_context or {}).get("regime"))
-        step2.details["trade_mode"] = {
-            "regime": trade_mode.regime,
-            "mode": trade_mode.mode,
-            "label": trade_mode.label,
-            "action": trade_mode.action,
-            "reason": trade_mode.reason,
-        }
-        step2.details["step3_symbols_info"] = (
-            daily_persistence.recommendation_write_symbols(step2.symbols_info) if trade_mode.allow_ai_review else []
-        )
-        log_line(
-            "Step2.8 AI研报输入收口: "
-            f"raw={len(step2.symbols_info)}, confirmed={len(step2.details['step3_symbols_info'])}, "
-            f"trade_mode={trade_mode.mode}",
-            cfg.logs_path,
-        )
-        if not trade_mode.allow_recommendation_write:
-            log_line(f"Step2.8 市场闸门: {trade_mode.action}，跳过推荐写库", cfg.logs_path)
-            return None, []
-    if step2.ok and step2.symbols_info:
+        _prepare_step3_review_input(step2, trade_mode, cfg)
+    if step2.ok and (step2.symbols_info or step2.details):
         return daily_persistence.persist_recommendations(
             step2.symbols_info,
             cfg.logs_path,
             dry_run=cfg.preview_only,
             trade_date=latest_trade_date_str(),
             log_fn=log_line,
+            step2_details=step2.details,
+            benchmark_context=step2.benchmark_context,
+            trade_mode=trade_mode,
         )
     return None, []
+
+
+def _prepare_step3_review_input(step2: Step2StageResult, trade_mode: MarketTradeMode, cfg: DailyJobConfig) -> None:
+    scored = run_springboard_scoring(step2.symbols_info, step2.details)
+    log_line(f"Step2.7 起跳板评分: scored={scored}/{len(step2.symbols_info)}", cfg.logs_path)
+    step2.details["trade_mode"] = {
+        "regime": trade_mode.regime,
+        "mode": trade_mode.mode,
+        "label": trade_mode.label,
+        "action": trade_mode.action,
+        "reason": trade_mode.reason,
+    }
+    step2.details["step3_symbols_info"] = (
+        daily_persistence.step3_review_symbols(step2.symbols_info) if trade_mode.allow_ai_review else []
+    )
+    log_line(
+        "Step2.8 AI研报输入收口: "
+        f"raw={len(step2.symbols_info)}, confirmed={len(step2.details['step3_symbols_info'])}, "
+        f"trade_mode={trade_mode.mode}",
+        cfg.logs_path,
+    )
+    if not trade_mode.allow_recommendation_write:
+        log_line(f"Step2.8 市场闸门: {trade_mode.action}，推荐表仅写观察候选", cfg.logs_path)
 
 
 def persist_step2_observations(step2: Step2StageResult, cfg: DailyJobConfig) -> None:

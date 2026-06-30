@@ -32,7 +32,11 @@ from integrations.supabase_base import (
 )
 from integrations.supabase_signal_feedback import upsert_signal_observations
 from integrations.supabase_theme_radar import build_theme_radar_snapshot_row
-from workflows.daily_job_persistence import benchmark_context_payload, recommendation_write_symbols
+from workflows.daily_job_persistence import (
+    benchmark_context_payload,
+    recommendation_write_symbols,
+    step3_review_symbols,
+)
 from workflows.daily_job_step2 import (
     run_signal_confirmation,
     run_springboard_scoring,
@@ -91,11 +95,17 @@ def _build_day_result(trade_day: date, skip_step3: bool) -> dict[str, Any]:
         ok, symbols_info, benchmark_context, details = run_funnel("", notify=False, return_details=True)
         if not ok:
             raise RuntimeError(f"{trade_day.isoformat()} funnel run failed")
-        _prepare_symbols_for_recommendation(symbols_info, details, benchmark_context)
-        write_symbols = recommendation_write_symbols(symbols_info)
+        trade_mode = _prepare_symbols_for_recommendation(symbols_info, details, benchmark_context)
+        write_symbols = recommendation_write_symbols(
+            symbols_info,
+            step2_details=details,
+            benchmark_context=benchmark_context,
+            trade_mode=trade_mode,
+        )
+        review_symbols = step3_review_symbols(symbols_info) if trade_mode.allow_ai_review else []
         ai_codes, springboard_updates = _run_step3_if_needed(
             trade_day,
-            write_symbols,
+            review_symbols,
             benchmark_context,
             skip_step3,
         )
@@ -116,12 +126,11 @@ def _prepare_symbols_for_recommendation(
     symbols_info: list[dict],
     details: dict,
     benchmark_context: dict,
-) -> None:
+) -> Any:
     run_signal_confirmation(symbols_info, details, benchmark_context, None, dry_run=True)
     run_springboard_scoring(symbols_info, details)
     trade_mode = resolve_market_trade_mode((benchmark_context or {}).get("regime"))
-    if not trade_mode.allow_recommendation_write:
-        symbols_info.clear()
+    return trade_mode
 
 
 def _run_step3_if_needed(

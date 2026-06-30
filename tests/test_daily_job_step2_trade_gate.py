@@ -25,23 +25,34 @@ def _cfg() -> DailyJobConfig:
     )
 
 
-def test_persist_step2_outputs_allows_step3_review_without_recommendation_write(monkeypatch) -> None:
+def test_persist_step2_outputs_tracks_candidates_when_trade_gate_blocks_recommendations(monkeypatch) -> None:
     import workflows.daily_job_step2 as step2_module
 
-    persisted: list[str] = []
+    persisted: list[dict] = []
     monkeypatch.setattr(step2_module, "persist_step2_observations", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(step2_module, "run_signal_confirmation", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(step2_module, "run_springboard_scoring", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(step2_module.daily_persistence, "persist_benchmark_context", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         step2_module.daily_persistence,
-        "recommendation_write_symbols",
-        lambda symbols: persisted.append("filtered") or symbols,
+        "step3_review_symbols",
+        lambda symbols: persisted.append({"step": "review", "symbols": symbols}) or symbols,
     )
+
+    def fake_persist_recommendations(*_args, **kwargs):
+        persisted.append(
+            {
+                "step": "persist",
+                "trade_mode": kwargs["trade_mode"].mode,
+                "step2_details": kwargs["step2_details"],
+            }
+        )
+        return 20260601, []
+
     monkeypatch.setattr(
         step2_module.daily_persistence,
         "persist_recommendations",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not write recommendations")),
+        fake_persist_recommendations,
     )
 
     result = Step2StageResult(
@@ -55,9 +66,12 @@ def test_persist_step2_outputs_allows_step3_review_without_recommendation_write(
 
     recommend_date, payload = persist_step2_outputs(result, _cfg())
 
-    assert recommend_date is None
+    assert recommend_date == 20260601
     assert payload == []
-    assert persisted == ["filtered"]
+    assert persisted[0] == {"step": "review", "symbols": [{"code": "000001", "name": "平安银行"}]}
+    assert persisted[1]["step"] == "persist"
+    assert persisted[1]["trade_mode"] == "repair_review"
+    assert persisted[1]["step2_details"] is result.details
     assert result.details["step3_symbols_info"] == [{"code": "000001", "name": "平安银行"}]
     assert result.details["trade_mode"]["mode"] == "repair_review"
 

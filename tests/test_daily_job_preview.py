@@ -139,7 +139,7 @@ def test_step3_codes_filter_keeps_only_confirmed_candidates():
     assert blocked == ["000002"]
 
 
-def test_recommendation_write_symbols_keeps_only_mainline_or_strategic_confirmed_candidates():
+def test_recommendation_write_symbols_tracks_all_confirmed_candidates():
     from workflows.daily_job_persistence import recommendation_write_symbols
 
     rows = [
@@ -174,7 +174,77 @@ def test_recommendation_write_symbols_keeps_only_mainline_or_strategic_confirmed
 
     got = recommendation_write_symbols(rows)
 
+    assert [row["code"] for row in got] == ["000002", "000003", "000004", "000005", "000006"]
+
+
+def test_step3_review_symbols_keeps_only_strict_trade_candidates():
+    from workflows.daily_job_persistence import step3_review_symbols
+
+    rows = [
+        {"code": "000001", "tag": "SOS（量价点火）"},
+        {"code": "000002", "signal_status": "confirmed"},
+        {
+            "code": "000003",
+            "tag": "LPS(确认)",
+            "candidate_lane": "mainline",
+            "candidate_status": "主线买点候选",
+        },
+        {
+            "code": "000004",
+            "signal_status": "confirmed",
+            "strategic_theme": "机器人",
+            "strategic_theme_score": 0.72,
+            "strategic_stock_score": 0.66,
+        },
+        {
+            "code": "000005",
+            "signal_status": "confirmed",
+            "candidate_lane": "mainline",
+            "candidate_status": "过热不追",
+        },
+        {
+            "code": "000006",
+            "signal_status": "confirmed",
+            "candidate_lane": "mainline",
+            "candidate_status": "事件主题修复候选",
+        },
+    ]
+
+    got = step3_review_symbols(rows)
+
     assert [row["code"] for row in got] == ["000003", "000004", "000006"]
+
+
+def test_recommendation_write_symbols_tracks_market_blocked_springboard_candidates():
+    from core.market_trade_mode import resolve_market_trade_mode
+    from workflows.daily_job_persistence import recommendation_write_symbols
+
+    trade_mode = resolve_market_trade_mode("PANIC_REPAIR")
+    details = {
+        "formal_triggers": {"sos": [("000007", 9.0)]},
+        "springboard_map": {
+            "sos:000007": {
+                "springboard_met_count": 2,
+                "springboard_grade": "A+C",
+                "springboard_scored": True,
+            }
+        },
+        "metrics": {
+            "latest_close_map": {"000007": 12.3},
+            "accum_stage_map": {"000007": "Markup"},
+        },
+        "name_map": {"000007": "全新好"},
+        "sector_map": {"000007": "测试行业"},
+    }
+
+    got = recommendation_write_symbols([], step2_details=details, trade_mode=trade_mode)
+
+    assert len(got) == 1
+    assert got[0]["code"] == "000007"
+    assert got[0]["candidate_status"] == "市场拦截观察"
+    assert got[0]["selection_source"] == "l4_springboard:market_blocked"
+    assert got[0]["market_regime"] == "PANIC_REPAIR"
+    assert got[0]["tag"] == "SOS二次确认(A+C)"
 
 
 def test_step3_springboard_updates_patch_recommendation_payload():
