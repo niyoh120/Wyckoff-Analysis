@@ -93,12 +93,27 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
         "trade_mode": {"regime": "RISK_OFF", "action": "不新增买入"},
         "decision_brief": {
             "market_gate": "风险规避 / 不新增买入",
-            "report_focus": [{"summary": "300750 宁德时代: LPS+SOS；只观察"}],
+            "report_focus": [
+                {
+                    "summary": "300750 宁德时代: LPS+SOS；只观察",
+                    "risk_factors": ["大盘风险闸门关闭"],
+                    "action_status": "blocked_by_market_gate",
+                }
+            ],
         },
         "selection_brief": {
             "status": "ready_for_ai_review",
             "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
             "best_codes": ["300750"],
+            "best_candidates": [
+                {
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "quality_factors": ["高优先级研报候选"],
+                    "risk_factors": ["大盘风险闸门关闭"],
+                    "action_status": "blocked_by_market_gate",
+                }
+            ],
             "tool_handoff": {"tool": "generate_ai_report", "args": {"stock_codes": ["300750"]}},
         },
         "action_plan": {
@@ -110,10 +125,19 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
                 "tool": "generate_ai_report",
                 "args": {"stock_codes": ["300750"]},
             },
+            "long_debug_payload": "x" * 1200,
         },
         "trigger_groups": {"huge": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(100)]},
         "top_candidates": [
-            {"code": "300750", "name": "宁德时代", "score": 96.5, "triggers": ["lps", "sos"]},
+            {
+                "code": "300750",
+                "name": "宁德时代",
+                "score": 96.5,
+                "triggers": ["lps", "sos"],
+                "quality_factors": ["高优先级研报候选"],
+                "risk_factors": ["大盘风险闸门关闭"],
+                "action_status": "blocked_by_market_gate",
+            },
         ],
         "symbols_for_report": ["300750"],
     }
@@ -127,11 +151,14 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     assert '"selection_brief": {"status": "ready_for_ai_review"' in content
     assert "本轮首选可进入 AI 研报复核: 300750 宁德时代" in content
     assert "300750 宁德时代: LPS+SOS；只观察" in content
+    assert '"risk_factors": ["大盘风险闸门关闭"]' in content
+    assert '"action_status": "blocked_by_market_gate"' in content
     assert '"trade_mode": {"regime": "RISK_OFF", "action": "不新增买入"}' in content
     assert '"tool": "generate_ai_report"' in content
     assert '"args": {"stock_codes": ["300750"]}' in content
     assert "完整 trigger_groups 已保留在完整结果中" in content
     assert '"trigger_groups"' not in content
+    assert "long_debug_payload" not in content
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1
     assert json.loads(stored[0].read_text(encoding="utf-8"))["trigger_groups"]["huge"][0]["blob"] == "x" * 200
@@ -149,7 +176,13 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
         "reviewed_codes": ["000001", "300750"],
         "reviewed_symbols": [
             {"code": "000001", "name": "平安银行", "tag": "chat_request"},
-            {"code": "300750", "name": "宁德时代", "tag": "chat_request"},
+            {
+                "code": "300750",
+                "name": "宁德时代",
+                "tag": "chat_request",
+                "risk_factors": ["大盘风险闸门关闭"],
+                "action_status": "blocked_by_market_gate",
+            },
         ],
         "next_action": "研报已完成，可结合持仓和候选进入组合攻防决策",
         "next_tool": {"tool": "generate_strategy_decision", "args": {}, "reason": "继续组合攻防"},
@@ -159,6 +192,8 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
 
     assert "result_ref:" in content
     assert '"reviewed_codes": ["000001", "300750"]' in content
+    assert '"risk_factors": ["大盘风险闸门关闭"]' in content
+    assert '"action_status": "blocked_by_market_gate"' in content
     assert '"tool": "generate_strategy_decision"' in content
     assert '"report_excerpt": "# 研报' in content
     assert report_text not in content
@@ -176,9 +211,20 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
         "report_source": "last_ai_report",
         "candidate_count": 1,
         "reviewed_codes": ["300750"],
-        "reviewed_symbols": [{"code": "300750", "name": "宁德时代", "track": "Trend"}],
+        "reviewed_symbols": [
+            {
+                "code": "300750",
+                "name": "宁德时代",
+                "track": "Trend",
+                "risk_factors": ["大盘风险闸门关闭"],
+                "action_status": "blocked_by_market_gate",
+            }
+        ],
         "screen_summary": {"report_candidates": 1},
-        "decision_brief": {"next_action": "允许候选进入AI复核"},
+        "decision_brief": {
+            "next_action": "允许候选进入AI复核",
+            "report_focus": [{"code": "300750", "risk_factors": ["大盘风险闸门关闭"]}],
+        },
         "next_action": "补充 Telegram 配置后可生成并发送 OMS 工单",
         "message": "已完成候选和研报交接，但未配置 Telegram。",
         "report_preview": "研报摘要" * 500,
@@ -189,5 +235,7 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
     assert "result_ref:" in content
     assert '"report_source": "last_ai_report"' in content
     assert '"reviewed_codes": ["300750"]' in content
+    assert '"risk_factors": ["大盘风险闸门关闭"]' in content
+    assert '"action_status": "blocked_by_market_gate"' in content
     assert "补充 Telegram 配置后可生成并发送 OMS 工单" in content
     assert result["report_preview"] not in content

@@ -57,9 +57,9 @@ def _strategy_decision_preview(result: dict[str, Any]) -> str:
             "report_source": result.get("report_source"),
             "candidate_count": result.get("candidate_count"),
             "reviewed_codes": _preview_list(result.get("reviewed_codes"), 12),
-            "reviewed_symbols": _preview_list(result.get("reviewed_symbols"), 12),
+            "reviewed_symbols": _candidate_preview_list(result.get("reviewed_symbols"), 12),
             "screen_summary": result.get("screen_summary"),
-            "decision_brief": result.get("decision_brief"),
+            "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "next_action": result.get("next_action"),
             "message": result.get("message"),
             "report_preview": _text_excerpt(result.get("report_preview"), 1000),
@@ -76,7 +76,7 @@ def _ai_report_preview(result: dict[str, Any]) -> str:
             "model": result.get("model"),
             "stock_count": result.get("stock_count"),
             "reviewed_codes": _preview_list(result.get("reviewed_codes"), 12),
-            "reviewed_symbols": _preview_list(result.get("reviewed_symbols"), 12),
+            "reviewed_symbols": _candidate_preview_list(result.get("reviewed_symbols"), 12),
             "next_action": result.get("next_action"),
             "next_tool": result.get("next_tool"),
             "report_excerpt": _text_excerpt(result.get("report_text"), 1400),
@@ -92,16 +92,105 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "board": result.get("board"),
             "summary": result.get("summary"),
             "trade_mode": result.get("trade_mode"),
-            "decision_brief": result.get("decision_brief"),
-            "selection_brief": result.get("selection_brief"),
-            "action_plan": result.get("action_plan"),
-            "top_candidates": _preview_list(result.get("top_candidates"), 10),
-            "symbols_for_report": _preview_list(result.get("symbols_for_report"), 12),
+            "decision_brief": _screen_decision_preview(result.get("decision_brief")),
+            "selection_brief": _screen_selection_preview(result.get("selection_brief")),
+            "top_candidates": _candidate_preview_list(result.get("top_candidates"), 10),
+            "symbols_for_report": _candidate_preview_list(result.get("symbols_for_report"), 12),
+            "action_plan": _screen_action_plan_preview(result.get("action_plan")),
             "top_sectors": _preview_list(result.get("top_sectors"), 6),
             "omitted": "完整 trigger_groups 已保留在完整结果中" if result.get("trigger_groups") else "",
         }
     )
     return serialize_tool_result(payload) if payload else ""
+
+
+def _screen_decision_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "market_gate": value.get("market_gate"),
+            "next_action": value.get("next_action"),
+            "report_focus": _candidate_preview_list(value.get("report_focus"), 6),
+            "watch_focus": _candidate_preview_list(value.get("watch_focus"), 6),
+        }
+    )
+
+
+def _screen_selection_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "status": value.get("status"),
+            "headline": value.get("headline"),
+            "best_codes": _preview_list(value.get("best_codes"), 12),
+            "primary_pick": _candidate_preview_item(value.get("primary_pick")),
+            "best_candidates": _candidate_preview_list(value.get("best_candidates"), 6),
+            "tool_handoff": value.get("tool_handoff"),
+        }
+    )
+
+
+def _screen_action_plan_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "primary_action": value.get("primary_action"),
+            "candidate_action": value.get("candidate_action"),
+            "new_buy_allowed": value.get("new_buy_allowed"),
+            "review_targets": value.get("review_targets"),
+            "report_candidates": _candidate_preview_list(value.get("report_candidates"), 6),
+            "watch_candidates": _candidate_preview_list(value.get("watch_candidates"), 6),
+        }
+    )
+
+
+_CANDIDATE_PREVIEW_FIELDS = (
+    "code",
+    "name",
+    "summary",
+    "tier",
+    "quality",
+    "track",
+    "stage",
+    "candidate_lane",
+    "entry_type",
+    "selection_source",
+    "priority_rank",
+    "priority_score",
+    "score",
+    "rank_reason",
+    "quality_factors",
+    "risk_factors",
+    "action_status",
+    "why",
+    "evidence",
+    "next_step",
+    "triggers",
+)
+
+
+def _candidate_preview_list(value: Any, limit: int) -> list[Any]:
+    rows = _preview_list(value, limit)
+    return [_candidate_preview_item(row) if isinstance(row, dict) else row for row in rows]
+
+
+def _candidate_preview_item(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {field: _candidate_preview_value(field, value.get(field)) for field in _CANDIDATE_PREVIEW_FIELDS}
+    )
+
+
+def _candidate_preview_value(field: str, value: Any) -> Any:
+    if isinstance(value, list):
+        return [_text_excerpt(item, 80) for item in value[:8] if str(item).strip()]
+    if field in {"summary", "rank_reason", "why", "evidence", "next_step"}:
+        return _text_excerpt(value, 240)
+    return value
 
 
 def _preview_list(value: Any, limit: int) -> list[Any]:
