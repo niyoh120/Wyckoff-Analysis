@@ -1,5 +1,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchKlineViaTickFlow } from '../kline'
+import { fetchKlineViaTickFlow, isWhitelistEntryActive } from '../kline'
+
+describe('whitelist expiry', () => {
+  it('treats null and blank expiry as permanent', () => {
+    expect(isWhitelistEntryActive(null, '20260630')).toBe(true)
+    expect(isWhitelistEntryActive('', '20260630')).toBe(true)
+    expect(isWhitelistEntryActive('   ', '20260630')).toBe(true)
+  })
+
+  it('keeps entries active through their expiry date', () => {
+    expect(isWhitelistEntryActive('20260630', '20260630')).toBe(true)
+    expect(isWhitelistEntryActive('20260701', '20260630')).toBe(true)
+  })
+
+  it('rejects expired or malformed expiry values', () => {
+    expect(isWhitelistEntryActive('20260629', '20260630')).toBe(false)
+    expect(isWhitelistEntryActive('2026-06-30', '20260630')).toBe(false)
+    expect(isWhitelistEntryActive('20261301', '20260630')).toBe(false)
+    expect(isWhitelistEntryActive('20260230', '20260630')).toBe(false)
+  })
+})
 
 describe('kline TickFlow parsing', () => {
   afterEach(() => {
