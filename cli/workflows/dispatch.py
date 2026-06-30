@@ -49,6 +49,7 @@ def build_turn_runtime(
     workflow_source_run_id: str = "",
     workflow_args: Any = None,
     workflow_only_step_id: str = "",
+    enforce_turn_expectations: bool | None = None,
 ) -> tuple[Any, WorkflowContext]:
     """Return direct runtime for general chat, workflow executor for task turns."""
 
@@ -58,6 +59,7 @@ def build_turn_runtime(
             "scratchpad": scratchpad,
             "cancel_check": cancel_check,
             "allowed_tools": infer_direct_allowed_tools(user_text),
+            "enforce_turn_expectations": enforce_turn_expectations,
         }
         if stream_chunk_timeout is not None:
             kwargs["stream_chunk_timeout"] = stream_chunk_timeout

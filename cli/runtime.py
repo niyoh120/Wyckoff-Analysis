@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -44,6 +45,7 @@ RuntimeEvent = dict[str, Any]
 
 STREAM_CHUNK_TIMEOUT = 60.0
 _INTERNAL_RETRY_MARKER = "_internal_retry"
+_STRICT_EXPECTATIONS_ENV = "WYCKOFF_STRICT_TOOL_EXPECTATIONS"
 _DIRECT_TOOL_USE_PROMPT = """\
 
 <tool-use>
@@ -52,6 +54,13 @@ _DIRECT_TOOL_USE_PROMPT = """\
 用户请求涉及持仓、股票或市场事实时，优先用可用工具验证。
 只有执行对象仍不明确，或需要写入/交易/高风险确认时，才使用 ask_user_question。
 </tool-use>"""
+
+
+def _strict_turn_expectations_enabled(value: bool | None) -> bool:
+    if value is not None:
+        return bool(value)
+    raw = os.getenv(_STRICT_EXPECTATIONS_ENV, "").strip().lower()
+    return raw in {"1", "true", "yes", "y", "on", "strict"}
 
 
 def _iter_with_timeout(stream, timeout: float, cancel_check: Callable[[], bool] | None = None):
@@ -157,7 +166,7 @@ class AgentRuntime:
         stream_chunk_timeout: float = STREAM_CHUNK_TIMEOUT,
         allowed_tools: set[str] | tuple[str, ...] | None = None,
         workflow: Any | None = None,
-        enforce_turn_expectations: bool = True,
+        enforce_turn_expectations: bool | None = None,
     ) -> None:
         self.provider = provider
         self.tools = tools
@@ -169,7 +178,7 @@ class AgentRuntime:
         tool_scope = tuple(allowed_tools or workflow_tools or ())
         self.allowed_tools = set(tool_scope) if tool_scope else None
         self.workflow = workflow
-        self.enforce_turn_expectations = enforce_turn_expectations
+        self.enforce_turn_expectations = _strict_turn_expectations_enabled(enforce_turn_expectations)
 
     def run_stream(
         self,

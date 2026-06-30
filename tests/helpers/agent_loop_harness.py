@@ -114,9 +114,11 @@ class AgentLoopHarness:
         *,
         rounds: list[RoundScript],
         tool_results: dict[str, Any] | None = None,
+        enforce_turn_expectations: bool | None = None,
     ):
         self.provider = ScriptedProvider(rounds)
         self.tools = StubToolRegistry(tool_results=tool_results)
+        self.enforce_turn_expectations = enforce_turn_expectations
 
     def run_turn(
         self,
@@ -132,6 +134,7 @@ class AgentLoopHarness:
             tools=self.tools,
             messages=working_messages,
             system_prompt=system_prompt,
+            enforce_turn_expectations=self.enforce_turn_expectations,
             on_tool_call=lambda name, args: observed_tool_calls.append({"name": name, "args": deepcopy(args)}),
             on_tool_result=lambda name, result: observed_tool_results.append(
                 {"name": name, "result": deepcopy(result)}

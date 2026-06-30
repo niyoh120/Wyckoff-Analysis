@@ -176,6 +176,7 @@ def test_agent_loop_retries_planning_only_portfolio_turn_until_tool_executes():
                 "positions": [{"code": "002081", "health": "WEAK"}],
             }
         },
+        enforce_turn_expectations=True,
     )
 
     outcome = harness.run_turn(
@@ -221,12 +222,31 @@ def test_agent_loop_retries_hallucinated_portfolio_list_until_portfolio_runs():
             ],
         ],
         tool_results={"portfolio": {"positions": [1, 2, 3, 4], "free_cash": 11600}},
+        enforce_turn_expectations=True,
     )
 
     outcome = harness.run_turn([{"role": "user", "content": "我的持仓有什么"}])
 
     assert outcome["result"]["text"] == "你当前有 4 只持仓，现金 1.16 万。"
     assert [call["name"] for call in outcome["tool_calls"]] == ["portfolio"]
+
+
+def test_agent_loop_default_does_not_force_phrase_based_tool_retry():
+    harness = AgentLoopHarness(
+        rounds=[
+            [
+                {"type": "text_delta", "text": "计划\n1. 读取持仓\n2. 汇总风险"},
+                {"type": "usage", "input_tokens": 10, "output_tokens": 6},
+            ]
+        ]
+    )
+
+    outcome = harness.run_turn([{"role": "user", "content": "你看我持仓呀"}])
+
+    assert outcome["result"]["text"] == "计划\n1. 读取持仓\n2. 汇总风险"
+    assert outcome["tool_calls"] == []
+    assert len(outcome["provider_calls"]) == 1
+    assert all(not m.get("_internal_retry") for m in outcome["messages"])
 
 
 def test_agent_loop_does_not_retry_non_mandatory_plain_text_turn():
@@ -261,7 +281,8 @@ def test_agent_loop_warns_after_retry_budget_is_exhausted():
                 {"type": "text_delta", "text": "还是先说计划，不着急执行。"},
                 {"type": "usage", "input_tokens": 14, "output_tokens": 5},
             ],
-        ]
+        ],
+        enforce_turn_expectations=True,
     )
 
     outcome = harness.run_turn(

@@ -35,6 +35,10 @@ flowchart LR
 
 完整执行链路见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)。
 
+## Agent Harness 边界
+
+CLI agent 默认让模型负责错别字、同义表达、上下文恢复和任务拆分；harness 只保留工具边界、写入确认、并发、持久化、超时和循环保护。基于固定短语强制某个工具的旧式 turn expectation 已降级为显式严格模式：只有设置 `WYCKOFF_STRICT_TOOL_EXPECTATIONS=1` 或测试显式开启时才会强制重试。
+
 ## 方向一：信号衰减监控
 
 **目标**：按信号类型追踪推荐质量，识别正在失效的信号。

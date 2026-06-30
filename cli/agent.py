@@ -29,6 +29,7 @@ def run(
     console=None,
     scratchpad: AgentScratchpad | None = None,
     workflow=None,
+    enforce_turn_expectations: bool | None = None,
 ) -> dict[str, Any]:
     """
     执行一次完整的 Agent 循环。
@@ -38,7 +39,7 @@ def run(
     {"text": str, "usage": {"input_tokens": int, "output_tokens": int}, "elapsed": float}
     """
 
-    runtime = _build_runtime(provider, tools, messages, scratchpad, workflow)
+    runtime = _build_runtime(provider, tools, messages, scratchpad, workflow, enforce_turn_expectations)
     final: dict[str, Any] | None = None
 
     for event in runtime.run_stream(messages, system_prompt):
@@ -76,7 +77,7 @@ def _dispatch_legacy_callbacks(
         on_tool_result(event["name"], event["result"])
 
 
-def _build_runtime(provider, tools, messages, scratchpad, workflow):
+def _build_runtime(provider, tools, messages, scratchpad, workflow, enforce_turn_expectations):
     user_text = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
     workflow_context = workflow if hasattr(workflow, "name") else None
     runtime, _ = build_turn_runtime(
@@ -86,5 +87,6 @@ def _build_runtime(provider, tools, messages, scratchpad, workflow):
         user_text=str(user_text),
         scratchpad=scratchpad,
         workflow_context=workflow_context,
+        enforce_turn_expectations=enforce_turn_expectations,
     )
     return runtime

@@ -126,7 +126,7 @@ def test_runtime_emits_retry_event_when_required_tool_is_skipped():
         {"role": "user", "content": "做一下体检"},
     ]
 
-    events = list(AgentRuntime(provider, tools).run_stream(messages))
+    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
 
     retries = [e for e in events if e["type"] == "retry"]
     assert len(retries) == 1
@@ -152,7 +152,7 @@ def test_runtime_accepts_any_portfolio_mode_for_soft_expectation():
     tools = StubToolRegistry(tool_results={"portfolio": {"positions": []}})
     messages = [{"role": "user", "content": "账户里这些仓位有什么风险"}]
 
-    events = list(AgentRuntime(provider, tools).run_stream(messages))
+    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
 
     assert not [e for e in events if e["type"] == "retry"]
     assert events[-1]["text"] == "已读取持仓。"
@@ -175,7 +175,7 @@ def test_runtime_retries_when_stock_screening_request_skips_tool():
     tools = StubToolRegistry(tool_results={"screen_stocks": {"symbols_for_report": ["300750"]}})
     messages = [{"role": "user", "content": "帮我筛选创业板今天有什么好股票"}]
 
-    events = list(AgentRuntime(provider, tools).run_stream(messages))
+    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
 
     retries = [e for e in events if e["type"] == "retry"]
     assert len(retries) == 1
@@ -215,7 +215,7 @@ def test_runtime_retries_when_ai_report_followup_skips_tool():
         {"role": "user", "content": "继续生成研报"},
     ]
 
-    events = list(AgentRuntime(provider, tools).run_stream(messages))
+    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
 
     retries = [e for e in events if e["type"] == "retry"]
     assert len(retries) == 1
