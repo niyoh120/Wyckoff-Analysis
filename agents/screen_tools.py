@@ -52,6 +52,7 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
             "board": board,
             "scan_scope": _scan_scope(board, summary, metrics),
             "summary": summary,
+            "data_quality": _data_quality_summary(metrics, summary),
             "trade_mode": trade_mode,
             "decision_brief": _decision_brief(trade_mode, top_candidates),
             "selection_brief": _selection_brief(trade_mode, top_candidates),
@@ -95,6 +96,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "board": result.get("board"),
         "scan_scope": result.get("scan_scope", {}),
         "summary": result.get("summary", {}),
+        "data_quality": result.get("data_quality", {}),
         "trade_mode": result.get("trade_mode", {}),
         "decision_brief": result.get("decision_brief", {}),
         "selection_brief": result.get("selection_brief", {}),
@@ -142,6 +144,67 @@ def _screen_summary(metrics: dict, symbols_for_report: list[Any]) -> dict:
         "layer3_passed": int(metrics.get("layer3", 0)),
         "report_candidates": len(_report_rows(symbols_for_report)),
     }
+
+
+def _data_quality_summary(metrics: dict, summary: dict) -> dict:
+    total = int(summary.get("total_scanned", 0) or 0)
+    fetch_ok = int(metrics.get("fetch_ok", 0) or 0)
+    fetch_fail = int(metrics.get("fetch_fail", 0) or 0)
+    date_mismatch = int(metrics.get("fetch_date_mismatch", 0) or 0)
+    spot_patched = int(metrics.get("fetch_spot_patched", 0) or 0)
+    coverage_pct = round((fetch_ok / total) * 100, 1) if total > 0 else 0.0
+    status = _data_quality_status(total, coverage_pct, date_mismatch)
+    return {
+        "status": status,
+        "coverage_pct": coverage_pct,
+        "fetch_ok": fetch_ok,
+        "fetch_fail": fetch_fail,
+        "date_mismatch": date_mismatch,
+        "spot_patched": spot_patched,
+        "end_trade_date": str(metrics.get("end_trade_date") or ""),
+        "warnings": _data_quality_warnings(status, coverage_pct, fetch_fail, date_mismatch, spot_patched),
+        "action": _data_quality_action(status),
+    }
+
+
+def _data_quality_status(total: int, coverage_pct: float, date_mismatch: int) -> str:
+    if total <= 0:
+        return "empty"
+    if coverage_pct < 90.0 or date_mismatch > 0:
+        return "degraded"
+    if coverage_pct < 98.0:
+        return "partial"
+    return "ok"
+
+
+def _data_quality_warnings(
+    status: str,
+    coverage_pct: float,
+    fetch_fail: int,
+    date_mismatch: int,
+    spot_patched: int,
+) -> list[str]:
+    warnings: list[str] = []
+    if status == "empty":
+        warnings.append("本轮没有可用K线数据")
+    if fetch_fail > 0:
+        warnings.append(f"{fetch_fail}只股票拉取失败")
+    if date_mismatch > 0:
+        warnings.append(f"{date_mismatch}只股票交易日不匹配")
+    if spot_patched > 0:
+        warnings.append(f"{spot_patched}只股票使用实时快照补齐")
+    if status in {"partial", "degraded"} and coverage_pct > 0:
+        warnings.append(f"数据覆盖率 {coverage_pct:.1f}%")
+    return warnings
+
+
+def _data_quality_action(status: str) -> str:
+    return {
+        "ok": "可正常参考候选排序",
+        "partial": "候选可参考，但需要优先复核缺失数据影响",
+        "degraded": "不要直接据此选股，先重跑或缩小扫描范围",
+        "empty": "无法形成可靠候选，需先修复数据源",
+    }.get(status, "需要复核数据质量")
 
 
 def _scan_scope(board: str, summary: dict, metrics: dict) -> dict:

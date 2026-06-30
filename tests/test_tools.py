@@ -1450,6 +1450,43 @@ class TestSymbolPool:
         assert result["scan_scope"] == {"scope": "bounded", "board": "all", "limit": 25, "total_scanned": 10}
         assert result["summary"]["scan_limit"] == 25
 
+    def test_screen_stocks_surfaces_data_quality_warnings(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [],
+                {},
+                {
+                    "metrics": {
+                        "total_symbols": 100,
+                        "fetch_ok": 87,
+                        "fetch_fail": 13,
+                        "fetch_date_mismatch": 2,
+                        "fetch_spot_patched": 5,
+                        "end_trade_date": "2026-06-30",
+                    },
+                    "triggers": {},
+                    "name_map": {},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        assert result["data_quality"]["status"] == "degraded"
+        assert result["data_quality"]["coverage_pct"] == 87.0
+        assert result["data_quality"]["end_trade_date"] == "2026-06-30"
+        assert "13只股票拉取失败" in result["data_quality"]["warnings"]
+        assert "2只股票交易日不匹配" in result["data_quality"]["warnings"]
+        assert result["data_quality"]["action"] == "不要直接据此选股，先重跑或缩小扫描范围"
+
     def test_screen_stocks_without_limit_preserves_env_limit(self, monkeypatch):
         from agents import screen_tools
 

@@ -100,6 +100,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "board": result.get("board"),
             "scan_scope": result.get("scan_scope"),
             "summary": result.get("summary"),
+            "data_quality": result.get("data_quality"),
             "trade_mode": result.get("trade_mode"),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "selection_brief": _screen_selection_preview(result.get("selection_brief")),

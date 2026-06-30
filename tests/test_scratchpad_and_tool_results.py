@@ -92,6 +92,12 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
         "board": "chinext",
         "scan_scope": {"scope": "bounded", "board": "chinext", "limit": 200, "total_scanned": 200},
         "summary": {"total_scanned": 2000},
+        "data_quality": {
+            "status": "partial",
+            "coverage_pct": 94.5,
+            "warnings": ["11只股票拉取失败", "数据覆盖率 94.5%"],
+            "action": "候选可参考，但需要优先复核缺失数据影响",
+        },
         "trade_mode": {"regime": "RISK_OFF", "action": "不新增买入"},
         "decision_brief": {
             "market_gate": "风险规避 / 不新增买入",
@@ -152,6 +158,8 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     assert '"decision_brief": {"market_gate": "风险规避 / 不新增买入"' in content
     assert '"selection_brief": {"status": "ready_for_ai_review"' in content
     assert '"scan_scope": {"scope": "bounded", "board": "chinext", "limit": 200, "total_scanned": 200}' in content
+    assert '"data_quality": {"status": "partial"' in content
+    assert "候选可参考，但需要优先复核缺失数据影响" in content
     assert "本轮首选可进入 AI 研报复核: 300750 宁德时代" in content
     assert "300750 宁德时代: LPS+SOS；只观察" in content
     assert '"risk_factors": ["大盘风险闸门关闭"]' in content
