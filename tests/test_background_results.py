@@ -114,6 +114,31 @@ def test_check_background_tasks_restores_ai_report_handoff_state():
     assert registry.state["last_ai_report"]["reviewed_codes"] == ["300750"]
 
 
+def test_check_background_tasks_restores_strategy_decision_handoff_state():
+    from cli.background import BackgroundTaskManager
+    from cli.tools import ToolRegistry
+
+    decision = {
+        "ok": True,
+        "report_source": "last_ai_report",
+        "reviewed_codes": ["300750"],
+        "reviewed_symbols": [{"code": "300750", "name": "宁德时代"}],
+        "next_action": "补充 Telegram 配置后可生成并发送 OMS 工单",
+    }
+    manager = BackgroundTaskManager()
+    registry = ToolRegistry()
+    registry.set_background_manager(manager)
+    task_id = manager.submit("bg_strategy", "generate_strategy_decision", lambda: decision, {})
+
+    _wait_completed(manager, task_id)
+    result = registry.execute("check_background_tasks", {})
+
+    assert result["tasks"][0]["status"] == "completed"
+    assert "result" not in result["tasks"][0]
+    assert registry.state["last_strategy_decision"]["reviewed_codes"] == ["300750"]
+    assert registry.state["last_strategy_decision"]["report_source"] == "last_ai_report"
+
+
 def test_local_db_chat_background_history_uses_shared_preview(tmp_path, monkeypatch):
     from integrations import local_db, local_db_chat
 

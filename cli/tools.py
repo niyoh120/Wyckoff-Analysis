@@ -650,6 +650,10 @@ class ToolRegistry:
                 from agents.report_tools import remember_ai_report
 
                 remember_ai_report(self._tool_context, result)
+            elif tool_name == "generate_strategy_decision":
+                from agents.strategy_tools import remember_strategy_decision
+
+                remember_strategy_decision(self._tool_context, result)
 
     def _confirm_high_risk_call(
         self,

@@ -51,7 +51,9 @@ def generate_strategy_decision(
         token = get_credential(tool_context, "tg_bot_token", "TG_BOT_TOKEN")
         chat_id = get_credential(tool_context, "tg_chat_id", "TG_CHAT_ID")
         if not token or not chat_id:
-            return _strategy_without_telegram(screen_payload or {}, report_text, candidate_meta, report_source)
+            result = _strategy_without_telegram(screen_payload or {}, report_text, candidate_meta, report_source)
+            remember_strategy_decision(tool_context, result)
+            return result
         ok, reason = _run_strategy_step4(
             tool_context,
             report_text,
@@ -63,7 +65,9 @@ def generate_strategy_decision(
             token,
             chat_id,
         )
-        return _strategy_payload(bool(ok), str(reason or ""), screen_payload or {}, candidate_meta, report_source)
+        result = _strategy_payload(bool(ok), str(reason or ""), screen_payload or {}, candidate_meta, report_source)
+        remember_strategy_decision(tool_context, result)
+        return result
     except Exception as e:
         logger.exception("generate_strategy_decision error")
         return {"error": str(e)}
@@ -240,6 +244,11 @@ def _strategy_next_action(ok: bool, reason: str) -> str:
     if ok:
         return "攻防决策已完成，查看 Telegram 或订单记录确认工单"
     return "策略决策未完成，先处理失败原因后再重新生成"
+
+
+def remember_strategy_decision(tool_context: ToolContext | None, result: dict[str, Any]) -> None:
+    if tool_context is not None and not result.get("error"):
+        tool_context.state["last_strategy_decision"] = result
 
 
 def _last_ai_report(tool_context: ToolContext | None) -> dict[str, Any]:

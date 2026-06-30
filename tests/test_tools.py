@@ -363,6 +363,7 @@ class TestStrategyDecisionTool:
         assert result["reviewed_codes"] == ["300750"]
         assert result["screen_summary"] == {"report_candidates": 1}
         assert result["report_preview"] == "# 上一跳研报"
+        assert ctx.state["last_strategy_decision"]["reviewed_codes"] == ["300750"]
 
     def test_generate_strategy_decision_passes_provided_report_to_step4(self, monkeypatch):
         from agents import strategy_tools
@@ -404,6 +405,7 @@ class TestStrategyDecisionTool:
         assert result["next_action"] == "攻防决策已完成，查看 Telegram 或订单记录确认工单"
         assert captured["report_text"] == "# 显式研报"
         assert captured["candidate_meta"] == [{"code": "000001", "name": "平安银行", "stage": "Accum_C"}]
+        assert ctx.state["last_strategy_decision"]["reviewed_codes"] == ["000001"]
 
     def test_generate_strategy_decision_uses_best_candidates_when_report_list_empty(self, monkeypatch):
         from agents import strategy_tools
