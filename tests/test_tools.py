@@ -403,6 +403,45 @@ class TestAiReportTool:
         assert captured["symbols_info"][0]["priority_score"] == 11.0
         assert ctx.state["last_ai_report"]["reviewed_codes"] == ["000004"]
 
+    def test_generate_ai_report_blocks_auto_handoff_on_degraded_screen_data(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "symbols_for_report": [{"code": "000004", "name": "主线候选"}],
+                    "selection_brief": {"status": "blocked_by_data_quality", "best_codes": ["000004"]},
+                    "action_plan": {
+                        "data_quality_gate": {
+                            "status": "degraded",
+                            "reason": "不要直接据此选股，先重跑或缩小扫描范围",
+                        },
+                        "review_targets": {
+                            "codes": ["000004"],
+                            "status": "blocked_by_data_quality",
+                            "reason": "不要直接据此选股，先重跑或缩小扫描范围",
+                        },
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            report_tools,
+            "run_ai_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not run report")),
+        )
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result == {
+            "error": "上一轮筛选数据质量不足，不能自动续接 AI 研报: 不要直接据此选股，先重跑或缩小扫描范围",
+            "status": "blocked_by_data_quality",
+            "reason": "不要直接据此选股，先重跑或缩小扫描范围",
+        }
+        assert "last_ai_report" not in ctx.state
+
     def test_generate_ai_report_uses_best_candidates_when_handoff_missing(self, monkeypatch):
         from agents import report_tools
         from agents.tool_context import ToolContext
@@ -577,6 +616,51 @@ class TestStrategyDecisionTool:
         assert result["report_preview"] == "# 观察候选研报"
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主升阶段 / 启动平台"
         assert captured["symbols_info"][0]["quality_factors"] == ["强观察候选", "启动平台"]
+
+    def test_generate_strategy_decision_blocks_auto_report_on_degraded_screen_data(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 1},
+                    "decision_brief": {"next_action": "不要直接据此选股，先重跑或缩小扫描范围"},
+                    "symbols_for_report": [{"code": "000004", "name": "主线候选"}],
+                    "selection_brief": {
+                        "status": "blocked_by_data_quality",
+                        "best_candidates": [{"code": "000004", "name": "主线候选"}],
+                    },
+                    "action_plan": {
+                        "data_quality_gate": {
+                            "status": "degraded",
+                            "reason": "不要直接据此选股，先重跑或缩小扫描范围",
+                        }
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools,
+            "run_ai_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not run report")),
+        )
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        assert result["ok"] is False
+        assert result["status"] == "blocked_by_data_quality"
+        assert result["report_source"] == "blocked_by_screen_data_quality"
+        assert result["candidate_count"] == 0
+        assert result["reviewed_codes"] == []
+        assert result["screen_summary"] == {"report_candidates": 1}
+        assert result["next_action"] == "先重跑或缩小扫描范围，确认行情数据质量后再生成策略决策"
+        assert ctx.state["last_strategy_decision"]["status"] == "blocked_by_data_quality"
 
     def test_generate_strategy_decision_enriches_string_report_codes(self, monkeypatch):
         from agents import strategy_tools

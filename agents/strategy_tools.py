@@ -5,7 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agents.report_tools import reviewed_symbols_from_info, run_ai_report, symbols_info_from_codes
+from agents.report_tools import (
+    reviewed_symbols_from_info,
+    run_ai_report,
+    screen_auto_handoff_block_reason,
+    symbols_info_from_codes,
+)
 from agents.screen_tools import screen_stocks
 from agents.tool_context import ToolContext, ensure_tushare_token, get_credential, get_user_id, resolve_llm_config
 
@@ -29,14 +34,20 @@ def generate_strategy_decision(
         last_report = _last_ai_report(tool_context)
         screen_payload = screen_result or _last_screen_result(tool_context)
         report_text, report_source = _strategy_report_text(report_text, last_report)
-        if (
-            not report_text
-            and not screen_payload
-            and not _has_candidate_inputs(reviewed_symbols, reviewed_codes, last_report)
-        ):
+        candidate_input_provided = _has_candidate_inputs(reviewed_symbols, reviewed_codes, last_report)
+        if not report_text and not candidate_input_provided:
+            if reason := screen_auto_handoff_block_reason(screen_payload):
+                result = _strategy_blocked_by_screen_quality(screen_payload, reason)
+                remember_strategy_decision(tool_context, result)
+                return result
+        if not report_text and not screen_payload and not candidate_input_provided:
             screen_payload = screen_stocks(board="all", tool_context=tool_context)
             if screen_payload.get("error"):
                 return {"error": f"筛选失败: {screen_payload['error']}"}
+            if reason := screen_auto_handoff_block_reason(screen_payload):
+                result = _strategy_blocked_by_screen_quality(screen_payload, reason)
+                remember_strategy_decision(tool_context, result)
+                return result
 
         candidate_meta = _strategy_candidate_meta(
             screen_payload,
@@ -215,6 +226,21 @@ def _strategy_without_telegram(
         }
     )
     return payload
+
+
+def _strategy_blocked_by_screen_quality(screen_result: dict, reason: str) -> dict:
+    return {
+        "ok": False,
+        "reason": reason,
+        "status": "blocked_by_data_quality",
+        "report_source": "blocked_by_screen_data_quality",
+        "candidate_count": 0,
+        "reviewed_codes": [],
+        "reviewed_symbols": [],
+        "screen_summary": screen_result.get("summary", {}) if isinstance(screen_result, dict) else {},
+        "decision_brief": screen_result.get("decision_brief", {}) if isinstance(screen_result, dict) else {},
+        "next_action": "先重跑或缩小扫描范围，确认行情数据质量后再生成策略决策",
+    }
 
 
 def _strategy_payload(

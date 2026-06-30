@@ -21,7 +21,14 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
     """对指定股票列表生成威科夫三阵营 AI 深度研报。"""
     try:
         ensure_tushare_token(tool_context)
-        stock_items = _stock_items_or_screen_handoff(stock_codes, tool_context)
+        stock_items = _stock_code_items(stock_codes)
+        if not stock_items and (reason := screen_auto_handoff_block_reason(_last_screen_result(tool_context))):
+            return {
+                "error": f"上一轮筛选数据质量不足，不能自动续接 AI 研报: {reason}",
+                "status": "blocked_by_data_quality",
+                "reason": reason,
+            }
+        stock_items = stock_items or _screen_handoff_stock_items(tool_context)
         if not stock_items:
             return {"error": "请提供至少一个股票代码"}
         provider, api_key, model, base_url = resolve_llm_config(tool_context)
@@ -79,8 +86,20 @@ def symbols_info_from_codes(stock_codes: Any, tool_context: ToolContext | None =
     return rows
 
 
-def _stock_items_or_screen_handoff(stock_codes: Any, tool_context: ToolContext | None) -> list[Any]:
-    return _stock_code_items(stock_codes) or _screen_handoff_stock_items(tool_context)
+def screen_auto_handoff_block_reason(screen_result: dict[str, Any]) -> str:
+    if not isinstance(screen_result, dict):
+        return ""
+    action_plan = screen_result.get("action_plan") if isinstance(screen_result.get("action_plan"), dict) else {}
+    gate = action_plan.get("data_quality_gate") if isinstance(action_plan.get("data_quality_gate"), dict) else {}
+    if gate:
+        return str(gate.get("reason") or "数据质量不足，先重跑或缩小扫描范围")
+    review = action_plan.get("review_targets") if isinstance(action_plan.get("review_targets"), dict) else {}
+    if review.get("status") == "blocked_by_data_quality":
+        return str(review.get("reason") or "数据质量不足，先重跑或缩小扫描范围")
+    selection = screen_result.get("selection_brief") if isinstance(screen_result.get("selection_brief"), dict) else {}
+    if selection.get("status") == "blocked_by_data_quality":
+        return str(selection.get("headline") or "数据质量不足，先重跑或缩小扫描范围")
+    return ""
 
 
 def _screen_handoff_stock_items(tool_context: ToolContext | None) -> list[Any]:

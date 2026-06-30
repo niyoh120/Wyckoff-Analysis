@@ -4,7 +4,7 @@ import json
 
 from cli.scratchpad import AgentScratchpad
 from cli.tool_results import INLINE_TOOL_RESULT_MAX_CHARS, format_tool_result_for_context, serialize_tool_result
-from utils.tool_result_preview import tool_result_brief_lines
+from utils.tool_result_preview import tool_result_brief_lines, tool_result_preview
 
 
 class _Scalar:
@@ -205,6 +205,46 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
         "本轮首选可进入 AI 研报复核: 300750 宁德时代",
         "300750 宁德时代 · 风险闸门关闭 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察，等待风险闸门重新打开",
         "000001 平安银行 · 观察池 · 亮点: 触发:SOS；缩量回踩 · 风险: 未进入本轮研报候选",
+    ]
+
+
+def test_screen_stocks_preview_surfaces_data_quality_gate():
+    result = {
+        "selection_brief": {
+            "headline": "本轮有候选，但数据质量未过关: 300750 宁德时代",
+            "primary_pick": {
+                "code": "300750",
+                "name": "宁德时代",
+                "quality_factors": ["高优先级研报候选"],
+                "risk_factors": ["不要直接据此选股，先重跑或缩小扫描范围"],
+                "action_status": "blocked_by_data_quality",
+                "next_step": "数据质量不足，先重跑或缩小扫描范围",
+            },
+        },
+        "action_plan": {
+            "new_buy_allowed": False,
+            "ai_review_allowed": False,
+            "data_quality_gate": {
+                "status": "degraded",
+                "reason": "不要直接据此选股，先重跑或缩小扫描范围",
+            },
+            "review_targets": {
+                "codes": ["300750"],
+                "status": "blocked_by_data_quality",
+                "reason": "不要直接据此选股，先重跑或缩小扫描范围",
+            },
+        },
+    }
+
+    preview = tool_result_preview("screen_stocks", result)
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert '"ai_review_allowed": false' in preview
+    assert '"data_quality_gate": {"status": "degraded"' in preview
+    assert '"status": "blocked_by_data_quality"' in preview
+    assert lines == [
+        "本轮有候选，但数据质量未过关: 300750 宁德时代",
+        "300750 宁德时代 · 数据质量未过关 · 亮点: 高优先级研报候选 · 风险: 不要直接据此选股，先重跑或缩小扫描范围 · 下一步: 数据质量不足，先重跑或缩小扫描范围",
     ]
 
 

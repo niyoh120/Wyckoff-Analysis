@@ -170,6 +170,7 @@ def _candidate_name(row: dict[str, Any]) -> str:
 
 def _action_status_label(value: Any) -> str:
     return {
+        "blocked_by_data_quality": "数据质量未过关",
         "blocked_by_market_gate": "风险闸门关闭",
         "watch_only": "观察池",
         "repair_review_only": "只做修复复核",
@@ -232,6 +233,8 @@ def _screen_action_plan_preview(value: Any) -> dict[str, Any]:
             "primary_action": value.get("primary_action"),
             "candidate_action": value.get("candidate_action"),
             "new_buy_allowed": value.get("new_buy_allowed"),
+            "ai_review_allowed": value.get("ai_review_allowed"),
+            "data_quality_gate": value.get("data_quality_gate"),
             "review_targets": value.get("review_targets"),
             "report_candidates": _candidate_preview_list(value.get("report_candidates"), 6),
             "watch_candidates": _candidate_preview_list(value.get("watch_candidates"), 6),
