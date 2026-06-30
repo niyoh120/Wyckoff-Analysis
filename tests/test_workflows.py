@@ -190,7 +190,7 @@ def test_model_router_prompt_is_minimal_runtime_contract():
     assert "单只股票诊断" not in _ROUTER_SYSTEM_PROMPT
 
 
-def test_dispatch_accepts_model_router_aliases():
+def test_dispatch_rejects_semantic_model_router_aliases():
     provider = RouterDecisionProvider('{"route":"动态工作流","score":"84%","reason":"需要多阶段筛选和攻防计划"}')
 
     runtime, workflow = build_turn_runtime(
@@ -200,10 +200,10 @@ def test_dispatch_accepts_model_router_aliases():
         user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
     )
 
-    assert workflow.name == "dynamic_task"
-    assert workflow.route_confidence == 0.84
-    assert workflow.route_reason == "模型判断需要动态 workflow：需要多阶段筛选和攻防计划"
-    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
+    assert workflow.route_matches == ("model_router_fallback",)
+    assert isinstance(runtime, AgentRuntime)
 
 
 def test_dispatch_accepts_boolean_workflow_router_flag():
@@ -321,7 +321,7 @@ def test_dispatch_resume_workflow_bypasses_model_router():
     assert isinstance(runtime, WorkflowExecutor)
 
 
-def test_dispatch_accepts_chinese_direct_router_alias():
+def test_dispatch_rejects_semantic_direct_router_alias():
     provider = RouterDecisionProvider('{"mode":"直接回答","confidence":"95%","reason":"单轮问题"}')
 
     runtime, workflow = build_turn_runtime(
@@ -332,8 +332,8 @@ def test_dispatch_accepts_chinese_direct_router_alias():
     )
 
     assert workflow.name == "general_chat"
-    assert workflow.route_confidence == 0.95
-    assert workflow.route_reason == "模型判断直接处理：单轮问题"
+    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
+    assert workflow.route_matches == ("model_router_fallback",)
     assert isinstance(runtime, AgentRuntime)
 
 

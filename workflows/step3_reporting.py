@@ -7,6 +7,7 @@ from datetime import date
 import pandas as pd
 
 from core.compliance_report import generate_compliance_brief
+from core.x_social_summary import generate_x_social_summary
 from integrations.llm_client import call_llm
 from workflows.compliance_report_config import compliance_llm_config_from_env
 from workflows.step3_delivery import notify_step3_channels, send_step3_input_preview
@@ -49,6 +50,14 @@ def send_empty_step3_report(
         selected_df=selected_df,
         ops_codes=[],
         code_name=_items_name_map(items),
+    )
+    _maybe_send_x_summary(
+        options=options,
+        benchmark_context=benchmark_context,
+        selected_df=selected_df,
+        ops_codes=[],
+        code_name=_items_name_map(items),
+        report_text=report,
     )
     return (True, "ok", report)
 
@@ -113,6 +122,14 @@ def send_step3_final_report(
         selected_df=selected_df,
         ops_codes=ops_codes,
         code_name=code_name,
+    )
+    _maybe_send_x_summary(
+        options=options,
+        benchmark_context=benchmark_context,
+        selected_df=selected_df,
+        ops_codes=ops_codes,
+        code_name=code_name,
+        report_text=content,
     )
     report_progress("研报完成", "", 1.0)
     return (True, "ok", llm_result.report)
@@ -199,6 +216,44 @@ def _build_compliance_brief(
     )
 
 
+def _maybe_send_x_summary(
+    *,
+    options: Step3RunOptions,
+    benchmark_context: dict,
+    selected_df: pd.DataFrame,
+    ops_codes: list[str],
+    code_name: dict[str, str],
+    report_text: str,
+) -> None:
+    if not options.notify or not options.runtime_config.send_x_summary:
+        return
+    try:
+        content = _build_x_summary(benchmark_context, selected_df, ops_codes, code_name, report_text)
+    except Exception as exc:
+        print(f"[step3] X直白版总结生成失败（主报告已发送）: {exc}")
+        return
+    if not notify_step3_channels(options, _x_summary_title(), content):
+        print("[step3] X直白版总结推送失败（主报告已发送）")
+
+
+def _build_x_summary(
+    benchmark_context: dict,
+    selected_df: pd.DataFrame,
+    ops_codes: list[str],
+    code_name: dict[str, str],
+    report_text: str,
+) -> str:
+    return generate_x_social_summary(
+        benchmark_context=benchmark_context,
+        selected_df=selected_df,
+        ops_codes=ops_codes,
+        code_name=code_name,
+        report_text=report_text,
+        llm_config=compliance_llm_config_from_env(),
+        llm_caller=call_llm,
+    )
+
+
 def _rag_veto_count(selected_df: pd.DataFrame) -> int:
     if not isinstance(selected_df, pd.DataFrame) or "rag_veto_count" not in selected_df.columns:
         return 0
@@ -237,3 +292,7 @@ def _step3_title() -> str:
 
 def _compliance_title() -> str:
     return f"📄 市场观察简报（合规版） {date.today().strftime('%Y-%m-%d')}"
+
+
+def _x_summary_title() -> str:
+    return f"🧵 X直白版总结 {date.today().strftime('%Y-%m-%d')}"

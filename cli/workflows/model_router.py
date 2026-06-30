@@ -16,35 +16,6 @@ logger = logging.getLogger(__name__)
 _MAX_REASON_CHARS = 120
 _VALID_MODES = {"direct", "dynamic_workflow"}
 _MODE_FIELDS = ("mode", "route", "runtime", "execution_mode")
-_DYNAMIC_MODE_ALIASES = {
-    "dynamic",
-    "dynamic workflow",
-    "dynamicworkflow",
-    "dynamic_workflow",
-    "workflow",
-    "workflow_executor",
-    "workflowexecutor",
-    "动态",
-    "动态workflow",
-    "动态工作流",
-    "工作流",
-}
-_DIRECT_MODE_ALIASES = {
-    "agent",
-    "chat",
-    "direct",
-    "directagent",
-    "direct_agent",
-    "general_chat",
-    "generalchat",
-    "normal",
-    "普通",
-    "普通agent",
-    "直接",
-    "直接agent",
-    "直接回答",
-    "直接处理",
-}
 _WORKFLOW_FLAG_FIELDS = ("workflow", "use_workflow", "dynamic_workflow", "needs_workflow")
 
 _ROUTER_SYSTEM_PROMPT = """\
@@ -194,7 +165,7 @@ def _clean_reason(value: Any) -> str:
 
 def _decision_mode(payload: dict[str, Any]) -> str:
     for field in _MODE_FIELDS:
-        if mode := _mode_alias(payload.get(field)):
+        if mode := _mode_value(payload.get(field)):
             return mode
     workflow_flag = _workflow_flag(payload)
     if workflow_flag is not None:
@@ -202,20 +173,14 @@ def _decision_mode(payload: dict[str, Any]) -> str:
     return ""
 
 
-def _mode_alias(value: Any) -> str:
+def _mode_value(value: Any) -> str:
     text = _normalize_mode_text(value)
-    if not text:
-        return ""
-    if text in _VALID_MODES or text in _DIRECT_MODE_ALIASES:
-        return "direct" if text in _DIRECT_MODE_ALIASES else text
-    if text in _DYNAMIC_MODE_ALIASES:
-        return "dynamic_workflow"
-    return ""
+    return text if text in _VALID_MODES else ""
 
 
 def _normalize_mode_text(value: Any) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip().lower()
-    return text.replace("-", "_").replace(" ", "")
+    return text.replace("-", "_")
 
 
 def _workflow_flag(payload: dict[str, Any]) -> bool | None:
