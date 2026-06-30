@@ -236,6 +236,7 @@ _COMPACT_SYMBOL_FIELDS = (
     "source_type",
     "priority_rank",
     "priority_score",
+    "shadow_score",
     "score",
     "rank_reason",
     "tier",

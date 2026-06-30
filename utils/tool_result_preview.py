@@ -250,6 +250,7 @@ _CANDIDATE_PREVIEW_FIELDS = (
     "selection_source",
     "priority_rank",
     "priority_score",
+    "shadow_score",
     "score",
     "rank_reason",
     "quality_factors",

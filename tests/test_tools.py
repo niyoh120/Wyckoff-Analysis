@@ -334,6 +334,7 @@ class TestAiReportTool:
                                 "track": "Trend",
                                 "candidate_lane": "mainline",
                                 "priority_score": 11.0,
+                                "shadow_score": 4.2,
                             }
                         ],
                     },
@@ -354,7 +355,9 @@ class TestAiReportTool:
         assert result["reviewed_codes"] == ["000004"]
         assert result["reviewed_symbols"][0]["tier"] == "高优先级研报候选"
         assert result["reviewed_symbols"][0]["candidate_lane"] == "mainline"
+        assert result["reviewed_symbols"][0]["shadow_score"] == 4.2
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主线买点"
+        assert captured["symbols_info"][0]["shadow_score"] == 4.2
 
     def test_generate_ai_report_uses_screen_handoff_when_codes_omitted(self, monkeypatch):
         from agents import report_tools
@@ -1448,6 +1451,38 @@ class TestSymbolPool:
         assert candidates[1]["priority_rank"] == 2
         assert candidates[2]["selected_for_report"] is False
         assert candidates[2]["triggers"] == ["lps", "sos"]
+
+    def test_screen_stocks_surfaces_shadow_score_for_candidate_review(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {"lps": [("000001", 7.0), ("000002", 7.0)]},
+                    "shadow_score_map": {"000001": 1.2, "000002": 5.5},
+                    "name_map": {"000001": "低分观察", "000002": "高分观察"},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        candidates = result["top_candidates"]
+        assert [row["code"] for row in candidates[:2]] == ["000002", "000001"]
+        assert candidates[0]["shadow_score"] == 5.5
+        assert candidates[0]["rank_reason"] == "动态策略分 5.50；LPS"
+        assert "动态策略分 5.50" in candidates[0]["quality_factors"]
+        assert result["selection_brief"]["primary_pick"]["shadow_score"] == 5.5
+        assert result["action_plan"]["watch_candidates"][0]["shadow_score"] == 5.5
 
     def test_screen_stocks_uses_report_row_metadata_for_top_candidates(self, monkeypatch):
         from agents import screen_tools

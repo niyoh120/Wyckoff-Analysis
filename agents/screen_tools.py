@@ -204,6 +204,7 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str) -> dict:
             "action_status": _candidate_action_status(trade_mode, bucket),
             "next_step": next_step,
             "priority_score": row.get("priority_score"),
+            "shadow_score": row.get("shadow_score"),
             "score": row.get("score"),
             "track": row.get("track"),
             "stage": row.get("stage"),
@@ -329,6 +330,7 @@ def _candidate_ref(row: dict, trade_mode: dict, bucket: str) -> dict:
         "risk_factors": _candidate_risk_factors(row, trade_mode, bucket),
         "action_status": _candidate_action_status(trade_mode, bucket),
         "priority_score": row.get("priority_score"),
+        "shadow_score": row.get("shadow_score"),
         "selection_source": row.get("selection_source"),
         "track": row.get("track"),
         "stage": row.get("stage"),
@@ -459,6 +461,7 @@ def _ranked_candidates(
     selected_rows = _report_rows(symbols_for_report)
     selected = set(selected_rows)
     priority_scores = _priority_score_map(details or {}, selected_rows)
+    shadow_scores = _shadow_score_map(details or {})
     metadata_map = _candidate_metadata_map(details or {})
     rows: dict[str, dict] = {}
     for trigger_name, candidates in trigger_groups.items():
@@ -473,6 +476,7 @@ def _ranked_candidates(
                     candidate.get("name") or name_map.get(code),
                     selected_rows.get(code),
                     selected,
+                    shadow_scores.get(code),
                     _metadata_for_code(metadata_map, code),
                 ),
             )
@@ -482,7 +486,15 @@ def _ranked_candidates(
                 row["triggers"].append(trigger_name)
     for code, report_row in selected_rows.items():
         row = rows.setdefault(
-            code, _candidate_row(code, name_map.get(code), report_row, selected, _metadata_for_code(metadata_map, code))
+            code,
+            _candidate_row(
+                code,
+                name_map.get(code),
+                report_row,
+                selected,
+                shadow_scores.get(code),
+                _metadata_for_code(metadata_map, code),
+            ),
         )
         row["priority_score"] = max(float(row["priority_score"]), candidate_score_value(priority_scores.get(code)))
     ranked = list(rows.values())
@@ -531,11 +543,17 @@ def _priority_score_map(details: dict, selected_rows: dict[str, dict]) -> dict[s
     return scores
 
 
+def _shadow_score_map(details: dict) -> dict[str, float]:
+    raw = details.get("shadow_score_map") if isinstance(details, dict) else {}
+    return {str(code): candidate_score_value(score) for code, score in (raw or {}).items()}
+
+
 def _candidate_row(
     code: str,
     name: object,
     report_row: dict | None,
     selected: set[str],
+    shadow_score: object = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict:
     report_row = report_row or {}
@@ -545,6 +563,7 @@ def _candidate_row(
         "name": str(report_row.get("name") or name or code),
         "score": 0.0,
         "priority_score": candidate_score_value(report_row.get("priority_score")),
+        "shadow_score": candidate_score_value(shadow_score),
         "priority_rank": int(report_row.get("priority_rank") or report_row.get("_report_order") or 0),
         "triggers": [],
         "selected_for_report": code in selected,
@@ -581,6 +600,7 @@ def _candidate_sort_key(row: dict) -> tuple:
         priority_rank,
         -candidate_score_value(row.get("priority_score")),
         -candidate_score_value(row.get("score")),
+        -candidate_score_value(row.get("shadow_score")),
         row["code"],
     )
 
@@ -603,6 +623,8 @@ def _final_candidate_row(row: dict) -> dict:
         "entry_type": row["entry_type"],
         "rank_reason": rank_reason,
     }
+    if candidate_score_value(row.get("shadow_score")):
+        payload["shadow_score"] = round(candidate_score_value(row.get("shadow_score")), 2)
     payload["quality_factors"] = _candidate_quality_factors(payload)
     payload["risk_factors"] = _candidate_risk_factors(payload)
     return payload
@@ -615,6 +637,8 @@ def _rank_reason(row: dict) -> str:
         parts.append(f"研报候选#{rank}" if rank else "研报候选")
     if candidate_score_value(row.get("priority_score")):
         parts.append(f"优先分 {candidate_score_value(row.get('priority_score')):.2f}")
+    if candidate_score_value(row.get("shadow_score")):
+        parts.append(f"动态策略分 {candidate_score_value(row.get('shadow_score')):.2f}")
     if row["triggers"]:
         labels = [TRIGGER_SHORT_LABELS.get(str(trigger), str(trigger)) for trigger in row["triggers"]]
         parts.append("+".join(labels))
