@@ -617,7 +617,7 @@ function formatCoverageGroup(raw: string) {
     signal_type: '信号',
     selection_mode: '选择模式',
     strategy_version: '策略版本',
-    candidate_lane: '候选车道',
+    candidate_lane: '入选路径',
     entry_type: '买点类型',
   }
   return labels[raw] || raw
@@ -625,11 +625,11 @@ function formatCoverageGroup(raw: string) {
 
 function formatCoverageValue(raw: string) {
   const labels: Record<string, string> = {
-    candidate_lane_shadow: '候选车道观察',
+    candidate_lane_shadow: '入选路径观察',
     mainline_shadow: '主线观察',
     tradeable_l4: '正式买点',
     legacy_layered: '旧五层漏斗',
-    candidate_lane_v1: '候选车道 v1',
+    candidate_lane_v1: '入选路径 v1',
     launchpad: '起跳板',
     trend_breakout: '趋势突破',
     trend_lane_pullback: '趋势回踩',

@@ -60,7 +60,7 @@ function labelCandidateTerm(value: string): string {
     evr: 'EVR放量不跌',
     lps: 'LPS缩量回踩',
     spring: 'Spring震仓',
-    Lane: '候选车道',
+    Lane: '入选路径',
   }
   return labels[value] || value
 }
@@ -80,7 +80,7 @@ export function formatPatternReviewLine(row: PatternReviewRow): string {
     patternReviewRole(row),
     `${dateLabel}${row.recommend_date}`,
     `入选${formatCount(row.recommend_count)}次`,
-    lane || mainline ? `车道${[lane, mainline].filter(Boolean).join(' ')}` : '',
+    lane || mainline ? `入选路径${[lane, mainline].filter(Boolean).join(' ')}` : '',
     `${pricePath} ${formatChange(row.change_pct)}`,
   ].filter(Boolean).join(' | ')
 }

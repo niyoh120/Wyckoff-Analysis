@@ -657,7 +657,7 @@ function TrackingTableHead({
         <th className="px-3 py-2 text-right font-medium">{t('tracking.currentPrice')}</th>
         <SortableHeader align="right" active={sortBy === 'change'} label={t('tracking.changePct')} order={sortOrder} onClick={() => onSortChange('change')} />
         <SortableHeader align="right" active={sortBy === 'score'} label={t('tracking.score')} order={sortOrder} onClick={() => onSortChange('score')} />
-        <th className="px-3 py-2 text-left font-medium">车道</th>
+        <th className="px-3 py-2 text-left font-medium">入选路径</th>
         {market === 'us' && <UsPerformanceHeaders sortBy={sortBy} sortOrder={sortOrder} onSortChange={onSortChange} />}
         <th className="px-3 py-2 text-center font-medium">{t('tracking.springboard')}</th>
         <th className="px-3 py-2 text-center font-medium">AI</th>
@@ -838,7 +838,7 @@ function labelCandidateTerm(value: string): string {
     evr: 'EVR放量不跌',
     lps: 'LPS缩量回踩',
     spring: 'Spring震仓',
-    Lane: '候选车道',
+    Lane: '入选路径',
     可买主线: '主线买点候选',
     主线买点候选: '主线买点候选',
     主线观察: '主线观察',
