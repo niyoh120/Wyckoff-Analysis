@@ -202,7 +202,10 @@ class TestAiReportTool:
                             "tag": "主线买点确认 | 威科夫候选",
                             "track": "Trend",
                             "stage": "Markup",
+                            "candidate_lane": "launchpad",
+                            "entry_type": "launchpad",
                             "priority_score": 12.5,
+                            "rank_reason": "研报候选#1；优先分 12.50",
                         }
                     ]
                 }
@@ -220,7 +223,10 @@ class TestAiReportTool:
         result = report_tools.generate_ai_report(["300750"], tool_context=ctx)
 
         assert captured["symbols_info"][0]["track"] == "Trend"
+        assert captured["symbols_info"][0]["candidate_lane"] == "launchpad"
+        assert captured["symbols_info"][0]["entry_type"] == "launchpad"
         assert result["reviewed_symbols"][0]["priority_score"] == 12.5
+        assert result["reviewed_symbols"][0]["rank_reason"] == "研报候选#1；优先分 12.50"
         assert ctx.state["last_ai_report"]["reviewed_codes"] == ["300750"]
 
 
@@ -302,6 +308,56 @@ class TestStrategyDecisionTool:
         assert result["next_action"] == "攻防决策已完成，查看 Telegram 或订单记录确认工单"
         assert captured["report_text"] == "# 显式研报"
         assert captured["candidate_meta"] == [{"code": "000001", "name": "平安银行", "stage": "Accum_C"}]
+
+    def test_generate_strategy_decision_uses_best_candidates_when_report_list_empty(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 0},
+                    "selection_brief": {
+                        "status": "watch_only",
+                        "best_candidates": [
+                            {
+                                "code": "000007",
+                                "name": "启动平台",
+                                "tier": "强观察候选",
+                                "why": "趋势线 / 主升阶段 / 启动平台",
+                                "candidate_lane": "launchpad",
+                                "entry_type": "launchpad",
+                                "priority_score": 8.5,
+                            }
+                        ],
+                    },
+                    "top_candidates": [{"code": "000008", "name": "备用观察"}],
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 观察候选研报"
+
+        monkeypatch.setattr(strategy_tools, "run_ai_report", fake_run_ai_report)
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        assert result["report_source"] == "generated_from_candidates"
+        assert result["candidate_count"] == 1
+        assert result["reviewed_codes"] == ["000007"]
+        assert result["reviewed_symbols"][0]["candidate_lane"] == "launchpad"
+        assert result["reviewed_symbols"][0]["entry_type"] == "launchpad"
+        assert result["report_preview"] == "# 观察候选研报"
+        assert captured["symbols_info"][0]["why"] == "趋势线 / 主升阶段 / 启动平台"
 
 
 # ── core.candidate_ranker ──

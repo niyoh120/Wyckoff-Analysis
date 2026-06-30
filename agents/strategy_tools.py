@@ -106,8 +106,18 @@ def _strategy_candidate_meta(
 def _screen_candidate_meta(screen_result: dict | None) -> list[dict]:
     if not isinstance(screen_result, dict):
         return []
-    rows = screen_result.get("symbols_for_report") or []
+    rows = _screen_candidate_rows(screen_result)
     return reviewed_symbols_from_info([row if isinstance(row, dict) else {"code": row} for row in rows])
+
+
+def _screen_candidate_rows(screen_result: dict[str, Any]) -> list[Any]:
+    rows = screen_result.get("symbols_for_report") or []
+    if rows:
+        return list(rows)
+    selection_brief = screen_result.get("selection_brief")
+    if isinstance(selection_brief, dict) and isinstance(selection_brief.get("best_candidates"), list):
+        return list(selection_brief["best_candidates"])
+    return list(screen_result.get("top_candidates") or [])[:5]
 
 
 def _dedupe_candidate_meta(rows: list[dict]) -> list[dict]:
