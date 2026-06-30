@@ -433,7 +433,7 @@ def test_direct_local_task_tools_are_not_keyword_gated():
     assert "execute_skill" not in tools
 
 
-def test_planner_explicit_tools_override_legacy_agent_role():
+def test_planner_ignores_agent_role_and_keeps_exact_tools():
     context = route_workflow("用 workflow 生成交易决策")
     run = plan_workflow(
         "生成交易决策",
@@ -454,7 +454,7 @@ def test_planner_explicit_tools_override_legacy_agent_role():
             ]
         },
     )
-    legacy = plan_workflow(
+    role_only = plan_workflow(
         "读取市场事实",
         context=context,
         workflow_script={"phases": [{"tasks": [{"id": "facts", "title": "读取市场事实", "agent": "research"}]}]},
@@ -463,10 +463,11 @@ def test_planner_explicit_tools_override_legacy_agent_role():
     assert run.steps[0].agent == "task"
     assert run.steps[0].tools == ()
     assert run.steps[0].tool_scope == ("generate_strategy_decision",)
-    assert legacy.steps[0].agent == "research"
+    assert role_only.steps[0].agent == "task"
+    assert role_only.steps[0].tools == ()
 
 
-def test_planner_accepts_model_authored_chinese_tool_labels():
+def test_planner_ignores_semantic_tool_labels():
     context = route_workflow("用 workflow 做持仓和选股复盘")
     run = plan_workflow(
         "做持仓和选股复盘",
@@ -478,7 +479,7 @@ def test_planner_accepts_model_authored_chinese_tool_labels():
                         {
                             "id": "facts",
                             "title": "读取事实",
-                            "tools": ["持仓", "全市场扫描", {"display_name": "提问用户"}],
+                            "tools": ["持仓", "screen_stocks", {"display_name": "提问用户"}],
                             "prompt": "读取持仓、筛选候选；只有对象仍不明确时再问用户。",
                         }
                     ]
@@ -488,7 +489,7 @@ def test_planner_accepts_model_authored_chinese_tool_labels():
     )
 
     assert run.steps[0].agent == "task"
-    assert run.steps[0].tool_scope == ("portfolio", "screen_stocks", "ask_user_question")
+    assert run.steps[0].tool_scope == ("screen_stocks",)
 
 
 def test_planner_normalizes_tool_suffixes_from_model_script():

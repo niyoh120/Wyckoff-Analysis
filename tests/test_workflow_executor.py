@@ -243,7 +243,7 @@ def test_model_generated_workflow_ignores_legacy_agent_and_tool_aliases():
     assert run.steps[0].tool_scope == ("screen_stocks",)
 
 
-def test_workflow_planner_accepts_agent_aliases_and_steps_field():
+def test_workflow_planner_ignores_agent_aliases_and_keeps_steps_field():
     run = plan_workflow(
         "用 workflow 做完整选股和攻防计划",
         context=route_workflow("用 workflow 做完整选股和攻防计划"),
@@ -267,8 +267,8 @@ def test_workflow_planner_accepts_agent_aliases_and_steps_field():
         },
     )
 
-    assert [step.agent for step in run.steps] == ["research", "trading"]
-    assert [step.tools for step in run.steps] == [("delegate_to_research",), ("delegate_to_trading",)]
+    assert [step.agent for step in run.steps] == ["task", "task"]
+    assert [step.tools for step in run.steps] == [(), ()]
     assert run.steps[1].prompt == "输出观察、买入和失效条件"
     assert run.steps[1].depends_on == ("scan",)
     assert run.script["runtime"]["planner"] == "stored_script"
@@ -285,7 +285,7 @@ def test_workflow_planner_accepts_top_level_task_script():
     )
 
     assert len(run.steps) == 1
-    assert run.steps[0].agent == "analysis"
+    assert run.steps[0].agent == "task"
     assert run.steps[0].phase == "top_level"
     assert run.steps[0].prompt == "诊断 300750 的量价结构"
 
@@ -299,15 +299,15 @@ def test_workflow_planner_accepts_keyed_phase_and_task_objects():
             "phases": {
                 "collect": {
                     "tasks": {
-                        "scan": {"title": "扫描候选", "tools": ["选股"], "prompt": "扫描今日候选"},
-                        "market": {"title": "读取水温", "tools": ["市场水温"], "prompt": "读取市场水温"},
+                        "scan": {"title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描今日候选"},
+                        "market": {"title": "读取水温", "tools": ["get_market_overview"], "prompt": "读取市场水温"},
                     }
                 },
                 "decision": {
                     "tasks": {
                         "plan": {
                             "title": "攻防计划",
-                            "tools": ["策略决策"],
+                            "tools": ["generate_strategy_decision"],
                             "after": ["scan", "market"],
                             "prompt": "整合候选和市场水温输出攻防计划",
                         }
@@ -334,11 +334,16 @@ def test_workflow_planner_splits_inline_tool_and_dependency_fields():
         workflow_script={
             "title": "逗号字段脚本",
             "tasks": [
-                {"id": "scan", "title": "扫描候选", "tools": "选股，市场水温", "prompt": "扫描候选并读取市场水温"},
+                {
+                    "id": "scan",
+                    "title": "扫描候选",
+                    "tools": "screen_stocks，get_market_overview",
+                    "prompt": "扫描候选并读取市场水温",
+                },
                 {
                     "id": "plan",
                     "title": "生成攻防计划",
-                    "tool": "策略决策",
+                    "tool": "generate_strategy_decision",
                     "depends_on": "scan, market",
                     "prompt": "基于候选和市场环境生成攻防计划",
                 },
