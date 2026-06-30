@@ -129,9 +129,14 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "stock_codes": {
-                    "type": "array",
-                    "items": {"anyOf": [{"type": "string"}, {"type": "object"}]},
-                    "description": "股票代码或候选对象列表，如 ['000001', '600519']；也可直接传上一跳候选对象。",
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {"anyOf": [{"type": "string"}, {"type": "object"}]},
+                        },
+                        {"type": "string"},
+                    ],
+                    "description": "股票代码、逗号分隔代码，或候选对象列表；也可直接传上一跳候选对象。",
                 },
             },
             "required": ["stock_codes"],
@@ -145,14 +150,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "report_text": {"type": "string", "description": "可选，上一跳 AI 研报全文；不传则复用最近一次研报。"},
                 "reviewed_codes": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "可选，上一跳已复核股票代码列表。",
+                    "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}],
+                    "description": "可选，上一跳已复核股票代码列表，或逗号分隔代码字符串。",
                 },
                 "reviewed_symbols": {
-                    "type": "array",
-                    "items": {"type": "object"},
-                    "description": "可选，上一跳已复核标的元数据。",
+                    "anyOf": [{"type": "array", "items": {"type": "object"}}, {"type": "object"}],
+                    "description": "可选，上一跳已复核标的元数据列表，或单个候选对象。",
                 },
                 "screen_result": {"type": "object", "description": "可选，上一跳 screen_stocks 的结果。"},
             },

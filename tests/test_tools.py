@@ -263,6 +263,27 @@ class TestAiReportTool:
         assert result["reviewed_symbols"][0]["score"] == 8.5
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主线买点"
 
+    def test_generate_ai_report_accepts_comma_separated_codes(self, monkeypatch):
+        from agents import report_tools
+
+        captured = {}
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+        monkeypatch.setattr(
+            report_tools, "code_to_name", lambda code: {"000004": "主线候选", "000005": "二号候选"}[code]
+        )
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report("000004, 000005")
+
+        assert result["reviewed_codes"] == ["000004", "000005"]
+        assert [row["name"] for row in captured["symbols_info"]] == ["主线候选", "二号候选"]
+
     def test_generate_ai_report_enriches_codes_from_selection_brief(self, monkeypatch):
         from agents import report_tools
         from agents.tool_context import ToolContext
@@ -481,6 +502,69 @@ class TestStrategyDecisionTool:
         assert result["reviewed_symbols"][0]["candidate_lane"] == "mainline"
         assert result["reviewed_symbols"][0]["priority_score"] == 11.0
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主线买点"
+
+    def test_generate_strategy_decision_accepts_comma_codes_without_rescreening(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext()
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+
+        def fake_symbols_info_from_codes(codes, tool_context):
+            captured["codes_arg"] = codes
+            return [{"code": "000004", "name": "主线候选"}, {"code": "000005", "name": "二号候选"}]
+
+        monkeypatch.setattr(strategy_tools, "symbols_info_from_codes", fake_symbols_info_from_codes)
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 代码研报"
+
+        monkeypatch.setattr(strategy_tools, "run_ai_report", fake_run_ai_report)
+
+        result = strategy_tools.generate_strategy_decision(reviewed_codes="000004, 000005", tool_context=ctx)
+
+        assert result["report_source"] == "generated_from_candidates"
+        assert result["reviewed_codes"] == ["000004", "000005"]
+        assert captured["codes_arg"] == ["000004, 000005"]
+        assert [row["code"] for row in captured["symbols_info"]] == ["000004", "000005"]
+        assert result["report_preview"] == "# 代码研报"
+
+    def test_generate_strategy_decision_accepts_single_reviewed_symbol_object(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext()
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools, "run_ai_report", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
+        )
+
+        result = strategy_tools.generate_strategy_decision(
+            report_text="# 显式研报",
+            reviewed_symbols={
+                "code": "000004",
+                "name": "主线候选",
+                "track": "Trend",
+                "candidate_lane": "mainline",
+            },
+            tool_context=ctx,
+        )
+
+        assert result["reviewed_codes"] == ["000004"]
+        assert result["reviewed_symbols"][0]["track"] == "Trend"
+        assert result["reviewed_symbols"][0]["candidate_lane"] == "mainline"
 
 
 # ── core.candidate_ranker ──

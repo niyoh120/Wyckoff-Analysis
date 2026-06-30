@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 def generate_strategy_decision(
     report_text: str = "",
-    reviewed_symbols: list[dict] | None = None,
-    reviewed_codes: list[str] | None = None,
+    reviewed_symbols: Any = None,
+    reviewed_codes: Any = None,
     screen_result: dict | None = None,
     tool_context: ToolContext | None = None,
 ) -> dict:
@@ -29,7 +29,11 @@ def generate_strategy_decision(
         last_report = _last_ai_report(tool_context)
         screen_payload = screen_result or _last_screen_result(tool_context)
         report_text, report_source = _strategy_report_text(report_text, last_report)
-        if not report_text and not screen_payload:
+        if (
+            not report_text
+            and not screen_payload
+            and not _has_candidate_inputs(reviewed_symbols, reviewed_codes, last_report)
+        ):
             screen_payload = screen_stocks(board="all", tool_context=tool_context)
             if screen_payload.get("error"):
                 return {"error": f"筛选失败: {screen_payload['error']}"}
@@ -90,17 +94,40 @@ def _report_for_candidates(symbols_info: list[dict], provider: str, api_key: str
 
 def _strategy_candidate_meta(
     screen_result: dict | None,
-    reviewed_symbols: list[dict] | None,
-    reviewed_codes: list[str] | None,
+    reviewed_symbols: Any,
+    reviewed_codes: Any,
     last_report: dict[str, Any],
     tool_context: ToolContext | None,
 ) -> list[dict]:
     rows = _screen_candidate_meta(screen_result)
-    rows.extend(reviewed_symbols_from_info(reviewed_symbols or []))
-    rows.extend(reviewed_symbols_from_info(last_report.get("reviewed_symbols") or []))
-    codes = reviewed_codes or last_report.get("reviewed_codes") or []
-    rows.extend(symbols_info_from_codes([str(code) for code in codes], tool_context))
+    rows.extend(reviewed_symbols_from_info(_symbol_items(reviewed_symbols)))
+    rows.extend(reviewed_symbols_from_info(_symbol_items(last_report.get("reviewed_symbols"))))
+    codes = _code_items(reviewed_codes) or _code_items(last_report.get("reviewed_codes"))
+    rows.extend(symbols_info_from_codes(codes, tool_context))
     return _dedupe_candidate_meta(rows)
+
+
+def _has_candidate_inputs(reviewed_symbols: Any, reviewed_codes: Any, last_report: dict[str, Any]) -> bool:
+    return bool(
+        _symbol_items(reviewed_symbols)
+        or _code_items(reviewed_codes)
+        or _symbol_items(last_report.get("reviewed_symbols"))
+        or _code_items(last_report.get("reviewed_codes"))
+    )
+
+
+def _symbol_items(value: Any) -> list[dict]:
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _code_items(value: Any) -> list[Any]:
+    if value in (None, ""):
+        return []
+    return list(value) if isinstance(value, (list, tuple, set)) else [value]
 
 
 def _screen_candidate_meta(screen_result: dict | None) -> list[dict]:

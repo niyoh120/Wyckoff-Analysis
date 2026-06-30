@@ -54,6 +54,7 @@ def generate_ai_report(stock_codes: list[Any], tool_context: ToolContext | None 
 
 def symbols_info_from_codes(stock_codes: list[Any], tool_context: ToolContext | None = None) -> list[dict]:
     screen_symbols = screen_symbol_map(tool_context)
+    stock_codes = _stock_code_items(stock_codes)
     rows: list[dict] = []
     seen: set[str] = set()
     for item in stock_codes:
