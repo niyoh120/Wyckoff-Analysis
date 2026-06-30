@@ -53,6 +53,7 @@ def join_outcomes(outcomes: list[dict[str, Any]], observations: list[dict[str, A
         for key in _OBSERVATION_FIELDS:
             item[key] = obs.get(key)
         item.update(_candidate_shadow_fields(obs))
+        item.update(_entry_quality_fields(obs))
         item.update(_data_lineage_fields(obs))
         joined.append(item)
     return joined
@@ -78,6 +79,7 @@ def score_stats_json(
 ) -> dict[str, Any]:
     score_stats = _score_bucket_stats(joined, horizons)
     score_stats["_candidate_shadow_grade"] = _candidate_shadow_stats(joined, horizons)
+    score_stats["_entry_quality_grade"] = _entry_quality_stats(joined, horizons)
     score_stats["_data_lineage"] = _data_lineage_stats(joined, horizons)
     score_stats["_selection_mode"] = group_stats(joined, "selection_mode", horizons)
     score_stats["_strategy_version"] = group_stats(joined, "strategy_version", horizons)
@@ -184,6 +186,9 @@ _RANKED_KEYS = [
     "priority_score",
     "candidate_shadow_score",
     "candidate_shadow_grade",
+    "entry_quality_score",
+    "entry_quality_grade",
+    "entry_quality_risk_flags",
     "data_lineage_coverage_score",
     "data_lineage_coverage_grade",
     "data_lineage_evidence_keys",
@@ -252,6 +257,17 @@ def _candidate_shadow_fields(obs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _entry_quality_fields(obs: dict[str, Any]) -> dict[str, Any]:
+    features = _json_map(obs.get("features_json"))
+    entry_quality = _json_map(features.get("entry_quality"))
+    return {
+        "entry_quality_score": num(entry_quality.get("score")),
+        "entry_quality_grade": str(entry_quality.get("grade") or "unknown").strip() or "unknown",
+        "entry_quality_tag": str(entry_quality.get("tag") or "").strip(),
+        "entry_quality_risk_flags": _str_list(entry_quality.get("risk_flags")),
+    }
+
+
 def _data_lineage_fields(obs: dict[str, Any]) -> dict[str, Any]:
     features = _json_map(obs.get("features_json"))
     lineage = _json_map(features.get("data_lineage"))
@@ -291,6 +307,11 @@ def _score_bucket_for_horizon(horizon_rows: list[dict[str, Any]]) -> dict[str, A
 
 def _candidate_shadow_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
     result = group_stats(rows, "candidate_shadow_grade", horizons)
+    return _sort_grouped_stats(result, {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4, "unknown": 5})
+
+
+def _entry_quality_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+    result = group_stats(rows, "entry_quality_grade", horizons)
     return _sort_grouped_stats(result, {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4, "unknown": 5})
 
 

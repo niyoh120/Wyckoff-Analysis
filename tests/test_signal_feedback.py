@@ -165,6 +165,15 @@ def test_build_signal_observations_marks_selection_and_source():
                 "source_status": {"lhb": "ok rows=10 matches=1", "margin_sse": "ok rows=20 matches=1"},
             }
         },
+        entry_quality_map={
+            "000001": {
+                "score": 82.3,
+                "grade": "S",
+                "tag": "入场质量S(82.3)",
+                "risk_flags": "缩量不足、追高延展",
+                "priority_bucket": 17,
+            }
+        },
     )
 
     first = rows[0]
@@ -184,6 +193,14 @@ def test_build_signal_observations_marks_selection_and_source():
     assert first["features_json"]["intraday_tail_confirmation"]["smart_money_score"] == 3.4
     assert first["features_json"]["source_context"]["lhb"]["net_buy"] == 123.0
     assert first["features_json"]["source_context"]["margin"]["margin_balance"] == 456.0
+    assert first["features_json"]["entry_quality"] == {
+        "version": "step3_entry_quality_v1",
+        "score": 82.3,
+        "grade": "S",
+        "tag": "入场质量S(82.3)",
+        "risk_flags": ["缩量不足", "追高延展"],
+        "priority_bucket": 17,
+    }
     lineage = first["features_json"]["data_lineage"]
     assert lineage["version"] == "candidate_evidence_lineage_v1"
     assert lineage["coverage_score"] == 100.0
@@ -331,6 +348,37 @@ def test_daily_job_marks_bypass_observations_as_shadow(monkeypatch):
     assert by_code["000002"]["source"] == "l2_bypass_shadow"
     assert by_code["000003"]["selection_mode"] == "strategic_l2_bypass_shadow"
     assert by_code["000003"]["source"] == "strategic_l2_bypass_shadow"
+
+
+def test_daily_job_signal_observations_attach_entry_quality():
+    from workflows import daily_signal_observations
+
+    rows = daily_signal_observations.build_signal_observation_rows(
+        {
+            "selected_for_ai": ["000001"],
+            "review_triggers": {"sos": [("000001", 6.0)]},
+            "candidate_entries": [
+                {
+                    "code": "000001",
+                    "priority_score": 88.0,
+                    "track": "trend",
+                    "entry_type": "sos",
+                    "rs_10": 8.0,
+                    "min_vol_ratio_5d": 0.6,
+                    "bias_200": 10.0,
+                    "avg_amount_20_yi": 3.0,
+                }
+            ],
+        },
+        "RISK_ON",
+        [],
+        trade_date="2026-06-24",
+    )
+
+    entry_quality = rows[0]["features_json"]["entry_quality"]
+    assert entry_quality["version"] == "step3_entry_quality_v1"
+    assert entry_quality["grade"] == "S"
+    assert entry_quality["score"] >= 80
 
 
 def test_external_capital_context_normalizes_sources():

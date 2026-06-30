@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 from collections import defaultdict
 from datetime import UTC, datetime
 from statistics import mean, median
@@ -26,6 +28,7 @@ SIGNAL_TRACK: dict[str, str] = {
 KNOWN_SIGNALS = set(SIGNAL_TRACK)
 BLOCKED_REGISTRY_STATUSES = {"EXPERIMENTAL", "RETIRED"}
 DATA_LINEAGE_VERSION = "candidate_evidence_lineage_v1"
+ENTRY_QUALITY_VERSION = "step3_entry_quality_v1"
 
 
 def normalize_signal_type(raw: Any) -> str:
@@ -47,6 +50,30 @@ def _float(raw: Any, default: float = 0.0) -> float:
         return float(raw)
     except (TypeError, ValueError):
         return default
+
+
+def _finite_float(raw: Any) -> float | None:
+    try:
+        if raw is None or str(raw).strip() == "":
+            return None
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _text_list(raw: Any) -> list[str]:
+    if raw in (None, ""):
+        return []
+    items = raw if isinstance(raw, list) else re.split(r"[,，、;；\n]+", str(raw))
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
 
 
 def _iter_trigger_rows(triggers: dict[str, list[tuple[str, float]]]):
@@ -288,10 +315,13 @@ def _features_json(
     source_context: dict[str, Any],
     data_lineage: dict[str, Any],
     candidate_metadata: dict[str, Any] | None = None,
+    entry_quality: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if candidate_metadata:
         out["candidate_metadata"] = candidate_metadata
+    if entry_quality:
+        out["entry_quality"] = entry_quality
     if footprint:
         out["price_action_footprint"] = footprint
     if springboard:
@@ -311,6 +341,28 @@ def _features_json(
         source_context=source_context,
     )
     return out
+
+
+def _entry_quality_fields(raw: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    score = _finite_float(raw.get("score", raw.get("entry_quality_score")))
+    grade = str(raw.get("grade") or raw.get("entry_quality_grade") or "").strip()
+    tag = str(raw.get("tag") or raw.get("entry_quality_tag") or "").strip()
+    risk_flags = _text_list(raw.get("risk_flags", raw.get("entry_risk_flags")))
+    out: dict[str, Any] = {"version": ENTRY_QUALITY_VERSION}
+    if score is not None:
+        out["score"] = round(score, 1)
+    if grade:
+        out["grade"] = grade
+    if tag:
+        out["tag"] = tag
+    if risk_flags:
+        out["risk_flags"] = risk_flags
+    bucket = _finite_float(raw.get("priority_bucket", raw.get("entry_priority_bucket")))
+    if bucket is not None:
+        out["priority_bucket"] = int(bucket)
+    return out if len(out) > 1 else {}
 
 
 def _trigger_tags_by_code(triggers: dict[str, list[tuple[str, float]]]) -> dict[str, list[str]]:
@@ -334,6 +386,9 @@ def _observation_feature_inputs(
     intraday_tail = _intraday_tail_fields(signal_type, code, ctx["intraday_tail_map"])
     source_context = _source_context_fields(signal_type, code, ctx["source_context_map"])
     candidate_metadata = ctx["candidate_metadata_map"].get(code6(code), {})
+    entry_quality = _entry_quality_fields(
+        ctx["entry_quality_map"].get(code6(code)) or ctx["entry_quality_map"].get(code)
+    )
     priority_score = _float(ctx["score_map"].get(code))
     selected_for_ai = code in ctx["selected"]
     ai_recommended = code in ctx["recommended"]
@@ -361,6 +416,7 @@ def _observation_feature_inputs(
         source_context,
         data_lineage,
         candidate_metadata,
+        entry_quality,
     )
     return priority_score, {"features_json": features, **springboard}
 
@@ -435,6 +491,7 @@ def _observation_context(triggers: dict[str, list[tuple[str, float]]], kwargs: d
         "intraday_tail_map": kwargs["intraday_tail_map"],
         "source_context_map": kwargs["source_context_map"],
         "candidate_metadata_map": kwargs["candidate_metadata_map"] or {},
+        "entry_quality_map": kwargs["entry_quality_map"] or {},
         "selection_mode": kwargs["selection_mode"],
         "selection_mode_map": kwargs["selection_mode_map"] or {},
         "policy_version": kwargs["policy_version"],
@@ -462,6 +519,7 @@ def build_signal_observations(
     intraday_tail_map: dict[str, dict[str, Any]] | None = None,
     source_context_map: dict[str, dict[str, Any]] | None = None,
     candidate_metadata_map: dict[str, dict[str, Any]] | None = None,
+    entry_quality_map: dict[str, dict[str, Any]] | None = None,
     selection_mode: str = "",
     selection_mode_map: dict[str, str] | None = None,
     policy_version: str = "",

@@ -135,6 +135,7 @@ def build_signal_observation_rows(
         intraday_tail_map=step2_details.get("intraday_tail_map") or {},
         source_context_map=step2_details.get("source_context_map") or {},
         candidate_metadata_map=_candidate_metadata_map(step2_details),
+        entry_quality_map=build_entry_quality_map(step2_details),
         selection_mode=os.getenv("FUNNEL_AI_SELECTION_MODE", "quota"),
         selection_mode_map=_signal_observation_selection_mode_map(step2_details),
         policy_version=f"dynamic:{os.getenv('FUNNEL_DYNAMIC_POLICY', 'off')}",
@@ -163,6 +164,7 @@ def build_shadow_observation_rows(step2_details: dict, regime: str, *, trade_dat
         footprint_map=footprint_map,
         intraday_tail_map=step2_details.get("intraday_tail_map") or {},
         source_context_map=step2_details.get("source_context_map") or {},
+        entry_quality_map=build_entry_quality_map(step2_details),
         selection_mode="shadow",
         policy_version=f"dynamic:{os.getenv('FUNNEL_DYNAMIC_POLICY', 'off')}",
     )
@@ -199,6 +201,7 @@ def build_external_seed_signal_rows(step2_details: dict, regime: str, *, trade_d
         footprint_map=footprint_map,
         intraday_tail_map=step2_details.get("intraday_tail_map") or {},
         source_context_map=step2_details.get("source_context_map") or {},
+        entry_quality_map=build_entry_quality_map(step2_details),
         selection_mode="external_seed_shadow",
         policy_version=f"external_seed:{metrics.get('external_seed_source') or 'external'}",
     )
@@ -444,6 +447,60 @@ def _candidate_metadata_map(step2_details: dict) -> dict[str, dict[str, Any]]:
         step2_details.get("candidate_entries") or [],
         step2_details.get("mainline_candidates") or [],
     )
+
+
+def build_entry_quality_map(step2_details: dict) -> dict[str, dict[str, Any]]:
+    existing = step2_details.get("entry_quality_map")
+    if isinstance(existing, dict):
+        return existing
+    rows = _entry_quality_source_rows(step2_details)
+    if not rows:
+        step2_details["entry_quality_map"] = {}
+        return {}
+    out = _entry_quality_map_from_rows(rows)
+    step2_details["entry_quality_map"] = out
+    return out
+
+
+def _entry_quality_source_rows(step2_details: dict) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for key in ("candidate_entries", "step3_symbols_info", "symbols_for_report"):
+        rows.extend(row for row in step2_details.get(key) or [] if isinstance(row, dict))
+    return rows
+
+
+def _entry_quality_map_from_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    from workflows.step3_entry_quality import annotate_entry_quality
+
+    annotated = annotate_entry_quality(_pd_dataframe(rows)).to_dict("records")
+    out: dict[str, dict[str, Any]] = {}
+    for original, row in zip(rows, annotated, strict=False):
+        code = _last_six_digits(original.get("code") or row.get("code"))
+        payload = _entry_quality_payload(row if _has_entry_quality_inputs(original) else original)
+        if code and payload and code not in out:
+            out[code] = payload
+    return out
+
+
+def _pd_dataframe(rows: list[dict[str, Any]]):
+    import pandas as pd
+
+    return pd.DataFrame(rows)
+
+
+def _has_entry_quality_inputs(row: dict[str, Any]) -> bool:
+    return any(row.get(key) not in (None, "") for key in ("rs_10", "min_vol_ratio_5d", "bias_200", "avg_amount_20_yi"))
+
+
+def _entry_quality_payload(row: dict[str, Any]) -> dict[str, Any]:
+    score = row.get("entry_quality_score")
+    grade = str(row.get("entry_quality_grade") or "").strip()
+    tag = str(row.get("entry_quality_tag") or "").strip()
+    risk_flags = row.get("entry_risk_flags")
+    bucket = row.get("entry_priority_bucket")
+    if score in (None, "") and not grade and not tag and risk_flags in (None, ""):
+        return {}
+    return {"score": score, "grade": grade, "tag": tag, "risk_flags": risk_flags, "priority_bucket": bucket}
 
 
 def _signal_observation_source_map(step2_details: dict) -> dict[str, str]:

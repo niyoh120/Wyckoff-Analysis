@@ -53,13 +53,20 @@ def test_attribution_report_groups_candidate_shadow_grade():
                     "coverage_grade": "strong",
                     "evidence_keys": ["daily_signal", "price_action", "intraday_tail"],
                 },
+                "entry_quality": {
+                    "score": 82.5,
+                    "grade": "S",
+                    "tag": "入场质量S(82.5)",
+                    "risk_flags": [],
+                },
             },
         },
         {
             "id": 2,
             "features_json": (
                 '{"candidate_shadow_score":{"score":42,"grade":"D","negative_tags":["failed_breakout"]},'
-                '"data_lineage":{"coverage_score":35,"coverage_grade":"thin","evidence_keys":["daily_signal"]}}'
+                '"data_lineage":{"coverage_score":35,"coverage_grade":"thin","evidence_keys":["daily_signal"]},'
+                '"entry_quality":{"score":38,"grade":"D","risk_flags":["弱于指数","追高延展"]}}'
             ),
         },
     ]
@@ -74,8 +81,13 @@ def test_attribution_report_groups_candidate_shadow_grade():
     assert joined[0]["candidate_shadow_score"] == 88.5
     assert joined[0]["candidate_shadow_grade"] == "S"
     assert joined[1]["candidate_shadow_grade"] == "D"
+    assert joined[0]["entry_quality_score"] == 82.5
+    assert joined[0]["entry_quality_grade"] == "S"
+    assert joined[1]["entry_quality_risk_flags"] == ["弱于指数", "追高延展"]
     assert stats["_candidate_shadow_grade"]["5"]["S"]["win_rate_pct"] == 100.0
     assert stats["_candidate_shadow_grade"]["5"]["D"]["big_loss_rate_pct"] == 100.0
+    assert stats["_entry_quality_grade"]["5"]["S"]["avg_return_pct"] == 6.0
+    assert stats["_entry_quality_grade"]["5"]["D"]["big_loss_rate_pct"] == 100.0
     assert joined[0]["data_lineage_coverage_grade"] == "strong"
     assert joined[1]["data_lineage_evidence_keys"] == ["daily_signal"]
     assert stats["_data_lineage"]["coverage_grade"]["5"]["strong"]["win_rate_pct"] == 100.0
