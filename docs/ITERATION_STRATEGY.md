@@ -31,7 +31,7 @@ flowchart LR
 | 方向四：外部观察验证 | 验证人工/社区/其它系统关注的股票是否真有结构优势 | `external_seed_observations` 记录 L1/L2/L4 位置，L4 确认样本补写 `signal_observations` | 已落地 shadow 观察 |
 | 方向五：候选影子评分 | 验证“好候选”是否能被更稳定地识别 | `features_json.candidate_shadow_score` 合成漏斗优先级、量价痕迹、起跳板、尾盘确认、外部资金和风险扣分 | 已落地 shadow 特征，待 outcome 校准 |
 | 方向五补充：入场质量归因 | 验证相近候选中“更好的入场位置”是否更容易跑赢 | `features_json.entry_quality` 记录 Step3 入场质量评分，归因页按 S/A/B/C/D 展示后续表现 | 已落地 observation + Web 归因展示，待样本校准 |
-| 方向六：短线冲刺事件评估 | 验证推荐股未来 5 个交易日内是否触及 +10% | `evaluate_recommendation_events.py` 生成严格 5 日标签、Top-K 排序对照，并按 candidate shadow / entry quality 档位切片，后台任务支持 `recommendation_event_eval` | 已落地只读评估，待持久化标签 |
+| 方向六：短线冲刺事件评估 | 验证推荐股未来 5 个交易日内是否触及 +10% | `evaluate_recommendation_events.py` 生成严格 5 日标签、Top-K 排序对照，并按 candidate shadow / entry quality 档位切片和排序对照，后台任务支持 `recommendation_event_eval` | 已落地只读评估，待持久化标签 |
 
 完整执行链路见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)。
 
@@ -108,6 +108,7 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 - `workflows.web_background_job` 支持 `job_kind=recommendation_event_eval`，可由 GitHub Actions 或 Web 后台任务触发。
 - 评估结果仅写 artifact，不写回 `recommendation_tracking`，避免在公开推荐页里增加难解释的短线事件列。
 - 评估会只读 join 同日 `signal_observations.features_json`，在 summary 中输出 `candidate_shadow_grade` 和 `entry_quality_grade` 分组，用同一套 5 日 hit/MFE/MAE 口径验证候选质量档位。
+- `summary.top_k_by_strategy` 额外比较 `candidate_shadow_then_score` 和 `entry_quality_then_score`，用于观察“按质量分排序的 Top-K”是否优于原 `score_only`，但不改变真实推荐排序。
 
 当前 5 日 +10% 评估结果（最新 30 个推荐日，2026-06-28 本地实测）：
 

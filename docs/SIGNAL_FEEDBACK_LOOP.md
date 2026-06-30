@@ -194,7 +194,7 @@ registry 只负责控制动态策略是否使用信号；原始 observations 仍
 
 这部分只做 shadow 复盘，不新增候选表，也不改变正式候选、AI 候选池或 Step4。只有当后续 `signal_outcomes` 证明它能提高胜率或降低回撤时，才考虑把总分升成结构化列或用于真实排序。
 
-`strategy_attribution_report.py` 会把 `candidate_shadow_score.grade` 聚合进 `score_bucket_stats_json._candidate_shadow_grade`，Web 端策略归因页展示 S/A/B/C/D 各档在不同持有周期下的胜率、平均收益、大涨率、大跌率和平均回撤。`evaluate_recommendation_events.py` 也会只读 join 同日 observation，把候选影子分档输出到 `summary.candidate_shadow_grade`，用于验证 5 日冲刺命中率、MFE 和 MAE。
+`strategy_attribution_report.py` 会把 `candidate_shadow_score.grade` 聚合进 `score_bucket_stats_json._candidate_shadow_grade`，Web 端策略归因页展示 S/A/B/C/D 各档在不同持有周期下的胜率、平均收益、大涨率、大跌率和平均回撤。`evaluate_recommendation_events.py` 也会只读 join 同日 observation，把候选影子分档输出到 `summary.candidate_shadow_grade`，并在 `summary.top_k_by_strategy.candidate_shadow_then_score` 对照“按候选影子分排序”的 5 日冲刺命中率、MFE 和 MAE。
 
 ## Entry Quality
 
@@ -207,7 +207,7 @@ registry 只负责控制动态策略是否使用信号；原始 observations 仍
 
 这部分只写入 `features_json` 做 outcome 复盘，不新增候选表，不直接改变正式候选、AI 候选池或 Step4。当前 Step3 只在相近优先级候选之间把入场质量作为 tie-breaker；默认 `STEP3_ENTRY_QUALITY_TIE_BUCKET=1.0`，即上游优先级落在同一 1 分桶内才允许入场质量改变先后顺序，设为 `0` 可禁用排序影响。后续是否提高权重，需要看 `signal_outcomes` 和归因快照。
 
-`strategy_attribution_report.py` 会把 `entry_quality.grade` 聚合进 `score_bucket_stats_json._entry_quality_grade`，Web 端策略归因页展示 S/A/B/C/D 各档在不同持有周期下的胜率、平均收益、大涨率、大跌率和平均回撤；涨跌幅样本行也会显示当时的入场质量和风险标签。`evaluate_recommendation_events.py` 的 `summary.entry_quality_grade` 用同一套 5 日冲刺事件口径检查不同入场档位是否真的降低回撤或提高命中。
+`strategy_attribution_report.py` 会把 `entry_quality.grade` 聚合进 `score_bucket_stats_json._entry_quality_grade`，Web 端策略归因页展示 S/A/B/C/D 各档在不同持有周期下的胜率、平均收益、大涨率、大跌率和平均回撤；涨跌幅样本行也会显示当时的入场质量和风险标签。`evaluate_recommendation_events.py` 的 `summary.entry_quality_grade` 用同一套 5 日冲刺事件口径检查不同入场档位是否真的降低回撤或提高命中，`summary.top_k_by_strategy.entry_quality_then_score` 则对照“按入场质量排序”的 Top-K 表现。
 
 ## Shadow 复盘怎么看
 

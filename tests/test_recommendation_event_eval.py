@@ -32,6 +32,37 @@ def test_top_k_summary_ranks_ai_then_score_then_count() -> None:
     assert top2_ai["days_covered"] == 2
 
 
+def test_top_k_summary_can_rank_by_candidate_quality_scores() -> None:
+    events = [
+        _event(20260515, "A", ai=False, score=0.99, count=3, hit=False, shadow=25.0, entry=30.0),
+        _event(20260515, "B", ai=False, score=0.30, count=1, hit=True, shadow=88.0, entry=82.0),
+        _event(20260516, "C", ai=False, score=0.95, count=2, hit=False, shadow=32.0, entry=35.0),
+        _event(20260516, "D", ai=True, score=0.20, count=1, hit=True, shadow=80.0, entry=79.0),
+    ]
+
+    score_only = _top_k_summary(events, 1, "score_only")
+    shadow_quality = _top_k_summary(events, 1, "candidate_shadow_then_score")
+    entry_quality = _top_k_summary(events, 1, "entry_quality_then_score")
+    summary = _build_summary(events, (1,))
+
+    assert score_only["hit_rate_pct"] == 0.0
+    assert shadow_quality["hit_rate_pct"] == 100.0
+    assert entry_quality["hit_rate_pct"] == 100.0
+    assert "candidate_shadow_then_score" in summary["top_k_by_strategy"]
+    assert "entry_quality_then_score" in summary["top_k_by_strategy"]
+
+
+def test_top_k_summary_can_rank_by_quality_grade_when_score_missing() -> None:
+    events = [
+        {**_event(20260515, "A", ai=False, score=0.99, count=3, hit=False), "candidate_shadow_grade": "D"},
+        {**_event(20260515, "B", ai=False, score=0.30, count=1, hit=True), "candidate_shadow_grade": "S"},
+    ]
+
+    shadow_quality = _top_k_summary(events, 1, "candidate_shadow_then_score")
+
+    assert shadow_quality["hit_rate_pct"] == 100.0
+
+
 def test_event_summary_groups_candidate_quality_grades() -> None:
     events = [
         {**_event(20260515, "A", ai=False, score=0.99, count=3, hit=True), "candidate_shadow_grade": "S"},
@@ -113,8 +144,10 @@ def _event(
     score: float,
     count: int,
     hit: bool,
+    shadow: float | None = None,
+    entry: float | None = None,
 ) -> dict:
-    return {
+    event = {
         "recommend_date": rec_date,
         "code": code,
         "is_ai_recommended": ai,
@@ -125,3 +158,8 @@ def _event(
         "mfe_horizon_pct": 12.0 if hit else 4.0,
         "mae_horizon_pct": -3.0,
     }
+    if shadow is not None:
+        event["candidate_shadow_score"] = shadow
+    if entry is not None:
+        event["entry_quality_score"] = entry
+    return event

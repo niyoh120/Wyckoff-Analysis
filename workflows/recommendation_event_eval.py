@@ -24,6 +24,22 @@ from integrations.recommendation_performance import (
 from integrations.recommendation_tracking_common import chunked, ohlc_map_from_tickflow_hist, recommend_date_to_yyyymmdd
 from integrations.supabase_base import create_admin_client, is_admin_configured
 
+_RANKING_STRATEGIES = (
+    "score_only",
+    "ai_then_score",
+    "recommend_count",
+    "candidate_shadow_then_score",
+    "entry_quality_then_score",
+)
+_GRADE_FALLBACK_SCORE = {
+    "S": 90.0,
+    "A": 75.0,
+    "B": 60.0,
+    "C": 45.0,
+    "D": 30.0,
+    "unknown": -1.0,
+}
+
 
 @dataclass(frozen=True)
 class RecommendationEventEvalRequest:
@@ -203,10 +219,9 @@ def _grade_summary(events: list[dict[str, Any]], field: str) -> dict[str, Any]:
 
 
 def _top_k_by_strategy(events: list[dict[str, Any]], top_k: tuple[int, ...]) -> dict[str, dict[str, Any]]:
-    strategies = ["score_only", "ai_then_score", "recommend_count"]
     return {
         strategy: {str(k): _top_k_summary(events, k, strategy) for k in sorted({max(int(value), 1) for value in top_k})}
-        for strategy in strategies
+        for strategy in _RANKING_STRATEGIES
     }
 
 
@@ -242,7 +257,7 @@ def _rank_events(events: list[dict[str, Any]], strategy: str) -> list[dict[str, 
     return sorted(events, key=lambda event: _rank_key(event, strategy), reverse=True)
 
 
-def _rank_key(event: dict[str, Any], strategy: str) -> tuple[float, float, float, str]:
+def _rank_key(event: dict[str, Any], strategy: str) -> tuple[Any, ...]:
     ai = 1.0 if event.get("is_ai_recommended") else 0.0
     score = _number(event.get("funnel_score"), -1.0)
     count = _number(event.get("recommend_count"), 0.0)
@@ -251,6 +266,10 @@ def _rank_key(event: dict[str, Any], strategy: str) -> tuple[float, float, float
         return ai, score, count, code
     if strategy == "recommend_count":
         return count, score, ai, code
+    if strategy == "candidate_shadow_then_score":
+        return _quality_rank(event, "candidate_shadow"), score, ai, count, code
+    if strategy == "entry_quality_then_score":
+        return _quality_rank(event, "entry_quality"), score, ai, count, code
     return score, ai, count, code
 
 
@@ -355,6 +374,12 @@ def _number(raw: Any, default: float) -> float:
         return float(raw)
     except (TypeError, ValueError):
         return default
+
+
+def _quality_rank(event: dict[str, Any], prefix: str) -> float:
+    if (score := _optional_number(event.get(f"{prefix}_score"))) is not None:
+        return score
+    return _GRADE_FALLBACK_SCORE[_grade(event.get(f"{prefix}_grade"))]
 
 
 def _quality_feature_fields(row: dict[str, Any], observed_features: dict[str, Any] | None = None) -> dict[str, Any]:
