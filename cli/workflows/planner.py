@@ -14,7 +14,7 @@ from cli.workflows.router import route_workflow
 
 ALLOWED_WORKFLOW_AGENTS = {"task", "research", "analysis", "trading"}
 MAX_WORKFLOW_STEPS = 1000
-TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions")
+TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions", "plan")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
 TOOL_SCOPE_FIELDS = ("tool_scope", "allowed_tools", "tools", "tool")
 
@@ -187,7 +187,7 @@ def _generate_script(
     prompt = _planner_user_prompt(user_text, context, tools)
     try:
         text = _collect_planner_text(provider, prompt)
-        script = _loads_script(text)
+        script = _normalize_generated_script(_loads_script(text))
     except Exception as exc:
         return _fallback_script(user_text, context, reason=f"planner failed: {exc}")
     if not isinstance(script, dict):
@@ -243,13 +243,27 @@ def _loads_script(text: str) -> Any:
         raise
 
 
+def _normalize_generated_script(script: Any) -> Any:
+    if isinstance(script, dict):
+        return script
+    if isinstance(script, list):
+        return _lightweight_script(_safe_task_list(script), "planner returned top-level task list") or script
+    if isinstance(script, str):
+        return _outline_script(script) or script
+    return script
+
+
 def _outline_script(text: str) -> dict[str, Any] | None:
     tasks = _text_task_items(text)
+    return _lightweight_script(tasks, "planner returned outline text")
+
+
+def _lightweight_script(tasks: list[dict[str, Any]], reason: str) -> dict[str, Any] | None:
     if not tasks:
         return None
     return {
         "title": "动态任务",
-        "rationale": "planner returned outline text",
+        "rationale": reason,
         "phases": [{"id": "outline", "title": "任务清单", "tasks": tasks}],
         "synthesis_prompt": "基于任务结果给出简洁中文答复。",
     }

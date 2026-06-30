@@ -527,6 +527,37 @@ def test_planner_accepts_keyed_string_task_maps_from_model_script():
     assert [step.title for step in run.steps] == ["读取真实持仓", "诊断持仓风险"]
 
 
+def test_planner_accepts_plan_field_from_model_script():
+    context = route_workflow("用 workflow 做持仓复盘")
+    run = plan_workflow(
+        "做持仓复盘",
+        context=context,
+        workflow_script={"plan": ["读取真实持仓", "诊断持仓风险"]},
+    )
+
+    assert [step.step_id for step in run.steps] == ["1", "2"]
+    assert [step.title for step in run.steps] == ["读取真实持仓", "诊断持仓风险"]
+
+
+def test_planner_wraps_top_level_json_task_array():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": '["读取真实持仓", {"id":"risk","title":"诊断持仓风险"}]',
+                }
+            ]
+        ]
+    )
+    context = route_workflow("用 workflow 做持仓复盘")
+    run = plan_workflow("做持仓复盘", context=context, provider=provider, tools=StubToolRegistry())
+
+    assert [step.step_id for step in run.steps] == ["1", "risk"]
+    assert [step.title for step in run.steps] == ["读取真实持仓", "诊断持仓风险"]
+    assert run.script["rationale"] == "planner returned top-level task list"
+
+
 def test_planner_parses_outline_text_when_model_skips_json():
     provider = ScriptedProvider(
         [
