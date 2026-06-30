@@ -442,6 +442,47 @@ class TestAiReportTool:
         }
         assert "last_ai_report" not in ctx.state
 
+    def test_generate_ai_report_explicit_codes_ignore_degraded_screen_metadata(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "symbols_for_report": [
+                        {
+                            "code": "000004",
+                            "name": "坏数据候选",
+                            "priority_score": 12.5,
+                            "why": "上一轮坏数据候选原因",
+                        }
+                    ],
+                    "action_plan": {
+                        "data_quality_gate": {
+                            "status": "degraded",
+                            "reason": "不要直接据此选股，先重跑或缩小扫描范围",
+                        }
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+        monkeypatch.setattr(report_tools, "code_to_name", lambda code: {"000004": "主线候选"}[code])
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 显式代码研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report("000004", tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["000004"]
+        assert result["reviewed_symbols"][0] == {"code": "000004", "name": "主线候选", "tag": "chat_request"}
+        assert captured["symbols_info"][0] == {"code": "000004", "name": "主线候选", "tag": "chat_request"}
+
     def test_generate_ai_report_uses_best_candidates_when_handoff_missing(self, monkeypatch):
         from agents import report_tools
         from agents.tool_context import ToolContext
@@ -661,6 +702,54 @@ class TestStrategyDecisionTool:
         assert result["screen_summary"] == {"report_candidates": 1}
         assert result["next_action"] == "先重跑或缩小扫描范围，确认行情数据质量后再生成策略决策"
         assert ctx.state["last_strategy_decision"]["status"] == "blocked_by_data_quality"
+
+    def test_generate_strategy_decision_explicit_report_ignores_degraded_screen_candidates(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 1},
+                    "symbols_for_report": [{"code": "000004", "name": "坏数据候选", "priority_score": 12.5}],
+                    "selection_brief": {
+                        "best_candidates": [
+                            {
+                                "code": "000004",
+                                "name": "坏数据候选",
+                                "why": "上一轮坏数据候选原因",
+                            }
+                        ]
+                    },
+                    "action_plan": {
+                        "data_quality_gate": {
+                            "status": "degraded",
+                            "reason": "不要直接据此选股，先重跑或缩小扫描范围",
+                        }
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools,
+            "run_ai_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not run report")),
+        )
+
+        result = strategy_tools.generate_strategy_decision(report_text="# 外部研报", tool_context=ctx)
+
+        assert result["ok"] is True
+        assert result["report_source"] == "provided"
+        assert result["candidate_count"] == 0
+        assert result["reviewed_codes"] == []
+        assert result["reviewed_symbols"] == []
+        assert result["report_preview"] == "# 外部研报"
 
     def test_generate_strategy_decision_enriches_string_report_codes(self, monkeypatch):
         from agents import strategy_tools

@@ -189,6 +189,8 @@ def screen_symbol_map(tool_context: ToolContext | None) -> dict[str, dict]:
     screen_result = tool_context.state.get("last_screen_result")
     if not isinstance(screen_result, dict):
         return {}
+    if screen_auto_handoff_block_reason(screen_result):
+        return {}
     symbols: dict[str, dict] = {}
     for row in _screen_symbol_rows(screen_result):
         code = _candidate_code(row)

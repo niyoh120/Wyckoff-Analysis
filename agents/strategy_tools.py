@@ -148,6 +148,8 @@ def _code_items(value: Any) -> list[Any]:
 def _screen_candidate_meta(screen_result: dict | None) -> list[dict]:
     if not isinstance(screen_result, dict):
         return []
+    if screen_auto_handoff_block_reason(screen_result):
+        return []
     rows = _screen_candidate_rows(screen_result)
     return reviewed_symbols_from_info([row if isinstance(row, dict) else {"code": row} for row in rows])
 
