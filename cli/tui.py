@@ -1349,7 +1349,7 @@ class WyckoffTUI(App):
         try:
             ver = _ver("youngcan-wyckoff-analysis")
         except Exception:
-            ver = "0.9.19"
+            ver = "dev"
 
         from rich.panel import Panel
         from rich.table import Table

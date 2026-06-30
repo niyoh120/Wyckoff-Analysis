@@ -188,8 +188,9 @@ def _reset_local_db(local_db) -> None:
 
 def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
     assert "自然语言理解、上下文恢复和任务拆分由你完成" in _PLAN_SYSTEM_PROMPT
-    assert "错字、口语化或省略" in _PLAN_SYSTEM_PROMPT
-    assert "确认错字/改写问题" in _PLAN_SYSTEM_PROMPT
+    assert "不要生成改写、解释或确认用户表述的元任务" in _PLAN_SYSTEM_PROMPT
+    assert "错字" not in _PLAN_SYSTEM_PROMPT
+    assert "错别字" not in _PLAN_SYSTEM_PROMPT
     assert "不需要选择内部执行角色" in _PLAN_SYSTEM_PROMPT
     assert "不要填写 agent/role" in _PLAN_SYSTEM_PROMPT
     assert "可用 agent" not in _PLAN_SYSTEM_PROMPT
@@ -431,8 +432,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert run["label"] == "持仓复盘"
         assert run["plan"]["script"]["runtime"]["script_path"].startswith(str(tmp_path / "workflow-runs"))
         assert (tmp_path / "workflow-runs" / "s1" / f"{executor.run.run_id}.json").is_file()
-        assert "最可能的任务意图" in provider.calls[0]["system_prompt"]
-        assert "表达形式本身" in provider.calls[0]["system_prompt"]
+        assert "不要生成改写、解释或确认用户表述的元任务" in provider.calls[0]["system_prompt"]
         assert "错别字" not in provider.calls[0]["system_prompt"]
         assert "运行上下文" in provider.calls[0]["messages"][0]["content"]
         assert stored_events[0]["event_type"] == "workflow_plan"

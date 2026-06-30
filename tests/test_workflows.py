@@ -81,7 +81,7 @@ def test_workflow_prompt_prefers_model_inference_before_clarifying():
 
     assert "自然语言理解" in prompt
     assert "工具验证" in prompt
-    assert "表达形式本身" in prompt
+    assert "关键对象仍缺失" in prompt
     assert "错别字" not in prompt
 
 
@@ -158,8 +158,8 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
     assert provider.chat_calls
     assert provider.chat_calls[0]["tools"] == []
     router_prompt = provider.chat_calls[0]["system_prompt"]
-    assert "最可能的任务意图" in router_prompt
-    assert "不要按关键词、字面表达或固定模板机械判断" in router_prompt
+    assert "任务的执行形态" in router_prompt
+    assert "router 只输出 runtime 决策" in router_prompt
     assert "查看持仓" not in router_prompt
     assert "单只股票诊断" not in router_prompt
 
@@ -168,9 +168,10 @@ def test_model_router_prompt_keeps_direct_as_default_chat_path():
     assert "默认选择 direct" in _ROUTER_SYSTEM_PROMPT
     assert "一个清楚目标在一轮内能完成" in _ROUTER_SYSTEM_PROMPT
     assert "持续编排" in _ROUTER_SYSTEM_PROMPT
-    assert "固定模板机械判断" in _ROUTER_SYSTEM_PROMPT
-    assert "错字、口语化、省略" in _ROUTER_SYSTEM_PROMPT
-    assert "不要为了纠错" in _ROUTER_SYSTEM_PROMPT
+    assert "任务的执行形态" in _ROUTER_SYSTEM_PROMPT
+    assert "语义恢复交给最终执行模型" in _ROUTER_SYSTEM_PROMPT
+    assert "错字" not in _ROUTER_SYSTEM_PROMPT
+    assert "纠错" not in _ROUTER_SYSTEM_PROMPT
     assert "错别字" not in _ROUTER_SYSTEM_PROMPT
     assert "谐音" not in _ROUTER_SYSTEM_PROMPT
     assert "查看持仓" not in _ROUTER_SYSTEM_PROMPT

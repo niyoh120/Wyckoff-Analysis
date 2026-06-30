@@ -125,7 +125,7 @@ def build_workflow_system_prompt(workflow: WorkflowContext | None) -> str:
         f"{route_line}"
         f"Allowed tools for this turn: {tools}\n"
         f"{workflow.system_hint}\n"
-        "不要把表达形式本身作为澄清理由；先用工具验证事实，再考虑向用户提问。\n"
+        "先用工具验证事实；只有关键对象仍缺失或涉及写入/交易/高风险动作时才提问。\n"
         "</workflow-runtime>"
     )
 
