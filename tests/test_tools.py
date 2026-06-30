@@ -284,6 +284,31 @@ class TestAiReportTool:
         assert result["reviewed_codes"] == ["000004", "000005"]
         assert [row["name"] for row in captured["symbols_info"]] == ["主线候选", "二号候选"]
 
+    def test_generate_ai_report_normalizes_exchange_wrapped_codes_from_text(self, monkeypatch):
+        from agents import report_tools
+
+        captured = {}
+        names = {
+            "600519": "贵州茅台",
+            "000001": "平安银行",
+            "000390": "晨光",
+            "833575": "北交样本",
+        }
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+        monkeypatch.setattr(report_tools, "code_to_name", lambda code: names[code])
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report("候选 SH600519、sz000001、000390.SZ、833575.BJ，重复 sh600519")
+
+        assert result["reviewed_codes"] == ["600519", "000001", "000390", "833575"]
+        assert [row["name"] for row in captured["symbols_info"]] == ["贵州茅台", "平安银行", "晨光", "北交样本"]
+
     def test_generate_ai_report_enriches_codes_from_selection_brief(self, monkeypatch):
         from agents import report_tools
         from agents.tool_context import ToolContext
@@ -618,6 +643,38 @@ class TestStrategyDecisionTool:
         assert captured["codes_arg"] == ["000004, 000005"]
         assert [row["code"] for row in captured["symbols_info"]] == ["000004", "000005"]
         assert result["report_preview"] == "# 代码研报"
+
+    def test_generate_strategy_decision_normalizes_exchange_wrapped_candidate_codes(self, monkeypatch):
+        from agents import report_tools, strategy_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        names = {"600519": "贵州茅台", "833575": "北交样本"}
+        ctx = ToolContext()
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(report_tools, "code_to_name", lambda code: names[code])
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 归一研报"
+
+        monkeypatch.setattr(strategy_tools, "run_ai_report", fake_run_ai_report)
+
+        result = strategy_tools.generate_strategy_decision(
+            reviewed_symbols={"code": "000390.SZ", "name": "晨光", "track": "Trend"},
+            reviewed_codes="SH600519、833575.BJ",
+            tool_context=ctx,
+        )
+
+        assert result["reviewed_codes"] == ["000390", "600519", "833575"]
+        assert result["reviewed_symbols"][0]["track"] == "Trend"
+        assert [row["code"] for row in captured["symbols_info"]] == ["000390", "600519", "833575"]
+        assert result["report_preview"] == "# 归一研报"
 
     def test_generate_strategy_decision_accepts_single_reviewed_symbol_object(self, monkeypatch):
         from agents import strategy_tools

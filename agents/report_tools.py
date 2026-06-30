@@ -11,6 +11,11 @@ from agents.tool_context import ToolContext, ensure_tushare_token, resolve_llm_c
 
 logger = logging.getLogger(__name__)
 
+_CN_CODE_RE = re.compile(r"(?i)^(?:SH|SZ|BJ)?\.?([0134568]\d{5})(?:\.(?:SH|SZ|BJ))?$")
+_CN_CODE_TOKEN_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(?:SH|SZ|BJ)?\.?([0134568]\d{5})(?:\.(?:SH|SZ|BJ))?(?![A-Za-z0-9])"
+)
+
 
 def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None = None) -> dict:
     """对指定股票列表生成威科夫三阵营 AI 深度研报。"""
@@ -120,7 +125,8 @@ def _stock_code_items(value: Any) -> list[Any]:
     out: list[Any] = []
     for item in items:
         if isinstance(item, str):
-            out.extend(part for part in re.split(r"[,，、\n]+", item) if part.strip())
+            codes = _stock_codes_from_text(item)
+            out.extend(codes or (part for part in re.split(r"[,，、\n]+", item) if part.strip()))
         else:
             out.append(item)
     return out
@@ -128,8 +134,19 @@ def _stock_code_items(value: Any) -> list[Any]:
 
 def _candidate_code(item: Any) -> str:
     if isinstance(item, dict):
-        return str(item.get("code") or item.get("symbol") or "").strip()
-    return str(item or "").strip()
+        return normalize_stock_code(item.get("code") or item.get("symbol"))
+    return normalize_stock_code(item)
+
+
+def normalize_stock_code(raw: Any) -> str:
+    text = str(raw or "").strip()
+    match = _CN_CODE_RE.fullmatch(text)
+    return match.group(1) if match else text
+
+
+def _stock_codes_from_text(text: str) -> list[str]:
+    codes = _CN_CODE_TOKEN_RE.findall(str(text or ""))
+    return list(dict.fromkeys(codes))
 
 
 def _last_screen_result(tool_context: ToolContext | None) -> dict[str, Any]:
@@ -143,7 +160,7 @@ def reviewed_symbols_from_info(symbols_info: list[dict]) -> list[dict]:
 
 def _compact_symbol(row: dict[str, Any]) -> dict:
     payload = {field: _compact_symbol_value(row.get(field)) for field in _COMPACT_SYMBOL_FIELDS}
-    payload["code"] = str(row.get("code") or row.get("symbol") or "").strip()
+    payload["code"] = normalize_stock_code(row.get("code") or row.get("symbol"))
     return {key: value for key, value in payload.items() if value}
 
 
