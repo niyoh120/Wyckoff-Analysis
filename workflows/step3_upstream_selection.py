@@ -49,8 +49,8 @@ def _select_capped_upstream_candidates(
     trend_total = int((df["track"] == "Trend").sum())
     accum_total = int((df["track"] == "Accum").sum())
     trend_cap, accum_cap = fit_ai_candidate_quotas(context_cap, trend_total, accum_total)
-    core_df = _priority_ordered(df[~df["selection_is_fill"]])
-    fill_df = _priority_ordered(df[df["selection_is_fill"]])
+    core_df = _priority_ordered(df[~df["selection_is_fill"]], runtime_config)
+    fill_df = _priority_ordered(df[df["selection_is_fill"]], runtime_config)
     selected_df = _take_track_core_candidates(core_df, trend_cap, accum_cap)
     selected_df = _append_remaining_core(selected_df, core_df, context_cap)
     return _append_fill_candidates(selected_df, fill_df, context_cap, runtime_config.max_upstream_fill)
@@ -100,14 +100,28 @@ def finite_numeric_series(raw: Any, index: pd.Index) -> pd.Series:
     return series.where(finite_mask)
 
 
-def _priority_ordered(df: pd.DataFrame) -> pd.DataFrame:
+def _priority_ordered(df: pd.DataFrame, runtime_config: Step3RuntimeConfig) -> pd.DataFrame:
     if df.empty or "priority_score" not in df.columns or not df["priority_score"].notna().any():
         return df.sort_values("input_order", kind="stable")
-    return df.sort_values(
-        by=["entry_priority_bucket", "entry_quality_score", "priority_score", "input_order"],
+    if runtime_config.entry_quality_tie_bucket <= 0:
+        return df.sort_values(
+            by=["priority_score", "input_order"],
+            ascending=[False, True],
+            kind="stable",
+        )
+    df = df.copy()
+    df["entry_quality_sort_bucket"] = _entry_quality_sort_bucket(df, runtime_config.entry_quality_tie_bucket)
+    ordered = df.sort_values(
+        by=["entry_quality_sort_bucket", "entry_quality_score", "priority_score", "input_order"],
         ascending=[False, False, False, True],
         kind="stable",
     )
+    return ordered.drop(columns=["entry_quality_sort_bucket"])
+
+
+def _entry_quality_sort_bucket(df: pd.DataFrame, bucket_size: float) -> pd.Series:
+    priority = finite_numeric_series(df.get("priority_score"), df.index).fillna(-1_000_000.0)
+    return (priority / max(float(bucket_size), 0.0001)).apply(math.floor)
 
 
 def _take_track_core_candidates(core_df: pd.DataFrame, trend_cap: int, accum_cap: int) -> pd.DataFrame:

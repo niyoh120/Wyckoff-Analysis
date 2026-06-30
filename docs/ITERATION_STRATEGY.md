@@ -63,7 +63,7 @@ flowchart TD
 - `features_json.intraday_tail_confirmation` 记录正式候选的尾盘 1m VWAP、尾段量能、聪明钱和尾盘确认分，用于验证日线候选是否被尾盘分钟线确认；当前只做复盘特征，不参与候选排序。
 - `features_json.source_context` 记录龙虎榜、融资融券、大宗交易和可选逐笔大单等外部资金佐证；当前只做解释和复盘特征，不参与候选排序。
 - `features_json.candidate_shadow_score` 记录候选影子评分，把上述证据汇总成 0-100 分和 S/A/B/C/D 评级；当前只做复盘特征，不参与候选排序。
-- `features_json.entry_quality` 记录 Step3 入场质量评分，把相对强弱、缩量、200 日线偏离和成交额转为 S/A/B/C/D；当前只做复盘特征，Step3 仅在相近优先级候选中用作 tie-breaker。
+- `features_json.entry_quality` 记录 Step3 入场质量评分，把相对强弱、缩量、200 日线偏离和成交额转为 S/A/B/C/D；当前只做复盘特征，Step3 仅在 `STEP3_ENTRY_QUALITY_TIE_BUCKET` 控制的相近优先级候选中用作 tie-breaker，默认 1 分桶，避免未校准质量分压过明显更高的上游优先级。
 
 ## 方向二：多策略动态分配
 

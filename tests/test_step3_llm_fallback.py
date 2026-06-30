@@ -75,6 +75,7 @@ def test_step3_runtime_config_from_env_normalizes_values(monkeypatch):
     monkeypatch.setenv("STEP3_MAX_OUTPUT_TOKENS", "bad")
     monkeypatch.setenv("STEP3_MAX_AI_INPUT", "-4")
     monkeypatch.setenv("STEP3_EMPTY_COMPRESSION_FALLBACK_CAP", "-2")
+    monkeypatch.setenv("STEP3_ENTRY_QUALITY_TIE_BUCKET", "0.5")
     monkeypatch.setenv("STEP3_ENABLE_RAG_VETO", "off")
     monkeypatch.setenv("STEP3_SKIP_LLM", "yes")
     monkeypatch.setenv("STEP3_GEMINI_MODEL_FALLBACK", "gemini-backup")
@@ -87,6 +88,7 @@ def test_step3_runtime_config_from_env_normalizes_values(monkeypatch):
     assert cfg.max_output_tokens == 32768
     assert cfg.max_ai_input == 0
     assert cfg.empty_compression_fallback_cap == 0
+    assert cfg.entry_quality_tie_bucket == 0.5
     assert cfg.enable_rag_veto is False
     assert cfg.skip_llm is True
     assert cfg.send_x_summary is True

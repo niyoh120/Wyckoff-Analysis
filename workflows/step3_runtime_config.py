@@ -26,6 +26,7 @@ class Step3RuntimeConfig:
     max_per_industry: int = 0
     empty_compression_fallback_cap: int = 8
     max_upstream_fill: int = 0
+    entry_quality_tie_bucket: float = 1.0
     enable_compression: bool = True
     enable_rag_veto: bool = True
     skip_llm: bool = False
@@ -54,6 +55,7 @@ def step3_runtime_config_from_env() -> Step3RuntimeConfig:
         max_per_industry=max(_env_int("STEP3_MAX_PER_INDUSTRY", 0), 0),
         empty_compression_fallback_cap=max(_env_int("STEP3_EMPTY_COMPRESSION_FALLBACK_CAP", 8), 0),
         max_upstream_fill=max(_env_int("STEP3_MAX_UPSTREAM_FILL", 0), 0),
+        entry_quality_tie_bucket=max(_env_float("STEP3_ENTRY_QUALITY_TIE_BUCKET", 1.0), 0.0),
         enable_compression=_env_bool("STEP3_ENABLE_COMPRESSION", True),
         enable_rag_veto=_env_bool("STEP3_ENABLE_RAG_VETO", True),
         skip_llm=_env_bool("STEP3_SKIP_LLM", False),
@@ -77,6 +79,13 @@ def _env_bool(name: str, default: bool) -> bool:
 def _env_int(name: str, default: int) -> int:
     try:
         return int(float(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
     except (TypeError, ValueError):
         return default
 
