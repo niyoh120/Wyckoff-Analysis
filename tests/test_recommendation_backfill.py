@@ -126,6 +126,7 @@ def test_replace_auxiliary_tables_replaces_date_scoped_rows(monkeypatch) -> None
         {"key": "trade_date", "values": ["2026-06-01"], "filters": {"market": "cn"}},
         {"key": "trade_date", "values": ["2026-06-01"], "filters": {"market": "cn"}},
     ]
+    assert client.upserts[0][0]["updated_at"]
 
 
 def _day_result(day: date) -> dict:

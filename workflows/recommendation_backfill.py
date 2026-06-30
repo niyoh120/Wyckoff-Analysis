@@ -386,7 +386,7 @@ def _replace_auxiliary_tables(
     external_seed_upserted = _upsert_rows(
         client,
         TABLE_EXTERNAL_SEED_OBSERVATIONS,
-        table_rows.get("external_seed_observations") or [],
+        _rows_with_updated_at(table_rows.get("external_seed_observations") or []),
         "market,trade_date,source,code",
     )
     market_signal_upserted = _upsert_rows(
@@ -408,6 +408,11 @@ def _replace_auxiliary_tables(
         "market_signal_upserted": market_signal_upserted,
         "theme_radar_upserted": theme_radar_upserted,
     }
+
+
+def _rows_with_updated_at(rows: list[dict]) -> list[dict]:
+    now_iso = datetime.now(UTC).isoformat()
+    return [{**row, "updated_at": row.get("updated_at") or now_iso} for row in rows]
 
 
 def _delete_by_dates(

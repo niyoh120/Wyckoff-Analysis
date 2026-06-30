@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from core.candidate_policy import apply_loss_guard, candidate_score_value, rerank_selected_codes
+from core.candidate_tracks import candidate_entry_track
 from core.capital_migration import build_capital_migration_report
 from core.cn_boards import is_main_or_chinext, is_star_or_bse
 from core.funnel_etf import etf_metrics
@@ -50,6 +51,9 @@ from workflows.funnel_render_context import FunnelRenderContext, build_render_co
 from workflows.funnel_settings import (
     FUNNEL_AI_SELECTION_MODE,
     FUNNEL_CARD_STYLE,
+    FUNNEL_MARKET_MIX_GUARD_ENABLED,
+    FUNNEL_MARKET_MIX_MAX_ADD,
+    FUNNEL_MARKET_MIX_MIN_SCORE,
 )
 
 logger = logging.getLogger(__name__)
@@ -322,21 +326,31 @@ def _apply_market_mix_guard(
     score_map: dict[str, float],
     ai_policy: dict,
 ) -> tuple[list[str], list[str], list[str]]:
-    if not selected_for_ai or not all(is_star_or_bse(code) for code in selected_for_ai):
+    if (
+        not FUNNEL_MARKET_MIX_GUARD_ENABLED
+        or FUNNEL_MARKET_MIX_MAX_ADD <= 0
+        or not selected_for_ai
+        or not all(is_star_or_bse(code) for code in selected_for_ai)
+    ):
         return selected_for_ai, trend_selected, accum_selected
-    alternatives = _main_or_chinext_alternatives(ctx, selected_for_ai, score_map)
+    alternatives, best_score = _main_or_chinext_alternatives(ctx, selected_for_ai, score_map)
     if not alternatives:
-        ai_policy["market_mix_guard_reason"] = "最终候选集中在科创/北交；当前主板/创业候选未达到分数或存在硬风险。"
+        ai_policy["market_mix_guard_reason"] = _market_mix_guard_reason(best_score)
         return selected_for_ai, trend_selected, accum_selected
-    additions = alternatives[:2]
-    for code in additions:
+    additions = []
+    for item in alternatives[:FUNNEL_MARKET_MIX_MAX_ADD]:
+        code = str(item.get("code") or "").strip()
         if code not in selected_for_ai:
             selected_for_ai.append(code)
-            trend_selected.append(code)
+            _append_market_mix_track(code, item, trend_selected, accum_selected)
             score_map[code] = max(
                 candidate_score_value(score_map.get(code)),
                 candidate_score_value(ctx.code_to_total_score.get(code)),
+                candidate_score_value(item.get("score")),
             )
+            additions.append(code)
+    if not additions:
+        return selected_for_ai, trend_selected, accum_selected
     ai_policy["market_mix_guard_added"] = additions
     print(f"[funnel] 市场均衡补入主板/创业候选: {additions}")
     return selected_for_ai, trend_selected, accum_selected
@@ -346,31 +360,49 @@ def _main_or_chinext_alternatives(
     ctx: FunnelRenderContext,
     selected_for_ai: list[str],
     score_map: dict[str, float],
-) -> list[str]:
+) -> tuple[list[dict], float | None]:
     selected = set(selected_for_ai)
-    rows = [
-        item
-        for item in ctx.candidate_entries
-        if _is_market_mix_candidate(item, selected, ctx.code_to_total_score, score_map)
-    ]
-    rows.sort(key=lambda item: -candidate_score_value(ctx.code_to_total_score.get(str(item.get("code")))))
-    return [str(item.get("code")).strip() for item in rows if str(item.get("code")).strip()]
+    rows: list[tuple[str, float, dict]] = []
+    best_score: float | None = None
+    for item in ctx.candidate_entries:
+        score = _market_mix_candidate_score(item, selected, ctx.code_to_total_score, score_map)
+        if score is None:
+            continue
+        best_score = score if best_score is None else max(best_score, score)
+        if score >= FUNNEL_MARKET_MIX_MIN_SCORE:
+            code = str(item.get("code") or "").strip()
+            rows.append((code, score, item))
+            selected.add(code)
+    rows.sort(key=lambda row: (-row[1], row[0]))
+    return [item for _code, _score, item in rows], best_score
 
 
-def _is_market_mix_candidate(
+def _market_mix_candidate_score(
     item: dict,
     selected: set[str],
     code_to_total_score: dict[str, float],
     score_map: dict[str, float],
-) -> bool:
+) -> float | None:
     code = str(item.get("code") or "").strip()
     if not code or code in selected or not is_main_or_chinext(code):
-        return False
+        return None
     if _candidate_has_hard_risk(item):
-        return False
+        return None
     score = max(candidate_score_value(item.get("score")), candidate_score_value(code_to_total_score.get(code)))
-    score = max(score, candidate_score_value(score_map.get(code)))
-    return score >= 72.0
+    return max(score, candidate_score_value(score_map.get(code)))
+
+
+def _append_market_mix_track(code: str, item: dict, trend_selected: list[str], accum_selected: list[str]) -> None:
+    target = accum_selected if candidate_entry_track(item) == "Accum" else trend_selected
+    if code not in target:
+        target.append(code)
+
+
+def _market_mix_guard_reason(best_score: float | None) -> str:
+    base = "最终候选集中在科创/北交；"
+    if best_score is None:
+        return base + "当前没有通过硬风险检查的主板/创业候选。"
+    return base + f"主板/创业最高候选分 {best_score:.1f}，低于市场均衡补入门槛 {FUNNEL_MARKET_MIX_MIN_SCORE:.1f}。"
 
 
 def _candidate_has_hard_risk(item: dict) -> bool:
