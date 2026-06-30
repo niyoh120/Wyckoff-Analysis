@@ -192,13 +192,15 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str) -> dict:
     profile = _candidate_profile(row)
     rank_reason = str(row.get("rank_reason") or "").strip()
     why = "；".join(part for part in (profile, rank_reason) if part) or "候选证据不足"
+    next_step = _candidate_next_step(trade_mode, bucket)
     return _drop_empty_candidate_fields(
         {
             "code": str(row.get("code") or "").strip(),
             "name": str(row.get("name") or row.get("code") or "").strip(),
             "tier": _candidate_quality_label(row),
             "why": why,
-            "next_step": _candidate_next_step(trade_mode, bucket),
+            "quality_factors": _candidate_quality_factors(row, next_step=next_step),
+            "next_step": next_step,
             "priority_score": row.get("priority_score"),
             "score": row.get("score"),
             "track": row.get("track"),
@@ -304,19 +306,22 @@ def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str) -> dict:
         "name": name,
         "quality": _candidate_quality_label(row),
         "evidence": evidence,
+        "quality_factors": _candidate_quality_factors(row, next_step=next_step),
         "next_step": next_step,
         "summary": f"{code} {name}: {evidence}；{next_step}",
     }
 
 
 def _candidate_ref(row: dict, trade_mode: dict, bucket: str) -> dict:
+    next_step = _candidate_next_step(trade_mode, bucket)
     payload = {
         "code": row.get("code"),
         "name": row.get("name"),
         "quality": _candidate_quality_label(row),
         "profile": _candidate_profile(row),
-        "next_step": _candidate_next_step(trade_mode, bucket),
+        "next_step": next_step,
         "rank_reason": row.get("rank_reason"),
+        "quality_factors": _candidate_quality_factors(row, next_step=next_step),
         "priority_score": row.get("priority_score"),
         "selection_source": row.get("selection_source"),
         "track": row.get("track"),
@@ -366,6 +371,19 @@ def _candidate_profile(row: dict) -> str:
         _trigger_profile(row.get("triggers")),
     ]
     return " / ".join(dict.fromkeys(part for part in parts if part))
+
+
+def _candidate_quality_factors(row: dict, *, next_step: str = "") -> list[str]:
+    factors = [_candidate_quality_label(row)]
+    factors.extend(_split_factor_text(_candidate_profile(row), " / "))
+    factors.extend(_split_factor_text(str(row.get("rank_reason") or ""), "；"))
+    if next_step:
+        factors.append(next_step)
+    return list(dict.fromkeys(factor for factor in factors if factor))
+
+
+def _split_factor_text(text: str, sep: str) -> list[str]:
+    return [part.strip() for part in str(text or "").split(sep) if part.strip()]
 
 
 def _lane_profile(row: dict) -> str:
@@ -526,7 +544,8 @@ def _candidate_sort_key(row: dict) -> tuple:
 
 
 def _final_candidate_row(row: dict) -> dict:
-    return {
+    rank_reason = _rank_reason(row)
+    payload = {
         "code": row["code"],
         "name": row["name"],
         "score": round(candidate_score_value(row.get("score")), 2),
@@ -540,8 +559,10 @@ def _final_candidate_row(row: dict) -> dict:
         "tag": row["tag"],
         "candidate_lane": row["candidate_lane"],
         "entry_type": row["entry_type"],
-        "rank_reason": _rank_reason(row),
+        "rank_reason": rank_reason,
     }
+    payload["quality_factors"] = _candidate_quality_factors(payload)
+    return payload
 
 
 def _rank_reason(row: dict) -> str:

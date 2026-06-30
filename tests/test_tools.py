@@ -1502,6 +1502,15 @@ class TestSymbolPool:
                     "name": "主线候选",
                     "quality": "高优先级研报候选",
                     "evidence": "趋势线 / 主升阶段 / 主线买点；研报候选#1；优先分 12.50",
+                    "quality_factors": [
+                        "高优先级研报候选",
+                        "趋势线",
+                        "主升阶段",
+                        "主线买点",
+                        "研报候选#1",
+                        "优先分 12.50",
+                        "只观察，等待市场风险闸门重新打开",
+                    ],
                     "next_step": "只观察，等待市场风险闸门重新打开",
                     "summary": (
                         "000004 主线候选: 趋势线 / 主升阶段 / 主线买点；研报候选#1；优先分 12.50；"
@@ -1515,6 +1524,7 @@ class TestSymbolPool:
                     "name": "高分未选",
                     "quality": "强观察候选",
                     "evidence": "触发:SOS；SOS",
+                    "quality_factors": ["强观察候选", "触发:SOS", "SOS", "观察池跟踪，暂不进入本轮AI复核"],
                     "next_step": "观察池跟踪，暂不进入本轮AI复核",
                     "summary": "000001 高分未选: 触发:SOS；SOS；观察池跟踪，暂不进入本轮AI复核",
                 }
@@ -1529,6 +1539,15 @@ class TestSymbolPool:
                 "name": "主线候选",
                 "tier": "高优先级研报候选",
                 "why": "趋势线 / 主升阶段 / 主线买点；研报候选#1；优先分 12.50",
+                "quality_factors": [
+                    "高优先级研报候选",
+                    "趋势线",
+                    "主升阶段",
+                    "主线买点",
+                    "研报候选#1",
+                    "优先分 12.50",
+                    "只观察，等待市场风险闸门重新打开",
+                ],
                 "next_step": "只观察，等待市场风险闸门重新打开",
                 "priority_score": 12.5,
                 "score": 0.0,
@@ -1541,6 +1560,15 @@ class TestSymbolPool:
                     "name": "主线候选",
                     "tier": "高优先级研报候选",
                     "why": "趋势线 / 主升阶段 / 主线买点；研报候选#1；优先分 12.50",
+                    "quality_factors": [
+                        "高优先级研报候选",
+                        "趋势线",
+                        "主升阶段",
+                        "主线买点",
+                        "研报候选#1",
+                        "优先分 12.50",
+                        "只观察，等待市场风险闸门重新打开",
+                    ],
                     "next_step": "只观察，等待市场风险闸门重新打开",
                     "priority_score": 12.5,
                     "score": 0.0,
@@ -1567,6 +1595,15 @@ class TestSymbolPool:
                     "profile": "趋势线 / 主升阶段 / 主线买点",
                     "next_step": "只观察，等待市场风险闸门重新打开",
                     "rank_reason": "研报候选#1；优先分 12.50",
+                    "quality_factors": [
+                        "高优先级研报候选",
+                        "趋势线",
+                        "主升阶段",
+                        "主线买点",
+                        "研报候选#1",
+                        "优先分 12.50",
+                        "只观察，等待市场风险闸门重新打开",
+                    ],
                     "priority_score": 12.5,
                     "selection_source": "mainline",
                     "track": "Trend",
@@ -1582,6 +1619,7 @@ class TestSymbolPool:
                     "profile": "触发:SOS",
                     "next_step": "观察池跟踪，暂不进入本轮AI复核",
                     "rank_reason": "SOS",
+                    "quality_factors": ["强观察候选", "触发:SOS", "SOS", "观察池跟踪，暂不进入本轮AI复核"],
                     "priority_score": 0.0,
                     "triggers": ["sos"],
                 }
@@ -1595,6 +1633,14 @@ class TestSymbolPool:
         assert first["stage"] == "Markup"
         assert first["tag"] == "主线买点确认 | 威科夫候选"
         assert first["rank_reason"] == "研报候选#1；优先分 12.50"
+        assert first["quality_factors"] == [
+            "高优先级研报候选",
+            "趋势线",
+            "主升阶段",
+            "主线买点",
+            "研报候选#1",
+            "优先分 12.50",
+        ]
         assert result["top_candidates"][1]["code"] == "000001"
 
     def test_screen_stocks_enriches_watch_candidates_from_candidate_metadata(self, monkeypatch):
