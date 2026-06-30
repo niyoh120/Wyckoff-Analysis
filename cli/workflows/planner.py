@@ -314,12 +314,12 @@ def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _task_agent(task: dict[str, Any], context: WorkflowContext) -> str:
+    if _task_tool_scope(task):
+        return "task"
     for raw in (task.get("agent"), task.get("role"), task.get("assignee")):
         agent = _normalize_workflow_agent(raw)
         if agent:
             return agent
-    if _task_tool_scope(task):
-        return "task"
     return _fallback_agent(context, _task_fallback_text(task))
 
 

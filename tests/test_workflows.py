@@ -6,6 +6,7 @@ from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.model_router import _ROUTER_SYSTEM_PROMPT
+from cli.workflows.planner import plan_workflow
 from cli.workflows.router import build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
@@ -412,6 +413,39 @@ def test_direct_local_task_tools_are_not_keyword_gated():
     assert "write_file" in tools
     assert "exec_command" in tools
     assert "execute_skill" not in tools
+
+
+def test_planner_explicit_tools_override_legacy_agent_role():
+    context = route_workflow("用 workflow 生成交易决策")
+    run = plan_workflow(
+        "生成交易决策",
+        context=context,
+        workflow_script={
+            "phases": [
+                {
+                    "tasks": [
+                        {
+                            "id": "decision",
+                            "title": "生成交易决策",
+                            "agent": "research",
+                            "tools": ["generate_strategy_decision"],
+                            "prompt": "基于候选和持仓输出攻防动作。",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+    legacy = plan_workflow(
+        "读取市场事实",
+        context=context,
+        workflow_script={"phases": [{"tasks": [{"id": "facts", "title": "读取市场事实", "agent": "research"}]}]},
+    )
+
+    assert run.steps[0].agent == "task"
+    assert run.steps[0].tools == ()
+    assert run.steps[0].tool_scope == ("generate_strategy_decision",)
+    assert legacy.steps[0].agent == "research"
 
 
 def test_tool_descriptions_do_not_use_user_phrase_triggers():
