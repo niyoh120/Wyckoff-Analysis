@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from agents.report_tools import run_ai_report
+from agents.report_tools import reviewed_symbols_from_info, run_ai_report, symbols_info_from_codes
 from agents.screen_tools import screen_stocks
 from agents.tool_context import ToolContext, ensure_tushare_token, get_credential, get_user_id, resolve_llm_config
 
 logger = logging.getLogger(__name__)
 
 
-def generate_strategy_decision(tool_context: ToolContext | None = None) -> dict:
+def generate_strategy_decision(
+    report_text: str = "",
+    reviewed_symbols: list[dict] | None = None,
+    reviewed_codes: list[str] | None = None,
+    screen_result: dict | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict:
     """生成持仓去留决策和新标的买入策略。"""
     try:
         ensure_tushare_token(tool_context)
@@ -19,18 +26,32 @@ def generate_strategy_decision(tool_context: ToolContext | None = None) -> dict:
         if not api_key:
             return {"error": "未配置 LLM API Key，无法生成策略决策。请通过 /model 或设置页面配置。"}
 
-        screen_result = screen_stocks(board="all", tool_context=tool_context)
-        if screen_result.get("error"):
-            return {"error": f"筛选失败: {screen_result['error']}"}
+        last_report = _last_ai_report(tool_context)
+        screen_payload = screen_result or _last_screen_result(tool_context)
+        report_text, report_source = _strategy_report_text(report_text, last_report)
+        if not report_text and not screen_payload:
+            screen_payload = screen_stocks(board="all", tool_context=tool_context)
+            if screen_payload.get("error"):
+                return {"error": f"筛选失败: {screen_payload['error']}"}
 
-        report_text = _report_for_screen_result(screen_result, provider, api_key, model, base_url)
+        candidate_meta = _strategy_candidate_meta(
+            screen_payload,
+            reviewed_symbols,
+            reviewed_codes,
+            last_report,
+            tool_context,
+        )
+        if not report_text:
+            report_text = _report_for_candidates(candidate_meta, provider, api_key, model, base_url)
+            report_source = "generated_from_candidates" if report_text else "empty"
         token = get_credential(tool_context, "tg_bot_token", "TG_BOT_TOKEN")
         chat_id = get_credential(tool_context, "tg_chat_id", "TG_CHAT_ID")
         if not token or not chat_id:
-            return _strategy_without_telegram(screen_result, report_text)
+            return _strategy_without_telegram(screen_payload or {}, report_text, candidate_meta, report_source)
         ok, reason = _run_strategy_step4(
             tool_context,
             report_text,
+            candidate_meta,
             provider,
             api_key,
             model,
@@ -38,18 +59,27 @@ def generate_strategy_decision(tool_context: ToolContext | None = None) -> dict:
             token,
             chat_id,
         )
-        return {"ok": bool(ok), "reason": str(reason or ""), "screen_summary": screen_result.get("summary", {})}
+        return _strategy_payload(bool(ok), str(reason or ""), screen_payload or {}, candidate_meta, report_source)
     except Exception as e:
         logger.exception("generate_strategy_decision error")
         return {"error": str(e)}
 
 
-def _report_for_screen_result(screen_result: dict, provider: str, api_key: str, model: str, base_url: str) -> str:
-    symbols_info = screen_result.get("symbols_for_report", [])
+def _strategy_report_text(report_text: str, last_report: dict[str, Any]) -> tuple[str, str]:
+    explicit = str(report_text or "").strip()
+    if explicit:
+        return explicit, "provided"
+    previous = str(last_report.get("report_text") or "").strip()
+    if previous:
+        return previous, "last_ai_report"
+    return "", "empty"
+
+
+def _report_for_candidates(symbols_info: list[dict], provider: str, api_key: str, model: str, base_url: str) -> str:
     if not symbols_info:
         return ""
     _ok, _reason, report_text = run_ai_report(
-        symbols_info,
+        symbols_info[:10],
         provider=provider,
         api_key=api_key,
         model=model,
@@ -58,17 +88,112 @@ def _report_for_screen_result(screen_result: dict, provider: str, api_key: str, 
     return str(report_text or "")
 
 
-def _strategy_without_telegram(screen_result: dict, report_text: str) -> dict:
+def _strategy_candidate_meta(
+    screen_result: dict | None,
+    reviewed_symbols: list[dict] | None,
+    reviewed_codes: list[str] | None,
+    last_report: dict[str, Any],
+    tool_context: ToolContext | None,
+) -> list[dict]:
+    rows = _screen_candidate_meta(screen_result)
+    rows.extend(reviewed_symbols_from_info(reviewed_symbols or []))
+    rows.extend(reviewed_symbols_from_info(last_report.get("reviewed_symbols") or []))
+    codes = reviewed_codes or last_report.get("reviewed_codes") or []
+    rows.extend(symbols_info_from_codes([str(code) for code in codes], tool_context))
+    return _dedupe_candidate_meta(rows)
+
+
+def _screen_candidate_meta(screen_result: dict | None) -> list[dict]:
+    if not isinstance(screen_result, dict):
+        return []
+    rows = screen_result.get("symbols_for_report") or []
+    return reviewed_symbols_from_info([row if isinstance(row, dict) else {"code": row} for row in rows])
+
+
+def _dedupe_candidate_meta(rows: list[dict]) -> list[dict]:
+    deduped: dict[str, dict] = {}
+    for row in rows:
+        code = str(row.get("code") or "").strip()
+        if not code:
+            continue
+        if code not in deduped:
+            deduped[code] = dict(row)
+            continue
+        for key, value in row.items():
+            if _has_value(value) and not _has_value(deduped[code].get(key)):
+                deduped[code][key] = value
+    return list(deduped.values())[:10]
+
+
+def _has_value(value: Any) -> bool:
+    return value is not None and value != "" and value != [] and value != {}
+
+
+def _strategy_without_telegram(
+    screen_result: dict,
+    report_text: str,
+    candidate_meta: list[dict],
+    report_source: str,
+) -> dict:
+    payload = _strategy_payload(
+        True,
+        "skipped_notify_unconfigured",
+        screen_result,
+        candidate_meta,
+        report_source,
+    )
+    payload.update(
+        {
+            "message": "已完成候选和研报交接，但未配置 Telegram，OMS 交易工单不会生成或发送。",
+            "report_preview": (report_text[:2000] + "...") if len(report_text) > 2000 else report_text,
+        }
+    )
+    return payload
+
+
+def _strategy_payload(
+    ok: bool,
+    reason: str,
+    screen_result: dict,
+    candidate_meta: list[dict],
+    report_source: str,
+) -> dict:
     return {
-        "message": "策略分析完成，但未配置 Telegram，OMS 交易工单不会发送。以下是筛选和研报结果。",
+        "ok": ok,
+        "reason": reason,
+        "status": reason or ("ok" if ok else "failed"),
+        "report_source": report_source,
+        "candidate_count": len(candidate_meta),
+        "reviewed_codes": [row["code"] for row in candidate_meta if row.get("code")],
+        "reviewed_symbols": candidate_meta,
         "screen_summary": screen_result.get("summary", {}),
-        "report_preview": (report_text[:2000] + "...") if len(report_text) > 2000 else report_text,
+        "decision_brief": screen_result.get("decision_brief", {}),
+        "next_action": _strategy_next_action(ok, reason),
     }
+
+
+def _strategy_next_action(ok: bool, reason: str) -> str:
+    if reason == "skipped_notify_unconfigured":
+        return "补充 Telegram 配置后可生成并发送 OMS 工单；当前先基于研报和候选摘要人工复核"
+    if ok:
+        return "攻防决策已完成，查看 Telegram 或订单记录确认工单"
+    return "策略决策未完成，先处理失败原因后再重新生成"
+
+
+def _last_ai_report(tool_context: ToolContext | None) -> dict[str, Any]:
+    value = tool_context.state.get("last_ai_report") if tool_context else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _last_screen_result(tool_context: ToolContext | None) -> dict[str, Any]:
+    value = tool_context.state.get("last_screen_result") if tool_context else {}
+    return value if isinstance(value, dict) else {}
 
 
 def _run_strategy_step4(
     tool_context: ToolContext | None,
     report_text: str,
+    candidate_meta: list[dict],
     provider: str,
     api_key: str,
     model: str,
@@ -86,6 +211,7 @@ def _run_strategy_step4(
         model=model,
         provider=provider,
         llm_base_url=base_url,
+        candidate_meta=candidate_meta,
         portfolio_id=build_user_live_portfolio_id(get_user_id(tool_context)),
         tg_bot_token=tg_bot_token,
         tg_chat_id=tg_chat_id,

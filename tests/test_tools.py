@@ -187,6 +187,122 @@ class TestAiReportTool:
         assert captured["kwargs"]["provider"] == "openai"
         assert captured["kwargs"]["model"] == "gpt-test"
 
+    def test_generate_ai_report_reuses_screen_handoff_metadata(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "symbols_for_report": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "tag": "主线买点确认 | 威科夫候选",
+                            "track": "Trend",
+                            "stage": "Markup",
+                            "priority_score": 12.5,
+                        }
+                    ]
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(["300750"], tool_context=ctx)
+
+        assert captured["symbols_info"][0]["track"] == "Trend"
+        assert result["reviewed_symbols"][0]["priority_score"] == 12.5
+        assert ctx.state["last_ai_report"]["reviewed_codes"] == ["300750"]
+
+
+class TestStrategyDecisionTool:
+    def test_generate_strategy_decision_reuses_last_report_without_rescreening(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_ai_report": {
+                    "report_text": "# 上一跳研报",
+                    "reviewed_codes": ["300750"],
+                    "reviewed_symbols": [{"code": "300750", "name": "宁德时代", "track": "Trend"}],
+                },
+                "last_screen_result": {
+                    "summary": {"report_candidates": 1},
+                    "decision_brief": {"next_action": "允许候选进入AI复核"},
+                    "symbols_for_report": [{"code": "300750", "name": "宁德时代", "track": "Trend"}],
+                },
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools, "run_ai_report", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
+        )
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        assert result["ok"] is True
+        assert result["status"] == "skipped_notify_unconfigured"
+        assert result["report_source"] == "last_ai_report"
+        assert result["reviewed_codes"] == ["300750"]
+        assert result["screen_summary"] == {"report_candidates": 1}
+        assert result["report_preview"] == "# 上一跳研报"
+
+    def test_generate_strategy_decision_passes_provided_report_to_step4(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext()
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(
+            strategy_tools,
+            "get_credential",
+            lambda _tool_context, key, _env: "token" if key == "tg_bot_token" else "chat",
+        )
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools, "run_ai_report", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
+        )
+
+        def fake_run_strategy_step4(tool_context, report_text, candidate_meta, *args):
+            captured["tool_context"] = tool_context
+            captured["report_text"] = report_text
+            captured["candidate_meta"] = candidate_meta
+            captured["args"] = args
+            return True, "ok"
+
+        monkeypatch.setattr(strategy_tools, "_run_strategy_step4", fake_run_strategy_step4)
+
+        result = strategy_tools.generate_strategy_decision(
+            report_text="# 显式研报",
+            reviewed_symbols=[{"code": "000001", "name": "平安银行", "stage": "Accum_C"}],
+            tool_context=ctx,
+        )
+
+        assert result["ok"] is True
+        assert result["report_source"] == "provided"
+        assert result["next_action"] == "攻防决策已完成，查看 Telegram 或订单记录确认工单"
+        assert captured["report_text"] == "# 显式研报"
+        assert captured["candidate_meta"] == [{"code": "000001", "name": "平安银行", "stage": "Accum_C"}]
+
 
 # ── core.candidate_ranker ──
 
@@ -1026,6 +1142,7 @@ class TestSymbolPool:
 
     def test_screen_stocks_exposes_ready_ai_review_targets(self, monkeypatch):
         from agents import screen_tools
+        from agents.tool_context import ToolContext
 
         fake_pipeline = ModuleType("workflows.wyckoff_funnel")
 
@@ -1063,8 +1180,9 @@ class TestSymbolPool:
         fake_pipeline.run = fake_run_funnel
         monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
         monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+        ctx = ToolContext()
 
-        result = screen_tools.screen_stocks()
+        result = screen_tools.screen_stocks(tool_context=ctx)
 
         assert result["action_plan"]["review_targets"] == {
             "codes": ["000004", "000005"],
@@ -1073,3 +1191,5 @@ class TestSymbolPool:
             "tool": "generate_ai_report",
             "args": {"stock_codes": ["000004", "000005"]},
         }
+        assert ctx.state["last_screen_result"]["symbols_for_report"][0]["code"] == "000004"
+        assert "trigger_groups" not in ctx.state["last_screen_result"]

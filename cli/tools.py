@@ -139,10 +139,23 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "generate_strategy_decision",
-        "description": "综合持仓和候选标的，生成去留决策（EXIT/TRIM/HOLD/PROBE/ATTACK）。需要 Gemini API Key 和持仓数据。",
+        "description": "综合持仓、候选标的和上一跳研报，生成去留决策（EXIT/TRIM/HOLD/PROBE/ATTACK）。使用当前会话 LLM 配置和持仓数据。",
         "parameters": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "report_text": {"type": "string", "description": "可选，上一跳 AI 研报全文；不传则复用最近一次研报。"},
+                "reviewed_codes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "可选，上一跳已复核股票代码列表。",
+                },
+                "reviewed_symbols": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "可选，上一跳已复核标的元数据。",
+                },
+                "screen_result": {"type": "object", "description": "可选，上一跳 screen_stocks 的结果。"},
+            },
         },
     },
     {

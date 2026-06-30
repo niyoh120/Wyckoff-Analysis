@@ -124,7 +124,31 @@ def _tool_result_preview(tool_name: str, result: Any, content: str) -> str:
         preview = _ai_report_preview(result)
         if preview:
             return preview[:PREVIEW_CHARS]
+    if tool_name == "generate_strategy_decision" and isinstance(result, dict):
+        preview = _strategy_decision_preview(result)
+        if preview:
+            return preview[:PREVIEW_CHARS]
     return content[:PREVIEW_CHARS]
+
+
+def _strategy_decision_preview(result: dict[str, Any]) -> str:
+    payload = _drop_empty_preview_fields(
+        {
+            "ok": result.get("ok"),
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "report_source": result.get("report_source"),
+            "candidate_count": result.get("candidate_count"),
+            "reviewed_codes": _preview_list(result.get("reviewed_codes"), 12),
+            "reviewed_symbols": _preview_list(result.get("reviewed_symbols"), 12),
+            "screen_summary": result.get("screen_summary"),
+            "decision_brief": result.get("decision_brief"),
+            "next_action": result.get("next_action"),
+            "message": result.get("message"),
+            "report_preview": _text_excerpt(result.get("report_preview"), 1000),
+        }
+    )
+    return serialize_tool_result(payload) if payload else ""
 
 
 def _ai_report_preview(result: dict[str, Any]) -> str:

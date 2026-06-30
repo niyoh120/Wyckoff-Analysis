@@ -157,3 +157,29 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1
     assert json.loads(stored[0].read_text(encoding="utf-8"))["report_text"] == report_text
+
+
+def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_path, monkeypatch):
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    result = {
+        "ok": True,
+        "status": "skipped_notify_unconfigured",
+        "reason": "skipped_notify_unconfigured",
+        "report_source": "last_ai_report",
+        "candidate_count": 1,
+        "reviewed_codes": ["300750"],
+        "reviewed_symbols": [{"code": "300750", "name": "宁德时代", "track": "Trend"}],
+        "screen_summary": {"report_candidates": 1},
+        "decision_brief": {"next_action": "允许候选进入AI复核"},
+        "next_action": "补充 Telegram 配置后可生成并发送 OMS 工单",
+        "message": "已完成候选和研报交接，但未配置 Telegram。",
+        "report_preview": "研报摘要" * 500,
+    }
+
+    content = format_tool_result_for_context("generate_strategy_decision", "call_strategy", result, max_chars=1000)
+
+    assert "result_ref:" in content
+    assert '"report_source": "last_ai_report"' in content
+    assert '"reviewed_codes": ["300750"]' in content
+    assert "补充 Telegram 配置后可生成并发送 OMS 工单" in content
+    assert result["report_preview"] not in content

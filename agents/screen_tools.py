@@ -39,7 +39,7 @@ def screen_stocks(board: str = "all", tool_context: ToolContext | None = None) -
         trigger_groups = _trigger_summary(details)
         trade_mode = _trade_mode_summary(details)
         top_candidates = _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details)
-        return {
+        result = {
             "ok": bool(ok),
             "board": board,
             "summary": _screen_summary(metrics, symbols),
@@ -51,6 +51,8 @@ def screen_stocks(board: str = "all", tool_context: ToolContext | None = None) -
             "top_sectors": metrics.get("top_sectors", []),
             "symbols_for_report": symbols,
         }
+        remember_screen_handoff(tool_context, result)
+        return result
     except Exception as e:
         logger.exception("screen_stocks error")
         return {"error": str(e)}
@@ -59,6 +61,21 @@ def screen_stocks(board: str = "all", tool_context: ToolContext | None = None) -
 def _normalize_board(board: str) -> str:
     board = str(board or "all").strip().lower()
     return _BOARD_ALIAS.get(board, board)
+
+
+def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, Any]) -> None:
+    if tool_context is None:
+        return
+    tool_context.state["last_screen_result"] = {
+        "ok": result.get("ok"),
+        "board": result.get("board"),
+        "summary": result.get("summary", {}),
+        "trade_mode": result.get("trade_mode", {}),
+        "decision_brief": result.get("decision_brief", {}),
+        "action_plan": result.get("action_plan", {}),
+        "top_candidates": list(result.get("top_candidates") or [])[:20],
+        "symbols_for_report": list(result.get("symbols_for_report") or [])[:10],
+    }
 
 
 def _run_funnel_with_board(board: str):
