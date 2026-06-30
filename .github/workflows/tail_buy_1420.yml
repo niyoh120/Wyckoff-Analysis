@@ -2,6 +2,16 @@ name: Tail Buy
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "运行模式"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - intraday
+          - post_close_review
 
 concurrency:
   group: tail-buy-1350-${{ github.ref }}
@@ -70,6 +80,7 @@ jobs:
         run: |
           set -o pipefail
           python -u scripts/tail_buy_intraday_job.py \
+            --mode "${{ inputs.mode || 'auto' }}" \
             --max-llm-symbols "${TAIL_BUY_LLM_TOP_N}" \
             --deadline-minute "${TAIL_BUY_TASK_TIMEOUT_MIN}" \
             --logs "${{ github.workspace }}/logs/tail_buy_1350.log" \

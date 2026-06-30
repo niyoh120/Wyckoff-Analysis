@@ -36,6 +36,15 @@ def notify_tail_buy_non_trading_day(config: TailBuyRuntimeConfig) -> int:
     return 0
 
 
+def send_tail_buy_skip_notice(config: TailBuyRuntimeConfig, *, title: str, message: str) -> int:
+    log_line(message, config.logs_path)
+    if config.feishu_webhook:
+        send_feishu_notification(config.feishu_webhook, title, message)
+    if config.tg_bot_token and config.tg_chat_id:
+        send_to_telegram(f"{title}\n\n{message}", tg_bot_token=config.tg_bot_token, tg_chat_id=config.tg_chat_id)
+    return 0
+
+
 def persist_tail_buy_results(
     merged: list[TailBuyCandidate], started_at: datetime, user_id: str, logs_path: str
 ) -> None:
@@ -59,17 +68,18 @@ def persist_tail_buy_results(
 def send_tail_buy_report(
     *,
     config: TailBuyRuntimeConfig,
-    prev_trade_date: str,
+    target_signal_date: str,
     market_reminder: str,
     candidate_source_desc: str,
     holdings_section: str,
     run_result: TailBuyCandidateRun,
     elapsed: float,
+    report_mode: str = "intraday",
 ) -> tuple[bool, bool]:
-    title = f"⏰ Tail Buy {config.started_at.strftime('%Y-%m-%d')}"
+    title = _tail_buy_report_title(config.started_at, report_mode)
     report = build_tail_buy_markdown(
         now_text=now_text(),
-        target_signal_date=prev_trade_date,
+        target_signal_date=target_signal_date,
         market_reminder=market_reminder,
         candidates=run_result.merged,
         llm_total=run_result.llm_total,
@@ -78,8 +88,9 @@ def send_tail_buy_report(
         extra_sections=[holdings_section],
         extra_sections_first=True,
         candidate_source=candidate_source_desc,
-        buy_only=True,
+        buy_only=report_mode != "post_close_review",
         data_fetched_at=run_result.data_fetched_at,
+        report_mode=report_mode,
     )
     return send_tail_buy_notifications(
         feishu_webhook=config.feishu_webhook,
@@ -89,6 +100,12 @@ def send_tail_buy_report(
         report=report,
         logs_path=config.logs_path,
     )
+
+
+def _tail_buy_report_title(started_at: datetime, report_mode: str) -> str:
+    if report_mode == "post_close_review":
+        return f"📋 盘后尾盘复核 {started_at.strftime('%Y-%m-%d')}"
+    return f"⏰ Tail Buy {started_at.strftime('%Y-%m-%d')}"
 
 
 def tail_buy_persist_row(candidate: TailBuyCandidate, started_at: datetime) -> dict:

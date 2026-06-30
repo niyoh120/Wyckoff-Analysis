@@ -63,3 +63,36 @@ def test_resolve_trade_dates_fallback_to_natural_day_when_calendar_fails(monkeyp
     prev_trade, today_trade = tail_buy_candidates.resolve_tail_buy_trade_dates()
     assert prev_trade == "2026-04-26"
     assert today_trade == "2026-04-27"
+
+
+def test_load_tail_candidates_strict_signal_date_uses_exact_query(monkeypatch):
+    calls: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(tail_buy_candidates, "is_admin_configured", lambda: True)
+    monkeypatch.setattr(tail_buy_candidates, "_load_holding_candidates", lambda *_args, **_kwargs: [])
+
+    def fake_fetch(cutoff_date: str, *, exact_date: str | None = None) -> list[dict]:
+        calls.append((cutoff_date, exact_date))
+        return [
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "signal_type": "sos",
+                "signal_score": 80,
+                "status": "confirmed",
+                "signal_date": "2026-06-29",
+            }
+        ]
+
+    monkeypatch.setattr(tail_buy_candidates, "_fetch_signal_pending_rows", fake_fetch)
+
+    candidates, source = tail_buy_candidates.load_tail_candidates(
+        "2026-06-29",
+        "USER_LIVE:test",
+        strict_signal_date=True,
+        include_holdings=False,
+        lookback_days=0,
+    )
+
+    assert calls == [("2026-06-29", "2026-06-29")]
+    assert [item.code for item in candidates] == ["000001"]
+    assert "signal_pending_exact=1" in source

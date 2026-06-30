@@ -28,13 +28,16 @@ def _header_lines(
     buy_only: bool,
     data_fetched_at: str,
     market_reminder: str,
+    report_mode: str,
 ) -> list[str]:
     layer_text = f"- 分层结果: BUY={counts[DECISION_BUY]}"
     if not buy_only:
         layer_text += f" / WATCH={counts[DECISION_WATCH]} / SKIP={counts[DECISION_SKIP]}"
+    title, action_line, guard_line = _report_mode_text(report_mode)
     return [
-        f"⏰ Tail Buy {now_text}",
+        f"{title} {now_text}",
         "",
+        action_line,
         f"- 候选来源: {source_text}",
         f"- 扫描数量: {len(candidates)}",
         layer_text,
@@ -42,7 +45,7 @@ def _header_lines(
         f"- 分时数据获取: {data_fetched_at}" if data_fetched_at else "- 分时数据获取: -",
         f"- 总耗时: {elapsed_seconds:.1f}s",
         "",
-        f"⚠️ 风险提醒: {market_reminder} | 安全闸: 缺支撑/防守水温单EVR/跌支撑/冲高回落不进BUY",
+        f"⚠️ 风险提醒: {market_reminder} | {guard_line}",
         "",
     ]
 
@@ -97,10 +100,11 @@ def _append_decision_sections(
     *,
     max_error_items_per_block: int,
     buy_only: bool,
+    report_mode: str,
 ) -> None:
-    sections = [("BUY（优先关注）", DECISION_BUY)]
+    sections = [_buy_section_title(report_mode)]
     if not buy_only:
-        sections.extend([("WATCH（观察）", DECISION_WATCH), ("SKIP（暂不买入）", DECISION_SKIP)])
+        sections.extend(_watch_skip_section_titles(report_mode))
     for title, decision in sections:
         lines.extend(
             _decision_block(
@@ -127,6 +131,7 @@ def build_tail_buy_markdown(
     candidate_source: str | None = None,
     buy_only: bool = False,
     data_fetched_at: str = "",
+    report_mode: str = "intraday",
 ) -> str:
     lines = _header_lines(
         now_text=now_text,
@@ -139,6 +144,7 @@ def build_tail_buy_markdown(
         buy_only=buy_only,
         data_fetched_at=data_fetched_at,
         market_reminder=market_reminder,
+        report_mode=report_mode,
     )
     cleaned_sections = _clean_extra_sections(extra_sections)
     if extra_sections_first:
@@ -148,8 +154,41 @@ def build_tail_buy_markdown(
         candidates,
         max_error_items_per_block=max_error_items_per_block,
         buy_only=buy_only,
+        report_mode=report_mode,
     )
     if not extra_sections_first:
         _append_extra_sections(lines, cleaned_sections)
-    lines.append("说明：BUY=可行动；WATCH=观察；SKIP=禁买/暂不买。本任务不生成订单，不写入交易表。")
+    lines.append(_footer_text(report_mode))
     return "\n".join(lines).strip() + "\n"
+
+
+def _report_mode_text(report_mode: str) -> tuple[str, str, str]:
+    if report_mode == "post_close_review":
+        return (
+            "📋 盘后尾盘复核",
+            "- 任务定位: 使用今日完整日线二次确认 + 今日分钟线，生成明日入场计划。",
+            "安全闸: 明日仍需开盘/尾盘二次确认；跌支撑/冲高回落/无承接不执行",
+        )
+    return (
+        "⏰ Tail Buy",
+        "- 任务定位: 使用上一交易日候选 + 今日分钟线，确认今日尾盘是否可执行。",
+        "安全闸: 缺支撑/防守水温单EVR/跌支撑/冲高回落不进BUY",
+    )
+
+
+def _buy_section_title(report_mode: str) -> tuple[str, str]:
+    if report_mode == "post_close_review":
+        return "BUY（明日重点执行观察）", DECISION_BUY
+    return "BUY（优先关注）", DECISION_BUY
+
+
+def _watch_skip_section_titles(report_mode: str) -> list[tuple[str, str]]:
+    if report_mode == "post_close_review":
+        return [("WATCH（明日观察）", DECISION_WATCH), ("SKIP（明日放弃）", DECISION_SKIP)]
+    return [("WATCH（观察）", DECISION_WATCH), ("SKIP（暂不买入）", DECISION_SKIP)]
+
+
+def _footer_text(report_mode: str) -> str:
+    if report_mode == "post_close_review":
+        return "说明：BUY=明日进入执行观察；WATCH=继续观察；SKIP=明日放弃。本任务不生成订单，不写入交易表。"
+    return "说明：BUY=可行动；WATCH=观察；SKIP=禁买/暂不买。本任务不生成订单，不写入交易表。"

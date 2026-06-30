@@ -37,6 +37,7 @@ class LlmOverlayRunResult:
 class TailBuyRuntimeConfig:
     started_at: datetime
     logs_path: str
+    mode: str
     deadline_min: int
     deadline_at: datetime
     feishu_webhook: str
@@ -121,9 +122,11 @@ def build_llm_routes(*, primary_provider: str) -> list[dict[str, str]]:
 def build_tail_buy_runtime_config(args: Any, started_at: datetime) -> TailBuyRuntimeConfig:
     deadline_min = max(int(args.deadline_minute or 25), 5)
     provider = resolve_provider_name("TAIL_BUY_LLM_PROVIDER", "efficiency")
+    mode = _tail_buy_mode_from_args(args)
     return TailBuyRuntimeConfig(
         started_at=started_at,
         logs_path=args.logs or default_tail_buy_logs_path(started_at),
+        mode=mode,
         deadline_min=deadline_min,
         deadline_at=started_at + timedelta(minutes=deadline_min),
         feishu_webhook=os.getenv("FEISHU_WEBHOOK_URL", "").strip(),
@@ -164,6 +167,11 @@ def llm_allowed_rule_decisions_from_env() -> tuple[str, ...]:
         if x.strip()
     ]
     return tuple(values) or (DECISION_BUY, DECISION_WATCH)
+
+
+def _tail_buy_mode_from_args(args: Any) -> str:
+    raw = str(getattr(args, "mode", "") or os.getenv("TAIL_BUY_MODE", "auto") or "auto").strip().lower()
+    return raw if raw in {"auto", "intraday", "post_close_review"} else "auto"
 
 
 def _append_optional_nvidia_route(routes: list[dict[str, str]], seen: set[tuple[str, str, str]]) -> None:

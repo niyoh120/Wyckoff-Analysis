@@ -4,17 +4,23 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from datetime import time
 
 from core.tail_buy.strategy import TailBuyCandidate, merge_rule_and_llm
 from integrations.tickflow_client import TickFlowClient
 from integrations.tickflow_notice import TICKFLOW_UPGRADE_URL
 from utils.trading_clock import is_a_share_trading_day
-from workflows.tail_buy_candidates import load_tail_candidates, resolve_tail_buy_trade_dates
+from workflows.tail_buy_candidates import (
+    has_signal_pending_on_date,
+    load_tail_candidates,
+    resolve_tail_buy_trade_dates,
+)
 from workflows.tail_buy_delivery import (
     notify_tail_buy_non_trading_day,
     persist_tail_buy_results,
     resolve_market_reminder,
     send_tail_buy_report,
+    send_tail_buy_skip_notice,
 )
 from workflows.tail_buy_holdings import analyze_holdings_actions, build_holdings_markdown
 from workflows.tail_buy_llm_overlay import apply_tail_buy_depth_filter, run_llm_overlay
@@ -41,6 +47,18 @@ class TailBuyJobRequest:
     portfolio_id: str
     logs: str | None = None
     user_id: str = ""
+    mode: str = "auto"
+
+
+@dataclass(frozen=True)
+class TailBuyRunPlan:
+    mode: str
+    target_signal_date: str
+    today_trade_date: str
+    strict_signal_date: bool
+    include_holding_candidates: bool
+    persist_results: bool
+    skip_reason: str = ""
 
 
 def default_tail_buy_job_portfolio_id() -> str:
@@ -81,18 +99,35 @@ def validate_tail_buy_runtime_config(config: TailBuyRuntimeConfig) -> int | None
     return None
 
 
-def load_tail_buy_inputs(config: TailBuyRuntimeConfig) -> tuple[str, str, list[TailBuyCandidate], str] | None:
+def resolve_tail_buy_run_plan(config: TailBuyRuntimeConfig) -> TailBuyRunPlan:
     prev_trade_date, today_trade_date = resolve_tail_buy_trade_dates(config.logs_path)
+    requested_mode = str(config.mode or "auto").strip().lower()
+    if requested_mode == "intraday":
+        return _intraday_run_plan(prev_trade_date, today_trade_date)
+    if requested_mode == "post_close_review":
+        return _post_close_run_plan(today_trade_date, config, require_today_result=True)
+    if _is_post_close_time(config.started_at):
+        return _post_close_run_plan(today_trade_date, config, require_today_result=True)
+    return _intraday_run_plan(prev_trade_date, today_trade_date)
+
+
+def load_tail_buy_inputs(
+    config: TailBuyRuntimeConfig,
+    plan: TailBuyRunPlan,
+) -> tuple[list[TailBuyCandidate], str] | None:
     try:
         pending_candidates, candidate_source_desc = load_tail_candidates(
-            prev_trade_date,
+            plan.target_signal_date,
             config.portfolio_id,
             config.logs_path,
+            lookback_days=0 if plan.strict_signal_date else 15,
+            strict_signal_date=plan.strict_signal_date,
+            include_holdings=plan.include_holding_candidates,
         )
     except Exception as e:
         log_line(f"读取候选池失败: {e}", config.logs_path)
         return None
-    return prev_trade_date, today_trade_date, pending_candidates, candidate_source_desc
+    return pending_candidates, candidate_source_desc
 
 
 def build_tail_buy_holdings_section(
@@ -220,12 +255,20 @@ def run_tail_buy_candidate_flow(
 
 
 def _run_tail_buy_trading_day(request: TailBuyJobRequest, config: TailBuyRuntimeConfig) -> int:
-    inputs = load_tail_buy_inputs(config)
+    plan = resolve_tail_buy_run_plan(config)
+    log_line(_run_plan_line(plan), config.logs_path)
+    if plan.skip_reason:
+        return send_tail_buy_skip_notice(
+            config,
+            title="盘后尾盘复核跳过",
+            message=plan.skip_reason,
+        )
+    inputs = load_tail_buy_inputs(config, plan)
     if inputs is None:
         return 1
-    prev_trade_date, today_trade_date, pending_candidates, candidate_source_desc = inputs
+    pending_candidates, candidate_source_desc = inputs
     tickflow_client = TickFlowClient(api_key=config.tickflow_api_key, max_retries=config.tickflow_task_retries)
-    market_reminder = resolve_market_reminder(today_trade_date)
+    market_reminder = resolve_market_reminder(plan.today_trade_date)
     market_mode, market_mode_reason = resolve_intraday_market_mode(
         tickflow_client,
         market_reminder=market_reminder,
@@ -243,24 +286,22 @@ def _run_tail_buy_trading_day(request: TailBuyJobRequest, config: TailBuyRuntime
     feishu_ok, tg_ok = _finalize_tail_buy_run(
         request=request,
         config=config,
+        plan=plan,
         run_result=run_result,
-        prev_trade_date=prev_trade_date,
-        today_trade_date=today_trade_date,
         market_reminder=market_reminder,
         candidate_source_desc=candidate_source_desc,
         holdings_section=holdings_section,
         elapsed=elapsed,
     )
-    return 0 if feishu_ok and tg_ok else 1
+    return 0 if _tail_buy_delivery_succeeded(config, feishu_ok, tg_ok) else 1
 
 
 def _finalize_tail_buy_run(
     *,
     request: TailBuyJobRequest,
     config: TailBuyRuntimeConfig,
+    plan: TailBuyRunPlan,
     run_result: TailBuyCandidateRun,
-    prev_trade_date: str,
-    today_trade_date: str,
     market_reminder: str,
     candidate_source_desc: str,
     holdings_section: str,
@@ -268,15 +309,19 @@ def _finalize_tail_buy_run(
 ) -> tuple[bool, bool]:
     _log_final_decision_distribution(run_result, config.logs_path)
     log_fetch_error_summary(run_result.merged, stage="最终输出", logs_path=config.logs_path)
-    persist_tail_buy_results(run_result.merged, config.started_at, request.user_id, config.logs_path)
+    if plan.persist_results:
+        persist_tail_buy_results(run_result.merged, config.started_at, request.user_id, config.logs_path)
+    else:
+        log_line("盘后复核模式：不写 tail_buy_history / Supabase BUY，只输出明日计划。", config.logs_path)
     feishu_ok, tg_ok = send_tail_buy_report(
         config=config,
-        prev_trade_date=prev_trade_date,
+        target_signal_date=plan.target_signal_date,
         market_reminder=market_reminder,
         candidate_source_desc=candidate_source_desc,
         holdings_section=holdings_section,
         run_result=run_result,
         elapsed=elapsed,
+        report_mode=plan.mode,
     )
     log_line(_final_summary_line(run_result, feishu_ok, tg_ok, elapsed), config.logs_path)
     return feishu_ok, tg_ok
@@ -292,8 +337,62 @@ def _runtime_config_line(config: TailBuyRuntimeConfig) -> str:
         f"intraday_limit={config.intraday_limit_per_min}/min, max_over_limit={config.max_over_limit_symbols}, "
         f"force_over_limit={config.force_over_limit}, tickflow_retries={config.tickflow_task_retries}, "
         f"use_batch_intraday={config.use_batch_intraday}, intraday_batch_size={config.intraday_batch_size}, "
-        f"confirmed_only_buy={config.strategy_config.confirmed_only_buy}"
+        f"confirmed_only_buy={config.strategy_config.confirmed_only_buy}, mode={config.mode}"
     )
+
+
+def _intraday_run_plan(prev_trade_date: str, today_trade_date: str) -> TailBuyRunPlan:
+    return TailBuyRunPlan(
+        mode="intraday",
+        target_signal_date=prev_trade_date,
+        today_trade_date=today_trade_date,
+        strict_signal_date=False,
+        include_holding_candidates=True,
+        persist_results=True,
+    )
+
+
+def _post_close_run_plan(
+    today_trade_date: str,
+    config: TailBuyRuntimeConfig,
+    *,
+    require_today_result: bool,
+) -> TailBuyRunPlan:
+    if require_today_result and not has_signal_pending_on_date(today_trade_date, config.logs_path):
+        return TailBuyRunPlan(
+            mode="post_close_review",
+            target_signal_date=today_trade_date,
+            today_trade_date=today_trade_date,
+            strict_signal_date=True,
+            include_holding_candidates=False,
+            persist_results=False,
+            skip_reason=f"今天 {today_trade_date} 的漏斗二次确认结果尚未写入 signal_pending，跳过盘后复核，避免复用旧候选。",
+        )
+    return TailBuyRunPlan(
+        mode="post_close_review",
+        target_signal_date=today_trade_date,
+        today_trade_date=today_trade_date,
+        strict_signal_date=True,
+        include_holding_candidates=False,
+        persist_results=False,
+    )
+
+
+def _is_post_close_time(dt) -> bool:
+    return dt.timetz().replace(tzinfo=None) >= time(15, 5)
+
+
+def _run_plan_line(plan: TailBuyRunPlan) -> str:
+    return (
+        f"run_plan: mode={plan.mode}, target_signal_date={plan.target_signal_date}, "
+        f"today_trade_date={plan.today_trade_date}, strict={plan.strict_signal_date}, "
+        f"include_holdings={plan.include_holding_candidates}, persist={plan.persist_results}"
+    )
+
+
+def _tail_buy_delivery_succeeded(config: TailBuyRuntimeConfig, feishu_ok: bool, tg_ok: bool) -> bool:
+    tg_required = bool(config.tg_bot_token and config.tg_chat_id)
+    return bool(feishu_ok and (tg_ok or not tg_required))
 
 
 def _log_scan_budget(

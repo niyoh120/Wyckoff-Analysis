@@ -89,7 +89,7 @@ def test_send_tail_buy_report_builds_buy_only_report(monkeypatch) -> None:
 
     assert delivery.send_tail_buy_report(
         config=config,
-        prev_trade_date="2026-06-21",
+        target_signal_date="2026-06-21",
         market_reminder="NEUTRAL",
         candidate_source_desc="signal_pending",
         holdings_section="holdings",

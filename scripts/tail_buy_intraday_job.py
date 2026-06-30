@@ -20,6 +20,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--portfolio-id", default=default_tail_buy_job_portfolio_id())
     parser.add_argument("--logs", default=None)
     parser.add_argument("--user-id", default="")
+    parser.add_argument(
+        "--mode",
+        choices=("auto", "intraday", "post_close_review"),
+        default="auto",
+        help="auto=按交易阶段自动切换；intraday=盘中尾盘执行确认；post_close_review=盘后明日计划复核",
+    )
     return parser.parse_args()
 
 
@@ -30,6 +36,7 @@ def request_from_args(args: argparse.Namespace) -> TailBuyJobRequest:
         portfolio_id=args.portfolio_id,
         logs=args.logs,
         user_id=args.user_id,
+        mode=args.mode,
     )
 
 

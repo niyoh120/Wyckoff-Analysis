@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from core.tail_buy.models import TailBuyCandidate
@@ -87,3 +87,53 @@ def test_apply_intraday_repair_mode_only_overrides_weak_candidates() -> None:
     assert changed == 1
     assert weak.market_regime == "PANIC_REPAIR_INTRADAY"
     assert neutral.market_regime == "NEUTRAL"
+
+
+def test_auto_run_plan_uses_intraday_before_close(monkeypatch) -> None:
+    monkeypatch.setattr(job, "resolve_tail_buy_trade_dates", lambda _logs: ("2026-06-26", "2026-06-29"))
+    monkeypatch.setattr(job, "has_signal_pending_on_date", lambda *_args, **_kwargs: True)
+    config = SimpleNamespace(
+        mode="auto", started_at=datetime(2026, 6, 29, 14, 45, tzinfo=current_time().tzinfo), logs_path=""
+    )
+
+    plan = job.resolve_tail_buy_run_plan(config)
+
+    assert plan.mode == "intraday"
+    assert plan.target_signal_date == "2026-06-26"
+    assert plan.include_holding_candidates is True
+    assert plan.persist_results is True
+
+
+def test_auto_run_plan_uses_post_close_when_today_result_exists(monkeypatch) -> None:
+    monkeypatch.setattr(job, "resolve_tail_buy_trade_dates", lambda _logs: ("2026-06-26", "2026-06-29"))
+    monkeypatch.setattr(job, "has_signal_pending_on_date", lambda *_args, **_kwargs: True)
+    config = SimpleNamespace(
+        mode="auto", started_at=datetime(2026, 6, 29, 17, 45, tzinfo=current_time().tzinfo), logs_path=""
+    )
+
+    plan = job.resolve_tail_buy_run_plan(config)
+
+    assert plan.mode == "post_close_review"
+    assert plan.target_signal_date == "2026-06-29"
+    assert plan.strict_signal_date is True
+    assert plan.include_holding_candidates is False
+    assert plan.persist_results is False
+
+
+def test_auto_run_plan_skips_post_close_without_today_result(monkeypatch) -> None:
+    monkeypatch.setattr(job, "resolve_tail_buy_trade_dates", lambda _logs: ("2026-06-26", "2026-06-29"))
+    monkeypatch.setattr(job, "has_signal_pending_on_date", lambda *_args, **_kwargs: False)
+    config = SimpleNamespace(
+        mode="auto", started_at=datetime(2026, 6, 29, 17, 45, tzinfo=current_time().tzinfo), logs_path=""
+    )
+
+    plan = job.resolve_tail_buy_run_plan(config)
+
+    assert plan.mode == "post_close_review"
+    assert plan.skip_reason
+
+
+def test_tail_buy_delivery_succeeds_when_telegram_not_configured() -> None:
+    config = SimpleNamespace(tg_bot_token="", tg_chat_id="")
+
+    assert job._tail_buy_delivery_succeeded(config, feishu_ok=True, tg_ok=False) is True

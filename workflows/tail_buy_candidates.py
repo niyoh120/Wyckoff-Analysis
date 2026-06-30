@@ -30,18 +30,26 @@ def load_tail_candidates(
     target_signal_date: str,
     portfolio_id: str,
     logs_path: str | None = None,
+    *,
+    lookback_days: int = 15,
+    strict_signal_date: bool = False,
+    include_holdings: bool = True,
 ) -> tuple[list[TailBuyCandidate], str]:
-    pending = _load_signal_pending_candidates(target_signal_date, logs_path)
-    holdings = _load_holding_candidates(portfolio_id, target_signal_date, logs_path)
+    pending = _load_signal_pending_candidates(
+        target_signal_date,
+        logs_path,
+        lookback_days=lookback_days,
+        strict_signal_date=strict_signal_date,
+    )
+    holdings = _load_holding_candidates(portfolio_id, target_signal_date, logs_path) if include_holdings else []
     pending_codes = {candidate.code for candidate in pending}
     supplement = [candidate for candidate in holdings if candidate.code not in pending_codes]
 
     merged = pending + supplement
     merged.sort(key=lambda x: (x.status != "confirmed", -x.signal_score, x.code))
-    source_desc = (
-        f"signal_pending_15d={len(pending)} + holding={len(supplement)} "
-        f"(target={target_signal_date}, portfolio={portfolio_id})"
-    )
+    source_name = "signal_pending_exact" if strict_signal_date else "signal_pending_15d"
+    holding_text = f" + holding={len(supplement)}" if include_holdings else ""
+    source_desc = f"{source_name}={len(pending)}{holding_text} (target={target_signal_date}, portfolio={portfolio_id})"
     log_line(
         f"候选池加载完成: signal_pending={len(pending)}, 持仓补充={len(supplement)}, 合计={len(merged)}",
         logs_path,
@@ -62,16 +70,17 @@ def _load_signal_pending_candidates(
     target_signal_date: str,
     logs_path: str | None = None,
     lookback_days: int = 15,
+    strict_signal_date: bool = False,
 ) -> list[TailBuyCandidate]:
     if not is_admin_configured():
         raise RuntimeError("Supabase 凭据未配置，无法读取 signal_pending")
 
     cutoff_date = _signal_cutoff_date(target_signal_date, lookback_days)
-    rows = _fetch_signal_pending_rows(cutoff_date)
+    rows = _fetch_signal_pending_rows(cutoff_date, exact_date=target_signal_date if strict_signal_date else None)
     picked = pick_tail_candidates(rows, cutoff_date=cutoff_date)
     log_line(
         f"signal_pending 候选加载: raw={len(rows)}, picked={len(picked)}, "
-        f"cutoff={cutoff_date}, target={target_signal_date}",
+        f"cutoff={cutoff_date}, target={target_signal_date}, strict={strict_signal_date}",
         logs_path,
     )
     return picked
@@ -95,10 +104,32 @@ def _signal_cutoff_date(target_signal_date: str, lookback_days: int) -> str:
     return (datetime.strptime(target_signal_date, "%Y-%m-%d") - timedelta(days=lookback)).strftime("%Y-%m-%d")
 
 
-def _fetch_signal_pending_rows(cutoff_date: str) -> list[dict]:
+def has_signal_pending_on_date(target_signal_date: str, logs_path: str | None = None) -> bool:
+    if not is_admin_configured():
+        log_line("Supabase 凭据未配置，无法检查今日 signal_pending", logs_path)
+        return False
+    try:
+        rows = (
+            create_admin_client()
+            .table(TABLE_SIGNAL_PENDING)
+            .select("id")
+            .in_("status", ["pending", "confirmed"])
+            .eq("signal_date", target_signal_date)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return bool(rows)
+    except Exception as exc:
+        log_line(f"检查 signal_pending({target_signal_date}) 失败: {exc}", logs_path)
+        return False
+
+
+def _fetch_signal_pending_rows(cutoff_date: str, *, exact_date: str | None = None) -> list[dict]:
     client = create_admin_client()
     try:
-        return (
+        query = (
             client.table(TABLE_SIGNAL_PENDING)
             .select(
                 "code,name,signal_type,signal_score,status,signal_date,regime,snap_support,snap_ma20,"
@@ -106,13 +137,9 @@ def _fetch_signal_pending_rows(cutoff_date: str) -> list[dict]:
                 "mainline_score,theme_score,stock_role_score,quality_score,timing_score"
             )
             .in_("status", ["pending", "confirmed"])
-            .gte("signal_date", cutoff_date)
-            .order("signal_date", desc=True)
-            .limit(8000)
-            .execute()
-            .data
-            or []
         )
+        query = query.eq("signal_date", exact_date) if exact_date else query.gte("signal_date", cutoff_date)
+        return query.order("signal_date", desc=True).limit(8000).execute().data or []
     except Exception as exc:
         raise RuntimeError(f"读取 signal_pending 失败: {exc}") from exc
 
