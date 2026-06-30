@@ -81,6 +81,8 @@ def test_workflow_prompt_prefers_model_inference_before_clarifying():
 
     assert "自然语言理解" in prompt
     assert "工具验证" in prompt
+    assert "合理推断" in prompt
+    assert "按假设执行" in prompt
     assert "关键对象仍缺失" in prompt
     assert "错别字" not in prompt
 
@@ -89,6 +91,8 @@ def test_ask_user_question_schema_makes_clarification_last_resort():
     schema = next(item for item in TOOL_SCHEMAS if item["name"] == "ask_user_question")
 
     assert "先根据上下文和工具判断" in schema["description"]
+    assert "表述偏差" in schema["description"]
+    assert "先按假设执行并说明" in schema["description"]
     assert "写入/交易/高风险确认" in schema["description"]
     assert "优先使用" not in schema["description"]
 
@@ -400,6 +404,8 @@ def test_direct_runtime_prompt_prefers_model_inference_before_clarifying():
     assert "自然语言理解" in prompt
     assert "上下文恢复" in prompt
     assert "可用工具验证" in prompt
+    assert "合理推断" in prompt
+    assert "说明假设" in prompt
     assert "写入/交易/高风险确认" in prompt
     assert "谐音" not in prompt
 

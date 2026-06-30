@@ -223,9 +223,9 @@ Agent 输出计划:
 最终综合结论
 ```
 
-当前 CLI 没有独立的 `/plan` 命令，也没有“先生成计划、等待用户确认、再执行工具”的交互式 Plan Mode（计划模式）状态机。运行时只在两类场景做确定性治理：
+当前 CLI 没有独立的 `/plan` 命令，也没有“先生成计划、等待用户确认、再执行工具”的交互式 Plan Mode（计划模式）状态机。运行时默认让模型负责自然语言理解、上下文恢复和任务拆分；代码只在两类场景做确定性治理：
 
-- 必需工具漏调时，`loop_guard` 会注入 retry message（重试消息），要求模型不要停留在计划文本，必须先调用对应工具拿真实数据。
+- 设置 `WYCKOFF_STRICT_TOOL_EXPECTATIONS=1` 或测试显式开启时，`loop_guard` 才会按旧式 turn expectation 注入 retry message（重试消息），用于诊断模型漏调工具，不作为默认聊天路径。
 - 高风险工具（`update_portfolio`、`exec_command`、`write_file`）执行前由 TUI 弹窗确认，避免写操作直接落地。
 
 ### 后台任务架构

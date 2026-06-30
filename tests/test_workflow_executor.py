@@ -188,9 +188,10 @@ def _reset_local_db(local_db) -> None:
 
 def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
     assert "自然语言语义、上下文恢复和任务拆分由你完成" in _PLAN_SYSTEM_PROMPT
+    assert "合理推断" in _PLAN_SYSTEM_PROMPT
+    assert "按最高置信假设生成可执行 task" in _PLAN_SYSTEM_PROMPT
     assert "措辞恢复" not in _PLAN_SYSTEM_PROMPT
     assert "不要单独生成元任务" not in _PLAN_SYSTEM_PROMPT
-    assert "口语、省略、别字" not in _PLAN_SYSTEM_PROMPT
     assert "错字" not in _PLAN_SYSTEM_PROMPT
     assert "错别字" not in _PLAN_SYSTEM_PROMPT
     assert "不需要选择内部执行角色" in _PLAN_SYSTEM_PROMPT
