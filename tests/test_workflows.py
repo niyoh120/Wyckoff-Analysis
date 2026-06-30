@@ -168,18 +168,18 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
     assert provider.chat_calls
     assert provider.chat_calls[0]["tools"] == []
     router_prompt = provider.chat_calls[0]["system_prompt"]
-    assert "任务的执行形态" in router_prompt
-    assert "router 只输出 runtime 决策" in router_prompt
+    assert "runtime router" in router_prompt
+    assert "默认用 direct" in router_prompt
     assert "查看持仓" not in router_prompt
     assert "单只股票诊断" not in router_prompt
 
 
-def test_model_router_prompt_keeps_direct_as_default_chat_path():
-    assert "默认选择 direct" in _ROUTER_SYSTEM_PROMPT
-    assert "一个清楚目标在一轮内能完成" in _ROUTER_SYSTEM_PROMPT
-    assert "持续编排" in _ROUTER_SYSTEM_PROMPT
-    assert "任务的执行形态" in _ROUTER_SYSTEM_PROMPT
-    assert "不改写用户请求" in _ROUTER_SYSTEM_PROMPT
+def test_model_router_prompt_is_minimal_runtime_contract():
+    assert "默认用 direct" in _ROUTER_SYSTEM_PROMPT
+    assert "dynamic_workflow" in _ROUTER_SYSTEM_PROMPT
+    assert "不改写" in _ROUTER_SYSTEM_PROMPT
+    assert "用户只是" not in _ROUTER_SYSTEM_PROMPT
+    assert "一个清楚目标" not in _ROUTER_SYSTEM_PROMPT
     assert "用户表达不标准" not in _ROUTER_SYSTEM_PROMPT
     assert "语义恢复" not in _ROUTER_SYSTEM_PROMPT
     assert "措辞恢复" not in _ROUTER_SYSTEM_PROMPT
@@ -190,7 +190,7 @@ def test_model_router_prompt_keeps_direct_as_default_chat_path():
     assert "单只股票诊断" not in _ROUTER_SYSTEM_PROMPT
 
 
-def test_dispatch_rejects_non_schema_model_router_aliases():
+def test_dispatch_accepts_model_router_aliases():
     provider = RouterDecisionProvider('{"route":"动态工作流","score":"84%","reason":"需要多阶段筛选和攻防计划"}')
 
     runtime, workflow = build_turn_runtime(
@@ -200,12 +200,13 @@ def test_dispatch_rejects_non_schema_model_router_aliases():
         user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
     )
 
-    assert workflow.name == "general_chat"
-    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
-    assert isinstance(runtime, AgentRuntime)
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_confidence == 0.84
+    assert workflow.route_reason == "模型判断需要动态 workflow：需要多阶段筛选和攻防计划"
+    assert isinstance(runtime, WorkflowExecutor)
 
 
-def test_dispatch_rejects_boolean_workflow_router_flag():
+def test_dispatch_accepts_boolean_workflow_router_flag():
     provider = RouterDecisionProvider('{"workflow":true,"probability":88,"reason":"需要完整研究链路"}')
 
     runtime, workflow = build_turn_runtime(
@@ -215,9 +216,10 @@ def test_dispatch_rejects_boolean_workflow_router_flag():
         user_text="研究一下今天哪些方向值得重点跟踪",
     )
 
-    assert workflow.name == "general_chat"
-    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
-    assert isinstance(runtime, AgentRuntime)
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_confidence == 0.88
+    assert workflow.route_reason == "模型判断需要动态 workflow：需要完整研究链路"
+    assert isinstance(runtime, WorkflowExecutor)
 
 
 def test_dispatch_uses_streaming_router_when_chat_is_unimplemented():
@@ -238,7 +240,7 @@ def test_dispatch_uses_streaming_router_when_chat_is_unimplemented():
     assert workflow.route_reason == "模型判断需要动态 workflow：需要多阶段选股"
     assert isinstance(runtime, WorkflowExecutor)
     assert provider.calls[0]["tools"] == []
-    assert "turn router" in provider.calls[0]["system_prompt"]
+    assert "runtime router" in provider.calls[0]["system_prompt"]
 
 
 def test_dispatch_keeps_direct_runtime_when_model_routes_direct():
@@ -319,7 +321,7 @@ def test_dispatch_resume_workflow_bypasses_model_router():
     assert isinstance(runtime, WorkflowExecutor)
 
 
-def test_dispatch_rejects_chinese_direct_router_alias():
+def test_dispatch_accepts_chinese_direct_router_alias():
     provider = RouterDecisionProvider('{"mode":"直接回答","confidence":"95%","reason":"单轮问题"}')
 
     runtime, workflow = build_turn_runtime(
@@ -330,7 +332,8 @@ def test_dispatch_rejects_chinese_direct_router_alias():
     )
 
     assert workflow.name == "general_chat"
-    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
+    assert workflow.route_confidence == 0.95
+    assert workflow.route_reason == "模型判断直接处理：单轮问题"
     assert isinstance(runtime, AgentRuntime)
 
 
