@@ -47,16 +47,17 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
         trade_mode = _trade_mode_summary(details)
         top_candidates = _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details)
         summary = _screen_summary(metrics, symbols)
+        data_quality = _data_quality_summary(metrics, summary)
         result = {
             "ok": bool(ok),
             "board": board,
             "scan_scope": _scan_scope(board, summary, metrics),
             "summary": summary,
-            "data_quality": _data_quality_summary(metrics, summary),
+            "data_quality": data_quality,
             "trade_mode": trade_mode,
-            "decision_brief": _decision_brief(trade_mode, top_candidates),
-            "selection_brief": _selection_brief(trade_mode, top_candidates),
-            "action_plan": _action_plan(trade_mode, top_candidates),
+            "decision_brief": _decision_brief(trade_mode, top_candidates, data_quality),
+            "selection_brief": _selection_brief(trade_mode, top_candidates, data_quality),
+            "action_plan": _action_plan(trade_mode, top_candidates, data_quality),
             "top_candidates": top_candidates,
             "trigger_groups": trigger_groups,
             "top_sectors": metrics.get("top_sectors", []),
@@ -207,6 +208,43 @@ def _data_quality_action(status: str) -> str:
     }.get(status, "需要复核数据质量")
 
 
+def _data_quality_blocks_review(data_quality: dict | None) -> bool:
+    status = str((data_quality or {}).get("status") or "")
+    return status in {"degraded", "empty"}
+
+
+def _data_quality_blocks_ready_flow(trade_mode: dict, data_quality: dict | None) -> bool:
+    if not bool(trade_mode.get("allow_ai_review") or trade_mode.get("allow_recommendation_write")):
+        return False
+    return _data_quality_blocks_review(data_quality)
+
+
+def _data_quality_gate(trade_mode: dict, data_quality: dict | None) -> dict:
+    if not _data_quality_blocks_ready_flow(trade_mode, data_quality):
+        return {}
+    return {
+        "status": str((data_quality or {}).get("status") or "degraded"),
+        "reason": _data_quality_gate_reason(data_quality),
+        "warnings": list((data_quality or {}).get("warnings") or []),
+    }
+
+
+def _data_quality_gate_reason(data_quality: dict | None) -> str:
+    payload = data_quality or {}
+    action = str(payload.get("action") or "数据质量不足，先重跑或缩小扫描范围").strip()
+    warnings = [str(item) for item in payload.get("warnings") or [] if str(item).strip()]
+    return "；".join([action, *warnings[:3]])
+
+
+def _data_quality_risk_factors(data_quality: dict | None) -> list[str]:
+    if not _data_quality_blocks_review(data_quality):
+        return []
+    payload = data_quality or {}
+    factors = [str(payload.get("action") or "数据质量不足")]
+    factors.extend(str(item) for item in payload.get("warnings") or [])
+    return list(dict.fromkeys(factor for factor in factors if factor))
+
+
 def _scan_scope(board: str, summary: dict, metrics: dict) -> dict:
     limit = int(metrics.get("pool_limit", 0) or 0)
     scope = "bounded" if limit > 0 else "full"
@@ -234,36 +272,46 @@ def _trade_mode_summary(details: dict) -> dict:
     return {field: mode[field] for field in fields if field in mode}
 
 
-def _action_plan(trade_mode: dict, top_candidates: list[dict]) -> dict:
+def _action_plan(trade_mode: dict, top_candidates: list[dict], data_quality: dict) -> dict:
     report_candidates = [row for row in top_candidates if row.get("selected_for_report")]
     watch_candidates = [row for row in top_candidates if not row.get("selected_for_report")]
-    return {
+    gate = _data_quality_gate(trade_mode, data_quality)
+    payload = {
         "primary_action": str(trade_mode.get("action") or _candidate_action_label(trade_mode)),
         "candidate_action": _candidate_action_label(trade_mode),
-        "new_buy_allowed": bool(trade_mode.get("allow_recommendation_write")),
-        "ai_review_allowed": bool(trade_mode.get("allow_ai_review")),
-        "review_targets": _review_targets(report_candidates, trade_mode),
-        "report_candidates": _candidate_refs(report_candidates, trade_mode, "report"),
-        "watch_candidates": _candidate_refs(watch_candidates, trade_mode, "watch"),
+        "new_buy_allowed": bool(trade_mode.get("allow_recommendation_write")) and not gate,
+        "ai_review_allowed": bool(trade_mode.get("allow_ai_review")) and not gate,
+        "review_targets": _review_targets(report_candidates, trade_mode, data_quality),
+        "report_candidates": _candidate_refs(report_candidates, trade_mode, "report", data_quality),
+        "watch_candidates": _candidate_refs(watch_candidates, trade_mode, "watch", data_quality),
     }
+    if gate:
+        payload["data_quality_gate"] = gate
+    return payload
 
 
-def _decision_brief(trade_mode: dict, top_candidates: list[dict]) -> dict:
+def _decision_brief(trade_mode: dict, top_candidates: list[dict], data_quality: dict) -> dict:
     report_candidates = [row for row in top_candidates if row.get("selected_for_report")]
     watch_candidates = [row for row in top_candidates if not row.get("selected_for_report")]
+    gate = _data_quality_gate(trade_mode, data_quality)
     return {
         "market_gate": _market_gate_line(trade_mode),
-        "next_action": _candidate_action_label(trade_mode),
-        "report_focus": _candidate_brief_items(report_candidates, trade_mode, "report"),
-        "watch_focus": _candidate_brief_items(watch_candidates, trade_mode, "watch"),
+        "next_action": gate.get("reason") or _candidate_action_label(trade_mode),
+        "report_focus": _candidate_brief_items(report_candidates, trade_mode, "report", data_quality),
+        "watch_focus": _candidate_brief_items(watch_candidates, trade_mode, "watch", data_quality),
     }
 
 
-def _selection_brief(trade_mode: dict, top_candidates: list[dict]) -> dict:
+def _selection_brief(trade_mode: dict, top_candidates: list[dict], data_quality: dict) -> dict:
     report_candidates = [row for row in top_candidates if row.get("selected_for_report")]
     candidates = report_candidates or top_candidates[:3]
-    status = _selection_status(report_candidates, candidates, trade_mode)
-    best_candidates = _selection_candidate_items(candidates, trade_mode, "report" if report_candidates else "watch")
+    status = _selection_status(report_candidates, candidates, trade_mode, data_quality)
+    best_candidates = _selection_candidate_items(
+        candidates,
+        trade_mode,
+        "report" if report_candidates else "watch",
+        data_quality,
+    )
     payload = {
         "status": status,
         "headline": _selection_headline(status, best_candidates),
@@ -275,9 +323,13 @@ def _selection_brief(trade_mode: dict, top_candidates: list[dict]) -> dict:
     return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
-def _selection_status(report_candidates: list[dict], candidates: list[dict], trade_mode: dict) -> str:
+def _selection_status(
+    report_candidates: list[dict], candidates: list[dict], trade_mode: dict, data_quality: dict
+) -> str:
     if not candidates:
         return "empty"
+    if report_candidates and _data_quality_blocks_ready_flow(trade_mode, data_quality):
+        return "blocked_by_data_quality"
     if report_candidates and bool(trade_mode.get("allow_ai_review")):
         return "ready_for_ai_review"
     if report_candidates:
@@ -285,15 +337,22 @@ def _selection_status(report_candidates: list[dict], candidates: list[dict], tra
     return "watch_only"
 
 
-def _selection_candidate_items(candidates: list[dict], trade_mode: dict, bucket: str, *, limit: int = 5) -> list[dict]:
-    return [_selection_candidate_item(row, trade_mode, bucket) for row in candidates[:limit]]
+def _selection_candidate_items(
+    candidates: list[dict],
+    trade_mode: dict,
+    bucket: str,
+    data_quality: dict,
+    *,
+    limit: int = 5,
+) -> list[dict]:
+    return [_selection_candidate_item(row, trade_mode, bucket, data_quality) for row in candidates[:limit]]
 
 
-def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str) -> dict:
+def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str, data_quality: dict) -> dict:
     profile = _candidate_profile(row)
     rank_reason = str(row.get("rank_reason") or "").strip()
     why = "；".join(part for part in (profile, rank_reason) if part) or "候选证据不足"
-    next_step = _candidate_next_step(trade_mode, bucket)
+    next_step = _candidate_next_step(trade_mode, bucket, data_quality)
     return _drop_empty_candidate_fields(
         {
             "code": str(row.get("code") or "").strip(),
@@ -301,8 +360,8 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str) -> dict:
             "tier": _candidate_quality_label(row),
             "why": why,
             "quality_factors": _candidate_quality_factors(row, next_step=next_step),
-            "risk_factors": _candidate_risk_factors(row, trade_mode, bucket),
-            "action_status": _candidate_action_status(trade_mode, bucket),
+            "risk_factors": _candidate_risk_factors(row, trade_mode, bucket, data_quality),
+            "action_status": _candidate_action_status(trade_mode, bucket, data_quality),
             "next_step": next_step,
             "priority_score": row.get("priority_score"),
             "shadow_score": row.get("shadow_score"),
@@ -321,6 +380,7 @@ def _selection_headline(status: str, best_candidates: list[dict]) -> str:
     first = best_candidates[0]
     prefix = {
         "ready_for_ai_review": "本轮首选可进入 AI 研报复核",
+        "blocked_by_data_quality": "本轮有候选，但数据质量未过关",
         "blocked_by_market_gate": "本轮有强候选，但市场闸门未打开",
         "watch_only": "本轮只有观察候选",
     }.get(status, "本轮候选摘要")
@@ -342,12 +402,12 @@ def _drop_empty_candidate_fields(payload: dict) -> dict:
     return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
-def _review_targets(report_candidates: list[dict], trade_mode: dict) -> dict:
+def _review_targets(report_candidates: list[dict], trade_mode: dict, data_quality: dict) -> dict:
     codes = [str(row.get("code") or "").strip() for row in report_candidates if str(row.get("code") or "").strip()]
     payload = {
         "codes": codes[:10],
-        "status": _review_target_status(codes, trade_mode),
-        "reason": _review_target_reason(codes, trade_mode),
+        "status": _review_target_status(codes, trade_mode, data_quality),
+        "reason": _review_target_reason(codes, trade_mode, data_quality),
     }
     if payload["status"] == "ready":
         payload["tool"] = "generate_ai_report"
@@ -355,18 +415,24 @@ def _review_targets(report_candidates: list[dict], trade_mode: dict) -> dict:
     return payload
 
 
-def _review_target_status(codes: list[str], trade_mode: dict) -> str:
+def _review_target_status(codes: list[str], trade_mode: dict, data_quality: dict) -> str:
     if not codes:
         return "empty"
-    return "ready" if bool(trade_mode.get("allow_ai_review")) else "blocked"
+    if not bool(trade_mode.get("allow_ai_review")):
+        return "blocked"
+    if _data_quality_blocks_ready_flow(trade_mode, data_quality):
+        return "blocked_by_data_quality"
+    return "ready"
 
 
-def _review_target_reason(codes: list[str], trade_mode: dict) -> str:
+def _review_target_reason(codes: list[str], trade_mode: dict, data_quality: dict) -> str:
     if not codes:
         return "本轮没有研报候选"
-    if bool(trade_mode.get("allow_ai_review")):
-        return "候选已可进入 AI 研报复核"
-    return str(trade_mode.get("reason") or "市场风险闸门未打开，暂不进入 AI 研报复核")
+    if not bool(trade_mode.get("allow_ai_review")):
+        return str(trade_mode.get("reason") or "市场风险闸门未打开，暂不进入 AI 研报复核")
+    if _data_quality_blocks_ready_flow(trade_mode, data_quality):
+        return _data_quality_gate_reason(data_quality)
+    return "候选已可进入 AI 研报复核"
 
 
 def _market_gate_line(trade_mode: dict) -> str:
@@ -390,18 +456,32 @@ def _candidate_action_label(trade_mode: dict) -> str:
     return "先复核候选质量"
 
 
-def _candidate_refs(candidates: list[dict], trade_mode: dict, bucket: str, *, limit: int = 5) -> list[dict]:
-    return [_candidate_ref(row, trade_mode, bucket) for row in candidates[:limit]]
+def _candidate_refs(
+    candidates: list[dict],
+    trade_mode: dict,
+    bucket: str,
+    data_quality: dict,
+    *,
+    limit: int = 5,
+) -> list[dict]:
+    return [_candidate_ref(row, trade_mode, bucket, data_quality) for row in candidates[:limit]]
 
 
-def _candidate_brief_items(candidates: list[dict], trade_mode: dict, bucket: str, *, limit: int = 5) -> list[dict]:
-    return [_candidate_brief_item(row, trade_mode, bucket) for row in candidates[:limit]]
+def _candidate_brief_items(
+    candidates: list[dict],
+    trade_mode: dict,
+    bucket: str,
+    data_quality: dict,
+    *,
+    limit: int = 5,
+) -> list[dict]:
+    return [_candidate_brief_item(row, trade_mode, bucket, data_quality) for row in candidates[:limit]]
 
 
-def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str) -> dict:
+def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str, data_quality: dict) -> dict:
     profile = _candidate_profile(row)
     rank_reason = str(row.get("rank_reason") or "").strip()
-    next_step = _candidate_next_step(trade_mode, bucket)
+    next_step = _candidate_next_step(trade_mode, bucket, data_quality)
     evidence = "；".join(part for part in (profile, rank_reason) if part) or "候选证据不足"
     code = str(row.get("code") or "").strip()
     name = str(row.get("name") or code).strip()
@@ -411,15 +491,15 @@ def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str) -> dict:
         "quality": _candidate_quality_label(row),
         "evidence": evidence,
         "quality_factors": _candidate_quality_factors(row, next_step=next_step),
-        "risk_factors": _candidate_risk_factors(row, trade_mode, bucket),
-        "action_status": _candidate_action_status(trade_mode, bucket),
+        "risk_factors": _candidate_risk_factors(row, trade_mode, bucket, data_quality),
+        "action_status": _candidate_action_status(trade_mode, bucket, data_quality),
         "next_step": next_step,
         "summary": f"{code} {name}: {evidence}；{next_step}",
     }
 
 
-def _candidate_ref(row: dict, trade_mode: dict, bucket: str) -> dict:
-    next_step = _candidate_next_step(trade_mode, bucket)
+def _candidate_ref(row: dict, trade_mode: dict, bucket: str, data_quality: dict) -> dict:
+    next_step = _candidate_next_step(trade_mode, bucket, data_quality)
     payload = {
         "code": row.get("code"),
         "name": row.get("name"),
@@ -428,8 +508,8 @@ def _candidate_ref(row: dict, trade_mode: dict, bucket: str) -> dict:
         "next_step": next_step,
         "rank_reason": row.get("rank_reason"),
         "quality_factors": _candidate_quality_factors(row, next_step=next_step),
-        "risk_factors": _candidate_risk_factors(row, trade_mode, bucket),
-        "action_status": _candidate_action_status(trade_mode, bucket),
+        "risk_factors": _candidate_risk_factors(row, trade_mode, bucket, data_quality),
+        "action_status": _candidate_action_status(trade_mode, bucket, data_quality),
         "priority_score": row.get("priority_score"),
         "shadow_score": row.get("shadow_score"),
         "selection_source": row.get("selection_source"),
@@ -456,12 +536,14 @@ def _candidate_quality_label(row: dict) -> str:
     return "观察候选"
 
 
-def _candidate_next_step(trade_mode: dict, bucket: str) -> str:
+def _candidate_next_step(trade_mode: dict, bucket: str, data_quality: dict | None = None) -> str:
     if bucket == "watch":
         return "观察池跟踪，暂不进入本轮AI复核"
     mode = str(trade_mode.get("mode") or "").strip()
     if not bool(trade_mode.get("allow_ai_review")):
         return "只观察，等待市场风险闸门重新打开"
+    if _data_quality_blocks_ready_flow(trade_mode, data_quality):
+        return "数据质量不足，先重跑或缩小扫描范围"
     if not bool(trade_mode.get("allow_recommendation_write")):
         return "可送AI做修复复核，但不写正式推荐"
     if mode == "confirmation_only":
@@ -471,12 +553,14 @@ def _candidate_next_step(trade_mode: dict, bucket: str) -> str:
     return "进入AI复核，先确认候选质量"
 
 
-def _candidate_action_status(trade_mode: dict, bucket: str) -> str:
+def _candidate_action_status(trade_mode: dict, bucket: str, data_quality: dict | None = None) -> str:
     if bucket == "watch":
         return "watch_only"
     mode = str(trade_mode.get("mode") or "").strip()
     if not bool(trade_mode.get("allow_ai_review")):
         return "blocked_by_market_gate"
+    if _data_quality_blocks_ready_flow(trade_mode, data_quality):
+        return "blocked_by_data_quality"
     if not bool(trade_mode.get("allow_recommendation_write")):
         return "repair_review_only"
     if mode == "confirmation_only":
@@ -504,13 +588,20 @@ def _candidate_quality_factors(row: dict, *, next_step: str = "") -> list[str]:
     return list(dict.fromkeys(factor for factor in factors if factor))
 
 
-def _candidate_risk_factors(row: dict, trade_mode: dict | None = None, bucket: str = "") -> list[str]:
+def _candidate_risk_factors(
+    row: dict,
+    trade_mode: dict | None = None,
+    bucket: str = "",
+    data_quality: dict | None = None,
+) -> list[str]:
     factors: list[str] = []
     if bucket == "watch" or not bool(row.get("selected_for_report")):
         factors.append("未进入本轮研报候选")
     if not row.get("triggers") and not row.get("selected_for_report"):
         factors.append("触发信号未列明")
     if trade_mode:
+        if _data_quality_blocks_ready_flow(trade_mode, data_quality) and bucket != "watch":
+            factors.extend(_data_quality_risk_factors(data_quality))
         factors.extend(_trade_mode_risk_factors(trade_mode, bucket))
     return list(dict.fromkeys(factor for factor in factors if factor))
 

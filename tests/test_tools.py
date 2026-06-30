@@ -1909,7 +1909,7 @@ class TestSymbolPool:
                 ],
                 {},
                 {
-                    "metrics": {},
+                    "metrics": {"total_symbols": 100, "fetch_ok": 100, "fetch_fail": 0},
                     "triggers": {},
                     "trade_mode": {
                         "mode": "risk_on",
@@ -1945,3 +1945,58 @@ class TestSymbolPool:
         assert ctx.state["last_screen_result"]["symbols_for_report"][0]["code"] == "000004"
         assert ctx.state["last_screen_result"]["selection_brief"]["best_codes"] == ["000004", "000005"]
         assert "trigger_groups" not in ctx.state["last_screen_result"]
+
+    def test_screen_stocks_blocks_ai_review_on_degraded_data_quality(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000004",
+                        "name": "主线候选",
+                        "priority_rank": 1,
+                        "priority_score": 11.0,
+                    }
+                ],
+                {},
+                {
+                    "metrics": {
+                        "total_symbols": 100,
+                        "fetch_ok": 80,
+                        "fetch_fail": 20,
+                    },
+                    "triggers": {},
+                    "trade_mode": {
+                        "mode": "risk_on",
+                        "action": "允许新增买入",
+                        "allow_ai_review": True,
+                        "allow_recommendation_write": True,
+                    },
+                    "name_map": {},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        assert result["selection_brief"]["status"] == "blocked_by_data_quality"
+        assert result["selection_brief"]["headline"] == "本轮有候选，但数据质量未过关: 000004 主线候选"
+        assert "tool_handoff" not in result["selection_brief"]
+        assert result["selection_brief"]["primary_pick"]["action_status"] == "blocked_by_data_quality"
+        assert result["selection_brief"]["primary_pick"]["next_step"] == "数据质量不足，先重跑或缩小扫描范围"
+        assert result["action_plan"]["ai_review_allowed"] is False
+        assert result["action_plan"]["new_buy_allowed"] is False
+        assert result["action_plan"]["review_targets"] == {
+            "codes": ["000004"],
+            "status": "blocked_by_data_quality",
+            "reason": "不要直接据此选股，先重跑或缩小扫描范围；20只股票拉取失败；数据覆盖率 80.0%",
+        }
+        assert result["action_plan"]["data_quality_gate"]["status"] == "degraded"
+        assert result["action_plan"]["report_candidates"][0]["action_status"] == "blocked_by_data_quality"
