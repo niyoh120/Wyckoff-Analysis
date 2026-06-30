@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from agents.stock_data_helpers import code_to_name
@@ -11,16 +12,17 @@ from agents.tool_context import ToolContext, ensure_tushare_token, resolve_llm_c
 logger = logging.getLogger(__name__)
 
 
-def generate_ai_report(stock_codes: list[str], tool_context: ToolContext | None = None) -> dict:
+def generate_ai_report(stock_codes: list[Any], tool_context: ToolContext | None = None) -> dict:
     """对指定股票列表生成威科夫三阵营 AI 深度研报。"""
     try:
         ensure_tushare_token(tool_context)
-        if not stock_codes:
+        stock_items = _stock_code_items(stock_codes)
+        if not stock_items:
             return {"error": "请提供至少一个股票代码"}
         provider, api_key, model, base_url = resolve_llm_config(tool_context)
         if not api_key:
             return {"error": "未配置 LLM API Key，无法生成 AI 研报。请通过 /model 或设置页面配置。"}
-        symbols_info = symbols_info_from_codes(stock_codes[:10], tool_context)
+        symbols_info = symbols_info_from_codes(stock_items[:10], tool_context)
         if not symbols_info:
             return {"error": "请提供至少一个有效股票代码"}
         ok, reason, report_text = run_ai_report(
@@ -50,18 +52,44 @@ def generate_ai_report(stock_codes: list[str], tool_context: ToolContext | None 
         return {"error": str(e)}
 
 
-def symbols_info_from_codes(stock_codes: list[str], tool_context: ToolContext | None = None) -> list[dict]:
+def symbols_info_from_codes(stock_codes: list[Any], tool_context: ToolContext | None = None) -> list[dict]:
     screen_symbols = screen_symbol_map(tool_context)
     rows: list[dict] = []
-    for code in [str(code).strip() for code in stock_codes]:
+    seen: set[str] = set()
+    for item in stock_codes:
+        code = _candidate_code(item)
         if not code:
             continue
         row = dict(screen_symbols.get(code) or {})
+        if isinstance(item, dict):
+            row.update({key: value for key, value in item.items() if _has_value(value)})
         row["code"] = code
         row["name"] = str(row.get("name") or code_to_name(code)).strip()
         row["tag"] = str(row.get("tag") or "chat_request").strip()
+        if code in seen:
+            continue
+        seen.add(code)
         rows.append(row)
     return rows
+
+
+def _stock_code_items(value: Any) -> list[Any]:
+    if value in (None, ""):
+        return []
+    items = list(value) if isinstance(value, (list, tuple, set)) else [value]
+    out: list[Any] = []
+    for item in items:
+        if isinstance(item, str):
+            out.extend(part for part in re.split(r"[,，、\n]+", item) if part.strip())
+        else:
+            out.append(item)
+    return out
+
+
+def _candidate_code(item: Any) -> str:
+    if isinstance(item, dict):
+        return str(item.get("code") or item.get("symbol") or "").strip()
+    return str(item or "").strip()
 
 
 def reviewed_symbols_from_info(symbols_info: list[dict]) -> list[dict]:
@@ -80,8 +108,25 @@ def screen_symbol_map(tool_context: ToolContext | None) -> dict[str, dict]:
     screen_result = tool_context.state.get("last_screen_result")
     if not isinstance(screen_result, dict):
         return {}
+    symbols: dict[str, dict] = {}
+    for row in _screen_symbol_rows(screen_result):
+        code = _candidate_code(row)
+        if not code or not isinstance(row, dict):
+            continue
+        symbols.setdefault(code, {}).update({key: value for key, value in row.items() if _has_value(value)})
+    return symbols
+
+
+def _screen_symbol_rows(screen_result: dict[str, Any]) -> list[Any]:
     rows = list(screen_result.get("symbols_for_report") or []) + list(screen_result.get("top_candidates") or [])
-    return {code: dict(row) for row in rows if isinstance(row, dict) and (code := str(row.get("code") or "").strip())}
+    selection_brief = screen_result.get("selection_brief")
+    if isinstance(selection_brief, dict) and isinstance(selection_brief.get("best_candidates"), list):
+        rows.extend(selection_brief["best_candidates"])
+    return rows
+
+
+def _has_value(value: Any) -> bool:
+    return value is not None and value != "" and value != [] and value != {}
 
 
 def remember_ai_report(tool_context: ToolContext | None, result: dict[str, Any]) -> None:
@@ -126,6 +171,7 @@ _COMPACT_SYMBOL_FIELDS = (
     "source_type",
     "priority_rank",
     "priority_score",
+    "score",
     "rank_reason",
     "tier",
     "quality",

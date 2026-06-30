@@ -130,8 +130,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "stock_codes": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "股票代码列表，如 ['000001', '600519']",
+                    "items": {"anyOf": [{"type": "string"}, {"type": "object"}]},
+                    "description": "股票代码或候选对象列表，如 ['000001', '600519']；也可直接传上一跳候选对象。",
                 },
             },
             "required": ["stock_codes"],
