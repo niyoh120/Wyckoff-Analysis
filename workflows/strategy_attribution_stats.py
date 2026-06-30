@@ -31,7 +31,12 @@ def build_strategy_attribution_payload(
         "horizons": horizons,
         "summary_json": group_stats(joined, "horizon_days", horizons),
         "signal_stats_json": group_stats(joined, "signal_type", horizons),
-        "score_bucket_stats_json": score_stats_json(joined, horizons),
+        "score_bucket_stats_json": score_stats_json(
+            joined,
+            horizons,
+            observations=observations,
+            outcomes=outcomes,
+        ),
         "shadow_diff_stats_json": shadow_stats(shadow_runs, joined, horizons),
         "top_winners_json": ranked_outcomes(joined, focus_horizon, reverse=True),
         "top_losers_json": ranked_outcomes(joined, focus_horizon, reverse=False),
@@ -64,10 +69,22 @@ def group_stats(rows: list[dict[str, Any]], group_key: str, horizons: list[int])
     return result
 
 
-def score_stats_json(joined: list[dict[str, Any]], horizons: list[int]) -> dict[str, Any]:
+def score_stats_json(
+    joined: list[dict[str, Any]],
+    horizons: list[int],
+    *,
+    observations: list[dict[str, Any]] | None = None,
+    outcomes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     score_stats = _score_bucket_stats(joined, horizons)
     score_stats["_candidate_shadow_grade"] = _candidate_shadow_stats(joined, horizons)
     score_stats["_data_lineage"] = _data_lineage_stats(joined, horizons)
+    score_stats["_selection_mode"] = group_stats(joined, "selection_mode", horizons)
+    score_stats["_strategy_version"] = group_stats(joined, "strategy_version", horizons)
+    score_stats["_candidate_lane"] = group_stats(joined, "candidate_lane", horizons)
+    score_stats["_entry_type"] = group_stats(joined, "entry_type", horizons)
+    if observations is not None and outcomes is not None:
+        score_stats["_observation_coverage"] = observation_coverage_stats(observations, outcomes, horizons)
     return score_stats
 
 
@@ -86,14 +103,15 @@ def shadow_stats(
 ) -> dict[str, Any]:
     if not shadow_rows:
         return {"count": 0, "outcome_stats": {}}
+    ordered = sorted(shadow_rows, key=_shadow_sort_key)
     added = sum(len(row.get("diff_added") or []) for row in shadow_rows)
     removed = sum(len(row.get("diff_removed") or []) for row in shadow_rows)
     return {
         "count": len(shadow_rows),
         "avg_added": round(added / len(shadow_rows), 2),
         "avg_removed": round(removed / len(shadow_rows), 2),
-        "latest": _shadow_latest_summary(shadow_rows[-1]),
-        "outcome_stats": _shadow_outcome_stats(shadow_rows, outcome_rows, horizons),
+        "latest": _shadow_latest_summary(ordered[-1]),
+        "outcome_stats": _shadow_outcome_stats(ordered, outcome_rows, horizons),
     }
 
 
@@ -145,6 +163,13 @@ _OBSERVATION_FIELDS = (
     "stage",
     "springboard_grade",
     "springboard_met_count",
+    "selection_mode",
+    "policy_version",
+    "strategy_version",
+    "candidate_lane",
+    "entry_type",
+    "candidate_status",
+    "source",
 )
 
 _RANKED_KEYS = [
@@ -162,6 +187,10 @@ _RANKED_KEYS = [
     "data_lineage_coverage_score",
     "data_lineage_coverage_grade",
     "data_lineage_evidence_keys",
+    "selection_mode",
+    "strategy_version",
+    "candidate_lane",
+    "entry_type",
 ]
 
 
@@ -188,6 +217,28 @@ def _str_list(raw: Any) -> list[str]:
             seen.add(text)
             out.append(text)
     return out
+
+
+def _pct(part: int, total: int) -> float:
+    return round(part / total * 100.0, 1) if total else 0.0
+
+
+def _has_features(row: dict[str, Any]) -> bool:
+    return bool(_json_map(row.get("features_json")))
+
+
+def _is_current_like(row: dict[str, Any]) -> bool:
+    mode = str(row.get("selection_mode") or "").strip()
+    strategy = str(row.get("strategy_version") or "").strip()
+    return mode in {"tradeable_l4", "candidate_lane_shadow", "mainline_shadow"} or strategy.startswith(
+        "candidate_lane_"
+    )
+
+
+def _is_legacy_like(row: dict[str, Any]) -> bool:
+    mode = str(row.get("selection_mode") or "").strip()
+    strategy = str(row.get("strategy_version") or "").strip()
+    return mode in {"shadow", "l2_bypass_shadow", "strategic_l2_bypass_shadow"} or strategy == "legacy_layered"
 
 
 def _candidate_shadow_fields(obs: dict[str, Any]) -> dict[str, Any]:
@@ -305,6 +356,63 @@ def _data_lineage_stats(rows: list[dict[str, Any]], horizons: list[int]) -> dict
     }
 
 
+def observation_coverage_stats(
+    observations: list[dict[str, Any]],
+    outcomes: list[dict[str, Any]],
+    horizons: list[int],
+) -> dict[str, Any]:
+    outcome_horizons: dict[Any, set[int]] = defaultdict(set)
+    for row in outcomes:
+        obs_id = row.get("observation_id")
+        horizon = int(row.get("horizon_days") or 0)
+        if obs_id is not None and horizon > 0:
+            outcome_horizons[obs_id].add(horizon)
+    return {
+        "signal_type": _observation_group_coverage(observations, outcome_horizons, horizons, "signal_type"),
+        "selection_mode": _observation_group_coverage(observations, outcome_horizons, horizons, "selection_mode"),
+        "strategy_version": _observation_group_coverage(observations, outcome_horizons, horizons, "strategy_version"),
+        "candidate_lane": _observation_group_coverage(observations, outcome_horizons, horizons, "candidate_lane"),
+        "entry_type": _observation_group_coverage(observations, outcome_horizons, horizons, "entry_type"),
+    }
+
+
+def _observation_group_coverage(
+    observations: list[dict[str, Any]],
+    outcome_horizons: dict[Any, set[int]],
+    horizons: list[int],
+    group_key: str,
+) -> dict[str, Any]:
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in observations:
+        groups[str(row.get(group_key) or "unknown")].append(row)
+    return {
+        key: _observation_coverage_row(rows, outcome_horizons, horizons)
+        for key, rows in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))
+    }
+
+
+def _observation_coverage_row(
+    rows: list[dict[str, Any]],
+    outcome_horizons: dict[Any, set[int]],
+    horizons: list[int],
+) -> dict[str, Any]:
+    total = len(rows)
+    with_any = sum(1 for row in rows if outcome_horizons.get(row.get("id")))
+    result = {
+        "observations": total,
+        "with_any_outcome": with_any,
+        "outcome_coverage_pct": _pct(with_any, total),
+        "features_coverage_pct": _pct(sum(_has_features(row) for row in rows), total),
+        "current_like_pct": _pct(sum(_is_current_like(row) for row in rows), total),
+        "legacy_like_pct": _pct(sum(_is_legacy_like(row) for row in rows), total),
+        "latest_trade_date": max((str(row.get("trade_date") or "")[:10] for row in rows), default=""),
+    }
+    for horizon in horizons:
+        covered = sum(horizon in outcome_horizons.get(row.get("id"), set()) for row in rows)
+        result[f"h{horizon}_coverage_pct"] = _pct(covered, total)
+    return result
+
+
 def _outcome_by_code_date(
     rows: list[dict[str, Any]],
     horizons: list[int],
@@ -373,6 +481,10 @@ def _shadow_latest_summary(row: dict[str, Any]) -> dict[str, Any]:
         "registry_summary": row.get("registry_summary") or _legacy_snapshot_count(row, "registry_snapshot"),
         "health_summary": row.get("health_summary") or _legacy_snapshot_count(row, "health_snapshot"),
     }
+
+
+def _shadow_sort_key(row: dict[str, Any]) -> tuple[str, str]:
+    return (str(row.get("trade_date") or ""), str(row.get("created_at") or row.get("updated_at") or ""))
 
 
 def _legacy_selection_summary(row: dict[str, Any]) -> dict[str, Any]:

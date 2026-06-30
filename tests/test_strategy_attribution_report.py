@@ -120,6 +120,55 @@ def test_attribution_shadow_latest_uses_compact_summary():
     }
 
 
+def test_attribution_shadow_latest_uses_newest_trade_date():
+    import workflows.strategy_attribution_stats as stats_mod
+
+    shadow_rows = [
+        {"trade_date": "2026-06-01", "regime": "NEUTRAL", "diff_added": ["000001"], "diff_removed": []},
+        {"trade_date": "2026-06-30", "regime": "RISK_ON", "diff_added": [], "diff_removed": ["000002"]},
+    ]
+
+    stats = stats_mod.shadow_stats(shadow_rows, [], [5])
+
+    assert stats["latest"]["trade_date"] == "2026-06-30"
+    assert stats["latest"]["regime"] == "RISK_ON"
+
+
+def test_attribution_observation_coverage_marks_current_and_legacy():
+    import workflows.strategy_attribution_stats as stats_mod
+
+    observations = [
+        {
+            "id": 1,
+            "trade_date": "2026-06-29",
+            "signal_type": "launchpad",
+            "selection_mode": "candidate_lane_shadow",
+            "strategy_version": "candidate_lane_v1",
+            "candidate_lane": "launchpad",
+            "features_json": {"candidate_shadow_score": {"version": "candidate_shadow_score_v1"}},
+        },
+        {
+            "id": 2,
+            "trade_date": "2026-06-01",
+            "signal_type": "sos",
+            "selection_mode": "shadow",
+            "strategy_version": "legacy_layered",
+        },
+    ]
+    outcomes = [{"observation_id": 1, "horizon_days": 1, "return_pct": 1.2}]
+
+    coverage = stats_mod.observation_coverage_stats(observations, outcomes, [1, 3])
+
+    launchpad = coverage["signal_type"]["launchpad"]
+    legacy = coverage["selection_mode"]["shadow"]
+    assert launchpad["observations"] == 1
+    assert launchpad["h1_coverage_pct"] == 100.0
+    assert launchpad["h3_coverage_pct"] == 0.0
+    assert launchpad["features_coverage_pct"] == 100.0
+    assert launchpad["current_like_pct"] == 100.0
+    assert legacy["legacy_like_pct"] == 100.0
+
+
 def test_attribution_stats_ignore_nonfinite_scores_and_returns():
     import workflows.strategy_attribution_stats as stats_mod
 

@@ -33,6 +33,21 @@ interface MetricStats {
   avg_drawdown_pct?: number | null
 }
 
+interface ObservationCoverageMetric {
+  observations?: number
+  with_any_outcome?: number
+  outcome_coverage_pct?: number
+  features_coverage_pct?: number
+  current_like_pct?: number
+  legacy_like_pct?: number
+  latest_trade_date?: string
+  h1_coverage_pct?: number
+  h3_coverage_pct?: number
+  h5_coverage_pct?: number
+  h10_coverage_pct?: number
+  h20_coverage_pct?: number
+}
+
 interface StockOutcome {
   trade_date?: string
   code?: string
@@ -45,6 +60,10 @@ interface StockOutcome {
   data_lineage_coverage_score?: number | null
   data_lineage_coverage_grade?: string | null
   data_lineage_evidence_keys?: string[] | null
+  selection_mode?: string | null
+  strategy_version?: string | null
+  candidate_lane?: string | null
+  entry_type?: string | null
 }
 
 interface AttributionRecommendation {
@@ -118,9 +137,14 @@ function ReportView({ report }: { report: AttributionReport }) {
     () => flattenDataLineageStats(report.score_bucket_stats_json),
     [report.score_bucket_stats_json],
   )
+  const observationCoverageRows = useMemo(
+    () => flattenObservationCoverage(report.score_bucket_stats_json),
+    [report.score_bucket_stats_json],
+  )
   return (
     <div className="space-y-6">
       <Summary report={report} />
+      <ObservationCoverage rows={observationCoverageRows} />
       <Recommendations rows={report.recommendations_json} />
       <CandidateShadowStats rows={candidateShadowRows} />
       <DataLineageStats rows={dataLineageRows} />
@@ -139,6 +163,62 @@ function Summary({ report }: { report: AttributionReport }) {
       <MetricCard label="周期" value={report.horizons.join('/')} />
       <MetricCard label="生成时间" value={formatDateTime(report.created_at)} />
     </section>
+  )
+}
+
+function ObservationCoverage({
+  rows,
+}: {
+  rows: Array<{ group: string; value: string; stats: ObservationCoverageMetric }>
+}) {
+  if (!rows.length) {
+    return (
+      <Panel title="数据口径与覆盖">
+        <p className="text-sm text-muted-foreground">当前归因快照缺少覆盖率元数据，等待下一次归因任务刷新。</p>
+      </Panel>
+    )
+  }
+  return (
+    <Panel title="数据口径与覆盖">
+      <div className="overflow-auto">
+        <table className="w-full min-w-[980px] text-left text-sm">
+          <thead className="text-xs text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="py-2">口径</th>
+              <th>值</th>
+              <th>观察</th>
+              <th>有结果</th>
+              <th>总覆盖</th>
+              <th>h1</th>
+              <th>h3</th>
+              <th>h5</th>
+              <th>证据覆盖</th>
+              <th>当前口径</th>
+              <th>旧口径</th>
+              <th>最新日期</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ group, value, stats }) => (
+              <tr key={`${group}-${value}`} className="border-b border-border/60">
+                <td className="py-2 text-muted-foreground">{formatCoverageGroup(group)}</td>
+                <td className="font-medium">{formatCoverageValue(value)}</td>
+                <td>{fmtCount(stats.observations)}</td>
+                <td>{fmtCount(stats.with_any_outcome)}</td>
+                <td>{fmtPct(stats.outcome_coverage_pct)}</td>
+                <td>{fmtPct(stats.h1_coverage_pct)}</td>
+                <td>{fmtPct(stats.h3_coverage_pct)}</td>
+                <td>{fmtPct(stats.h5_coverage_pct)}</td>
+                <td>{fmtPct(stats.features_coverage_pct)}</td>
+                <td>{fmtPct(stats.current_like_pct)}</td>
+                <td>{fmtPct(stats.legacy_like_pct)}</td>
+                <td>{stats.latest_trade_date || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   )
 }
 
@@ -346,6 +426,9 @@ function OutcomeTable({ title, rows }: { title: string; rows: StockOutcome[] }) 
                 证据 {formatCoverageGrade(row.data_lineage_coverage_grade)} {fmtScore(row.data_lineage_coverage_score)}
                 {row.data_lineage_evidence_keys?.length ? ` · ${row.data_lineage_evidence_keys.map(formatEvidenceKey).join('/')}` : ''}
               </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {formatCoverageValue(row.selection_mode || row.strategy_version || row.candidate_lane || row.entry_type || '-')}
+              </div>
             </div>
             <div className={`text-right text-sm font-semibold ${tone(row.return_pct)}`}>{fmtPct(row.return_pct)}</div>
           </div>
@@ -406,6 +489,27 @@ function EmptyView() {
 
 function ErrorBox({ message }: { message: string }) {
   return <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">{message}</div>
+}
+
+function flattenObservationCoverage(data: JsonMap | undefined) {
+  const raw = data?._observation_coverage
+  if (!raw || typeof raw !== 'object') return []
+  const groupOrder: Record<string, number> = {
+    signal_type: 0,
+    selection_mode: 1,
+    strategy_version: 2,
+    candidate_lane: 3,
+    entry_type: 4,
+  }
+  return Object.entries(raw as Record<string, Record<string, ObservationCoverageMetric>>)
+    .flatMap(([group, stats]) =>
+      Object.entries(stats || {}).map(([value, item]) => ({ group, value, stats: item })),
+    )
+    .sort((a, b) => {
+      const groupDiff = (groupOrder[a.group] ?? 99) - (groupOrder[b.group] ?? 99)
+      if (groupDiff !== 0) return groupDiff
+      return (b.stats.observations ?? 0) - (a.stats.observations ?? 0)
+    })
 }
 
 function flattenSignalStats(data: AttributionReport['signal_stats_json']) {
@@ -475,6 +579,10 @@ function fmtScore(raw: number | null | undefined) {
   return typeof raw === 'number' && Number.isFinite(raw) ? raw.toFixed(1) : '-'
 }
 
+function fmtCount(raw: number | null | undefined) {
+  return typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : '0'
+}
+
 function formatGrade(raw: string | null | undefined) {
   const text = String(raw || '').trim()
   return text && text !== 'unknown' ? text : '未评分'
@@ -499,6 +607,34 @@ function formatEvidenceKey(raw: string) {
     intraday_tail: '尾盘确认',
     external_capital: '外部资金',
     ai_review: 'AI复核',
+  }
+  return labels[raw] || raw
+}
+
+function formatCoverageGroup(raw: string) {
+  const labels: Record<string, string> = {
+    signal_type: '信号',
+    selection_mode: '选择模式',
+    strategy_version: '策略版本',
+    candidate_lane: '候选车道',
+    entry_type: '买点类型',
+  }
+  return labels[raw] || raw
+}
+
+function formatCoverageValue(raw: string) {
+  const labels: Record<string, string> = {
+    candidate_lane_shadow: '候选车道观察',
+    mainline_shadow: '主线观察',
+    tradeable_l4: '正式买点',
+    legacy_layered: '旧五层漏斗',
+    candidate_lane_v1: '候选车道 v1',
+    launchpad: '起跳板',
+    trend_breakout: '趋势突破',
+    trend_lane_pullback: '趋势回踩',
+    mainline: '主线',
+    main_force_entry: '主力入场',
+    unknown: '未知/旧字段缺失',
   }
   return labels[raw] || raw
 }
