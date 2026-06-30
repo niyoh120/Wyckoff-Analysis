@@ -66,9 +66,26 @@ def _prepare_upstream_frame(candidates_df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["selection_is_fill"] = False
     df["priority_score"] = finite_numeric_series(df.get("priority_score"), df.index)
-    return df.sort_values(by=["selection_is_fill", "input_order"], ascending=[True, True], kind="stable").reset_index(
-        drop=True
+    ordered = df.sort_values(by=["selection_is_fill", "input_order"], ascending=[True, True], kind="stable")
+    return _dedupe_by_code(ordered).reset_index(drop=True)
+
+
+def _dedupe_by_code(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "code" not in df.columns:
+        return df
+    df = df.copy()
+    df["code"] = df["code"].astype(str).str.strip()
+    df = df[df["code"].ne("")]
+    if df.empty:
+        return df
+    quality_order = df.sort_values(
+        by=["selection_is_fill", "priority_score", "input_order"],
+        ascending=[True, False, True],
+        na_position="last",
+        kind="stable",
     )
+    keep_index = quality_order.drop_duplicates("code", keep="first").index
+    return df[df.index.isin(keep_index)]
 
 
 def finite_numeric_series(raw: Any, index: pd.Index) -> pd.Series:

@@ -58,7 +58,7 @@ _ROUTER_SYSTEM_PROMPT = """\
 direct:
 - 默认选择 direct，让普通 agent 先自然理解、调用工具、追问或完成答复。
 - 一个清楚目标在一轮内能完成，哪怕需要少量工具调用或短循环，也属于 direct。
-- 用户表达里只有口语、省略、别字或非标准说法时，仍交给 direct 的执行模型自然恢复语义。
+- 用户表达不标准但任务形态仍清楚时，仍交给 direct 的执行模型自然理解。
 - 用户只是解释概念、查看明确对象、诊断单一对象，或执行边界清楚的动作。
 
 dynamic_workflow:
@@ -69,7 +69,7 @@ dynamic_workflow:
 要求:
 - 以任务的执行形态判断 runtime，语义恢复交给最终执行模型。
 - router 只输出 runtime 决策，不改写、不确认、不解释用户输入。
-- 不要为了纠正或确认用户措辞而启动 workflow。
+- 不要把措辞恢复当成 workflow 启动理由。
 - confidence 只表示你的把握，runtime 不会用它覆盖你的 mode 判断。
 - 只输出 JSON，不要 Markdown。
 

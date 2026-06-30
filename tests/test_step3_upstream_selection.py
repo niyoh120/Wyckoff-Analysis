@@ -66,6 +66,56 @@ def test_upstream_priority_selection_ignores_nonfinite_scores() -> None:
     assert selected["code"].tolist() == ["T_GOOD", "A_GOOD"]
 
 
+def test_upstream_priority_selection_dedupes_cross_track_duplicate_before_cap() -> None:
+    candidates = pd.DataFrame(
+        [
+            {"code": "DUP", "track": "Trend", "input_order": 0, "priority_score": 90.0},
+            {"code": "DUP", "track": "Accum", "input_order": 1, "priority_score": 80.0},
+            {"code": "A_GOOD", "track": "Accum", "input_order": 2, "priority_score": 70.0},
+        ]
+    )
+
+    selected = select_upstream_priority_candidates(candidates, Step3RuntimeConfig(), context_cap=2)
+
+    assert selected["code"].tolist() == ["DUP", "A_GOOD"]
+    assert selected.loc[selected["code"] == "DUP", "track"].iloc[0] == "Trend"
+
+
+def test_upstream_priority_selection_prefers_core_over_fill_duplicate() -> None:
+    candidates = pd.DataFrame(
+        [
+            {
+                "code": "DUP",
+                "track": "Trend",
+                "input_order": 0,
+                "priority_score": 99.0,
+                "selection_is_fill": True,
+            },
+            {
+                "code": "DUP",
+                "track": "Trend",
+                "input_order": 1,
+                "priority_score": 10.0,
+                "selection_is_fill": False,
+            },
+            {
+                "code": "KEEP",
+                "track": "Accum",
+                "input_order": 2,
+                "priority_score": 20.0,
+                "selection_is_fill": False,
+            },
+        ]
+    )
+
+    selected = select_upstream_priority_candidates(candidates, Step3RuntimeConfig(), context_cap=0)
+    duplicate = selected[selected["code"] == "DUP"].iloc[0]
+
+    assert selected["code"].tolist() == ["DUP", "KEEP"]
+    assert bool(duplicate["selection_is_fill"]) is False
+    assert duplicate["priority_score"] == 10.0
+
+
 def test_step3_wyckoff_score_uses_finite_priority_then_funnel() -> None:
     candidates = pd.DataFrame(
         [

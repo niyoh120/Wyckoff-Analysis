@@ -167,11 +167,12 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
 def test_model_router_prompt_keeps_direct_as_default_chat_path():
     assert "默认选择 direct" in _ROUTER_SYSTEM_PROMPT
     assert "一个清楚目标在一轮内能完成" in _ROUTER_SYSTEM_PROMPT
-    assert "口语、省略、别字" in _ROUTER_SYSTEM_PROMPT
+    assert "用户表达不标准" in _ROUTER_SYSTEM_PROMPT
     assert "持续编排" in _ROUTER_SYSTEM_PROMPT
     assert "任务的执行形态" in _ROUTER_SYSTEM_PROMPT
     assert "语义恢复交给最终执行模型" in _ROUTER_SYSTEM_PROMPT
-    assert "不要为了纠正或确认用户措辞而启动 workflow" in _ROUTER_SYSTEM_PROMPT
+    assert "不要把措辞恢复当成 workflow 启动理由" in _ROUTER_SYSTEM_PROMPT
+    assert "口语、省略、别字" not in _ROUTER_SYSTEM_PROMPT
     assert "错别字" not in _ROUTER_SYSTEM_PROMPT
     assert "谐音" not in _ROUTER_SYSTEM_PROMPT
     assert "查看持仓" not in _ROUTER_SYSTEM_PROMPT

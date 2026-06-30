@@ -187,10 +187,11 @@ def _reset_local_db(local_db) -> None:
 
 
 def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
-    assert "自然语言理解、上下文恢复和任务拆分由你完成" in _PLAN_SYSTEM_PROMPT
+    assert "自然语言语义、上下文恢复和任务拆分由你完成" in _PLAN_SYSTEM_PROMPT
     assert "不要生成改写、解释或确认用户表述的元任务" in _PLAN_SYSTEM_PROMPT
-    assert "口语、省略、别字" in _PLAN_SYSTEM_PROMPT
+    assert "只服务于理解用户表述的元任务" in _PLAN_SYSTEM_PROMPT
     assert "语义恢复合入真正执行的 task" in _PLAN_SYSTEM_PROMPT
+    assert "口语、省略、别字" not in _PLAN_SYSTEM_PROMPT
     assert "错字" not in _PLAN_SYSTEM_PROMPT
     assert "错别字" not in _PLAN_SYSTEM_PROMPT
     assert "不需要选择内部执行角色" in _PLAN_SYSTEM_PROMPT
@@ -357,7 +358,8 @@ def test_workflow_planner_fallback_keeps_typo_like_task_model_authored():
     assert run.steps[0].tools == ()
     assert run.steps[0].title == "用 workflow 给我做磁场诊断"
     assert "sub-agent" not in run.steps[0].title
-    assert "常见别字" in run.steps[0].prompt
+    assert "自然语言语义" in run.steps[0].prompt
+    assert "常见别字" not in run.steps[0].prompt
     assert "磁场诊断" in run.steps[0].prompt
 
 
