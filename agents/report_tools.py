@@ -201,6 +201,9 @@ def _compact_symbol_value(value: Any) -> Any:
         return None
     if isinstance(value, (int, float, bool)):
         return value
+    if isinstance(value, (list, tuple)):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return items or None
     text = str(value).strip()
     return text or None
 
@@ -237,6 +240,9 @@ _COMPACT_SYMBOL_FIELDS = (
     "rank_reason",
     "tier",
     "quality",
+    "quality_factors",
+    "risk_factors",
+    "action_status",
     "why",
     "evidence",
     "next_step",

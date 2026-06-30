@@ -206,6 +206,9 @@ class TestAiReportTool:
                             "entry_type": "launchpad",
                             "priority_score": 12.5,
                             "rank_reason": "研报候选#1；优先分 12.50",
+                            "quality_factors": ["高优先级研报候选", "优先分 12.50"],
+                            "risk_factors": ["大盘风险闸门关闭"],
+                            "action_status": "blocked_by_market_gate",
                         }
                     ]
                 }
@@ -227,6 +230,9 @@ class TestAiReportTool:
         assert captured["symbols_info"][0]["entry_type"] == "launchpad"
         assert result["reviewed_symbols"][0]["priority_score"] == 12.5
         assert result["reviewed_symbols"][0]["rank_reason"] == "研报候选#1；优先分 12.50"
+        assert result["reviewed_symbols"][0]["quality_factors"] == ["高优先级研报候选", "优先分 12.50"]
+        assert result["reviewed_symbols"][0]["risk_factors"] == ["大盘风险闸门关闭"]
+        assert result["reviewed_symbols"][0]["action_status"] == "blocked_by_market_gate"
         assert ctx.state["last_ai_report"]["reviewed_codes"] == ["300750"]
 
     def test_generate_ai_report_accepts_candidate_object_inputs(self, monkeypatch):
@@ -533,6 +539,9 @@ class TestStrategyDecisionTool:
                                 "candidate_lane": "launchpad",
                                 "entry_type": "launchpad",
                                 "priority_score": 8.5,
+                                "quality_factors": ["强观察候选", "启动平台"],
+                                "risk_factors": ["未进入本轮研报候选", "观察池，不进入本轮AI复核"],
+                                "action_status": "watch_only",
                             }
                         ],
                     },
@@ -560,8 +569,11 @@ class TestStrategyDecisionTool:
         assert result["reviewed_codes"] == ["000007"]
         assert result["reviewed_symbols"][0]["candidate_lane"] == "launchpad"
         assert result["reviewed_symbols"][0]["entry_type"] == "launchpad"
+        assert result["reviewed_symbols"][0]["risk_factors"] == ["未进入本轮研报候选", "观察池，不进入本轮AI复核"]
+        assert result["reviewed_symbols"][0]["action_status"] == "watch_only"
         assert result["report_preview"] == "# 观察候选研报"
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主升阶段 / 启动平台"
+        assert captured["symbols_info"][0]["quality_factors"] == ["强观察候选", "启动平台"]
 
     def test_generate_strategy_decision_enriches_string_report_codes(self, monkeypatch):
         from agents import strategy_tools
