@@ -86,6 +86,13 @@ def test_check_background_tasks_schema_mentions_completed_result_summary():
     assert "completed 任务会带 result_summary" in schema["description"]
 
 
+def test_ai_report_schema_allows_screen_handoff_continuation():
+    schema = next(item for item in TOOL_SCHEMAS if item["name"] == "generate_ai_report")
+
+    assert "上一跳筛股候选" in schema["description"]
+    assert "stock_codes" not in schema["parameters"].get("required", [])
+
+
 def test_background_status_includes_completed_result_summary(tmp_path, monkeypatch):
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     manager = BackgroundTaskManager()

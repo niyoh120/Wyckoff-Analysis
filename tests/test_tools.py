@@ -325,6 +325,87 @@ class TestAiReportTool:
         assert result["reviewed_symbols"][0]["candidate_lane"] == "mainline"
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主线买点"
 
+    def test_generate_ai_report_uses_screen_handoff_when_codes_omitted(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "symbols_for_report": [
+                        {
+                            "code": "000004",
+                            "name": "主线候选",
+                            "tag": "主线买点确认 | 威科夫候选",
+                            "track": "Trend",
+                            "candidate_lane": "mainline",
+                            "priority_score": 11.0,
+                        }
+                    ],
+                    "selection_brief": {
+                        "tool_handoff": {
+                            "tool": "generate_ai_report",
+                            "args": {"stock_codes": ["000004"]},
+                        }
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 自动续接研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["000004"]
+        assert result["report_text"] == "# 自动续接研报"
+        assert captured["symbols_info"][0]["candidate_lane"] == "mainline"
+        assert captured["symbols_info"][0]["priority_score"] == 11.0
+        assert ctx.state["last_ai_report"]["reviewed_codes"] == ["000004"]
+
+    def test_generate_ai_report_uses_best_candidates_when_handoff_missing(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "selection_brief": {
+                        "best_candidates": [
+                            {
+                                "code": "000007",
+                                "name": "观察候选",
+                                "tier": "强观察候选",
+                                "why": "趋势线 / 启动平台",
+                                "track": "Trend",
+                            }
+                        ]
+                    }
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 观察候选研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["000007"]
+        assert result["reviewed_symbols"][0]["tier"] == "强观察候选"
+        assert captured["symbols_info"][0]["why"] == "趋势线 / 启动平台"
+
 
 class TestStrategyDecisionTool:
     def test_generate_strategy_decision_reuses_last_report_without_rescreening(self, monkeypatch):

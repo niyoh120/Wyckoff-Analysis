@@ -124,7 +124,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "generate_ai_report",
-        "description": "对指定股票列表生成威科夫三阵营 AI 深度研报（逻辑破产/储备营地/起跳板）。使用当前会话 LLM 配置，最多 10 只。",
+        "description": "对指定股票列表生成威科夫三阵营 AI 深度研报（逻辑破产/储备营地/起跳板）。使用当前会话 LLM 配置，最多 10 只；不传 stock_codes 时会复用上一跳筛股候选。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -136,10 +136,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                         },
                         {"type": "string"},
                     ],
-                    "description": "股票代码、逗号分隔代码，或候选对象列表；也可直接传上一跳候选对象。",
+                    "description": "可选。股票代码、逗号分隔代码，或候选对象列表；不传时复用上一跳筛股 handoff。",
                 },
             },
-            "required": ["stock_codes"],
         },
     },
     {

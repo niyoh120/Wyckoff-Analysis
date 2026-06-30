@@ -12,11 +12,11 @@ from agents.tool_context import ToolContext, ensure_tushare_token, resolve_llm_c
 logger = logging.getLogger(__name__)
 
 
-def generate_ai_report(stock_codes: list[Any], tool_context: ToolContext | None = None) -> dict:
+def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None = None) -> dict:
     """对指定股票列表生成威科夫三阵营 AI 深度研报。"""
     try:
         ensure_tushare_token(tool_context)
-        stock_items = _stock_code_items(stock_codes)
+        stock_items = _stock_items_or_screen_handoff(stock_codes, tool_context)
         if not stock_items:
             return {"error": "请提供至少一个股票代码"}
         provider, api_key, model, base_url = resolve_llm_config(tool_context)
@@ -52,7 +52,7 @@ def generate_ai_report(stock_codes: list[Any], tool_context: ToolContext | None 
         return {"error": str(e)}
 
 
-def symbols_info_from_codes(stock_codes: list[Any], tool_context: ToolContext | None = None) -> list[dict]:
+def symbols_info_from_codes(stock_codes: Any, tool_context: ToolContext | None = None) -> list[dict]:
     screen_symbols = screen_symbol_map(tool_context)
     stock_codes = _stock_code_items(stock_codes)
     rows: list[dict] = []
@@ -74,6 +74,45 @@ def symbols_info_from_codes(stock_codes: list[Any], tool_context: ToolContext | 
     return rows
 
 
+def _stock_items_or_screen_handoff(stock_codes: Any, tool_context: ToolContext | None) -> list[Any]:
+    return _stock_code_items(stock_codes) or _screen_handoff_stock_items(tool_context)
+
+
+def _screen_handoff_stock_items(tool_context: ToolContext | None) -> list[Any]:
+    screen_result = _last_screen_result(tool_context)
+    if not screen_result:
+        return []
+    for value in _screen_handoff_sources(screen_result):
+        items = _stock_code_items(value)
+        if items:
+            return items
+    return []
+
+
+def _screen_handoff_sources(screen_result: dict[str, Any]) -> list[Any]:
+    selection = screen_result.get("selection_brief") if isinstance(screen_result.get("selection_brief"), dict) else {}
+    action_plan = screen_result.get("action_plan") if isinstance(screen_result.get("action_plan"), dict) else {}
+    review_targets = action_plan.get("review_targets") if isinstance(action_plan.get("review_targets"), dict) else {}
+    return [
+        _tool_handoff_stock_codes(selection.get("tool_handoff")),
+        _tool_handoff_stock_codes(review_targets),
+        review_targets.get("codes"),
+        screen_result.get("symbols_for_report"),
+        selection.get("best_candidates"),
+        selection.get("best_codes"),
+        screen_result.get("top_candidates"),
+    ]
+
+
+def _tool_handoff_stock_codes(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return []
+    args = payload.get("args")
+    if isinstance(args, dict) and args.get("stock_codes"):
+        return args["stock_codes"]
+    return []
+
+
 def _stock_code_items(value: Any) -> list[Any]:
     if value in (None, ""):
         return []
@@ -91,6 +130,11 @@ def _candidate_code(item: Any) -> str:
     if isinstance(item, dict):
         return str(item.get("code") or item.get("symbol") or "").strip()
     return str(item or "").strip()
+
+
+def _last_screen_result(tool_context: ToolContext | None) -> dict[str, Any]:
+    value = tool_context.state.get("last_screen_result") if tool_context else {}
+    return value if isinstance(value, dict) else {}
 
 
 def reviewed_symbols_from_info(symbols_info: list[dict]) -> list[dict]:
