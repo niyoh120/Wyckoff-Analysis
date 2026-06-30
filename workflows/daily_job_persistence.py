@@ -33,7 +33,7 @@ def persist_benchmark_context(
     if dry_run:
         log_fn("预演模式: 跳过市场信号写库(benchmark)", logs_path)
         return
-    payload = _benchmark_payload(benchmark_context)
+    payload = benchmark_context_payload(benchmark_context)
     ok = upsert_market_signal_daily(trade_date, payload)
     log_fn(
         f"市场信号写库(benchmark): ok={ok}, trade_date={trade_date}, regime={payload.get('benchmark_regime')}",
@@ -186,7 +186,7 @@ def persist_theme_radar(step2_details: dict, logs_path: str | None, *, dry_run: 
         log_fn(f"主题雷达写库失败: {exc}", logs_path)
 
 
-def _benchmark_payload(benchmark_context: dict) -> dict:
+def benchmark_context_payload(benchmark_context: dict) -> dict:
     return {
         "benchmark_regime": str(benchmark_context.get("regime", "") or "").strip().upper() or None,
         "main_index_code": str(benchmark_context.get("main_code", "000001") or "000001").strip(),

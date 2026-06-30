@@ -22,12 +22,7 @@ def upsert_theme_radar_snapshot(snapshot: dict[str, Any]) -> int:
     if not _configured() or not trade_date:
         return 0
     require_server_write_context("upsert theme_radar_snapshot")
-    payload = {
-        "trade_date": trade_date,
-        "snapshot_json": snapshot,
-        "top_themes": _top_theme_names(snapshot),
-        "top_candidates": _top_candidate_codes(snapshot),
-    }
+    payload = build_theme_radar_snapshot_row(snapshot)
     client = None
     try:
         client = _admin()
@@ -61,6 +56,17 @@ def load_latest_theme_radar_snapshot_from_supabase() -> dict | None:
             _close(client)
     rows = resp.data or []
     return _decode_snapshot(rows[0].get("snapshot_json")) if rows else None
+
+
+def build_theme_radar_snapshot_row(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Build the normalized Supabase row for a theme radar snapshot."""
+
+    return {
+        "trade_date": str(snapshot.get("trade_date") or ""),
+        "snapshot_json": snapshot,
+        "top_themes": _top_theme_names(snapshot),
+        "top_candidates": _top_candidate_codes(snapshot),
+    }
 
 
 def _top_theme_names(snapshot: dict[str, Any]) -> list[str]:

@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+import workflows.daily_signal_observations as signal_observations
 from core.constants import TABLE_RECOMMENDATION_TRACKING
 from core.market_trade_mode import resolve_market_trade_mode
 from core.recommendation_payload import (
@@ -19,6 +20,7 @@ from core.recommendation_payload import (
     recommendation_backup_rows,
     springboard_ai_payload,
 )
+from core.signal_confirmation import run_confirmation_cycle
 from integrations.recommendation_performance import refresh_tracking_performance
 from integrations.recommendation_tracking_common import chunked, fetch_records_from_table
 from integrations.supabase_base import (
@@ -27,7 +29,9 @@ from integrations.supabase_base import (
     create_admin_client,
     require_server_write_context,
 )
-from workflows.daily_job_persistence import recommendation_write_symbols
+from integrations.supabase_signal_feedback import upsert_signal_observations
+from integrations.supabase_theme_radar import build_theme_radar_snapshot_row
+from workflows.daily_job_persistence import benchmark_context_payload, recommendation_write_symbols
 from workflows.daily_job_step2 import (
     run_signal_confirmation,
     run_springboard_scoring,
@@ -56,20 +60,25 @@ def run_recommendation_backfill(request: RecommendationBackfillRequest) -> int:
     print(f"[recommendation-backfill] target_dates={','.join(d.isoformat() for d in target_dates)}")
     day_results = [_build_day_result(day, request.skip_step3) for day in target_dates]
     payloads = _build_payloads(target_dates, day_results)
+    table_rows = _build_table_rows(day_results)
     client = create_admin_client()
     old_rows = _fetch_target_rows(client, target_dates)
-    _write_artifacts(output_dir, target_dates, day_results, payloads, old_rows)
+    _write_artifacts(output_dir, target_dates, day_results, payloads, old_rows, table_rows)
     _validate_payloads(payloads, allow_empty_date=request.allow_empty_date)
     if not request.apply:
         print("[recommendation-backfill] dry-run 完成，未写库。确认 artifact 后加 --apply 执行替换。")
         return 0
 
     summary = _replace_target_dates(client, payloads, old_rows)
+    table_summary = _replace_auxiliary_tables(client, target_dates, table_rows)
+    summary.update(table_summary)
     _refresh_performance()
     _write_json(output_dir / "apply_summary.json", summary)
     print(
         "[recommendation-backfill] apply 完成: "
-        f"upserted={summary['rows_upserted']}, stale_deleted={summary['stale_deleted']}"
+        f"upserted={summary['rows_upserted']}, stale_deleted={summary['stale_deleted']}, "
+        f"signal_pending={summary['signal_pending_inserted']}, "
+        f"signal_observations={summary['signal_observations_upserted']}"
     )
     return 0
 
@@ -98,6 +107,7 @@ def _build_day_result(trade_day: date, skip_step3: bool) -> dict[str, Any]:
             "springboard_updates": springboard_updates,
             "benchmark_context": benchmark_context,
             "symbols_info": write_symbols,
+            "step2_details": details,
         }
 
 
@@ -197,6 +207,126 @@ def _apply_ai_marks(rows: list[dict], ai_codes: list[str], springboard_updates: 
         row.update(springboard_ai_payload(springboard_updates.get(int_to_code6[code])))
 
 
+def _build_table_rows(day_results: list[dict[str, Any]]) -> dict[str, list[dict]]:
+    signal_pending_rows = _simulate_signal_pending_rows(day_results)
+    signal_observation_rows: list[dict] = []
+    external_seed_rows: list[dict] = []
+    market_signal_rows: list[dict] = []
+    theme_radar_rows: list[dict] = []
+    for result in day_results:
+        details = result.get("step2_details") or {}
+        trade_date = str(result.get("trade_date") or "")
+        benchmark_context = result.get("benchmark_context") or {}
+        ai_codes = list(result.get("ai_codes") or [])
+        market_signal_rows.append({"trade_date": trade_date, **benchmark_context_payload(benchmark_context)})
+        theme_snapshot = _theme_radar_snapshot(details)
+        if theme_snapshot:
+            theme_radar_rows.append(build_theme_radar_snapshot_row(theme_snapshot))
+        signal_observation_rows.extend(_signal_observation_rows(details, benchmark_context, ai_codes, trade_date))
+        external_seed_rows.extend((details.get("metrics", {}) or {}).get("external_seed_observation_rows") or [])
+    return {
+        "signal_pending": signal_pending_rows,
+        "signal_observations": signal_observation_rows,
+        "external_seed_observations": external_seed_rows,
+        "market_signal_daily": market_signal_rows,
+        "theme_radar_snapshot": theme_radar_rows,
+    }
+
+
+def _simulate_signal_pending_rows(day_results: list[dict[str, Any]]) -> list[dict]:
+    final_rows: dict[int, dict] = {}
+    active_ids: list[int] = []
+    next_id = 1
+    for result in sorted(day_results, key=lambda item: str(item.get("trade_date") or "")):
+        trade_date = str(result.get("trade_date") or "")
+        for row in _pending_rows_for_day(result):
+            row["id"] = next_id
+            final_rows[next_id] = row
+            active_ids.append(next_id)
+            next_id += 1
+        active = [final_rows[row_id] for row_id in active_ids]
+        updates, _confirmed = run_confirmation_cycle(
+            active, (result.get("step2_details") or {}).get("all_df_map") or {}, trade_date
+        )
+        active_ids = _apply_pending_updates(final_rows, active_ids, updates)
+    return [_without_temp_id(row) for row in final_rows.values()]
+
+
+def _pending_rows_for_day(result: dict[str, Any]) -> list[dict]:
+    from core.candidate_metadata import build_candidate_metadata_map, candidate_signal_triggers, merge_trigger_maps
+    from workflows.step2_signal_confirmation import build_pending_signal_rows
+
+    details = result.get("step2_details") or {}
+    metrics = details.get("metrics", {}) or {}
+    candidate_entries = _selected_candidate_entries(details)
+    triggers = merge_trigger_maps(details.get("triggers") or {}, candidate_signal_triggers(candidate_entries))
+    return build_pending_signal_rows(
+        signal_date=str(result.get("trade_date") or ""),
+        triggers=triggers,
+        df_map=details.get("all_df_map") or {},
+        regime=str((result.get("benchmark_context") or {}).get("regime") or "NEUTRAL"),
+        name_map=details.get("name_map") or {},
+        sector_map=details.get("sector_map") or {},
+        candidate_metadata_map=build_candidate_metadata_map(
+            candidate_entries, metrics.get("mainline_candidates") or []
+        ),
+    )
+
+
+def _selected_candidate_entries(details: dict) -> list[dict]:
+    selected = {str(code).strip() for code in details.get("selected_for_ai", []) or [] if str(code).strip()}
+    if not selected:
+        return []
+    return [
+        item for item in details.get("candidate_entries", []) or [] if str(item.get("code", "")).strip() in selected
+    ]
+
+
+def _apply_pending_updates(final_rows: dict[int, dict], active_ids: list[int], updates: list[dict]) -> list[int]:
+    done_ids: set[int] = set()
+    for update in updates:
+        row_id = int(update.get("id") or 0)
+        row = final_rows.get(row_id)
+        if not row:
+            continue
+        row["status"] = update.get("status", row.get("status"))
+        row["days_elapsed"] = update.get("days_elapsed", row.get("days_elapsed", 0))
+        row["confirm_reason"] = update.get("confirm_reason", "")
+        if update.get("confirm_date"):
+            row["confirm_date"] = update["confirm_date"]
+        if update.get("expire_date"):
+            row["expire_date"] = update["expire_date"]
+        if row.get("status") in {"confirmed", "expired"}:
+            done_ids.add(row_id)
+    return [row_id for row_id in active_ids if row_id not in done_ids]
+
+
+def _without_temp_id(row: dict) -> dict:
+    out = dict(row)
+    out.pop("id", None)
+    return out
+
+
+def _signal_observation_rows(
+    details: dict, benchmark_context: dict, ai_codes: list[str], trade_date: str
+) -> list[dict]:
+    if not details:
+        return []
+    regime = str((benchmark_context or {}).get("regime") or "NEUTRAL")
+    details = dict(details)
+    details["intraday_tail_map"] = details.get("intraday_tail_map") or {}
+    rows = signal_observations.build_signal_observation_rows(details, regime, ai_codes, trade_date=trade_date)
+    rows.extend(signal_observations.build_shadow_observation_rows(details, regime, trade_date=trade_date))
+    rows.extend(signal_observations.build_external_seed_signal_rows(details, regime, trade_date=trade_date))
+    return rows
+
+
+def _theme_radar_snapshot(details: dict) -> dict:
+    metrics = (details or {}).get("metrics", {}) or {}
+    snapshot = metrics.get("theme_radar_current") or metrics.get("theme_radar") or {}
+    return snapshot if isinstance(snapshot, dict) and snapshot.get("trade_date") else {}
+
+
 def _validate_payloads(payloads: dict[int, list[dict]], *, allow_empty_date: bool) -> None:
     empty_dates = [date_int for date_int, rows in payloads.items() if not rows]
     if empty_dates and not allow_empty_date:
@@ -236,6 +366,78 @@ def _replace_target_dates(client, payloads: dict[int, list[dict]], old_rows: lis
     }
 
 
+def _replace_auxiliary_tables(
+    client, target_dates: tuple[date, ...], table_rows: dict[str, list[dict]]
+) -> dict[str, Any]:
+    from core.constants import (
+        TABLE_EXTERNAL_SEED_OBSERVATIONS,
+        TABLE_MARKET_SIGNAL_DAILY,
+        TABLE_SIGNAL_OBSERVATIONS,
+        TABLE_SIGNAL_PENDING,
+        TABLE_THEME_RADAR_SNAPSHOT,
+    )
+
+    target_iso = [day.isoformat() for day in target_dates]
+    _delete_by_dates(client, TABLE_SIGNAL_PENDING, "signal_date", target_iso)
+    _delete_by_dates(client, TABLE_SIGNAL_OBSERVATIONS, "trade_date", target_iso, market="cn")
+    _delete_by_dates(client, TABLE_EXTERNAL_SEED_OBSERVATIONS, "trade_date", target_iso, market="cn")
+    signal_pending_inserted = _insert_rows(client, TABLE_SIGNAL_PENDING, table_rows.get("signal_pending") or [])
+    signal_observations_upserted = upsert_signal_observations(table_rows.get("signal_observations") or [])
+    external_seed_upserted = _upsert_rows(
+        client,
+        TABLE_EXTERNAL_SEED_OBSERVATIONS,
+        table_rows.get("external_seed_observations") or [],
+        "market,trade_date,source,code",
+    )
+    market_signal_upserted = _upsert_rows(
+        client,
+        TABLE_MARKET_SIGNAL_DAILY,
+        table_rows.get("market_signal_daily") or [],
+        "trade_date",
+    )
+    theme_radar_upserted = _upsert_rows(
+        client,
+        TABLE_THEME_RADAR_SNAPSHOT,
+        table_rows.get("theme_radar_snapshot") or [],
+        "trade_date",
+    )
+    return {
+        "signal_pending_inserted": signal_pending_inserted,
+        "signal_observations_upserted": signal_observations_upserted,
+        "external_seed_upserted": external_seed_upserted,
+        "market_signal_upserted": market_signal_upserted,
+        "theme_radar_upserted": theme_radar_upserted,
+    }
+
+
+def _delete_by_dates(
+    client, table: str, date_column: str, target_dates: list[str], *, market: str | None = None
+) -> None:
+    for batch in chunked(target_dates, 50):
+        query = client.table(table).delete().in_(date_column, batch)
+        if market:
+            query = query.eq("market", market)
+        query.execute()
+
+
+def _insert_rows(client, table: str, rows: list[dict]) -> int:
+    inserted = 0
+    for batch in chunked(rows, 500):
+        if batch:
+            client.table(table).insert(batch).execute()
+            inserted += len(batch)
+    return inserted
+
+
+def _upsert_rows(client, table: str, rows: list[dict], conflict: str) -> int:
+    upserted = 0
+    for batch in chunked(rows, 500):
+        if batch:
+            client.table(table).upsert(batch, on_conflict=conflict).execute()
+            upserted += len(batch)
+    return upserted
+
+
 def _stale_old_row_ids(payloads: dict[int, list[dict]], old_rows: list[dict[str, Any]]) -> list[Any]:
     codes_by_date = {
         rec_date: {_int_code(row.get("code")) for row in rows if _int_code(row.get("code")) is not None}
@@ -267,11 +469,14 @@ def _write_artifacts(
     day_results: list[dict[str, Any]],
     payloads: dict[int, list[dict]],
     old_rows: list[dict[str, Any]],
+    table_rows: dict[str, list[dict]],
 ) -> None:
     _write_json(output_dir / "summary.json", _summary(target_dates, day_results, payloads, old_rows))
     _write_json(output_dir / "old_rows_backup.json", recommendation_backup_rows(old_rows, ai_codes=None))
     for rec_date, rows in payloads.items():
         _write_json(output_dir / f"recommendation_tracking_{rec_date}.json", recommendation_backup_rows(rows, None))
+    _write_json(output_dir / "table_row_counts.json", {key: len(value) for key, value in table_rows.items()})
+    _write_json(output_dir / "signal_pending_rows.json", table_rows.get("signal_pending") or [])
 
 
 def _summary(
