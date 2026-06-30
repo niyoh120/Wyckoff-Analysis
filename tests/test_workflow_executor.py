@@ -188,9 +188,8 @@ def _reset_local_db(local_db) -> None:
 
 def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
     assert "自然语言语义、上下文恢复和任务拆分由你完成" in _PLAN_SYSTEM_PROMPT
-    assert "不要生成改写、解释或确认用户表述的元任务" in _PLAN_SYSTEM_PROMPT
-    assert "只服务于理解用户表述的元任务" in _PLAN_SYSTEM_PROMPT
-    assert "语义恢复合入真正执行的 task" in _PLAN_SYSTEM_PROMPT
+    assert "把措辞恢复和上下文补全合入真正执行的 task" in _PLAN_SYSTEM_PROMPT
+    assert "不要单独生成元任务" in _PLAN_SYSTEM_PROMPT
     assert "口语、省略、别字" not in _PLAN_SYSTEM_PROMPT
     assert "错字" not in _PLAN_SYSTEM_PROMPT
     assert "错别字" not in _PLAN_SYSTEM_PROMPT
@@ -198,6 +197,50 @@ def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
     assert "不要填写 agent/role" in _PLAN_SYSTEM_PROMPT
     assert "可用 agent" not in _PLAN_SYSTEM_PROMPT
     assert '"agent": "可选，research|analysis|trading"' not in _PLAN_SYSTEM_PROMPT
+
+
+def test_model_generated_workflow_ignores_legacy_agent_and_tool_aliases():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": json.dumps(
+                        {
+                            "title": "今日选股",
+                            "phases": [
+                                {
+                                    "id": "screen",
+                                    "tasks": [
+                                        {
+                                            "id": "scan",
+                                            "title": "扫描候选",
+                                            "agent": "analysis",
+                                            "tools": ["选股", "screen_stocks"],
+                                            "prompt": "扫描今日候选并保留风险原因",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            ]
+        ]
+    )
+
+    run = plan_workflow(
+        "帮我完整做一遍今天的 A 股选股",
+        context=WORKFLOWS["dynamic_task"],
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert run.script["runtime"]["planner"] == "model_script"
+    assert run.steps[0].agent == "task"
+    assert run.steps[0].tools == ()
+    assert run.steps[0].tool_scope == ("screen_stocks",)
 
 
 def test_workflow_planner_accepts_agent_aliases_and_steps_field():
@@ -427,7 +470,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert events[0]["plan"]["route"]["matches"] == ["用 workflow"]
         assert events[0]["plan"]["label"] == "持仓复盘"
         assert events[0]["plan"]["script"]["title"] == "持仓复盘"
-        assert events[0]["plan"]["steps"][0]["agent"] == "analysis"
+        assert events[0]["plan"]["steps"][0]["agent"] == "task"
         assert events[0]["plan"]["steps"][0]["tool_scope"] == []
         assert any(event["type"] == "workflow_step_start" for event in events)
         assert any(event["type"] == "workflow_done" for event in events)
@@ -440,7 +483,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert run["label"] == "持仓复盘"
         assert run["plan"]["script"]["runtime"]["script_path"].startswith(str(tmp_path / "workflow-runs"))
         assert (tmp_path / "workflow-runs" / "s1" / f"{executor.run.run_id}.json").is_file()
-        assert "不要生成改写、解释或确认用户表述的元任务" in provider.calls[0]["system_prompt"]
+        assert "把措辞恢复和上下文补全合入真正执行的 task" in provider.calls[0]["system_prompt"]
         assert "错别字" not in provider.calls[0]["system_prompt"]
         assert "运行上下文" in provider.calls[0]["messages"][0]["content"]
         assert stored_events[0]["event_type"] == "workflow_plan"

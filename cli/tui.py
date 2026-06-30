@@ -29,6 +29,8 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
+from utils.tool_result_preview import tool_result_brief_lines
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -379,6 +381,10 @@ def _tool_result_view(event: dict[str, Any], tools) -> tuple[dict[str, object], 
     else:
         summary["status"] = event.get("status", "ok")
         renderable = Text.from_markup(f"  [green]✓ {display}[/green] [dim]{elapsed_s:.1f}s[/dim]")
+        if brief_lines := tool_result_brief_lines(name, result):
+            summary["brief"] = brief_lines
+            for line in brief_lines:
+                renderable.append(f"\n    {line}", style="dim")
     return summary, renderable
 
 

@@ -16,6 +16,8 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.text import Text
 
+from utils.tool_result_preview import tool_result_brief_lines
+
 console = Console()
 
 _commands = WordCompleter(
@@ -305,6 +307,8 @@ def print_tool_result(name: str, display_name: str, result) -> None:
         console.print(f"  [red]✗ {display_name}[/red]{time_str} [dim]{result['error']}[/dim]")
     else:
         console.print(f"  [green]✓ {display_name}[/green]{time_str}")
+        for line in tool_result_brief_lines(name, result):
+            console.print(Text(f"    {line}", style="dim"))
 
 
 def print_response(text: str) -> None:

@@ -4,6 +4,7 @@ import json
 
 from cli.scratchpad import AgentScratchpad
 from cli.tool_results import INLINE_TOOL_RESULT_MAX_CHARS, format_tool_result_for_context, serialize_tool_result
+from utils.tool_result_preview import tool_result_brief_lines
 
 
 class _Scalar:
@@ -162,6 +163,37 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1
     assert json.loads(stored[0].read_text(encoding="utf-8"))["trigger_groups"]["huge"][0]["blob"] == "x" * 200
+
+
+def test_screen_stocks_brief_lines_surface_candidate_risk_status():
+    result = {
+        "selection_brief": {
+            "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+            "primary_pick": {
+                "code": "300750",
+                "name": "宁德时代",
+                "risk_factors": ["大盘风险闸门关闭"],
+                "action_status": "blocked_by_market_gate",
+                "next_step": "只观察，等待风险闸门重新打开",
+            },
+        },
+        "top_candidates": [
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "risk_factors": ["未进入本轮研报候选"],
+                "action_status": "watch_only",
+            }
+        ],
+    }
+
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert lines == [
+        "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+        "300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 下一步: 只观察，等待风险闸门重新打开",
+        "000001 平安银行 · 观察池 · 风险: 未进入本轮研报候选",
+    ]
 
 
 def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, monkeypatch):

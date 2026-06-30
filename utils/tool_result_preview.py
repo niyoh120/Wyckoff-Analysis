@@ -31,6 +31,14 @@ def tool_result_preview(tool_name: str, result: Any, content: str = "") -> str:
     return content[:PREVIEW_CHARS]
 
 
+def tool_result_brief_lines(tool_name: str, result: Any, *, max_lines: int = 3) -> list[str]:
+    if not isinstance(result, dict) or result.get("error"):
+        return []
+    if tool_name == "screen_stocks":
+        return _screen_stocks_brief_lines(result, max_lines=max_lines)
+    return []
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, float):
         return value if math.isfinite(value) else None
@@ -102,6 +110,75 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
         }
     )
     return serialize_tool_result(payload) if payload else ""
+
+
+def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    lines: list[str] = []
+    selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
+    headline = _text_excerpt(selection.get("headline"), 120)
+    if headline:
+        lines.append(headline)
+    for row in _screen_brief_candidates(result):
+        if line := _candidate_brief_line(row):
+            lines.append(line)
+        if len(lines) >= max_lines:
+            break
+    return lines[:max_lines]
+
+
+def _screen_brief_candidates(result: dict[str, Any]) -> list[dict[str, Any]]:
+    selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
+    rows: list[Any] = [selection.get("primary_pick")]
+    rows.extend(_preview_list(selection.get("best_candidates"), 3))
+    rows.extend(_preview_list(result.get("top_candidates"), 3))
+    return _dedupe_candidate_rows(rows)
+
+
+def _dedupe_candidate_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("code") or row.get("summary") or row.get("name") or row)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def _candidate_brief_line(row: dict[str, Any]) -> str:
+    name = _candidate_name(row)
+    parts = [_action_status_label(row.get("action_status")), _brief_risk(row), _brief_next_step(row)]
+    detail = " · ".join(part for part in parts if part)
+    return f"{name} · {detail}" if detail else name
+
+
+def _candidate_name(row: dict[str, Any]) -> str:
+    code = str(row.get("code") or "").strip()
+    name = str(row.get("name") or "").strip()
+    return " ".join(part for part in (code, name) if part) or str(row.get("summary") or "候选").strip()
+
+
+def _action_status_label(value: Any) -> str:
+    return {
+        "blocked_by_market_gate": "风险闸门关闭",
+        "watch_only": "观察池",
+        "repair_review_only": "只做修复复核",
+        "confirmation_required": "等待确认",
+        "ready_for_ai_review": "可进入AI复核",
+    }.get(str(value or "").strip(), "")
+
+
+def _brief_risk(row: dict[str, Any]) -> str:
+    risks = [str(item).strip() for item in _preview_list(row.get("risk_factors"), 2) if str(item).strip()]
+    return f"风险: {'；'.join(risks)}" if risks else ""
+
+
+def _brief_next_step(row: dict[str, Any]) -> str:
+    next_step = _text_excerpt(row.get("next_step"), 80)
+    return f"下一步: {next_step}" if next_step else ""
 
 
 def _screen_decision_preview(value: Any) -> dict[str, Any]:

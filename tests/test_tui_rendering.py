@@ -18,6 +18,7 @@ from cli.tui import (
     _replace_streamed_response,
     _settle_markdown_render,
     _system_notification_queue_item,
+    _tool_result_view,
     _workflow_control_intent,
     _workflow_detail_step_line,
     _write_counted,
@@ -161,6 +162,38 @@ def test_display_workflow_step_event_hides_internal_scope():
     assert "工具：portfolio, analyze_stock" not in rendered
     assert "analysis:" not in rendered
     assert scrolled == [True]
+
+
+def test_tool_result_view_surfaces_screen_candidate_risk():
+    summary, renderable = _tool_result_view(
+        {
+            "type": "tool_result",
+            "name": "screen_stocks",
+            "elapsed_ms": 1200,
+            "result": {
+                "selection_brief": {
+                    "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+                    "primary_pick": {
+                        "code": "300750",
+                        "name": "宁德时代",
+                        "risk_factors": ["大盘风险闸门关闭"],
+                        "action_status": "blocked_by_market_gate",
+                        "next_step": "只观察",
+                    },
+                }
+            },
+        },
+        None,
+    )
+
+    rendered = str(renderable)
+    assert summary["brief"] == [
+        "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+        "300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 下一步: 只观察",
+    ]
+    assert "screen_stocks" in rendered
+    assert "风险闸门关闭" in rendered
+    assert "大盘风险闸门关闭" in rendered
 
 
 def test_workflow_detail_step_line_includes_tool_scope():

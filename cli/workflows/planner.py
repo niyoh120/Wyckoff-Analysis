@@ -18,7 +18,7 @@ TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions", "p
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
 TOOL_SCOPE_FIELDS = ("tool_scope", "allowed_tools", "tools", "tool")
 
-TOOL_ALIASES = {
+LEGACY_TOOL_ALIASES = {
     "查持仓": "portfolio",
     "持仓数据": "portfolio",
     "查看持仓": "portfolio",
@@ -42,7 +42,7 @@ TOOL_ALIASES = {
     "任务状态": "check_background_tasks",
 }
 
-WORKFLOW_AGENT_ALIASES = {
+LEGACY_WORKFLOW_AGENT_ALIASES = {
     "task": "task",
     "workflow_task": "task",
     "dynamic_task": "task",
@@ -116,13 +116,11 @@ _PLAN_SYSTEM_PROMPT = """\
 - phases 总任务数 1-1000 个。
 - 同一 phase 内的 task 会并发执行；有依赖关系的 task 必须拆到后续 phase。
 - 如果用 depends_on/after/needs/dependencies 表达 task 依赖，runtime 会按依赖顺序切批执行。
-- 不需要选择内部执行角色；不要填写 agent/role，历史脚本带有这些字段时 runtime 才兼容处理。
-- 如果某个 task 只应看部分工具，用 tools 限定具体工具；不要用工具名表达自然语言意图。
+- 不需要选择内部执行角色；不要填写 agent/role。
+- 如果某个 task 只应看部分工具，用工具摘要里的精确工具名填写 tools；不确定就省略 tools。
 - 任务拆分围绕用户当前目标；能单步完成就生成 1 个 task，需要事实收集/分析/决策链路时再拆分。
-- task 只服务于完成用户目标；不要生成改写、解释或确认用户表述的元任务。
-- 不要生成只服务于理解用户表述的元任务；把语义恢复合入真正执行的 task。
-- 能用工具验证的事实交给 task 验证；不要因为可搜索或可读取的信息先问用户。
-- 只有执行对象仍不明确，或会产生写入、交易、高风险动作时才澄清。
+- 把措辞恢复和上下文补全合入真正执行的 task，不要单独生成元任务。
+- 能用工具验证的事实交给 task 验证；只有执行对象仍不明确，或会产生写入、交易、高风险动作时才澄清。
 - 不要生成会写入持仓、交易或文件的任务。
 """
 
@@ -176,6 +174,19 @@ def _normalize_supplied_script(
     return payload
 
 
+def _mark_model_script(script: dict[str, Any]) -> dict[str, Any]:
+    payload = deepcopy(script)
+    runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+    runtime.setdefault("planner", "model_script")
+    payload["runtime"] = runtime
+    return payload
+
+
+def _legacy_script_compat(script: dict[str, Any]) -> bool:
+    runtime = script.get("runtime")
+    return isinstance(runtime, dict) and runtime.get("planner") == "stored_script"
+
+
 def _generate_script(
     user_text: str,
     context: WorkflowContext,
@@ -192,7 +203,7 @@ def _generate_script(
         return _fallback_script(user_text, context, reason=f"planner failed: {exc}")
     if not isinstance(script, dict):
         return _fallback_script(user_text, context, reason="planner returned non-object JSON")
-    return script
+    return _mark_model_script(script)
 
 
 def _planner_user_prompt(user_text: str, context: WorkflowContext, tools: Any | None) -> str:
@@ -280,8 +291,9 @@ def _strip_json_fence(text: str) -> str:
 def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowContext) -> list[WorkflowStep]:
     steps: list[WorkflowStep] = []
     args_text = _runtime_args(script)
-    for phase in _script_phases(script, context):
-        steps.extend(_phase_steps(phase, user_text, args_text, context))
+    legacy = _legacy_script_compat(script)
+    for phase in _script_phases(script, context, legacy):
+        steps.extend(_phase_steps(phase, user_text, args_text, context, legacy))
         if len(steps) >= MAX_WORKFLOW_STEPS:
             break
     steps = _filter_runtime_steps(steps, script)
@@ -296,11 +308,12 @@ def _phase_steps(
     user_text: str,
     args_text: str,
     context: WorkflowContext,
+    legacy: bool,
 ) -> list[WorkflowStep]:
     phase_id = _slug(phase.get("id") or phase.get("title") or "phase")
     steps: list[WorkflowStep] = []
-    for task in _phase_tasks(phase, context):
-        step = _task_step(task, phase_id, user_text, args_text, context)
+    for task in _phase_tasks(phase, context, legacy):
+        step = _task_step(task, phase_id, user_text, args_text, context, legacy)
         if step:
             steps.append(step)
     return steps
@@ -312,8 +325,9 @@ def _task_step(
     user_text: str,
     args_text: str,
     context: WorkflowContext,
+    legacy: bool,
 ) -> WorkflowStep | None:
-    agent = _task_agent(task, context)
+    agent = _task_agent(task, context, legacy)
     if not agent:
         return None
     title = str(task.get("title") or task.get("name") or task.get("id") or f"{agent} task").strip()
@@ -330,7 +344,7 @@ def _task_step(
         context=context,
         phase=phase_id,
         depends_on=_task_dependencies(task),
-        tool_scope=_task_tool_scope(task),
+        tool_scope=_task_tool_scope(task, legacy),
         dynamic=True,
     )
 
@@ -339,23 +353,23 @@ def _agent_delegate_tools(agent: str) -> tuple[str, ...]:
     return () if agent == "task" else (f"delegate_to_{agent}",)
 
 
-def _script_phases(script: dict[str, Any], context: WorkflowContext) -> list[dict[str, Any]]:
+def _script_phases(script: dict[str, Any], context: WorkflowContext, legacy: bool) -> list[dict[str, Any]]:
     phases = _safe_list(script.get("phases"))
     if phases:
         return phases
     tasks = _first_task_list(script)
     if tasks:
         return [{"id": "top_level", "title": script.get("title") or "动态任务", "tasks": tasks}]
-    if _task_agent(script, context):
+    if _task_agent(script, context, legacy):
         return [{"id": "top_level", "title": script.get("title") or "动态任务", "tasks": [script]}]
     return []
 
 
-def _phase_tasks(phase: dict[str, Any], context: WorkflowContext) -> list[dict[str, Any]]:
+def _phase_tasks(phase: dict[str, Any], context: WorkflowContext, legacy: bool) -> list[dict[str, Any]]:
     tasks = _first_task_list(phase)
     if tasks:
         return tasks
-    return [phase] if _task_agent(phase, context) else []
+    return [phase] if _task_agent(phase, context, legacy) else []
 
 
 def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -366,9 +380,11 @@ def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def _task_agent(task: dict[str, Any], context: WorkflowContext) -> str:
-    if _task_tool_scope(task):
+def _task_agent(task: dict[str, Any], context: WorkflowContext, legacy: bool) -> str:
+    if _task_tool_scope(task, legacy):
         return "task"
+    if not legacy:
+        return "task" if _generated_task_like(task) else ""
     for raw in (task.get("agent"), task.get("role"), task.get("assignee")):
         agent = _normalize_workflow_agent(raw)
         if agent:
@@ -379,26 +395,28 @@ def _task_agent(task: dict[str, Any], context: WorkflowContext) -> str:
 def _normalize_workflow_agent(raw: Any) -> str:
     key = re.sub(r"[\s/-]+", "_", str(raw or "").strip().lower()).strip("_")
     key = re.sub(r"_agent$", "", key)
-    agent = WORKFLOW_AGENT_ALIASES.get(key, "")
+    agent = LEGACY_WORKFLOW_AGENT_ALIASES.get(key, "")
     return agent if agent in ALLOWED_WORKFLOW_AGENTS else ""
 
 
-def _task_tool_scope(task: dict[str, Any]) -> tuple[str, ...]:
+def _task_tool_scope(task: dict[str, Any], legacy: bool) -> tuple[str, ...]:
     names: list[str] = []
     for field in TOOL_SCOPE_FIELDS:
         for item in _field_items(task.get(field)):
-            if name := _tool_name(item):
+            if name := _tool_name(item, legacy):
                 names.append(name)
     return tuple(dict.fromkeys(names))
 
 
-def _tool_name(raw: Any) -> str:
+def _tool_name(raw: Any, legacy: bool) -> str:
     if isinstance(raw, dict):
         raw = raw.get("name") or raw.get("tool") or raw.get("id") or raw.get("display_name") or raw.get("label")
     key = _normalize_tool_key(raw)
     if key.startswith("delegate_to_"):
         return ""
-    return key if key in TOOL_SPECS else _tool_aliases().get(key, "")
+    if key in TOOL_SPECS:
+        return key
+    return _legacy_tool_aliases().get(key, "") if legacy else ""
 
 
 def _normalize_tool_key(raw: Any) -> str:
@@ -407,10 +425,15 @@ def _normalize_tool_key(raw: Any) -> str:
     return key
 
 
-def _tool_aliases() -> dict[str, str]:
+def _legacy_tool_aliases() -> dict[str, str]:
     aliases = {_normalize_tool_key(spec.display_name): name for name, spec in TOOL_SPECS.items()}
-    aliases.update({_normalize_tool_key(alias): name for alias, name in TOOL_ALIASES.items()})
+    aliases.update({_normalize_tool_key(alias): name for alias, name in LEGACY_TOOL_ALIASES.items()})
     return aliases
+
+
+def _generated_task_like(task: dict[str, Any]) -> bool:
+    fields = ("id", "title", "name", *PROMPT_FIELDS, *TOOL_SCOPE_FIELDS)
+    return any(str(task.get(field) or "").strip() for field in fields)
 
 
 def _task_fallback_text(task: dict[str, Any]) -> str:
