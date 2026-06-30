@@ -109,6 +109,7 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 - 评估结果仅写 artifact，不写回 `recommendation_tracking`，避免在公开推荐页里增加难解释的短线事件列。
 - 评估会只读 join 同日 `signal_observations.features_json`，在 summary 中输出 `candidate_shadow_grade` 和 `entry_quality_grade` 分组，用同一套 5 日 hit/MFE/MAE 口径验证候选质量档位。
 - `summary.top_k_by_strategy` 额外比较 `candidate_shadow_then_score` 和 `entry_quality_then_score`，用于观察“按质量分排序的 Top-K”是否优于原 `score_only`，但不改变真实推荐排序。
+- `summary.top_k_lift_vs_score_only` 会直接输出各排序策略相对原 `score_only` 的 hit rate、收盘收益、MFE、MAE 和赔率差值，减少人工对表误差。
 
 当前 5 日 +10% 评估结果（最新 30 个推荐日，2026-06-28 本地实测）：
 

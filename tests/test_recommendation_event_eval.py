@@ -50,6 +50,9 @@ def test_top_k_summary_can_rank_by_candidate_quality_scores() -> None:
     assert entry_quality["hit_rate_pct"] == 100.0
     assert "candidate_shadow_then_score" in summary["top_k_by_strategy"]
     assert "entry_quality_then_score" in summary["top_k_by_strategy"]
+    assert summary["top_k_lift_vs_score_only"]["candidate_shadow_then_score"]["1"]["hit_rate_delta_pct"] == 100.0
+    assert summary["top_k_lift_vs_score_only"]["candidate_shadow_then_score"]["1"]["avg_mfe_delta_pct"] == 8.0
+    assert summary["top_k_lift_vs_score_only"]["entry_quality_then_score"]["1"]["hit_rate_delta_pct"] == 100.0
 
 
 def test_top_k_summary_can_rank_by_quality_grade_when_score_missing() -> None:

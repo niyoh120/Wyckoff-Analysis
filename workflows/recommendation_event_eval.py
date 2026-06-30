@@ -204,6 +204,7 @@ def _build_summary(events: list[dict[str, Any]], top_k: tuple[int, ...]) -> dict
         "non_ai": summarize_horizon_events([event for event in events if not event.get("is_ai_recommended")]),
         "top_k": top_k_by_strategy["score_only"],
         "top_k_by_strategy": top_k_by_strategy,
+        "top_k_lift_vs_score_only": _strategy_lift_summary(top_k_by_strategy),
         "candidate_shadow_grade": _grade_summary(events, "candidate_shadow_grade"),
         "entry_quality_grade": _grade_summary(events, "entry_quality_grade"),
     }
@@ -222,6 +223,37 @@ def _top_k_by_strategy(events: list[dict[str, Any]], top_k: tuple[int, ...]) -> 
     return {
         strategy: {str(k): _top_k_summary(events, k, strategy) for k in sorted({max(int(value), 1) for value in top_k})}
         for strategy in _RANKING_STRATEGIES
+    }
+
+
+def _strategy_lift_summary(top_k_by_strategy: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    baseline = top_k_by_strategy.get("score_only") or {}
+    result: dict[str, dict[str, Any]] = {}
+    for strategy, top_rows in top_k_by_strategy.items():
+        if strategy == "score_only":
+            continue
+        result[strategy] = {
+            str(k): _strategy_lift_row(item, baseline.get(str(k), {}))
+            for k, item in top_rows.items()
+            if str(k) in baseline
+        }
+    return result
+
+
+def _strategy_lift_row(row: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ranking": row.get("ranking"),
+        "baseline_ranking": baseline.get("ranking", "score_only"),
+        "top_k": row.get("top_k"),
+        "rows_ready": row.get("rows_ready", 0),
+        "baseline_rows_ready": baseline.get("rows_ready", 0),
+        "hit_rate_delta_pct": _delta(row, baseline, "hit_rate_pct"),
+        "close_win_rate_delta_pct": _delta(row, baseline, "close_win_rate_pct"),
+        "avg_close_return_delta_pct": _delta(row, baseline, "avg_close_return_horizon_pct"),
+        "close_payoff_delta": _delta(row, baseline, "close_payoff_ratio"),
+        "avg_mfe_delta_pct": _delta(row, baseline, "avg_mfe_horizon_pct"),
+        "avg_mae_delta_pct": _delta(row, baseline, "avg_mae_horizon_pct"),
+        "mfe_mae_delta": _delta(row, baseline, "mfe_mae_ratio"),
     }
 
 
@@ -305,6 +337,7 @@ def _write_markdown(path: Path, result: dict[str, Any]) -> None:
     ]
     lines.extend(_summary_markdown_rows(result["summary"]))
     lines.extend(_strategy_markdown(result["summary"]["top_k_by_strategy"]))
+    lines.extend(_strategy_lift_markdown(result["summary"].get("top_k_lift_vs_score_only") or {}))
     lines.extend(_quality_markdown(result["summary"]))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -331,6 +364,27 @@ def _strategy_markdown(top_k_by_strategy: dict[str, dict[str, Any]]) -> list[str
                 f"{_fmt(item.get('close_win_rate_pct'))}% | {_fmt(item.get('avg_close_return_horizon_pct'))}% | "
                 f"{_fmt(item.get('close_payoff_ratio'))} | {_fmt(item.get('avg_mfe_horizon_pct'))}% | "
                 f"{_fmt(item.get('avg_mae_horizon_pct'))}% |"
+            )
+    return rows
+
+
+def _strategy_lift_markdown(lift_by_strategy: dict[str, dict[str, Any]]) -> list[str]:
+    rows = [
+        "",
+        "## Ranking Lift vs score_only",
+        "",
+        "| Strategy | Top-K | Ready | Hit Δ | Close win Δ | Avg close Δ | Payoff Δ | MFE Δ | MAE Δ |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for strategy, top_rows in lift_by_strategy.items():
+        for k, item in top_rows.items():
+            ready = f"{item.get('rows_ready', 0)}/{item.get('baseline_rows_ready', 0)}"
+            rows.append(
+                f"| {strategy} | {k} | {ready} | {_fmt_delta(item.get('hit_rate_delta_pct'))}pp | "
+                f"{_fmt_delta(item.get('close_win_rate_delta_pct'))}pp | "
+                f"{_fmt_delta(item.get('avg_close_return_delta_pct'))}pp | "
+                f"{_fmt_delta(item.get('close_payoff_delta'))} | {_fmt_delta(item.get('avg_mfe_delta_pct'))}pp | "
+                f"{_fmt_delta(item.get('avg_mae_delta_pct'))}pp |"
             )
     return rows
 
@@ -374,6 +428,14 @@ def _number(raw: Any, default: float) -> float:
         return float(raw)
     except (TypeError, ValueError):
         return default
+
+
+def _delta(row: dict[str, Any], baseline: dict[str, Any], key: str) -> float | None:
+    left = _optional_number(row.get(key))
+    right = _optional_number(baseline.get(key))
+    if left is None or right is None:
+        return None
+    return round(left - right, 2)
 
 
 def _quality_rank(event: dict[str, Any], prefix: str) -> float:
@@ -455,6 +517,15 @@ def _date_compact(raw: Any) -> str:
 
 def _fmt(raw: Any) -> str:
     return "n/a" if raw is None else str(raw)
+
+
+def _fmt_delta(raw: Any) -> str:
+    if raw is None:
+        return "n/a"
+    value = _optional_number(raw)
+    if value is None:
+        return "n/a"
+    return f"{value:+g}"
 
 
 def _batch_size() -> int:
