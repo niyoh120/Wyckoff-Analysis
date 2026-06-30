@@ -95,6 +95,12 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
             "market_gate": "风险规避 / 不新增买入",
             "report_focus": [{"summary": "300750 宁德时代: LPS+SOS；只观察"}],
         },
+        "selection_brief": {
+            "status": "ready_for_ai_review",
+            "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+            "best_codes": ["300750"],
+            "tool_handoff": {"tool": "generate_ai_report", "args": {"stock_codes": ["300750"]}},
+        },
         "action_plan": {
             "candidate_action": "只观察，不新增买入",
             "new_buy_allowed": False,
@@ -118,6 +124,8 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     assert '"top_candidates": [{"code": "300750"' in content
     assert "宁德时代" in content
     assert '"decision_brief": {"market_gate": "风险规避 / 不新增买入"' in content
+    assert '"selection_brief": {"status": "ready_for_ai_review"' in content
+    assert "本轮首选可进入 AI 研报复核: 300750 宁德时代" in content
     assert "300750 宁德时代: LPS+SOS；只观察" in content
     assert '"trade_mode": {"regime": "RISK_OFF", "action": "不新增买入"}' in content
     assert '"tool": "generate_ai_report"' in content

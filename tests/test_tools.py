@@ -1092,6 +1092,35 @@ class TestSymbolPool:
                 }
             ],
         }
+        assert result["selection_brief"] == {
+            "status": "blocked_by_market_gate",
+            "headline": "本轮有强候选，但市场闸门未打开: 000004 主线候选",
+            "best_codes": ["000004"],
+            "primary_pick": {
+                "code": "000004",
+                "name": "主线候选",
+                "tier": "高优先级研报候选",
+                "why": "趋势线 / 主升阶段 / 主线买点；研报候选#1；优先分 12.50",
+                "next_step": "只观察，等待市场风险闸门重新打开",
+                "priority_score": 12.5,
+                "score": 0.0,
+                "track": "Trend",
+                "stage": "Markup",
+            },
+            "best_candidates": [
+                {
+                    "code": "000004",
+                    "name": "主线候选",
+                    "tier": "高优先级研报候选",
+                    "why": "趋势线 / 主升阶段 / 主线买点；研报候选#1；优先分 12.50",
+                    "next_step": "只观察，等待市场风险闸门重新打开",
+                    "priority_score": 12.5,
+                    "score": 0.0,
+                    "track": "Trend",
+                    "stage": "Markup",
+                }
+            ],
+        }
         assert result["action_plan"] == {
             "primary_action": "不新增买入",
             "candidate_action": "只观察，不新增买入",
@@ -1191,5 +1220,13 @@ class TestSymbolPool:
             "tool": "generate_ai_report",
             "args": {"stock_codes": ["000004", "000005"]},
         }
+        assert result["selection_brief"]["status"] == "ready_for_ai_review"
+        assert result["selection_brief"]["best_codes"] == ["000004", "000005"]
+        assert result["selection_brief"]["tool_handoff"] == {
+            "tool": "generate_ai_report",
+            "args": {"stock_codes": ["000004", "000005"]},
+            "reason": "首选候选已通过市场闸门，可进入 AI 研报复核",
+        }
         assert ctx.state["last_screen_result"]["symbols_for_report"][0]["code"] == "000004"
+        assert ctx.state["last_screen_result"]["selection_brief"]["best_codes"] == ["000004", "000005"]
         assert "trigger_groups" not in ctx.state["last_screen_result"]

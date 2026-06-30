@@ -45,6 +45,7 @@ def screen_stocks(board: str = "all", tool_context: ToolContext | None = None) -
             "summary": _screen_summary(metrics, symbols),
             "trade_mode": trade_mode,
             "decision_brief": _decision_brief(trade_mode, top_candidates),
+            "selection_brief": _selection_brief(trade_mode, top_candidates),
             "action_plan": _action_plan(trade_mode, top_candidates),
             "top_candidates": top_candidates,
             "trigger_groups": trigger_groups,
@@ -72,6 +73,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "summary": result.get("summary", {}),
         "trade_mode": result.get("trade_mode", {}),
         "decision_brief": result.get("decision_brief", {}),
+        "selection_brief": result.get("selection_brief", {}),
         "action_plan": result.get("action_plan", {}),
         "top_candidates": list(result.get("top_candidates") or [])[:20],
         "symbols_for_report": list(result.get("symbols_for_report") or [])[:10],
@@ -149,6 +151,82 @@ def _decision_brief(trade_mode: dict, top_candidates: list[dict]) -> dict:
         "report_focus": _candidate_brief_items(report_candidates, trade_mode, "report"),
         "watch_focus": _candidate_brief_items(watch_candidates, trade_mode, "watch"),
     }
+
+
+def _selection_brief(trade_mode: dict, top_candidates: list[dict]) -> dict:
+    report_candidates = [row for row in top_candidates if row.get("selected_for_report")]
+    candidates = report_candidates or top_candidates[:3]
+    status = _selection_status(report_candidates, candidates, trade_mode)
+    best_candidates = _selection_candidate_items(candidates, trade_mode, "report" if report_candidates else "watch")
+    payload = {
+        "status": status,
+        "headline": _selection_headline(status, best_candidates),
+        "best_codes": [row["code"] for row in best_candidates],
+        "primary_pick": best_candidates[0] if best_candidates else {},
+        "best_candidates": best_candidates,
+        "tool_handoff": _selection_tool_handoff(status, best_candidates),
+    }
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
+
+
+def _selection_status(report_candidates: list[dict], candidates: list[dict], trade_mode: dict) -> str:
+    if not candidates:
+        return "empty"
+    if report_candidates and bool(trade_mode.get("allow_ai_review")):
+        return "ready_for_ai_review"
+    if report_candidates:
+        return "blocked_by_market_gate"
+    return "watch_only"
+
+
+def _selection_candidate_items(candidates: list[dict], trade_mode: dict, bucket: str, *, limit: int = 5) -> list[dict]:
+    return [_selection_candidate_item(row, trade_mode, bucket) for row in candidates[:limit]]
+
+
+def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str) -> dict:
+    profile = _candidate_profile(row)
+    rank_reason = str(row.get("rank_reason") or "").strip()
+    why = "；".join(part for part in (profile, rank_reason) if part) or "候选证据不足"
+    return _drop_empty_candidate_fields(
+        {
+            "code": str(row.get("code") or "").strip(),
+            "name": str(row.get("name") or row.get("code") or "").strip(),
+            "tier": _candidate_quality_label(row),
+            "why": why,
+            "next_step": _candidate_next_step(trade_mode, bucket),
+            "priority_score": row.get("priority_score"),
+            "score": row.get("score"),
+            "track": row.get("track"),
+            "stage": row.get("stage"),
+        }
+    )
+
+
+def _selection_headline(status: str, best_candidates: list[dict]) -> str:
+    if not best_candidates:
+        return "本轮没有形成可复核候选"
+    first = best_candidates[0]
+    prefix = {
+        "ready_for_ai_review": "本轮首选可进入 AI 研报复核",
+        "blocked_by_market_gate": "本轮有强候选，但市场闸门未打开",
+        "watch_only": "本轮只有观察候选",
+    }.get(status, "本轮候选摘要")
+    return f"{prefix}: {first.get('code')} {first.get('name')}"
+
+
+def _selection_tool_handoff(status: str, best_candidates: list[dict]) -> dict:
+    if status != "ready_for_ai_review":
+        return {}
+    codes = [str(row.get("code") or "").strip() for row in best_candidates if str(row.get("code") or "").strip()]
+    return {
+        "tool": "generate_ai_report",
+        "args": {"stock_codes": codes[:10]},
+        "reason": "首选候选已通过市场闸门，可进入 AI 研报复核",
+    }
+
+
+def _drop_empty_candidate_fields(payload: dict) -> dict:
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
 def _review_targets(report_candidates: list[dict], trade_mode: dict) -> dict:
