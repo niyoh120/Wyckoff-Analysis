@@ -169,6 +169,8 @@ def test_model_router_prompt_keeps_direct_as_default_chat_path():
     assert "一个清楚目标在一轮内能完成" in _ROUTER_SYSTEM_PROMPT
     assert "持续编排" in _ROUTER_SYSTEM_PROMPT
     assert "固定模板机械判断" in _ROUTER_SYSTEM_PROMPT
+    assert "错字、口语化、省略" in _ROUTER_SYSTEM_PROMPT
+    assert "不要为了纠错" in _ROUTER_SYSTEM_PROMPT
     assert "错别字" not in _ROUTER_SYSTEM_PROMPT
     assert "谐音" not in _ROUTER_SYSTEM_PROMPT
     assert "查看持仓" not in _ROUTER_SYSTEM_PROMPT

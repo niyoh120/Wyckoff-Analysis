@@ -109,7 +109,7 @@ def test_display_final_response_replaces_streamed_raw_text():
     assert isinstance(log.lines[1], Markdown)
 
 
-def test_display_workflow_plan_event_includes_route_reason_without_internal_scope():
+def test_display_workflow_plan_event_keeps_pending_plan_compact():
     writes = []
     scrolled = []
 
@@ -128,11 +128,12 @@ def test_display_workflow_plan_event_includes_route_reason_without_internal_scop
     assert run_id == "wf_1"
     assert workflow_name == "backtest"
     assert "策略回测" in str(writes[0])
-    assert "检测到策略回测意图" in str(writes[1])
-    assert "命中：回测" in str(writes[1])
-    assert "待执行" in str(writes[2])
-    assert "工具：run_backtest" not in str(writes[2])
-    assert "research" not in str(writes[2])
+    assert "1 个动态任务" in str(writes[0])
+    assert "/workflow show wf_1" in str(writes[1])
+    assert "检测到策略回测意图" not in str(writes[1])
+    assert "待执行" not in str(writes[1])
+    assert "工具：run_backtest" not in str(writes[1])
+    assert "research" not in str(writes[1])
     assert scrolled == [True]
 
 

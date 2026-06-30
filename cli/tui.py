@@ -394,25 +394,20 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
     workflow_name = str(event.get("workflow", ""))
     label = str(event.get("label") or workflow_name)
     steps = event.get("plan", {}).get("steps", [])
-    route = event.get("route") or event.get("plan", {}).get("route", {})
+    step_count = len(steps) if isinstance(steps, list) else 0
+    count_text = f" · {step_count} 个动态任务" if step_count else ""
     write(
-        Text.from_markup(f"  [bold cyan]workflow[/bold cyan] [bold]{escape(label)}[/bold] [dim]{escape(run_id)}[/dim]")
+        Text.from_markup(
+            f"  [bold cyan]workflow[/bold cyan] [bold]{escape(label)}[/bold] [dim]{escape(run_id)}{count_text}[/dim]"
+        )
     )
     script_title = str(event.get("plan", {}).get("script", {}).get("title", "") or "")
     if script_title and script_title != label:
         write(Text.from_markup(f"    [dim]动态脚本：{escape(script_title)}[/dim]"))
-    route_line = _workflow_route_line(route)
-    if route_line:
-        write(route_line)
-    visible_steps = steps[:20] if isinstance(steps, list) else []
-    for idx, step in enumerate(visible_steps, start=1):
-        title = escape(str(step.get("title", "")))
-        meta = _workflow_step_meta(step, "待执行")
-        write(Text.from_markup(f"    [dim]{idx}.[/dim] {title} [dim]{meta}[/dim]"))
-    if isinstance(steps, list) and len(steps) > len(visible_steps):
+    if step_count:
         write(
             Text.from_markup(
-                f"    [dim]... 还有 {len(steps) - len(visible_steps)} 个 task，可用 /workflow script 查看[/dim]"
+                f"    [dim]已交给 agent 动态执行，进度会按实际工具结果展开；详情用 /workflow show {escape(run_id)}[/dim]"
             )
         )
     scroll()
