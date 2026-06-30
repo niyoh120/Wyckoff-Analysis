@@ -338,20 +338,34 @@ def _apply_market_mix_guard(
         ai_policy["market_mix_guard_reason"] = _market_mix_guard_reason(best_score)
         return selected_for_ai, trend_selected, accum_selected
     additions = []
-    for item in alternatives[:FUNNEL_MARKET_MIX_MAX_ADD]:
+    replacements = []
+    cap = _market_mix_total_cap(ai_policy)
+    slots = None if cap is None else max(cap - len(set(selected_for_ai)), 0)
+    for item, score in alternatives[:FUNNEL_MARKET_MIX_MAX_ADD]:
         code = str(item.get("code") or "").strip()
         if code not in selected_for_ai:
-            selected_for_ai.append(code)
+            if slots is None or slots > 0:
+                selected_for_ai.append(code)
+                if slots is not None:
+                    slots -= 1
+            elif removed := _replace_market_mix_candidate(
+                selected_for_ai, trend_selected, accum_selected, score_map, score
+            ):
+                selected_for_ai.append(code)
+                replacements.append({"removed": removed, "added": code})
+            else:
+                continue
             _append_market_mix_track(code, item, trend_selected, accum_selected)
-            score_map[code] = max(
-                candidate_score_value(score_map.get(code)),
-                candidate_score_value(ctx.code_to_total_score.get(code)),
-                candidate_score_value(item.get("score")),
-            )
+            score_map[code] = score
             additions.append(code)
     if not additions:
+        ai_policy["market_mix_guard_reason"] = (
+            _market_mix_guard_reason(best_score) + " 当前 AI 候选已达上限，且主板/创业候选未强于现有科创/北交候选。"
+        )
         return selected_for_ai, trend_selected, accum_selected
     ai_policy["market_mix_guard_added"] = additions
+    if replacements:
+        ai_policy["market_mix_guard_replaced"] = replacements
     print(f"[funnel] 市场均衡补入主板/创业候选: {additions}")
     return selected_for_ai, trend_selected, accum_selected
 
@@ -360,7 +374,7 @@ def _main_or_chinext_alternatives(
     ctx: FunnelRenderContext,
     selected_for_ai: list[str],
     score_map: dict[str, float],
-) -> tuple[list[dict], float | None]:
+) -> tuple[list[tuple[dict, float]], float | None]:
     selected = set(selected_for_ai)
     rows: list[tuple[str, float, dict]] = []
     best_score: float | None = None
@@ -374,7 +388,7 @@ def _main_or_chinext_alternatives(
             rows.append((code, score, item))
             selected.add(code)
     rows.sort(key=lambda row: (-row[1], row[0]))
-    return [item for _code, _score, item in rows], best_score
+    return [(item, score) for _code, score, item in rows], best_score
 
 
 def _market_mix_candidate_score(
@@ -392,10 +406,44 @@ def _market_mix_candidate_score(
     return max(score, candidate_score_value(score_map.get(code)))
 
 
+def _market_mix_total_cap(ai_policy: dict) -> int | None:
+    cap = int(ai_policy.get("total_cap") or 0)
+    return cap if cap > 0 else None
+
+
+def _replace_market_mix_candidate(
+    selected_for_ai: list[str],
+    trend_selected: list[str],
+    accum_selected: list[str],
+    score_map: dict[str, float],
+    candidate_score: float,
+) -> str:
+    removable = [
+        (candidate_score_value(score_map.get(code)), idx, code)
+        for idx, code in enumerate(selected_for_ai)
+        if is_star_or_bse(code)
+    ]
+    if not removable:
+        return ""
+    weakest_score, _idx, weakest = min(removable)
+    if candidate_score < weakest_score:
+        return ""
+    selected_for_ai.remove(weakest)
+    _remove_market_mix_track(weakest, trend_selected, accum_selected)
+    return weakest
+
+
 def _append_market_mix_track(code: str, item: dict, trend_selected: list[str], accum_selected: list[str]) -> None:
     target = accum_selected if candidate_entry_track(item) == "Accum" else trend_selected
     if code not in target:
         target.append(code)
+
+
+def _remove_market_mix_track(code: str, trend_selected: list[str], accum_selected: list[str]) -> None:
+    if code in trend_selected:
+        trend_selected.remove(code)
+    if code in accum_selected:
+        accum_selected.remove(code)
 
 
 def _market_mix_guard_reason(best_score: float | None) -> str:
