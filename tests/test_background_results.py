@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 
 def _reset_local_db(local_db) -> None:
     if local_db._conn is not None:
@@ -15,8 +17,20 @@ def _screen_result() -> dict:
             "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
             "best_codes": ["300750"],
         },
+        "top_candidates": [{"code": "300750", "name": "宁德时代", "track": "Trend"}],
+        "symbols_for_report": [{"code": "300750", "name": "宁德时代", "tag": "trend"}],
         "trigger_groups": {"huge": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(80)]},
     }
+
+
+def _wait_completed(manager, task_id: str) -> dict:
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        status = manager.get_status(task_id)
+        if status and status["status"] == "completed":
+            return status
+        time.sleep(0.01)
+    raise AssertionError(f"background task did not complete: {task_id}")
 
 
 def test_local_db_background_history_uses_tool_result_preview(tmp_path, monkeypatch):
@@ -42,6 +56,62 @@ def test_local_db_background_history_uses_tool_result_preview(tmp_path, monkeypa
         assert '"trigger_groups"' not in row["summary"]
     finally:
         _reset_local_db(local_db)
+
+
+def test_background_manager_completed_results_keeps_status_summary_compact():
+    from cli.background import BackgroundTaskManager
+
+    manager = BackgroundTaskManager()
+    task_id = manager.submit("bg_screen", "screen_stocks", lambda: _screen_result(), {})
+
+    status = _wait_completed(manager, task_id)
+    payloads = manager.completed_results()
+
+    assert status["task_id"] == "bg_screen"
+    assert "result" not in status
+    assert payloads[0][0] == "bg_screen"
+    assert payloads[0][1] == "screen_stocks"
+    assert payloads[0][2]["selection_brief"]["best_codes"] == ["300750"]
+
+
+def test_check_background_tasks_restores_screen_handoff_state():
+    from cli.background import BackgroundTaskManager
+    from cli.tools import ToolRegistry
+
+    manager = BackgroundTaskManager()
+    registry = ToolRegistry()
+    registry.set_background_manager(manager)
+    task_id = manager.submit("bg_screen", "screen_stocks", lambda: _screen_result(), {})
+
+    _wait_completed(manager, task_id)
+    result = registry.execute("check_background_tasks", {})
+
+    assert result["tasks"][0]["status"] == "completed"
+    assert "result" not in result["tasks"][0]
+    state = registry.state["last_screen_result"]
+    assert state["selection_brief"]["best_codes"] == ["300750"]
+    assert state["symbols_for_report"][0]["code"] == "300750"
+    assert "trigger_groups" not in state
+
+
+def test_check_background_tasks_restores_ai_report_handoff_state():
+    from cli.background import BackgroundTaskManager
+    from cli.tools import ToolRegistry
+
+    report = {
+        "ok": True,
+        "reviewed_codes": ["300750"],
+        "reviewed_symbols": [{"code": "300750", "name": "宁德时代"}],
+    }
+    manager = BackgroundTaskManager()
+    registry = ToolRegistry()
+    registry.set_background_manager(manager)
+    task_id = manager.submit("bg_report", "generate_ai_report", lambda: report, {})
+
+    _wait_completed(manager, task_id)
+    registry.execute("check_background_tasks", {})
+
+    assert registry.state["last_ai_report"]["reviewed_codes"] == ["300750"]
 
 
 def test_local_db_chat_background_history_uses_shared_preview(tmp_path, monkeypatch):

@@ -598,6 +598,7 @@ class ToolRegistry:
         if name == "check_background_tasks":
             if not self._bg_manager:
                 return {"tasks": [], "message": "无后台任务"}
+            self._remember_background_handoffs()
             return {"tasks": self._bg_manager.list_tasks()}
 
         fn = self._tools.get(name)
@@ -636,6 +637,19 @@ class ToolRegistry:
         except Exception as e:
             logger.exception("Tool %s execution failed", name)
             return {"error": f"工具执行失败: {e}"}
+
+    def _remember_background_handoffs(self) -> None:
+        for _task_id, tool_name, result in self._bg_manager.completed_results():
+            if not isinstance(result, dict) or result.get("error"):
+                continue
+            if tool_name == "screen_stocks":
+                from agents.screen_tools import remember_screen_handoff
+
+                remember_screen_handoff(self._tool_context, result)
+            elif tool_name == "generate_ai_report":
+                from agents.report_tools import remember_ai_report
+
+                remember_ai_report(self._tool_context, result)
 
     def _confirm_high_risk_call(
         self,

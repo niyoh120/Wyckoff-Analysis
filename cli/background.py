@@ -115,6 +115,14 @@ class BackgroundTaskManager:
         statuses = [self.get_status(t.id) for t in tasks]
         return [status for status in statuses if status]
 
+    def completed_results(self) -> list[tuple[str, str, Any]]:
+        with self._lock:
+            return [
+                (task.id, task.tool_name, task.result)
+                for task in self._tasks.values()
+                if task.status == "completed" and task.result is not None
+            ]
+
 
 def _background_result_summary(task: BackgroundTask) -> str:
     if task.result_summary:
