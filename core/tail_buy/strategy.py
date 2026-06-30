@@ -317,6 +317,7 @@ _SIGNAL_TYPE_STYLE: dict[str, str] = {
     "sos": "trend",
     "jac": "trend",
     "trend_breakout": "trend",
+    "main_force_entry": "trend",
     "sector_strength": "trend",
     "wyckoff_structure": "trend",
     "mainline": "trend",
@@ -345,7 +346,14 @@ def _normalize_signal_score(signal_score: float, signal_type: str) -> float:
     elif st == "spring":
         # Spring score 是回升幅度%（0-10+），天然接近 0-10
         normalized = raw
-    elif st in {"mainline", "trend_breakout", "trend_lane_pullback", "sector_strength", "wyckoff_structure"}:
+    elif st in {
+        "mainline",
+        "main_force_entry",
+        "trend_breakout",
+        "trend_lane_pullback",
+        "sector_strength",
+        "wyckoff_structure",
+    }:
         normalized = raw / 10.0 if raw > 10.0 else raw
     else:
         normalized = raw

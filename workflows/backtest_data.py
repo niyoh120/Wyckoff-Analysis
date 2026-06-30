@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from core.cn_boards import cn_board, is_supported_cn_board
 from core.wyckoff_engine import normalize_hist_from_fetch
 from integrations.data_source import fetch_stock_hist
 from integrations.fetch_a_share_csv import get_stocks_by_board, normalize_symbols
@@ -55,8 +56,10 @@ def normalize_backtest_board(board: str) -> str:
     b = str(board or "").strip().lower()
     if b == "us":
         return "us"
-    if b in {"", "all", "main_chinext", "main_chinext_star"}:
+    if b in {"", "all"}:
         return "all"
+    if b == "main_chinext":
+        return "main_chinext_star"
     return b
 
 
@@ -65,13 +68,11 @@ def board_match(code: str, board: str) -> bool:
     if b == "us":
         return True
     c = str(code or "").strip()
-    if b == "main":
-        return c.startswith(("600", "601", "603", "605", "000", "001", "002", "003"))
-    if b == "chinext":
-        return c.startswith(("300", "301"))
-    if b == "star":
-        return c.startswith(("688", "689"))
-    return c.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301", "688", "689"))
+    if b in {"main", "chinext", "star", "bse"}:
+        return cn_board(c) == b
+    if b == "main_chinext_star":
+        return is_supported_cn_board(c, include_bse=False)
+    return is_supported_cn_board(c)
 
 
 def build_universe(board: str, sample_size: int) -> tuple[list[str], dict[str, str]]:
@@ -80,7 +81,7 @@ def build_universe(board: str, sample_size: int) -> tuple[list[str], dict[str, s
         symbols, name_map = load_us_symbols()
         return symbols[:sample_size] if sample_size > 0 else symbols, name_map
 
-    board_arg = board_norm if board_norm in {"main", "chinext", "star"} else "all"
+    board_arg = board_norm if board_norm in {"main", "chinext", "star", "bse", "main_chinext_star"} else "all"
     items = get_stocks_by_board(board_arg)
     name_map = {
         str(x.get("code", "")).strip(): str(x.get("name", "")).strip() for x in items if str(x.get("code", "")).strip()

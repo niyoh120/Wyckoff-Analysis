@@ -112,7 +112,7 @@ def get_market_overview() -> dict:
 
 
 @mcp.tool()
-def screen_stocks(board: Literal["all", "main_chinext", "main", "chinext", "star"] = "all") -> dict:
+def screen_stocks(board: Literal["all", "main_chinext", "main", "chinext", "star", "bse"] = "all") -> dict:
     """运行 Wyckoff 五层漏斗筛选，从全市场筛选结构性机会股票。
 
     **调用时机**：用户说"帮我选股"、"今天有什么机会"、"跑一下漏斗"时调用。
@@ -276,7 +276,7 @@ def intraday_rescue_check(code: str) -> dict:
 
 
 @mcp.tool()
-def run_funnel_simulation(board: Literal["all", "main_chinext", "main", "chinext", "star"] = "all") -> dict:
+def run_funnel_simulation(board: Literal["all", "main_chinext", "main", "chinext", "star", "bse"] = "all") -> dict:
     """运行 Wyckoff 五层漏斗仿真，返回原始结构数据。
 
     **调用时机**：用户说"今天有什么机会"、"帮我复盘并推荐"时调用。与 screen_stocks 类似但返回更底层的原始数据。
@@ -286,9 +286,9 @@ def run_funnel_simulation(board: Literal["all", "main_chinext", "main", "chinext
     """
     board_name = str(board or "all").strip().lower()
     if board_name == "main_chinext":
-        board_name = "all"
-    if board_name not in {"all", "main", "chinext", "star"}:
-        return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star"}
+        board_name = "main_chinext_star"
+    if board_name not in {"all", "main_chinext_star", "main", "chinext", "star", "bse"}:
+        return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star / bse"}
 
     from workflows.wyckoff_funnel import run as run_funnel
 

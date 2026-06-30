@@ -82,7 +82,7 @@ class TestLayer1Filter:
         result = layer1_filter(["000001", "000002"], name_map, mcap, df_map, cfg)
         assert "000002" not in result  # ST 被剔除
 
-    def test_accepts_star_board_but_rejects_bse(self):
+    def test_accepts_star_and_bse_by_default(self):
         cfg = FunnelConfig()
         dates = pd.date_range("2024-01-01", periods=100, freq="B")
         closes = [10 + i * 0.01 for i in range(100)]
@@ -96,7 +96,18 @@ class TestLayer1Filter:
 
         assert "688001" in result
         assert "689009" in result
-        assert "830001" not in result
+        assert "830001" in result
+
+    def test_can_disable_bse_board_in_layer1(self):
+        cfg = FunnelConfig(include_bse_board=False)
+        dates = pd.date_range("2024-01-01", periods=100, freq="B")
+        closes = [10 + i * 0.01 for i in range(100)]
+        df = _make_df(dates.strftime("%Y-%m-%d").tolist(), closes)
+
+        name_map = {"830001": "北交样本"}
+        result = layer1_filter(["830001"], name_map, {"830001": 100.0}, {"830001": df}, cfg)
+
+        assert result == []
 
     def test_rejects_single_day_amount_spike_distortion(self):
         cfg = FunnelConfig()

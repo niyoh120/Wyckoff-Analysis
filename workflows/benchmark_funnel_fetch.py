@@ -61,14 +61,22 @@ def resolve_benchmark_symbols(symbols: tuple[str, ...], sample: int) -> list[str
 
 
 def build_universe(sample: int) -> list[str]:
-    main = [str(x.get("code", "")).strip() for x in get_stocks_by_board("main")]
-    chinext = [str(x.get("code", "")).strip() for x in get_stocks_by_board("chinext")]
-    star = [str(x.get("code", "")).strip() for x in get_stocks_by_board("star")]
-    merged = normalize_symbols(main + chinext + star)
+    main = _board_codes("main")
+    chinext = _board_codes("chinext")
+    star = _board_codes("star")
+    bse = _board_codes("bse")
+    merged = normalize_symbols(main + chinext + star + bse)
     if sample <= 0 or sample >= len(merged):
         return merged
     step = len(merged) / max(sample, 1)
     return [merged[min(int(i * step), len(merged) - 1)] for i in range(sample)]
+
+
+def _board_codes(board: str) -> list[str]:
+    try:
+        return [str(x.get("code", "")).strip() for x in get_stocks_by_board(board)]
+    except Exception:
+        return []
 
 
 def summarize_fetch_rows(

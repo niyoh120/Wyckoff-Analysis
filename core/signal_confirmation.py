@@ -15,6 +15,7 @@ SIGNAL_TTL_DAYS: dict[str, int] = {
     "trend_pullback": 3,
     "trend_breakout": 2,
     "trend_lane_pullback": 3,
+    "main_force_entry": 3,
     "sector_strength": 2,
     "wyckoff_structure": 3,
     "mainline": 3,
@@ -26,6 +27,7 @@ TREND_CONFIRM_SIGNALS = {
     "sector_strength",
     "wyckoff_structure",
     "mainline",
+    "main_force_entry",
 }
 
 
@@ -285,7 +287,7 @@ def build_snap(
         snap["snap_support"] = float(zone["close"].min()) if len(zone) > 0 else float(last["low"])
     elif signal_type == "sos":
         snap["snap_support"] = float(df_s["high"].tail(21).iloc[:-1].max()) if len(df_s) >= 21 else float(last["high"])
-    elif signal_type in {"lps", "trend_pullback", "trend_lane_pullback", "mainline"}:
+    elif signal_type in {"lps", "trend_pullback", "trend_lane_pullback", "mainline", "main_force_entry"}:
         snap["snap_support"] = ma20
     elif signal_type in {"trend_breakout", "sector_strength", "wyckoff_structure"}:
         snap["snap_support"] = max(float(last["low"]), ma20 * 0.985)

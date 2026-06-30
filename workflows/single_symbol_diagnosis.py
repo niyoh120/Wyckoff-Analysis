@@ -13,6 +13,7 @@ import pandas as pd
 from core.candidate_lanes import build_l1_candidate_lane_entries
 from core.candidate_policy import candidate_score_value, loss_guard_reason
 from core.candidate_ranker import TRIGGER_LABELS, TRIGGER_SHORT_LABELS
+from core.cn_boards import is_supported_cn_board
 from core.signal_confirmation import score_springboard_abc
 from core.wyckoff_engine import (
     FunnelConfig,
@@ -364,8 +365,15 @@ def safe_ratio(num: float | None, den: float | None) -> float | None:
 
 def l1_reason(spec: SymbolSpec, df: pd.DataFrame, ctx: ReplayContext, cfg: FunnelConfig) -> str:
     name = ctx.name_map.get(spec.symbol, "")
-    if cfg.require_cn_main_or_chinext and spec.market == "cn" and not spec.symbol.startswith(("0", "3", "6")):
-        return "非主板/创业板/科创板标的，不在 A 股漏斗股票池"
+    if (
+        cfg.require_cn_main_or_chinext
+        and spec.market == "cn"
+        and not is_supported_cn_board(
+            spec.symbol,
+            include_bse=cfg.include_bse_board,
+        )
+    ):
+        return "非A股目标板块标的，不在 A 股漏斗股票池"
     if "ST" in name.upper():
         return "名称包含 ST，被 Layer1 硬过滤"
     avg_amount = day_metrics(df)["amount_avg_wan"]

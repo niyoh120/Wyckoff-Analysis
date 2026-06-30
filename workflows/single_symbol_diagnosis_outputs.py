@@ -51,7 +51,7 @@ def build_single_symbol_report(spec: Any, rows: list[Any], summary: dict[str, An
         f"- 首次/最后选中: {summary['first_selected'] or '-'} / {summary['last_selected'] or '-'}",
         f"- 层级分布: {_fmt_counts(summary['counts'])}",
         "",
-        "> 注：RPS 已基于全市场截面排名（主板+创业板+科创板）；板块热度属于全市场依赖，报告中按单票上下文近似。",
+        "> 注：RPS 已基于全市场截面排名（主板+创业板+科创板+北交）；板块热度属于全市场依赖，报告中按单票上下文近似。",
         "",
         "## 每日明细",
         "",

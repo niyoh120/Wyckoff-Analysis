@@ -31,8 +31,10 @@ def _as_yyyymmdd(text: str) -> str:
 
 def _normalize_board(board: str) -> str:
     b = str(board or "").strip().lower()
-    if b in {"", "all", "main_chinext", "main_chinext_star"}:
+    if b in {"", "all"}:
         return "all"
+    if b == "main_chinext":
+        return "main_chinext_star"
     return b
 
 

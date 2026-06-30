@@ -216,6 +216,27 @@ def _candidate_brief_line(ctx: Any, selected_count: int) -> str:
     )
 
 
+def _pool_summary_line(metrics: dict) -> str:
+    bse = int(metrics.get("pool_bse") or 0)
+    bse_part = f" + 北交{bse}" if bse > 0 else ""
+    return (
+        f"**股票池**: 主板{metrics['pool_main']} + 创业板{metrics['pool_chinext']} "
+        f"+ 科创板{metrics['pool_star']}{bse_part} -> 去重{metrics['pool_merged']} "
+        f"-> 去ST{metrics['pool_st_excluded']} = {metrics['total_symbols']} "
+        f"(共{metrics['pool_batches']}批)"
+    )
+
+
+def _market_mix_policy_line(policy: dict) -> str:
+    added = policy.get("market_mix_guard_added") or []
+    reason = str(policy.get("market_mix_guard_reason") or "").strip()
+    if added:
+        return f"**市场均衡**: 补入主板/创业候选 {', '.join(added)}，避免结果只剩科创/北交。"
+    if reason:
+        return f"**市场均衡**: {reason}"
+    return ""
+
+
 def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[str]:
     return [
         _today_conclusion_line(ctx, selected_count),
@@ -313,7 +334,13 @@ def _mainline_row(ctx: Any, item: dict) -> str:
     score = float(item.get("mainline_score") or 0.0) * 100.0
     risk = " / ".join(item.get("risk_flags") or [])
     risk_suffix = f"  风险:{risk}" if risk else ""
-    return f"  {code} {name}  {theme}  {status}  {entry}  分{score:.1f}{_confirmation_suffix(ctx, code)}{risk_suffix}"
+    metrics = item.get("metrics") or {}
+    force = float(metrics.get("main_force_score") or 0.0)
+    force_suffix = f"  主力分{force:.2f}" if force > 0 else ""
+    return (
+        f"  {code} {name}  {theme}  {status}  {entry}  分{score:.1f}"
+        f"{force_suffix}{_confirmation_suffix(ctx, code)}{risk_suffix}"
+    )
 
 
 def _confirmation_suffix(ctx: Any, code: str) -> str:
@@ -394,12 +421,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     bench_line, money_line, amount_line, pv_line, pv_shadow_line = _market_report_lines(ctx.benchmark_context)
     selected_for_ai = selection.selected_for_ai
     lines = _top_summary_lines(ctx, len(selected_for_ai), money_line) + [
-        (
-            f"**股票池**: 主板{ctx.metrics['pool_main']} + 创业板{ctx.metrics['pool_chinext']} "
-            f"+ 科创板{ctx.metrics['pool_star']} -> 去重{ctx.metrics['pool_merged']} "
-            f"-> 去ST{ctx.metrics['pool_st_excluded']} = {ctx.metrics['total_symbols']} "
-            f"(共{ctx.metrics['pool_batches']}批)"
-        ),
+        _pool_summary_line(ctx.metrics),
         f"**筛选概览**: {ctx.metrics['total_symbols']}只 → 基础准入:{ctx.metrics['layer1']} "
         f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → 买点确认事件:{ctx.metrics['total_hits']}",
         f"**大盘水温**: {bench_line}",
@@ -429,6 +451,9 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     ]
     if ctx.external_seed_line:
         lines.insert(-1, f"**外部观察 Shadow**: {ctx.external_seed_line}")
+    mix_line = _market_mix_policy_line(selection.ai_policy)
+    if mix_line:
+        lines.insert(-1, mix_line)
     append_etf_section(lines, ctx.etf_metrics, ctx.etf_candidates, display_limit=FUNNEL_ETF_DISPLAY_LIMIT)
     if ctx.etf_metrics or ctx.etf_candidates:
         lines.append("")
@@ -477,12 +502,7 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
     bench_line, money_line, amount_line, pv_line, pv_shadow_line = _market_report_lines(ctx.benchmark_context)
     policy = selection.ai_policy
     lines = _top_summary_lines(ctx, len(selection.selected_for_ai), money_line) + [
-        (
-            f"**股票池**: 主板{ctx.metrics['pool_main']} + 创业板{ctx.metrics['pool_chinext']} "
-            f"+ 科创板{ctx.metrics['pool_star']} -> 去重{ctx.metrics['pool_merged']} "
-            f"-> 去ST{ctx.metrics['pool_st_excluded']} = {ctx.metrics['total_symbols']} "
-            f"(共{ctx.metrics['pool_batches']}批)"
-        ),
+        _pool_summary_line(ctx.metrics),
         f"**筛选概览**: {ctx.metrics['total_symbols']}只 → 基础准入:{ctx.metrics['layer1']} "
         f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → 买点确认:{ctx.unique_hit_count}",
         f"**大盘水温**: {bench_line}",
@@ -512,6 +532,9 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
     ]
     if ctx.external_seed_line:
         lines.insert(-1, f"**外部观察 Shadow**: {ctx.external_seed_line}")
+    mix_line = _market_mix_policy_line(policy)
+    if mix_line:
+        lines.insert(-1, mix_line)
     if policy.get("shadow_table"):
         lines.insert(
             -1,

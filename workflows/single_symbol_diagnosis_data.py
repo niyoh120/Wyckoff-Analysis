@@ -140,7 +140,7 @@ def _safe_fetch_benchmark(
 
 
 def _rps_symbols(spec: Any) -> list[str]:
-    items = get_stocks_by_board("main_chinext_star")
+    items = get_stocks_by_board("all")
     symbols = [str(item["code"]).strip() for item in items if item.get("code")]
     return [symbol for symbol in symbols if symbol and symbol != spec.symbol]
 

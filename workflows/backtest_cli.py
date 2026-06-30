@@ -82,7 +82,7 @@ def _add_universe_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--top-n", type=int, default=0, help="每日候选上限；0 表示不截断（回测全量 AI 输入，默认 0）")
     parser.add_argument(
         "--board",
-        choices=["all", "main_chinext", "main_chinext_star", "main", "chinext", "star", "us"],
+        choices=["all", "main_chinext", "main_chinext_star", "main", "chinext", "star", "bse", "us"],
         default="all",
     )
     parser.add_argument("--benchmark", default="000001")

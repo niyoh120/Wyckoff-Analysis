@@ -1,7 +1,7 @@
 """
 Wyckoff Funnel 定时任务：5 层漏斗筛选 → 多渠道推送
 
-Layer 1: 剥离垃圾（ST/北交所/市值/成交额）
+Layer 1: 剥离垃圾（ST/非目标板块/市值/成交额）
 Layer 2: 七通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/点火破局）
 Layer 2.5: Markup 加速检测
 Layer 3: 板块共振（行业 Top-N）
@@ -17,6 +17,7 @@ import pandas as pd
 
 from core.candidate_policy import apply_loss_guard, candidate_score_value, rerank_selected_codes
 from core.capital_migration import build_capital_migration_report
+from core.cn_boards import is_main_or_chinext, is_star_or_bse
 from core.funnel_etf import etf_metrics
 from core.theme_radar import summarize_theme_radar
 from core.wyckoff_engine import (
@@ -301,6 +302,9 @@ def _apply_ai_post_filters(
         dropped_count = before - len(selected_for_ai)
         if dropped_count:
             print(f"[funnel] min_funnel_score={min_score} 过滤掉 {dropped_count} 只低质量候选")
+    selected_for_ai, trend_selected, accum_selected = _apply_market_mix_guard(
+        ctx, selected_for_ai, trend_selected, accum_selected, score_map, ai_policy
+    )
     selected_for_ai = rerank_selected_codes(selected_for_ai, score_map)
     trend_set, accum_set = set(trend_selected), set(accum_selected)
     return (
@@ -308,6 +312,70 @@ def _apply_ai_post_filters(
         [c for c in selected_for_ai if c in trend_set],
         [c for c in selected_for_ai if c in accum_set],
     )
+
+
+def _apply_market_mix_guard(
+    ctx: FunnelRenderContext,
+    selected_for_ai: list[str],
+    trend_selected: list[str],
+    accum_selected: list[str],
+    score_map: dict[str, float],
+    ai_policy: dict,
+) -> tuple[list[str], list[str], list[str]]:
+    if not selected_for_ai or not all(is_star_or_bse(code) for code in selected_for_ai):
+        return selected_for_ai, trend_selected, accum_selected
+    alternatives = _main_or_chinext_alternatives(ctx, selected_for_ai, score_map)
+    if not alternatives:
+        ai_policy["market_mix_guard_reason"] = "最终候选集中在科创/北交；当前主板/创业候选未达到分数或存在硬风险。"
+        return selected_for_ai, trend_selected, accum_selected
+    additions = alternatives[:2]
+    for code in additions:
+        if code not in selected_for_ai:
+            selected_for_ai.append(code)
+            trend_selected.append(code)
+            score_map[code] = max(
+                candidate_score_value(score_map.get(code)),
+                candidate_score_value(ctx.code_to_total_score.get(code)),
+            )
+    ai_policy["market_mix_guard_added"] = additions
+    print(f"[funnel] 市场均衡补入主板/创业候选: {additions}")
+    return selected_for_ai, trend_selected, accum_selected
+
+
+def _main_or_chinext_alternatives(
+    ctx: FunnelRenderContext,
+    selected_for_ai: list[str],
+    score_map: dict[str, float],
+) -> list[str]:
+    selected = set(selected_for_ai)
+    rows = [
+        item
+        for item in ctx.candidate_entries
+        if _is_market_mix_candidate(item, selected, ctx.code_to_total_score, score_map)
+    ]
+    rows.sort(key=lambda item: -candidate_score_value(ctx.code_to_total_score.get(str(item.get("code")))))
+    return [str(item.get("code")).strip() for item in rows if str(item.get("code")).strip()]
+
+
+def _is_market_mix_candidate(
+    item: dict,
+    selected: set[str],
+    code_to_total_score: dict[str, float],
+    score_map: dict[str, float],
+) -> bool:
+    code = str(item.get("code") or "").strip()
+    if not code or code in selected or not is_main_or_chinext(code):
+        return False
+    if _candidate_has_hard_risk(item):
+        return False
+    score = max(candidate_score_value(item.get("score")), candidate_score_value(code_to_total_score.get(code)))
+    score = max(score, candidate_score_value(score_map.get(code)))
+    return score >= 72.0
+
+
+def _candidate_has_hard_risk(item: dict) -> bool:
+    risk = str(item.get("risk") or "")
+    return any(flag in risk for flag in ("鱼尾", "过热不追", "短线过热", "跌破", "长上影", "缩量阴跌"))
 
 
 def _sync_selected_score_map(
@@ -354,6 +422,7 @@ def _pool_fetch_metrics(inputs: FunnelMetricsInputs) -> dict:
         "pool_main": pool.main_count,
         "pool_chinext": pool.chinext_count,
         "pool_star": pool.star_count,
+        "pool_bse": pool.bse_count,
         "pool_merged": pool.merged_count,
         "pool_st_excluded": pool.st_excluded_count,
         "pool_batches": pool.total_batches,

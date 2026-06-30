@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 import pandas as pd
 
+from core.cn_boards import is_supported_cn_board
 from core.wyckoff_engine import sort_by_date_if_needed
 
 TODAY_REVIEW_MIN_PCT = 8.0
@@ -15,7 +16,7 @@ PREVIOUS_REVIEW_MAX_PCT = 6.0
 
 
 def is_target_cn_board(code: str) -> bool:
-    return str(code).startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301", "688", "689"))
+    return is_supported_cn_board(code)
 
 
 def find_big_gainers(

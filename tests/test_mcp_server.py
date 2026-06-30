@@ -55,7 +55,7 @@ def test_run_funnel_simulation_maps_main_chinext_without_mutating_env(monkeypatc
     result = mcp_server.run_funnel_simulation(board="main_chinext")
 
     assert result["success"] is True
-    assert captured_kwargs["pool_board"] == "all"
+    assert captured_kwargs["pool_board"] == "main_chinext_star"
     assert captured_kwargs["executor_mode"] == "thread"
     assert result["details"] == {"metrics": {"layer1": 1}}
     assert os.environ["FUNNEL_POOL_MODE"] == "manual"

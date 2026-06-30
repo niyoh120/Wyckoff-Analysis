@@ -1,7 +1,7 @@
 """
 Wyckoff Funnel 5 层漏斗筛选引擎
 
-Layer 1: 剥离垃圾（ST / 北交所 / 市值 / 成交额）
+Layer 1: 剥离垃圾（ST / 非目标板块 / 市值 / 成交额）
 Layer 2: 八通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/加速突破/点火破局）
 Layer 2.5: Markup 加速检测
 Layer 2.7: Alpha 候选板（潜在大涨结构 + 龙头跟踪）
@@ -20,6 +20,7 @@ import pandas as pd
 
 from core.candidate_lanes import build_l1_candidate_lane_entries, merge_candidate_entries
 from core.candidate_tracks import candidate_entry_sort_key
+from core.cn_boards import is_supported_cn_board
 from core.layer2_strength import (
     build_benchmark_context,
     build_rps_context,
@@ -85,7 +86,8 @@ class FunnelConfig:
     trading_days: int = 320
 
     # Layer 1
-    require_cn_main_or_chinext: bool = True  # 兼容旧字段名：仅保留主板/创业板/科创板，排除北交所等
+    require_cn_main_or_chinext: bool = True  # 兼容旧字段名：限制为 A 股交易板块；默认含北交所
+    include_bse_board: bool = True
     min_market_cap_yi: float = 35.0
     min_avg_amount_wan: float = 5000.0
     l1_min_close_price: float = 2.0
@@ -375,10 +377,6 @@ class _FunnelStageState(NamedTuple):
 # Layer 1: 剥离垃圾
 
 
-def _is_supported_cn_board(code: str) -> bool:
-    return code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301", "688", "689"))
-
-
 def _amount_liquidity_ok(
     df_sorted: pd.DataFrame,
     cfg: FunnelConfig,
@@ -446,7 +444,7 @@ def layer1_filter(
     financial_map: dict[str, dict] | None = None,
 ) -> list[str]:
     """
-    硬过滤：剔除 ST、北交所等非目标板块、市值<阈值、近期均成交额<阈值。
+    硬过滤：剔除 ST、非目标板块、市值<阈值、近期均成交额<阈值。
     market_cap_map 单位：亿元。若 market_cap_map 为空则跳过市值过滤。
     financial_map 来自 TickFlow，可选；有则追加 ROE / 资产负债率硬过滤。
     """
@@ -455,7 +453,7 @@ def layer1_filter(
     l1_roe_negative = 0
     l1_high_debt = 0
     for sym in symbols:
-        if cfg.require_cn_main_or_chinext and not _is_supported_cn_board(sym):
+        if cfg.require_cn_main_or_chinext and not is_supported_cn_board(sym, include_bse=cfg.include_bse_board):
             continue
         name = name_map.get(sym, "")
         if "ST" in name.upper():

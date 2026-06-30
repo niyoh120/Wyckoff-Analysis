@@ -6,15 +6,16 @@ from types import SimpleNamespace
 from workflows import benchmark_funnel_fetch as bench
 
 
-def test_build_universe_includes_main_chinext_and_star(monkeypatch) -> None:
+def test_build_universe_includes_main_chinext_star_and_bse(monkeypatch) -> None:
     boards = {
         "main": [{"code": "000001"}],
         "chinext": [{"code": "300001"}],
         "star": [{"code": "688001"}],
+        "bse": [{"code": "830000"}],
     }
     monkeypatch.setattr(bench, "get_stocks_by_board", lambda board: boards[board])
 
-    assert bench.build_universe(sample=0) == ["000001", "300001", "688001"]
+    assert bench.build_universe(sample=0) == ["000001", "300001", "688001", "830000"]
 
 
 def test_summarize_fetch_rows_counts_success_alignment_and_sources() -> None:

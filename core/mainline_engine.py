@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from core.main_force_signal import analyze_main_force_signal
 from core.theme_radar import normalize_theme_name
 
 MAINLINE_BUY_STATUS = "主线买点候选"
@@ -173,7 +174,7 @@ def _candidate_from_seed(
         timing_score=round(timing_score, 4),
         l2_passed=code in l2_set,
         source=str(seed.get("source") or "mainline"),
-        reasons=_reasons(theme, theme_score, role_score, quality_score, timing_score, entry_type),
+        reasons=_reasons(theme, theme_score, role_score, quality_score, timing_score, entry_type, metrics),
         risk_flags=risk_flags,
         metrics=metrics,
     )
@@ -259,6 +260,7 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
         "upper_shadow_pct": _upper_shadow_pct(ordered, open_, high, close),
         "vol_ratio_5_20": _vol_ratio(volume),
         "amount20_wan": _amount20_wan(amount),
+        **analyze_main_force_signal(ordered).metrics,
     }
 
 
@@ -281,6 +283,8 @@ def _timing_risks(metrics: dict[str, float]) -> list[str]:
         risks.append("跌破确认支撑")
     if metrics["ret20"] < -8 and metrics["vol_ratio_5_20"] < 0.9:
         risks.append("主题缩量阴跌")
+    if metrics.get("main_force_score", 0.0) < 0.30 and metrics["vol_ratio_5_20"] > 1.3:
+        risks.append("供给未消化")
     return risks
 
 
@@ -292,6 +296,10 @@ def _entry_types(metrics: dict[str, float], risk_flags: list[str]) -> list[str]:
         return entries
     if "跌破确认支撑" in risk_flags and not entries:
         return []
+    if _main_force_entry_ok(metrics, risk_flags):
+        entries.append("主力资金进场确认")
+    if _main_force_absorption_ok(metrics, risk_flags):
+        entries.append("主力缩量承接")
     if -2 <= metrics["dist_ma20"] <= 8 and metrics["dist_ma50"] >= -2 and metrics["ret60"] >= 8:
         entries.append("主线回踩MA20")
     if metrics["close_pos20"] >= 0.86 and 4 <= metrics["ret20"] <= 36 and 0.75 <= metrics["vol_ratio_5_20"] <= 2.2:
@@ -320,7 +328,30 @@ def _timing_score(metrics: dict[str, float], risk_flags: list[str]) -> float:
     volume = 0.10 * _clamp(1.0 - max(metrics["vol_ratio_5_20"] - 1.6, 0.0) / 1.4)
     extension = 0.12 * float(_high_mainline_support(metrics))
     event_reversal = 0.16 * float(_event_reversal_entry_ok(metrics, risk_flags))
-    return _clamp(trend + strength + distance + volume + extension + event_reversal)
+    main_force = 0.16 * _clamp(metrics.get("main_force_score", 0.0))
+    return _clamp(trend + strength + distance + volume + extension + event_reversal + main_force)
+
+
+def _main_force_entry_ok(metrics: dict[str, float], risk_flags: list[str]) -> bool:
+    if {"鱼尾加速", "放量长上影", "跌破确认支撑"} & set(risk_flags):
+        return False
+    return (
+        metrics.get("main_force_score", 0.0) >= 0.66
+        and metrics.get("demand_supply_ratio", 0.0) >= 1.15
+        and metrics["dist_ma20"] <= 16
+        and metrics["close_pos_day"] >= 0.55
+    )
+
+
+def _main_force_absorption_ok(metrics: dict[str, float], risk_flags: list[str]) -> bool:
+    if {"鱼尾加速", "放量长上影", "跌破确认支撑"} & set(risk_flags):
+        return False
+    return (
+        metrics.get("down_amount_ratio_10_20", 9.0) <= 0.90
+        and metrics.get("support_hold_score", 0.0) >= 0.66
+        and metrics.get("close_pos5", 0.0) >= 0.55
+        and -6 <= metrics["ret5"] <= 8
+    )
 
 
 def _event_reversal_entry_ok(metrics: dict[str, float], risk_flags: list[str]) -> bool:
@@ -364,6 +395,7 @@ def _stock_role_score(metrics: dict[str, float], radar: dict[str, Any], is_core:
         + 0.20 * _clamp(1.0 - metrics["drawdown60"] / 24.0)
         + 0.15 * _clamp(metrics["close_pos20"])
         + 0.10 * float(metrics["dist_ma50"] >= 0)
+        + 0.10 * _clamp(metrics.get("main_force_score", 0.0))
     )
     return _clamp(max(radar_score, absolute_score) + (0.10 if is_core else 0.0))
 
@@ -401,12 +433,21 @@ def _candidate_entry(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _reasons(theme: str, theme_score: float, role_score: float, quality: float, timing: float, entry: str) -> list[str]:
+def _reasons(
+    theme: str,
+    theme_score: float,
+    role_score: float,
+    quality: float,
+    timing: float,
+    entry: str,
+    metrics: dict[str, float],
+) -> list[str]:
     return [
         f"主题:{theme}({theme_score:.2f})",
         f"核心度:{role_score:.2f}",
         f"质量:{quality:.2f}",
         f"时机:{timing:.2f}",
+        f"主力:{metrics.get('main_force_score', 0.0):.2f}/供需{metrics.get('demand_supply_ratio', 0.0):.2f}",
         entry or "等待买点确认",
     ]
 

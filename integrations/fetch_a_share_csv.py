@@ -13,6 +13,8 @@ from tempfile import NamedTemporaryFile
 import akshare as ak
 import pandas as pd
 
+from core.cn_boards import cn_board, is_supported_cn_board
+
 logger = logging.getLogger(__name__)
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -301,8 +303,8 @@ def get_stocks_by_board(board_name: str = "all") -> list[dict[str, str]]:
     Filter stocks by board.
     Args:
         board_name:
-        - "all": 主板+创业板+科创板（不含北交所）
-        - "main_chinext": 主板+创业板+科创板（旧入口同义）
+        - "all": 主板+创业板+科创板+北交所
+        - "main_chinext": 主板+创业板+科创板（旧入口同义，不含北交所）
         - "main_chinext_star": 主板+创业板+科创板（不含北交所）
         - "main": 主板
         - "chinext": 创业板
@@ -311,30 +313,13 @@ def get_stocks_by_board(board_name: str = "all") -> list[dict[str, str]]:
     """
     all_stocks = get_all_stocks()
     board = str(board_name or "all").strip().lower()
-    if board in {"all", "main_chinext", "main_chinext_star"}:
-        prefixes = ("600", "601", "603", "605", "000", "001", "002", "003", "300", "301", "688", "689")
-        out = []
-        for s in all_stocks:
-            code = s["code"]
-            if code.startswith(prefixes):
-                out.append(s)
-        return out
-
-    out = []
-    for s in all_stocks:
-        code = s["code"]
-        if board == "star":  # 科创板
-            if code.startswith(("688", "689")):
-                out.append(s)
-        elif board == "chinext":  # 创业板
-            if code.startswith(("300", "301")):
-                out.append(s)
-        elif board == "bse":  # 北交所
-            if code.startswith(("43", "83", "87", "88", "92")):
-                out.append(s)
-        elif board == "main" and code.startswith(("600", "601", "603", "605", "000", "001", "002", "003")):
-            out.append(s)
-    return out
+    if board in {"all", "full"}:
+        return [s for s in all_stocks if is_supported_cn_board(s.get("code"))]
+    if board in {"main_chinext", "main_chinext_star"}:
+        return [s for s in all_stocks if is_supported_cn_board(s.get("code"), include_bse=False)]
+    if board in {"main", "chinext", "star", "bse"}:
+        return [s for s in all_stocks if cn_board(s.get("code")) == board]
+    return []
 
 
 def fetch_hist(symbol: str, window: TradingWindow, adjust: str, *, user_id: str = "") -> pd.DataFrame:

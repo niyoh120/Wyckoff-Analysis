@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from core.candidate_tracks import candidate_entry_key, candidate_entry_score, sanitized_candidate_entry
+from core.main_force_signal import analyze_main_force_signal
 
 
 def build_l1_candidate_lane_entries(
@@ -97,6 +98,8 @@ def _candidate_entry(
 def _lane(metrics: dict[str, float], in_top_sector: bool, l2_passed: bool) -> str:
     if _trend_breakout(metrics):
         return "trend_breakout"
+    if _main_force_entry(metrics):
+        return "main_force_entry"
     if _trend_pullback(metrics):
         return "trend_lane_pullback"
     if in_top_sector and _sector_strength(metrics):
@@ -140,18 +143,34 @@ def _trend_follow(metrics: dict[str, float]) -> bool:
     return metrics["ret20"] >= 6 and metrics["ret60"] >= 8 and metrics["dist_ma20"] <= 12
 
 
+def _main_force_entry(metrics: dict[str, float]) -> bool:
+    return (
+        metrics.get("main_force_score", 0.0) >= 0.66
+        and metrics.get("demand_supply_ratio", 0.0) >= 1.15
+        and metrics["dist_ma20"] <= 16
+        and metrics["close_pos20"] >= 0.45
+        and metrics["close_pos_day"] >= 0.55
+    )
+
+
 def _lane_score(lane: str, metrics: dict[str, float], in_top_sector: bool, l2_passed: bool) -> float:
-    base = {"trend_breakout": 72.0, "trend_lane_pullback": 70.0, "sector_strength": 66.0, "wyckoff_structure": 62.0}[
-        lane
-    ]
+    base = {
+        "main_force_entry": 74.0,
+        "trend_breakout": 72.0,
+        "trend_lane_pullback": 70.0,
+        "sector_strength": 66.0,
+        "wyckoff_structure": 62.0,
+    }[lane]
     strength = 12.0 * _clamp(metrics["ret60"] / 45.0) + 8.0 * _clamp(metrics["close_pos20"])
     distance = 6.0 * _clamp(1.0 - max(metrics["dist_ma20"] - 6.0, 0.0) / 12.0)
+    demand = 8.0 * _clamp(metrics.get("main_force_score", 0.0))
     context = (5.0 if in_top_sector else 0.0) + (3.0 if l2_passed else 0.0)
-    return min(base + strength + distance + context, 100.0)
+    return min(base + strength + distance + demand + context, 100.0)
 
 
 def _lane_min_score(lane: str) -> float:
     return {
+        "main_force_entry": 78.0,
         "trend_breakout": 78.0,
         "trend_lane_pullback": 76.0,
         "sector_strength": 74.0,
@@ -185,6 +204,7 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
         "close_pos_day": _day_close_pos(ordered, high, low),
         "upper_shadow_pct": _upper_shadow_pct(ordered, open_, high, close),
         "vol_ratio_5_20": _vol_ratio(volume),
+        **analyze_main_force_signal(ordered).metrics,
     }
 
 
@@ -198,6 +218,8 @@ def _risk_flags(metrics: dict[str, float]) -> list[str]:
         risks.append("跌破确认支撑")
     if metrics["ret20"] < -8 and metrics["vol_ratio_5_20"] < 0.9:
         risks.append("缩量阴跌")
+    if metrics.get("main_force_score", 0.0) < 0.30 and metrics["vol_ratio_5_20"] > 1.3:
+        risks.append("供给未消化")
     return risks
 
 
@@ -208,6 +230,7 @@ def _hard_blocked(risks: list[str]) -> bool:
 def _opportunity_text(lane: str, sector: str) -> str:
     text = {
         "trend_breakout": "强趋势平台突破",
+        "main_force_entry": "疑似资金进场候选",
         "trend_lane_pullback": "主线趋势回踩确认",
         "sector_strength": "板块强势轮动候选",
         "wyckoff_structure": "Wyckoff结构延续候选",
@@ -219,6 +242,7 @@ def _timing_text(lane: str, metrics: dict[str, float]) -> str:
     return (
         f"{lane} ret20={metrics['ret20']:.1f}% ret60={metrics['ret60']:.1f}% "
         f"MA20乖离={metrics['dist_ma20']:.1f}% 量={metrics['vol_ratio_5_20']:.2f}x"
+        f" 主力={metrics.get('main_force_score', 0.0):.2f}"
     )
 
 
@@ -229,16 +253,18 @@ def _reasons(lane: str, metrics: dict[str, float], sector: str) -> list[str]:
         f"20日:{metrics['ret20']:.1f}%",
         f"60日:{metrics['ret60']:.1f}%",
         f"MA20乖离:{metrics['dist_ma20']:.1f}%",
+        f"主力分:{metrics.get('main_force_score', 0.0):.2f}",
     ]
 
 
 def _entry_rank(item: dict[str, Any]) -> tuple[int, float, str]:
     priority = {
         "mainline": 0,
-        "trend_lane_pullback": 1,
-        "trend_breakout": 2,
-        "sector_strength": 3,
-        "wyckoff_structure": 4,
+        "main_force_entry": 1,
+        "trend_lane_pullback": 2,
+        "trend_breakout": 3,
+        "sector_strength": 4,
+        "wyckoff_structure": 5,
     }
     rank_key = _rank_key(item, priority)
     return (priority.get(rank_key, 20), -candidate_entry_score(item), str(item.get("code", "")))

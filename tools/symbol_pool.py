@@ -61,6 +61,7 @@ def _pool_stats(
     main: int,
     chinext: int,
     star: int,
+    bse: int,
     merged: int,
     st_excluded: int,
     limit: int,
@@ -70,6 +71,7 @@ def _pool_stats(
         "pool_main": main,
         "pool_chinext": chinext,
         "pool_star": star,
+        "pool_bse": bse,
         "pool_merged": merged,
         "pool_st_excluded": st_excluded,
         "pool_limit": limit,
@@ -94,11 +96,19 @@ def _symbols_from_map(
     return symbols, {code: code_to_name.get(code, "") for code in symbols}, len(merged_symbols)
 
 
-def _board_counts() -> tuple[int, int, int]:
+def _board_items(board: str) -> list[dict[str, str]]:
+    try:
+        return get_stocks_by_board(board)
+    except Exception:
+        return []
+
+
+def _board_counts() -> tuple[int, int, int, int]:
     return (
-        len(get_stocks_by_board("main")),
-        len(get_stocks_by_board("chinext")),
-        len(get_stocks_by_board("star")),
+        len(_board_items("main")),
+        len(_board_items("chinext")),
+        len(_board_items("star")),
+        len(_board_items("bse")),
     )
 
 
@@ -106,15 +116,25 @@ def _resolve_board_pool(
     board_name: str,
     limit_count: int,
 ) -> tuple[list[str], dict[str, str], dict[str, int | str]]:
-    effective_board = "all" if board_name in {"all", "main_chinext"} else board_name
-    items = get_stocks_by_board(effective_board)
+    if board_name in {"main_chinext", "main_chinext_star"}:
+        items = _board_items("main") + _board_items("chinext") + _board_items("star")
+    else:
+        items = get_stocks_by_board(board_name)
     symbols, name_map, merged = _symbols_from_map(_merge_code_to_name(items), limit_count)
-    if effective_board == "all":
-        main, chinext, star = _board_counts()
+    if board_name == "all":
+        main, chinext, star, bse = _board_counts()
     else:
         main = len(items) if board_name == "main" else 0
         chinext = len(items) if board_name == "chinext" else 0
         star = len(items) if board_name == "star" else 0
+        bse = len(items) if board_name == "bse" else 0
+        if board_name in {"main_chinext", "main_chinext_star"}:
+            main, chinext, star = (
+                len(_board_items("main")),
+                len(_board_items("chinext")),
+                len(_board_items("star")),
+            )
+            bse = 0
     return (
         symbols,
         name_map,
@@ -123,6 +143,7 @@ def _resolve_board_pool(
             main=main,
             chinext=chinext,
             star=star,
+            bse=bse,
             merged=merged,
             st_excluded=0,
             limit=limit_count,
@@ -134,7 +155,8 @@ def _resolve_default_pool(limit_count: int) -> tuple[list[str], dict[str, str], 
     main_items = get_stocks_by_board("main")
     chinext_items = get_stocks_by_board("chinext")
     star_items = get_stocks_by_board("star")
-    code_to_name = _merge_code_to_name(main_items + chinext_items + star_items)
+    bse_items = _board_items("bse")
+    code_to_name = _merge_code_to_name(main_items + chinext_items + star_items + bse_items)
     merged_symbols = normalize_symbols(list(code_to_name.keys()))
     st_set = {sym for sym in merged_symbols if "ST" in code_to_name.get(sym, "").upper()}
     all_symbols = [sym for sym in merged_symbols if sym not in st_set]
@@ -145,6 +167,7 @@ def _resolve_default_pool(limit_count: int) -> tuple[list[str], dict[str, str], 
         main=len(main_items),
         chinext=len(chinext_items),
         star=len(star_items),
+        bse=len(bse_items),
         merged=len(merged_symbols),
         st_excluded=len(st_set),
         limit=limit_count,
@@ -172,10 +195,27 @@ def resolve_symbol_pool(
         return (
             symbols,
             name_map,
-            _pool_stats("manual", main=0, chinext=0, star=0, merged=len(symbols), st_excluded=0, limit=limit_count),
+            _pool_stats(
+                "manual",
+                main=0,
+                chinext=0,
+                star=0,
+                bse=0,
+                merged=len(symbols),
+                st_excluded=0,
+                limit=limit_count,
+            ),
         )
 
-    if pool_mode == "board" and board_name in {"main", "chinext", "star", "all", "main_chinext"}:
+    if pool_mode == "board" and board_name in {
+        "main",
+        "chinext",
+        "star",
+        "bse",
+        "all",
+        "main_chinext",
+        "main_chinext_star",
+    }:
         return _resolve_board_pool(board_name, limit_count)
 
     return _resolve_default_pool(limit_count)

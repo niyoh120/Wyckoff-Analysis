@@ -64,7 +64,8 @@ def test_short_code_list_limits_output():
 
 def test_classify_review_code_reports_pool_and_l4_hit():
     name, stage, reason = classify_review_code("999999", _ctx())
-    assert (name, stage, reason) == ("999999", "池外", "不在当日主板+创业板+科创板去ST股票池")
+    assert (name, stage) == ("999999", "池外")
+    assert "全市场" in reason
 
     name, stage, reason = classify_review_code("000001", _ctx())
     assert name == "平安银行"

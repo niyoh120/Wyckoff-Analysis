@@ -81,7 +81,7 @@ def resolve_review_dates() -> ReviewDates:
 def load_today_pool() -> tuple[dict[str, str], list[str]]:
     from integrations.fetch_a_share_csv import get_stocks_by_board
 
-    stock_items = get_stocks_by_board("main_chinext_star")
+    stock_items = get_stocks_by_board("all")
     name_map_today = {
         str(item.get("code", "")).strip(): str(item.get("name", "")).strip()
         for item in stock_items
@@ -130,7 +130,7 @@ def replay_context(triggers: dict, metrics: dict, log=print) -> ReplayContext | 
 def classify_review_code(code: str, ctx: ReplayContext) -> tuple[str, str, str]:
     name = str(ctx.name_map.get(code, code)).strip() or code
     if code not in ctx.all_symbol_set:
-        return name, "池外", "不在当日主板+创业板+科创板去ST股票池"
+        return name, "池外", "不在当日全市场去ST股票池"
     if code not in ctx.df_map:
         return name, "数据失败", "日线拉取失败/超时"
     if code not in ctx.l1_set:
@@ -239,7 +239,7 @@ def explain_l1_fail(
     df_map: dict[str, pd.DataFrame],
 ) -> str:
     if not is_target_cn_board(code):
-        return "非主板/创业板/科创板代码"
+        return "非A股目标板块代码"
     if "ST" in str(name_map.get(code, "")).upper():
         return "ST股票"
     cap_reason = _market_cap_fail_reason(code, cfg, market_cap_map)
@@ -302,7 +302,7 @@ def send_empty_review(webhook: str, today: date) -> None:
     send_feishu_notification(
         webhook,
         "🔍 涨停复盘",
-        f"交易日 {today}：今日无满足涨幅 ≥ 8% 且开盘 ≤ 4% 且前一日涨幅 ≤ 6% 的主板/创业板/科创板股票",
+        f"交易日 {today}：今日无满足涨幅 ≥ 8% 且开盘 ≤ 4% 且前一日涨幅 ≤ 6% 的全市场股票",
     )
 
 

@@ -67,6 +67,7 @@ class FunnelSymbolPool:
     main_count: int
     chinext_count: int
     star_count: int
+    bse_count: int
     merged_count: int
     st_excluded_count: int
     total_batches: int
@@ -214,12 +215,13 @@ def _resolve_funnel_symbol_pool(pool_board: str | None = None) -> FunnelSymbolPo
     main_count = int(pool_stats.get("pool_main", 0) or 0)
     chinext_count = int(pool_stats.get("pool_chinext", 0) or 0)
     star_count = int(pool_stats.get("pool_star", 0) or 0)
+    bse_count = int(pool_stats.get("pool_bse", 0) or 0)
     st_excluded_count = int(pool_stats.get("pool_st_excluded", 0) or 0)
     total_batches = (len(all_symbols) + BATCH_SIZE - 1) // BATCH_SIZE if all_symbols else 0
     print(
         "[funnel] 股票池统计: "
         f"mode={pool_stats.get('pool_mode')}, main={main_count}, chinext={chinext_count}, "
-        f"star={star_count}, merged={len(pool_name_map)}, st_excluded={st_excluded_count}, "
+        f"star={star_count}, bse={bse_count}, merged={len(pool_name_map)}, st_excluded={st_excluded_count}, "
         f"final={len(all_symbols)}, limit={pool_stats.get('pool_limit', 0)}, "
         f"batches={total_batches} (batch_size={BATCH_SIZE})"
     )
@@ -233,6 +235,7 @@ def _resolve_funnel_symbol_pool(pool_board: str | None = None) -> FunnelSymbolPo
         main_count=main_count,
         chinext_count=chinext_count,
         star_count=star_count,
+        bse_count=bse_count,
         merged_count=len(pool_name_map),
         st_excluded_count=st_excluded_count,
         total_batches=total_batches,

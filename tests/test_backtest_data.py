@@ -21,12 +21,13 @@ from workflows.backtest_data import (
 
 
 def test_all_board_aliases_include_main_chinext_and_star() -> None:
-    assert normalize_backtest_board("main_chinext") == "all"
-    assert normalize_backtest_board("main_chinext_star") == "all"
+    assert normalize_backtest_board("main_chinext") == "main_chinext_star"
+    assert normalize_backtest_board("main_chinext_star") == "main_chinext_star"
     assert board_match("600000", "all")
     assert board_match("300001", "all")
     assert board_match("688001", "all")
-    assert not board_match("830000", "all")
+    assert board_match("830000", "all")
+    assert not board_match("830000", "main_chinext")
 
 
 def test_resolve_universe_from_snapshot_filters_st_and_board(tmp_path) -> None:
@@ -47,7 +48,7 @@ def test_resolve_universe_from_snapshot_filters_st_and_board(tmp_path) -> None:
     universe = resolve_backtest_universe(board="all", sample_size=0, snapshot_dir=tmp_path)
 
     assert universe.source == "快照 name_map"
-    assert universe.symbols == ["000001", "300001", "688001"]
+    assert universe.symbols == ["000001", "300001", "688001", "830000"]
     assert universe.name_map["688001"] == "华兴源创"
 
 

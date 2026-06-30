@@ -14,18 +14,21 @@ from core.funnel_taxonomy import lane_label, source_label
 
 logger = logging.getLogger(__name__)
 
-_VALID_BOARDS = {"all", "main", "chinext", "star"}
+_VALID_BOARDS = {"all", "main", "chinext", "star", "bse", "main_chinext_star"}
 _BOARD_ALIAS = {
     "gem": "chinext",
     "创业板": "chinext",
     "主板": "main",
     "科创板": "star",
     "科创": "star",
+    "北交所": "bse",
+    "北交": "bse",
     "star": "star",
+    "bse": "bse",
     "全部": "all",
-    "main_chinext": "all",
-    "main-chinext": "all",
-    "main+chinext": "all",
+    "main_chinext": "main_chinext_star",
+    "main-chinext": "main_chinext_star",
+    "main+chinext": "main_chinext_star",
 }
 
 
@@ -35,7 +38,7 @@ def screen_stocks(board: str = "all", tool_context: ToolContext | None = None) -
         ensure_tushare_token(tool_context)
         board = _normalize_board(board)
         if board not in _VALID_BOARDS:
-            return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star"}
+            return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star / bse"}
         ok, symbols, _bench_ctx, details = _run_funnel_with_board(board)
         metrics = details.get("metrics") or {}
         trigger_groups = _trigger_summary(details)
