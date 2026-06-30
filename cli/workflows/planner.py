@@ -18,6 +18,30 @@ TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
 TOOL_SCOPE_FIELDS = ("tool_scope", "allowed_tools", "tools", "tool")
 
+TOOL_ALIASES = {
+    "查持仓": "portfolio",
+    "持仓数据": "portfolio",
+    "查看持仓": "portfolio",
+    "股票搜索": "search_stock_by_name",
+    "搜索代码": "search_stock_by_name",
+    "市场概览": "get_market_overview",
+    "市场水温": "get_market_overview",
+    "行情回看": "get_market_history",
+    "历史行情": "get_market_history",
+    "选股": "screen_stocks",
+    "股票筛选": "screen_stocks",
+    "筛选股票": "screen_stocks",
+    "扫描股票": "screen_stocks",
+    "ai研报": "generate_ai_report",
+    "深度研报": "generate_ai_report",
+    "策略决策": "generate_strategy_decision",
+    "问用户": "ask_user_question",
+    "提问": "ask_user_question",
+    "询问用户": "ask_user_question",
+    "后台任务": "check_background_tasks",
+    "任务状态": "check_background_tasks",
+}
+
 WORKFLOW_AGENT_ALIASES = {
     "task": "task",
     "workflow_task": "task",
@@ -343,11 +367,23 @@ def _task_tool_scope(task: dict[str, Any]) -> tuple[str, ...]:
 
 def _tool_name(raw: Any) -> str:
     if isinstance(raw, dict):
-        raw = raw.get("name") or raw.get("tool") or raw.get("id")
-    key = re.sub(r"[\s/-]+", "_", str(raw or "").strip().lower()).strip("_")
+        raw = raw.get("name") or raw.get("tool") or raw.get("id") or raw.get("display_name") or raw.get("label")
+    key = _normalize_tool_key(raw)
     if key.startswith("delegate_to_"):
         return ""
-    return key if key in TOOL_SPECS else ""
+    return key if key in TOOL_SPECS else _tool_aliases().get(key, "")
+
+
+def _normalize_tool_key(raw: Any) -> str:
+    key = re.sub(r"[\s/-]+", "_", str(raw or "").strip().lower()).strip("_")
+    key = re.sub(r"(_?tool|工具)$", "", key).strip("_")
+    return key
+
+
+def _tool_aliases() -> dict[str, str]:
+    aliases = {_normalize_tool_key(spec.display_name): name for name, spec in TOOL_SPECS.items()}
+    aliases.update({_normalize_tool_key(alias): name for alias, name in TOOL_ALIASES.items()})
+    return aliases
 
 
 def _task_fallback_text(task: dict[str, Any]) -> str:

@@ -448,6 +448,55 @@ def test_planner_explicit_tools_override_legacy_agent_role():
     assert legacy.steps[0].agent == "research"
 
 
+def test_planner_accepts_model_authored_chinese_tool_labels():
+    context = route_workflow("用 workflow 做持仓和选股复盘")
+    run = plan_workflow(
+        "做持仓和选股复盘",
+        context=context,
+        workflow_script={
+            "phases": [
+                {
+                    "tasks": [
+                        {
+                            "id": "facts",
+                            "title": "读取事实",
+                            "tools": ["持仓", "全市场扫描", {"display_name": "提问用户"}],
+                            "prompt": "读取持仓、筛选候选；只有对象仍不明确时再问用户。",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+
+    assert run.steps[0].agent == "task"
+    assert run.steps[0].tool_scope == ("portfolio", "screen_stocks", "ask_user_question")
+
+
+def test_planner_normalizes_tool_suffixes_from_model_script():
+    context = route_workflow("用 workflow 做持仓复盘")
+    run = plan_workflow(
+        "做持仓复盘",
+        context=context,
+        workflow_script={
+            "phases": [
+                {
+                    "tasks": [
+                        {
+                            "id": "portfolio",
+                            "title": "读取持仓",
+                            "tools": ["portfolio tool", "持仓工具", {"name": "查看持仓"}],
+                            "prompt": "读取真实持仓。",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+
+    assert run.steps[0].tool_scope == ("portfolio",)
+
+
 def test_tool_descriptions_do_not_use_user_phrase_triggers():
     descriptions = "\n".join(str(schema.get("description") or "") for schema in TOOL_SCHEMAS)
 
