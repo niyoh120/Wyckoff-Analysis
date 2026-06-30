@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from core.ai_candidate_allocation import fit_ai_candidate_quotas
+from workflows.step3_entry_quality import annotate_entry_quality
 from workflows.step3_runtime_config import Step3RuntimeConfig
 from workflows.step3_text import coerce_bool_like
 
@@ -66,6 +67,7 @@ def _prepare_upstream_frame(candidates_df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["selection_is_fill"] = False
     df["priority_score"] = finite_numeric_series(df.get("priority_score"), df.index)
+    df = annotate_entry_quality(df)
     ordered = df.sort_values(by=["selection_is_fill", "input_order"], ascending=[True, True], kind="stable")
     return _dedupe_by_code(ordered).reset_index(drop=True)
 
@@ -101,7 +103,11 @@ def finite_numeric_series(raw: Any, index: pd.Index) -> pd.Series:
 def _priority_ordered(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or "priority_score" not in df.columns or not df["priority_score"].notna().any():
         return df.sort_values("input_order", kind="stable")
-    return df.sort_values(by=["priority_score", "input_order"], ascending=[False, True], kind="stable")
+    return df.sort_values(
+        by=["entry_priority_bucket", "entry_quality_score", "priority_score", "input_order"],
+        ascending=[False, False, False, True],
+        kind="stable",
+    )
 
 
 def _take_track_core_candidates(core_df: pd.DataFrame, trend_cap: int, accum_cap: int) -> pd.DataFrame:

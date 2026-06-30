@@ -37,6 +37,26 @@ def test_step3_track_inputs_normalize_track_aliases_when_grouping() -> None:
     assert track_inputs.selected_codes_by_track["Trend"] == ["000002"]
 
 
+def test_step3_track_inputs_surface_entry_quality_policy_tag() -> None:
+    selected_df = pd.DataFrame(
+        [
+            {
+                "code": "000001",
+                "name": "吸筹候选",
+                "track": "Trend",
+                "entry_quality_tag": "入场质量A(75.0)",
+                "entry_risk_flags": "缩量不足",
+            }
+        ]
+    )
+
+    track_inputs = build_step3_track_inputs(selected_df, {"000001": _history_frame()}, [], {})
+    payload = track_inputs.payloads_by_track["Trend"][0]
+
+    assert "入场质量A(75.0)" in payload
+    assert "风险: 缩量不足" in payload
+
+
 def _history_frame() -> pd.DataFrame:
     dates = pd.date_range("2026-01-01", periods=65, freq="B")
     close = [10.0 + idx * 0.01 for idx in range(len(dates))]

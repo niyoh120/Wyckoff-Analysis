@@ -7,6 +7,7 @@ import pandas as pd
 from core.candidate_tracks import normalize_candidate_track
 from core.funnel_taxonomy import source_label
 from workflows.step3_compression import select_compressed_step3_candidates
+from workflows.step3_entry_quality import annotate_entry_quality
 from workflows.step3_runtime_config import Step3RuntimeConfig
 from workflows.step3_text import clean_text
 from workflows.step3_upstream_selection import (
@@ -38,7 +39,7 @@ def normalize_step3_candidates(candidate_rows: list[dict]) -> pd.DataFrame:
     )
     candidates_df["track"] = candidates_df.get("track", "").map(normalize_candidate_track)
     candidates_df["policy_tag"] = ""
-    return candidates_df
+    return annotate_entry_quality(candidates_df)
 
 
 def select_step3_candidates(
@@ -57,6 +58,7 @@ def select_step3_candidates(
     else:
         print(f"[step3] 候选压缩未启用: selected=全量{len(selected_df)}")
     selected_df = _apply_context_cap(selected_df, effective_context_cap, runtime_config)
+    selected_df = annotate_entry_quality(selected_df)
     _fill_wyckoff_score(selected_df)
     if "industry_rank" not in selected_df.columns:
         selected_df["industry_rank"] = pd.NA

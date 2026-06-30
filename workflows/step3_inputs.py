@@ -8,6 +8,7 @@ from core.candidate_tracks import normalize_candidate_track
 from tools.debug_io import dump_model_input
 from tools.report_builder import generate_stock_payload
 from tools.track_prompt_builder import build_track_user_message
+from workflows.step3_entry_quality import entry_quality_policy_tag
 from workflows.step3_models import Step3TrackInputs
 from workflows.step3_selection import candidate_source_label
 
@@ -162,10 +163,11 @@ def _track_key(row: pd.Series) -> str:
 
 
 def _policy_text(row: pd.Series) -> str | None:
-    policy_val = row.get("policy_tag")
-    if isinstance(policy_val, str) and policy_val.strip():
-        return policy_val.strip()
-    return None
+    parts = []
+    for value in (row.get("policy_tag"), entry_quality_policy_tag(row)):
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+    return " ".join(dict.fromkeys(parts)) or None
 
 
 def _row_text_or_none(row: pd.Series, field: str) -> str | None:
