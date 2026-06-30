@@ -14,51 +14,16 @@ from cli.workflows.router import WORKFLOWS, route_resume_workflow, route_workflo
 logger = logging.getLogger(__name__)
 
 _MAX_REASON_CHARS = 120
-_MODE_FIELDS = ("mode", "route", "decision", "type")
-_CONFIDENCE_FIELDS = ("confidence", "score", "probability", "置信度")
-_WORKFLOW_FLAG_FIELDS = ("workflow", "use_workflow", "dynamic_workflow")
-_DIRECT_ALIASES = {
-    "chat",
-    "direct",
-    "direct_agent",
-    "general",
-    "general_chat",
-    "normal",
-    "普通",
-    "普通对话",
-    "直接",
-    "直接回答",
-    "直答",
-    "自由对话",
-}
-_WORKFLOW_ALIASES = {
-    "dynamic",
-    "dynamic_task",
-    "dynamic_workflow",
-    "multi_agent",
-    "multi_step",
-    "plan",
-    "task",
-    "task_workflow",
-    "workflow",
-    "分阶段",
-    "动态",
-    "动态workflow",
-    "动态任务",
-    "动态工作流",
-    "动态编排",
-    "编排",
-}
+_VALID_MODES = {"direct", "dynamic_workflow"}
 
 _ROUTER_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的 turn router。用户只会在 agent 内聊天，不会输入专门命令。
 
-只判断这一轮应该直接交给普通 agent，还是启动动态 workflow 编排。
+只判断这一轮需要普通 agent 直接处理，还是需要动态 workflow 持续编排。
 
 direct:
 - 默认选择 direct，让普通 agent 先自然理解、调用工具、追问或完成答复。
 - 一个清楚目标在一轮内能完成，哪怕需要少量工具调用或短循环，也属于 direct。
-- 用户表达不标准但任务形态仍清楚时，仍交给 direct 的执行模型自然理解。
 - 用户只是解释概念、查看明确对象、诊断单一对象，或执行边界清楚的动作。
 
 dynamic_workflow:
@@ -67,9 +32,8 @@ dynamic_workflow:
 - 用户要求完整研究链路、批量筛选+复核+决策，或明确希望先规划再执行。
 
 要求:
-- 以任务的执行形态判断 runtime，语义恢复交给最终执行模型。
+- 以任务的执行形态判断 runtime，不改写用户请求。
 - router 只输出 runtime 决策，不改写、不确认、不解释用户输入。
-- 不要把措辞恢复当成 workflow 启动理由。
 - confidence 只表示你的把握，runtime 不会用它覆盖你的 mode 判断。
 - 只输出 JSON，不要 Markdown。
 
@@ -212,48 +176,12 @@ def _clean_reason(value: Any) -> str:
 
 
 def _decision_mode(payload: dict[str, Any]) -> str:
-    for field in _MODE_FIELDS:
-        mode = _normalize_mode(payload.get(field))
-        if mode:
-            return mode
-    for field in _WORKFLOW_FLAG_FIELDS:
-        mode = _workflow_flag_mode(payload.get(field))
-        if mode:
-            return mode
-    return ""
-
-
-def _normalize_mode(value: Any) -> str:
-    key = _normalize_mode_key(value)
-    if key in _DIRECT_ALIASES:
-        return "direct"
-    if key in _WORKFLOW_ALIASES:
-        return "dynamic_workflow"
-    return ""
-
-
-def _normalize_mode_key(value: Any) -> str:
-    key = re.sub(r"[\s/-]+", "_", str(value or "").strip().lower()).strip("_")
-    return key.replace("工作流", "workflow")
-
-
-def _workflow_flag_mode(value: Any) -> str:
-    if isinstance(value, bool):
-        return "dynamic_workflow" if value else "direct"
-    key = _normalize_mode_key(value)
-    if key in {"1", "true", "yes", "y", "需要", "是"}:
-        return "dynamic_workflow"
-    if key in {"0", "false", "no", "n", "不需要", "否"}:
-        return "direct"
-    return _normalize_mode(value)
+    mode = str(payload.get("mode") or "").strip()
+    return mode if mode in _VALID_MODES else ""
 
 
 def _decision_confidence(payload: dict[str, Any]) -> float:
-    for field in _CONFIDENCE_FIELDS:
-        confidence = _parse_confidence(payload.get(field))
-        if confidence is not None:
-            return confidence
-    return 0.0
+    return _parse_confidence(payload.get("confidence")) or 0.0
 
 
 def _parse_confidence(value: Any) -> float | None:

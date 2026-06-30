@@ -167,11 +167,12 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
 def test_model_router_prompt_keeps_direct_as_default_chat_path():
     assert "默认选择 direct" in _ROUTER_SYSTEM_PROMPT
     assert "一个清楚目标在一轮内能完成" in _ROUTER_SYSTEM_PROMPT
-    assert "用户表达不标准" in _ROUTER_SYSTEM_PROMPT
     assert "持续编排" in _ROUTER_SYSTEM_PROMPT
     assert "任务的执行形态" in _ROUTER_SYSTEM_PROMPT
-    assert "语义恢复交给最终执行模型" in _ROUTER_SYSTEM_PROMPT
-    assert "不要把措辞恢复当成 workflow 启动理由" in _ROUTER_SYSTEM_PROMPT
+    assert "不改写用户请求" in _ROUTER_SYSTEM_PROMPT
+    assert "用户表达不标准" not in _ROUTER_SYSTEM_PROMPT
+    assert "语义恢复" not in _ROUTER_SYSTEM_PROMPT
+    assert "措辞恢复" not in _ROUTER_SYSTEM_PROMPT
     assert "口语、省略、别字" not in _ROUTER_SYSTEM_PROMPT
     assert "错别字" not in _ROUTER_SYSTEM_PROMPT
     assert "谐音" not in _ROUTER_SYSTEM_PROMPT
@@ -179,7 +180,7 @@ def test_model_router_prompt_keeps_direct_as_default_chat_path():
     assert "单只股票诊断" not in _ROUTER_SYSTEM_PROMPT
 
 
-def test_dispatch_accepts_flexible_model_router_aliases():
+def test_dispatch_rejects_non_schema_model_router_aliases():
     provider = RouterDecisionProvider('{"route":"动态工作流","score":"84%","reason":"需要多阶段筛选和攻防计划"}')
 
     runtime, workflow = build_turn_runtime(
@@ -189,13 +190,12 @@ def test_dispatch_accepts_flexible_model_router_aliases():
         user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
     )
 
-    assert workflow.name == "dynamic_task"
-    assert workflow.route_confidence == 0.84
-    assert workflow.route_reason == "模型判断需要动态 workflow：需要多阶段筛选和攻防计划"
-    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
+    assert isinstance(runtime, AgentRuntime)
 
 
-def test_dispatch_accepts_boolean_workflow_router_flag():
+def test_dispatch_rejects_boolean_workflow_router_flag():
     provider = RouterDecisionProvider('{"workflow":true,"probability":88,"reason":"需要完整研究链路"}')
 
     runtime, workflow = build_turn_runtime(
@@ -205,9 +205,9 @@ def test_dispatch_accepts_boolean_workflow_router_flag():
         user_text="研究一下今天哪些方向值得重点跟踪",
     )
 
-    assert workflow.name == "dynamic_task"
-    assert workflow.route_confidence == 0.88
-    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
+    assert isinstance(runtime, AgentRuntime)
 
 
 def test_dispatch_uses_streaming_router_when_chat_is_unimplemented():
@@ -309,7 +309,7 @@ def test_dispatch_resume_workflow_bypasses_model_router():
     assert isinstance(runtime, WorkflowExecutor)
 
 
-def test_dispatch_accepts_chinese_direct_router_alias():
+def test_dispatch_rejects_chinese_direct_router_alias():
     provider = RouterDecisionProvider('{"mode":"直接回答","confidence":"95%","reason":"单轮问题"}')
 
     runtime, workflow = build_turn_runtime(
@@ -320,6 +320,7 @@ def test_dispatch_accepts_chinese_direct_router_alias():
     )
 
     assert workflow.name == "general_chat"
+    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
     assert isinstance(runtime, AgentRuntime)
 
 
