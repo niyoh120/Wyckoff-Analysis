@@ -4,6 +4,7 @@ import { RefreshCw } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
 import { WyckoffLoading } from '@/components/loading'
+import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
 
 type JsonMap = Record<string, unknown>
@@ -640,10 +641,7 @@ function formatCoverageValue(raw: string) {
 }
 
 function tone(raw: number | null | undefined) {
-  if (typeof raw !== 'number') return ''
-  if (raw > 0) return 'text-emerald-600 dark:text-emerald-400'
-  if (raw < 0) return 'text-rose-600 dark:text-rose-400'
-  return ''
+  return financialValueClass(raw, '')
 }
 
 function formatDateTime(raw: string) {

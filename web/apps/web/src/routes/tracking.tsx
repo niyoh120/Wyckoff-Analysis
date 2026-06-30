@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
+import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
 
 type MarketTab = 'cn' | 'us' | 'hk'
@@ -1074,8 +1075,7 @@ function formatScore(value: number | null): string {
 }
 
 function pctColor(value: number | null): string {
-  if (!isFiniteNumber(value)) return 'text-muted-foreground'
-  return value >= 0 ? 'text-up' : 'text-down'
+  return financialValueClass(value)
 }
 
 function formatDate(d: number): string {

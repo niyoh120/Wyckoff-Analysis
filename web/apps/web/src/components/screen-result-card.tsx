@@ -2,9 +2,10 @@ import { memo, useState } from 'react'
 import { Link } from 'react-router'
 import { BellPlus, ChevronRight } from 'lucide-react'
 import type { ScreenResult, ScreenStockItem } from '@wyckoff/shared'
+import { financialValueClass } from '@/lib/financial-colors'
 
 function StockRow({ s, onPinStock }: { s: ScreenStockItem; onPinStock?: (stock: ScreenStockItem) => void }) {
-  const chgColor = s.change_pct != null && s.change_pct >= 0 ? 'text-red-500' : 'text-green-600'
+  const chgColor = financialValueClass(s.change_pct)
   return (
     <div className="flex items-center gap-2 rounded px-2 py-1 text-xs transition-colors hover:bg-muted/60">
       <Link to={`/analysis?code=${s.code}`} className="flex min-w-0 flex-1 items-center gap-3">

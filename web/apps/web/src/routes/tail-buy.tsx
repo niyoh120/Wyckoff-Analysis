@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
+import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
 
 interface TailBuyRecord {
@@ -81,11 +82,7 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
   const entryPrice = resolveEntryPrice(record)
   const currentPrice = resolveCurrentPrice(record)
   const changePct = resolveChangePct(entryPrice, currentPrice, record.change_pct)
-  const changeClass = changePct && changePct > 0
-    ? 'text-red-600'
-    : changePct && changePct < 0
-      ? 'text-emerald-600'
-      : 'text-muted-foreground'
+  const changeClass = financialValueClass(changePct)
 
   return (
     <tr key={`${record.code}-${record.run_date}`} className="border-t border-border hover:bg-muted/20">
