@@ -677,6 +677,16 @@ def _workflow_bg_event_summary(event: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _background_task_summary(tool_name: str, task_id: str, result: Any, *, max_chars: int = 3000) -> str:
+    try:
+        from cli.tool_results import format_tool_result_for_context
+
+        return format_tool_result_for_context(tool_name, task_id, result, max_chars=max_chars)
+    except Exception:
+        summary = json.dumps(result, ensure_ascii=False, default=str)
+        return summary if len(summary) <= max_chars else summary[:max_chars] + "..."
+
+
 def _compaction_panel(event: dict[str, Any]):
     from rich.panel import Panel
 
@@ -3464,9 +3474,7 @@ class WyckoffTUI(App):
                 Text.from_markup(f"  [green]✅ 后台任务完成：{display}[/green]"),
             )
 
-        summary_str = json.dumps(result, ensure_ascii=False, default=str)
-        if len(summary_str) > 3000:
-            summary_str = summary_str[:3000] + "..."
+        summary_str = _background_task_summary(tool_name, task_id, result)
 
         notification = (
             "[SYSTEM NOTIFICATION - NOT USER INPUT]\n"

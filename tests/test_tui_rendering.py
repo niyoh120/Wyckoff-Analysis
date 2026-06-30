@@ -7,6 +7,7 @@ pytest.importorskip("textual")
 from rich.markdown import Markdown
 
 from cli.tui import (
+    _background_task_summary,
     _display_final_response,
     _display_workflow_plan_event,
     _display_workflow_step_event,
@@ -191,3 +192,25 @@ def test_pending_workflow_reply_intent_accepts_chat_style_approval():
     assert _pending_workflow_reply_intent("开始吧") == "approve"
     assert _pending_workflow_reply_intent("取消") == "deny"
     assert _pending_workflow_reply_intent("解释一下 workflow 是什么") == ""
+
+
+def test_background_task_summary_uses_tool_result_preview_for_large_screen_result(tmp_path, monkeypatch):
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    result = {
+        "ok": True,
+        "selection_brief": {
+            "status": "ready_for_ai_review",
+            "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+            "best_codes": ["300750"],
+        },
+        "trigger_groups": {"huge": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(80)]},
+    }
+
+    summary = _background_task_summary("screen_stocks", "bg_screen", result, max_chars=1000)
+
+    assert "result_ref:" in summary
+    assert '"selection_brief": {"status": "ready_for_ai_review"' in summary
+    assert "本轮首选可进入 AI 研报复核: 300750 宁德时代" in summary
+    assert '"trigger_groups"' not in summary
+    stored = list((tmp_path / "tool-results").glob("*.json"))
+    assert len(stored) == 1
