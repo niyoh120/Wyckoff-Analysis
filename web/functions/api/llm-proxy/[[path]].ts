@@ -25,6 +25,7 @@ const ALLOWED_TARGET_ORIGINS = new Set([
   'https://api.deepseek.com',
   'https://api.anthropic.com',
   'https://token-plan-sgp.xiaomimimo.com',
+  'http://token.thegun.cn:8317',
   'https://api.tickflow.org',
   'https://api.tushare.pro',
 ])

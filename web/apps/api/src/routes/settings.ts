@@ -98,6 +98,7 @@ const ALLOWED_MODEL_ORIGINS = new Set([
   'https://generativelanguage.googleapis.com',
   'https://api.deepseek.com',
   'https://api.anthropic.com',
+  'http://token.thegun.cn:8317',
 ])
 
 function normalizeModelConfig(config: ModelTestConfig): Required<ModelTestConfig> {
