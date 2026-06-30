@@ -113,11 +113,36 @@ def _screen_candidate_meta(screen_result: dict | None) -> list[dict]:
 def _screen_candidate_rows(screen_result: dict[str, Any]) -> list[Any]:
     rows = screen_result.get("symbols_for_report") or []
     if rows:
-        return list(rows)
+        return _enrich_candidate_rows(list(rows), _candidate_context_rows(screen_result))
+    return _candidate_context_rows(screen_result)[:5]
+
+
+def _candidate_context_rows(screen_result: dict[str, Any]) -> list[Any]:
     selection_brief = screen_result.get("selection_brief")
     if isinstance(selection_brief, dict) and isinstance(selection_brief.get("best_candidates"), list):
         return list(selection_brief["best_candidates"])
     return list(screen_result.get("top_candidates") or [])[:5]
+
+
+def _enrich_candidate_rows(rows: list[Any], context_rows: list[Any]) -> list[dict]:
+    context = {_row_code(row): dict(row) for row in context_rows if isinstance(row, dict) and _row_code(row)}
+    enriched = []
+    for row in rows:
+        code = _row_code(row)
+        if not code:
+            continue
+        payload = dict(context.get(code) or {})
+        if isinstance(row, dict):
+            payload.update({key: value for key, value in row.items() if _has_value(value)})
+        payload["code"] = code
+        enriched.append(payload)
+    return enriched
+
+
+def _row_code(row: Any) -> str:
+    if isinstance(row, dict):
+        return str(row.get("code") or row.get("symbol") or "").strip()
+    return str(row or "").strip()
 
 
 def _dedupe_candidate_meta(rows: list[dict]) -> list[dict]:

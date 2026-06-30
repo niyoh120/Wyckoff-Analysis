@@ -359,6 +359,54 @@ class TestStrategyDecisionTool:
         assert result["report_preview"] == "# 观察候选研报"
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主升阶段 / 启动平台"
 
+    def test_generate_strategy_decision_enriches_string_report_codes(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 1},
+                    "symbols_for_report": ["000004"],
+                    "selection_brief": {
+                        "best_candidates": [
+                            {
+                                "code": "000004",
+                                "name": "主线候选",
+                                "track": "Trend",
+                                "candidate_lane": "mainline",
+                                "priority_score": 11.0,
+                                "why": "趋势线 / 主线买点",
+                            }
+                        ],
+                    },
+                    "top_candidates": [{"code": "000005", "name": "备用观察", "track": "Accum"}],
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 主线候选研报"
+
+        monkeypatch.setattr(strategy_tools, "run_ai_report", fake_run_ai_report)
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["000004"]
+        assert result["candidate_count"] == 1
+        assert result["reviewed_symbols"][0]["track"] == "Trend"
+        assert result["reviewed_symbols"][0]["candidate_lane"] == "mainline"
+        assert result["reviewed_symbols"][0]["priority_score"] == 11.0
+        assert captured["symbols_info"][0]["why"] == "趋势线 / 主线买点"
+
 
 # ── core.candidate_ranker ──
 
