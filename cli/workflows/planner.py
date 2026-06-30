@@ -120,6 +120,7 @@ _PLAN_SYSTEM_PROMPT = """\
 - 如果某个 task 只应看部分工具，用 tools 限定具体工具；不要用工具名表达自然语言意图。
 - 任务拆分围绕用户当前目标；能单步完成就生成 1 个 task，需要事实收集/分析/决策链路时再拆分。
 - task 只服务于完成用户目标；不要生成改写、解释或确认用户表述的元任务。
+- 不要把口语、省略、别字或非标准说法单独拆成识别/纠正/确认 task；把语义恢复合入真正执行的 task。
 - 能用工具验证的事实交给 task 验证；不要因为可搜索或可读取的信息先问用户。
 - 只有执行对象仍不明确，或会产生写入、交易、高风险动作时才澄清。
 - 不要生成会写入持仓、交易或文件的任务。
@@ -471,8 +472,9 @@ def _slug(value: Any) -> str:
 
 def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -> dict[str, Any]:
     agent = _fallback_agent(context, user_text)
+    title = _fallback_task_title(user_text, context)
     return {
-        "title": context.label,
+        "title": title,
         "rationale": reason,
         "phases": [
             {
@@ -481,14 +483,14 @@ def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -
                 "tasks": [
                     {
                         "id": "agent_task",
-                        "title": "让 sub-agent 处理用户请求",
+                        "title": title,
                         "agent": agent,
                         "prompt": _fallback_task_prompt(user_text),
                     }
                 ],
             }
         ],
-        "synthesis_prompt": "基于 sub-agent 结果给出简洁中文答复。",
+        "synthesis_prompt": "基于任务结果给出简洁中文答复。",
     }
 
 
@@ -498,7 +500,14 @@ def _fallback_agent(_context: WorkflowContext, _text: str = "") -> str:
 
 def _fallback_task_prompt(user_text: str) -> str:
     return (
-        "直接处理用户请求。按上下文理解自然语言，并用可用工具读取或验证事实；"
+        "直接处理用户请求。按上下文理解口语、省略和常见别字，并用可用工具读取或验证事实；"
         "只有工具无法恢复关键参数或涉及写入、交易、高风险确认时，才向用户澄清。\n\n"
         f"用户原文：{user_text}"
     )
+
+
+def _fallback_task_title(user_text: str, context: WorkflowContext) -> str:
+    text = re.sub(r"\s+", " ", user_text).strip(" \n\t。.")
+    if not text:
+        return context.label or "处理当前请求"
+    return text[:40]
