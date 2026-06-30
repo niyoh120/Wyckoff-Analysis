@@ -228,18 +228,20 @@ class WorkflowExecutor:
     ) -> Iterator[RuntimeEvent | list[dict[str, Any]]]:
         for step in phase_steps:
             yield self._mark_step_start(step)
-        results: list[dict[str, Any]] = []
+        results: list[tuple[int, dict[str, Any]]] = []
         with ThreadPoolExecutor(max_workers=_max_workers(phase_steps), thread_name_prefix="workflow-agent") as pool:
-            futures = {pool.submit(self._run_step, step, prior_results): step for step in phase_steps}
+            futures = {
+                pool.submit(self._run_step, step, prior_results): (idx, step) for idx, step in enumerate(phase_steps)
+            }
             for future in as_completed(futures):
-                step = futures[future]
+                idx, step = futures[future]
                 try:
                     result = future.result()
                 except Exception as exc:
                     result = {"status": "error", "error": str(exc)}
-                results.append({"step": step.to_dict(), "result": result})
+                results.append((idx, {"step": step.to_dict(), "result": result}))
                 yield self._mark_step_done(step, result)
-        return results
+        return _script_ordered_results(results)
 
     def _run_step(self, step: WorkflowStep, prior_results: list[dict[str, Any]]) -> dict[str, Any]:
         agent = _AGENTS.get(step.agent)
@@ -395,6 +397,10 @@ def _dependency_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
 
 def _phase_dependencies(step: WorkflowStep, phase_ids: set[str]) -> set[str]:
     return {dep for dep in step.depends_on if dep in phase_ids}
+
+
+def _script_ordered_results(results: list[tuple[int, dict[str, Any]]]) -> list[dict[str, Any]]:
+    return [item for _idx, item in sorted(results, key=lambda pair: pair[0])]
 
 
 def _step_tool_names(step: WorkflowStep, allowed_tools: tuple[str, ...]) -> tuple[str, ...] | None:

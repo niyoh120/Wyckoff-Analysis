@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 
 from cli.workflows.control import WorkflowControl
 from cli.workflows.executor import WorkflowExecutor, _phase_batches
@@ -147,6 +149,35 @@ _SCOPED_TOOL_PLAN_JSON = """{
   ],
   "synthesis_prompt": "汇总持仓摘要。"
 }"""
+
+
+class ParallelResultProvider:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.synthesis_prompt = ""
+        self._lock = threading.Lock()
+
+    @property
+    def name(self) -> str:
+        return "ParallelResultProvider"
+
+    def chat_stream(self, messages, _tools, _system_prompt=""):
+        content = messages[0]["content"]
+        with self._lock:
+            self.calls.append(content)
+        if content.startswith("请基于以下动态 workflow 执行结果"):
+            self.synthesis_prompt = content
+            yield {"type": "text_delta", "text": "两个视角已按脚本顺序合并。"}
+            return
+        if "从市场数据视角复核" in content:
+            time.sleep(0.05)
+            yield {"type": "text_delta", "text": "研究视角完成。"}
+            return
+        if "从量价结构视角复核" in content:
+            time.sleep(0.01)
+            yield {"type": "text_delta", "text": "结构视角完成。"}
+            return
+        yield {"type": "text_delta", "text": "未知任务。"}
 
 
 def _reset_local_db(local_db) -> None:
@@ -517,6 +548,35 @@ def test_workflow_executor_runs_same_phase_tasks_in_parallel(tmp_path, monkeypat
         assert "本次运行输入" in provider.calls[0]["messages"][0]["content"]
         assert "300750" in provider.calls[0]["messages"][0]["content"]
         assert events[-1]["text"] == "两个视角已合并。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_parallel_workflow_synthesis_keeps_script_order(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ParallelResultProvider()
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(),
+        session_id="s_parallel_order",
+        user_text="并发复核 300750",
+        workflow_context=route_workflow("用 workflow 并发复核 300750"),
+        workflow_script=json.loads(_PARALLEL_PLAN_JSON),
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "并发复核 300750"}]))
+
+    try:
+        done_steps = [event["step"]["step_id"] for event in events if event["type"] == "workflow_step_done"]
+        assert done_steps == ["analysis_view", "research_view"]
+        assert provider.synthesis_prompt.index('"step_id": "research_view"') < provider.synthesis_prompt.index(
+            '"step_id": "analysis_view"'
+        )
+        assert events[-1]["text"] == "两个视角已按脚本顺序合并。"
     finally:
         _reset_local_db(local_db)
 
