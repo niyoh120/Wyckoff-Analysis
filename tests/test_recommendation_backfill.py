@@ -139,6 +139,42 @@ def test_replace_auxiliary_tables_replaces_date_scoped_rows(monkeypatch) -> None
     assert client.upserts[0][0]["updated_at"]
 
 
+def test_replace_auxiliary_tables_degrades_repair_regime_for_legacy_market_table(monkeypatch) -> None:
+    client = _FakeClient(fail_market_regime_check=True)
+    monkeypatch.setattr(workflow, "upsert_signal_observations", lambda rows: len(rows))
+
+    summary = workflow._replace_auxiliary_tables(
+        client,
+        (date(2026, 6, 1),),
+        {
+            "signal_pending": [],
+            "signal_observations": [],
+            "external_seed_observations": [],
+            "market_signal_daily": [
+                {
+                    "trade_date": "2026-06-01",
+                    "benchmark_regime": "PANIC_REPAIR",
+                    "source_jobs": {"daily_job": {"writer": "test"}},
+                },
+                {
+                    "trade_date": "2026-06-02",
+                    "benchmark_regime": "BEAR_REBOUND",
+                    "source_jobs": {},
+                },
+            ],
+            "theme_radar_snapshot": [],
+        },
+    )
+
+    assert summary["market_signal_upserted"] == 2
+    market_rows = client.upserts[0]
+    assert [row["benchmark_regime"] for row in market_rows] == ["RISK_OFF", "RISK_OFF"]
+    assert market_rows[0]["source_jobs"]["daily_job"] == {"writer": "test"}
+    assert market_rows[0]["source_jobs"]["regime_compat"]["original_benchmark_regime"] == "PANIC_REPAIR"
+    assert market_rows[1]["source_jobs"]["regime_compat"]["original_benchmark_regime"] == "BEAR_REBOUND"
+    assert market_rows[1]["source_jobs"]["regime_compat"]["stored_benchmark_regime"] == "RISK_OFF"
+
+
 def _day_result(day: date) -> dict:
     return {
         "trade_date": day.isoformat(),
@@ -157,9 +193,11 @@ def _payload_row(code: int, rec_date: int) -> dict:
 
 
 class _FakeClient:
-    def __init__(self, *, fail_optional_schema: bool = False) -> None:
+    def __init__(self, *, fail_optional_schema: bool = False, fail_market_regime_check: bool = False) -> None:
         self.fail_optional_schema = fail_optional_schema
         self.failed_optional_schema = False
+        self.fail_market_regime_check = fail_market_regime_check
+        self.failed_market_regime_check = False
         self.upserts: list[list[dict]] = []
         self.inserts: list[list[dict]] = []
         self.deletes: list[dict] = []
@@ -207,6 +245,13 @@ class _FakeQuery:
             ):
                 self.client.failed_optional_schema = True
                 raise Exception("Could not find the 'capital_migration_bonus' column")
+            if (
+                self.client.fail_market_regime_check
+                and not self.client.failed_market_regime_check
+                and any(row.get("benchmark_regime") in {"PANIC_REPAIR", "BEAR_REBOUND"} for row in self.payload)
+            ):
+                self.client.failed_market_regime_check = True
+                raise Exception('violates check constraint "market_signal_daily_benchmark_regime_check"')
             self.client.upserts.append(self.payload)
             return SimpleNamespace(data=self.payload)
         if self.kind == "insert":
