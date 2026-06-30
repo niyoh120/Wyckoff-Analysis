@@ -12,7 +12,13 @@ from core.signal_confirmation import score_springboard_abc
 
 STRUCTURAL_L4_TRIGGERS = {"spring", "lps", "compression", "compress", "trend_pullback", "volatile_pullback"}
 NAKED_RIGHT_SIDE_TRIGGERS = {"sos", "evr"}
-TREND_CANDIDATE_TRIGGERS = {"trend_breakout", "trend_lane_pullback", "sector_strength", "wyckoff_structure"}
+TREND_CANDIDATE_TRIGGERS = {
+    "main_force_entry",
+    "trend_breakout",
+    "trend_lane_pullback",
+    "sector_strength",
+    "wyckoff_structure",
+}
 DEFENSIVE_REGIMES = {"RISK_OFF", "BEAR_REBOUND", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}
 WEAK_PULLBACK_REGIMES = DEFENSIVE_REGIMES | {"RISK_ON"}
 DEFAULT_POSITION_RATIO_BY_REGIME: dict[str, float] = {

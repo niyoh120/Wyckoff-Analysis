@@ -672,6 +672,19 @@ def test_loss_guard_blocks_weak_trend_candidate_without_abc_confirmation() -> No
     assert reason == "趋势候选ABC不足"
 
 
+def test_loss_guard_blocks_weak_main_force_entry_without_abc_confirmation() -> None:
+    reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["main_force_entry"],
+        88.0,
+        "趋势延续",
+        {"000001": _low_confirmation_df()},
+    )
+
+    assert reason == "趋势候选ABC不足"
+
+
 def test_stratified_stats_include_exit_and_excursion_diagnostics() -> None:
     trades = pd.DataFrame(
         [
