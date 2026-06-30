@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timedelta
 
-from core.constants import TABLE_SIGNAL_PENDING
+from core.constants import TABLE_RECOMMENDATION_TRACKING, TABLE_SIGNAL_PENDING
 from core.tail_buy.strategy import TailBuyCandidate, pick_tail_candidates
 from integrations.fetch_a_share_csv import resolve_trading_window
 from integrations.supabase_base import create_admin_client, is_admin_configured
@@ -43,15 +44,25 @@ def load_tail_candidates(
     )
     holdings = _load_holding_candidates(portfolio_id, target_signal_date, logs_path) if include_holdings else []
     pending_codes = {candidate.code for candidate in pending}
-    supplement = [candidate for candidate in holdings if candidate.code not in pending_codes]
+    holding_supplement = [candidate for candidate in holdings if candidate.code not in pending_codes]
+    occupied_codes = pending_codes | {candidate.code for candidate in holding_supplement}
+    review_supplement = []
+    if not strict_signal_date:
+        reviews = _load_recommendation_review_candidates(target_signal_date, logs_path)
+        review_supplement = [candidate for candidate in reviews if candidate.code not in occupied_codes]
 
-    merged = pending + supplement
+    merged = pending + holding_supplement + review_supplement
     merged.sort(key=lambda x: (x.status != "confirmed", -x.signal_score, x.code))
     source_name = "signal_pending_exact" if strict_signal_date else "signal_pending_15d"
-    holding_text = f" + holding={len(supplement)}" if include_holdings else ""
-    source_desc = f"{source_name}={len(pending)}{holding_text} (target={target_signal_date}, portfolio={portfolio_id})"
+    holding_text = f" + holding={len(holding_supplement)}" if include_holdings else ""
+    review_text = f" + rec_review={len(review_supplement)}" if review_supplement else ""
+    source_desc = (
+        f"{source_name}={len(pending)}{holding_text}{review_text} "
+        f"(target={target_signal_date}, portfolio={portfolio_id})"
+    )
     log_line(
-        f"候选池加载完成: signal_pending={len(pending)}, 持仓补充={len(supplement)}, 合计={len(merged)}",
+        f"候选池加载完成: signal_pending={len(pending)}, 持仓补充={len(holding_supplement)}, "
+        f"推荐复核={len(review_supplement)}, 合计={len(merged)}",
         logs_path,
     )
     return merged, source_desc
@@ -133,7 +144,7 @@ def _fetch_signal_pending_rows(cutoff_date: str, *, exact_date: str | None = Non
             client.table(TABLE_SIGNAL_PENDING)
             .select(
                 "code,name,signal_type,signal_score,status,signal_date,regime,snap_support,snap_ma20,"
-                "strategy_version,candidate_lane,entry_type,signal_key,candidate_status,"
+                "snap_close,snap_ma50,strategy_version,candidate_lane,entry_type,signal_key,candidate_status,"
                 "mainline_score,theme_score,stock_role_score,quality_score,timing_score"
             )
             .in_("status", ["pending", "confirmed"])
@@ -142,6 +153,165 @@ def _fetch_signal_pending_rows(cutoff_date: str, *, exact_date: str | None = Non
         return query.order("signal_date", desc=True).limit(8000).execute().data or []
     except Exception as exc:
         raise RuntimeError(f"读取 signal_pending 失败: {exc}") from exc
+
+
+def _load_recommendation_review_candidates(
+    target_signal_date: str,
+    logs_path: str | None = None,
+) -> list[TailBuyCandidate]:
+    cutoff = _recommendation_cutoff_int(target_signal_date)
+    rows = _fetch_recommendation_review_rows(cutoff)
+    candidates = _recommendation_review_candidates(rows, target_signal_date)
+    log_line(
+        f"推荐表复核候选加载: raw={len(rows)}, picked={len(candidates)}, cutoff={cutoff}",
+        logs_path,
+    )
+    return candidates
+
+
+def _recommendation_cutoff_int(target_signal_date: str) -> int:
+    days = _env_int("TAIL_BUY_RECOMMENDATION_LOOKBACK_DAYS", 90)
+    cutoff = datetime.strptime(target_signal_date, "%Y-%m-%d") - timedelta(days=max(days, 1))
+    return int(cutoff.strftime("%Y%m%d"))
+
+
+def _fetch_recommendation_review_rows(cutoff_recommend_date: int) -> list[dict]:
+    try:
+        return (
+            create_admin_client()
+            .table(TABLE_RECOMMENDATION_TRACKING)
+            .select(
+                "code,name,recommend_date,initial_price,current_price,change_pct,funnel_score,"
+                "recommend_count,is_ai_recommended,rag_vetoed,candidate_lane,entry_type,signal_key,"
+                "candidate_status,mainline_score,theme_score,stock_role_score,quality_score,timing_score,"
+                "mfe_pct,mae_pct"
+            )
+            .gte("recommend_date", cutoff_recommend_date)
+            .order("recommend_date", desc=True)
+            .limit(3000)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise RuntimeError(f"读取 recommendation_tracking 复核候选失败: {exc}") from exc
+
+
+def _recommendation_review_candidates(rows: list[dict], target_signal_date: str) -> list[TailBuyCandidate]:
+    oversold = _pick_review_bucket(rows, kind="oversold", threshold=_env_float("TAIL_BUY_REVIEW_OVERSOLD_PCT", -30.0))
+    momentum = _pick_review_bucket(rows, kind="momentum", threshold=_env_float("TAIL_BUY_REVIEW_MOMENTUM_PCT", 40.0))
+    return [
+        *_map_recommendation_rows(oversold, target_signal_date, "rec_deep_pullback"),
+        *_map_recommendation_rows(momentum, target_signal_date, "rec_momentum_continuation"),
+    ]
+
+
+def _pick_review_bucket(rows: list[dict], *, kind: str, threshold: float) -> list[dict]:
+    filtered = [row for row in rows if _is_review_bucket_match(row, kind, threshold)]
+    by_code = _dedupe_review_rows(filtered, kind)
+    limit = _env_int("TAIL_BUY_REVIEW_MAX_PER_BUCKET", 20)
+    reverse = kind == "momentum"
+    return sorted(by_code.values(), key=lambda row: _float(row.get("change_pct")), reverse=reverse)[: max(limit, 0)]
+
+
+def _is_review_bucket_match(row: dict, kind: str, threshold: float) -> bool:
+    if _truthy(row.get("rag_vetoed")) or _float(row.get("current_price")) <= 0:
+        return False
+    change = _float(row.get("change_pct"))
+    return change >= threshold if kind == "momentum" else change <= threshold
+
+
+def _dedupe_review_rows(rows: list[dict], kind: str) -> dict[str, dict]:
+    by_code: dict[str, dict] = {}
+    for row in rows:
+        code = normalize_code6(row.get("code"))
+        if not code:
+            continue
+        old = by_code.get(code)
+        if old is None or _prefer_review_row(row, old, kind):
+            by_code[code] = row
+    return by_code
+
+
+def _prefer_review_row(new: dict, old: dict, kind: str) -> bool:
+    new_change, old_change = _float(new.get("change_pct")), _float(old.get("change_pct"))
+    if kind == "momentum" and new_change != old_change:
+        return new_change > old_change
+    if kind != "momentum" and new_change != old_change:
+        return new_change < old_change
+    return _int(new.get("recommend_date")) > _int(old.get("recommend_date"))
+
+
+def _map_recommendation_rows(rows: list[dict], target_signal_date: str, signal_type: str) -> list[TailBuyCandidate]:
+    return [_recommendation_candidate(row, target_signal_date, signal_type) for row in rows]
+
+
+def _recommendation_candidate(row: dict, target_signal_date: str, signal_type: str) -> TailBuyCandidate:
+    change_pct = _float(row.get("change_pct"))
+    current_price = _float(row.get("current_price"))
+    return TailBuyCandidate(
+        code=normalize_code6(row.get("code")),
+        name=str(row.get("name", "") or row.get("code") or "").strip(),
+        signal_date=target_signal_date,
+        status="confirmed",
+        signal_type=signal_type,
+        signal_score=_recommendation_signal_score(change_pct, signal_type),
+        candidate_lane="recommendation_review",
+        entry_type="deep_pullback" if signal_type == "rec_deep_pullback" else "momentum_continuation",
+        signal_key=signal_type,
+        candidate_status="推荐后深跌复核" if signal_type == "rec_deep_pullback" else "推荐后强趋势延续",
+        snap={
+            "snap_support": current_price,
+            "snap_close": current_price,
+            "snap_ma20": 0.0,
+            "snap_recommend_date": row.get("recommend_date"),
+            "snap_change_pct": change_pct,
+        },
+    )
+
+
+def _recommendation_signal_score(change_pct: float, signal_type: str) -> float:
+    if signal_type == "rec_deep_pullback":
+        return min(95.0, 60.0 + max(abs(change_pct) - 30.0, 0.0) * 1.5)
+    return min(95.0, 60.0 + max(change_pct - 40.0, 0.0) * 0.8)
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _float(value: object, default: float = 0.0) -> float:
+    try:
+        if value in (None, ""):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _int(value: object, default: int = 0) -> int:
+    try:
+        if value in (None, ""):
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "t", "yes", "y"}
 
 
 def _holding_candidate(pos: dict, target_signal_date: str) -> TailBuyCandidate | None:

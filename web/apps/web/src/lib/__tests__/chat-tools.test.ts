@@ -17,7 +17,7 @@ import {
 function createMockChain(resolvedData: unknown = null, error: unknown = null) {
   const chain: Record<string, unknown> = {}
   const terminal = () => Promise.resolve({ data: resolvedData, error })
-  for (const method of ['select', 'eq', 'ilike', 'order', 'limit', 'delete', 'update']) {
+  for (const method of ['select', 'eq', 'ilike', 'in', 'order', 'limit', 'delete', 'update']) {
     chain[method] = vi.fn().mockReturnValue(chain)
   }
   chain['insert'] = vi.fn().mockImplementation(terminal)
@@ -239,6 +239,7 @@ describe('execQueryRecommendations', () => {
         { code: 600519, name: '贵州茅台', recommend_date: 20240101, recommend_count: 3, initial_price: 1800, current_price: 1900, change_pct: 5.56, is_ai_recommended: true },
         { code: 603039, name: '泛微网络', recommend_date: 20240615, recommend_count: 1, initial_price: 46.97, current_price: 44.2, change_pct: -5.9, is_ai_recommended: false },
       ],
+      signal_pending: [],
     })
     const result = await execQueryRecommendations(deps, 10)
     expect(result).toContain('600519')
@@ -248,6 +249,22 @@ describe('execQueryRecommendations', () => {
     expect(result).toContain('+5.56%')
     expect(result).toContain('-5.90%')
     expect(result).toContain('观察/信号复盘不等于买入')
+  })
+
+  it('includes signal_pending entries as pending signals', async () => {
+    const deps = createMockDeps({
+      recommendation_tracking: [],
+      signal_pending: [
+        { code: '002079', name: '苏州固锝', signal_date: '2026-06-30', status: 'pending', signal_type: 'lps', signal_score: 0.56, snap_close: 12.3 },
+        { code: '603661', name: '恒林股份', signal_date: '2026-06-29', status: 'confirmed', signal_type: 'sos', signal_score: 0.9, snap_close: 33.2 },
+      ],
+    })
+    const result = await execQueryRecommendations(deps, 10)
+    expect(result).toContain('002079')
+    expect(result).toContain('待确认信号')
+    expect(result).toContain('603661')
+    expect(result).toContain('已确认信号')
+    expect(result).toContain('信号日20260630')
   })
 })
 

@@ -4,7 +4,7 @@ import type { generateText as GenerateTextFn } from 'ai'
 import { z } from 'zod'
 import { fetchValueSnapshotWithFetch, isCnSymbol, normalizeTickFlowSymbol, normalizeTushareCode, type ValueSnapshot } from './agent-market'
 import { buildValuePrompt, buildValueScore } from './agent-value'
-import { formatPatternReviewDigest } from './pattern-review'
+import { formatPatternReviewDigest, type PatternReviewRow } from './pattern-review'
 
 export interface KlineRow {
   date: string
@@ -457,6 +457,17 @@ function buildMarketHistoryDigest(name: string, rows: KlineRow[]): string {
 }
 
 export async function execQueryRecommendations(deps: ToolDeps, limit: number): Promise<string> {
+  const [recommendations, signals] = await Promise.all([
+    fetchRecommendationReviewRows(deps, limit),
+    fetchSignalPendingReviewRows(deps, limit),
+  ])
+  const data = recommendations.concat(signals)
+    .sort((a, b) => reviewDateNumber(b.recommend_date) - reviewDateNumber(a.recommend_date))
+    .slice(0, Math.max(limit, 0))
+  return formatPatternReviewDigest(data)
+}
+
+async function fetchRecommendationReviewRows(deps: ToolDeps, limit: number): Promise<PatternReviewRow[]> {
   const { data } = await deps.supabase
     .from('recommendation_tracking')
     .select(
@@ -464,8 +475,68 @@ export async function execQueryRecommendations(deps: ToolDeps, limit: number): P
     )
     .order('recommend_date', { ascending: false })
     .limit(limit)
+  return (data ?? []).map((row) => ({ ...row, source_type: 'recommendation_tracking' }))
+}
 
-  return formatPatternReviewDigest(data ?? [])
+async function fetchSignalPendingReviewRows(deps: ToolDeps, limit: number): Promise<PatternReviewRow[]> {
+  const { data } = await deps.supabase
+    .from('signal_pending')
+    .select(
+      'code,name,signal_type,signal_date,status,signal_score,snap_close,candidate_lane,entry_type,signal_key,candidate_status,mainline_score',
+    )
+    .in('status', ['pending', 'confirmed'])
+    .order('signal_date', { ascending: false })
+    .limit(limit)
+  return (data ?? []).map(mapSignalPendingReviewRow).filter((row): row is PatternReviewRow => row !== null)
+}
+
+function mapSignalPendingReviewRow(row: Record<string, unknown>): PatternReviewRow | null {
+  const recommendDate = signalDateNumber(row.signal_date)
+  if (!recommendDate) return null
+  const signalType = stringOrNull(row.signal_type)
+  const status = stringOrNull(row.status) || 'pending'
+  return {
+    code: normalizeReviewCode(row.code),
+    name: stringOrNull(row.name) || normalizeReviewCode(row.code),
+    recommend_date: recommendDate,
+    recommend_count: 1,
+    initial_price: numberOrNull(row.snap_close),
+    current_price: null,
+    change_pct: null,
+    is_ai_recommended: false,
+    candidate_lane: stringOrNull(row.candidate_lane) || signalType,
+    entry_type: stringOrNull(row.entry_type),
+    signal_key: stringOrNull(row.signal_key) || signalType,
+    candidate_status: stringOrNull(row.candidate_status) || status,
+    mainline_score: numberOrNull(row.mainline_score),
+    source_type: 'signal_pending',
+    signal_status: status,
+    signal_type: signalType,
+  }
+}
+
+function signalDateNumber(value: unknown): number {
+  const digits = String(value || '').replaceAll('-', '')
+  return /^\d{8}$/.test(digits) ? Number(digits) : 0
+}
+
+function reviewDateNumber(value: string | number): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  return signalDateNumber(value)
+}
+
+function stringOrNull(value: unknown): string | null {
+  const text = String(value ?? '').trim()
+  return text ? text : null
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function normalizeReviewCode(value: unknown): string {
+  const raw = String(value ?? '').trim()
+  return /^\d+$/.test(raw) ? raw.padStart(6, '0') : raw
 }
 
 export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<string> {

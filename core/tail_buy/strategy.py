@@ -9,6 +9,7 @@ import logging
 import math
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
@@ -45,6 +46,11 @@ class TailBuyStrategyConfig:
     blowoff_drop_from_high_pct: float = 2.2
     blowoff_close_pos_max: float = 0.58
     blowoff_tail_volume_share: float = 0.45
+    chase_day_ret_pct: float = 10.0
+    chase_high_ret_pct: float = 12.0
+    weak_naked_day_ret_pct: float = 0.8
+    weak_naked_tail30_ret_pct: float = 0.3
+    naked_support_extension_pct: float = 18.0
 
 
 DEFAULT_TAIL_BUY_STRATEGY_CONFIG = TailBuyStrategyConfig()
@@ -69,8 +75,12 @@ def _apply_unconfirmed_buy_gate(
             f"{candidate.llm_reason}；未二次确认，降级观察" if candidate.llm_reason else "未二次确认，降级观察"
         )
     if candidate.final_decision == DECISION_WATCH:
-        candidate.priority_score = candidate.rule_score + 3.0
+        candidate.priority_score = _priority_score(candidate.rule_score + 3.0)
     return candidate
+
+
+def _priority_score(raw: float) -> float:
+    return min(safe_float(raw, 0.0), 100.0)
 
 
 def _normalize_signal_date(raw: Any) -> str:
@@ -125,9 +135,9 @@ def pick_tail_candidates(
         if old is None:
             by_code[code] = candidate
             continue
-        old_rank = (1 if old.status == "confirmed" else 0, old.signal_date)
-        new_rank = (1 if candidate.status == "confirmed" else 0, candidate.signal_date)
-        if (new_rank, candidate.signal_score) > (old_rank, old.signal_score):
+        old_rank = (old.signal_date, 1 if old.status == "confirmed" else 0, old.signal_score)
+        new_rank = (candidate.signal_date, 1 if candidate.status == "confirmed" else 0, candidate.signal_score)
+        if new_rank > old_rank:
             by_code[code] = candidate
 
     out = list(by_code.values())
@@ -173,6 +183,37 @@ def _is_tail_blowoff_reversal(features: dict[str, Any], config: TailBuyStrategyC
         and close_pos <= config.blowoff_close_pos_max
         and tail_share >= config.blowoff_tail_volume_share
     )
+
+
+def _candidate_context_features(candidate: TailBuyCandidate, df: pd.DataFrame) -> dict[str, Any]:
+    trade_date = _last_intraday_date(df)
+    signal_date = _parse_date(candidate.signal_date)
+    age_days = (trade_date - signal_date).days if trade_date and signal_date else 0
+    return {
+        "signal_age_days": max(age_days, 0),
+        "candidate_status": candidate.status,
+        "candidate_lane": candidate.candidate_lane,
+        "entry_type": candidate.entry_type,
+    }
+
+
+def _last_intraday_date(df: pd.DataFrame) -> date | None:
+    if df.empty or "datetime" not in df.columns:
+        return None
+    ts = pd.to_datetime(df["datetime"], errors="coerce").dropna()
+    if ts.empty:
+        return None
+    return ts.iloc[-1].date()
+
+
+def _parse_date(raw: Any) -> date | None:
+    text = str(raw or "").strip()[:10]
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _ret_pct(series: pd.Series, lookback: int) -> float:
@@ -325,8 +366,10 @@ _SIGNAL_TYPE_STYLE: dict[str, str] = {
     "lps": "pullback",
     "trend_pullback": "pullback",
     "trend_lane_pullback": "pullback",
+    "rec_deep_pullback": "pullback",
     "evr": "hybrid",
     "compression": "hybrid",
+    "rec_momentum_continuation": "trend",
 }
 
 
@@ -353,6 +396,8 @@ def _normalize_signal_score(signal_score: float, signal_type: str) -> float:
         "trend_lane_pullback",
         "sector_strength",
         "wyckoff_structure",
+        "rec_deep_pullback",
+        "rec_momentum_continuation",
     }:
         normalized = raw / 10.0 if raw > 10.0 else raw
     else:
@@ -548,6 +593,69 @@ def _decision_from_score(
     return score, decision, reasons
 
 
+def _soft_buy_gate_reasons(features: dict[str, Any], signal_type: str, config: TailBuyStrategyConfig) -> list[str]:
+    if not features or int(safe_float(features.get("bars"), 0.0)) <= 0:
+        return []
+    reasons: list[str] = []
+    if _is_intraday_chase(features, config):
+        reasons.append("日内涨幅过大，尾盘不追高")
+    if _is_extended_from_support(features, signal_type, config):
+        reasons.append("裸SOS/EVR已远离确认支撑，等待回踩")
+    if _is_weak_naked_momentum(features, signal_type, config):
+        reasons.append("裸SOS/EVR尾盘动能不足，只观察")
+    return reasons
+
+
+def _is_intraday_chase(features: dict[str, Any], config: TailBuyStrategyConfig) -> bool:
+    day_ret = safe_float(features.get("day_ret_pct"), 0.0)
+    high_ret = safe_float(features.get("intraday_high_ret_pct"), 0.0)
+    return day_ret >= config.chase_day_ret_pct or high_ret >= config.chase_high_ret_pct
+
+
+def _is_weak_naked_momentum(features: dict[str, Any], signal_type: str, config: TailBuyStrategyConfig) -> bool:
+    st_lower = str(signal_type or "").strip().lower()
+    if st_lower not in {"sos", "evr"}:
+        return False
+    if (
+        bool(features.get("breakout_tail"))
+        or bool(features.get("reclaim_vwap"))
+        or bool(features.get("strong_hold_vwap"))
+    ):
+        return False
+    return (
+        safe_float(features.get("day_ret_pct"), 0.0) < config.weak_naked_day_ret_pct
+        and safe_float(features.get("last30_ret_pct"), 0.0) < config.weak_naked_tail30_ret_pct
+    )
+
+
+def _is_extended_from_support(features: dict[str, Any], signal_type: str, config: TailBuyStrategyConfig) -> bool:
+    st_lower = str(signal_type or "").strip().lower()
+    if st_lower not in {"sos", "evr"}:
+        return False
+    support = safe_float(features.get("support_level"), 0.0)
+    last_close = safe_float(features.get("last_close"), 0.0)
+    if support <= 0.0 or last_close <= 0.0:
+        return False
+    return (last_close / support - 1.0) * 100.0 >= config.naked_support_extension_pct
+
+
+def _apply_soft_buy_gates(
+    score: float,
+    decision: str,
+    reasons: list[str],
+    features: dict[str, Any],
+    signal_type: str,
+    config: TailBuyStrategyConfig,
+) -> tuple[float, str, list[str]]:
+    if decision != DECISION_BUY:
+        return score, decision, reasons
+    soft_reasons = _soft_buy_gate_reasons(features, signal_type, config)
+    if not soft_reasons:
+        return score, decision, reasons
+    reasons.extend(x for x in soft_reasons if x not in reasons)
+    return min(score, 68.0), DECISION_WATCH, reasons
+
+
 def score_tail_features(
     features: dict[str, Any],
     *,
@@ -579,7 +687,9 @@ def score_tail_features(
     score += _score_tail_position(features, trend_bias, reasons)
     score += _score_tail_momentum(features, trend_bias=trend_bias, pullback_bias=pullback_bias, reasons=reasons)
     score += _score_tail_indicators(features, reasons)
-    return _decision_from_score(score, status, reasons, _strategy_config(config))
+    policy = _strategy_config(config)
+    score, decision, reasons = _decision_from_score(score, status, reasons, policy)
+    return _apply_soft_buy_gates(score, decision, reasons, features, signal_type, policy)
 
 
 def _build_daily_context(snap: dict[str, Any]) -> dict[str, Any] | None:
@@ -598,6 +708,7 @@ def evaluate_rule_decision(
 ) -> TailBuyCandidate:
     daily_context = _build_daily_context(candidate.snap) if candidate.snap else None
     features = compute_tail_features(df_1m, daily_context, config=config)
+    features.update(_candidate_context_features(candidate, ensure_intraday_df(df_1m)))
     if candidate.market_regime:
         features["market_regime"] = candidate.market_regime
     score, decision, reasons = score_tail_features(
@@ -811,11 +922,26 @@ def merge_rule_and_llm(
                 conf_val = None
             item.llm_confidence = conf_val
             item.final_decision = llm_decision
-            item.priority_score = item.rule_score + decision_bonus.get(llm_decision, 0.0)
+            item.priority_score = _priority_score(item.rule_score + decision_bonus.get(llm_decision, 0.0))
         else:
             item.final_decision = item.rule_decision
-            item.priority_score = item.rule_score + decision_bonus.get(item.rule_decision, 0.0)
+            item.priority_score = _priority_score(item.rule_score + decision_bonus.get(item.rule_decision, 0.0))
+        item = _apply_final_buy_soft_gates(item, policy)
         item = _apply_unconfirmed_buy_gate(item, policy)
         out.append(item)
     out.sort(key=lambda x: (-x.priority_score, -x.rule_score, x.code))
     return out
+
+
+def _apply_final_buy_soft_gates(candidate: TailBuyCandidate, config: TailBuyStrategyConfig) -> TailBuyCandidate:
+    if candidate.final_decision != DECISION_BUY:
+        return candidate
+    reasons = _soft_buy_gate_reasons(candidate.features or {}, candidate.signal_type, config)
+    if not reasons:
+        return candidate
+    candidate.final_decision = DECISION_WATCH
+    candidate.priority_score = _priority_score(candidate.rule_score + 3.0)
+    candidate.rule_reasons.extend(x for x in reasons if x not in candidate.rule_reasons)
+    suffix = "；".join(reasons)
+    candidate.llm_reason = f"{candidate.llm_reason}；{suffix}" if candidate.llm_reason else suffix
+    return candidate

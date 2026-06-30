@@ -53,6 +53,29 @@ interface Recommendation {
   stock_role_score?: number | null
   quality_score?: number | null
   timing_score?: number | null
+  source_type?: string | null
+  signal_status?: string | null
+  signal_type?: string | null
+}
+
+interface SignalPendingRow {
+  code: number | string
+  name?: string | null
+  signal_type?: string | null
+  signal_date?: string | null
+  status?: string | null
+  signal_score?: number | null
+  snap_close?: number | null
+  strategy_version?: string | null
+  candidate_lane?: string | null
+  entry_type?: string | null
+  signal_key?: string | null
+  candidate_status?: string | null
+  mainline_score?: number | null
+  theme_score?: number | null
+  stock_role_score?: number | null
+  quality_score?: number | null
+  timing_score?: number | null
 }
 
 interface SummaryStats {
@@ -115,8 +138,9 @@ async function fetchTracking(market: MarketTab): Promise<Recommendation[]> {
     if (batch.length < TRACKING_PAGE_SIZE || hasLoadedRetentionWindow(rows)) break
     offset += TRACKING_PAGE_SIZE
   }
-  const dateSet = new Set(getLatestRecommendDates(rows, RETENTION_DATES))
-  return rows.filter((row) => dateSet.has(row.recommend_date))
+  const combined = market === 'cn' ? rows.concat(await fetchSignalPendingTracking()) : rows
+  const dateSet = new Set(getLatestRecommendDates(combined, RETENTION_DATES))
+  return combined.filter((row) => dateSet.has(row.recommend_date))
 }
 
 async function fetchTrackingPage(market: MarketTab, offset: number): Promise<Recommendation[]> {
@@ -127,7 +151,51 @@ async function fetchTrackingPage(market: MarketTab, offset: number): Promise<Rec
     .order('code', { ascending: true })
     .range(offset, offset + TRACKING_PAGE_SIZE - 1)
   if (error) throw new Error(`${MARKET_TABLE[market]}: ${error.message}`)
-  return data || []
+  return (data || []).map((row) => ({ ...row, source_type: 'recommendation_tracking' }))
+}
+
+async function fetchSignalPendingTracking(): Promise<Recommendation[]> {
+  const { data, error } = await supabase
+    .from('signal_pending')
+    .select(
+      'code,name,signal_type,signal_date,status,signal_score,snap_close,strategy_version,candidate_lane,entry_type,signal_key,candidate_status,mainline_score,theme_score,stock_role_score,quality_score,timing_score',
+    )
+    .in('status', ['pending', 'confirmed'])
+    .order('signal_date', { ascending: false })
+    .limit(2000)
+  if (error) throw new Error(`signal_pending: ${error.message}`)
+  return (data || []).map(mapSignalPendingRow).filter((row): row is Recommendation => row !== null)
+}
+
+function mapSignalPendingRow(row: SignalPendingRow): Recommendation | null {
+  const recommendDate = signalDateNumber(row.signal_date)
+  if (!recommendDate) return null
+  return {
+    code: normalizeTrackingCode(row.code),
+    name: row.name ?? null,
+    recommend_date: recommendDate,
+    initial_price: nullableNumber(row.snap_close),
+    current_price: null,
+    change_pct: null,
+    is_ai_recommended: false,
+    rag_vetoed: false,
+    funnel_score: nullableNumber(row.signal_score),
+    recommend_count: 1,
+    recommend_reason: `signal_pending:${row.status || 'pending'}:${row.signal_type || '-'}`,
+    strategy_version: row.strategy_version ?? null,
+    candidate_lane: row.candidate_lane ?? row.signal_type ?? null,
+    entry_type: row.entry_type ?? null,
+    signal_key: row.signal_key ?? row.signal_type ?? null,
+    candidate_status: row.candidate_status ?? row.status ?? null,
+    mainline_score: nullableNumber(row.mainline_score),
+    theme_score: nullableNumber(row.theme_score),
+    stock_role_score: nullableNumber(row.stock_role_score),
+    quality_score: nullableNumber(row.quality_score),
+    timing_score: nullableNumber(row.timing_score),
+    source_type: 'signal_pending',
+    signal_status: row.status ?? null,
+    signal_type: row.signal_type ?? null,
+  }
 }
 
 function hasLoadedRetentionWindow(rows: Recommendation[]): boolean {
@@ -556,7 +624,7 @@ function TrackingTable({
                 </td>
               </tr>
             ) : (
-              rows.map((row) => <TrackingRow key={`${row.code}-${row.recommend_date}`} row={row} market={market} />)
+              rows.map((row) => <TrackingRow key={`${row.source_type || 'tracking'}-${row.code}-${row.recommend_date}`} row={row} market={market} />)
             )}
           </tbody>
         </table>
@@ -657,7 +725,12 @@ function TrackingRow({ row, market = 'cn' }: { row: Recommendation; market?: Mar
         {codeDisplay}
         {vetoed && <span className="ml-1 inline-block h-2 w-2 rounded-full bg-red-500" title="RAG veto" />}
       </td>
-      <td className="px-3 py-2">{row.name || '-'}</td>
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-2">
+          <span>{row.name || '-'}</span>
+          <SignalPendingBadge row={row} />
+        </div>
+      </td>
       <td className="px-3 py-2 text-right text-muted-foreground">{formatDate(row.recommend_date)}</td>
       <td className="px-3 py-2 text-right font-medium">{recommendationCount(row.recommend_count)}</td>
       <td className="px-3 py-2 text-right">{row.initial_price?.toFixed(2) || '-'}</td>
@@ -684,6 +757,20 @@ function TrackingRow({ row, market = 'cn' }: { row: Recommendation; market?: Mar
         {row.is_ai_recommended && <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" />}
       </td>
     </tr>
+  )
+}
+
+function SignalPendingBadge({ row }: { row: Recommendation }) {
+  const { t } = usePreferences()
+  if (row.source_type !== 'signal_pending') return null
+  const confirmed = cleanText(row.signal_status) === 'confirmed'
+  const cls = confirmed
+    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+    : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+  return (
+    <span className={`whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
+      {confirmed ? t('tracking.confirmedSignal') : t('tracking.pendingSignal')}
+    </span>
   )
 }
 
@@ -870,25 +957,45 @@ function getLatestRecommendDates(rows: Recommendation[], limit: number): number[
 }
 
 function dedupeRecommendations(rows: Recommendation[]): Recommendation[] {
-  const sortedRows = [...rows].sort((a, b) => a.recommend_date - b.recommend_date)
-  const byCode = new Map<number | string, Recommendation>()
-  for (const row of sortedRows) {
-    const existing = byCode.get(row.code)
+  const byCode = new Map<string, Recommendation>()
+  for (const row of rows) {
+    const key = trackingCodeKey(row.code)
+    const existing = byCode.get(key)
     if (!existing) {
-      byCode.set(row.code, {
+      byCode.set(key, {
         ...row,
         recommend_count: recommendationCount(row.recommend_count),
       })
       continue
     }
-    existing.is_ai_recommended = existing.is_ai_recommended || row.is_ai_recommended
-    existing.rag_vetoed = existing.rag_vetoed || row.rag_vetoed
-    existing.recommend_count = Math.max(
-      recommendationCount(existing.recommend_count),
-      recommendationCount(row.recommend_count),
-    )
+    const preferred = preferTrackingRow(row, existing) ? row : existing
+    byCode.set(key, {
+      ...preferred,
+      is_ai_recommended: existing.is_ai_recommended || row.is_ai_recommended,
+      rag_vetoed: existing.rag_vetoed || row.rag_vetoed,
+      recommend_count: Math.max(
+        recommendationCount(existing.recommend_count),
+        recommendationCount(row.recommend_count),
+      ),
+    })
   }
   return [...byCode.values()]
+}
+
+function preferTrackingRow(next: Recommendation, current: Recommendation): boolean {
+  if (next.recommend_date !== current.recommend_date) return next.recommend_date > current.recommend_date
+  const sourceDelta = trackingSourcePriority(next) - trackingSourcePriority(current)
+  if (sourceDelta !== 0) return sourceDelta > 0
+  if (next.is_ai_recommended !== current.is_ai_recommended) return next.is_ai_recommended
+  return (next.funnel_score ?? -Infinity) > (current.funnel_score ?? -Infinity)
+}
+
+function trackingSourcePriority(row: Recommendation): number {
+  return row.source_type === 'signal_pending' ? 1 : 2
+}
+
+function trackingCodeKey(code: number | string): string {
+  return normalizeTrackingCode(code)
 }
 
 function buildSummaryStats(rows: Recommendation[]): SummaryStats | null {
@@ -921,6 +1028,20 @@ function recommendationCount(value: number | null | undefined): number {
 
 function isFiniteNumber(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function nullableNumber(value: number | null | undefined): number | null {
+  return isFiniteNumber(value) ? value : null
+}
+
+function normalizeTrackingCode(code: number | string): string {
+  const raw = String(code).trim()
+  return /^\d+$/.test(raw) ? raw.padStart(6, '0') : raw
+}
+
+function signalDateNumber(value: string | null | undefined): number {
+  const digits = String(value || '').replaceAll('-', '')
+  return /^\d{8}$/.test(digits) ? Number(digits) : 0
 }
 
 function sortRecommendations(rows: Recommendation[], sortBy: SortBy, sortOrder: SortOrder): Recommendation[] {

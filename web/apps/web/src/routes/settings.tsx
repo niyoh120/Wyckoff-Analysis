@@ -15,7 +15,8 @@ interface ProviderConfig {
 
 type SettingsTab = 'capability' | 'sources' | 'model' | 'notifications' | 'account'
 type Translate = ReturnType<typeof usePreferences>['t']
-type SettingsRow = Record<string, any>
+type SettingsRow = Record<string, unknown>
+type CustomProviderInfo = Record<string, string>
 type TestTarget = 'model' | 'dataSource'
 type ConnectivityResult = { ok: boolean; message: string }
 type ConnectivityState = Record<TestTarget, ConnectivityResult | null>
@@ -696,9 +697,9 @@ function buildProviderConfigsFromSettings(data: SettingsRow): Record<string, Pro
   for (const provider of PROVIDERS) {
     if (provider === 'gemini' || provider === 'openai' || provider === 'deepseek' || provider === 'anthropic') {
       cfgs[provider] = {
-        api_key: data[`${provider}_api_key`] || '',
-        model: data[`${provider}_model`] || PROVIDER_DEFAULT_MODELS[provider],
-        base_url: data[`${provider}_base_url`] || PROVIDER_BASE_URLS[provider],
+        api_key: settingString(data[`${provider}_api_key`]),
+        model: settingString(data[`${provider}_model`]) || PROVIDER_DEFAULT_MODELS[provider],
+        base_url: settingString(data[`${provider}_base_url`]) || PROVIDER_BASE_URLS[provider],
       }
       continue
     }
@@ -760,9 +761,23 @@ function buildCustomProviders(configs: Record<string, ProviderConfig>): Record<s
   }
 }
 
-function parseCustomProviders(raw: unknown): Record<string, any> {
-  if (typeof raw === 'string') return JSON.parse(raw || '{}')
-  return (raw || {}) as Record<string, any>
+function parseCustomProviders(raw: unknown): Record<string, CustomProviderInfo> {
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {})
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, normalizeProviderInfo(value)]))
+  } catch {
+    return {}
+  }
+}
+
+function normalizeProviderInfo(value: unknown): CustomProviderInfo {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, settingString(item)]))
+}
+
+function settingString(value: unknown): string {
+  return typeof value === 'string' ? value : value == null ? '' : String(value)
 }
 
 function resolveProvider(raw: unknown): Provider {

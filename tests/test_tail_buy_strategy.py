@@ -116,6 +116,36 @@ def test_pick_tail_candidates_filters_prev_trade_day_and_status():
     assert got[0].snap["snap_support"] == 9.8
 
 
+def test_pick_tail_candidates_prefers_newer_pending_over_stale_confirmed():
+    rows = [
+        {
+            "code": "603661",
+            "name": "恒林股份",
+            "signal_type": "lps",
+            "signal_score": 0.44,
+            "status": "confirmed",
+            "signal_date": "2026-06-10",
+            "snap_support": 32.18,
+        },
+        {
+            "code": "603661",
+            "name": "恒林股份",
+            "signal_type": "sos",
+            "signal_score": 4.08,
+            "status": "pending",
+            "signal_date": "2026-06-26",
+            "snap_support": 37.50,
+        },
+    ]
+
+    got = pick_tail_candidates(rows, cutoff_date="2026-06-01")
+
+    assert len(got) == 1
+    assert got[0].signal_date == "2026-06-26"
+    assert got[0].status == "pending"
+    assert got[0].snap["snap_support"] == 37.50
+
+
 def test_evaluate_rule_decision_buy_and_skip_split():
     strong = TailBuyCandidate(
         code="301090",
@@ -143,6 +173,89 @@ def test_evaluate_rule_decision_buy_and_skip_split():
     assert strong_out.rule_decision in {DECISION_BUY, DECISION_WATCH}
     assert strong_out.rule_score > weak_out.rule_score
     assert weak_out.rule_decision == DECISION_SKIP
+
+
+def test_old_confirmed_signal_can_buy_when_current_tail_confirms():
+    candidate = TailBuyCandidate(
+        code="000920",
+        name="沃顿科技",
+        signal_date="2026-04-01",
+        status="confirmed",
+        signal_type="evr",
+        signal_score=4.0,
+        snap={"snap_support": 9.8},
+    )
+    df = _make_intraday_df(start=10.0, end=10.8, tail_boost=0.8, tail_volume_mult=2.0)
+    df["datetime"] = pd.date_range(datetime(2026, 4, 21, 9, 30), periods=len(df), freq="1min", tz="Asia/Shanghai")
+
+    out = evaluate_rule_decision(
+        candidate,
+        df,
+        style="hybrid",
+        config=TailBuyStrategyConfig(
+            chase_day_ret_pct=30.0,
+            chase_high_ret_pct=30.0,
+            naked_support_extension_pct=30.0,
+        ),
+    )
+
+    assert out.rule_decision == DECISION_BUY
+    assert out.features["signal_age_days"] == 20
+    assert "信号已超过" not in "；".join(out.rule_reasons)
+
+
+def test_intraday_chase_is_watch_not_buy():
+    candidate = TailBuyCandidate(
+        code="688620",
+        name="安凯微",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="evr",
+        signal_score=3.5,
+        snap={"snap_support": 9.8},
+    )
+    df = _make_intraday_df(start=10.0, end=11.4, tail_boost=0.1, tail_volume_mult=1.3)
+
+    out = evaluate_rule_decision(candidate, df, style="trend")
+
+    assert out.rule_decision == DECISION_WATCH
+    assert "日内涨幅过大" in "；".join(out.rule_reasons)
+
+
+def test_naked_evr_far_from_support_is_watch_not_buy():
+    candidate = TailBuyCandidate(
+        code="000920",
+        name="沃顿科技",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="evr",
+        signal_score=8.0,
+        snap={"snap_support": 9.8},
+    )
+    df = _make_intraday_df(start=11.3, end=11.6, tail_boost=0.1, tail_volume_mult=1.4)
+
+    out = evaluate_rule_decision(candidate, df, style="hybrid")
+
+    assert out.rule_decision == DECISION_WATCH
+    assert "远离确认支撑" in "；".join(out.rule_reasons)
+
+
+def test_weak_naked_evr_is_watch_not_buy():
+    candidate = TailBuyCandidate(
+        code="603519",
+        name="立霸股份",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="evr",
+        signal_score=8.0,
+        snap={"snap_support": 9.8},
+    )
+    df = _make_intraday_df(start=10.0, end=10.04, tail_boost=0.0, tail_volume_mult=1.0)
+
+    out = evaluate_rule_decision(candidate, df, style="hybrid")
+
+    assert out.rule_decision == DECISION_WATCH
+    assert "裸SOS/EVR尾盘动能不足" in "；".join(out.rule_reasons)
 
 
 def test_strong_intraday_trend_gets_hold_vwap_feature():
@@ -200,7 +313,12 @@ def test_pending_strong_tail_signal_can_buy_when_gate_disabled():
         candidate,
         strong_df,
         style="hybrid",
-        config=TailBuyStrategyConfig(confirmed_only_buy=False),
+        config=TailBuyStrategyConfig(
+            confirmed_only_buy=False,
+            chase_day_ret_pct=30.0,
+            chase_high_ret_pct=30.0,
+            naked_support_extension_pct=30.0,
+        ),
     )
 
     assert out.rule_score >= 72.0
@@ -415,6 +533,42 @@ def test_merge_rule_and_llm_cannot_override_tail_hard_veto():
     assert merged[0].final_decision == DECISION_SKIP
     assert merged[0].llm_decision is None
     assert "冲高回落" in "；".join(merged[0].rule_reasons)
+
+
+def test_merge_rule_and_llm_cannot_override_soft_buy_gate():
+    item = TailBuyCandidate(
+        code="688620",
+        name="安凯微",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="evr",
+        signal_score=3.5,
+        rule_score=68.0,
+        rule_decision=DECISION_WATCH,
+        final_decision=DECISION_WATCH,
+        features={
+            "bars": 180,
+            "support_level": 13.9,
+            "day_ret_pct": 14.0,
+            "intraday_high_ret_pct": 15.0,
+        },
+    )
+
+    merged = merge_rule_and_llm(
+        [item],
+        {
+            "688620": {
+                "decision": DECISION_BUY,
+                "reason": "模型认为尾盘强",
+                "confidence": 0.8,
+            }
+        },
+    )
+
+    assert merged[0].llm_decision == DECISION_BUY
+    assert merged[0].final_decision == DECISION_WATCH
+    assert merged[0].priority_score <= 100.0
+    assert "日内涨幅过大" in merged[0].llm_reason
 
 
 def test_compute_tail_features_handles_volume_lot_unit_for_vwap():
@@ -644,7 +798,7 @@ def test_holding_tail_action_adds_clear_signal_even_if_losing(monkeypatch):
         def get_intraday_batch(self, chunk, *, period, count):
             assert period == "1m"
             assert count == 5000
-            df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.8, tail_volume_mult=2.0)
+            df = _make_intraday_df(start=10.0, end=10.6, tail_boost=0.2, tail_volume_mult=2.0)
             return {symbol: df for symbol in chunk}
 
     monkeypatch.setattr(

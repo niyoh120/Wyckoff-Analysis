@@ -15,6 +15,9 @@ export interface PatternReviewRow {
   signal_key?: string | null
   candidate_status?: string | null
   mainline_score?: number | null
+  source_type?: string | null
+  signal_status?: string | null
+  signal_type?: string | null
 }
 
 function isAiRecommended(value: PatternReviewRow['is_ai_recommended']): boolean {
@@ -40,6 +43,9 @@ function formatCount(value: number | null | undefined): number {
 }
 
 export function patternReviewRole(row: PatternReviewRow): string {
+  if (row.source_type === 'signal_pending') {
+    return row.signal_status === 'confirmed' ? '已确认信号' : '待确认信号'
+  }
   return isAiRecommended(row.is_ai_recommended) ? 'AI推荐' : '观察/信号复盘'
 }
 
@@ -62,16 +68,17 @@ function labelCandidateTerm(value: string): string {
 export function formatPatternReviewLine(row: PatternReviewRow): string {
   const code = String(row.code).padStart(6, '0')
   const pricePath = `${formatPrice(row.initial_price)}→${formatPrice(row.current_price)}`
-  const lane = [row.candidate_lane || row.signal_key, row.entry_type || row.candidate_status]
+  const lane = [row.candidate_lane || row.signal_key || row.signal_type, row.entry_type || row.candidate_status]
     .map(item => String(item || '').trim())
     .filter(Boolean)
     .map(labelCandidateTerm)
     .join('/')
   const mainline = typeof row.mainline_score === 'number' ? `主线${Math.round(row.mainline_score * 100)}` : ''
+  const dateLabel = row.source_type === 'signal_pending' ? '信号日' : '入选日'
   return [
     `${code} ${row.name}`,
     patternReviewRole(row),
-    `入选日${row.recommend_date}`,
+    `${dateLabel}${row.recommend_date}`,
     `入选${formatCount(row.recommend_count)}次`,
     lane || mainline ? `车道${[lane, mainline].filter(Boolean).join(' ')}` : '',
     `${pricePath} ${formatChange(row.change_pct)}`,

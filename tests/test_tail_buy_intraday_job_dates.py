@@ -96,3 +96,67 @@ def test_load_tail_candidates_strict_signal_date_uses_exact_query(monkeypatch):
     assert calls == [("2026-06-29", "2026-06-29")]
     assert [item.code for item in candidates] == ["000001"]
     assert "signal_pending_exact=1" in source
+
+
+def test_load_tail_candidates_adds_recommendation_review_supplement(monkeypatch):
+    monkeypatch.setattr(tail_buy_candidates, "is_admin_configured", lambda: True)
+    monkeypatch.setattr(tail_buy_candidates, "_load_holding_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        tail_buy_candidates,
+        "_fetch_signal_pending_rows",
+        lambda *_args, **_kwargs: [
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "signal_type": "sos",
+                "signal_score": 80,
+                "status": "confirmed",
+                "signal_date": "2026-06-29",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        tail_buy_candidates,
+        "_fetch_recommendation_review_rows",
+        lambda *_args, **_kwargs: [
+            {"code": "000001", "name": "平安银行", "recommend_date": 20260610, "change_pct": -35, "current_price": 10},
+            {"code": "000002", "name": "万科A", "recommend_date": 20260610, "change_pct": -32, "current_price": 8},
+            {"code": "000003", "name": "强势股", "recommend_date": 20260610, "change_pct": 45, "current_price": 20},
+            {"code": "000004", "name": "普通股", "recommend_date": 20260610, "change_pct": 5, "current_price": 10},
+        ],
+    )
+
+    candidates, source = tail_buy_candidates.load_tail_candidates(
+        "2026-06-29",
+        "USER_LIVE:test",
+        strict_signal_date=False,
+        include_holdings=False,
+    )
+
+    by_code = {item.code: item for item in candidates}
+    assert set(by_code) == {"000001", "000002", "000003"}
+    assert by_code["000002"].signal_type == "rec_deep_pullback"
+    assert by_code["000003"].signal_type == "rec_momentum_continuation"
+    assert by_code["000002"].snap["snap_support"] == 8.0
+    assert "rec_review=2" in source
+
+
+def test_strict_tail_candidates_skip_recommendation_review(monkeypatch):
+    monkeypatch.setattr(tail_buy_candidates, "is_admin_configured", lambda: True)
+    monkeypatch.setattr(tail_buy_candidates, "_load_holding_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(tail_buy_candidates, "_fetch_signal_pending_rows", lambda *_args, **_kwargs: [])
+
+    def forbidden_fetch(*_args, **_kwargs):
+        raise AssertionError("strict post-close branch should not load recommendation review")
+
+    monkeypatch.setattr(tail_buy_candidates, "_fetch_recommendation_review_rows", forbidden_fetch)
+    candidates, source = tail_buy_candidates.load_tail_candidates(
+        "2026-06-29",
+        "USER_LIVE:test",
+        strict_signal_date=True,
+        include_holdings=False,
+        lookback_days=0,
+    )
+
+    assert candidates == []
+    assert "rec_review" not in source
