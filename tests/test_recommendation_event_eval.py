@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from workflows.recommendation_event_eval import (
+    _build_summary,
+    _observation_feature_map,
+    _quality_feature_fields,
     _top_k_summary,
 )
 
@@ -27,6 +30,79 @@ def test_top_k_summary_ranks_ai_then_score_then_count() -> None:
     assert top2_ai["hit_count"] == 3
     assert top2_ai["hit_rate_pct"] == 75.0
     assert top2_ai["days_covered"] == 2
+
+
+def test_event_summary_groups_candidate_quality_grades() -> None:
+    events = [
+        {**_event(20260515, "A", ai=False, score=0.99, count=3, hit=True), "candidate_shadow_grade": "S"},
+        {**_event(20260515, "B", ai=False, score=0.80, count=1, hit=False), "candidate_shadow_grade": "D"},
+        {**_event(20260516, "C", ai=True, score=0.70, count=1, hit=True), "entry_quality_grade": "A"},
+        {**_event(20260516, "D", ai=False, score=0.50, count=2, hit=False), "entry_quality_grade": "C"},
+    ]
+
+    summary = _build_summary(events, (1, 3))
+
+    assert summary["candidate_shadow_grade"]["S"]["hit_rate_pct"] == 100.0
+    assert summary["candidate_shadow_grade"]["D"]["hit_rate_pct"] == 0.0
+    assert summary["candidate_shadow_grade"]["unknown"]["rows_total"] == 2
+    assert summary["entry_quality_grade"]["A"]["hit_rate_pct"] == 100.0
+    assert summary["entry_quality_grade"]["C"]["hit_rate_pct"] == 0.0
+
+
+def test_quality_feature_fields_merge_observation_and_row_features() -> None:
+    observed = {
+        "candidate_shadow_score": {"score": 88.456, "grade": "S"},
+        "entry_quality": {"score": 76, "grade": "A", "risk_flags": ["缩量不足"]},
+    }
+    row = {
+        "features_json": (
+            '{"candidate_shadow_score":{"score":42,"grade":"D"},'
+            '"entry_quality":{"score":"nan","grade":"Z","risk_flags":"追高延展"}}'
+        )
+    }
+
+    fields = _quality_feature_fields(row, observed)
+
+    assert fields["candidate_shadow_score"] == 42.0
+    assert fields["candidate_shadow_grade"] == "D"
+    assert fields["entry_quality_score"] is None
+    assert fields["entry_quality_grade"] == "unknown"
+    assert fields["entry_quality_risk_flags"] == ["追高延展"]
+
+
+def test_observation_feature_map_merges_same_day_features() -> None:
+    rows = [
+        {
+            "trade_date": "2026-05-15",
+            "code": 1,
+            "features_json": '{"candidate_shadow_score":{"score":82,"grade":"S"}}',
+        },
+        {
+            "trade_date": "20260515",
+            "code": "000001",
+            "features_json": {"entry_quality": {"score": 72, "grade": "A"}},
+        },
+    ]
+
+    features = _observation_feature_map(rows)[("000001", "20260515")]
+
+    assert features["candidate_shadow_score"]["grade"] == "S"
+    assert features["entry_quality"]["score"] == 72
+
+
+def test_observation_feature_map_keeps_cross_market_code_shape() -> None:
+    rows = [
+        {
+            "trade_date": "2026-05-15",
+            "code": "00700",
+            "features_json": '{"candidate_shadow_score":{"score":82,"grade":"S"}}',
+        }
+    ]
+
+    features = _observation_feature_map(rows, market="hk")
+
+    assert ("00700", "20260515") in features
+    assert ("000700", "20260515") not in features
 
 
 def _event(
