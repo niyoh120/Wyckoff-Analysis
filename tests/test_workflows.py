@@ -501,6 +501,49 @@ def test_planner_normalizes_tool_suffixes_from_model_script():
     assert run.steps[0].tool_scope == ("portfolio",)
 
 
+def test_planner_accepts_string_task_lists_from_model_script():
+    context = route_workflow("用 workflow 做持仓复盘")
+    run = plan_workflow(
+        "做持仓复盘",
+        context=context,
+        workflow_script={"tasks": ["读取真实持仓", "诊断持仓风险"]},
+    )
+
+    assert [step.step_id for step in run.steps] == ["1", "2"]
+    assert [step.title for step in run.steps] == ["读取真实持仓", "诊断持仓风险"]
+    assert [step.prompt for step in run.steps] == ["读取真实持仓", "诊断持仓风险"]
+    assert all(step.dynamic for step in run.steps)
+
+
+def test_planner_accepts_keyed_string_task_maps_from_model_script():
+    context = route_workflow("用 workflow 做持仓复盘")
+    run = plan_workflow(
+        "做持仓复盘",
+        context=context,
+        workflow_script={"tasks": {"facts": "读取真实持仓", "risk": "诊断持仓风险"}},
+    )
+
+    assert [step.step_id for step in run.steps] == ["facts", "risk"]
+    assert [step.title for step in run.steps] == ["读取真实持仓", "诊断持仓风险"]
+
+
+def test_planner_parses_outline_text_when_model_skips_json():
+    provider = ScriptedProvider(
+        [
+            [
+                {"type": "text_delta", "text": "1. 读取真实持仓\n"},
+                {"type": "text_delta", "text": "2. 诊断持仓风险\n"},
+                {"type": "text_delta", "text": "3. 形成攻防动作"},
+            ]
+        ]
+    )
+    context = route_workflow("用 workflow 做持仓复盘")
+    run = plan_workflow("做持仓复盘", context=context, provider=provider, tools=StubToolRegistry())
+
+    assert [step.title for step in run.steps] == ["读取真实持仓", "诊断持仓风险", "形成攻防动作"]
+    assert run.script["rationale"] == "planner returned outline text"
+
+
 def test_tool_descriptions_do_not_use_user_phrase_triggers():
     descriptions = "\n".join(str(schema.get("description") or "") for schema in TOOL_SCHEMAS)
 

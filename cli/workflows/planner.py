@@ -236,9 +236,23 @@ def _loads_script(text: str) -> Any:
         return json.loads(raw)
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-        if not match:
-            raise
-        return json.loads(match.group(0))
+        if match:
+            return json.loads(match.group(0))
+        if script := _outline_script(raw):
+            return script
+        raise
+
+
+def _outline_script(text: str) -> dict[str, Any] | None:
+    tasks = _text_task_items(text)
+    if not tasks:
+        return None
+    return {
+        "title": "动态任务",
+        "rationale": "planner returned outline text",
+        "phases": [{"id": "outline", "title": "任务清单", "tasks": tasks}],
+        "synthesis_prompt": "基于任务结果给出简洁中文答复。",
+    }
 
 
 def _strip_json_fence(text: str) -> str:
@@ -332,7 +346,7 @@ def _phase_tasks(phase: dict[str, Any], context: WorkflowContext) -> list[dict[s
 
 def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
     for field in TASK_LIST_FIELDS:
-        items = _safe_list(payload.get(field))
+        items = _safe_task_list(payload.get(field))
         if items:
             return items
     return []
@@ -428,6 +442,53 @@ def _safe_list(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, dict):
         return [_keyed_payload(key, item) for key, item in value.items() if isinstance(item, dict)]
     return []
+
+
+def _safe_task_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, str):
+        return _text_task_items(value)
+    if isinstance(value, list):
+        return [payload for index, item in enumerate(value, 1) if (payload := _task_payload(item, index))]
+    if isinstance(value, dict):
+        return [payload for key, item in value.items() if (payload := _keyed_task_payload(key, item))]
+    return []
+
+
+def _text_task_items(text: str) -> list[dict[str, Any]]:
+    lines = [_strip_list_marker(line) for line in str(text or "").splitlines()]
+    items = [line for line in lines if line]
+    if not items and text.strip():
+        items = [text.strip()]
+    return [_string_task_payload(item, index) for index, item in enumerate(items, 1)]
+
+
+def _task_payload(item: Any, index: int) -> dict[str, Any]:
+    if isinstance(item, dict):
+        return item
+    if isinstance(item, str):
+        return _string_task_payload(item, index)
+    return {}
+
+
+def _keyed_task_payload(key: Any, item: Any) -> dict[str, Any]:
+    if isinstance(item, dict):
+        return _keyed_payload(key, item)
+    key_text = str(key or "").strip()
+    if isinstance(item, str):
+        payload = _string_task_payload(item, key_text or 1)
+        if key_text:
+            payload["id"] = key_text
+        return payload
+    return {}
+
+
+def _string_task_payload(text: str, key: Any) -> dict[str, Any]:
+    title = _strip_list_marker(text)
+    return {"id": str(key), "title": title, "prompt": title} if title else {}
+
+
+def _strip_list_marker(text: str) -> str:
+    return re.sub(r"^\s*(?:[-*•]|\d+[.)、]|[一二三四五六七八九十]+[、.])\s*", "", text).strip()
 
 
 def _keyed_payload(key: Any, item: dict[str, Any]) -> dict[str, Any]:
