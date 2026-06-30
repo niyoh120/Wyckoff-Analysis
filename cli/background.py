@@ -19,6 +19,7 @@ class BackgroundTask:
     status: str = "pending"  # pending → running → completed | failed
     result: Any = None
     error: str = ""
+    result_summary: str = ""
     submitted_at: float = field(default_factory=time.monotonic)
     completed_at: float | None = None
     # progress fields
@@ -97,15 +98,30 @@ class BackgroundTaskManager:
         if task is None:
             return None
         elapsed = (task.completed_at or time.monotonic()) - task.submitted_at
-        return {
+        payload = {
             "task_id": task.id,
             "tool_name": task.tool_name,
             "status": task.status,
             "elapsed": f"{elapsed:.0f}s",
             "error": task.error or None,
         }
+        if task.status == "completed":
+            payload["result_summary"] = _background_result_summary(task)
+        return payload
 
     def list_tasks(self) -> list[dict[str, Any]]:
         with self._lock:
             tasks = list(self._tasks.values())
-        return [self.get_status(t.id) for t in tasks if self.get_status(t.id)]
+        statuses = [self.get_status(t.id) for t in tasks]
+        return [status for status in statuses if status]
+
+
+def _background_result_summary(task: BackgroundTask) -> str:
+    if task.result_summary:
+        return task.result_summary
+    if task.result is None:
+        return ""
+    from cli.tool_results import format_tool_result_for_context
+
+    task.result_summary = format_tool_result_for_context(task.tool_name, task.id, task.result, max_chars=3000)
+    return task.result_summary

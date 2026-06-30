@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import time
+
+from cli.background import BackgroundTask, BackgroundTaskManager
+from cli.sub_agent_prompts import RESEARCH_AGENT_PROMPT, WORKFLOW_TASK_AGENT_PROMPT
 from cli.tools import (
     BACKGROUND_TOOLS,
     CONCURRENCY_SAFE_TOOLS,
@@ -74,3 +78,49 @@ def test_ask_user_question_uses_question_callback():
         "allow_free_text": False,
         "default_answer": "近半年",
     }
+
+
+def test_check_background_tasks_schema_mentions_completed_result_summary():
+    schema = next(item for item in TOOL_SCHEMAS if item["name"] == "check_background_tasks")
+
+    assert "completed 任务会带 result_summary" in schema["description"]
+
+
+def test_background_status_includes_completed_result_summary(tmp_path, monkeypatch):
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    manager = BackgroundTaskManager()
+    result = {
+        "ok": True,
+        "selection_brief": {
+            "status": "ready_for_ai_review",
+            "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+            "best_codes": ["300750"],
+        },
+        "trigger_groups": {"huge": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(80)]},
+    }
+    manager._tasks["bg_screen"] = BackgroundTask(
+        id="bg_screen",
+        tool_name="screen_stocks",
+        status="completed",
+        result=result,
+        submitted_at=time.monotonic(),
+        completed_at=time.monotonic(),
+    )
+
+    status = manager.get_status("bg_screen")
+
+    assert status is not None
+    assert status["status"] == "completed"
+    assert "result_ref:" in status["result_summary"]
+    assert "本轮首选可进入 AI 研报复核: 300750 宁德时代" in status["result_summary"]
+    assert '"trigger_groups"' not in status["result_summary"]
+    assert len(list((tmp_path / "tool-results").glob("*.json"))) == 1
+
+    manager.get_status("bg_screen")
+
+    assert len(list((tmp_path / "tool-results").glob("*.json"))) == 1
+
+
+def test_sub_agent_prompts_require_background_result_when_needed():
+    assert "check_background_tasks 读取 completed 任务的 result_summary" in WORKFLOW_TASK_AGENT_PROMPT
+    assert "候选、结论或决策" in RESEARCH_AGENT_PROMPT

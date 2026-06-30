@@ -211,7 +211,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "check_background_tasks",
-        "description": "查询后台任务执行状态，用于跟踪扫描、回测、研报等异步任务的进度和结果。",
+        "description": "查询后台任务执行状态。completed 任务会带 result_summary，用于继续读取扫描、研报、回测等异步结果摘要。",
         "parameters": {
             "type": "object",
             "properties": {},
