@@ -21,6 +21,7 @@ from core.recommendation_payload import (
     springboard_ai_payload,
 )
 from core.signal_confirmation import run_confirmation_cycle
+from integrations.recommendation_payload import upsert_recommendation_payload_rows
 from integrations.recommendation_performance import refresh_tracking_performance
 from integrations.recommendation_tracking_common import chunked, fetch_records_from_table
 from integrations.supabase_base import (
@@ -351,10 +352,8 @@ def _fetch_target_rows(client, target_dates: tuple[date, ...]) -> list[dict[str,
 def _replace_target_dates(client, payloads: dict[int, list[dict]], old_rows: list[dict[str, Any]]) -> dict[str, Any]:
     upserted = 0
     for rows in payloads.values():
-        for batch in chunked(rows, 500):
-            if batch:
-                client.table(TABLE_RECOMMENDATION_TRACKING).upsert(batch, on_conflict="code,recommend_date").execute()
-                upserted += len(batch)
+        upsert_recommendation_payload_rows(client, rows)
+        upserted += len(rows)
     stale_ids = _stale_old_row_ids(payloads, old_rows)
     for batch in chunked(stale_ids, 500):
         client.table(TABLE_RECOMMENDATION_TRACKING).delete().in_("id", batch).execute()

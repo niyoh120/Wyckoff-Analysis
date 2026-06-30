@@ -57,6 +57,16 @@ def test_backfill_apply_replaces_only_stale_rows_for_target_dates(monkeypatch) -
     assert client.deletes == [{"key": "id", "values": ["stale"], "filters": {}}]
 
 
+def test_backfill_recommendation_upsert_drops_missing_optional_columns() -> None:
+    client = _FakeClient(fail_optional_schema=True)
+    row = {**_payload_row(1, 20260601), "capital_migration_bonus": 0.3}
+
+    summary = workflow._replace_target_dates(client, {20260601: [row]}, [])
+
+    assert summary["rows_upserted"] == 1
+    assert client.upserts == [[_payload_row(1, 20260601)]]
+
+
 def test_backfill_writes_artifacts_before_empty_date_failure(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(workflow, "_build_day_result", lambda day, skip_step3: _day_result(day))
     monkeypatch.setattr(workflow, "_build_payloads", lambda _dates, _results: {20260601: []})
@@ -147,7 +157,9 @@ def _payload_row(code: int, rec_date: int) -> dict:
 
 
 class _FakeClient:
-    def __init__(self) -> None:
+    def __init__(self, *, fail_optional_schema: bool = False) -> None:
+        self.fail_optional_schema = fail_optional_schema
+        self.failed_optional_schema = False
         self.upserts: list[list[dict]] = []
         self.inserts: list[list[dict]] = []
         self.deletes: list[dict] = []
@@ -188,6 +200,13 @@ class _FakeQuery:
 
     def execute(self):
         if self.kind == "upsert":
+            if (
+                self.client.fail_optional_schema
+                and not self.client.failed_optional_schema
+                and any("capital_migration_bonus" in row for row in self.payload)
+            ):
+                self.client.failed_optional_schema = True
+                raise Exception("Could not find the 'capital_migration_bonus' column")
             self.client.upserts.append(self.payload)
             return SimpleNamespace(data=self.payload)
         if self.kind == "insert":

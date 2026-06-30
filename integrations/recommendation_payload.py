@@ -49,7 +49,7 @@ def _load_existing_recommendation_history(client) -> tuple[dict[int, int], dict[
     return existing_counts, existing_code_dates
 
 
-def _upsert_recommendation_payload(client, payload: list[dict[str, Any]]) -> None:
+def upsert_recommendation_payload_rows(client, payload: list[dict[str, Any]]) -> None:
     if not payload:
         return
     try:
@@ -88,7 +88,7 @@ def upsert_recommendation_payload(payload: list[dict[str, Any]]) -> bool:
     require_server_write_context("upsert recommendation_tracking")
     try:
         client = _get_supabase_admin_client()
-        _upsert_recommendation_payload(client, payload)
+        upsert_recommendation_payload_rows(client, payload)
         return True
     except Exception as e:
         logger.warning("upsert_recommendation_payload failed: %s", e)

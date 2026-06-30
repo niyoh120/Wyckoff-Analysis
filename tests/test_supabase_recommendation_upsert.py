@@ -5,15 +5,24 @@ from types import SimpleNamespace
 
 from integrations.recommendation_payload import (
     mark_ai_recommendations,
+    upsert_recommendation_payload_rows,
     upsert_recommendations,
     write_recommendation_backup_artifact,
 )
 
 
 class FakeSupabaseClient:
-    def __init__(self, rows: list[dict] | None = None, *, fail_select: bool = False) -> None:
+    def __init__(
+        self,
+        rows: list[dict] | None = None,
+        *,
+        fail_select: bool = False,
+        fail_optional_schema: bool = False,
+    ) -> None:
         self.rows = rows or []
         self.fail_select = fail_select
+        self.fail_optional_schema = fail_optional_schema
+        self.failed_optional_schema = False
         self.upserts: list[list[dict]] = []
         self.updates: list[dict] = []
 
@@ -66,6 +75,13 @@ class FakeSupabaseQuery:
             record = {"payload": self.payload, "eq": self.filters_eq, "in": self.filters_in}
             self.client.updates.append(record)
             return SimpleNamespace(data=[record])
+        if (
+            self.client.fail_optional_schema
+            and not self.client.failed_optional_schema
+            and any("capital_migration_bonus" in row for row in self.payload)
+        ):
+            self.client.failed_optional_schema = True
+            raise Exception("Could not find the 'capital_migration_bonus' column")
         self.client.upserts.append(self.payload)
         return SimpleNamespace(data=self.payload)
 
@@ -256,6 +272,21 @@ def test_upsert_recommendations_writes_large_payload_in_chunks(monkeypatch):
 
     assert ok is True
     assert [len(chunk) for chunk in client.upserts] == [500, 500, 201]
+
+
+def test_upsert_payload_rows_drops_missing_optional_columns():
+    client = FakeSupabaseClient(fail_optional_schema=True)
+    row = {
+        "code": 1,
+        "recommend_date": 20260601,
+        "name": "Stock1",
+        "initial_price": 10.0,
+        "capital_migration_bonus": 0.3,
+    }
+
+    upsert_recommendation_payload_rows(client, [row])
+
+    assert client.upserts == [[{"code": 1, "recommend_date": 20260601, "name": "Stock1", "initial_price": 10.0}]]
 
 
 def test_write_recommendation_backup_artifact_marks_ai_and_sql(tmp_path):
