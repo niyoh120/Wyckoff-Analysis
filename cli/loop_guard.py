@@ -163,6 +163,40 @@ _STOCK_SCREEN_REVIEW_HINTS = (
     "推荐记录",
 )
 
+_AI_REPORT_HINTS = (
+    "研报",
+    "报告",
+    "复核",
+    "审讯",
+)
+
+_AI_REPORT_ACTION_HINTS = (
+    "继续",
+    "下一步",
+    "往下",
+    "生成",
+    "开始",
+    "做吧",
+    "跑吧",
+)
+
+_AI_REPORT_AFFIRMATIVE_PHRASES = (
+    "好",
+    "好的",
+    "可以",
+)
+
+_AI_REPORT_CONTEXT_MARKERS = (
+    "generate_ai_report",
+    "tool_handoff",
+    "ready_for_ai_review",
+    "可进入 ai 研报复核",
+    "首选候选已通过市场闸门",
+    "selection_brief",
+    "review_targets",
+    "symbols_for_report",
+)
+
 _EXPLANATION_ONLY_HINTS = (
     "是什么",
     "什么意思",
@@ -208,6 +242,7 @@ _TOOL_CN_NAMES = {
     "portfolio": "持仓数据",
     "analyze_stock": "个股分析",
     "screen_stocks": "全市场扫描",
+    "generate_ai_report": "AI 研报",
 }
 
 _CURRENT_USER_OPEN = "<current-user-message>"
@@ -267,6 +302,8 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
     if not last_user:
         return None
 
+    previous_context = _recent_context_text(messages[:-1], limit=4)
+
     if _portfolio_diagnose_expected(last_user):
         return TurnExpectation(
             required_tool="portfolio",
@@ -288,7 +325,12 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
             suggested_args={"board": _screen_board_hint(last_user)},
         )
 
-    previous_context = _recent_context_text(messages[:-1], limit=4)
+    if _ai_report_expected(last_user, previous_context):
+        return TurnExpectation(
+            required_tool="generate_ai_report",
+            reason="上一轮已有筛股候选，这一轮需要先生成真实 AI 研报。",
+        )
+
     if (
         any(hint in last_user for hint in _PORTFOLIO_FOLLOWUP_DIAGNOSE_HINTS)
         or (
@@ -352,6 +394,18 @@ def _stock_screen_expected(text: str) -> bool:
         return True
     return any(hint in text for hint in _STOCK_SCREEN_CONTEXT_HINTS) and any(
         hint in text for hint in _STOCK_SCREEN_INTENT_HINTS
+    )
+
+
+def _ai_report_expected(text: str, previous_context: str) -> bool:
+    if _explanation_only_question(text):
+        return False
+    if not any(marker in previous_context for marker in _AI_REPORT_CONTEXT_MARKERS):
+        return False
+    return (
+        any(hint in text for hint in _AI_REPORT_HINTS)
+        or any(hint in text for hint in _AI_REPORT_ACTION_HINTS)
+        or text in _AI_REPORT_AFFIRMATIVE_PHRASES
     )
 
 

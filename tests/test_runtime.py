@@ -184,6 +184,45 @@ def test_runtime_retries_when_stock_screening_request_skips_tool():
     assert events[-1]["text"] == "创业板候选已筛出。"
 
 
+def test_runtime_retries_when_ai_report_followup_skips_tool():
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "我先整理研报计划。"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_report", "name": "generate_ai_report", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "研报完成。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "generate_ai_report", "description": "r", "parameters": {"type": "object", "properties": {}}},
+        ],
+        tool_results={"generate_ai_report": {"reviewed_codes": ["300750"]}},
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": (
+                "筛选完成。selection_brief status=ready_for_ai_review "
+                "tool_handoff=generate_ai_report symbols_for_report=300750"
+            ),
+        },
+        {"role": "user", "content": "继续生成研报"},
+    ]
+
+    events = list(AgentRuntime(provider, tools).run_stream(messages))
+
+    retries = [e for e in events if e["type"] == "retry"]
+    assert len(retries) == 1
+    assert retries[0]["required_tool"] == "generate_ai_report"
+    assert events[-1]["text"] == "研报完成。"
+
+
 def test_runtime_does_not_retry_stock_screening_explanation_question():
     provider = ScriptedProvider([[{"type": "text_delta", "text": "这套选股逻辑先看阶段、量价和市场门控。"}]])
     tools = StubToolRegistry(tool_results={"screen_stocks": {"symbols_for_report": ["300750"]}})
@@ -199,6 +238,42 @@ def test_runtime_does_not_retry_stock_screening_explanation_question():
 def test_turn_expectation_does_not_force_tool_for_concept_questions():
     assert resolve_turn_expectation([{"role": "user", "content": "选股规则是什么"}]) is None
     assert resolve_turn_expectation([{"role": "user", "content": "持仓管理是什么"}]) is None
+
+
+def test_turn_expectation_requires_ai_report_after_screen_handoff():
+    expectation = resolve_turn_expectation(
+        [
+            {
+                "role": "assistant",
+                "content": (
+                    "筛选完成。selection_brief status=ready_for_ai_review "
+                    "tool_handoff=generate_ai_report symbols_for_report=300750"
+                ),
+            },
+            {"role": "user", "content": "继续生成研报"},
+        ]
+    )
+
+    assert expectation is not None
+    assert expectation.required_tool == "generate_ai_report"
+    assert expectation.suggested_args == {}
+
+
+def test_turn_expectation_does_not_force_ai_report_for_concept_question():
+    expectation = resolve_turn_expectation(
+        [
+            {
+                "role": "assistant",
+                "content": (
+                    "筛选完成。selection_brief status=ready_for_ai_review "
+                    "tool_handoff=generate_ai_report symbols_for_report=300750"
+                ),
+            },
+            {"role": "user", "content": "研报是什么"},
+        ]
+    )
+
+    assert expectation is None
 
 
 def test_turn_expectation_still_forces_tool_for_concrete_concept_wording():
