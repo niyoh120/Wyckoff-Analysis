@@ -374,6 +374,7 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
     }
 
     content = format_tool_result_for_context("generate_ai_report", "call_report", result, max_chars=1000)
+    lines = tool_result_brief_lines("generate_ai_report", result, max_lines=3)
 
     assert "result_ref:" in content
     assert '"reviewed_codes": ["000001", "300750"]' in content
@@ -382,6 +383,11 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
     assert '"tool": "generate_strategy_decision"' in content
     assert '"report_excerpt": "# 研报' in content
     assert report_text not in content
+    assert lines == [
+        "AI研报: reviewed=2, model=gpt-test, next=研报已完成，可结合持仓和候选进入组合攻防决策",
+        "000001 平安银行",
+        "300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭",
+    ]
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1
     assert json.loads(stored[0].read_text(encoding="utf-8"))["report_text"] == report_text
@@ -416,6 +422,7 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
     }
 
     content = format_tool_result_for_context("generate_strategy_decision", "call_strategy", result, max_chars=1000)
+    lines = tool_result_brief_lines("generate_strategy_decision", result, max_lines=3)
 
     assert "result_ref:" in content
     assert '"report_source": "last_ai_report"' in content
@@ -424,3 +431,7 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
     assert '"action_status": "blocked_by_market_gate"' in content
     assert "补充 Telegram 配置后可生成并发送 OMS 工单" in content
     assert result["report_preview"] not in content
+    assert lines == [
+        "攻防决策: status=skipped_notify_unconfigured, source=last_ai_report, reviewed=1, next=补充 Telegram 配置后可生成并发送 OMS 工单",
+        "300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭",
+    ]

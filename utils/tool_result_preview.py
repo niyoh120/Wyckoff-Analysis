@@ -42,6 +42,10 @@ def tool_result_brief_lines(tool_name: str, result: Any, *, max_lines: int = 3) 
         return _recommendation_event_eval_brief_lines(result, max_lines=max_lines)
     if tool_name == "screen_stocks":
         return _screen_stocks_brief_lines(result, max_lines=max_lines)
+    if tool_name == "generate_ai_report":
+        return _ai_report_brief_lines(result, max_lines=max_lines)
+    if tool_name == "generate_strategy_decision":
+        return _strategy_decision_brief_lines(result, max_lines=max_lines)
     return []
 
 
@@ -311,6 +315,62 @@ def _ai_report_preview(result: dict[str, Any]) -> str:
         }
     )
     return serialize_tool_result(payload) if payload else ""
+
+
+def _ai_report_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    lines = [_tool_stage_line("AI研报", result, _reviewed_count(result))]
+    lines.extend(_reviewed_symbol_lines(result, max_lines=max_lines))
+    return [line for line in lines if line][:max_lines]
+
+
+def _strategy_decision_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    lines = [_strategy_stage_line(result)]
+    lines.extend(_reviewed_symbol_lines(result, max_lines=max_lines))
+    return [line for line in lines if line][:max_lines]
+
+
+def _strategy_stage_line(result: dict[str, Any]) -> str:
+    parts = [
+        _key_value("status", result.get("status") or result.get("reason")),
+        _key_value("source", result.get("report_source")),
+        _key_value("reviewed", _reviewed_count(result)),
+        _key_value("next", result.get("next_action") or result.get("message")),
+    ]
+    detail = ", ".join(part for part in parts if part)
+    return f"攻防决策: {detail}" if detail else ""
+
+
+def _tool_stage_line(label: str, result: dict[str, Any], reviewed: int) -> str:
+    parts = [
+        _key_value("reviewed", reviewed),
+        _key_value("model", result.get("model")),
+        _key_value("next", result.get("next_action") or result.get("reason")),
+    ]
+    detail = ", ".join(part for part in parts if part)
+    return f"{label}: {detail}" if detail else ""
+
+
+def _key_value(key: str, value: Any) -> str:
+    if value in (None, "", [], {}):
+        return ""
+    return f"{key}={_text_excerpt(value, 120)}"
+
+
+def _reviewed_count(result: dict[str, Any]) -> int:
+    try:
+        count = int(result.get("stock_count") or result.get("candidate_count") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if count:
+        return count
+    return max(
+        len(_preview_list(result.get("reviewed_codes"), 20)), len(_preview_list(result.get("reviewed_symbols"), 20))
+    )
+
+
+def _reviewed_symbol_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    rows = _dedupe_candidate_rows(_preview_list(result.get("reviewed_symbols"), max_lines))
+    return [line for row in rows if (line := _candidate_brief_line(row))]
 
 
 def _screen_stocks_preview(result: dict[str, Any]) -> str:

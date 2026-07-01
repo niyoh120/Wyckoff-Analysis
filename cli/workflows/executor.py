@@ -574,7 +574,18 @@ def _compact_strategy_handoff(value: Any) -> dict[str, Any]:
         return {}
     payload = _pick_fields(
         value,
-        ("ok", "status", "reason", "reviewed_codes", "screen_summary", "decision_brief", "next_action", "message"),
+        (
+            "ok",
+            "status",
+            "reason",
+            "report_source",
+            "candidate_count",
+            "reviewed_codes",
+            "screen_summary",
+            "decision_brief",
+            "next_action",
+            "message",
+        ),
     )
     payload["reviewed_symbols"] = _candidate_rows(value.get("reviewed_symbols"), 8)
     return _drop_empty(payload)
@@ -702,7 +713,7 @@ def _fallback_summary(results: list[dict[str, Any]]) -> str:
         content = result.get("result") or result.get("error") or "无结果"
         lines.append(f"- {title} [{status}]: {str(content)[:500]}")
         for line in _fallback_handoff_lines(result.get("handoff_state")):
-            lines.append(f"  候选: {line}")
+            lines.append(f"  证据: {line}")
     return "\n".join(lines)
 
 
@@ -716,4 +727,10 @@ def _fallback_handoff_lines(handoff: Any) -> list[str]:
     recommendation = handoff.get("last_recommendation_event_eval")
     if isinstance(recommendation, dict):
         lines.extend(tool_result_brief_lines("evaluate_recommendation_events", recommendation, max_lines=3))
-    return list(dict.fromkeys(line for line in lines if line))[:6]
+    report = handoff.get("last_ai_report")
+    if isinstance(report, dict):
+        lines.extend(tool_result_brief_lines("generate_ai_report", report, max_lines=3))
+    decision = handoff.get("last_strategy_decision")
+    if isinstance(decision, dict):
+        lines.extend(tool_result_brief_lines("generate_strategy_decision", decision, max_lines=3))
+    return list(dict.fromkeys(line for line in lines if line))[:8]
