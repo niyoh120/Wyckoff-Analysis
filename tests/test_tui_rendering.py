@@ -128,14 +128,41 @@ def test_display_workflow_plan_event_keeps_pending_plan_compact():
 
     assert run_id == "wf_1"
     assert workflow_name == "backtest"
+    rendered = "\n".join(str(item) for item in writes)
     assert "策略回测" in str(writes[0])
     assert "1 个动态任务" in str(writes[0])
-    assert "/workflow show wf_1" in str(writes[1])
-    assert "检测到策略回测意图" not in str(writes[1])
-    assert "待执行" not in str(writes[1])
-    assert "工具：run_backtest" not in str(writes[1])
-    assert "research" not in str(writes[1])
+    assert "识别原因：检测到策略回测意图" in rendered
+    assert "命中：回测" in rendered
+    assert "置信度：90%" in rendered
+    assert "/workflow show wf_1" in rendered
+    assert "待执行" not in rendered
+    assert "工具：run_backtest" not in rendered
+    assert "research" not in rendered
     assert scrolled == [True]
+
+
+def test_display_workflow_plan_event_uses_plan_route_for_saved_events():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_saved",
+            "workflow": "dynamic_task",
+            "label": "保存脚本",
+            "plan": {
+                "route": {"reason": "复用已保存 workflow script", "matches": ["saved"], "confidence": 0.75},
+                "script": {"runtime": {"planner": "stored_script"}},
+                "steps": [{"title": "读取持仓", "rationale": "复用保存脚本"}],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "识别原因：复用已保存 workflow script" in rendered
+    assert "命中：saved" in rendered
+    assert "脚本来源：已保存脚本" in rendered
 
 
 def test_display_workflow_plan_event_surfaces_trimmed_model_plan():

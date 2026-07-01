@@ -407,6 +407,8 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
             f"  [bold cyan]workflow[/bold cyan] [bold]{escape(label)}[/bold] [dim]{escape(run_id)}{count_text}[/dim]"
         )
     )
+    if route_line := _workflow_event_route_line(event):
+        write(route_line)
     script_title = str(event.get("plan", {}).get("script", {}).get("title", "") or "")
     if script_title and script_title != label:
         write(Text.from_markup(f"    [dim]动态脚本：{escape(script_title)}[/dim]"))
@@ -422,6 +424,14 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
         )
     scroll()
     return run_id, workflow_name
+
+
+def _workflow_event_route_line(event: dict[str, Any]) -> Text | None:
+    route = event.get("route")
+    if not isinstance(route, dict):
+        plan = event.get("plan") if isinstance(event.get("plan"), dict) else {}
+        route = plan.get("route") if isinstance(plan.get("route"), dict) else {}
+    return _workflow_route_line(route)
 
 
 def _workflow_task_count_text(plan: Any, step_count: int) -> str:
