@@ -6,9 +6,9 @@ import logging
 import re
 from typing import Any
 
-from agents.candidate_guards import candidate_guard_summary
 from agents.stock_data_helpers import code_to_name
 from agents.tool_context import ToolContext, ensure_tushare_token, resolve_llm_config
+from core.candidate_guards import candidate_guard_summary
 
 logger = logging.getLogger(__name__)
 

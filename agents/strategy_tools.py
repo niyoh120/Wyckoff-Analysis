@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agents.candidate_guards import candidate_guard_summary
 from agents.report_tools import (
     reviewed_symbols_from_info,
     run_ai_report,
@@ -14,6 +13,7 @@ from agents.report_tools import (
 )
 from agents.screen_tools import screen_stocks
 from agents.tool_context import ToolContext, ensure_tushare_token, get_credential, get_user_id, resolve_llm_config
+from core.candidate_guards import candidate_guard_summary
 
 logger = logging.getLogger(__name__)
 

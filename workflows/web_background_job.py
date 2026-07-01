@@ -6,15 +6,16 @@ import math
 import os
 import sys
 import traceback
-
-logger = logging.getLogger(__name__)
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from core.candidate_guards import policy_candidate_guard_summary
 from core.candidate_policy import candidate_score_value
 from tools.funnel_public import public_funnel_metrics
 from workflows.recommendation_event_eval_summary import recommendation_event_eval_result_summary
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize(obj: Any) -> Any:
@@ -259,7 +260,7 @@ def _run_recommendation_event_eval(request_id: str, payload: dict[str, Any]) -> 
         top_k=_payload_top_k(payload.get("top_k")),
     )
     result = build_recommendation_event_eval(request)
-    return {
+    output = {
         "request_id": request_id,
         "job_kind": "recommendation_event_eval",
         "ok": True,
@@ -269,6 +270,9 @@ def _run_recommendation_event_eval(request_id: str, payload: dict[str, Any]) -> 
         "policy_selection": result["policy_selection"],
         "daily": result["daily"],
     }
+    if guard_summary := policy_candidate_guard_summary(result.get("policy_selection"), result):
+        output["candidate_guard_summary"] = guard_summary
+    return output
 
 
 def _payload_str(payload: dict[str, Any], key: str, default: str) -> str:

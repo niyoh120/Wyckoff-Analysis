@@ -1,4 +1,4 @@
-"""Shared candidate guard summaries for agent handoffs."""
+"""Shared candidate guard summaries for selection handoffs."""
 
 from __future__ import annotations
 
@@ -24,6 +24,17 @@ def candidate_guard_summary(candidate_meta: list[dict]) -> dict[str, Any]:
         "message": "以下候选仅可复核或观察，禁止直接买入",
         "candidates": blocked[:5],
     }
+
+
+def policy_candidate_guard_summary(selection: Any, result: dict[str, Any] | None = None) -> dict[str, Any]:
+    if isinstance(result, dict) and isinstance(result.get("candidate_guard_summary"), dict):
+        return result["candidate_guard_summary"]
+    if not isinstance(selection, dict):
+        return {}
+    picks = selection.get("picks")
+    if not isinstance(picks, list):
+        return {}
+    return candidate_guard_summary([row for row in picks if isinstance(row, dict)])
 
 
 def candidate_guard_item(row: dict[str, Any]) -> dict[str, Any]:

@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agents.candidate_guards import candidate_guard_summary
 from agents.tool_context import ToolContext, ensure_tushare_token
+from core.candidate_guards import candidate_guard_summary
 from core.candidate_metadata import build_candidate_metadata_map, code6
 from core.candidate_policy import candidate_score_value
 from core.candidate_ranker import TRIGGER_SHORT_LABELS

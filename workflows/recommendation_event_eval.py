@@ -13,6 +13,7 @@ from typing import Any
 
 import pandas as pd
 
+from core.candidate_guards import policy_candidate_guard_summary
 from core.constants import TABLE_SIGNAL_OBSERVATIONS
 from core.recommendation_event_metrics import build_horizon_event, summarize_horizon_events
 from integrations.recommendation_performance import (
@@ -88,13 +89,17 @@ def build_recommendation_event_eval(request: RecommendationEventEvalRequest) -> 
     hist_by_code = _fetch_hist_by_code(api_key, sorted(grouped), market, request.kline_count)
     events = _build_events(grouped, hist_by_code, request, feature_map)
     summary = _build_summary(events, request.top_k)
-    return {
+    policy_selection = _policy_selection(events, summary.get("ranking_decision") or {})
+    result = {
         "metadata": _metadata(request, market, records, grouped),
         "summary": summary,
         "daily": _daily_summary(events),
-        "policy_selection": _policy_selection(events, summary.get("ranking_decision") or {}),
+        "policy_selection": policy_selection,
         "events": events,
     }
+    if guard_summary := policy_candidate_guard_summary(policy_selection):
+        result["candidate_guard_summary"] = guard_summary
+    return result
 
 
 def _fetch_records(market: str, max_dates: int) -> list[dict[str, Any]]:

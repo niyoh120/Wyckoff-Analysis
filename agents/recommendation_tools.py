@@ -6,8 +6,8 @@ import logging
 import re
 from typing import Any
 
-from agents.candidate_guards import candidate_guard_summary
 from agents.tool_context import ToolContext
+from core.candidate_guards import policy_candidate_guard_summary
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def evaluate_recommendation_events(
             top_k=_normalize_top_k(top_k),
         )
         result = build_recommendation_event_eval(request)
-        guard_summary = _policy_candidate_guard_summary(result.get("policy_selection"))
+        guard_summary = policy_candidate_guard_summary(result.get("policy_selection"), result)
         payload = {
             "ok": True,
             "job_kind": "recommendation_event_eval",
@@ -96,7 +96,7 @@ def _compact_recommendation_eval(result: dict[str, Any]) -> dict[str, Any]:
         "metadata": result.get("metadata", {}),
         "summary": result.get("summary", {}),
         "policy_selection": policy_selection,
-        "candidate_guard_summary": _policy_candidate_guard_summary(policy_selection, result),
+        "candidate_guard_summary": policy_candidate_guard_summary(policy_selection, result),
         "daily": list(result.get("daily") or [])[:10],
     }
 
@@ -125,7 +125,7 @@ def _recommendation_eval_screen_handoff(result: dict[str, Any]) -> dict[str, Any
     review_status = _selection_review_status(action_plan, picks)
     report_candidates = picks if action_plan["ai_review_allowed"] else []
     watch_candidates = [] if action_plan["ai_review_allowed"] else picks
-    guard_summary = _policy_candidate_guard_summary(selection, result)
+    guard_summary = policy_candidate_guard_summary(selection, result)
     return {
         "ok": True,
         "board": str((result.get("metadata") or {}).get("market") or "cn"),
@@ -222,17 +222,6 @@ def _selection_next_tool(action_plan: dict[str, Any]) -> dict[str, Any]:
         return {}
     next_tool = action_plan.get("next_tool") if isinstance(action_plan.get("next_tool"), dict) else {}
     return dict(next_tool) if next_tool.get("tool") else {}
-
-
-def _policy_candidate_guard_summary(selection: Any, result: dict[str, Any] | None = None) -> dict[str, Any]:
-    if isinstance(result, dict) and isinstance(result.get("candidate_guard_summary"), dict):
-        return result["candidate_guard_summary"]
-    if not isinstance(selection, dict):
-        return {}
-    picks = selection.get("picks")
-    if not isinstance(picks, list):
-        return {}
-    return candidate_guard_summary([row for row in picks if isinstance(row, dict)])
 
 
 def _pick_next_step(picks: list[dict[str, Any]]) -> str:

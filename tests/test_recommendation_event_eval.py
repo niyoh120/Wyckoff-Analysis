@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from core.candidate_guards import policy_candidate_guard_summary
 from workflows.recommendation_event_eval import (
     _build_summary,
     _observation_feature_map,
@@ -95,6 +96,23 @@ def test_policy_selection_uses_promoted_strategy_for_latest_candidates() -> None
     assert selection["action_plan"]["trade_readiness"] == "research_only"
     assert selection["action_plan"]["candidate_action"] == "generate_ai_report"
     assert selection["action_plan"]["next_tool"]["tool"] == "generate_ai_report"
+
+
+def test_policy_selection_candidate_guard_blocks_unready_latest_pick() -> None:
+    events = []
+    for day in range(20260501, 20260513):
+        events.append(_event(day, f"A{day}", ai=False, score=0.99, count=2, hit=False, shadow=25.0))
+        events.append(_event(day, f"B{day}", ai=False, score=0.30, count=1, hit=True, shadow=88.0))
+    events[-1]["label_ready"] = False
+    events[-1]["label_status"] = "partial_window"
+    summary = _build_summary(events, (1,))
+
+    selection = _policy_selection(events, summary["ranking_decision"])
+    guard = policy_candidate_guard_summary(selection)
+
+    assert selection["picks"][0]["code"] == "B20260512"
+    assert guard["direct_buy_blocked_count"] == 1
+    assert guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
 
 
 def test_policy_selection_marks_unpromoted_pick_as_watch_only() -> None:
