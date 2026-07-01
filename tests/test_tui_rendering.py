@@ -138,6 +138,33 @@ def test_display_workflow_plan_event_keeps_pending_plan_compact():
     assert scrolled == [True]
 
 
+def test_display_workflow_plan_event_surfaces_trimmed_model_plan():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_trimmed",
+            "workflow": "dynamic_task",
+            "label": "今日选股",
+            "plan": {
+                "script": {
+                    "runtime": {
+                        "step_limit": 24,
+                        "original_step_count": 27,
+                        "truncated_step_count": 3,
+                    }
+                },
+                "steps": [{"title": f"任务 {index}"} for index in range(24)],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    assert "24/27 个动态任务" in str(writes[0])
+    assert "已收敛 3 个过长任务" in str(writes[0])
+
+
 def test_display_workflow_step_event_hides_internal_scope():
     writes = []
     scrolled = []

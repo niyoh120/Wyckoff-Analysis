@@ -401,7 +401,7 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
     label = str(event.get("label") or workflow_name)
     steps = event.get("plan", {}).get("steps", [])
     step_count = len(steps) if isinstance(steps, list) else 0
-    count_text = f" · {step_count} 个动态任务" if step_count else ""
+    count_text = _workflow_task_count_text(event.get("plan"), step_count)
     write(
         Text.from_markup(
             f"  [bold cyan]workflow[/bold cyan] [bold]{escape(label)}[/bold] [dim]{escape(run_id)}{count_text}[/dim]"
@@ -418,6 +418,32 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
         )
     scroll()
     return run_id, workflow_name
+
+
+def _workflow_task_count_text(plan: Any, step_count: int) -> str:
+    if step_count <= 0:
+        return ""
+    runtime = _workflow_plan_runtime(plan)
+    original = _runtime_int(runtime, "original_step_count")
+    truncated = _runtime_int(runtime, "truncated_step_count")
+    if original > step_count and truncated > 0:
+        return f" · {step_count}/{original} 个动态任务 · 已收敛 {truncated} 个过长任务"
+    return f" · {step_count} 个动态任务"
+
+
+def _workflow_plan_runtime(plan: Any) -> dict[str, Any]:
+    if not isinstance(plan, dict):
+        return {}
+    script = plan.get("script") if isinstance(plan.get("script"), dict) else {}
+    runtime = script.get("runtime") if isinstance(script.get("runtime"), dict) else {}
+    return runtime
+
+
+def _runtime_int(runtime: dict[str, Any], field: str) -> int:
+    try:
+        return int(runtime.get(field, 0) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _workflow_route_line(route: dict[str, Any]) -> Text | None:
