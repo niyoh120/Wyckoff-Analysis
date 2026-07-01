@@ -299,6 +299,36 @@ def test_screen_stocks_preview_surfaces_quality_gate():
     ]
 
 
+def test_web_background_funnel_screen_preview_surfaces_top_level_quality_gate():
+    reason = "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+    result = {
+        "job_kind": "funnel_screen",
+        "symbols_for_report": [],
+        "watch_candidates": [
+            {
+                "code": "000013",
+                "name": "低质量候选",
+                "risk_adjusted_quality_score": 65.0,
+                "risk_factors": [reason],
+                "action_status": "watch_only",
+                "next_step": "观察池跟踪，暂不进入本轮AI复核",
+            }
+        ],
+        "quality_gate": {"status": "blocked_by_quality_gate", "reason": reason, "blocked_count": 1},
+    }
+
+    preview = tool_result_preview("web_background_job", result)
+    lines = tool_result_brief_lines("web_background_job", result)
+
+    assert '"job_kind": "funnel_screen"' in preview
+    assert '"quality_gate": {"status": "blocked_by_quality_gate"' in preview
+    assert "候选结论: 首选 000013 低质量候选" in preview
+    assert "护栏: 000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00" in preview
+    assert lines == [
+        "候选结论: 首选 000013 低质量候选 · 观察池 · 证据: 风险调整分65 · 风险: 000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00 · 护栏: 000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00 · 下一步: 观察池跟踪，暂不进入本轮AI复核"
+    ]
+
+
 def test_screen_stocks_brief_lines_use_symbols_for_report_handoff():
     result = {
         "symbols_for_report": [

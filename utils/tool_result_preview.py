@@ -20,7 +20,7 @@ def tool_result_preview(tool_name: str, result: Any, content: str = "") -> str:
         preview = _recommendation_event_eval_preview(result)
         if preview:
             return preview[:PREVIEW_CHARS]
-    if tool_name == "screen_stocks" and isinstance(result, dict):
+    if isinstance(result, dict) and _is_screen_stocks_result(tool_name, result):
         preview = _screen_stocks_preview(result)
         if preview:
             return preview[:PREVIEW_CHARS]
@@ -40,7 +40,7 @@ def tool_result_brief_lines(tool_name: str, result: Any, *, max_lines: int = 3) 
         return []
     if _is_recommendation_event_eval_result(tool_name, result):
         return _recommendation_event_eval_brief_lines(result, max_lines=max_lines)
-    if tool_name == "screen_stocks":
+    if _is_screen_stocks_result(tool_name, result):
         return _screen_stocks_brief_lines(result, max_lines=max_lines)
     if tool_name == "generate_ai_report":
         return _ai_report_brief_lines(result, max_lines=max_lines)
@@ -71,6 +71,10 @@ def _is_recommendation_event_eval_result(tool_name: str, result: dict[str, Any])
         tool_name in {"recommendation_event_eval", "evaluate_recommendation_events"}
         or result.get("job_kind") == "recommendation_event_eval"
     )
+
+
+def _is_screen_stocks_result(tool_name: str, result: dict[str, Any]) -> bool:
+    return tool_name == "screen_stocks" or result.get("job_kind") == "funnel_screen"
 
 
 def _recommendation_event_eval_preview(result: dict[str, Any]) -> str:
@@ -556,9 +560,11 @@ def _candidate_conclusion_action_reason(result: dict[str, Any]) -> str:
     review_targets = action_plan.get("review_targets") if isinstance(action_plan.get("review_targets"), dict) else {}
     data_gate = action_plan.get("data_quality_gate") if isinstance(action_plan.get("data_quality_gate"), dict) else {}
     quality_gate = action_plan.get("quality_gate") if isinstance(action_plan.get("quality_gate"), dict) else {}
+    top_level_quality_gate = result.get("quality_gate") if isinstance(result.get("quality_gate"), dict) else {}
     return str(
         review_targets.get("reason")
         or quality_gate.get("reason")
+        or top_level_quality_gate.get("reason")
         or data_gate.get("reason")
         or action_plan.get("reason")
         or ""
@@ -583,6 +589,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
     payload = _drop_empty_preview_fields(
         {
             "ok": result.get("ok"),
+            "job_kind": result.get("job_kind"),
             "board": result.get("board"),
             "scan_scope": result.get("scan_scope"),
             "summary": result.get("summary"),
@@ -594,6 +601,8 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "candidate_conclusion": _candidate_conclusion_preview("last_screen_result", result),
             "top_candidates": _candidate_preview_list(result.get("top_candidates"), 10),
             "symbols_for_report": _candidate_preview_list(result.get("symbols_for_report"), 12),
+            "watch_candidates": _candidate_preview_list(result.get("watch_candidates"), 6),
+            "quality_gate": result.get("quality_gate"),
             "action_plan": _screen_action_plan_preview(result.get("action_plan")),
             "top_sectors": _preview_list(result.get("top_sectors"), 6),
             "omitted": "完整 trigger_groups 已保留在完整结果中" if result.get("trigger_groups") else "",
@@ -642,6 +651,7 @@ def _screen_candidate_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[Any] = [selection.get("primary_pick")]
     rows.extend(_preview_list(selection.get("best_candidates"), 3))
     rows.extend(_preview_list(result.get("symbols_for_report"), 3))
+    rows.extend(_preview_list(result.get("watch_candidates"), 3))
     rows.extend(_preview_list(result.get("top_candidates"), 3))
     return [row for row in rows if isinstance(row, dict)]
 

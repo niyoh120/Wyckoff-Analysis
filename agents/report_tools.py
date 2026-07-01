@@ -99,7 +99,7 @@ def screen_auto_handoff_block_reason(screen_result: dict[str, Any]) -> str:
     selection = screen_result.get("selection_brief") if isinstance(screen_result.get("selection_brief"), dict) else {}
     if reason := data_quality_auto_handoff_block_reason(action_plan, selection):
         return reason
-    if reason := quality_gate_auto_handoff_block_reason(action_plan):
+    if reason := screen_quality_gate_auto_handoff_block_reason(screen_result, action_plan):
         return reason
     if reason := recommendation_eval_auto_handoff_block_reason(screen_result, selection, action_plan):
         return reason
@@ -113,7 +113,7 @@ def screen_auto_handoff_block_status(screen_result: dict[str, Any]) -> str:
     selection = screen_result.get("selection_brief") if isinstance(screen_result.get("selection_brief"), dict) else {}
     if data_quality_auto_handoff_block_reason(action_plan, selection):
         return "blocked_by_data_quality"
-    if quality_gate_auto_handoff_block_reason(action_plan):
+    if screen_quality_gate_auto_handoff_block_reason(screen_result, action_plan):
         return "blocked_by_quality_gate"
     if recommendation_eval_auto_handoff_block_reason(screen_result, selection, action_plan):
         return "blocked_by_policy_guard"
@@ -150,6 +150,22 @@ def quality_gate_auto_handoff_block_reason(action_plan: dict[str, Any]) -> str:
     if gate:
         return str(gate.get("reason") or "候选风险调整质量分低于AI复核门槛")
     return ""
+
+
+def screen_quality_gate_auto_handoff_block_reason(screen_result: dict[str, Any], action_plan: dict[str, Any]) -> str:
+    if reason := quality_gate_auto_handoff_block_reason(action_plan):
+        return reason
+    gate = screen_result.get("quality_gate") if isinstance(screen_result.get("quality_gate"), dict) else {}
+    if not gate or _screen_has_report_candidates(screen_result):
+        return ""
+    return str(gate.get("reason") or "候选风险调整质量分低于AI复核门槛")
+
+
+def _screen_has_report_candidates(screen_result: dict[str, Any]) -> bool:
+    return bool(
+        _stock_code_items(screen_result.get("symbols_for_report"))
+        or _stock_code_items(screen_result.get("report_candidates"))
+    )
 
 
 def recommendation_eval_auto_handoff_block_reason(

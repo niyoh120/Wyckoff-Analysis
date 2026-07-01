@@ -424,6 +424,67 @@ class TestAiReportTool:
         assert captured["symbols_info"][0]["priority_score"] == 11.0
         assert ctx.state["last_ai_report"]["reviewed_codes"] == ["000004"]
 
+    def test_generate_ai_report_blocks_top_level_quality_gate_handoff(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        reason = "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "job_kind": "funnel_screen",
+                    "symbols_for_report": [],
+                    "watch_candidates": [{"code": "000013", "name": "低质量候选"}],
+                    "quality_gate": {"status": "blocked_by_quality_gate", "reason": reason, "blocked_count": 1},
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            report_tools,
+            "run_ai_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not run report")),
+        )
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result["status"] == "blocked_by_quality_gate"
+        assert result["reason"] == reason
+        assert result["error"].startswith("上一轮候选质量门槛未过")
+
+    def test_generate_ai_report_allows_top_level_quality_gate_with_passing_candidate(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "job_kind": "funnel_screen",
+                    "symbols_for_report": [{"code": "000014", "name": "高质量候选"}],
+                    "watch_candidates": [{"code": "000013", "name": "低质量候选"}],
+                    "quality_gate": {
+                        "status": "blocked_by_quality_gate",
+                        "reason": "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00",
+                        "blocked_count": 1,
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 自动续接研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["000014"]
+        assert captured["symbols_info"][0]["name"] == "高质量候选"
+
     def test_generate_ai_report_reuses_recommendation_eval_handoff(self, monkeypatch):
         from agents import recommendation_tools, report_tools
         from agents.tool_context import ToolContext
