@@ -49,6 +49,8 @@ workflow planner 支持模型在每个 task 上输出 `rationale`、`success_cri
 
 workflow executor 会在每个 step 完成后短暂等待本 step 启动的后台任务，并提取压缩版工具 handoff（例如 `last_screen_result`、`last_recommendation_event_eval`、`last_ai_report`），放入 step result 和最终 synthesis prompt。这样“选出好股票”这类多阶段任务不会只依赖 sub-agent 文本转述或后台 `task_id`，最终汇总仍能看到候选代码、行动状态、质量分/评级和下一跳边界。
 
+workflow 最终 synthesis 明确要求在存在候选或 `policy_selection` 时输出候选分层、关键质量分/评级、风险因素和下一步；遇到 `new_buy_allowed=false`、`trade_readiness=research_only` 或非可执行 `action_status` 时，不得写成买入建议，只能给观察、研报复核或攻防决策下一步。
+
 ## 方向一：信号衰减监控
 
 **目标**：按信号类型追踪推荐质量，识别正在失效的信号。

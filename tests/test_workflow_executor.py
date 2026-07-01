@@ -6,8 +6,14 @@ import time
 from types import SimpleNamespace
 
 from cli.workflows.control import WorkflowControl
-from cli.workflows.executor import WorkflowExecutor, _phase_batches, _step_context, _workflow_handoff_state
-from cli.workflows.models import WorkflowStep
+from cli.workflows.executor import (
+    WorkflowExecutor,
+    _phase_batches,
+    _step_context,
+    _synthesis_prompt,
+    _workflow_handoff_state,
+)
+from cli.workflows.models import WorkflowRun, WorkflowStep
 from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, plan_workflow
 from cli.workflows.resume import build_resume_prompt
 from cli.workflows.router import WORKFLOWS, route_workflow
@@ -608,6 +614,51 @@ def test_workflow_synthesis_receives_step_handoff_state(tmp_path, monkeypatch):
         assert events[-1]["text"] == "已基于候选 handoff 汇总。"
     finally:
         _reset_local_db(local_db)
+
+
+def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
+    run = WorkflowRun(
+        run_id="wf_contract",
+        session_id="s_contract",
+        user_text="帮我完整做一遍今天的 A 股选股，给出候选、理由和买卖计划",
+        context=WORKFLOWS["dynamic_task"],
+        script={"synthesis_prompt": "输出候选、理由和买卖计划。"},
+    )
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "action_plan": {"new_buy_allowed": False, "trade_readiness": "research_only"},
+                        "symbols_for_report": [
+                            {
+                                "code": "300750",
+                                "name": "宁德时代",
+                                "candidate_shadow_score": 92.0,
+                                "candidate_shadow_grade": "S",
+                                "entry_quality_score": 84.0,
+                                "entry_quality_grade": "A",
+                                "risk_factors": ["评估标签尚未成熟"],
+                                "next_step": "生成 AI 研报",
+                            }
+                        ],
+                    }
+                }
+            },
+        }
+    ]
+
+    prompt = _synthesis_prompt(run, results)
+
+    assert "必须按候选分层输出" in prompt
+    assert "priority_score/shadow_score/funnel_score" in prompt
+    assert "candidate_shadow_score/grade" in prompt
+    assert "entry_quality_score/grade" in prompt
+    assert "new_buy_allowed=false" in prompt
+    assert "trade_readiness=research_only" in prompt
+    assert "不得写成买入建议" in prompt
+    assert '"candidate_shadow_score": 92.0' in prompt
 
 
 def test_workflow_executor_waits_step_background_tasks_for_handoff(tmp_path, monkeypatch):

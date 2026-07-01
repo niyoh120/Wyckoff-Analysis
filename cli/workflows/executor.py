@@ -41,6 +41,17 @@ _AGENTS: dict[str, SubAgent] = {
 }
 MAX_CONCURRENT_AGENTS = 16
 WORKFLOW_BACKGROUND_WAIT_SECONDS = 45.0
+_SYNTHESIS_REQUIREMENTS = (
+    "输出要求：\n"
+    "- 先给结论和可执行下一步，不要只复述 workflow 步骤。\n"
+    "- 如果 agent results 里有候选、policy_selection、last_screen_result 或 last_recommendation_event_eval，"
+    "必须按候选分层输出：可进入 AI 研报/攻防决策、仅观察、被数据质量/市场闸门/策略保护阻断。\n"
+    "- 候选行要优先使用代码/名称、action_status、trade_readiness、priority_score/shadow_score/"
+    "funnel_score、candidate_shadow_score/grade、entry_quality_score/grade、quality_factors、risk_factors、next_step。\n"
+    "- 如果 new_buy_allowed=false、trade_readiness=research_only 或 action_status 不是可执行状态，"
+    "不得写成买入建议；只能写观察、研报复核或攻防决策下一步。\n"
+    "- 如果没有可靠候选或数据质量不足，说明不能选出股票的原因和修复动作。\n"
+)
 
 
 class WorkflowExecutor:
@@ -629,7 +640,8 @@ def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:
         script_prompt = str(run.script.get("synthesis_prompt", "") or "").strip()
     return (
         "请基于以下动态 workflow 执行结果，给用户输出最终中文答复。\n"
-        "要求：只使用 agent 结果里的事实；如果某步失败，明确说明影响和降级结论。\n\n"
+        "要求：只使用 agent 结果里的事实；如果某步失败，明确说明影响和降级结论。\n"
+        f"{_SYNTHESIS_REQUIREMENTS}\n"
         f"模型脚本的汇总要求:\n{script_prompt or '-'}\n\n"
         f"用户请求:\n{run.user_text}\n\n"
         f"workflow script:\n{json.dumps(run.script, ensure_ascii=False, default=str)[:4000]}\n\n"
