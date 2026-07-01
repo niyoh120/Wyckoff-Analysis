@@ -869,20 +869,21 @@ def _fallback_candidate_conclusion_payload(
 
 
 def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
+    guard_reason = _fallback_guard_reason_from_handoff(row, stage, handoff)
     parts = [
-        f"{_fallback_candidate_prefix(row)} {_fallback_candidate_name(row)}",
+        f"{_fallback_candidate_prefix(row, guard_reason)} {_fallback_candidate_name(row)}",
         _fallback_status_part(row),
         _fallback_evidence_part(row),
-        _fallback_guard_part(row, stage, handoff),
+        _fallback_guard_part(guard_reason),
         _fallback_next_part(row, stage),
     ]
     return "候选结论: " + "；".join(part for part in parts if part)
 
 
-def _fallback_candidate_prefix(row: dict[str, Any]) -> str:
+def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "") -> str:
     status = str(row.get("action_status") or "").strip()
     if status == "ready_for_ai_review":
-        return "首选"
+        return "受限复核候选" if guard_reason else "首选"
     if status == "watch_only":
         return "观察候选"
     if status.startswith("blocked_"):
@@ -936,10 +937,8 @@ def _fallback_evidence_items(row: dict[str, Any]) -> list[str]:
     return [part for part in evidence if part]
 
 
-def _fallback_guard_part(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
-    if reason := _fallback_guard_reason_from_handoff(row, stage, handoff):
-        return f"护栏={reason}"
-    return ""
+def _fallback_guard_part(reason: str) -> str:
+    return f"护栏={reason}" if reason else ""
 
 
 def _fallback_guard_reason_from_handoff(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:

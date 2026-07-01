@@ -1090,6 +1090,7 @@ def test_workflow_synthesis_handoff_summary_derives_guard_from_candidate_fields(
     conclusion = _synthesis_handoff_summary(results)[0]["candidate_conclusion"]
 
     assert conclusion["guard_reason"] == "候选未开放新增买入，禁止直接买入"
+    assert "候选结论: 受限复核候选 300750 宁德时代" in conclusion["line"]
     assert "护栏=候选未开放新增买入，禁止直接买入" in conclusion["line"]
     assert "交易就绪=research_only" in conclusion["line"]
     assert "不允许新增买入" in conclusion["line"]
@@ -1187,7 +1188,7 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
     try:
         final_text = events[-1]["text"]
         assert "动态 workflow 已完成" in final_text
-        assert "候选结论: 首选 300750 宁德时代" in final_text
+        assert "候选结论: 受限复核候选 300750 宁德时代" in final_text
         assert "状态=ready_for_ai_review" in final_text
         assert "交易就绪=research_only" in final_text
         assert "不允许新增买入" in final_text
