@@ -58,6 +58,30 @@ def test_top_k_summary_can_rank_by_candidate_quality_scores() -> None:
     assert summary["ranking_decision"]["status"] == "insufficient_sample"
 
 
+def test_summary_policy_and_daily_can_reuse_grouped_events(monkeypatch) -> None:
+    from workflows import recommendation_event_eval as module
+
+    events = [
+        _event(20260515, "A", ai=False, score=0.99, count=2, hit=False, shadow=25.0),
+        _event(20260515, "B", ai=False, score=0.30, count=1, hit=True, shadow=88.0),
+        _event(20260516, "C", ai=False, score=0.80, count=1, hit=True, shadow=85.0),
+    ]
+    events_by_date = module._events_by_date(events)
+
+    def fail_regroup(_events):
+        raise AssertionError("events were regrouped")
+
+    monkeypatch.setattr(module, "_events_by_date", fail_regroup)
+
+    summary = module._build_summary(events, (1,), events_by_date)
+    selection = module._policy_selection(events, summary["ranking_decision"], events_by_date)
+    daily = module._daily_summary(events_by_date)
+
+    assert summary["top_k"]["1"]["days_covered"] == 2
+    assert selection["recommend_date"] == 20260516
+    assert [row["recommend_date"] for row in daily] == [20260515, 20260516]
+
+
 def test_policy_selection_ranks_candidate_quality_after_entry_risk_penalty() -> None:
     events = [
         {
