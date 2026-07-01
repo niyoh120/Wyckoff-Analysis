@@ -77,6 +77,9 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
             "trigger_groups": trigger_groups,
             "top_sectors": metrics.get("top_sectors", []),
             "symbols_for_report": symbols_for_report,
+            "report_candidates": symbols_for_report,
+            "watch_candidates": list(action_plan.get("watch_candidates") or []),
+            "quality_gate": action_plan.get("quality_gate", {}),
         }
         if guard_summary := _screen_candidate_guard_summary(selection_brief, action_plan):
             result["candidate_guard_summary"] = guard_summary

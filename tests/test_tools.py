@@ -2588,6 +2588,9 @@ class TestSymbolPool:
         assert result["action_plan"]["new_buy_allowed"] is False
         assert result["action_plan"]["report_candidates"] == []
         assert result["symbols_for_report"] == []
+        assert result["report_candidates"] == []
+        assert result["watch_candidates"][0]["code"] == "000013"
+        assert result["quality_gate"]["status"] == "blocked_by_quality_gate"
         assert result["summary"]["report_candidates"] == 0
         assert report["status"] == "blocked_by_quality_gate"
         assert "000013 低质量研报候选 风险调整质量分 65.00 低于AI复核门槛 70.00" in report["reason"]
@@ -2597,6 +2600,8 @@ class TestSymbolPool:
         assert any("风险调整质量分 65.00 低于AI复核门槛 70.00" in item for item in watch["risk_factors"])
         assert result["candidate_guard_summary"]["candidates"][0]["reason"] == "候选状态 watch_only 不允许直接买入"
         assert ctx.state["last_screen_result"]["symbols_for_report"] == []
+        assert ctx.state["last_screen_result"]["watch_candidates"][0]["code"] == "000013"
+        assert ctx.state["last_screen_result"]["quality_gate"]["status"] == "blocked_by_quality_gate"
 
         monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda _tool_context: None)
         monkeypatch.setattr(
@@ -2659,6 +2664,9 @@ class TestSymbolPool:
         assert result["action_plan"]["review_targets"]["status"] == "ready"
         assert [row["code"] for row in result["action_plan"]["report_candidates"]] == ["000014"]
         assert [row["code"] for row in result["symbols_for_report"]] == ["000014"]
+        assert [row["code"] for row in result["report_candidates"]] == ["000014"]
+        assert result["watch_candidates"][0]["code"] == "000013"
+        assert result["quality_gate"]["blocked_count"] == 1
         assert result["summary"]["report_candidates"] == 1
         assert result["action_plan"]["quality_gate"]["blocked_count"] == 1
         assert result["action_plan"]["watch_candidates"][0]["code"] == "000013"
