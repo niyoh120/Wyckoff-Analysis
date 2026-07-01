@@ -2079,6 +2079,79 @@ class TestSymbolPool:
         assert result["top_candidates"][1]["code"] == "000001"
         assert result["top_candidates"][1]["risk_factors"] == ["未进入本轮研报候选"]
 
+    def test_screen_stocks_surfaces_candidate_quality_metrics_in_briefs(self, monkeypatch):
+        from agents import screen_tools
+        from utils.tool_result_preview import tool_result_brief_lines
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000004",
+                        "name": "主线候选",
+                        "priority_rank": 1,
+                        "priority_score": 12.5,
+                        "selection_source": "recommendation_event_eval",
+                        "track": "Trend",
+                        "stage": "Markup",
+                        "funnel_score": 89.5,
+                        "candidate_shadow_score": 92.0,
+                        "candidate_shadow_grade": "S",
+                        "entry_quality_score": 84.0,
+                        "entry_quality_grade": "A",
+                        "entry_quality_risk_flags": ["短线涨幅偏快"],
+                        "selection_strategy": "candidate_shadow_then_score",
+                        "recommend_date": "2026-06-30",
+                        "is_ai_recommended": True,
+                        "recommend_count": 2,
+                        "label_ready": False,
+                        "label_status": "pending",
+                    }
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {},
+                    "trade_mode": {
+                        "regime": "RISK_ON",
+                        "mode": "risk_on",
+                        "label": "风险打开",
+                        "action": "允许候选进入AI复核",
+                        "reason": "市场闸门打开",
+                        "allow_ai_review": True,
+                        "allow_recommendation_write": True,
+                    },
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+        rows = (
+            result["top_candidates"][0],
+            result["selection_brief"]["primary_pick"],
+            result["decision_brief"]["report_focus"][0],
+            result["action_plan"]["report_candidates"][0],
+        )
+
+        for row in rows:
+            assert row["funnel_score"] == 89.5
+            assert row["candidate_shadow_score"] == 92.0
+            assert row["candidate_shadow_grade"] == "S"
+            assert row["entry_quality_score"] == 84.0
+            assert row["entry_quality_grade"] == "A"
+            assert row["selection_strategy"] == "candidate_shadow_then_score"
+            assert row["label_ready"] is False
+            assert row["label_status"] == "pending"
+
+        lines = tool_result_brief_lines("screen_stocks", result, max_lines=3)
+        assert any("候选影子S/92" in line and "入场A/84" in line for line in lines)
+
     def test_screen_stocks_enriches_watch_candidates_from_candidate_metadata(self, monkeypatch):
         from agents import screen_tools
 

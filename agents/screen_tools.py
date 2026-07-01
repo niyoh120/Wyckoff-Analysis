@@ -370,6 +370,7 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str, data_qua
             "stage": row.get("stage"),
             "candidate_lane": row.get("candidate_lane"),
             "entry_type": row.get("entry_type"),
+            **_candidate_quality_metrics(row),
         }
     )
 
@@ -494,6 +495,7 @@ def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str, data_quality
         "risk_factors": _candidate_risk_factors(row, trade_mode, bucket, data_quality),
         "action_status": _candidate_action_status(trade_mode, bucket, data_quality),
         "next_step": next_step,
+        **_candidate_quality_metrics(row),
         "summary": f"{code} {name}: {evidence}；{next_step}",
     }
 
@@ -519,8 +521,29 @@ def _candidate_ref(row: dict, trade_mode: dict, bucket: str, data_quality: dict)
         "candidate_lane": row.get("candidate_lane"),
         "entry_type": row.get("entry_type"),
         "triggers": row.get("triggers"),
+        **_candidate_quality_metrics(row),
     }
     return {key: value for key, value in payload.items() if value not in (None, "", [])}
+
+
+_CANDIDATE_QUALITY_METRIC_FIELDS = (
+    "funnel_score",
+    "candidate_shadow_score",
+    "candidate_shadow_grade",
+    "entry_quality_score",
+    "entry_quality_grade",
+    "entry_quality_risk_flags",
+    "selection_strategy",
+    "recommend_date",
+    "is_ai_recommended",
+    "recommend_count",
+    "label_ready",
+    "label_status",
+)
+
+
+def _candidate_quality_metrics(row: dict) -> dict[str, Any]:
+    return {field: row.get(field) for field in _CANDIDATE_QUALITY_METRIC_FIELDS if row.get(field) not in (None, "", [])}
 
 
 def _candidate_quality_label(row: dict) -> str:
@@ -765,6 +788,7 @@ def _candidate_row(
         "tag": str(report_row.get("tag") or _metadata_tag(metadata)).strip(),
         "candidate_lane": str(report_row.get("candidate_lane") or metadata.get("candidate_lane") or "").strip(),
         "entry_type": str(report_row.get("entry_type") or metadata.get("entry_type") or "").strip(),
+        **_candidate_quality_metrics(report_row),
     }
 
 
@@ -817,6 +841,7 @@ def _final_candidate_row(row: dict) -> dict:
     }
     if candidate_score_value(row.get("shadow_score")):
         payload["shadow_score"] = round(candidate_score_value(row.get("shadow_score")), 2)
+    payload.update(_candidate_quality_metrics(row))
     payload["quality_factors"] = _candidate_quality_factors(payload)
     payload["risk_factors"] = _candidate_risk_factors(payload)
     return payload
