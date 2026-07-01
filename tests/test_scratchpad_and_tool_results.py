@@ -256,6 +256,49 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
     ]
 
 
+def test_screen_stocks_preview_surfaces_quality_gate():
+    reason = "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+    result = {
+        "selection_brief": {
+            "headline": "本轮只有观察候选: 000013 低质量候选",
+            "primary_pick": {
+                "code": "000013",
+                "name": "低质量候选",
+                "risk_adjusted_quality_score": 65.0,
+                "risk_factors": [reason],
+                "action_status": "watch_only",
+                "next_step": "观察池跟踪，暂不进入本轮AI复核",
+            },
+        },
+        "action_plan": {
+            "new_buy_allowed": False,
+            "ai_review_allowed": False,
+            "quality_gate": {
+                "status": "blocked_by_quality_gate",
+                "reason": reason,
+                "blocked_count": 1,
+            },
+            "review_targets": {
+                "codes": [],
+                "status": "blocked_by_quality_gate",
+                "reason": reason,
+            },
+        },
+    }
+
+    preview = tool_result_preview("screen_stocks", result)
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert '"quality_gate": {"status": "blocked_by_quality_gate"' in preview
+    assert '"ai_review_allowed": false' in preview
+    assert "候选结论: 首选 000013 低质量候选" in preview
+    assert "护栏: 000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00" in preview
+    assert lines == [
+        "本轮只有观察候选: 000013 低质量候选",
+        "候选结论: 首选 000013 低质量候选 · 观察池 · 证据: 风险调整分65 · 风险: 000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00 · 护栏: 000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00 · 下一步: 观察池跟踪，暂不进入本轮AI复核",
+    ]
+
+
 def test_screen_stocks_brief_lines_use_symbols_for_report_handoff():
     result = {
         "symbols_for_report": [
@@ -504,4 +547,28 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
         "攻防决策: status=skipped_notify_unconfigured, source=last_ai_report, reviewed=1, next=补充 Telegram 配置后可生成并发送 OMS 工单",
         "候选结论: 首选 300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 护栏: 候选状态 blocked_by_market_gate 不允许直接买入 · 下一步: 补充 Telegram 配置后可生成并发送 OMS 工单",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选状态 blocked_by_market_gate 不允许直接买入)",
+    ]
+
+
+def test_generate_strategy_decision_brief_labels_quality_gate_blocker():
+    reason = "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+    result = {
+        "ok": False,
+        "status": "blocked_by_quality_gate",
+        "reason": reason,
+        "report_source": "blocked_by_screen_quality_gate",
+        "candidate_count": 0,
+        "reviewed_codes": [],
+        "next_action": "先保留观察候选，等待风险调整质量分达标后再生成策略决策",
+    }
+
+    lines = tool_result_brief_lines("generate_strategy_decision", result, max_lines=2)
+
+    assert lines == [
+        (
+            "攻防决策: status=blocked_by_quality_gate, blocker=候选质量门槛未过, "
+            "source=blocked_by_screen_quality_gate, reviewed=0, "
+            "reason=000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00, "
+            "next=先保留观察候选，等待风险调整质量分达标后再生成策略决策"
+        )
     ]

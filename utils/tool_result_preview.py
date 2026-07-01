@@ -356,12 +356,29 @@ def _strategy_decision_brief_lines(result: dict[str, Any], *, max_lines: int) ->
 def _strategy_stage_line(result: dict[str, Any]) -> str:
     parts = [
         _key_value("status", result.get("status") or result.get("reason")),
+        _key_value("blocker", _strategy_blocker_label(result.get("status"))),
         _key_value("source", result.get("report_source")),
         _key_value("reviewed", _reviewed_count(result)),
+        _key_value("reason", _strategy_blocker_reason(result)),
         _key_value("next", result.get("next_action") or result.get("message")),
     ]
     detail = ", ".join(part for part in parts if part)
     return f"攻防决策: {detail}" if detail else ""
+
+
+def _strategy_blocker_label(status: Any) -> str:
+    return {
+        "blocked_by_data_quality": "数据质量未过关",
+        "blocked_by_quality_gate": "候选质量门槛未过",
+        "blocked_by_policy_guard": "候选仍是只读观察",
+    }.get(str(status or "").strip(), "")
+
+
+def _strategy_blocker_reason(result: dict[str, Any]) -> str:
+    status = str(result.get("status") or "").strip()
+    if not status.startswith("blocked_"):
+        return ""
+    return str(result.get("reason") or "").strip()
 
 
 def _tool_stage_line(label: str, result: dict[str, Any], reviewed: int) -> str:
@@ -538,7 +555,14 @@ def _candidate_conclusion_action_reason(result: dict[str, Any]) -> str:
     action_plan = _candidate_conclusion_action_plan(result)
     review_targets = action_plan.get("review_targets") if isinstance(action_plan.get("review_targets"), dict) else {}
     data_gate = action_plan.get("data_quality_gate") if isinstance(action_plan.get("data_quality_gate"), dict) else {}
-    return str(review_targets.get("reason") or data_gate.get("reason") or action_plan.get("reason") or "")
+    quality_gate = action_plan.get("quality_gate") if isinstance(action_plan.get("quality_gate"), dict) else {}
+    return str(
+        review_targets.get("reason")
+        or quality_gate.get("reason")
+        or data_gate.get("reason")
+        or action_plan.get("reason")
+        or ""
+    )
 
 
 def _candidate_conclusion_next_step(row: dict[str, Any], result: dict[str, Any]) -> str:
@@ -776,6 +800,7 @@ def _screen_action_plan_preview(value: Any) -> dict[str, Any]:
             "new_buy_allowed": value.get("new_buy_allowed"),
             "ai_review_allowed": value.get("ai_review_allowed"),
             "data_quality_gate": value.get("data_quality_gate"),
+            "quality_gate": value.get("quality_gate"),
             "review_targets": value.get("review_targets"),
             "report_candidates": _candidate_preview_list(value.get("report_candidates"), 6),
             "watch_candidates": _candidate_preview_list(value.get("watch_candidates"), 6),
@@ -851,7 +876,7 @@ def _preview_list(value: Any, limit: int) -> list[Any]:
 
 
 def _text_excerpt(value: Any, limit: int) -> str:
-    text = str(value or "")
+    text = "" if value is None else str(value)
     if len(text) <= limit:
         return text
     return text[:limit] + "..."
