@@ -158,6 +158,51 @@ def test_runtime_accepts_any_portfolio_mode_for_soft_expectation():
     assert events[-1]["text"] == "已读取持仓。"
 
 
+def test_runtime_blocks_question_before_required_portfolio_tool():
+    def _portfolio_round(messages, _tools, _system_prompt):
+        ask_result = next(m for m in messages if m.get("role") == "tool" and m.get("name") == "ask_user_question")
+        assert "先不要向用户提问" in ask_result["content"]
+        assert "portfolio" in ask_result["content"]
+        return [
+            {
+                "type": "tool_calls",
+                "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "view"}}],
+                "text": "",
+            }
+        ]
+
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tc_ask",
+                            "name": "ask_user_question",
+                            "args": {"question": "你现在有持仓吗？"},
+                        }
+                    ],
+                    "text": "",
+                }
+            ],
+            _portfolio_round,
+            [{"type": "text_delta", "text": "已读取持仓。"}],
+        ]
+    )
+    tools = StubToolRegistry(tool_results={"portfolio": {"positions": []}})
+    messages = [{"role": "user", "content": "你看我持仓呀"}]
+
+    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
+
+    ask_errors = [event for event in events if event["type"] == "tool_error" and event["name"] == "ask_user_question"]
+    assert len(ask_errors) == 1
+    assert "先不要向用户提问" in ask_errors[0]["error"]
+    assert not [event for event in events if event["type"] == "tool_start" and event["name"] == "ask_user_question"]
+    assert [call["name"] for call in tools.calls] == ["portfolio"]
+    assert events[-1]["text"] == "已读取持仓。"
+
+
 def test_runtime_retries_when_stock_screening_request_skips_tool():
     provider = ScriptedProvider(
         rounds=[

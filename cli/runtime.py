@@ -570,6 +570,11 @@ class AgentRuntime:
             answered_call_ids.add(call_id)
             return "doom"
 
+        if expectation := self._premature_question_expectation(name, messages, state):
+            yield from self._append_premature_question_result(messages, name, args, call_id, expectation)
+            answered_call_ids.add(call_id)
+            return None
+
         yield self._tool_start_event(call)
         raw = self._execute_tool_call_raw(call, messages)
         yield from self._append_tool_result(
@@ -736,3 +741,31 @@ class AgentRuntime:
         if event_type == "tool_error":
             event["error"] = str(result.get("error", result)) if isinstance(result, dict) else str(result)
         yield event
+
+    def _premature_question_expectation(
+        self,
+        name: str,
+        messages: list[dict[str, Any]],
+        state: RunState,
+    ) -> Any:
+        if name != "ask_user_question" or not self.enforce_turn_expectations:
+            return None
+        expectation = self._available_expectation(resolve_turn_expectation(messages))
+        return expectation if missing_required_tool(expectation, state.used_tools) else None
+
+    def _append_premature_question_result(
+        self,
+        messages: list[dict[str, Any]],
+        name: str,
+        args: dict[str, Any],
+        call_id: str,
+        expectation: Any,
+    ) -> Iterator[RuntimeEvent]:
+        result = {
+            "error": (
+                "先不要向用户提问。"
+                f"{expectation.reason} 请先调用 `{expectation.required_tool}` 获取真实数据；"
+                "如果工具结果仍不足，再向用户澄清。"
+            )
+        }
+        yield from self._append_tool_result(messages, name, args, call_id, result, elapsed_ms=0, status="error")

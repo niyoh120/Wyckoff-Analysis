@@ -124,7 +124,9 @@ _FALLBACK_TOOLS_BY_AGENT = {
     "analysis": ("analyze_stock", "portfolio", "get_market_overview"),
     "trading": ("portfolio", "generate_strategy_decision", "get_market_overview"),
 }
-_WORKFLOW_EXPECTATION_TOOLS = frozenset({"screen_stocks", "generate_ai_report", "generate_strategy_decision"})
+_WORKFLOW_EXPECTATION_TOOLS = frozenset(
+    {"portfolio", "screen_stocks", "generate_ai_report", "generate_strategy_decision"}
+)
 
 _POLICY_BY_STATUS = {
     "completed": ("use_result", False, "使用子 Agent 返回的结论。"),

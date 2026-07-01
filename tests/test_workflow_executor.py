@@ -1449,6 +1449,77 @@ def test_workflow_executor_scopes_sub_agent_tools_per_step(tmp_path, monkeypatch
         _reset_local_db(local_db)
 
 
+def test_workflow_portfolio_scope_blocks_question_before_reading_positions(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    def _portfolio_round(messages, tools, _system_prompt):
+        assert {schema["name"] for schema in tools} == {"portfolio", "ask_user_question"}
+        ask_result = next(m for m in messages if m.get("role") == "tool" and m.get("name") == "ask_user_question")
+        assert "先不要向用户提问" in ask_result["content"]
+        return [
+            {
+                "type": "tool_calls",
+                "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "view"}}],
+            }
+        ]
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-portfolio-question.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tc_ask",
+                            "name": "ask_user_question",
+                            "args": {"question": "你现在有持仓吗？"},
+                        }
+                    ],
+                }
+            ],
+            _portfolio_round,
+            [{"type": "text_delta", "text": "已读取持仓。"}],
+            [{"type": "text_delta", "text": "持仓摘要完成。"}],
+        ]
+    )
+    schemas = [
+        {"name": "portfolio", "description": "Mock portfolio tool", "parameters": {"type": "object"}},
+        {"name": "ask_user_question", "description": "Mock ask tool", "parameters": {"type": "object"}},
+    ]
+    tools = StubToolRegistry(schemas=schemas, tool_results={"portfolio": {"positions": []}})
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_portfolio_question",
+        user_text="你看我持仓呀",
+        workflow_context=route_workflow("用 workflow 复核持仓"),
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "read_positions",
+                    "title": "读取持仓",
+                    "tools": ["portfolio", "ask_user_question"],
+                    "prompt": "查看持仓并输出摘要",
+                }
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "你看我持仓呀"}]))
+
+    try:
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert detail["tool_calls"] == ["portfolio"]
+        assert [call["name"] for call in tools.calls] == ["portfolio"]
+        assert events[-1]["text"] == "持仓摘要完成。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_bounds_generic_task_tools_by_workflow_context(tmp_path, monkeypatch):
     from integrations import local_db
 

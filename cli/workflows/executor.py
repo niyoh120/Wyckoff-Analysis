@@ -40,7 +40,9 @@ _AGENTS: dict[str, SubAgent] = {
     "analysis": ANALYSIS_AGENT,
     "trading": TRADING_AGENT,
 }
-_TURN_EXPECTATION_TOOL_SCOPES = frozenset({"screen_stocks", "generate_ai_report", "generate_strategy_decision"})
+_TURN_EXPECTATION_TOOL_SCOPES = frozenset(
+    {"portfolio", "screen_stocks", "generate_ai_report", "generate_strategy_decision"}
+)
 MAX_CONCURRENT_AGENTS = 16
 WORKFLOW_BACKGROUND_WAIT_SECONDS = 45.0
 _SYNTHESIS_REQUIREMENTS = (
