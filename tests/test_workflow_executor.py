@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import threading
 import time
+from types import SimpleNamespace
 
 from cli.workflows.control import WorkflowControl
-from cli.workflows.executor import WorkflowExecutor, _phase_batches, _step_context
+from cli.workflows.executor import WorkflowExecutor, _phase_batches, _step_context, _workflow_handoff_state
 from cli.workflows.models import WorkflowStep
 from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, plan_workflow
 from cli.workflows.resume import build_resume_prompt
@@ -488,6 +489,94 @@ def test_workflow_step_context_includes_outcome_metadata():
     assert "success criteria:\n输出候选和风险边界" in context
     assert "risk guard:\n不写入推荐或持仓" in context
     assert "task context:\n只读运行" in context
+
+
+def test_workflow_handoff_state_compacts_candidate_context():
+    tools = StubToolRegistry()
+    tools._tool_context = SimpleNamespace(
+        state={
+            "last_screen_result": {
+                "scan_scope": {"source": "screen_stocks"},
+                "selection_brief": {"status": "ready_for_ai_review", "best_codes": ["300750"]},
+                "action_plan": {
+                    "candidate_action": "generate_ai_report",
+                    "new_buy_allowed": False,
+                    "ai_review_allowed": True,
+                    "trade_readiness": "research_only",
+                    "review_targets": {"codes": ["300750"], "tool": "generate_ai_report"},
+                },
+                "symbols_for_report": [
+                    {
+                        "code": "300750",
+                        "name": "宁德时代",
+                        "quality_factors": ["高优先级研报候选"],
+                        "risk_factors": ["不直接买入"],
+                        "action_status": "ready_for_ai_review",
+                        "next_step": "生成 AI 研报",
+                    }
+                ],
+                "trigger_groups": [{"large": "omitted"}],
+            }
+        }
+    )
+
+    handoff = _workflow_handoff_state(tools)
+
+    screen = handoff["last_screen_result"]
+    assert screen["selection_brief"]["best_codes"] == ["300750"]
+    assert screen["action_plan"]["new_buy_allowed"] is False
+    assert screen["symbols_for_report"][0]["code"] == "300750"
+    assert "trigger_groups" not in screen
+
+
+def test_workflow_synthesis_receives_step_handoff_state(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    def _synthesis_round(messages, _tools, _system_prompt):
+        content = messages[0]["content"]
+        assert '"handoff_state"' in content
+        assert '"last_screen_result"' in content
+        assert '"300750"' in content
+        return [{"type": "text_delta", "text": "已基于候选 handoff 汇总。"}]
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-handoff.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    tools = StubToolRegistry()
+    tools._tool_context = SimpleNamespace(
+        state={
+            "last_screen_result": {
+                "selection_brief": {"status": "ready_for_ai_review", "best_codes": ["300750"]},
+                "symbols_for_report": [{"code": "300750", "name": "宁德时代"}],
+            }
+        }
+    )
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "已完成候选扫描。"}],
+            _synthesis_round,
+        ]
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_handoff",
+        user_text="用 workflow 选出好股票",
+        workflow_context=route_workflow("用 workflow 选出好股票"),
+        workflow_script={"tasks": [{"id": "scan", "title": "扫描候选", "prompt": "扫描候选"}]},
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 选出好股票"}]))
+
+    try:
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        assert (
+            done_event["source"]["agent_detail"]["handoff_state"]["last_screen_result"]["symbols_for_report"][0]["code"]
+            == "300750"
+        )
+        assert events[-1]["text"] == "已基于候选 handoff 汇总。"
+    finally:
+        _reset_local_db(local_db)
 
 
 def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):

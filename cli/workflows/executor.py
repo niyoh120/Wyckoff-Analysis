@@ -248,7 +248,7 @@ class WorkflowExecutor:
         if not agent:
             return {"status": "error", "error": f"未知 workflow agent: {step.agent}"}
         context = _step_context(step, prior_results)
-        return run_sub_agent(
+        result = run_sub_agent(
             agent,
             step.prompt or step.title,
             context,
@@ -257,6 +257,9 @@ class WorkflowExecutor:
             cancel_check=self._cancel_requested,
             tool_names=_step_tool_names(step, self._require_run().allowed_tools),
         )
+        if handoff_state := _workflow_handoff_state(self.tools):
+            result["handoff_state"] = handoff_state
+        return result
 
     def _phase_event(self, event_type: str, phase_steps: list[WorkflowStep]) -> RuntimeEvent:
         run = self._require_run()
@@ -461,6 +464,7 @@ def _agent_detail(step: WorkflowStep, result: dict[str, Any]) -> dict[str, Any]:
         "status": str(result.get("status", "")),
         "elapsed": result.get("elapsed", 0),
         "tool_calls": list(result.get("tool_calls", []) or [])[:40],
+        "handoff_state": result.get("handoff_state", {}),
         "result": _clip(str(result.get("result", "") or ""), 8000),
         "error": _clip(str(result.get("error", "") or ""), 2000),
     }
@@ -468,6 +472,109 @@ def _agent_detail(step: WorkflowStep, result: dict[str, Any]) -> dict[str, Any]:
 
 def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
+
+
+def _workflow_handoff_state(tools: Any) -> dict[str, Any]:
+    context = getattr(tools, "_tool_context", None)
+    state = getattr(context, "state", {}) if context is not None else {}
+    if not isinstance(state, dict):
+        return {}
+    return _drop_empty(
+        {
+            "last_screen_result": _compact_screen_handoff(state.get("last_screen_result")),
+            "last_recommendation_event_eval": _compact_recommendation_handoff(
+                state.get("last_recommendation_event_eval")
+            ),
+            "last_ai_report": _compact_ai_report_handoff(state.get("last_ai_report")),
+            "last_strategy_decision": _compact_strategy_handoff(state.get("last_strategy_decision")),
+        }
+    )
+
+
+def _compact_screen_handoff(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = _pick_fields(value, ("scan_scope", "summary", "data_quality", "decision_brief", "selection_brief"))
+    payload["action_plan"] = _pick_fields(
+        value.get("action_plan"),
+        ("candidate_action", "new_buy_allowed", "ai_review_allowed", "trade_readiness", "review_targets"),
+    )
+    payload["symbols_for_report"] = _candidate_rows(value.get("symbols_for_report"), 6)
+    payload["top_candidates"] = _candidate_rows(value.get("top_candidates"), 6)
+    return _drop_empty(payload)
+
+
+def _compact_recommendation_handoff(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    selection = value.get("policy_selection") if isinstance(value.get("policy_selection"), dict) else {}
+    return _drop_empty(
+        {
+            "result_summary": str(value.get("result_summary") or "")[:1000],
+            "metadata": value.get("metadata") if isinstance(value.get("metadata"), dict) else {},
+            "policy_selection": {
+                **_pick_fields(
+                    selection,
+                    ("status", "selection_strategy", "top_k", "recommend_date", "uses_promoted_ranking", "action_plan"),
+                ),
+                "picks": _candidate_rows(selection.get("picks"), 6),
+            },
+        }
+    )
+
+
+def _compact_ai_report_handoff(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = _pick_fields(
+        value, ("ok", "reason", "model", "stock_count", "reviewed_codes", "next_action", "next_tool")
+    )
+    payload["reviewed_symbols"] = _candidate_rows(value.get("reviewed_symbols"), 8)
+    return _drop_empty(payload)
+
+
+def _compact_strategy_handoff(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = _pick_fields(
+        value,
+        ("ok", "status", "reason", "reviewed_codes", "screen_summary", "decision_brief", "next_action", "message"),
+    )
+    payload["reviewed_symbols"] = _candidate_rows(value.get("reviewed_symbols"), 8)
+    return _drop_empty(payload)
+
+
+def _candidate_rows(value: Any, limit: int) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    return [_compact_candidate(row) if isinstance(row, dict) else row for row in value[:limit]]
+
+
+def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
+    fields = (
+        "code",
+        "name",
+        "selection_source",
+        "priority_rank",
+        "rank_reason",
+        "quality_factors",
+        "risk_factors",
+        "action_status",
+        "next_step",
+        "candidate_shadow_grade",
+        "entry_quality_grade",
+    )
+    return _pick_fields(row, fields)
+
+
+def _pick_fields(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty({field: value.get(field) for field in fields})
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
 def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:

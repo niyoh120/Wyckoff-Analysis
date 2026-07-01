@@ -45,6 +45,8 @@ runtime router 的输出仍提示模型使用标准 `direct` / `dynamic_workflow
 
 workflow planner 支持模型在每个 task 上输出 `rationale`、`success_criteria` 和 `risk_guard`。这些字段会随 `WorkflowStep` 持久化、进入 sub-agent 执行上下文，并在 workflow 详情中展示，避免把动态 workflow 退化成只有标题和工具名的硬编码步骤列表。
 
+workflow executor 会在每个 step 完成后提取压缩版工具 handoff（例如 `last_screen_result`、`last_recommendation_event_eval`、`last_ai_report`），放入 step result 和最终 synthesis prompt。这样“选出好股票”这类多阶段任务不会只依赖 sub-agent 文本转述，最终汇总仍能看到候选代码、行动状态和下一跳边界。
+
 ## 方向一：信号衰减监控
 
 **目标**：按信号类型追踪推荐质量，识别正在失效的信号。
