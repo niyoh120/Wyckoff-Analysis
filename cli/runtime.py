@@ -177,8 +177,8 @@ class AgentRuntime:
         self.cancel_check = cancel_check
         self.stream_chunk_timeout = stream_chunk_timeout
         workflow_tools = getattr(workflow, "allowed_tools", ()) if workflow else ()
-        tool_scope = tuple(allowed_tools or workflow_tools or ())
-        self.allowed_tools = set(tool_scope) if tool_scope else None
+        tool_scope = tuple(allowed_tools) if allowed_tools is not None else tuple(workflow_tools or ())
+        self.allowed_tools = set(tool_scope) if allowed_tools is not None or tool_scope else None
         self.workflow = workflow
         self.enforce_turn_expectations = _strict_turn_expectations_enabled(enforce_turn_expectations)
 

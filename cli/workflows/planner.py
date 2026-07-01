@@ -362,6 +362,7 @@ def _tool_name(raw: Any) -> str:
     if isinstance(raw, dict):
         raw = raw.get("name") or raw.get("tool") or raw.get("id") or raw.get("display_name") or raw.get("label")
     key = _normalize_tool_key(raw)
+    key = _TOOL_NAME_ALIASES.get(key, key)
     if key.startswith("delegate_to_"):
         return ""
     if key in TOOL_SPECS:
@@ -373,6 +374,19 @@ def _normalize_tool_key(raw: Any) -> str:
     key = re.sub(r"[\s/-]+", "_", str(raw or "").strip().lower()).strip("_")
     key = re.sub(r"(_?tool|工具)$", "", key).strip("_")
     return key
+
+
+def _tool_name_aliases() -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for name, spec in TOOL_SPECS.items():
+        for value in (name, spec.display_name):
+            key = _normalize_tool_key(value)
+            if key:
+                aliases[key] = name
+    return aliases
+
+
+_TOOL_NAME_ALIASES = _tool_name_aliases()
 
 
 def _generated_task_like(task: dict[str, Any]) -> bool:

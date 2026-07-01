@@ -1449,6 +1449,67 @@ def test_workflow_executor_scopes_sub_agent_tools_per_step(tmp_path, monkeypatch
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_does_not_widen_filtered_explicit_tool_scope(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    def _blocked_round(messages, tools, _system_prompt):
+        assert tools == []
+        return [
+            {
+                "type": "tool_calls",
+                "tool_calls": [{"id": "tc_exec", "name": "exec_command", "args": {"command": "pwd"}}],
+            }
+        ]
+
+    def _after_block_round(messages, tools, _system_prompt):
+        assert tools == []
+        assert any(
+            message.get("role") == "tool" and "不在当前 workflow 允许范围内" in message.get("content", "")
+            for message in messages
+        )
+        return [{"type": "text_delta", "text": "已阻止越权工具。"}]
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-filtered-scope.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            _blocked_round,
+            _after_block_round,
+            [{"type": "text_delta", "text": "越权工具已被 workflow 边界拦截。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "exec_command", "description": "Mock command", "parameters": {"type": "object"}},
+            {"name": "screen_stocks", "description": "Mock screen", "parameters": {"type": "object"}},
+        ],
+        tool_results={"exec_command": {"status": "should_not_run"}},
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_filtered_scope",
+        user_text="用 workflow 跑本地命令",
+        workflow_context=route_workflow("用 workflow 跑本地命令"),
+        workflow_script={
+            "tasks": [{"id": "local", "title": "本地命令", "tools": ["exec_command"], "prompt": "尝试运行命令"}]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 跑本地命令"}]))
+
+    try:
+        detail = next(event for event in events if event["type"] == "workflow_step_done")["source"]["agent_detail"]
+        assert events[0]["plan"]["steps"][0]["tool_scope"] == ["exec_command"]
+        assert detail["tool_scope"] == ["exec_command"]
+        assert detail["result"] == "已阻止越权工具。"
+        assert tools.calls == []
+        assert events[-1]["text"] == "越权工具已被 workflow 边界拦截。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_portfolio_scope_blocks_question_before_reading_positions(tmp_path, monkeypatch):
     from integrations import local_db
 

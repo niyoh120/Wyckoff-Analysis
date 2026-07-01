@@ -438,8 +438,9 @@ def _step_tool_names(step: WorkflowStep, allowed_tools: tuple[str, ...]) -> tupl
     allowed = _concrete_tools(allowed_tools)
     if not allowed:
         return step.tool_scope or None
-    scope = tuple(name for name in (step.tool_scope or allowed) if name in allowed)
-    return scope or None
+    if step.tool_scope:
+        return tuple(name for name in step.tool_scope if name in allowed)
+    return allowed
 
 
 def _step_turn_expectations_enabled(step: WorkflowStep) -> bool:

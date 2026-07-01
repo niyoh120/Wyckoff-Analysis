@@ -572,7 +572,7 @@ def test_planner_ignores_agent_role_and_keeps_exact_tools():
     assert role_only.steps[0].tools == ()
 
 
-def test_planner_ignores_semantic_tool_labels():
+def test_planner_accepts_tool_display_names_from_model_script():
     context = route_workflow("用 workflow 做持仓和选股复盘")
     run = plan_workflow(
         "做持仓和选股复盘",
@@ -594,7 +594,7 @@ def test_planner_ignores_semantic_tool_labels():
     )
 
     assert run.steps[0].agent == "task"
-    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].tool_scope == ("portfolio", "screen_stocks", "ask_user_question")
 
 
 def test_planner_normalizes_tool_suffixes_from_model_script():

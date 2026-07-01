@@ -255,7 +255,7 @@ def run_sub_agent(
 
 
 def _sub_agent_tool_set(sub: SubAgent, tool_names: tuple[str, ...] | None) -> set[str]:
-    if not tool_names:
+    if tool_names is None:
         return set(sub.tool_names)
     default_tools = set(sub.tool_names)
     return {name for name in tool_names if name in default_tools}
