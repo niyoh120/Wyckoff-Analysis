@@ -903,6 +903,8 @@ def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
                                 "entry_quality_score": 84.0,
                                 "entry_quality_grade": "A",
                                 "risk_factors": ["评估标签尚未成熟"],
+                                "trade_readiness": "research_only",
+                                "new_buy_allowed": False,
                                 "next_step": "生成 AI 研报",
                             }
                         ],
@@ -924,6 +926,7 @@ def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
     assert "必须明确哪些候选禁止直接买入" in prompt
     assert "不得写成买入建议" in prompt
     assert '"candidate_shadow_score": 92.0' in prompt
+    assert '"new_buy_allowed": false' in prompt
 
 
 def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
@@ -1078,6 +1081,8 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
                         "candidate_shadow_score": 92.0,
                         "candidate_shadow_grade": "S",
                         "action_status": "ready_for_ai_review",
+                        "trade_readiness": "research_only",
+                        "new_buy_allowed": False,
                         "next_step": "生成 AI 研报",
                     }
                 ]
@@ -1120,6 +1125,8 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
                             "name": "宁德时代",
                             "reason": "候选标签未成熟，禁止直接买入",
                             "action_status": "ready_for_ai_review",
+                            "trade_readiness": "research_only",
+                            "new_buy_allowed": False,
                             "label_ready": False,
                             "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
                         }
@@ -1151,6 +1158,8 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
         assert "动态 workflow 已完成" in final_text
         assert "候选结论: 首选 300750 宁德时代" in final_text
         assert "状态=ready_for_ai_review" in final_text
+        assert "交易就绪=research_only" in final_text
+        assert "不允许新增买入" in final_text
         assert "证据=候选影子S/92" in final_text
         assert "护栏=候选标签未成熟，禁止直接买入" in final_text
         assert "下一步=等待通知配置后生成 OMS 工单" in final_text

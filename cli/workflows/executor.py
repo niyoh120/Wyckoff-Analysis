@@ -641,6 +641,8 @@ def _compact_candidate_guard_row(row: dict[str, Any]) -> dict[str, Any]:
             "reason",
             "action_status",
             "label_ready",
+            "trade_readiness",
+            "new_buy_allowed",
             "risk_factors",
             "next_step",
         ),
@@ -682,6 +684,9 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "quality_factors",
         "risk_factors",
         "action_status",
+        "trade_readiness",
+        "new_buy_allowed",
+        "ai_review_allowed",
         "next_step",
         "candidate_shadow_grade",
         "entry_quality_score",
@@ -905,8 +910,14 @@ def _fallback_candidate_name(row: dict[str, Any]) -> str:
 
 
 def _fallback_status_part(row: dict[str, Any]) -> str:
-    status = str(row.get("action_status") or "").strip()
-    return f"状态={status}" if status else ""
+    parts = []
+    if status := str(row.get("action_status") or "").strip():
+        parts.append(f"状态={status}")
+    if readiness := str(row.get("trade_readiness") or "").strip():
+        parts.append(f"交易就绪={readiness}")
+    if row.get("new_buy_allowed") is False:
+        parts.append("不允许新增买入")
+    return "，".join(parts)
 
 
 def _fallback_evidence_part(row: dict[str, Any]) -> str:
