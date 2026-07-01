@@ -29,6 +29,47 @@ _STOCK_SELECTION_TARGET_MARKERS = (
     "值得跟踪",
     "重点跟踪",
 )
+_STOCK_SELECTION_REQUEST_MARKERS = (
+    "帮我",
+    "给我",
+    "帮忙",
+    "麻烦",
+    "看下",
+    "看看",
+    "今天",
+    "当前",
+    "本轮",
+    "现在",
+)
+_STOCK_SELECTION_ACTION_MARKERS = (
+    "选",
+    "筛",
+    "挑",
+    "找",
+    "挖",
+    "扫描",
+    "复核",
+    "列出",
+    "给出",
+)
+_STOCK_SELECTION_OBJECT_MARKERS = (
+    "股票",
+    "a股",
+    "个股",
+    "票",
+    "标的",
+    "机会",
+)
+_STOCK_SELECTION_QUALITY_MARKERS = (
+    "候选",
+    "值得",
+    "跟踪",
+    "复核",
+    "强势",
+    "优质",
+    "机会",
+    "买点",
+)
 _STOCK_SELECTION_DEPTH_MARKERS = (
     "完整",
     "一遍",
@@ -179,15 +220,31 @@ def _explicit_dynamic_workflow_matches(text: str) -> tuple[str, ...]:
 
 def _stock_selection_workflow_matches(text: str) -> tuple[str, ...]:
     delivery_matches = _marker_matches(text, _STOCK_SELECTION_DELIVERY_MARKERS)
-    if delivery_matches and not _stock_selection_explainer_matches(text):
+    if delivery_matches and (not _stock_selection_explainer_matches(text) or _concrete_stock_selection_request(text)):
         return delivery_matches
+    if _stock_selection_explainer_matches(text) and not _concrete_stock_selection_request(text):
+        return ()
     target_matches = _marker_matches(text, _STOCK_SELECTION_TARGET_MARKERS)
     if not target_matches:
-        return ()
+        return _semantic_stock_selection_matches(text)
     depth_matches = _marker_matches(text, _STOCK_SELECTION_DEPTH_MARKERS)
     if not depth_matches:
         return ()
     return tuple(dict.fromkeys((*target_matches, *depth_matches)))
+
+
+def _semantic_stock_selection_matches(text: str) -> tuple[str, ...]:
+    request_matches = _marker_matches(text, _STOCK_SELECTION_REQUEST_MARKERS)
+    action_matches = _marker_matches(text, _STOCK_SELECTION_ACTION_MARKERS)
+    object_matches = _marker_matches(text, _STOCK_SELECTION_OBJECT_MARKERS)
+    quality_matches = _marker_matches(text, _STOCK_SELECTION_QUALITY_MARKERS)
+    depth_matches = _marker_matches(text, _STOCK_SELECTION_DEPTH_MARKERS)
+    has_action = bool(action_matches or request_matches)
+    has_intent = bool(quality_matches or (action_matches and depth_matches))
+    if not (has_action and object_matches and has_intent):
+        return ()
+    matches = (*request_matches, *action_matches, *object_matches, *quality_matches, *depth_matches)
+    return tuple(dict.fromkeys(matches))
 
 
 def _marker_matches(text: str, markers: tuple[str, ...]) -> tuple[str, ...]:
@@ -196,6 +253,10 @@ def _marker_matches(text: str, markers: tuple[str, ...]) -> tuple[str, ...]:
 
 def _stock_selection_explainer_matches(text: str) -> bool:
     return any(marker in text for marker in _STOCK_SELECTION_EXPLAINER_MARKERS)
+
+
+def _concrete_stock_selection_request(text: str) -> bool:
+    return any(marker in text for marker in _STOCK_SELECTION_REQUEST_MARKERS)
 
 
 def _with_route(
