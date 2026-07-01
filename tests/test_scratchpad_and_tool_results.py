@@ -350,6 +350,35 @@ def test_screen_stocks_brief_lines_use_symbols_for_report_handoff():
     ]
 
 
+def test_screen_stocks_preview_prioritizes_report_candidates_over_watch():
+    result = {
+        "selection_brief": {
+            "primary_pick": {"code": "000013", "name": "观察候选", "action_status": "watch_only"},
+            "best_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+        },
+        "symbols_for_report": [],
+        "report_candidates": [
+            {
+                "code": "000014",
+                "name": "高质量候选",
+                "candidate_shadow_score": 92.0,
+                "candidate_shadow_grade": "S",
+                "action_status": "ready_for_ai_review",
+                "next_step": "生成 AI 研报",
+            }
+        ],
+        "watch_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+    }
+
+    preview = tool_result_preview("screen_stocks", result)
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert '"report_candidates": [{"code": "000014"' in preview
+    assert '"watch_candidates": [{"code": "000013"' in preview
+    assert "候选结论: 首选 000014 高质量候选" in preview
+    assert lines[0] == "候选结论: 首选 000014 高质量候选 · 可进入AI复核 · 证据: 候选影子S/92 · 下一步: 生成 AI 研报"
+
+
 def test_recommendation_event_eval_large_result_preview_preserves_policy_selection(tmp_path, monkeypatch):
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     result = {

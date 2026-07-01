@@ -612,6 +612,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "candidate_conclusion": _candidate_conclusion_preview("last_screen_result", result),
             "top_candidates": _candidate_preview_list(result.get("top_candidates"), 10),
             "symbols_for_report": _candidate_preview_list(result.get("symbols_for_report"), 12),
+            "report_candidates": _candidate_preview_list(result.get("report_candidates"), 12),
             "watch_candidates": _candidate_preview_list(result.get("watch_candidates"), 6),
             "quality_gate": result.get("quality_gate"),
             "action_plan": _screen_action_plan_preview(result.get("action_plan")),
@@ -659,9 +660,11 @@ def _screen_brief_candidates(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _screen_candidate_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
     selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
-    rows: list[Any] = [selection.get("primary_pick")]
-    rows.extend(_preview_list(selection.get("best_candidates"), 3))
+    rows: list[Any] = []
+    rows.extend(_preview_list(result.get("report_candidates"), 3))
     rows.extend(_preview_list(result.get("symbols_for_report"), 3))
+    rows.append(selection.get("primary_pick"))
+    rows.extend(_preview_list(selection.get("best_candidates"), 3))
     rows.extend(_preview_list(result.get("watch_candidates"), 3))
     rows.extend(_preview_list(result.get("top_candidates"), 3))
     return [row for row in rows if isinstance(row, dict)]

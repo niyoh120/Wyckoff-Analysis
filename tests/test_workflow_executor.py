@@ -1203,6 +1203,51 @@ def test_workflow_fallback_labels_watch_only_quality_gate_candidate():
     assert "下一步=观察池跟踪，暂不进入本轮AI复核" in summary
 
 
+def test_workflow_handoff_and_fallback_prioritize_report_candidates_over_watch():
+    tools = StubToolRegistry()
+    tools._tool_context = SimpleNamespace(
+        state={
+            "last_screen_result": {
+                "summary": {"report_candidates": 1, "watch_candidates": 1},
+                "selection_brief": {
+                    "status": "ready_for_ai_review",
+                    "primary_pick": {"code": "000013", "name": "观察候选", "action_status": "watch_only"},
+                    "best_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                },
+                "symbols_for_report": [],
+                "report_candidates": [
+                    {
+                        "code": "000014",
+                        "name": "高质量候选",
+                        "action_status": "ready_for_ai_review",
+                        "candidate_shadow_grade": "S",
+                        "candidate_shadow_score": 92.0,
+                        "next_step": "生成 AI 研报",
+                    }
+                ],
+                "watch_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+            }
+        }
+    )
+
+    handoff = _workflow_handoff_state(tools)
+    summary = _fallback_summary(
+        [
+            {
+                "step": {"title": "扫描候选"},
+                "result": {"status": "completed", "result": "扫描完成。", "handoff_state": handoff},
+            }
+        ]
+    )
+
+    screen = handoff["last_screen_result"]
+    assert screen["report_candidates"][0]["code"] == "000014"
+    assert screen["watch_candidates"][0]["code"] == "000013"
+    assert "候选结论: 首选 000014 高质量候选" in summary
+    assert "候选影子S/92" in summary
+    assert "观察候选 000013 观察候选" not in summary.splitlines()[1]
+
+
 def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():
     handoff = {
         "last_screen_result": {

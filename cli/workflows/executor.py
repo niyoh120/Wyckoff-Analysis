@@ -557,6 +557,7 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
     )
     payload["quality_gate"] = value.get("quality_gate") if isinstance(value.get("quality_gate"), dict) else {}
     payload["symbols_for_report"] = _candidate_rows(value.get("symbols_for_report"), 6)
+    payload["report_candidates"] = _candidate_rows(value.get("report_candidates"), 6)
     payload["watch_candidates"] = _candidate_rows(value.get("watch_candidates"), 6)
     payload["top_candidates"] = _candidate_rows(value.get("top_candidates"), 6)
     payload["candidate_guard_summary"] = _compact_candidate_guard(value.get("candidate_guard_summary"))
@@ -989,9 +990,11 @@ def _first_candidate_row(rows: list[Any]) -> dict[str, Any]:
 def _fallback_stage_candidates(stage: str, value: dict[str, Any]) -> list[dict[str, Any]]:
     if stage == "last_screen_result":
         selection = value.get("selection_brief") if isinstance(value.get("selection_brief"), dict) else {}
-        rows: list[Any] = [selection.get("primary_pick")]
-        rows.extend(_as_list(selection.get("best_candidates")))
+        rows: list[Any] = []
+        rows.extend(_as_list(value.get("report_candidates")))
         rows.extend(_as_list(value.get("symbols_for_report")))
+        rows.append(selection.get("primary_pick"))
+        rows.extend(_as_list(selection.get("best_candidates")))
         rows.extend(_as_list(value.get("watch_candidates")))
         rows.extend(_as_list(value.get("top_candidates")))
     elif stage == "last_recommendation_event_eval":
