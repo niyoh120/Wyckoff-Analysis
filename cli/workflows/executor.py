@@ -638,6 +638,7 @@ def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:
     script_prompt = ""
     if isinstance(run.script, dict):
         script_prompt = str(run.script.get("synthesis_prompt", "") or "").strip()
+    handoff_summary = _synthesis_handoff_summary(results)
     return (
         "请基于以下动态 workflow 执行结果，给用户输出最终中文答复。\n"
         "要求：只使用 agent 结果里的事实；如果某步失败，明确说明影响和降级结论。\n"
@@ -645,8 +646,29 @@ def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:
         f"模型脚本的汇总要求:\n{script_prompt or '-'}\n\n"
         f"用户请求:\n{run.user_text}\n\n"
         f"workflow script:\n{json.dumps(run.script, ensure_ascii=False, default=str)[:4000]}\n\n"
+        f"priority candidate handoff:\n{json.dumps(handoff_summary, ensure_ascii=False, default=str)[:6000]}\n\n"
         f"agent results:\n{json.dumps(results, ensure_ascii=False, default=str)[:12000]}"
     )
+
+
+def _synthesis_handoff_summary(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary: list[dict[str, Any]] = []
+    for item in results:
+        result = item.get("result") if isinstance(item, dict) else {}
+        handoff = result.get("handoff_state") if isinstance(result, dict) else {}
+        if not isinstance(handoff, dict) or not handoff:
+            continue
+        step = item.get("step") if isinstance(item.get("step"), dict) else {}
+        summary.append(
+            _drop_empty(
+                {
+                    "step_id": step.get("step_id"),
+                    "title": step.get("title"),
+                    "handoff_state": handoff,
+                }
+            )
+        )
+    return summary
 
 
 def _collect_synthesis(provider: Any, prompt: str, system_prompt: str) -> tuple[str, dict[str, int]]:

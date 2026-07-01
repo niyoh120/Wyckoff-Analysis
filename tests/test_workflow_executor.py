@@ -661,6 +661,43 @@ def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
     assert '"candidate_shadow_score": 92.0' in prompt
 
 
+def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
+    run = WorkflowRun(
+        run_id="wf_long_handoff",
+        session_id="s_long_handoff",
+        user_text="帮我选出今天最值得复核的股票",
+        context=WORKFLOWS["dynamic_task"],
+        script={"synthesis_prompt": "优先汇总候选。"},
+    )
+    handoff = {
+        "last_screen_result": {
+            "symbols_for_report": [
+                {
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "candidate_shadow_score": 92.0,
+                    "candidate_shadow_grade": "S",
+                    "next_step": "生成 AI 研报",
+                }
+            ]
+        }
+    }
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {"status": "completed", "result": "x" * 13000, "handoff_state": handoff},
+        }
+    ]
+
+    prompt = _synthesis_prompt(run, results)
+    handoff_section = prompt.split("priority candidate handoff:\n", 1)[1].split("\n\nagent results:", 1)[0]
+    agent_results_section = prompt.split("agent results:\n", 1)[1]
+
+    assert '"candidate_shadow_score": 92.0' in handoff_section
+    assert '"300750"' in handoff_section
+    assert '"candidate_shadow_score": 92.0' not in agent_results_section
+
+
 def test_workflow_executor_waits_step_background_tasks_for_handoff(tmp_path, monkeypatch):
     from integrations import local_db
 
