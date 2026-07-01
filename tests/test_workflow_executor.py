@@ -584,7 +584,37 @@ def test_workflow_handoff_state_compacts_candidate_context():
                     }
                 ],
                 "trigger_groups": [{"large": "omitted"}],
-            }
+            },
+            "last_strategy_decision": {
+                "status": "skipped_notify_unconfigured",
+                "report_source": "last_ai_report",
+                "candidate_count": 1,
+                "reviewed_codes": ["300750"],
+                "reviewed_symbols": [
+                    {
+                        "code": "300750",
+                        "name": "宁德时代",
+                        "action_status": "ready_for_ai_review",
+                        "label_ready": False,
+                        "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                    }
+                ],
+                "candidate_guard_summary": {
+                    "direct_buy_blocked_count": 1,
+                    "message": "以下候选仅可复核或观察，禁止直接买入",
+                    "candidates": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "reason": "候选标签未成熟，禁止直接买入",
+                            "action_status": "ready_for_ai_review",
+                            "label_ready": False,
+                            "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                            "debug_payload": "omitted",
+                        }
+                    ],
+                },
+            },
         }
     )
 
@@ -601,6 +631,11 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert candidate["selection_strategy"] == "candidate_shadow_then_score"
     assert candidate["is_ai_recommended"] is True
     assert candidate["label_ready"] is False
+    guard = handoff["last_strategy_decision"]["candidate_guard_summary"]
+    assert guard["direct_buy_blocked_count"] == 1
+    assert guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
+    assert guard["candidates"][0]["label_ready"] is False
+    assert "debug_payload" not in guard["candidates"][0]
     assert "trigger_groups" not in screen
 
 
@@ -695,6 +730,8 @@ def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
     assert "entry_quality_score/grade" in prompt
     assert "new_buy_allowed=false" in prompt
     assert "trade_readiness=research_only" in prompt
+    assert "存在 candidate_guard_summary" in prompt
+    assert "必须明确哪些候选禁止直接买入" in prompt
     assert "不得写成买入建议" in prompt
     assert '"candidate_shadow_score": 92.0' in prompt
 
@@ -835,6 +872,20 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
                         "next_step": "等待通知配置后生成 OMS 工单",
                     }
                 ],
+                "candidate_guard_summary": {
+                    "direct_buy_blocked_count": 1,
+                    "message": "以下候选仅可复核或观察，禁止直接买入",
+                    "candidates": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "reason": "候选标签未成熟，禁止直接买入",
+                            "action_status": "ready_for_ai_review",
+                            "label_ready": False,
+                            "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                        }
+                    ],
+                },
                 "next_action": "补充 Telegram 配置后可发送攻防工单",
             },
         }
@@ -865,6 +916,8 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
         assert "下一步: 生成 AI 研报" in final_text
         assert "AI研报: reviewed=1, model=gpt-test, next=研报已完成，可进入组合攻防决策" in final_text
         assert "攻防决策: status=skipped_notify_unconfigured, source=last_ai_report" in final_text
+        assert "候选护栏: 1只禁止直接买入" in final_text
+        assert "候选标签未成熟，禁止直接买入" in final_text
         assert "等待通知配置后生成 OMS 工单" in final_text
     finally:
         _reset_local_db(local_db)

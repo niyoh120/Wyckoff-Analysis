@@ -49,7 +49,8 @@ _SYNTHESIS_REQUIREMENTS = (
     "必须按候选分层输出：可进入 AI 研报/攻防决策、仅观察、被数据质量/市场闸门/策略保护阻断。\n"
     "- 候选行要优先使用代码/名称、action_status、trade_readiness、priority_score/shadow_score/"
     "funnel_score、candidate_shadow_score/grade、entry_quality_score/grade、quality_factors、risk_factors、next_step。\n"
-    "- 如果 new_buy_allowed=false、trade_readiness=research_only 或 action_status 不是可执行状态，"
+    "- 如果存在 candidate_guard_summary，必须明确哪些候选禁止直接买入以及原因；"
+    "如果 new_buy_allowed=false、trade_readiness=research_only 或 action_status 不是可执行状态，"
     "不得写成买入建议；只能写观察、研报复核或攻防决策下一步。\n"
     "- 如果没有可靠候选或数据质量不足，说明不能选出股票的原因和修复动作。\n"
 )
@@ -588,7 +589,37 @@ def _compact_strategy_handoff(value: Any) -> dict[str, Any]:
         ),
     )
     payload["reviewed_symbols"] = _candidate_rows(value.get("reviewed_symbols"), 8)
+    payload["candidate_guard_summary"] = _compact_candidate_guard(value.get("candidate_guard_summary"))
     return _drop_empty(payload)
+
+
+def _compact_candidate_guard(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = _pick_fields(value, ("direct_buy_blocked_count", "message"))
+    payload["candidates"] = _candidate_guard_rows(value.get("candidates"), 5)
+    return _drop_empty(payload)
+
+
+def _candidate_guard_rows(value: Any, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [_compact_candidate_guard_row(row) for row in value[:limit] if isinstance(row, dict)]
+
+
+def _compact_candidate_guard_row(row: dict[str, Any]) -> dict[str, Any]:
+    return _pick_fields(
+        row,
+        (
+            "code",
+            "name",
+            "reason",
+            "action_status",
+            "label_ready",
+            "risk_factors",
+            "next_step",
+        ),
+    )
 
 
 def _candidate_rows(value: Any, limit: int) -> list[Any]:
