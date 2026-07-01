@@ -15,7 +15,20 @@ from cli.workflows.router import route_workflow
 MAX_WORKFLOW_STEPS = 24
 TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions", "plan")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
-TOOL_SCOPE_FIELDS = ("tool_scope", "allowed_tools", "tools", "tool")
+TOOL_SCOPE_FIELDS = (
+    "tool_scope",
+    "allowed_tools",
+    "required_tools",
+    "required_tool",
+    "tool_names",
+    "tool_name",
+    "tools",
+    "tool",
+    "functions",
+    "function",
+    "tool_calls",
+    "tool_call",
+)
 
 _PLAN_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的动态 workflow 编排器。
@@ -360,13 +373,36 @@ def _task_tool_scope(task: dict[str, Any]) -> tuple[str, ...]:
 
 def _tool_name(raw: Any) -> str:
     if isinstance(raw, dict):
-        raw = raw.get("name") or raw.get("tool") or raw.get("id") or raw.get("display_name") or raw.get("label")
-    key = _normalize_tool_key(raw)
+        raw = _tool_name_payload_value(raw)
+    raw_text = str(raw or "")
+    key = _normalize_tool_key(raw_text)
     key = _TOOL_NAME_ALIASES.get(key, key)
     if key.startswith("delegate_to_"):
         return ""
     if key in TOOL_SPECS:
         return key
+    return _embedded_tool_name(raw_text)
+
+
+def _tool_name_payload_value(payload: dict[str, Any]) -> Any:
+    for field in ("function", "tool"):
+        nested = payload.get(field)
+        if isinstance(nested, dict):
+            return _tool_name_payload_value(nested)
+    return (
+        payload.get("name")
+        or payload.get("tool")
+        or payload.get("id")
+        or payload.get("display_name")
+        or payload.get("label")
+    )
+
+
+def _embedded_tool_name(raw: str) -> str:
+    text = raw.lower()
+    for name, spec in TOOL_SPECS.items():
+        if name in text or str(spec.display_name or "") in raw:
+            return "" if name.startswith("delegate_to_") else name
     return ""
 
 

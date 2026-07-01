@@ -621,6 +621,44 @@ def test_planner_normalizes_tool_suffixes_from_model_script():
     assert run.steps[0].tool_scope == ("portfolio",)
 
 
+def test_planner_accepts_common_tool_scope_variants_from_model_script():
+    context = route_workflow("用 workflow 做选股和攻防计划")
+    run = plan_workflow(
+        "做选股和攻防计划",
+        context=context,
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "scan",
+                    "title": "扫描候选",
+                    "required_tools": ["调用 screen_stocks", "大盘水温"],
+                    "prompt": "扫描候选并读取市场环境。",
+                },
+                {
+                    "id": "report",
+                    "title": "生成研报",
+                    "tool_names": "深度审讯",
+                    "after": "scan",
+                    "prompt": "基于候选生成研报。",
+                },
+                {
+                    "id": "decision",
+                    "title": "形成攻防",
+                    "tool_calls": [{"function": {"name": "generate_strategy_decision"}}],
+                    "after": "report",
+                    "prompt": "输出候选攻防计划。",
+                },
+            ]
+        },
+    )
+
+    assert [step.tool_scope for step in run.steps] == [
+        ("screen_stocks", "get_market_overview"),
+        ("generate_ai_report",),
+        ("generate_strategy_decision",),
+    ]
+
+
 def test_planner_accepts_string_task_lists_from_model_script():
     context = route_workflow("用 workflow 做持仓复盘")
     run = plan_workflow(
