@@ -225,7 +225,7 @@ def reviewed_symbols_from_info(symbols_info: list[dict]) -> list[dict]:
 def _compact_symbol(row: dict[str, Any]) -> dict:
     payload = {field: _compact_symbol_value(row.get(field)) for field in _COMPACT_SYMBOL_FIELDS}
     payload["code"] = normalize_stock_code(row.get("code") or row.get("symbol"))
-    return {key: value for key, value in payload.items() if value}
+    return {key: value for key, value in payload.items() if _has_value(value)}
 
 
 def screen_symbol_map(tool_context: ToolContext | None) -> dict[str, dict]:

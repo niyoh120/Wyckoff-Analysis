@@ -442,8 +442,11 @@ class TestAiReportTool:
                             "rank": 1,
                             "code": "300750",
                             "name": "宁德时代",
+                            "funnel_score": 0.0,
                             "candidate_shadow_grade": "S",
                             "entry_quality_grade": "A",
+                            "label_ready": False,
+                            "label_status": "pending",
                             "action_status": "ready_for_ai_review",
                         }
                     ],
@@ -464,8 +467,12 @@ class TestAiReportTool:
 
         assert result["reviewed_codes"] == ["300750"]
         assert result["reviewed_symbols"][0]["selection_source"] == "recommendation_event_eval"
+        assert result["reviewed_symbols"][0]["funnel_score"] == 0.0
         assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
+        assert result["reviewed_symbols"][0]["label_ready"] is False
+        assert result["reviewed_symbols"][0]["label_status"] == "pending"
         assert captured["symbols_info"][0]["entry_quality_grade"] == "A"
+        assert captured["symbols_info"][0]["label_ready"] is False
         assert ctx.state["last_ai_report"]["report_text"] == "# 推荐评估候选研报"
 
     def test_generate_ai_report_blocks_auto_handoff_on_degraded_screen_data(self, monkeypatch):
