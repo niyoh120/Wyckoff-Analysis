@@ -9,6 +9,7 @@ from agents.report_tools import (
     reviewed_symbols_from_info,
     run_ai_report,
     screen_auto_handoff_block_reason,
+    screen_auto_handoff_block_status,
     symbols_info_from_codes,
 )
 from agents.screen_tools import screen_stocks
@@ -38,7 +39,7 @@ def generate_strategy_decision(
         candidate_input_provided = _has_candidate_inputs(reviewed_symbols, reviewed_codes, last_report)
         if not report_text and not candidate_input_provided:
             if reason := screen_auto_handoff_block_reason(screen_payload):
-                result = _strategy_blocked_by_screen_quality(screen_payload, reason)
+                result = _strategy_blocked_by_screen_handoff(screen_payload, reason)
                 remember_strategy_decision(tool_context, result)
                 return result
         if not report_text and not screen_payload and not candidate_input_provided:
@@ -46,7 +47,7 @@ def generate_strategy_decision(
             if screen_payload.get("error"):
                 return {"error": f"筛选失败: {screen_payload['error']}"}
             if reason := screen_auto_handoff_block_reason(screen_payload):
-                result = _strategy_blocked_by_screen_quality(screen_payload, reason)
+                result = _strategy_blocked_by_screen_handoff(screen_payload, reason)
                 remember_strategy_decision(tool_context, result)
                 return result
 
@@ -231,19 +232,40 @@ def _strategy_without_telegram(
     return payload
 
 
-def _strategy_blocked_by_screen_quality(screen_result: dict, reason: str) -> dict:
+def _strategy_blocked_by_screen_handoff(screen_result: dict, reason: str) -> dict:
+    status = screen_auto_handoff_block_status(screen_result)
     return {
         "ok": False,
         "reason": reason,
-        "status": "blocked_by_data_quality",
-        "report_source": "blocked_by_screen_data_quality",
+        "status": status,
+        "report_source": _blocked_report_source(status),
         "candidate_count": 0,
         "reviewed_codes": [],
         "reviewed_symbols": [],
         "screen_summary": screen_result.get("summary", {}) if isinstance(screen_result, dict) else {},
         "decision_brief": screen_result.get("decision_brief", {}) if isinstance(screen_result, dict) else {},
-        "next_action": "先重跑或缩小扫描范围，确认行情数据质量后再生成策略决策",
+        "next_action": _blocked_next_action(status),
     }
+
+
+def _blocked_report_source(status: str) -> str:
+    if status == "blocked_by_data_quality":
+        return "blocked_by_screen_data_quality"
+    if status == "blocked_by_quality_gate":
+        return "blocked_by_screen_quality_gate"
+    if status == "blocked_by_policy_guard":
+        return "blocked_by_screen_policy_guard"
+    return "blocked_by_screen_handoff"
+
+
+def _blocked_next_action(status: str) -> str:
+    if status == "blocked_by_data_quality":
+        return "先重跑或缩小扫描范围，确认行情数据质量后再生成策略决策"
+    if status == "blocked_by_quality_gate":
+        return "先保留观察候选，等待风险调整质量分达标后再生成策略决策"
+    if status == "blocked_by_policy_guard":
+        return "先观察候选，等待排序或策略门槛通过后再生成策略决策"
+    return "先处理上一轮候选交接阻断原因后再生成策略决策"
 
 
 def _strategy_payload(

@@ -845,6 +845,97 @@ class TestStrategyDecisionTool:
         assert result["next_action"] == "先重跑或缩小扫描范围，确认行情数据质量后再生成策略决策"
         assert ctx.state["last_strategy_decision"]["status"] == "blocked_by_data_quality"
 
+    def test_generate_strategy_decision_blocks_auto_report_on_quality_gate(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        reason = "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 0},
+                    "symbols_for_report": [],
+                    "decision_brief": {"next_action": "观察候选"},
+                    "selection_brief": {
+                        "status": "watch_only",
+                        "best_candidates": [{"code": "000013", "name": "低质量候选", "action_status": "watch_only"}],
+                    },
+                    "action_plan": {
+                        "ai_review_allowed": False,
+                        "quality_gate": {
+                            "status": "blocked_by_quality_gate",
+                            "reason": reason,
+                            "blocked_count": 1,
+                        },
+                        "review_targets": {
+                            "codes": [],
+                            "status": "blocked_by_quality_gate",
+                            "reason": reason,
+                        },
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools,
+            "run_ai_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not run report")),
+        )
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        assert result["ok"] is False
+        assert result["status"] == "blocked_by_quality_gate"
+        assert result["report_source"] == "blocked_by_screen_quality_gate"
+        assert result["reason"] == reason
+        assert result["candidate_count"] == 0
+        assert result["next_action"] == "先保留观察候选，等待风险调整质量分达标后再生成策略决策"
+        assert ctx.state["last_strategy_decision"]["status"] == "blocked_by_quality_gate"
+
+    def test_generate_strategy_decision_labels_recommendation_policy_guard(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "scan_scope": {"source": "recommendation_event_eval"},
+                    "summary": {"report_candidates": 1},
+                    "selection_brief": {
+                        "status": "watch_only",
+                        "headline": "推荐事件评估仍是观察候选",
+                        "best_candidates": [{"code": "300750", "name": "宁德时代", "action_status": "watch_only"}],
+                    },
+                    "action_plan": {
+                        "ai_review_allowed": False,
+                        "reason": "推荐事件评估仍是观察候选，需等待排序门槛通过",
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools,
+            "run_ai_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not run report")),
+        )
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        assert result["ok"] is False
+        assert result["status"] == "blocked_by_policy_guard"
+        assert result["report_source"] == "blocked_by_screen_policy_guard"
+        assert result["next_action"] == "先观察候选，等待排序或策略门槛通过后再生成策略决策"
+
     def test_generate_strategy_decision_explicit_report_ignores_degraded_screen_candidates(self, monkeypatch):
         from agents import strategy_tools
         from agents.tool_context import ToolContext
