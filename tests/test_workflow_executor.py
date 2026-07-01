@@ -509,6 +509,30 @@ def test_workflow_handoff_state_compacts_candidate_context():
                     {
                         "code": "300750",
                         "name": "宁德时代",
+                        "tag": "推荐评估候选",
+                        "track": "Trend",
+                        "stage": "Markup",
+                        "candidate_lane": "mainline",
+                        "entry_type": "launchpad",
+                        "selection_source": "recommendation_event_eval",
+                        "source_type": "policy_selection",
+                        "priority_rank": 1,
+                        "priority_score": 91.2,
+                        "shadow_score": 88.4,
+                        "score": 12.5,
+                        "selection_strategy": "candidate_shadow_then_score",
+                        "recommend_date": "2026-06-30",
+                        "is_ai_recommended": True,
+                        "funnel_score": 89.5,
+                        "recommend_count": 2,
+                        "candidate_shadow_score": 92.0,
+                        "candidate_shadow_grade": "S",
+                        "entry_quality_score": 84.0,
+                        "entry_quality_grade": "A",
+                        "entry_quality_risk_flags": ["短线涨幅偏快"],
+                        "label_ready": False,
+                        "label_status": "pending",
+                        "rank_reason": "推荐评估候选#1；候选影子评级 S",
                         "quality_factors": ["高优先级研报候选"],
                         "risk_factors": ["不直接买入"],
                         "action_status": "ready_for_ai_review",
@@ -525,7 +549,14 @@ def test_workflow_handoff_state_compacts_candidate_context():
     screen = handoff["last_screen_result"]
     assert screen["selection_brief"]["best_codes"] == ["300750"]
     assert screen["action_plan"]["new_buy_allowed"] is False
-    assert screen["symbols_for_report"][0]["code"] == "300750"
+    candidate = screen["symbols_for_report"][0]
+    assert candidate["code"] == "300750"
+    assert candidate["candidate_shadow_score"] == 92.0
+    assert candidate["entry_quality_score"] == 84.0
+    assert candidate["funnel_score"] == 89.5
+    assert candidate["selection_strategy"] == "candidate_shadow_then_score"
+    assert candidate["is_ai_recommended"] is True
+    assert candidate["label_ready"] is False
     assert "trigger_groups" not in screen
 
 
