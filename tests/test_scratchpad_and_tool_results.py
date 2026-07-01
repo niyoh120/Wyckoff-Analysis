@@ -273,7 +273,17 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
             "top_k": 1,
             "recommend_date": 20260601,
             "uses_promoted_ranking": True,
-            "picks": [{"rank": 1, "code": "300750", "name": "宁德时代", "candidate_shadow_grade": "S"}],
+            "picks": [
+                {
+                    "rank": 1,
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "candidate_shadow_grade": "S",
+                    "action_status": "ready_for_ai_review",
+                    "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                    "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+                }
+            ],
         },
         "events": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(20)],
     }
@@ -286,6 +296,8 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert "ranking_decision=candidate" in content
     assert "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代" in content
     assert '"candidate_shadow_grade": "S"' in preview
+    assert '"action_status": "ready_for_ai_review"' in preview
+    assert "最新候选的未来窗口标签尚未成熟" in preview
     assert '"events"' not in content
     assert lines == [
         "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",

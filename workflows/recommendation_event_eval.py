@@ -359,12 +359,13 @@ def _policy_selection(events: list[dict[str, Any]], decision: dict[str, Any]) ->
     latest_date = max(by_date)
     strategy = _policy_strategy(decision)
     top_k = _policy_top_k(decision)
+    status = str(decision.get("status", "unknown"))
     picks = [
-        _policy_pick(row, idx + 1, strategy)
+        _policy_pick(row, idx + 1, strategy, status)
         for idx, row in enumerate(_rank_events(by_date[latest_date], strategy)[:top_k])
     ]
     return {
-        "status": decision.get("status", "unknown"),
+        "status": status,
         "selection_strategy": strategy,
         "top_k": top_k,
         "recommend_date": latest_date,
@@ -403,7 +404,7 @@ def _policy_top_k(decision: dict[str, Any]) -> int:
         return 1
 
 
-def _policy_pick(event: dict[str, Any], rank: int, strategy: str) -> dict[str, Any]:
+def _policy_pick(event: dict[str, Any], rank: int, strategy: str, policy_status: str) -> dict[str, Any]:
     return {
         "rank": rank,
         "selection_strategy": strategy,
@@ -420,7 +421,45 @@ def _policy_pick(event: dict[str, Any], rank: int, strategy: str) -> dict[str, A
         "entry_quality_risk_flags": event.get("entry_quality_risk_flags") or [],
         "label_ready": bool(event.get("label_ready")),
         "label_status": event.get("label_status"),
+        "action_status": _policy_pick_action_status(policy_status),
+        "quality_factors": _policy_pick_quality_factors(event),
+        "risk_factors": _policy_pick_risk_factors(event, policy_status),
+        "next_step": _policy_pick_next_step(policy_status),
     }
+
+
+def _policy_pick_action_status(policy_status: str) -> str:
+    return "ready_for_ai_review" if policy_status == "candidate" else "watch_only"
+
+
+def _policy_pick_quality_factors(event: dict[str, Any]) -> list[str]:
+    factors: list[str] = []
+    if grade := _clean_text(event.get("candidate_shadow_grade")):
+        factors.append(f"候选影子评级 {grade}")
+    if grade := _clean_text(event.get("entry_quality_grade")):
+        factors.append(f"入场质量评级 {grade}")
+    if event.get("is_ai_recommended"):
+        factors.append("已进入 AI 推荐")
+    return factors
+
+
+def _policy_pick_risk_factors(event: dict[str, Any], policy_status: str) -> list[str]:
+    risks = [_clean_text(item) for item in event.get("entry_quality_risk_flags") or [] if _clean_text(item)]
+    if policy_status != "candidate":
+        risks.append("排序接入门槛未过，按 score_only 观察")
+    if not event.get("label_ready"):
+        risks.append("最新候选的未来窗口标签尚未成熟")
+    return risks
+
+
+def _policy_pick_next_step(policy_status: str) -> str:
+    if policy_status == "candidate":
+        return "生成 AI 研报并结合持仓形成攻防决策"
+    return "先作为观察候选复核，等待更多样本或研报证据后再升级"
+
+
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
 
 
 def _top_k_summary(events: list[dict[str, Any]], k: int, strategy: str = "score_only") -> dict[str, Any]:

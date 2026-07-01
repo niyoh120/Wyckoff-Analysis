@@ -25,6 +25,10 @@ def _fake_eval_result(request):
                     "name": "宁德时代",
                     "candidate_shadow_grade": "S",
                     "entry_quality_grade": "A",
+                    "action_status": "ready_for_ai_review",
+                    "quality_factors": ["候选影子评级 S", "入场质量评级 A"],
+                    "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                    "next_step": "生成 AI 研报并结合持仓形成攻防决策",
                 }
             ],
         },
@@ -65,6 +69,8 @@ def test_evaluate_recommendation_events_records_report_handoff(monkeypatch):
     assert handoff["scan_scope"]["source"] == "recommendation_event_eval"
     assert handoff["selection_brief"]["best_codes"] == ["300750"]
     assert handoff["symbols_for_report"][0]["candidate_shadow_grade"] == "S"
+    assert handoff["symbols_for_report"][0]["action_status"] == "ready_for_ai_review"
+    assert "最新候选的未来窗口标签尚未成熟" in handoff["symbols_for_report"][0]["risk_factors"]
     assert handoff["selection_brief"]["tool_handoff"]["args"]["stock_codes"][0]["code"] == "300750"
     assert result["policy_selection"]["picks"][0]["code"] == "300750"
 

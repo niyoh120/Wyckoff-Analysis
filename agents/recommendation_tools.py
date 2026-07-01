@@ -168,8 +168,8 @@ def _policy_pick_handoff(row: dict[str, Any]) -> dict[str, Any]:
         "rank_reason": _policy_rank_reason(rank, strategy, quality_factors),
         "quality_factors": quality_factors,
         "risk_factors": _policy_risk_factors(row),
-        "action_status": "ready_for_ai_review",
-        "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+        "action_status": str(row.get("action_status") or "ready_for_ai_review"),
+        "next_step": str(row.get("next_step") or "生成 AI 研报并结合持仓形成攻防决策"),
         "selection_strategy": strategy,
         "recommend_date": row.get("recommend_date"),
         "is_ai_recommended": row.get("is_ai_recommended"),
@@ -186,21 +186,22 @@ def _policy_pick_handoff(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _policy_quality_factors(row: dict[str, Any]) -> list[str]:
-    factors: list[str] = []
+    factors = [str(item).strip() for item in row.get("quality_factors") or [] if str(item).strip()]
     if grade := str(row.get("candidate_shadow_grade") or "").strip():
         factors.append(f"候选影子评级 {grade}")
     if grade := str(row.get("entry_quality_grade") or "").strip():
         factors.append(f"入场质量评级 {grade}")
     if row.get("is_ai_recommended") is True:
         factors.append("已进入 AI 推荐")
-    return factors
+    return list(dict.fromkeys(factors))
 
 
 def _policy_risk_factors(row: dict[str, Any]) -> list[str]:
-    risks = [str(item).strip() for item in row.get("entry_quality_risk_flags") or [] if str(item).strip()]
+    risks = [str(item).strip() for item in row.get("risk_factors") or [] if str(item).strip()]
+    risks.extend(str(item).strip() for item in row.get("entry_quality_risk_flags") or [] if str(item).strip())
     if row.get("label_ready") is False:
         risks.append("评估标签尚未成熟")
-    return risks
+    return list(dict.fromkeys(risks))
 
 
 def _policy_rank_reason(rank: Any, strategy: str, quality_factors: list[str]) -> str:

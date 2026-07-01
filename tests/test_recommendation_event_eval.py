@@ -88,6 +88,24 @@ def test_policy_selection_uses_promoted_strategy_for_latest_candidates() -> None
     assert selection["selection_strategy"] == "candidate_shadow_then_score"
     assert selection["recommend_date"] == 20260512
     assert [pick["code"] for pick in selection["picks"]] == ["B20260512"]
+    assert selection["picks"][0]["action_status"] == "ready_for_ai_review"
+    assert selection["picks"][0]["next_step"] == "生成 AI 研报并结合持仓形成攻防决策"
+
+
+def test_policy_selection_marks_unpromoted_pick_as_watch_only() -> None:
+    events = [
+        _event(20260515, "A", ai=False, score=0.99, count=2, hit=True),
+        _event(20260515, "B", ai=False, score=0.30, count=1, hit=False),
+    ]
+    summary = _build_summary(events, (1,))
+
+    selection = _policy_selection(events, summary["ranking_decision"])
+
+    assert selection["uses_promoted_ranking"] is False
+    assert selection["selection_strategy"] == "score_only"
+    assert selection["picks"][0]["code"] == "A"
+    assert selection["picks"][0]["action_status"] == "watch_only"
+    assert "排序接入门槛未过，按 score_only 观察" in selection["picks"][0]["risk_factors"]
 
 
 def test_top_k_summary_can_rank_by_quality_grade_when_score_missing() -> None:

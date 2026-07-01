@@ -206,6 +206,10 @@ def _recommendation_pick_preview(value: dict[str, Any]) -> dict[str, Any]:
         "entry_quality_risk_flags",
         "label_ready",
         "label_status",
+        "action_status",
+        "quality_factors",
+        "risk_factors",
+        "next_step",
     )
     return _drop_empty_preview_fields({key: value.get(key) for key in keys})
 
