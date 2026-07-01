@@ -323,6 +323,22 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
                     "quality_factors": ["候选影子评级 S"],
                     "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
                     "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+                    "label_ready": False,
+                    "label_status": "partial_window",
+                }
+            ],
+        },
+        "candidate_guard_summary": {
+            "direct_buy_blocked_count": 1,
+            "message": "以下候选仅可复核或观察，禁止直接买入",
+            "candidates": [
+                {
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "reason": "候选标签未成熟，禁止直接买入",
+                    "action_status": "ready_for_ai_review",
+                    "label_ready": False,
+                    "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
                 }
             ],
         },
@@ -340,11 +356,12 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert '"trade_readiness": "research_only"' in preview
     assert '"new_buy_allowed": false' in preview
     assert '"action_status": "ready_for_ai_review"' in preview
+    assert '"candidate_guard_summary"' in preview
     assert "最新候选的未来窗口标签尚未成熟" in preview
     assert '"events"' not in content
     assert lines == [
         "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",
-        "排序接入候选: candidate_shadow_then_score top1 已通过样本/lift/风险门槛",
+        "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选标签未成熟，禁止直接买入)",
         "300750 宁德时代 · 可进入AI复核 · 证据: 漏斗分89.5；候选影子S/92；入场A/84 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 下一步: 生成 AI 研报并结合持仓形成攻防决策",
     ]
 

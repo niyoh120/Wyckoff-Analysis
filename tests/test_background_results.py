@@ -79,7 +79,23 @@ def _recommendation_event_eval_result() -> dict:
                     "name": "宁德时代",
                     "candidate_shadow_grade": "S",
                     "action_status": "ready_for_ai_review",
-                    "label_status": "ready",
+                    "label_ready": False,
+                    "label_status": "partial_window",
+                    "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                }
+            ],
+        },
+        "candidate_guard_summary": {
+            "direct_buy_blocked_count": 1,
+            "message": "以下候选仅可复核或观察，禁止直接买入",
+            "candidates": [
+                {
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "reason": "候选标签未成熟，禁止直接买入",
+                    "action_status": "ready_for_ai_review",
+                    "label_ready": False,
+                    "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
                 }
             ],
         },
@@ -142,6 +158,7 @@ def test_local_db_background_history_uses_recommendation_event_eval_preview(tmp_
         assert row["task_id"] == "bg_eval"
         assert "ranking_decision=candidate" in row["summary"]
         assert "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代" in row["summary"]
+        assert "候选标签未成熟" in row["summary"]
         assert '"policy_selection"' in row["summary"]
         assert '"events"' not in row["summary"]
     finally:
@@ -261,10 +278,12 @@ def test_check_background_tasks_restores_recommendation_eval_handoff_state():
 
     assert result["tasks"][0]["status"] == "completed"
     assert registry.state["last_recommendation_event_eval"]["policy_selection"]["picks"][0]["code"] == "300750"
+    assert registry.state["last_recommendation_event_eval"]["candidate_guard_summary"]["direct_buy_blocked_count"] == 1
     handoff = registry.state["last_screen_result"]
     assert handoff["scan_scope"]["source"] == "recommendation_event_eval"
     assert handoff["symbols_for_report"][0]["code"] == "300750"
     assert handoff["symbols_for_report"][0]["candidate_shadow_grade"] == "S"
+    assert handoff["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
 
 
 def test_tool_registry_remembers_recommendation_eval_handoff_without_status_poll():
@@ -275,9 +294,11 @@ def test_tool_registry_remembers_recommendation_eval_handoff_without_status_poll
     registry.remember_tool_handoff("evaluate_recommendation_events", _recommendation_event_eval_result())
 
     assert registry.state["last_recommendation_event_eval"]["policy_selection"]["picks"][0]["code"] == "300750"
+    assert registry.state["last_recommendation_event_eval"]["candidate_guard_summary"]["direct_buy_blocked_count"] == 1
     handoff = registry.state["last_screen_result"]
     assert handoff["selection_brief"]["best_codes"] == ["300750"]
     assert handoff["symbols_for_report"][0]["selection_source"] == "recommendation_event_eval"
+    assert handoff["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
 
 
 def test_local_db_chat_background_history_uses_shared_preview(tmp_path, monkeypatch):

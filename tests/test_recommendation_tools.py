@@ -47,6 +47,8 @@ def _fake_eval_result(request):
                     "quality_factors": ["候选影子评级 S", "入场质量评级 A"],
                     "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
                     "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+                    "label_ready": False,
+                    "label_status": "partial_window",
                 }
             ],
         },
@@ -69,6 +71,8 @@ def test_evaluate_recommendation_events_returns_policy_selection(monkeypatch):
     assert result["ok"] is True
     assert result["job_kind"] == "recommendation_event_eval"
     assert result["policy_selection"]["picks"][0]["code"] == "300750"
+    assert result["candidate_guard_summary"]["direct_buy_blocked_count"] == 1
+    assert result["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
     assert "ranking_decision=candidate" in result["result_summary"]
     assert "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代" in result["result_summary"]
     assert captured["request"].top_k == (1, 3)
@@ -83,6 +87,7 @@ def test_evaluate_recommendation_events_records_report_handoff(monkeypatch):
     result = evaluate_recommendation_events(tool_context=ctx)
 
     assert ctx.state["last_recommendation_event_eval"]["policy_selection"]["picks"][0]["code"] == "300750"
+    assert ctx.state["last_recommendation_event_eval"]["candidate_guard_summary"]["direct_buy_blocked_count"] == 1
     handoff = ctx.state["last_screen_result"]
     assert handoff["scan_scope"]["source"] == "recommendation_event_eval"
     assert handoff["selection_brief"]["status"] == "ready_for_ai_review"
@@ -94,6 +99,7 @@ def test_evaluate_recommendation_events_records_report_handoff(monkeypatch):
     assert handoff["symbols_for_report"][0]["candidate_shadow_grade"] == "S"
     assert handoff["symbols_for_report"][0]["action_status"] == "ready_for_ai_review"
     assert "最新候选的未来窗口标签尚未成熟" in handoff["symbols_for_report"][0]["risk_factors"]
+    assert handoff["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
     assert handoff["selection_brief"]["tool_handoff"]["args"]["stock_codes"][0] == "300750"
     assert result["policy_selection"]["picks"][0]["code"] == "300750"
 

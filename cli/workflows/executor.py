@@ -557,6 +557,7 @@ def _compact_recommendation_handoff(value: Any) -> dict[str, Any]:
                 ),
                 "picks": _candidate_rows(selection.get("picks"), 6),
             },
+            "candidate_guard_summary": _compact_candidate_guard(value.get("candidate_guard_summary")),
         }
     )
 

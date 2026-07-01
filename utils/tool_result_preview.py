@@ -84,6 +84,7 @@ def _recommendation_event_eval_preview(result: dict[str, Any]) -> str:
             "all": _recommendation_metric_preview(summary.get("all")),
             "ranking_decision": _recommendation_ranking_decision_preview(summary.get("ranking_decision")),
             "policy_selection": _recommendation_policy_selection_preview(result.get("policy_selection")),
+            "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
         }
     )
     return serialize_tool_result(payload) if payload else ""
@@ -93,10 +94,14 @@ def _recommendation_event_eval_brief_lines(result: dict[str, Any], *, max_lines:
     lines = [line.strip() for line in str(result.get("result_summary") or "").splitlines() if line.strip()]
     if not lines:
         lines = _recommendation_fallback_brief_lines(result)
+    guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
     pick_lines = _recommendation_policy_brief_lines(result.get("policy_selection"))
+    reserved = int(bool(guard_line)) + int(bool(pick_lines))
+    lines = lines[: max(max_lines - reserved, 0)]
+    if guard_line:
+        lines.append(guard_line)
     if pick_lines:
-        keep = max(max_lines - len(pick_lines[:1]), 0)
-        lines = lines[:keep] + pick_lines[: max_lines - keep]
+        lines.extend(pick_lines[: max_lines - len(lines)])
     return lines[:max_lines]
 
 

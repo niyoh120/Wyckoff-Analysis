@@ -684,6 +684,52 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert "trigger_groups" not in screen
 
 
+def test_workflow_handoff_state_preserves_recommendation_candidate_guard():
+    tools = StubToolRegistry()
+    tools._tool_context = SimpleNamespace(
+        state={
+            "last_recommendation_event_eval": {
+                "result_summary": "推荐事件评估完成",
+                "policy_selection": {
+                    "status": "candidate",
+                    "selection_strategy": "candidate_shadow_then_score",
+                    "top_k": 1,
+                    "recommend_date": "2026-06-30",
+                    "picks": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "action_status": "ready_for_ai_review",
+                            "label_ready": False,
+                        }
+                    ],
+                },
+                "candidate_guard_summary": {
+                    "direct_buy_blocked_count": 1,
+                    "message": "以下候选仅可复核或观察，禁止直接买入",
+                    "candidates": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "reason": "候选标签未成熟，禁止直接买入",
+                            "action_status": "ready_for_ai_review",
+                            "label_ready": False,
+                            "debug_payload": "omitted",
+                        }
+                    ],
+                },
+            }
+        }
+    )
+
+    handoff = _workflow_handoff_state(tools)
+
+    guard = handoff["last_recommendation_event_eval"]["candidate_guard_summary"]
+    assert guard["direct_buy_blocked_count"] == 1
+    assert guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
+    assert "debug_payload" not in guard["candidates"][0]
+
+
 def test_workflow_synthesis_receives_step_handoff_state(tmp_path, monkeypatch):
     from integrations import local_db
 
@@ -993,7 +1039,26 @@ def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():
             "policy_selection": {
                 "selection_strategy": "candidate_shadow_then_score",
                 "recommend_date": "2026-06-30",
-                "picks": [{"code": "300750", "name": "宁德时代", "next_step": "生成 AI 研报"}],
+                "picks": [
+                    {
+                        "code": "300750",
+                        "name": "宁德时代",
+                        "label_ready": False,
+                        "next_step": "生成 AI 研报",
+                    }
+                ],
+            },
+            "candidate_guard_summary": {
+                "direct_buy_blocked_count": 1,
+                "message": "以下候选仅可复核或观察，禁止直接买入",
+                "candidates": [
+                    {
+                        "code": "300750",
+                        "name": "宁德时代",
+                        "reason": "候选标签未成熟，禁止直接买入",
+                        "label_ready": False,
+                    }
+                ],
             },
         },
         "last_ai_report": {
@@ -1019,6 +1084,7 @@ def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():
     assert len(lines) == 8
     assert lines[0] == "候选池已形成"
     assert "推荐评估完成" in lines
+    assert any("候选护栏: 1只禁止直接买入" in line for line in lines)
     assert any(line.startswith("AI研报:") for line in lines)
     assert any(line.startswith("攻防决策:") for line in lines)
     assert any("补充 Telegram 配置后可发送攻防工单" in line for line in lines)
