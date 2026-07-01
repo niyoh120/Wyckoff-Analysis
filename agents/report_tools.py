@@ -99,6 +99,8 @@ def screen_auto_handoff_block_reason(screen_result: dict[str, Any]) -> str:
     selection = screen_result.get("selection_brief") if isinstance(screen_result.get("selection_brief"), dict) else {}
     if reason := data_quality_auto_handoff_block_reason(action_plan, selection):
         return reason
+    if reason := quality_gate_auto_handoff_block_reason(action_plan):
+        return reason
     if reason := recommendation_eval_auto_handoff_block_reason(screen_result, selection, action_plan):
         return reason
     return ""
@@ -111,6 +113,8 @@ def screen_auto_handoff_block_status(screen_result: dict[str, Any]) -> str:
     selection = screen_result.get("selection_brief") if isinstance(screen_result.get("selection_brief"), dict) else {}
     if data_quality_auto_handoff_block_reason(action_plan, selection):
         return "blocked_by_data_quality"
+    if quality_gate_auto_handoff_block_reason(action_plan):
+        return "blocked_by_quality_gate"
     if recommendation_eval_auto_handoff_block_reason(screen_result, selection, action_plan):
         return "blocked_by_policy_guard"
     return "blocked"
@@ -119,6 +123,8 @@ def screen_auto_handoff_block_status(screen_result: dict[str, Any]) -> str:
 def screen_auto_handoff_block_message(status: str) -> str:
     if status == "blocked_by_data_quality":
         return "上一轮筛选数据质量不足，不能自动续接 AI 研报"
+    if status == "blocked_by_quality_gate":
+        return "上一轮候选质量门槛未过，不能自动续接 AI 研报"
     return "上一轮候选仍是只读观察，不能自动续接 AI 研报"
 
 
@@ -131,6 +137,18 @@ def data_quality_auto_handoff_block_reason(action_plan: dict[str, Any], selectio
         return str(review.get("reason") or "数据质量不足，先重跑或缩小扫描范围")
     if selection.get("status") == "blocked_by_data_quality":
         return str(selection.get("headline") or "数据质量不足，先重跑或缩小扫描范围")
+    return ""
+
+
+def quality_gate_auto_handoff_block_reason(action_plan: dict[str, Any]) -> str:
+    if action_plan.get("ai_review_allowed"):
+        return ""
+    review = action_plan.get("review_targets") if isinstance(action_plan.get("review_targets"), dict) else {}
+    if review.get("status") == "blocked_by_quality_gate":
+        return str(review.get("reason") or "候选风险调整质量分低于AI复核门槛")
+    gate = action_plan.get("quality_gate") if isinstance(action_plan.get("quality_gate"), dict) else {}
+    if gate:
+        return str(gate.get("reason") or "候选风险调整质量分低于AI复核门槛")
     return ""
 
 

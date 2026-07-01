@@ -14,7 +14,11 @@ from typing import Any
 import pandas as pd
 
 from core.candidate_guards import policy_candidate_guard_summary
-from core.candidate_quality import entry_quality_risk_penalty, risk_adjusted_quality_metrics
+from core.candidate_quality import (
+    ai_review_quality_gate_reason,
+    entry_quality_risk_penalty,
+    risk_adjusted_quality_metrics,
+)
 from core.constants import TABLE_SIGNAL_OBSERVATIONS
 from core.recommendation_event_metrics import build_horizon_event, summarize_horizon_events
 from integrations.recommendation_performance import (
@@ -45,7 +49,6 @@ _DECISION_MIN_READY_ROWS = 10
 _DECISION_MIN_HIT_LIFT_PCT = 5.0
 _DECISION_MIN_MFE_LIFT_PCT = 0.0
 _DECISION_MAX_MAE_WORSE_PCT = -1.0
-_MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY = 70.0
 
 
 @dataclass(frozen=True)
@@ -523,12 +526,8 @@ def _policy_quality_gate_reason(events: list[dict[str, Any]], policy_status: str
     if policy_status != "candidate":
         return ""
     for event in events:
-        if event.get("candidate_shadow_score") is None and event.get("entry_quality_score") is None:
-            continue
-        score = risk_adjusted_quality_metrics(event).get("risk_adjusted_quality_score")
-        if score is not None and score < _MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY:
-            code = _clean_text(event.get("code")) or "最新候选"
-            return f"{code} 风险调整质量分 {score:.2f} 低于AI复核门槛 {_MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY:.2f}"
+        if reason := ai_review_quality_gate_reason(event, _clean_text(event.get("code")) or "最新候选"):
+            return reason
     return ""
 
 

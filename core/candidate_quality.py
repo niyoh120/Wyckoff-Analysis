@@ -8,6 +8,7 @@ from core.candidate_policy import candidate_score_value
 
 ENTRY_RISK_FLAG_PENALTY = 5.0
 MAX_ENTRY_RISK_FLAG_PENALTY = 20.0
+MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY = 70.0
 
 
 def entry_quality_risk_flags(value: object) -> list[str]:
@@ -45,3 +46,20 @@ def risk_adjusted_quality_metrics(row: dict[str, Any]) -> dict[str, float]:
     if risk_penalty:
         payload["entry_risk_penalty"] = round(risk_penalty, 2)
     return payload
+
+
+def ai_review_quality_gate_reason(row: dict[str, Any], label: str = "候选") -> str:
+    if not _has_explicit_quality_score(row):
+        return ""
+    score = risk_adjusted_quality_score(row)
+    if score >= MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY:
+        return ""
+    return f"{label} 风险调整质量分 {score:.2f} 低于AI复核门槛 {MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY:.2f}"
+
+
+def _has_explicit_quality_score(row: dict[str, Any]) -> bool:
+    return row.get("candidate_shadow_score") not in (None, "", []) or row.get("entry_quality_score") not in (
+        None,
+        "",
+        [],
+    )

@@ -2350,6 +2350,126 @@ class TestSymbolPool:
         assert risky["rank_reason"] == "研报候选#1；优先分 10.00；质量分 87.00；入场风险扣减 5.00；SOS"
         assert risky["risk_factors"] == ["短线涨幅偏快"]
 
+    def test_screen_stocks_downgrades_low_quality_report_candidate_to_watch(self, monkeypatch):
+        from agents import report_tools, screen_tools
+        from agents.tool_context import ToolContext
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000013",
+                        "name": "低质量研报候选",
+                        "priority_rank": 1,
+                        "priority_score": 10.0,
+                        "candidate_shadow_score": 65.0,
+                        "candidate_shadow_grade": "C",
+                        "entry_quality_score": 60.0,
+                        "entry_quality_grade": "C",
+                    }
+                ],
+                {},
+                {
+                    "metrics": {"total_symbols": 1, "fetch_ok": 1, "fetch_fail": 0},
+                    "triggers": {"sos": [("000013", 20.0)]},
+                    "trade_mode": {
+                        "mode": "risk_on",
+                        "allow_ai_review": True,
+                        "allow_recommendation_write": True,
+                    },
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+        ctx = ToolContext()
+
+        result = screen_tools.screen_stocks(tool_context=ctx)
+        report = result["action_plan"]["review_targets"]
+
+        assert result["selection_brief"]["status"] == "watch_only"
+        assert "tool_handoff" not in result["selection_brief"]
+        assert result["action_plan"]["ai_review_allowed"] is False
+        assert result["action_plan"]["new_buy_allowed"] is False
+        assert result["action_plan"]["report_candidates"] == []
+        assert result["symbols_for_report"] == []
+        assert report["status"] == "blocked_by_quality_gate"
+        assert "000013 低质量研报候选 风险调整质量分 65.00 低于AI复核门槛 70.00" in report["reason"]
+        watch = result["action_plan"]["watch_candidates"][0]
+        assert watch["code"] == "000013"
+        assert watch["action_status"] == "watch_only"
+        assert any("风险调整质量分 65.00 低于AI复核门槛 70.00" in item for item in watch["risk_factors"])
+        assert result["candidate_guard_summary"]["candidates"][0]["reason"] == "候选状态 watch_only 不允许直接买入"
+        assert ctx.state["last_screen_result"]["symbols_for_report"] == []
+
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda _tool_context: None)
+        monkeypatch.setattr(
+            report_tools,
+            "run_ai_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not auto-run report")),
+        )
+
+        blocked = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert blocked["status"] == "blocked_by_quality_gate"
+        assert blocked["error"].startswith("上一轮候选质量门槛未过")
+        assert "低于AI复核门槛 70.00" in blocked["reason"]
+
+    def test_screen_stocks_keeps_ready_handoff_when_other_candidate_passes_quality_gate(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000014",
+                        "name": "高质量候选",
+                        "priority_rank": 1,
+                        "priority_score": 10.0,
+                        "candidate_shadow_score": 88.0,
+                    },
+                    {
+                        "code": "000013",
+                        "name": "低质量候选",
+                        "priority_rank": 2,
+                        "priority_score": 9.0,
+                        "candidate_shadow_score": 65.0,
+                    },
+                ],
+                {},
+                {
+                    "metrics": {"total_symbols": 2, "fetch_ok": 2, "fetch_fail": 0},
+                    "triggers": {"sos": [("000014", 20.0), ("000013", 20.0)]},
+                    "trade_mode": {
+                        "mode": "risk_on",
+                        "allow_ai_review": True,
+                        "allow_recommendation_write": True,
+                    },
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        assert result["selection_brief"]["status"] == "ready_for_ai_review"
+        assert result["selection_brief"]["tool_handoff"]["args"]["stock_codes"] == ["000014"]
+        assert result["action_plan"]["ai_review_allowed"] is True
+        assert result["action_plan"]["review_targets"]["status"] == "ready"
+        assert [row["code"] for row in result["action_plan"]["report_candidates"]] == ["000014"]
+        assert [row["code"] for row in result["symbols_for_report"]] == ["000014"]
+        assert result["action_plan"]["quality_gate"]["blocked_count"] == 1
+        assert result["action_plan"]["watch_candidates"][0]["code"] == "000013"
+
     def test_screen_stocks_enriches_watch_candidates_from_candidate_metadata(self, monkeypatch):
         from agents import screen_tools
 
