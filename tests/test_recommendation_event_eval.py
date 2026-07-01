@@ -128,6 +128,48 @@ def test_policy_selection_ranks_candidate_quality_after_entry_risk_penalty() -> 
     assert selection["picks"][0]["risk_adjusted_quality_score"] == 90.0
 
 
+def test_policy_selection_downgrades_low_adjusted_quality_latest_pick_to_watch() -> None:
+    events = [
+        _event(20260515, "LOW", ai=False, score=0.99, count=2, hit=False, shadow=65.0, entry=60.0),
+        _event(20260515, "LOWER", ai=False, score=0.30, count=1, hit=True, shadow=40.0, entry=35.0),
+    ]
+    decision = {
+        "status": "candidate",
+        "recommended_strategy": "candidate_shadow_then_score",
+        "recommended_top_k": 1,
+        "reason": "candidate_shadow_then_score top1 passed lift and risk gates",
+    }
+
+    selection = _policy_selection(events, decision)
+
+    assert selection["status"] == "watch"
+    assert selection["uses_promoted_ranking"] is False
+    assert selection["action_plan"]["ai_review_allowed"] is False
+    assert selection["action_plan"]["candidate_action"] == "watch_only"
+    assert "风险调整质量分 65.00 低于AI复核门槛 70.00" in selection["reason"]
+    assert selection["picks"][0]["action_status"] == "watch_only"
+    assert selection["picks"][0]["risk_adjusted_quality_score"] == 65.0
+    assert "风险调整质量分 65.00 低于AI复核门槛 70.00" in selection["picks"][0]["risk_factors"][0]
+    assert "next_tool" not in selection["action_plan"]
+
+
+def test_policy_selection_keeps_candidate_when_quality_score_missing() -> None:
+    events = [_event(20260515, "LEGACY", ai=False, score=0.99, count=2, hit=True)]
+    decision = {
+        "status": "candidate",
+        "recommended_strategy": "candidate_shadow_then_score",
+        "recommended_top_k": 1,
+        "reason": "candidate_shadow_then_score top1 passed lift and risk gates",
+    }
+
+    selection = _policy_selection(events, decision)
+
+    assert selection["status"] == "candidate"
+    assert selection["uses_promoted_ranking"] is True
+    assert selection["action_plan"]["ai_review_allowed"] is True
+    assert selection["action_plan"]["next_tool"]["tool"] == "generate_ai_report"
+
+
 def test_ranking_decision_recommends_quality_strategy_after_sample_gate() -> None:
     events = []
     for day in range(20260501, 20260513):

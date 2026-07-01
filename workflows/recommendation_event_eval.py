@@ -45,6 +45,7 @@ _DECISION_MIN_READY_ROWS = 10
 _DECISION_MIN_HIT_LIFT_PCT = 5.0
 _DECISION_MIN_MFE_LIFT_PCT = 0.0
 _DECISION_MAX_MAE_WORSE_PCT = -1.0
+_MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY = 70.0
 
 
 @dataclass(frozen=True)
@@ -389,18 +390,20 @@ def _policy_selection(
     latest_date = max(by_date)
     strategy = _policy_strategy(decision)
     top_k = _policy_top_k(decision)
-    status = str(decision.get("status", "unknown"))
     latest_ranked = _ranked_latest_events(by_date, ranked_by_strategy, strategy, latest_date)
-    picks = [_policy_pick(row, idx + 1, strategy, status) for idx, row in enumerate(latest_ranked[:top_k])]
+    latest_events = latest_ranked[:top_k]
+    quality_gate_reason = _policy_quality_gate_reason(latest_events, str(decision.get("status", "unknown")))
+    status = "watch" if quality_gate_reason else str(decision.get("status", "unknown"))
+    picks = [_policy_pick(row, idx + 1, strategy, status, quality_gate_reason) for idx, row in enumerate(latest_events)]
     return {
         "status": status,
         "selection_strategy": strategy,
         "top_k": top_k,
         "recommend_date": latest_date,
-        "uses_promoted_ranking": decision.get("status") == "candidate",
+        "uses_promoted_ranking": decision.get("status") == "candidate" and status == "candidate",
         "watch_strategy": decision.get("watch_strategy"),
-        "reason": decision.get("reason", ""),
-        "action_plan": _policy_selection_action_plan(status, picks),
+        "reason": quality_gate_reason or decision.get("reason", ""),
+        "action_plan": _policy_selection_action_plan(status, picks, quality_gate_reason),
         "picks": picks,
     }
 
@@ -419,7 +422,11 @@ def _empty_policy_selection(decision: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _policy_selection_action_plan(policy_status: str, picks: list[dict[str, Any]]) -> dict[str, Any]:
+def _policy_selection_action_plan(
+    policy_status: str,
+    picks: list[dict[str, Any]],
+    quality_gate_reason: str = "",
+) -> dict[str, Any]:
     codes = [str(pick.get("code") or "").strip() for pick in picks if str(pick.get("code") or "").strip()]
     ai_review_allowed = bool(codes) and policy_status == "candidate"
     payload = {
@@ -429,7 +436,7 @@ def _policy_selection_action_plan(policy_status: str, picks: list[dict[str, Any]
         "ai_review_allowed": ai_review_allowed,
         "trade_readiness": "research_only",
         "review_status": "ready_for_ai_review" if ai_review_allowed else "watch_only",
-        "reason": _policy_selection_action_reason(policy_status, ai_review_allowed),
+        "reason": quality_gate_reason or _policy_selection_action_reason(policy_status, ai_review_allowed),
         "next_step": _policy_pick_next_step(policy_status),
     }
     if ai_review_allowed:
@@ -466,7 +473,13 @@ def _policy_top_k(decision: dict[str, Any]) -> int:
         return 1
 
 
-def _policy_pick(event: dict[str, Any], rank: int, strategy: str, policy_status: str) -> dict[str, Any]:
+def _policy_pick(
+    event: dict[str, Any],
+    rank: int,
+    strategy: str,
+    policy_status: str,
+    quality_gate_reason: str = "",
+) -> dict[str, Any]:
     return {
         "rank": rank,
         "selection_strategy": strategy,
@@ -486,7 +499,7 @@ def _policy_pick(event: dict[str, Any], rank: int, strategy: str, policy_status:
         "label_status": event.get("label_status"),
         "action_status": _policy_pick_action_status(policy_status),
         "quality_factors": _policy_pick_quality_factors(event),
-        "risk_factors": _policy_pick_risk_factors(event, policy_status),
+        "risk_factors": _policy_pick_risk_factors(event, policy_status, quality_gate_reason),
         "next_step": _policy_pick_next_step(policy_status),
     }
 
@@ -506,9 +519,28 @@ def _policy_pick_quality_factors(event: dict[str, Any]) -> list[str]:
     return factors
 
 
-def _policy_pick_risk_factors(event: dict[str, Any], policy_status: str) -> list[str]:
-    risks = [_clean_text(item) for item in event.get("entry_quality_risk_flags") or [] if _clean_text(item)]
+def _policy_quality_gate_reason(events: list[dict[str, Any]], policy_status: str) -> str:
     if policy_status != "candidate":
+        return ""
+    for event in events:
+        if event.get("candidate_shadow_score") is None and event.get("entry_quality_score") is None:
+            continue
+        score = risk_adjusted_quality_metrics(event).get("risk_adjusted_quality_score")
+        if score is not None and score < _MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY:
+            code = _clean_text(event.get("code")) or "最新候选"
+            return f"{code} 风险调整质量分 {score:.2f} 低于AI复核门槛 {_MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY:.2f}"
+    return ""
+
+
+def _policy_pick_risk_factors(
+    event: dict[str, Any],
+    policy_status: str,
+    quality_gate_reason: str = "",
+) -> list[str]:
+    risks = [_clean_text(item) for item in event.get("entry_quality_risk_flags") or [] if _clean_text(item)]
+    if quality_gate_reason:
+        risks.append(quality_gate_reason)
+    elif policy_status != "candidate":
         risks.append("排序接入门槛未过，按 score_only 观察")
     if not event.get("label_ready"):
         risks.append("最新候选的未来窗口标签尚未成熟")
