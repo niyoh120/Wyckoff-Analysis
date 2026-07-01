@@ -354,6 +354,12 @@ def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> st
     lines = [f"phase={step.phase}"]
     if step.depends_on:
         lines.append(f"depends_on={', '.join(step.depends_on)}")
+    if step.rationale:
+        lines.extend(["", "task rationale:", step.rationale])
+    if step.success_criteria:
+        lines.extend(["", "success criteria:", step.success_criteria])
+    if step.risk_guard:
+        lines.extend(["", "risk guard:", step.risk_guard])
     if step.context:
         lines.extend(["", "task context:", step.context])
     if not prior_results:
@@ -448,6 +454,9 @@ def _agent_detail(step: WorkflowStep, result: dict[str, Any]) -> dict[str, Any]:
         "phase": step.phase,
         "prompt": _clip(step.prompt, 4000),
         "context": _clip(step.context, 4000),
+        "rationale": _clip(step.rationale, 1000),
+        "success_criteria": _clip(step.success_criteria, 1000),
+        "risk_guard": _clip(step.risk_guard, 1000),
         "tool_scope": list(step.tool_scope),
         "status": str(result.get("status", "")),
         "elapsed": result.get("elapsed", 0),

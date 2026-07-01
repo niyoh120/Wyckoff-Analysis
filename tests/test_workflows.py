@@ -36,12 +36,18 @@ def test_workflow_step_cli_line_includes_agent_and_tool_scope():
             "title": "读取持仓",
             "agent": "analysis",
             "tool_scope": ["portfolio", "analyze_stock"],
+            "rationale": "先确认真实仓位",
+            "success_criteria": "输出风险摘要",
+            "risk_guard": "不写入交易",
             "summary": "analysis: completed",
         }
     )
 
     assert "[completed] 读取持仓" in line
     assert "analysis tools=portfolio,analyze_stock" in line
+    assert "goal=先确认真实仓位" in line
+    assert "done=输出风险摘要" in line
+    assert "guard=不写入交易" in line
     assert "analysis: completed" in line
 
 

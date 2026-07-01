@@ -38,7 +38,10 @@ _PLAN_SYSTEM_PROMPT = """\
           "tools": ["可选，本 task 允许使用的具体工具名；不写则 runtime 按上下文提供工具"],
           "depends_on": ["可选，必须先完成的 task id"],
           "prompt": "完整任务说明",
-          "context": "可选上下文"
+          "context": "可选上下文",
+          "rationale": "可选，为什么需要这一步",
+          "success_criteria": "可选，这一步完成的判定标准",
+          "risk_guard": "可选，这一步不能越过的边界"
         }
       ]
     }
@@ -54,6 +57,7 @@ _PLAN_SYSTEM_PROMPT = """\
 - 不需要选择内部执行角色；不要填写 agent/role。
 - 如果某个 task 只应看部分工具，用工具摘要里的精确工具名填写 tools；不确定就省略 tools。
 - 任务拆分围绕用户当前目标；能单步完成就生成 1 个 task，需要事实收集/分析/决策链路时再拆分。
+- 每个 task 尽量写清 rationale / success_criteria / risk_guard，让执行 agent 知道目标、验收和边界。
 - 能用工具验证的事实交给 task 验证；只有执行对象仍不明确，或会产生写入、交易、高风险动作时才澄清。
 - 能合理推断的表述偏差、口语省略或术语混用，按最高置信假设生成可执行 task，并让最终回答说明假设。
 - 不要生成会写入持仓、交易或文件的任务。
@@ -266,6 +270,9 @@ def _task_step(
         agent="task",
         prompt=prompt,
         context=context,
+        rationale=_task_meta(task, ("rationale", "reason", "why")),
+        success_criteria=_task_meta(task, ("success_criteria", "done_when", "acceptance_criteria", "expected_output")),
+        risk_guard=_task_meta(task, ("risk_guard", "guard", "guardrail", "guardrails", "boundary", "constraints")),
         phase=phase_id,
         depends_on=_task_dependencies(task),
         tool_scope=_task_tool_scope(task),
@@ -337,6 +344,23 @@ def _task_prompt(task: dict[str, Any], title: str, user_text: str) -> str:
         if value:
             return value
     return title or user_text
+
+
+def _task_meta(task: dict[str, Any], fields: tuple[str, ...]) -> str:
+    for field in fields:
+        if value := _task_meta_value(task.get(field)):
+            return value
+    return ""
+
+
+def _task_meta_value(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, (list, tuple, set)):
+        return "；".join(str(item).strip() for item in value if str(item).strip())
+    if isinstance(value, dict):
+        return "；".join(f"{key}: {item}" for key, item in value.items() if str(item).strip())
+    return str(value).strip()
 
 
 def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:

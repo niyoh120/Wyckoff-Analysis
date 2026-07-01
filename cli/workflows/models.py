@@ -50,6 +50,9 @@ class WorkflowStep:
     agent: str = ""
     prompt: str = ""
     context: str = ""
+    rationale: str = ""
+    success_criteria: str = ""
+    risk_guard: str = ""
     phase: str = ""
     depends_on: tuple[str, ...] = ()
     tool_scope: tuple[str, ...] = ()
@@ -65,6 +68,9 @@ class WorkflowStep:
             "agent": self.agent,
             "prompt": self.prompt,
             "context": self.context,
+            "rationale": self.rationale,
+            "success_criteria": self.success_criteria,
+            "risk_guard": self.risk_guard,
             "phase": self.phase,
             "depends_on": list(self.depends_on),
             "tool_scope": list(self.tool_scope),
@@ -82,6 +88,9 @@ class WorkflowStep:
             agent=str(payload.get("agent", "")),
             prompt=str(payload.get("prompt", "")),
             context=str(payload.get("context", "")),
+            rationale=str(payload.get("rationale", "")),
+            success_criteria=str(payload.get("success_criteria", "")),
+            risk_guard=str(payload.get("risk_guard", "")),
             phase=str(payload.get("phase", "")),
             depends_on=tuple(str(item) for item in payload.get("depends_on") or ()),
             tool_scope=tuple(str(item) for item in payload.get("tool_scope") or ()),

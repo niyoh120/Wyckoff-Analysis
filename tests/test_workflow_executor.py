@@ -5,7 +5,7 @@ import threading
 import time
 
 from cli.workflows.control import WorkflowControl
-from cli.workflows.executor import WorkflowExecutor, _phase_batches
+from cli.workflows.executor import WorkflowExecutor, _phase_batches, _step_context
 from cli.workflows.models import WorkflowStep
 from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, plan_workflow
 from cli.workflows.resume import build_resume_prompt
@@ -198,6 +198,9 @@ def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
     assert "不要填写 agent/role" in _PLAN_SYSTEM_PROMPT
     assert "可用 agent" not in _PLAN_SYSTEM_PROMPT
     assert '"agent": "可选，research|analysis|trading"' not in _PLAN_SYSTEM_PROMPT
+    assert "rationale" in _PLAN_SYSTEM_PROMPT
+    assert "success_criteria" in _PLAN_SYSTEM_PROMPT
+    assert "risk_guard" in _PLAN_SYSTEM_PROMPT
 
 
 def test_model_generated_workflow_ignores_legacy_agent_and_tool_aliases():
@@ -273,6 +276,37 @@ def test_workflow_planner_ignores_agent_aliases_and_keeps_steps_field():
     assert run.steps[1].prompt == "输出观察、买入和失效条件"
     assert run.steps[1].depends_on == ("scan",)
     assert run.script["runtime"]["planner"] == "stored_script"
+
+
+def test_workflow_planner_preserves_task_outcome_metadata():
+    run = plan_workflow(
+        "用 workflow 做今日选股",
+        context=route_workflow("用 workflow 做今日选股"),
+        workflow_script={
+            "title": "带边界的脚本",
+            "tasks": [
+                {
+                    "id": "scan",
+                    "title": "扫描候选",
+                    "tools": ["screen_stocks"],
+                    "prompt": "扫描今日候选并输出风险状态",
+                    "why": "先缩小候选池，再决定是否需要研报",
+                    "done_when": ["返回候选代码", "说明不能直接买入的边界"],
+                    "guardrails": {"write": "不写入推荐或持仓"},
+                }
+            ],
+        },
+    )
+
+    step = run.steps[0]
+    payload = step.to_dict()
+
+    assert step.rationale == "先缩小候选池，再决定是否需要研报"
+    assert step.success_criteria == "返回候选代码；说明不能直接买入的边界"
+    assert step.risk_guard == "write: 不写入推荐或持仓"
+    assert payload["rationale"] == step.rationale
+    assert payload["success_criteria"] == step.success_criteria
+    assert payload["risk_guard"] == step.risk_guard
 
 
 def test_workflow_planner_accepts_top_level_task_script():
@@ -435,6 +469,25 @@ def test_workflow_planner_treats_tool_named_tasks_as_task_scopes():
     assert [step.tools for step in run.steps] == [(), ()]
     assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
     assert run.steps[1].depends_on == ("scan",)
+
+
+def test_workflow_step_context_includes_outcome_metadata():
+    step = WorkflowStep(
+        step_id="scan",
+        title="扫描候选",
+        phase="collect",
+        rationale="先缩小候选池",
+        success_criteria="输出候选和风险边界",
+        risk_guard="不写入推荐或持仓",
+        context="只读运行",
+    )
+
+    context = _step_context(step, [])
+
+    assert "task rationale:\n先缩小候选池" in context
+    assert "success criteria:\n输出候选和风险边界" in context
+    assert "risk guard:\n不写入推荐或持仓" in context
+    assert "task context:\n只读运行" in context
 
 
 def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):

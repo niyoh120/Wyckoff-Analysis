@@ -973,7 +973,8 @@ def _workflow_step_cli_line(step: dict) -> str:
     agent = step.get("agent", "") or "agent"
     summary = step.get("summary", "")
     tools = _workflow_step_tool_label(step)
-    return f"[{status}] {title}  {agent}{tools}  {summary}"
+    detail = _workflow_step_detail_label(step)
+    return f"[{status}] {title}  {agent}{tools}{detail}  {summary}"
 
 
 def _workflow_step_tool_label(step: dict) -> str:
@@ -983,6 +984,21 @@ def _workflow_step_tool_label(step: dict) -> str:
     visible = ",".join(tools[:4])
     suffix = f",+{len(tools) - 4}" if len(tools) > 4 else ""
     return f" tools={visible}{suffix}"
+
+
+def _workflow_step_detail_label(step: dict) -> str:
+    parts = [
+        f"goal={_clip_workflow_detail(step.get('rationale'))}",
+        f"done={_clip_workflow_detail(step.get('success_criteria'))}",
+        f"guard={_clip_workflow_detail(step.get('risk_guard'))}",
+    ]
+    visible = [part for part in parts if not part.endswith("=")]
+    return f" {' '.join(visible)}" if visible else ""
+
+
+def _clip_workflow_detail(value: object) -> str:
+    text = str(value or "").strip()
+    return text[:80] if text else ""
 
 
 def _cmd_workflow_events(run_id: str, limit: int) -> None:

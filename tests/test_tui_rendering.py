@@ -241,6 +241,9 @@ def test_workflow_detail_step_line_includes_tool_scope():
             "agent": "analysis",
             "status": "completed",
             "tool_scope": ["portfolio"],
+            "rationale": "先确认真实仓位",
+            "success_criteria": "输出持仓风险",
+            "risk_guard": "不写入交易",
             "summary": "analysis: completed 1.2s",
         }
     )
@@ -249,6 +252,9 @@ def test_workflow_detail_step_line_includes_tool_scope():
     assert "工具：portfolio" in line
     assert "completed" in line
     assert "analysis: completed" in line
+    assert "目标: 先确认真实仓位" in line
+    assert "验收: 输出持仓风险" in line
+    assert "边界: 不写入交易" in line
 
 
 def test_workflow_control_intent_requires_explicit_control_action():

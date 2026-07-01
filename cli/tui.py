@@ -455,7 +455,9 @@ def _workflow_detail_step_line(step: dict[str, Any]) -> str:
     summary = escape(str(step.get("summary", "")))
     status = str(step.get("status", "") or "pending")
     meta = _workflow_step_meta(step, status, include_debug=True)
-    suffix = f" {summary}" if summary else ""
+    detail = _workflow_step_detail_meta(step)
+    suffix = " ".join(part for part in (summary, detail) if part)
+    suffix = f" {suffix}" if suffix else ""
     return f"    - [dim]{step_id}[/dim] {title} [dim]{meta}{suffix}[/dim]"
 
 
@@ -470,6 +472,16 @@ def _workflow_step_meta(step: dict[str, Any], label: str, *, include_debug: bool
                 parts.append(f"+{len(tool_scope) - 4}")
     parts.append(escape(label))
     return " · ".join(parts)
+
+
+def _workflow_step_detail_meta(step: dict[str, Any]) -> str:
+    labels = (
+        ("rationale", "目标"),
+        ("success_criteria", "验收"),
+        ("risk_guard", "边界"),
+    )
+    parts = [f"{label}: {escape(str(step.get(field) or ''))}" for field, label in labels if str(step.get(field) or "")]
+    return "；".join(parts)
 
 
 def _workflow_visible_summary(step: dict[str, Any]) -> str:
