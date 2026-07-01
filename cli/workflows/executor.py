@@ -652,6 +652,7 @@ def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:
     if isinstance(run.script, dict):
         script_prompt = str(run.script.get("synthesis_prompt", "") or "").strip()
     handoff_summary = _synthesis_handoff_summary(results)
+    agent_results = _synthesis_agent_results(results)
     return (
         "请基于以下动态 workflow 执行结果，给用户输出最终中文答复。\n"
         "要求：只使用 agent 结果里的事实；如果某步失败，明确说明影响和降级结论。\n"
@@ -660,8 +661,26 @@ def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:
         f"用户请求:\n{run.user_text}\n\n"
         f"workflow script:\n{json.dumps(run.script, ensure_ascii=False, default=str)[:4000]}\n\n"
         f"priority candidate handoff:\n{json.dumps(handoff_summary, ensure_ascii=False, default=str)[:6000]}\n\n"
-        f"agent results:\n{json.dumps(results, ensure_ascii=False, default=str)[:12000]}"
+        f"agent results:\n{json.dumps(agent_results, ensure_ascii=False, default=str)[:12000]}"
     )
+
+
+def _synthesis_agent_results(results: list[dict[str, Any]]) -> list[Any]:
+    return [_synthesis_agent_result(item) for item in results]
+
+
+def _synthesis_agent_result(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    result = item.get("result")
+    if not isinstance(result, dict) or "handoff_state" not in result:
+        return item
+    clean = dict(item)
+    clean_result = dict(result)
+    clean_result.pop("handoff_state", None)
+    clean_result["handoff_state_ref"] = "see priority candidate handoff"
+    clean["result"] = clean_result
+    return clean
 
 
 def _synthesis_handoff_summary(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
