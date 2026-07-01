@@ -157,6 +157,8 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     assert "宁德时代" in content
     assert '"decision_brief": {"market_gate": "风险规避 / 不新增买入"' in content
     assert '"selection_brief": {"status": "ready_for_ai_review"' in content
+    assert '"candidate_conclusion": {"line": "候选结论: 首选 300750 宁德时代' in content
+    assert "证据: 触发分96.5" in content
     assert '"scan_scope": {"scope": "bounded", "board": "chinext", "limit": 200, "total_scanned": 200}' in content
     assert '"data_quality": {"status": "partial"' in content
     assert "候选可参考，但需要优先复核缺失数据影响" in content
@@ -246,6 +248,8 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
     assert '"ai_review_allowed": false' in preview
     assert '"data_quality_gate": {"status": "degraded"' in preview
     assert '"status": "blocked_by_data_quality"' in preview
+    assert "候选结论: 首选 300750 宁德时代" in preview
+    assert "护栏: 不要直接据此选股，先重跑或缩小扫描范围" in preview
     assert lines == [
         "本轮有候选，但数据质量未过关: 300750 宁德时代",
         "300750 宁德时代 · 数据质量未过关 · 证据: 优先分12.5 · 亮点: 高优先级研报候选 · 风险: 不要直接据此选股，先重跑或缩小扫描范围 · 下一步: 数据质量不足，先重跑或缩小扫描范围",
@@ -356,6 +360,10 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert '"trade_readiness": "research_only"' in preview
     assert '"new_buy_allowed": false' in preview
     assert '"action_status": "ready_for_ai_review"' in preview
+    assert '"candidate_conclusion"' in preview
+    assert "候选结论: 首选 300750 宁德时代" in preview
+    assert "证据: 漏斗分89.5；候选影子S/92；入场A/84" in preview
+    assert "护栏: 候选标签未成熟，禁止直接买入" in preview
     assert '"candidate_guard_summary"' in preview
     assert "最新候选的未来窗口标签尚未成熟" in preview
     assert '"events"' not in content
@@ -415,6 +423,8 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
     assert '"risk_factors": ["大盘风险闸门关闭"]' in content
     assert '"action_status": "blocked_by_market_gate"' in content
     assert '"candidate_guard_summary"' in content
+    assert '"candidate_conclusion": {"line": "候选结论: 首选 300750 宁德时代' in content
+    assert "护栏: 候选状态 blocked_by_market_gate 不允许直接买入" in content
     assert '"direct_buy_blocked_count": 1' in content
     assert '"tool": "generate_strategy_decision"' in content
     assert '"report_excerpt": "# 研报' in content
@@ -479,6 +489,8 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
     assert '"risk_factors": ["大盘风险闸门关闭"]' in content
     assert '"action_status": "blocked_by_market_gate"' in content
     assert '"candidate_guard_summary"' in content
+    assert '"candidate_conclusion": {"line": "候选结论: 首选 300750 宁德时代' in content
+    assert "护栏: 候选状态 blocked_by_market_gate 不允许直接买入" in content
     assert '"direct_buy_blocked_count": 1' in content
     assert "候选状态 blocked_by_market_gate 不允许直接买入" in content
     assert "补充 Telegram 配置后可生成并发送 OMS 工单" in content

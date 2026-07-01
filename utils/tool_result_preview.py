@@ -84,6 +84,7 @@ def _recommendation_event_eval_preview(result: dict[str, Any]) -> str:
             "all": _recommendation_metric_preview(summary.get("all")),
             "ranking_decision": _recommendation_ranking_decision_preview(summary.get("ranking_decision")),
             "policy_selection": _recommendation_policy_selection_preview(result.get("policy_selection")),
+            "candidate_conclusion": _candidate_conclusion_preview("last_recommendation_event_eval", result),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
         }
     )
@@ -295,6 +296,7 @@ def _strategy_decision_preview(result: dict[str, Any]) -> str:
             "candidate_count": result.get("candidate_count"),
             "reviewed_codes": _preview_list(result.get("reviewed_codes"), 12),
             "reviewed_symbols": _candidate_preview_list(result.get("reviewed_symbols"), 12),
+            "candidate_conclusion": _candidate_conclusion_preview("last_strategy_decision", result),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
             "screen_summary": result.get("screen_summary"),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
@@ -315,6 +317,7 @@ def _ai_report_preview(result: dict[str, Any]) -> str:
             "stock_count": result.get("stock_count"),
             "reviewed_codes": _preview_list(result.get("reviewed_codes"), 12),
             "reviewed_symbols": _candidate_preview_list(result.get("reviewed_symbols"), 12),
+            "candidate_conclusion": _candidate_conclusion_preview("last_ai_report", result),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
             "next_action": result.get("next_action"),
             "next_tool": result.get("next_tool"),
@@ -432,6 +435,106 @@ def _reviewed_symbol_lines(result: dict[str, Any], *, max_lines: int) -> list[st
     return [line for row in rows if (line := _candidate_brief_line(row))]
 
 
+def _candidate_conclusion_preview(source_stage: str, result: dict[str, Any]) -> dict[str, Any]:
+    row = _candidate_conclusion_row(source_stage, result)
+    if not row:
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "line": _candidate_conclusion_line(row, result),
+            "code": str(row.get("code") or "").strip(),
+            "name": str(row.get("name") or "").strip(),
+            "action_status": str(row.get("action_status") or "").strip(),
+            "evidence": _candidate_conclusion_evidence_items(row),
+            "guard_reason": _candidate_conclusion_guard_reason(row, result),
+            "next_step": _candidate_conclusion_next_step(row, result),
+            "source_stage": source_stage,
+        }
+    )
+
+
+def _candidate_conclusion_row(source_stage: str, result: dict[str, Any]) -> dict[str, Any]:
+    rows = _candidate_conclusion_candidates(source_stage, result)
+    first = _first_candidate_row(rows)
+    if not first:
+        return {}
+    code = str(first.get("code") or "").strip()
+    merged: dict[str, Any] = {}
+    for row in rows:
+        if code and str(row.get("code") or "").strip() != code:
+            continue
+        merged.update(_drop_empty_preview_fields(row))
+    merged.update(_drop_empty_preview_fields(first))
+    return merged
+
+
+def _candidate_conclusion_candidates(source_stage: str, result: dict[str, Any]) -> list[dict[str, Any]]:
+    if source_stage == "last_screen_result":
+        return _screen_candidate_rows(result)
+    if source_stage == "last_recommendation_event_eval":
+        selection = result.get("policy_selection") if isinstance(result.get("policy_selection"), dict) else {}
+        return _dedupe_candidate_rows(_preview_list(selection.get("picks"), 12))
+    return _dedupe_candidate_rows([*_candidate_guard_rows(result), *_preview_list(result.get("reviewed_symbols"), 12)])
+
+
+def _candidate_guard_rows(result: dict[str, Any]) -> list[Any]:
+    guard = result.get("candidate_guard_summary") if isinstance(result.get("candidate_guard_summary"), dict) else {}
+    return _preview_list(guard.get("candidates"), 5) if isinstance(guard, dict) else []
+
+
+def _first_candidate_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return next((row for row in rows if row.get("code") or row.get("name") or row.get("summary")), {})
+
+
+def _candidate_conclusion_line(row: dict[str, Any], result: dict[str, Any]) -> str:
+    line = f"候选结论: 首选 {_candidate_brief_line(row)}"
+    if reason := _candidate_conclusion_guard_reason(row, result):
+        line += f" · 护栏: {reason}"
+    next_step = _candidate_conclusion_next_step(row, result)
+    if next_step and f"下一步: {next_step}" not in line:
+        line += f" · 下一步: {next_step}"
+    return line
+
+
+def _candidate_conclusion_evidence_items(row: dict[str, Any]) -> list[str]:
+    text = _brief_evidence(row)
+    if not text:
+        return []
+    return [part.strip() for part in text.removeprefix("证据: ").split("；") if part.strip()]
+
+
+def _candidate_conclusion_guard_reason(row: dict[str, Any], result: dict[str, Any]) -> str:
+    guard = result.get("candidate_guard_summary") if isinstance(result.get("candidate_guard_summary"), dict) else {}
+    candidates = _preview_list(guard.get("candidates"), 5) if isinstance(guard, dict) else []
+    code = str(row.get("code") or "").strip()
+    for item in candidates:
+        if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
+            return str(item["reason"])
+    first = next((item for item in candidates if isinstance(item, dict) and item.get("reason")), {})
+    return str(first["reason"]) if first else _candidate_conclusion_action_reason(result)
+
+
+def _candidate_conclusion_action_reason(result: dict[str, Any]) -> str:
+    action_plan = _candidate_conclusion_action_plan(result)
+    review_targets = action_plan.get("review_targets") if isinstance(action_plan.get("review_targets"), dict) else {}
+    data_gate = action_plan.get("data_quality_gate") if isinstance(action_plan.get("data_quality_gate"), dict) else {}
+    return str(review_targets.get("reason") or data_gate.get("reason") or action_plan.get("reason") or "")
+
+
+def _candidate_conclusion_next_step(row: dict[str, Any], result: dict[str, Any]) -> str:
+    action_plan = _candidate_conclusion_action_plan(result)
+    next_step = row.get("next_step") or result.get("next_action") or action_plan.get("next_step")
+    return str(next_step or "")
+
+
+def _candidate_conclusion_action_plan(result: dict[str, Any]) -> dict[str, Any]:
+    selection = result.get("policy_selection") if isinstance(result.get("policy_selection"), dict) else {}
+    nested = selection.get("action_plan") if isinstance(selection.get("action_plan"), dict) else {}
+    if nested:
+        return nested
+    return result.get("action_plan") if isinstance(result.get("action_plan"), dict) else {}
+
+
 def _screen_stocks_preview(result: dict[str, Any]) -> str:
     payload = _drop_empty_preview_fields(
         {
@@ -443,6 +546,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "trade_mode": result.get("trade_mode"),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "selection_brief": _screen_selection_preview(result.get("selection_brief")),
+            "candidate_conclusion": _candidate_conclusion_preview("last_screen_result", result),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
             "top_candidates": _candidate_preview_list(result.get("top_candidates"), 10),
             "symbols_for_report": _candidate_preview_list(result.get("symbols_for_report"), 12),
@@ -471,12 +575,16 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
 
 
 def _screen_brief_candidates(result: dict[str, Any]) -> list[dict[str, Any]]:
+    return _dedupe_candidate_rows(_screen_candidate_rows(result))
+
+
+def _screen_candidate_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
     selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
     rows: list[Any] = [selection.get("primary_pick")]
     rows.extend(_preview_list(selection.get("best_candidates"), 3))
     rows.extend(_preview_list(result.get("symbols_for_report"), 3))
     rows.extend(_preview_list(result.get("top_candidates"), 3))
-    return _dedupe_candidate_rows(rows)
+    return [row for row in rows if isinstance(row, dict)]
 
 
 def _dedupe_candidate_rows(rows: list[Any]) -> list[dict[str, Any]]:
