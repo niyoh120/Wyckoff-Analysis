@@ -566,6 +566,51 @@ class TestAiReportTool:
         assert result["reviewed_symbols"][0]["action_status"] == "ready_for_ai_review"
         assert captured["symbols_info"][0]["code"] == "000014"
 
+    def test_generate_ai_report_preserves_report_candidate_metadata_for_string_handoff(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 1, "watch_candidates": 1},
+                    "symbols_for_report": ["000014"],
+                    "report_candidates": [
+                        {
+                            "code": "000014",
+                            "name": "高质量候选",
+                            "candidate_shadow_grade": "S",
+                            "candidate_shadow_score": 92.0,
+                            "action_status": "ready_for_ai_review",
+                        }
+                    ],
+                    "selection_brief": {
+                        "status": "ready_for_ai_review",
+                        "best_candidates": [{"code": "000014", "name": "观察候选", "action_status": "watch_only"}],
+                    },
+                    "top_candidates": [{"code": "000014", "name": "备用观察", "action_status": "watch_only"}],
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 字符串候选研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["000014"]
+        assert result["reviewed_symbols"][0]["name"] == "高质量候选"
+        assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
+        assert result["reviewed_symbols"][0]["candidate_shadow_score"] == 92.0
+        assert result["reviewed_symbols"][0]["action_status"] == "ready_for_ai_review"
+        assert captured["symbols_info"][0]["action_status"] == "ready_for_ai_review"
+
     def test_generate_ai_report_blocks_auto_handoff_on_watch_only_screen(self, monkeypatch):
         from agents import report_tools
         from agents.tool_context import ToolContext
@@ -1037,21 +1082,26 @@ class TestStrategyDecisionTool:
             {
                 "last_screen_result": {
                     "summary": {"report_candidates": 1},
-                    "symbols_for_report": ["000014"],
+                    "symbols_for_report": ["000019"],
                     "report_candidates": [
+                        {"code": "000014", "name": "一号候选"},
+                        {"code": "000015", "name": "二号候选"},
+                        {"code": "000016", "name": "三号候选"},
+                        {"code": "000017", "name": "四号候选"},
+                        {"code": "000018", "name": "五号候选"},
                         {
-                            "code": "000014",
+                            "code": "000019",
                             "name": "高质量候选",
                             "track": "Trend",
                             "candidate_shadow_grade": "S",
                             "candidate_shadow_score": 92.0,
                             "action_status": "ready_for_ai_review",
-                        }
+                        },
                     ],
                     "selection_brief": {
-                        "best_candidates": [{"code": "000014", "name": "观察候选", "action_status": "watch_only"}]
+                        "best_candidates": [{"code": "000019", "name": "观察候选", "action_status": "watch_only"}]
                     },
-                    "top_candidates": [{"code": "000014", "name": "备用观察", "action_status": "watch_only"}],
+                    "top_candidates": [{"code": "000019", "name": "备用观察", "action_status": "watch_only"}],
                 }
             }
         )
@@ -1070,7 +1120,7 @@ class TestStrategyDecisionTool:
 
         result = strategy_tools.generate_strategy_decision(tool_context=ctx)
 
-        assert result["reviewed_codes"] == ["000014"]
+        assert result["reviewed_codes"] == ["000019"]
         assert result["reviewed_symbols"][0]["track"] == "Trend"
         assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
         assert result["reviewed_symbols"][0]["candidate_shadow_score"] == 92.0

@@ -321,8 +321,14 @@ def screen_symbol_map(tool_context: ToolContext | None) -> dict[str, dict]:
         code = _candidate_code(row)
         if not code or not isinstance(row, dict):
             continue
-        symbols.setdefault(code, {}).update({key: value for key, value in row.items() if _has_value(value)})
+        _merge_symbol_context(symbols.setdefault(code, {}), row)
     return symbols
+
+
+def _merge_symbol_context(payload: dict[str, Any], row: dict[str, Any]) -> None:
+    for key, value in row.items():
+        if _has_value(value) and not _has_value(payload.get(key)):
+            payload[key] = value
 
 
 def _screen_symbol_rows(screen_result: dict[str, Any]) -> list[Any]:

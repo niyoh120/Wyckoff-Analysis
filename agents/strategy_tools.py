@@ -169,7 +169,7 @@ def _candidate_context_rows(screen_result: dict[str, Any]) -> list[Any]:
     if isinstance(selection_brief, dict) and isinstance(selection_brief.get("best_candidates"), list):
         rows.extend(selection_brief["best_candidates"])
     rows.extend(list(screen_result.get("top_candidates") or []))
-    return rows[:5]
+    return rows
 
 
 def _fallback_candidate_rows(screen_result: dict[str, Any]) -> list[Any]:
