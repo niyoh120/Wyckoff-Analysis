@@ -1064,6 +1064,37 @@ def test_workflow_synthesis_handoff_summary_merges_split_candidate_conclusion():
     assert conclusion["next_step"] == "等待通知配置后生成 OMS 工单"
 
 
+def test_workflow_synthesis_handoff_summary_derives_guard_from_candidate_fields():
+    results = [
+        {
+            "step": {"step_id": "decision", "title": "攻防决策"},
+            "result": {
+                "handoff_state": {
+                    "last_strategy_decision": {
+                        "reviewed_symbols": [
+                            {
+                                "code": "300750",
+                                "name": "宁德时代",
+                                "action_status": "ready_for_ai_review",
+                                "trade_readiness": "research_only",
+                                "new_buy_allowed": False,
+                                "next_step": "生成 AI 研报",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+    ]
+
+    conclusion = _synthesis_handoff_summary(results)[0]["candidate_conclusion"]
+
+    assert conclusion["guard_reason"] == "候选未开放新增买入，禁止直接买入"
+    assert "护栏=候选未开放新增买入，禁止直接买入" in conclusion["line"]
+    assert "交易就绪=research_only" in conclusion["line"]
+    assert "不允许新增买入" in conclusion["line"]
+
+
 def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, monkeypatch):
     from integrations import local_db
 

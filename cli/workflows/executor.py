@@ -32,6 +32,7 @@ from cli.workflows.models import (
 )
 from cli.workflows.planner import plan_workflow
 from cli.workflows.store import append_workflow_event, persist_workflow_script, save_workflow_run
+from core.candidate_guards import candidate_guard_reason
 from utils.tool_result_preview import tool_result_brief_lines
 
 _AGENTS: dict[str, SubAgent] = {
@@ -958,7 +959,13 @@ def _fallback_guard_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:
         if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
             return str(item["reason"])
     first = next((item for item in candidates if isinstance(item, dict) and item.get("reason")), {})
-    return str(first["reason"]) if first else _fallback_gate_reason(row, stage)
+    if first:
+        return str(first["reason"])
+    if reason := _fallback_gate_reason(row, stage):
+        return reason
+    if reason := candidate_guard_reason(row):
+        return reason
+    return ""
 
 
 def _fallback_gate_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:
