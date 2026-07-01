@@ -36,13 +36,42 @@ def _ranking_decision_line(status: str, strategy: str, top_k: Any) -> str:
 
 def _policy_selection_summary_line(selection: dict[str, Any]) -> str:
     picks = selection.get("picks") if isinstance(selection.get("picks"), list) else []
-    names = [_pick_name(pick) for pick in picks if isinstance(pick, dict)]
+    names = [_pick_summary_name(pick) for pick in picks if isinstance(pick, dict)]
     names = [name for name in names if name]
     if not names:
         return ""
+    action_plan = selection.get("action_plan") if isinstance(selection.get("action_plan"), dict) else {}
     strategy = str(selection.get("selection_strategy") or "score_only")
     rec_date = selection.get("recommend_date") or "-"
-    return f"最新候选({rec_date}, {strategy}): {', '.join(names[:5])}"
+    parts = [
+        f"最新候选({rec_date}, {strategy}): {', '.join(names[:5])}",
+        f"状态={_selection_status_text(selection, action_plan)}",
+    ]
+    if reason := _brief_reason(action_plan.get("reason") or selection.get("reason")):
+        parts.append(f"原因={reason}")
+    return "；".join(parts)
+
+
+def _pick_summary_name(pick: dict[str, Any]) -> str:
+    name = _pick_name(pick)
+    score = _summary_pct(pick.get("risk_adjusted_quality_score"))
+    return f"{name}(风险调整分{score})" if name and score != "n/a" else name
+
+
+def _selection_status_text(selection: dict[str, Any], action_plan: dict[str, Any]) -> str:
+    if action_plan.get("ai_review_allowed"):
+        return "可进入AI研报"
+    status = str(selection.get("status") or action_plan.get("review_status") or "watch").strip()
+    if status in {"watch", "keep_score_only", "insufficient_sample", "watch_only"}:
+        return "只读观察"
+    return status or "只读观察"
+
+
+def _brief_reason(raw: Any, limit: int = 90) -> str:
+    text = str(raw or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
 
 
 def _pick_name(pick: dict[str, Any]) -> str:

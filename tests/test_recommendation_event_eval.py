@@ -5,6 +5,7 @@ from workflows.recommendation_event_eval import (
     _build_summary,
     _observation_feature_map,
     _policy_selection,
+    _policy_selection_markdown,
     _quality_feature_fields,
     _top_k_summary,
 )
@@ -151,6 +152,23 @@ def test_policy_selection_downgrades_low_adjusted_quality_latest_pick_to_watch()
     assert selection["picks"][0]["risk_adjusted_quality_score"] == 65.0
     assert "风险调整质量分 65.00 低于AI复核门槛 70.00" in selection["picks"][0]["risk_factors"][0]
     assert "next_tool" not in selection["action_plan"]
+
+
+def test_policy_selection_markdown_surfaces_quality_gate_reason() -> None:
+    events = [_event(20260515, "LOW", ai=False, score=0.99, count=2, hit=False, shadow=65.0, entry=60.0)]
+    decision = {
+        "status": "candidate",
+        "recommended_strategy": "candidate_shadow_then_score",
+        "recommended_top_k": 1,
+        "reason": "candidate_shadow_then_score top1 passed lift and risk gates",
+    }
+
+    markdown = "\n".join(_policy_selection_markdown(_policy_selection(events, decision)))
+
+    assert "- Policy status: `watch`" in markdown
+    assert "- AI review allowed: `False`" in markdown
+    assert "风险调整质量分 65.00 低于AI复核门槛 70.00" in markdown
+    assert "| 1 | LOW | - | watch_only | N | 0.99 | 65.0 | 65.0 | 60.0 | -" in markdown
 
 
 def test_policy_selection_keeps_candidate_when_quality_score_missing() -> None:

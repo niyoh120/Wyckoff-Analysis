@@ -46,6 +46,9 @@ def _fake_eval_result(request):
                     "entry_quality_score": 84.0,
                     "entry_quality_grade": "A",
                     "entry_quality_risk_flags": ["短线涨幅偏快"],
+                    "candidate_quality_score": 92.0,
+                    "risk_adjusted_quality_score": 87.0,
+                    "entry_risk_penalty": 5.0,
                     "action_status": "ready_for_ai_review",
                     "quality_factors": ["候选影子评级 S", "入场质量评级 A"],
                     "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
@@ -78,6 +81,8 @@ def test_evaluate_recommendation_events_returns_policy_selection(monkeypatch):
     assert result["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
     assert "ranking_decision=candidate" in result["result_summary"]
     assert "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代" in result["result_summary"]
+    assert "风险调整分87" in result["result_summary"]
+    assert "状态=可进入AI研报" in result["result_summary"]
     assert captured["request"].top_k == (1, 3)
 
 
@@ -143,6 +148,7 @@ def test_recommendation_eval_watch_only_handoff_blocks_auto_report(monkeypatch):
     handoff = ctx.state["last_screen_result"]
 
     assert handoff["selection_brief"]["status"] == "watch_only"
+    assert "状态=只读观察" in ctx.state["last_recommendation_event_eval"]["result_summary"]
     assert handoff["action_plan"]["ai_review_allowed"] is False
     assert handoff["action_plan"]["watch_candidates"][0]["code"] == "300750"
     assert report["status"] == "blocked_by_policy_guard"

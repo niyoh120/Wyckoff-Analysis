@@ -759,6 +759,7 @@ def _policy_selection_markdown(selection: dict[str, Any]) -> list[str]:
         "",
         "## Latest Policy Selection",
         "",
+        f"- Policy status: `{selection.get('status', 'unknown')}`",
         f"- Selection strategy: `{selection.get('selection_strategy', 'score_only')}`",
         f"- Recommended date: `{selection.get('recommend_date') or 'n/a'}`",
         f"- Uses promoted ranking: `{bool(selection.get('uses_promoted_ranking'))}`",
@@ -766,13 +767,14 @@ def _policy_selection_markdown(selection: dict[str, Any]) -> list[str]:
         f"- New buy allowed: `{bool(action_plan.get('new_buy_allowed'))}`",
         f"- AI review allowed: `{bool(action_plan.get('ai_review_allowed'))}`",
         f"- Next step: {action_plan.get('next_step') or '-'}",
+        f"- Reason: {selection.get('reason') or action_plan.get('reason') or '-'}",
         "",
-        "| Rank | Code | Name | AI | Funnel | Shadow | Entry | Label |",
-        "|---:|---|---|---|---:|---:|---:|---|",
+        "| Rank | Code | Name | Action | AI | Funnel | Quality | Shadow | Entry | Label | Risks |",
+        "|---:|---|---|---|---|---:|---:|---:|---:|---|---|",
     ]
     picks = selection.get("picks") if isinstance(selection.get("picks"), list) else []
     if not picks:
-        return [*rows, "| n/a | - | - | - | n/a | n/a | n/a | - |"]
+        return [*rows, "| n/a | - | - | - | - | n/a | n/a | n/a | n/a | - | - |"]
     for pick in picks:
         if isinstance(pick, dict):
             rows.append(_policy_pick_markdown_row(pick))
@@ -782,10 +784,12 @@ def _policy_selection_markdown(selection: dict[str, Any]) -> list[str]:
 def _policy_pick_markdown_row(pick: dict[str, Any]) -> str:
     shadow = _quality_cell(pick.get("candidate_shadow_score"), pick.get("candidate_shadow_grade"))
     entry = _quality_cell(pick.get("entry_quality_score"), pick.get("entry_quality_grade"))
+    risks = _markdown_join(pick.get("risk_factors"), 2)
     return (
-        f"| {pick.get('rank', '')} | {pick.get('code', '')} | {pick.get('name', '')} | "
-        f"{'Y' if pick.get('is_ai_recommended') else 'N'} | {_fmt(pick.get('funnel_score'))} | "
-        f"{shadow} | {entry} | {pick.get('label_status') or '-'} |"
+        f"| {pick.get('rank', '')} | {_markdown_cell(pick.get('code'))} | {_markdown_cell(pick.get('name'))} | "
+        f"{_markdown_cell(pick.get('action_status') or '-')} | {'Y' if pick.get('is_ai_recommended') else 'N'} | "
+        f"{_fmt(pick.get('funnel_score'))} | {_fmt(pick.get('risk_adjusted_quality_score'))} | "
+        f"{shadow} | {entry} | {_markdown_cell(pick.get('label_status') or '-')} | {risks} |"
     )
 
 
@@ -793,6 +797,17 @@ def _quality_cell(score: Any, grade: Any) -> str:
     grade_text = str(grade or "").strip()
     score_text = _fmt(score)
     return f"{grade_text}/{score_text}" if grade_text else score_text
+
+
+def _markdown_join(value: Any, limit: int) -> str:
+    if not isinstance(value, list):
+        return "-"
+    items = [_markdown_cell(item) for item in value[:limit] if str(item or "").strip()]
+    return "; ".join(items) or "-"
+
+
+def _markdown_cell(value: Any) -> str:
+    return str(value or "").strip().replace("|", "/") or "-"
 
 
 def _quality_markdown(summary: dict[str, Any]) -> list[str]:
