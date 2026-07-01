@@ -466,7 +466,7 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert '"new_buy_allowed": false' in preview
     assert '"action_status": "ready_for_ai_review"' in preview
     assert '"candidate_conclusion"' in preview
-    assert "候选结论: 首选 300750 宁德时代" in preview
+    assert "候选结论: 受限复核候选 300750 宁德时代" in preview
     assert '"risk_adjusted_quality_score": 87.0' in preview
     assert "证据: 漏斗分89.5；候选影子S/92；入场A/84；风险调整分87" in preview
     assert '"candidate_guard_summary"' in preview
@@ -476,7 +476,7 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert '"events"' not in content
     assert lines == [
         "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",
-        "候选结论: 首选 300750 宁德时代 · 可进入AI复核 · 证据: 漏斗分89.5；候选影子S/92；入场A/84；风险调整分87 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 护栏: 候选标签未成熟，禁止直接买入 · 下一步: 生成 AI 研报并结合持仓形成攻防决策",
+        "候选结论: 受限复核候选 300750 宁德时代 · 可进入AI复核 · 证据: 漏斗分89.5；候选影子S/92；入场A/84；风险调整分87 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 护栏: 候选标签未成熟，禁止直接买入 · 下一步: 生成 AI 研报并结合持仓形成攻防决策",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选标签未成熟，禁止直接买入)",
     ]
 

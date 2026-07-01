@@ -6,6 +6,8 @@ import json
 import math
 from typing import Any
 
+from core.candidate_guards import candidate_guard_reason
+
 PREVIEW_CHARS = 2_000
 
 
@@ -84,12 +86,12 @@ def _recommendation_event_eval_preview(result: dict[str, Any]) -> str:
             "ok": result.get("ok"),
             "job_kind": result.get("job_kind"),
             "result_summary": _text_excerpt(result.get("result_summary"), 900),
+            "candidate_conclusion": _candidate_conclusion_preview("last_recommendation_event_eval", result),
+            "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
             "metadata": _recommendation_metadata_preview(result.get("metadata")),
             "all": _recommendation_metric_preview(summary.get("all")),
             "ranking_decision": _recommendation_ranking_decision_preview(summary.get("ranking_decision")),
             "policy_selection": _recommendation_policy_selection_preview(result.get("policy_selection")),
-            "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
-            "candidate_conclusion": _candidate_conclusion_preview("last_recommendation_event_eval", result),
         }
     )
     return serialize_tool_result(payload) if payload else ""
@@ -470,18 +472,38 @@ def _candidate_conclusion_preview(source_stage: str, result: dict[str, Any]) -> 
     row = _candidate_conclusion_row(source_stage, result)
     if not row:
         return {}
+    action_plan = _candidate_conclusion_action_plan(result)
     return _drop_empty_preview_fields(
         {
             "line": _candidate_conclusion_line(row, result),
             "code": str(row.get("code") or "").strip(),
             "name": str(row.get("name") or "").strip(),
+            "scores": _candidate_conclusion_score_preview(row),
             "action_status": str(row.get("action_status") or "").strip(),
+            "trade_readiness": str(row.get("trade_readiness") or action_plan.get("trade_readiness") or "").strip(),
+            "new_buy_allowed": row.get("new_buy_allowed")
+            if row.get("new_buy_allowed") is not None
+            else action_plan.get("new_buy_allowed"),
             "evidence": _candidate_conclusion_evidence_items(row),
             "guard_reason": _candidate_conclusion_guard_reason(row, result),
             "next_step": _candidate_conclusion_next_step(row, result),
             "source_stage": source_stage,
         }
     )
+
+
+def _candidate_conclusion_score_preview(row: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "funnel_score",
+        "candidate_shadow_score",
+        "candidate_shadow_grade",
+        "entry_quality_score",
+        "entry_quality_grade",
+        "candidate_quality_score",
+        "risk_adjusted_quality_score",
+        "entry_risk_penalty",
+    )
+    return _drop_empty_preview_fields({key: row.get(key) for key in keys})
 
 
 def _candidate_conclusion_brief_line(source_stage: str, result: dict[str, Any]) -> str:
@@ -523,10 +545,11 @@ def _first_candidate_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _candidate_conclusion_line(row: dict[str, Any], result: dict[str, Any]) -> str:
-    line = f"候选结论: {_candidate_conclusion_prefix(row)} {_candidate_brief_line(row)}"
+    guard_reason = _candidate_conclusion_guard_reason(row, result)
+    line = f"候选结论: {_candidate_conclusion_prefix(row, guard_reason)} {_candidate_brief_line(row)}"
     next_step = _candidate_conclusion_next_step(row, result)
-    if reason := _candidate_conclusion_guard_reason(row, result):
-        guard_text = f"护栏: {reason}"
+    if guard_reason:
+        guard_text = f"护栏: {guard_reason}"
         next_text = f"下一步: {next_step}" if next_step else ""
         if next_text and f" · {next_text}" in line:
             line = line.replace(f" · {next_text}", f" · {guard_text} · {next_text}", 1)
@@ -537,10 +560,10 @@ def _candidate_conclusion_line(row: dict[str, Any], result: dict[str, Any]) -> s
     return line
 
 
-def _candidate_conclusion_prefix(row: dict[str, Any]) -> str:
+def _candidate_conclusion_prefix(row: dict[str, Any], guard_reason: str = "") -> str:
     status = str(row.get("action_status") or "").strip()
     if status == "ready_for_ai_review":
-        return "首选"
+        return "受限复核候选" if guard_reason else "首选"
     if status == "watch_only":
         return "观察候选"
     if status.startswith("blocked_"):
@@ -563,7 +586,16 @@ def _candidate_conclusion_guard_reason(row: dict[str, Any], result: dict[str, An
         if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
             return str(item["reason"])
     first = next((item for item in candidates if isinstance(item, dict) and item.get("reason")), {})
-    return str(first["reason"]) if first else _candidate_conclusion_action_reason(result)
+    if first:
+        return str(first["reason"])
+    if reason := _candidate_conclusion_action_reason(result):
+        return reason
+    return _candidate_conclusion_row_guard_reason(row)
+
+
+def _candidate_conclusion_row_guard_reason(row: dict[str, Any]) -> str:
+    reason = candidate_guard_reason(row)
+    return "" if reason.startswith("候选状态 ") else reason
 
 
 def _candidate_conclusion_action_reason(result: dict[str, Any]) -> str:
