@@ -255,6 +255,8 @@ def _blocked_report_source(status: str) -> str:
         return "blocked_by_screen_quality_gate"
     if status == "blocked_by_policy_guard":
         return "blocked_by_screen_policy_guard"
+    if status == "blocked_by_watch_only":
+        return "blocked_by_screen_watch_only"
     return "blocked_by_screen_handoff"
 
 
@@ -265,6 +267,8 @@ def _blocked_next_action(status: str) -> str:
         return "先保留观察候选，等待风险调整质量分达标后再生成策略决策"
     if status == "blocked_by_policy_guard":
         return "先观察候选，等待排序或策略门槛通过后再生成策略决策"
+    if status == "blocked_by_watch_only":
+        return "先观察候选，等待形成研报候选后再生成策略决策"
     return "先处理上一轮候选交接阻断原因后再生成策略决策"
 
 

@@ -103,6 +103,8 @@ def screen_auto_handoff_block_reason(screen_result: dict[str, Any]) -> str:
         return reason
     if reason := recommendation_eval_auto_handoff_block_reason(screen_result, selection, action_plan):
         return reason
+    if reason := watch_only_auto_handoff_block_reason(screen_result, selection, action_plan):
+        return reason
     return ""
 
 
@@ -117,6 +119,8 @@ def screen_auto_handoff_block_status(screen_result: dict[str, Any]) -> str:
         return "blocked_by_quality_gate"
     if recommendation_eval_auto_handoff_block_reason(screen_result, selection, action_plan):
         return "blocked_by_policy_guard"
+    if watch_only_auto_handoff_block_reason(screen_result, selection, action_plan):
+        return "blocked_by_watch_only"
     return "blocked"
 
 
@@ -185,6 +189,39 @@ def recommendation_eval_auto_handoff_block_reason(
     )
 
 
+def watch_only_auto_handoff_block_reason(
+    screen_result: dict[str, Any],
+    selection: dict[str, Any],
+    action_plan: dict[str, Any],
+) -> str:
+    if _screen_has_report_candidates(screen_result):
+        return ""
+    review = action_plan.get("review_targets") if isinstance(action_plan.get("review_targets"), dict) else {}
+    if _stock_code_items(review.get("codes")):
+        return ""
+    if not _has_explicit_watch_only_handoff(screen_result, selection, action_plan):
+        return ""
+    return str(
+        action_plan.get("reason")
+        or review.get("reason")
+        or selection.get("headline")
+        or "上一轮只有观察候选，未形成可自动续接的研报候选"
+    )
+
+
+def _has_explicit_watch_only_handoff(
+    screen_result: dict[str, Any],
+    selection: dict[str, Any],
+    action_plan: dict[str, Any],
+) -> bool:
+    if action_plan and selection.get("status") == "watch_only":
+        return True
+    return bool(
+        _stock_code_items(screen_result.get("watch_candidates"))
+        or _stock_code_items(action_plan.get("watch_candidates"))
+    )
+
+
 def _screen_handoff_stock_items(tool_context: ToolContext | None) -> list[Any]:
     screen_result = _last_screen_result(tool_context)
     if not screen_result:
@@ -205,6 +242,7 @@ def _screen_handoff_sources(screen_result: dict[str, Any]) -> list[Any]:
         _tool_handoff_stock_codes(review_targets),
         review_targets.get("codes"),
         screen_result.get("symbols_for_report"),
+        screen_result.get("report_candidates"),
         selection.get("best_candidates"),
         selection.get("best_codes"),
         screen_result.get("top_candidates"),
@@ -288,7 +326,11 @@ def screen_symbol_map(tool_context: ToolContext | None) -> dict[str, dict]:
 
 
 def _screen_symbol_rows(screen_result: dict[str, Any]) -> list[Any]:
-    rows = list(screen_result.get("symbols_for_report") or []) + list(screen_result.get("top_candidates") or [])
+    rows = (
+        list(screen_result.get("symbols_for_report") or [])
+        + list(screen_result.get("report_candidates") or [])
+        + list(screen_result.get("top_candidates") or [])
+    )
     selection_brief = screen_result.get("selection_brief")
     if isinstance(selection_brief, dict) and isinstance(selection_brief.get("best_candidates"), list):
         rows.extend(selection_brief["best_candidates"])

@@ -524,6 +524,84 @@ class TestAiReportTool:
         assert result["reviewed_codes"] == ["000014"]
         assert captured["symbols_info"][0]["name"] == "高质量候选"
 
+    def test_generate_ai_report_uses_top_level_report_candidates_when_symbols_missing(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 1, "watch_candidates": 1},
+                    "symbols_for_report": [],
+                    "report_candidates": [
+                        {
+                            "code": "000014",
+                            "name": "高质量候选",
+                            "candidate_shadow_grade": "S",
+                            "action_status": "ready_for_ai_review",
+                        }
+                    ],
+                    "selection_brief": {
+                        "status": "ready_for_ai_review",
+                        "best_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                    },
+                    "top_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 顶层候选研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["000014"]
+        assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
+        assert result["reviewed_symbols"][0]["action_status"] == "ready_for_ai_review"
+        assert captured["symbols_info"][0]["code"] == "000014"
+
+    def test_generate_ai_report_blocks_auto_handoff_on_watch_only_screen(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 0, "watch_candidates": 1},
+                    "symbols_for_report": [],
+                    "watch_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                    "selection_brief": {
+                        "status": "watch_only",
+                        "headline": "本轮只有观察候选: 000013 观察候选",
+                        "best_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                    },
+                    "action_plan": {
+                        "ai_review_allowed": False,
+                        "watch_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            report_tools,
+            "run_ai_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not run report")),
+        )
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result["status"] == "blocked_by_watch_only"
+        assert result["reason"] == "本轮只有观察候选: 000013 观察候选"
+        assert result["error"].startswith("上一轮候选仍是只读观察")
+        assert "last_ai_report" not in ctx.state
+
     def test_generate_ai_report_reuses_recommendation_eval_handoff(self, monkeypatch):
         from agents import recommendation_tools, report_tools
         from agents.tool_context import ToolContext
@@ -1035,6 +1113,46 @@ class TestStrategyDecisionTool:
         assert result["status"] == "blocked_by_policy_guard"
         assert result["report_source"] == "blocked_by_screen_policy_guard"
         assert result["next_action"] == "先观察候选，等待排序或策略门槛通过后再生成策略决策"
+
+    def test_generate_strategy_decision_blocks_auto_report_on_watch_only_screen(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 0, "watch_candidates": 1},
+                    "selection_brief": {
+                        "status": "watch_only",
+                        "headline": "本轮只有观察候选: 000013 观察候选",
+                        "best_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                    },
+                    "action_plan": {
+                        "ai_review_allowed": False,
+                        "watch_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools,
+            "run_ai_report",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not run report")),
+        )
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        assert result["ok"] is False
+        assert result["status"] == "blocked_by_watch_only"
+        assert result["report_source"] == "blocked_by_screen_watch_only"
+        assert result["candidate_count"] == 0
+        assert result["next_action"] == "先观察候选，等待形成研报候选后再生成策略决策"
+        assert ctx.state["last_strategy_decision"]["status"] == "blocked_by_watch_only"
 
     def test_generate_strategy_decision_explicit_report_ignores_degraded_screen_candidates(self, monkeypatch):
         from agents import strategy_tools
