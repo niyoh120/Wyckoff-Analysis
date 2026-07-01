@@ -157,13 +157,22 @@ def _screen_candidate_meta(screen_result: dict | None) -> list[dict]:
 
 
 def _screen_candidate_rows(screen_result: dict[str, Any]) -> list[Any]:
-    rows = screen_result.get("symbols_for_report") or []
+    rows = screen_result.get("symbols_for_report") or screen_result.get("report_candidates") or []
     if rows:
         return _enrich_candidate_rows(list(rows), _candidate_context_rows(screen_result))
-    return _candidate_context_rows(screen_result)[:5]
+    return _fallback_candidate_rows(screen_result)
 
 
 def _candidate_context_rows(screen_result: dict[str, Any]) -> list[Any]:
+    rows = list(screen_result.get("report_candidates") or [])
+    selection_brief = screen_result.get("selection_brief")
+    if isinstance(selection_brief, dict) and isinstance(selection_brief.get("best_candidates"), list):
+        rows.extend(selection_brief["best_candidates"])
+    rows.extend(list(screen_result.get("top_candidates") or []))
+    return rows[:5]
+
+
+def _fallback_candidate_rows(screen_result: dict[str, Any]) -> list[Any]:
     selection_brief = screen_result.get("selection_brief")
     if isinstance(selection_brief, dict) and isinstance(selection_brief.get("best_candidates"), list):
         return list(selection_brief["best_candidates"])
@@ -171,7 +180,15 @@ def _candidate_context_rows(screen_result: dict[str, Any]) -> list[Any]:
 
 
 def _enrich_candidate_rows(rows: list[Any], context_rows: list[Any]) -> list[dict]:
-    context = {_row_code(row): dict(row) for row in context_rows if isinstance(row, dict) and _row_code(row)}
+    context: dict[str, dict] = {}
+    for row in context_rows:
+        code = _row_code(row)
+        if not isinstance(row, dict) or not code:
+            continue
+        payload = context.setdefault(code, {})
+        for key, value in row.items():
+            if _has_value(value) and not _has_value(payload.get(key)):
+                payload[key] = value
     enriched = []
     for row in rows:
         code = _row_code(row)

@@ -978,6 +978,105 @@ class TestStrategyDecisionTool:
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主升阶段 / 启动平台"
         assert captured["symbols_info"][0]["quality_factors"] == ["强观察候选", "启动平台"]
 
+    def test_generate_strategy_decision_uses_top_level_report_candidates_when_symbols_missing(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 1, "watch_candidates": 1},
+                    "symbols_for_report": [],
+                    "report_candidates": [
+                        {
+                            "code": "000014",
+                            "name": "高质量候选",
+                            "candidate_shadow_grade": "S",
+                            "candidate_shadow_score": 92.0,
+                            "action_status": "ready_for_ai_review",
+                        }
+                    ],
+                    "selection_brief": {
+                        "status": "ready_for_ai_review",
+                        "best_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                    },
+                    "top_candidates": [{"code": "000013", "name": "观察候选", "action_status": "watch_only"}],
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 顶层候选研报"
+
+        monkeypatch.setattr(strategy_tools, "run_ai_report", fake_run_ai_report)
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        assert result["report_source"] == "generated_from_candidates"
+        assert result["reviewed_codes"] == ["000014"]
+        assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
+        assert result["reviewed_symbols"][0]["candidate_shadow_score"] == 92.0
+        assert result["reviewed_symbols"][0]["action_status"] == "ready_for_ai_review"
+        assert captured["symbols_info"][0]["code"] == "000014"
+        assert result["report_preview"] == "# 顶层候选研报"
+
+    def test_generate_strategy_decision_enriches_string_symbols_from_report_candidates(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "summary": {"report_candidates": 1},
+                    "symbols_for_report": ["000014"],
+                    "report_candidates": [
+                        {
+                            "code": "000014",
+                            "name": "高质量候选",
+                            "track": "Trend",
+                            "candidate_shadow_grade": "S",
+                            "candidate_shadow_score": 92.0,
+                            "action_status": "ready_for_ai_review",
+                        }
+                    ],
+                    "selection_brief": {
+                        "best_candidates": [{"code": "000014", "name": "观察候选", "action_status": "watch_only"}]
+                    },
+                    "top_candidates": [{"code": "000014", "name": "备用观察", "action_status": "watch_only"}],
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 字符串候选研报"
+
+        monkeypatch.setattr(strategy_tools, "run_ai_report", fake_run_ai_report)
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["000014"]
+        assert result["reviewed_symbols"][0]["track"] == "Trend"
+        assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
+        assert result["reviewed_symbols"][0]["candidate_shadow_score"] == 92.0
+        assert result["reviewed_symbols"][0]["action_status"] == "ready_for_ai_review"
+        assert captured["symbols_info"][0]["track"] == "Trend"
+
     def test_generate_strategy_decision_blocks_auto_report_on_degraded_screen_data(self, monkeypatch):
         from agents import strategy_tools
         from agents.tool_context import ToolContext
