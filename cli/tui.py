@@ -411,6 +411,8 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
     if script_title and script_title != label:
         write(Text.from_markup(f"    [dim]动态脚本：{escape(script_title)}[/dim]"))
     if step_count:
+        for line in _workflow_plan_step_preview_lines(steps):
+            write(Text.from_markup(line))
         write(
             Text.from_markup(
                 f"    [dim]已交给 agent 动态执行，进度会按实际工具结果展开；详情用 /workflow show {escape(run_id)}[/dim]"
@@ -444,6 +446,25 @@ def _runtime_int(runtime: dict[str, Any], field: str) -> int:
         return int(runtime.get(field, 0) or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _workflow_plan_step_preview_lines(steps: Any, *, limit: int = 3) -> list[str]:
+    if not isinstance(steps, list):
+        return []
+    rows = [step for step in steps if isinstance(step, dict)]
+    if not any(_workflow_step_detail_meta(step) for step in rows[:limit]):
+        return []
+    lines = [_workflow_plan_step_preview_line(index, step) for index, step in enumerate(rows[:limit], 1)]
+    if len(rows) > limit:
+        lines.append(f"    [dim]… 另有 {len(rows) - limit} 个任务可在详情中查看[/dim]")
+    return [line for line in lines if line]
+
+
+def _workflow_plan_step_preview_line(index: int, step: dict[str, Any]) -> str:
+    title = escape(str(step.get("title") or step.get("step_id") or step.get("id") or "task")[:60])
+    detail = _workflow_step_detail_meta(step, field_limit=72)
+    suffix = f" · {detail}" if detail else ""
+    return f"    [dim]{index}. {title}{suffix}[/dim]"
 
 
 def _workflow_route_line(route: dict[str, Any]) -> Text | None:
@@ -500,14 +521,25 @@ def _workflow_step_meta(step: dict[str, Any], label: str, *, include_debug: bool
     return " · ".join(parts)
 
 
-def _workflow_step_detail_meta(step: dict[str, Any]) -> str:
+def _workflow_step_detail_meta(step: dict[str, Any], *, field_limit: int | None = None) -> str:
     labels = (
         ("rationale", "目标"),
         ("success_criteria", "验收"),
         ("risk_guard", "边界"),
     )
-    parts = [f"{label}: {escape(str(step.get(field) or ''))}" for field, label in labels if str(step.get(field) or "")]
+    parts = [
+        f"{label}: {escape(_workflow_meta_text(step.get(field), field_limit))}"
+        for field, label in labels
+        if _workflow_meta_text(step.get(field), field_limit)
+    ]
     return "；".join(parts)
+
+
+def _workflow_meta_text(value: Any, limit: int | None) -> str:
+    text = str(value or "").strip()
+    if limit is not None and len(text) > limit:
+        return text[:limit] + "..."
+    return text
 
 
 def _workflow_visible_summary(step: dict[str, Any]) -> str:

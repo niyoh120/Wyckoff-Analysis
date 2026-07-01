@@ -165,6 +165,44 @@ def test_display_workflow_plan_event_surfaces_trimmed_model_plan():
     assert "已收敛 3 个过长任务" in str(writes[0])
 
 
+def test_display_workflow_plan_event_surfaces_model_step_boundaries():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_dynamic",
+            "workflow": "dynamic_task",
+            "label": "今日选股",
+            "plan": {
+                "steps": [
+                    {
+                        "title": "扫描候选",
+                        "rationale": "先缩小候选池",
+                        "success_criteria": "输出候选代码和风险状态",
+                        "risk_guard": "不写入推荐或持仓",
+                    },
+                    {
+                        "title": "攻防计划",
+                        "success_criteria": "说明观察、复核和禁止直接买入的边界",
+                    },
+                ],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "1. 扫描候选" in rendered
+    assert "目标: 先缩小候选池" in rendered
+    assert "验收: 输出候选代码和风险状态" in rendered
+    assert "边界: 不写入推荐或持仓" in rendered
+    assert "2. 攻防计划" in rendered
+    assert "禁止直接买入" in rendered
+    assert "/workflow show wf_dynamic" in rendered
+    assert "工具：" not in rendered
+
+
 def test_display_workflow_step_event_hides_internal_scope():
     writes = []
     scrolled = []
