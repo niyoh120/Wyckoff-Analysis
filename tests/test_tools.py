@@ -2209,6 +2209,14 @@ class TestSymbolPool:
             assert row["selection_strategy"] == "candidate_shadow_then_score"
             assert row["label_ready"] is False
             assert row["label_status"] == "pending"
+            assert "候选影子评级 S" in row["quality_factors"]
+            assert "入场质量评级 A" in row["quality_factors"]
+            assert "短线涨幅偏快" in row["risk_factors"]
+
+        assert result["top_candidates"][0]["quality_factors"][0] == "高质量研报候选"
+        assert result["selection_brief"]["primary_pick"]["tier"] == "高质量研报候选"
+        assert result["decision_brief"]["report_focus"][0]["quality"] == "高质量研报候选"
+        assert result["action_plan"]["report_candidates"][0]["quality"] == "高质量研报候选"
 
         lines = tool_result_brief_lines("screen_stocks", result, max_lines=3)
         assert result["candidate_guard_summary"]["direct_buy_blocked_count"] == 1

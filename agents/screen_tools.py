@@ -581,6 +581,8 @@ def _candidate_quality_label(row: dict) -> str:
     priority = candidate_score_value(row.get("priority_score"))
     score = candidate_score_value(row.get("score"))
     trigger_count = len(row.get("triggers") or [])
+    if _has_strong_quality_grade(row):
+        return "高质量研报候选" if row.get("selected_for_report") else "高质量观察候选"
     if row.get("selected_for_report") and priority >= 10:
         return "高优先级研报候选"
     if row.get("selected_for_report"):
@@ -635,11 +637,37 @@ def _candidate_profile(row: dict) -> str:
 
 def _candidate_quality_factors(row: dict, *, next_step: str = "") -> list[str]:
     factors = [_candidate_quality_label(row)]
+    factors.extend(_candidate_grade_quality_factors(row))
     factors.extend(_split_factor_text(_candidate_profile(row), " / "))
     factors.extend(_split_factor_text(str(row.get("rank_reason") or ""), "；"))
     if next_step:
         factors.append(next_step)
     return list(dict.fromkeys(factor for factor in factors if factor))
+
+
+def _has_strong_quality_grade(row: dict) -> bool:
+    shadow_grade = str(row.get("candidate_shadow_grade") or "").strip().upper()
+    entry_grade = str(row.get("entry_quality_grade") or "").strip().upper()
+    return shadow_grade == "S" or entry_grade in {"S", "A"}
+
+
+def _candidate_grade_quality_factors(row: dict) -> list[str]:
+    factors: list[str] = []
+    shadow_grade = str(row.get("candidate_shadow_grade") or "").strip().upper()
+    entry_grade = str(row.get("entry_quality_grade") or "").strip().upper()
+    if shadow_grade:
+        factors.append(f"候选影子评级 {shadow_grade}")
+    if entry_grade and entry_grade != "UNKNOWN":
+        factors.append(f"入场质量评级 {entry_grade}")
+    return factors
+
+
+def _entry_quality_risk_flags(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
 
 
 def _candidate_risk_factors(
@@ -653,6 +681,7 @@ def _candidate_risk_factors(
         factors.append("未进入本轮研报候选")
     if not row.get("triggers") and not row.get("selected_for_report"):
         factors.append("触发信号未列明")
+    factors.extend(_entry_quality_risk_flags(row.get("entry_quality_risk_flags")))
     if trade_mode:
         if _data_quality_blocks_ready_flow(trade_mode, data_quality) and bucket != "watch":
             factors.extend(_data_quality_risk_factors(data_quality))
