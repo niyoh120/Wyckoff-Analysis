@@ -875,9 +875,18 @@ def _candidate_sort_key(row: dict) -> tuple:
         not bool(row["selected_for_report"]),
         priority_rank,
         -candidate_score_value(row.get("priority_score")),
+        -_candidate_quality_sort_score(row),
         -candidate_score_value(row.get("score")),
         -candidate_score_value(row.get("shadow_score")),
         row["code"],
+    )
+
+
+def _candidate_quality_sort_score(row: dict) -> float:
+    return max(
+        candidate_score_value(row.get("funnel_score")),
+        candidate_score_value(row.get("candidate_shadow_score")),
+        candidate_score_value(row.get("entry_quality_score")),
     )
 
 
@@ -914,6 +923,8 @@ def _rank_reason(row: dict) -> str:
         parts.append(f"研报候选#{rank}" if rank else "研报候选")
     if candidate_score_value(row.get("priority_score")):
         parts.append(f"优先分 {candidate_score_value(row.get('priority_score')):.2f}")
+    if _candidate_quality_sort_score(row):
+        parts.append(f"质量分 {_candidate_quality_sort_score(row):.2f}")
     if candidate_score_value(row.get("shadow_score")):
         parts.append(f"动态策略分 {candidate_score_value(row.get('shadow_score')):.2f}")
     if row["triggers"]:
