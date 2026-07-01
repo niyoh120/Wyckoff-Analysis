@@ -713,7 +713,7 @@ class ToolRegistry:
 
         if not isinstance(result, dict) or result.get("error"):
             return
-        if tool_name == "screen_stocks":
+        if tool_name == "screen_stocks" or result.get("job_kind") == "funnel_screen":
             from agents.screen_tools import remember_screen_handoff
 
             remember_screen_handoff(self._tool_context, result)

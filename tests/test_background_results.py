@@ -23,6 +23,18 @@ def _screen_result() -> dict:
     }
 
 
+def _funnel_screen_blocked_result() -> dict:
+    reason = "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+    return {
+        "ok": True,
+        "job_kind": "funnel_screen",
+        "summary": {"report_candidates": 0},
+        "symbols_for_report": [],
+        "watch_candidates": [{"code": "000013", "name": "低质量候选", "action_status": "watch_only"}],
+        "quality_gate": {"status": "blocked_by_quality_gate", "reason": reason, "blocked_count": 1},
+    }
+
+
 def _recommendation_event_eval_result() -> dict:
     return {
         "ok": True,
@@ -215,6 +227,25 @@ def test_check_background_tasks_restores_screen_handoff_state():
     assert state["selection_brief"]["best_codes"] == ["300750"]
     assert state["symbols_for_report"][0]["code"] == "300750"
     assert "trigger_groups" not in state
+
+
+def test_check_background_tasks_restores_web_funnel_quality_gate():
+    from cli.background import BackgroundTaskManager
+    from cli.tools import ToolRegistry
+
+    manager = BackgroundTaskManager()
+    registry = ToolRegistry()
+    registry.set_background_manager(manager)
+    task_id = manager.submit("bg_web_screen", "web_background_job", lambda: _funnel_screen_blocked_result(), {})
+
+    _wait_completed(manager, task_id)
+    registry.execute("check_background_tasks", {})
+
+    state = registry.state["last_screen_result"]
+    assert state["job_kind"] == "funnel_screen"
+    assert state["symbols_for_report"] == []
+    assert state["watch_candidates"][0]["code"] == "000013"
+    assert state["quality_gate"]["status"] == "blocked_by_quality_gate"
 
 
 def test_check_background_tasks_restores_ai_report_handoff_state():

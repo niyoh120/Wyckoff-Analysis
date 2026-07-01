@@ -534,9 +534,21 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
     payload = _pick_fields(value, ("scan_scope", "summary", "data_quality", "decision_brief", "selection_brief"))
     payload["action_plan"] = _pick_fields(
         value.get("action_plan"),
-        ("candidate_action", "new_buy_allowed", "ai_review_allowed", "trade_readiness", "review_targets"),
+        (
+            "candidate_action",
+            "new_buy_allowed",
+            "ai_review_allowed",
+            "trade_readiness",
+            "reason",
+            "next_step",
+            "data_quality_gate",
+            "quality_gate",
+            "review_targets",
+        ),
     )
+    payload["quality_gate"] = value.get("quality_gate") if isinstance(value.get("quality_gate"), dict) else {}
     payload["symbols_for_report"] = _candidate_rows(value.get("symbols_for_report"), 6)
+    payload["watch_candidates"] = _candidate_rows(value.get("watch_candidates"), 6)
     payload["top_candidates"] = _candidate_rows(value.get("top_candidates"), 6)
     payload["candidate_guard_summary"] = _compact_candidate_guard(value.get("candidate_guard_summary"))
     return _drop_empty(payload)
@@ -937,6 +949,7 @@ def _fallback_stage_candidates(stage: str, value: dict[str, Any]) -> list[dict[s
         rows: list[Any] = [selection.get("primary_pick")]
         rows.extend(_as_list(selection.get("best_candidates")))
         rows.extend(_as_list(value.get("symbols_for_report")))
+        rows.extend(_as_list(value.get("watch_candidates")))
         rows.extend(_as_list(value.get("top_candidates")))
     elif stage == "last_recommendation_event_eval":
         selection = value.get("policy_selection") if isinstance(value.get("policy_selection"), dict) else {}

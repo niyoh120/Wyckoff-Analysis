@@ -552,6 +552,10 @@ def test_workflow_handoff_state_compacts_candidate_context():
                     "new_buy_allowed": False,
                     "ai_review_allowed": True,
                     "trade_readiness": "research_only",
+                    "quality_gate": {
+                        "status": "blocked_by_quality_gate",
+                        "reason": "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00",
+                    },
                     "review_targets": {"codes": ["300750"], "tool": "generate_ai_report"},
                 },
                 "symbols_for_report": [
@@ -588,6 +592,18 @@ def test_workflow_handoff_state_compacts_candidate_context():
                         "next_step": "生成 AI 研报",
                     }
                 ],
+                "watch_candidates": [
+                    {
+                        "code": "000013",
+                        "name": "低质量候选",
+                        "action_status": "watch_only",
+                        "risk_adjusted_quality_score": 65.0,
+                    }
+                ],
+                "quality_gate": {
+                    "status": "blocked_by_quality_gate",
+                    "reason": "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00",
+                },
                 "trigger_groups": [{"large": "omitted"}],
                 "candidate_guard_summary": {
                     "direct_buy_blocked_count": 1,
@@ -669,6 +685,8 @@ def test_workflow_handoff_state_compacts_candidate_context():
     screen = handoff["last_screen_result"]
     assert screen["selection_brief"]["best_codes"] == ["300750"]
     assert screen["action_plan"]["new_buy_allowed"] is False
+    assert screen["action_plan"]["quality_gate"]["status"] == "blocked_by_quality_gate"
+    assert screen["quality_gate"]["status"] == "blocked_by_quality_gate"
     candidate = screen["symbols_for_report"][0]
     assert candidate["code"] == "300750"
     assert candidate["candidate_shadow_score"] == 92.0
@@ -677,6 +695,7 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert candidate["selection_strategy"] == "candidate_shadow_then_score"
     assert candidate["is_ai_recommended"] is True
     assert candidate["label_ready"] is False
+    assert screen["watch_candidates"][0]["code"] == "000013"
     screen_guard = screen["candidate_guard_summary"]
     assert screen_guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
     report_guard = handoff["last_ai_report"]["candidate_guard_summary"]

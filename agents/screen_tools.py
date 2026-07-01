@@ -110,6 +110,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         return
     tool_context.state["last_screen_result"] = {
         "ok": result.get("ok"),
+        "job_kind": result.get("job_kind"),
         "board": result.get("board"),
         "scan_scope": result.get("scan_scope", {}),
         "summary": result.get("summary", {}),
@@ -118,9 +119,12 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "decision_brief": result.get("decision_brief", {}),
         "selection_brief": result.get("selection_brief", {}),
         "action_plan": result.get("action_plan", {}),
+        "quality_gate": result.get("quality_gate", {}),
         "candidate_guard_summary": result.get("candidate_guard_summary", {}),
         "top_candidates": list(result.get("top_candidates") or [])[:20],
         "symbols_for_report": list(result.get("symbols_for_report") or [])[:10],
+        "report_candidates": list(result.get("report_candidates") or [])[:10],
+        "watch_candidates": list(result.get("watch_candidates") or [])[:10],
     }
 
 
