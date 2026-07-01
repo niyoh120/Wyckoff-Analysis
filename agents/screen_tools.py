@@ -62,6 +62,7 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
         selection_brief = _selection_brief(trade_mode, top_candidates, data_quality)
         action_plan = _action_plan(trade_mode, top_candidates, data_quality)
         symbols_for_report = list(action_plan.get("report_candidates") or [])
+        summary["report_candidates"] = len(_report_rows(symbols_for_report))
         result = {
             "ok": bool(ok),
             "board": board,
