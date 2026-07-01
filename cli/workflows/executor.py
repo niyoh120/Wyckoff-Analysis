@@ -854,13 +854,24 @@ def _fallback_candidate_conclusion_payload(
 
 def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
     parts = [
-        f"首选 {_fallback_candidate_name(row)}",
+        f"{_fallback_candidate_prefix(row)} {_fallback_candidate_name(row)}",
         _fallback_status_part(row),
         _fallback_evidence_part(row),
         _fallback_guard_part(row, stage, handoff),
         _fallback_next_part(row, stage),
     ]
     return "候选结论: " + "；".join(part for part in parts if part)
+
+
+def _fallback_candidate_prefix(row: dict[str, Any]) -> str:
+    status = str(row.get("action_status") or "").strip()
+    if status == "ready_for_ai_review":
+        return "首选"
+    if status == "watch_only":
+        return "观察候选"
+    if status.startswith("blocked_"):
+        return "阻断候选"
+    return "候选"
 
 
 def _fallback_merged_candidate(row: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
@@ -926,7 +937,30 @@ def _fallback_guard_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:
         if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
             return str(item["reason"])
     first = next((item for item in candidates if isinstance(item, dict) and item.get("reason")), {})
-    return str(first["reason"]) if first else ""
+    return str(first["reason"]) if first else _fallback_gate_reason(row, stage)
+
+
+def _fallback_gate_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:
+    action_plan = stage.get("action_plan") if isinstance(stage.get("action_plan"), dict) else {}
+    for gate in _fallback_gate_sources(stage, action_plan):
+        if reason := _gate_reason_for_candidate(row, gate):
+            return reason
+    return ""
+
+
+def _fallback_gate_sources(stage: dict[str, Any], action_plan: dict[str, Any]) -> list[dict[str, Any]]:
+    keys = ("review_targets", "quality_gate", "data_quality_gate")
+    gates = [action_plan.get(key) for key in keys]
+    gates.extend(stage.get(key) for key in keys)
+    return [gate for gate in gates if isinstance(gate, dict)]
+
+
+def _gate_reason_for_candidate(row: dict[str, Any], gate: dict[str, Any]) -> str:
+    code = str(row.get("code") or "").strip()
+    for item in _as_list(gate.get("candidates")):
+        if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
+            return str(item["reason"])
+    return str(gate.get("reason") or "")
 
 
 def _fallback_next_part(row: dict[str, Any], stage: dict[str, Any]) -> str:

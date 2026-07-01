@@ -523,7 +523,7 @@ def _first_candidate_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _candidate_conclusion_line(row: dict[str, Any], result: dict[str, Any]) -> str:
-    line = f"候选结论: 首选 {_candidate_brief_line(row)}"
+    line = f"候选结论: {_candidate_conclusion_prefix(row)} {_candidate_brief_line(row)}"
     next_step = _candidate_conclusion_next_step(row, result)
     if reason := _candidate_conclusion_guard_reason(row, result):
         guard_text = f"护栏: {reason}"
@@ -535,6 +535,17 @@ def _candidate_conclusion_line(row: dict[str, Any], result: dict[str, Any]) -> s
     if next_step and f"下一步: {next_step}" not in line:
         line += f" · 下一步: {next_step}"
     return line
+
+
+def _candidate_conclusion_prefix(row: dict[str, Any]) -> str:
+    status = str(row.get("action_status") or "").strip()
+    if status == "ready_for_ai_review":
+        return "首选"
+    if status == "watch_only":
+        return "观察候选"
+    if status.startswith("blocked_"):
+        return "阻断候选"
+    return "候选"
 
 
 def _candidate_conclusion_evidence_items(row: dict[str, Any]) -> list[str]:

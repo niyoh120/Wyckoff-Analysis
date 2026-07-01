@@ -9,6 +9,7 @@ from cli.workflows.control import WorkflowControl
 from cli.workflows.executor import (
     WorkflowExecutor,
     _fallback_handoff_lines,
+    _fallback_summary,
     _phase_batches,
     _step_context,
     _synthesis_handoff_summary,
@@ -865,6 +866,7 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
                 {
                     "code": "300750",
                     "name": "宁德时代",
+                    "action_status": "ready_for_ai_review",
                     "candidate_shadow_score": 92.0,
                     "candidate_shadow_grade": "S",
                     "next_step": "生成 AI 研报",
@@ -1089,6 +1091,42 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
         assert "等待通知配置后生成 OMS 工单" in final_text
     finally:
         _reset_local_db(local_db)
+
+
+def test_workflow_fallback_labels_watch_only_quality_gate_candidate():
+    reason = "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+    summary = _fallback_summary(
+        [
+            {
+                "step": {"title": "扫描候选"},
+                "result": {
+                    "status": "completed",
+                    "result": "候选扫描完成。",
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "selection_brief": {
+                                "status": "watch_only",
+                                "primary_pick": {
+                                    "code": "000013",
+                                    "name": "低质量候选",
+                                    "action_status": "watch_only",
+                                    "risk_adjusted_quality_score": 65.0,
+                                    "next_step": "观察池跟踪，暂不进入本轮AI复核",
+                                },
+                            },
+                            "quality_gate": {"status": "blocked_by_quality_gate", "reason": reason},
+                            "watch_candidates": [{"code": "000013", "name": "低质量候选"}],
+                        }
+                    },
+                },
+            }
+        ]
+    )
+
+    assert "候选结论: 观察候选 000013 低质量候选" in summary
+    assert "首选 000013 低质量候选" not in summary
+    assert f"护栏={reason}" in summary
+    assert "下一步=观察池跟踪，暂不进入本轮AI复核" in summary
 
 
 def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():
