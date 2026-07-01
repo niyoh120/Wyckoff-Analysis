@@ -538,6 +538,7 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
     )
     payload["symbols_for_report"] = _candidate_rows(value.get("symbols_for_report"), 6)
     payload["top_candidates"] = _candidate_rows(value.get("top_candidates"), 6)
+    payload["candidate_guard_summary"] = _compact_candidate_guard(value.get("candidate_guard_summary"))
     return _drop_empty(payload)
 
 

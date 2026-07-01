@@ -438,6 +438,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "trade_mode": result.get("trade_mode"),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "selection_brief": _screen_selection_preview(result.get("selection_brief")),
+            "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
             "top_candidates": _candidate_preview_list(result.get("top_candidates"), 10),
             "symbols_for_report": _candidate_preview_list(result.get("symbols_for_report"), 12),
             "action_plan": _screen_action_plan_preview(result.get("action_plan")),
@@ -454,6 +455,8 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     headline = _text_excerpt(selection.get("headline"), 120)
     if headline:
         lines.append(headline)
+    if guard_line := _candidate_guard_brief_line(result.get("candidate_guard_summary")):
+        lines.append(guard_line)
     for row in _screen_brief_candidates(result):
         if line := _candidate_brief_line(row):
             lines.append(line)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agents.candidate_guards import candidate_guard_summary
 from agents.tool_context import ToolContext, ensure_tushare_token
 from core.candidate_metadata import build_candidate_metadata_map, code6
 from core.candidate_policy import candidate_score_value
@@ -48,6 +49,9 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
         top_candidates = _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details)
         summary = _screen_summary(metrics, symbols)
         data_quality = _data_quality_summary(metrics, summary)
+        decision_brief = _decision_brief(trade_mode, top_candidates, data_quality)
+        selection_brief = _selection_brief(trade_mode, top_candidates, data_quality)
+        action_plan = _action_plan(trade_mode, top_candidates, data_quality)
         result = {
             "ok": bool(ok),
             "board": board,
@@ -55,14 +59,16 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
             "summary": summary,
             "data_quality": data_quality,
             "trade_mode": trade_mode,
-            "decision_brief": _decision_brief(trade_mode, top_candidates, data_quality),
-            "selection_brief": _selection_brief(trade_mode, top_candidates, data_quality),
-            "action_plan": _action_plan(trade_mode, top_candidates, data_quality),
+            "decision_brief": decision_brief,
+            "selection_brief": selection_brief,
+            "action_plan": action_plan,
             "top_candidates": top_candidates,
             "trigger_groups": trigger_groups,
             "top_sectors": metrics.get("top_sectors", []),
             "symbols_for_report": symbols,
         }
+        if guard_summary := _screen_candidate_guard_summary(selection_brief, action_plan):
+            result["candidate_guard_summary"] = guard_summary
         remember_screen_handoff(tool_context, result)
         return result
     except Exception as e:
@@ -102,6 +108,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "decision_brief": result.get("decision_brief", {}),
         "selection_brief": result.get("selection_brief", {}),
         "action_plan": result.get("action_plan", {}),
+        "candidate_guard_summary": result.get("candidate_guard_summary", {}),
         "top_candidates": list(result.get("top_candidates") or [])[:20],
         "symbols_for_report": list(result.get("symbols_for_report") or [])[:10],
     }
@@ -397,6 +404,30 @@ def _selection_tool_handoff(status: str, best_candidates: list[dict]) -> dict:
         "args": {"stock_codes": codes[:10]},
         "reason": "首选候选已通过市场闸门，可进入 AI 研报复核",
     }
+
+
+def _screen_candidate_guard_summary(selection_brief: dict, action_plan: dict) -> dict[str, Any]:
+    rows: list[dict] = []
+    for key in ("best_candidates",):
+        value = selection_brief.get(key) if isinstance(selection_brief, dict) else []
+        if isinstance(value, list):
+            rows.extend(row for row in value if isinstance(row, dict))
+    if isinstance(action_plan, dict):
+        for key in ("report_candidates", "watch_candidates"):
+            value = action_plan.get(key)
+            if isinstance(value, list):
+                rows.extend(row for row in value if isinstance(row, dict))
+    return candidate_guard_summary(_dedupe_guard_rows(rows))
+
+
+def _dedupe_guard_rows(rows: list[dict]) -> list[dict]:
+    out: dict[str, dict] = {}
+    for row in rows:
+        code = str(row.get("code") or "").strip()
+        if not code:
+            continue
+        out.setdefault(code, row)
+    return list(out.values())
 
 
 def _drop_empty_candidate_fields(payload: dict) -> dict:

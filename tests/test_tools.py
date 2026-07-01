@@ -2211,6 +2211,9 @@ class TestSymbolPool:
             assert row["label_status"] == "pending"
 
         lines = tool_result_brief_lines("screen_stocks", result, max_lines=3)
+        assert result["candidate_guard_summary"]["direct_buy_blocked_count"] == 1
+        assert result["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
+        assert any(line.startswith("候选护栏: 1只禁止直接买入") for line in lines)
         assert any("候选影子S/92" in line and "入场A/84" in line for line in lines)
 
     def test_screen_stocks_enriches_watch_candidates_from_candidate_metadata(self, monkeypatch):
