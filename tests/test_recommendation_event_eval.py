@@ -82,6 +82,31 @@ def test_summary_policy_and_daily_can_reuse_grouped_events(monkeypatch) -> None:
     assert [row["recommend_date"] for row in daily] == [20260515, 20260516]
 
 
+def test_build_summary_reuses_ranked_events_across_top_k(monkeypatch) -> None:
+    from workflows import recommendation_event_eval as module
+
+    events = [
+        _event(20260515, "A", ai=False, score=0.99, count=2, hit=False, shadow=25.0),
+        _event(20260515, "B", ai=False, score=0.30, count=1, hit=True, shadow=88.0),
+        _event(20260516, "C", ai=False, score=0.80, count=1, hit=True, shadow=85.0),
+        _event(20260516, "D", ai=True, score=0.40, count=3, hit=False, shadow=60.0),
+    ]
+    calls: list[tuple[str, tuple[str, ...]]] = []
+    real_rank_events = module._rank_events
+
+    def spy_rank_events(rows, strategy):
+        calls.append((strategy, tuple(str(row["code"]) for row in rows)))
+        return real_rank_events(rows, strategy)
+
+    monkeypatch.setattr(module, "_rank_events", spy_rank_events)
+
+    summary = module._build_summary(events, (1, 2, 3))
+
+    assert summary["top_k"]["3"]["rows_total"] == 4
+    assert len(calls) == len(module._RANKING_STRATEGIES) * 2
+    assert len(set(calls)) == len(calls)
+
+
 def test_policy_selection_ranks_candidate_quality_after_entry_risk_penalty() -> None:
     events = [
         {

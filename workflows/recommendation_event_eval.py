@@ -90,8 +90,14 @@ def build_recommendation_event_eval(request: RecommendationEventEvalRequest) -> 
     hist_by_code = _fetch_hist_by_code(api_key, sorted(grouped), market, request.kline_count)
     events = _build_events(grouped, hist_by_code, request, feature_map)
     events_by_date = _events_by_date(events)
-    summary = _build_summary(events, request.top_k, events_by_date)
-    policy_selection = _policy_selection(events, summary.get("ranking_decision") or {}, events_by_date)
+    ranked_by_strategy = _ranked_events_by_strategy(events_by_date)
+    summary = _build_summary(events, request.top_k, events_by_date, ranked_by_strategy)
+    policy_selection = _policy_selection(
+        events,
+        summary.get("ranking_decision") or {},
+        events_by_date,
+        ranked_by_strategy,
+    )
     result = {
         "metadata": _metadata(request, market, records, grouped),
         "summary": summary,
@@ -212,9 +218,11 @@ def _build_summary(
     events: list[dict[str, Any]],
     top_k: tuple[int, ...],
     events_by_date: dict[int, list[dict[str, Any]]] | None = None,
+    ranked_by_strategy: dict[str, dict[int, list[dict[str, Any]]]] | None = None,
 ) -> dict[str, Any]:
-    events_by_date = events_by_date or _events_by_date(events)
-    top_k_by_strategy = _top_k_by_strategy(events_by_date, top_k)
+    events_by_date = _events_by_date(events) if events_by_date is None else events_by_date
+    ranked_by_strategy = ranked_by_strategy or _ranked_events_by_strategy(events_by_date)
+    top_k_by_strategy = _top_k_by_strategy(ranked_by_strategy, top_k)
     lift_by_strategy = _strategy_lift_summary(top_k_by_strategy)
     summary = {
         "all": summarize_horizon_events(events),
@@ -239,11 +247,11 @@ def _grade_summary(events: list[dict[str, Any]], field: str) -> dict[str, Any]:
 
 
 def _top_k_by_strategy(
-    events_by_date: dict[int, list[dict[str, Any]]], top_k: tuple[int, ...]
+    ranked_by_strategy: dict[str, dict[int, list[dict[str, Any]]]], top_k: tuple[int, ...]
 ) -> dict[str, dict[str, Any]]:
     return {
         strategy: {
-            str(k): _top_k_summary_by_date(events_by_date, k, strategy)
+            str(k): _top_k_summary_from_ranked(ranked_by_strategy.get(strategy, {}), k, strategy)
             for k in sorted({max(int(value), 1) for value in top_k})
         }
         for strategy in _RANKING_STRATEGIES
@@ -373,18 +381,17 @@ def _policy_selection(
     events: list[dict[str, Any]],
     decision: dict[str, Any],
     events_by_date: dict[int, list[dict[str, Any]]] | None = None,
+    ranked_by_strategy: dict[str, dict[int, list[dict[str, Any]]]] | None = None,
 ) -> dict[str, Any]:
-    by_date = events_by_date or _events_by_date(events)
+    by_date = _events_by_date(events) if events_by_date is None else events_by_date
     if not by_date:
         return _empty_policy_selection(decision)
     latest_date = max(by_date)
     strategy = _policy_strategy(decision)
     top_k = _policy_top_k(decision)
     status = str(decision.get("status", "unknown"))
-    picks = [
-        _policy_pick(row, idx + 1, strategy, status)
-        for idx, row in enumerate(_rank_events(by_date[latest_date], strategy)[:top_k])
-    ]
+    latest_ranked = _ranked_latest_events(by_date, ranked_by_strategy, strategy, latest_date)
+    picks = [_policy_pick(row, idx + 1, strategy, status) for idx, row in enumerate(latest_ranked[:top_k])]
     return {
         "status": status,
         "selection_strategy": strategy,
@@ -527,11 +534,20 @@ def _top_k_summary_by_date(
     k: int,
     strategy: str = "score_only",
 ) -> dict[str, Any]:
+    ranked_by_date = {rec_date: _rank_events(rows, strategy) for rec_date, rows in events_by_date.items()}
+    return _top_k_summary_from_ranked(ranked_by_date, k, strategy)
+
+
+def _top_k_summary_from_ranked(
+    ranked_by_date: dict[int, list[dict[str, Any]]],
+    k: int,
+    strategy: str,
+) -> dict[str, Any]:
     selected: list[dict[str, Any]] = []
-    for rows in events_by_date.values():
-        selected.extend(_rank_events(rows, strategy)[:k])
+    for rows in ranked_by_date.values():
+        selected.extend(rows[:k])
     summary = summarize_horizon_events(selected)
-    summary["days_covered"] = len(events_by_date)
+    summary["days_covered"] = len(ranked_by_date)
     summary["top_k"] = k
     summary["ranking"] = strategy
     return summary
@@ -552,6 +568,28 @@ def _events_by_date(events: list[dict[str, Any]]) -> dict[int, list[dict[str, An
         if rec_date:
             grouped[int(rec_date)].append(event)
     return dict(grouped)
+
+
+def _ranked_events_by_strategy(
+    events_by_date: dict[int, list[dict[str, Any]]],
+) -> dict[str, dict[int, list[dict[str, Any]]]]:
+    return {
+        strategy: {rec_date: _rank_events(rows, strategy) for rec_date, rows in events_by_date.items()}
+        for strategy in _RANKING_STRATEGIES
+    }
+
+
+def _ranked_latest_events(
+    events_by_date: dict[int, list[dict[str, Any]]],
+    ranked_by_strategy: dict[str, dict[int, list[dict[str, Any]]]] | None,
+    strategy: str,
+    latest_date: int,
+) -> list[dict[str, Any]]:
+    if ranked_by_strategy:
+        ranked = ranked_by_strategy.get(strategy, {}).get(latest_date)
+        if ranked is not None:
+            return ranked
+    return _rank_events(events_by_date[latest_date], strategy)
 
 
 def _rank_events(events: list[dict[str, Any]], strategy: str) -> list[dict[str, Any]]:
