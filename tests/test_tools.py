@@ -2277,6 +2277,60 @@ class TestSymbolPool:
         assert first["quality_factors"][0] == "高质量研报候选"
         assert result["selection_brief"]["primary_pick"]["code"] == "000011"
 
+    def test_screen_stocks_penalizes_entry_quality_risks_in_same_priority_sort(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000011",
+                        "name": "带风险高分",
+                        "priority_rank": 1,
+                        "priority_score": 10.0,
+                        "candidate_shadow_score": 92.0,
+                        "candidate_shadow_grade": "S",
+                        "entry_quality_score": 84.0,
+                        "entry_quality_grade": "A",
+                        "entry_quality_risk_flags": ["短线涨幅偏快"],
+                    },
+                    {
+                        "code": "000012",
+                        "name": "无风险次高分",
+                        "priority_rank": 1,
+                        "priority_score": 10.0,
+                        "candidate_shadow_score": 90.0,
+                        "candidate_shadow_grade": "S",
+                        "entry_quality_score": 82.0,
+                        "entry_quality_grade": "A",
+                    },
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {"sos": [("000011", 20.0), ("000012", 20.0)]},
+                    "trade_mode": {
+                        "mode": "risk_on",
+                        "allow_ai_review": True,
+                        "allow_recommendation_write": True,
+                    },
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        assert [row["code"] for row in result["top_candidates"][:2]] == ["000012", "000011"]
+        risky = result["top_candidates"][1]
+        assert risky["rank_reason"] == "研报候选#1；优先分 10.00；质量分 87.00；入场风险扣减 5.00；SOS"
+        assert risky["risk_factors"] == ["短线涨幅偏快"]
+
     def test_screen_stocks_enriches_watch_candidates_from_candidate_metadata(self, monkeypatch):
         from agents import screen_tools
 

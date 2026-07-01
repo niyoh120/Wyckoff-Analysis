@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 _VALID_BOARDS = {"all", "main", "chinext", "star", "bse", "main_chinext_star"}
 _MAX_SCAN_LIMIT = 3000
+_ENTRY_RISK_FLAG_PENALTY = 5.0
+_MAX_ENTRY_RISK_FLAG_PENALTY = 20.0
 _BOARD_ALIAS = {
     "gem": "chinext",
     "创业板": "chinext",
@@ -883,11 +885,20 @@ def _candidate_sort_key(row: dict) -> tuple:
 
 
 def _candidate_quality_sort_score(row: dict) -> float:
+    return max(0.0, _candidate_raw_quality_score(row) - _entry_quality_risk_penalty(row))
+
+
+def _candidate_raw_quality_score(row: dict) -> float:
     return max(
         candidate_score_value(row.get("funnel_score")),
         candidate_score_value(row.get("candidate_shadow_score")),
         candidate_score_value(row.get("entry_quality_score")),
     )
+
+
+def _entry_quality_risk_penalty(row: dict) -> float:
+    count = len(_entry_quality_risk_flags(row.get("entry_quality_risk_flags")))
+    return min(_MAX_ENTRY_RISK_FLAG_PENALTY, count * _ENTRY_RISK_FLAG_PENALTY)
 
 
 def _final_candidate_row(row: dict) -> dict:
@@ -925,6 +936,8 @@ def _rank_reason(row: dict) -> str:
         parts.append(f"优先分 {candidate_score_value(row.get('priority_score')):.2f}")
     if _candidate_quality_sort_score(row):
         parts.append(f"质量分 {_candidate_quality_sort_score(row):.2f}")
+    if _entry_quality_risk_penalty(row):
+        parts.append(f"入场风险扣减 {_entry_quality_risk_penalty(row):.2f}")
     if candidate_score_value(row.get("shadow_score")):
         parts.append(f"动态策略分 {candidate_score_value(row.get('shadow_score')):.2f}")
     if row["triggers"]:
