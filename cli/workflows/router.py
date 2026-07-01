@@ -7,6 +7,31 @@ from dataclasses import replace
 from cli.workflows.models import WorkflowContext
 
 ASK_TOOLS = ("ask_user_question",)
+_STOCK_SELECTION_TARGET_MARKERS = (
+    "选股",
+    "选出好股票",
+    "好股票",
+    "候选股",
+    "候选股票",
+    "股票池",
+    "值得跟踪",
+    "重点跟踪",
+)
+_STOCK_SELECTION_DEPTH_MARKERS = (
+    "完整",
+    "一遍",
+    "今天",
+    "当前",
+    "给出候选",
+    "理由",
+    "买卖计划",
+    "攻防",
+    "研报",
+    "决策",
+    "筛选",
+    "扫描",
+    "复核",
+)
 
 WORKFLOWS: dict[str, WorkflowContext] = {
     "portfolio_review": WorkflowContext(
@@ -104,6 +129,8 @@ def route_workflow(user_text: str) -> WorkflowContext:
     text = user_text.lower()
     if matches := _explicit_dynamic_workflow_matches(text):
         return _with_route(WORKFLOWS["dynamic_task"], "用户显式要求动态 workflow", 0.96, matches)
+    if matches := _stock_selection_workflow_matches(text):
+        return _with_route(WORKFLOWS["dynamic_task"], "明显的多阶段选股任务", 0.72, matches)
     return _with_route(WORKFLOWS["general_chat"], "普通工具型对话交给直接 agent", 0.0, ())
 
 
@@ -135,6 +162,20 @@ def build_workflow_system_prompt(workflow: WorkflowContext | None) -> str:
 
 def _explicit_dynamic_workflow_matches(text: str) -> tuple[str, ...]:
     markers = ("ultracode", "用 workflow", "使用 workflow", "以 workflow", "用动态 workflow", "动态 workflow 跑")
+    return tuple(marker for marker in markers if marker in text)
+
+
+def _stock_selection_workflow_matches(text: str) -> tuple[str, ...]:
+    target_matches = _marker_matches(text, _STOCK_SELECTION_TARGET_MARKERS)
+    if not target_matches:
+        return ()
+    depth_matches = _marker_matches(text, _STOCK_SELECTION_DEPTH_MARKERS)
+    if not depth_matches:
+        return ()
+    return tuple(dict.fromkeys((*target_matches, *depth_matches)))
+
+
+def _marker_matches(text: str, markers: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(marker for marker in markers if marker in text)
 
 

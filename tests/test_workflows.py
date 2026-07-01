@@ -121,6 +121,25 @@ def test_route_workflow_explicit_dynamic_opt_in():
     assert workflow.route_reason == "用户显式要求动态 workflow"
 
 
+def test_route_workflow_routes_obvious_stock_selection_to_dynamic_fallback():
+    workflow = route_workflow("帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划")
+
+    assert workflow.name == "dynamic_task"
+    assert "screen_stocks" in workflow.allowed_tools
+    assert "generate_strategy_decision" in workflow.allowed_tools
+    assert workflow.route_reason == "明显的多阶段选股任务"
+    assert workflow.route_confidence == 0.72
+    assert {"选股", "完整", "今天", "买卖计划"}.issubset(workflow.route_matches)
+
+
+def test_route_workflow_keeps_simple_stock_selection_concept_direct():
+    workflow = route_workflow("好股票是什么意思？")
+
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "普通工具型对话交给直接 agent"
+    assert workflow.route_matches == ()
+
+
 def test_route_workflow_leaves_deep_research_to_model_router():
     workflow = route_workflow("分阶段深度研究一下今天的市场风险")
 
@@ -349,7 +368,7 @@ def test_dispatch_accepts_semantic_direct_router_alias():
     assert isinstance(runtime, AgentRuntime)
 
 
-def test_dispatch_keeps_direct_runtime_when_model_router_is_unavailable():
+def test_dispatch_uses_stock_selection_fallback_when_model_router_is_unavailable():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
         StubToolRegistry(),
@@ -357,10 +376,11 @@ def test_dispatch_keeps_direct_runtime_when_model_router_is_unavailable():
         user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
     )
 
-    assert workflow.name == "general_chat"
-    assert isinstance(runtime, AgentRuntime)
-    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
-    assert workflow.route_matches == ("model_router_fallback",)
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），沿用兜底路由：明显的多阶段选股任务"
+    assert workflow.route_matches[0] == "model_router_fallback"
+    assert "选股" in workflow.route_matches
 
 
 def test_dispatch_surfaces_invalid_model_router_json():
@@ -373,10 +393,11 @@ def test_dispatch_surfaces_invalid_model_router_json():
         user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
     )
 
-    assert workflow.name == "general_chat"
-    assert isinstance(runtime, AgentRuntime)
-    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
-    assert workflow.route_matches == ("model_router_fallback",)
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），沿用兜底路由：明显的多阶段选股任务"
+    assert workflow.route_matches[0] == "model_router_fallback"
+    assert "选股" in workflow.route_matches
 
 
 def test_dispatch_keeps_explicit_workflow_when_model_router_is_unavailable():
