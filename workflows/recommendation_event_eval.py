@@ -14,6 +14,7 @@ from typing import Any
 import pandas as pd
 
 from core.candidate_guards import policy_candidate_guard_summary
+from core.candidate_quality import risk_adjusted_quality_metrics
 from core.constants import TABLE_SIGNAL_OBSERVATIONS
 from core.recommendation_event_metrics import build_horizon_event, summarize_horizon_events
 from integrations.recommendation_performance import (
@@ -458,6 +459,7 @@ def _policy_pick(event: dict[str, Any], rank: int, strategy: str, policy_status:
         "entry_quality_score": event.get("entry_quality_score"),
         "entry_quality_grade": event.get("entry_quality_grade"),
         "entry_quality_risk_flags": event.get("entry_quality_risk_flags") or [],
+        **risk_adjusted_quality_metrics(event),
         "label_ready": bool(event.get("label_ready")),
         "label_status": event.get("label_status"),
         "action_status": _policy_pick_action_status(policy_status),

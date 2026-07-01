@@ -8,6 +8,7 @@ from typing import Any
 
 from agents.tool_context import ToolContext
 from core.candidate_guards import policy_candidate_guard_summary
+from core.candidate_quality import risk_adjusted_quality_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,7 @@ def _policy_pick_handoff(row: dict[str, Any]) -> dict[str, Any]:
     strategy = str(row.get("selection_strategy") or "").strip()
     rank = row.get("rank")
     quality_factors = _policy_quality_factors(row)
+    quality_metrics = _policy_quality_metrics(row)
     return {
         "code": code,
         "name": str(row.get("name") or code).strip(),
@@ -258,6 +260,7 @@ def _policy_pick_handoff(row: dict[str, Any]) -> dict[str, Any]:
         "entry_quality_score": row.get("entry_quality_score"),
         "entry_quality_grade": row.get("entry_quality_grade"),
         "entry_quality_risk_flags": row.get("entry_quality_risk_flags") or [],
+        **quality_metrics,
         "label_ready": row.get("label_ready"),
         "label_status": row.get("label_status"),
     }
@@ -280,6 +283,14 @@ def _policy_risk_factors(row: dict[str, Any]) -> list[str]:
     if row.get("label_ready") is False:
         risks.append("评估标签尚未成熟")
     return list(dict.fromkeys(risks))
+
+
+def _policy_quality_metrics(row: dict[str, Any]) -> dict[str, Any]:
+    metrics: dict[str, Any] = risk_adjusted_quality_metrics(row)
+    for field in ("candidate_quality_score", "risk_adjusted_quality_score", "entry_risk_penalty"):
+        if row.get(field) not in (None, "", []):
+            metrics[field] = row[field]
+    return metrics
 
 
 def _policy_rank_reason(rank: Any, strategy: str, quality_factors: list[str]) -> str:

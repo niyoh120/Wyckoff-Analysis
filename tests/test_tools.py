@@ -464,8 +464,11 @@ class TestAiReportTool:
                             "code": "300750",
                             "name": "宁德时代",
                             "funnel_score": 0.0,
+                            "candidate_shadow_score": 92.0,
                             "candidate_shadow_grade": "S",
+                            "entry_quality_score": 84.0,
                             "entry_quality_grade": "A",
+                            "entry_quality_risk_flags": ["短线涨幅偏快"],
                             "label_ready": False,
                             "label_status": "pending",
                             "action_status": "ready_for_ai_review",
@@ -489,9 +492,16 @@ class TestAiReportTool:
         assert result["reviewed_codes"] == ["300750"]
         assert result["reviewed_symbols"][0]["selection_source"] == "recommendation_event_eval"
         assert result["reviewed_symbols"][0]["funnel_score"] == 0.0
+        assert result["reviewed_symbols"][0]["candidate_shadow_score"] == 92.0
         assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
+        assert result["reviewed_symbols"][0]["entry_quality_score"] == 84.0
+        assert result["reviewed_symbols"][0]["candidate_quality_score"] == 92.0
+        assert result["reviewed_symbols"][0]["risk_adjusted_quality_score"] == 87.0
+        assert result["reviewed_symbols"][0]["entry_risk_penalty"] == 5.0
         assert result["reviewed_symbols"][0]["label_ready"] is False
         assert result["reviewed_symbols"][0]["label_status"] == "pending"
+        assert "短线涨幅偏快" in result["reviewed_symbols"][0]["risk_factors"]
+        assert captured["symbols_info"][0]["risk_adjusted_quality_score"] == 87.0
         assert captured["symbols_info"][0]["entry_quality_grade"] == "A"
         assert captured["symbols_info"][0]["label_ready"] is False
         assert ctx.state["last_ai_report"]["report_text"] == "# 推荐评估候选研报"

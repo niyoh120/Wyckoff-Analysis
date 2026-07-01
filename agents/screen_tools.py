@@ -9,6 +9,12 @@ from agents.tool_context import ToolContext, ensure_tushare_token
 from core.candidate_guards import candidate_guard_summary
 from core.candidate_metadata import build_candidate_metadata_map, code6
 from core.candidate_policy import candidate_score_value
+from core.candidate_quality import (
+    entry_quality_risk_flags,
+    entry_quality_risk_penalty,
+    risk_adjusted_quality_metrics,
+    risk_adjusted_quality_score,
+)
 from core.candidate_ranker import TRIGGER_SHORT_LABELS
 from core.candidate_tracks import candidate_entry_track
 from core.funnel_taxonomy import lane_label, source_label
@@ -17,8 +23,6 @@ logger = logging.getLogger(__name__)
 
 _VALID_BOARDS = {"all", "main", "chinext", "star", "bse", "main_chinext_star"}
 _MAX_SCAN_LIMIT = 3000
-_ENTRY_RISK_FLAG_PENALTY = 5.0
-_MAX_ENTRY_RISK_FLAG_PENALTY = 20.0
 _BOARD_ALIAS = {
     "gem": "chinext",
     "创业板": "chinext",
@@ -579,19 +583,7 @@ def _candidate_quality_metrics(row: dict) -> dict[str, Any]:
     payload = {
         field: row.get(field) for field in _CANDIDATE_QUALITY_METRIC_FIELDS if row.get(field) not in (None, "", [])
     }
-    payload.update(_candidate_risk_adjusted_quality_metrics(row))
-    return payload
-
-
-def _candidate_risk_adjusted_quality_metrics(row: dict) -> dict[str, float]:
-    raw_score = _candidate_raw_quality_score(row)
-    risk_penalty = _entry_quality_risk_penalty(row)
-    payload: dict[str, float] = {}
-    if raw_score:
-        payload["candidate_quality_score"] = round(raw_score, 2)
-        payload["risk_adjusted_quality_score"] = round(_candidate_quality_sort_score(row), 2)
-    if risk_penalty:
-        payload["entry_risk_penalty"] = round(risk_penalty, 2)
+    payload.update(risk_adjusted_quality_metrics(row))
     return payload
 
 
@@ -680,14 +672,6 @@ def _candidate_grade_quality_factors(row: dict) -> list[str]:
     return factors
 
 
-def _entry_quality_risk_flags(value: object) -> list[str]:
-    if isinstance(value, str):
-        return [value.strip()] if value.strip() else []
-    if isinstance(value, (list, tuple, set)):
-        return [str(item).strip() for item in value if str(item).strip()]
-    return []
-
-
 def _candidate_risk_factors(
     row: dict,
     trade_mode: dict | None = None,
@@ -699,7 +683,7 @@ def _candidate_risk_factors(
         factors.append("未进入本轮研报候选")
     if not row.get("triggers") and not row.get("selected_for_report"):
         factors.append("触发信号未列明")
-    factors.extend(_entry_quality_risk_flags(row.get("entry_quality_risk_flags")))
+    factors.extend(entry_quality_risk_flags(row.get("entry_quality_risk_flags")))
     if trade_mode:
         if _data_quality_blocks_ready_flow(trade_mode, data_quality) and bucket != "watch":
             factors.extend(_data_quality_risk_factors(data_quality))
@@ -893,28 +877,11 @@ def _candidate_sort_key(row: dict) -> tuple:
         not bool(row["selected_for_report"]),
         priority_rank,
         -candidate_score_value(row.get("priority_score")),
-        -_candidate_quality_sort_score(row),
+        -risk_adjusted_quality_score(row),
         -candidate_score_value(row.get("score")),
         -candidate_score_value(row.get("shadow_score")),
         row["code"],
     )
-
-
-def _candidate_quality_sort_score(row: dict) -> float:
-    return max(0.0, _candidate_raw_quality_score(row) - _entry_quality_risk_penalty(row))
-
-
-def _candidate_raw_quality_score(row: dict) -> float:
-    return max(
-        candidate_score_value(row.get("funnel_score")),
-        candidate_score_value(row.get("candidate_shadow_score")),
-        candidate_score_value(row.get("entry_quality_score")),
-    )
-
-
-def _entry_quality_risk_penalty(row: dict) -> float:
-    count = len(_entry_quality_risk_flags(row.get("entry_quality_risk_flags")))
-    return min(_MAX_ENTRY_RISK_FLAG_PENALTY, count * _ENTRY_RISK_FLAG_PENALTY)
 
 
 def _final_candidate_row(row: dict) -> dict:
@@ -950,10 +917,10 @@ def _rank_reason(row: dict) -> str:
         parts.append(f"研报候选#{rank}" if rank else "研报候选")
     if candidate_score_value(row.get("priority_score")):
         parts.append(f"优先分 {candidate_score_value(row.get('priority_score')):.2f}")
-    if _candidate_quality_sort_score(row):
-        parts.append(f"质量分 {_candidate_quality_sort_score(row):.2f}")
-    if _entry_quality_risk_penalty(row):
-        parts.append(f"入场风险扣减 {_entry_quality_risk_penalty(row):.2f}")
+    if risk_adjusted_quality_score(row):
+        parts.append(f"质量分 {risk_adjusted_quality_score(row):.2f}")
+    if entry_quality_risk_penalty(row):
+        parts.append(f"入场风险扣减 {entry_quality_risk_penalty(row):.2f}")
     if candidate_score_value(row.get("shadow_score")):
         parts.append(f"动态策略分 {candidate_score_value(row.get('shadow_score')):.2f}")
     if row["triggers"]:

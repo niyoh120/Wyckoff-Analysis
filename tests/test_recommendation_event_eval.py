@@ -80,7 +80,8 @@ def test_policy_selection_uses_promoted_strategy_for_latest_candidates() -> None
     events = []
     for day in range(20260501, 20260513):
         events.append(_event(day, f"A{day}", ai=False, score=0.99, count=2, hit=False, shadow=25.0))
-        events.append(_event(day, f"B{day}", ai=False, score=0.30, count=1, hit=True, shadow=88.0))
+        events.append(_event(day, f"B{day}", ai=False, score=0.30, count=1, hit=True, shadow=88.0, entry=82.0))
+    events[-1]["entry_quality_risk_flags"] = ["短线涨幅偏快"]
     summary = _build_summary(events, (1,))
 
     selection = _policy_selection(events, summary["ranking_decision"])
@@ -90,6 +91,10 @@ def test_policy_selection_uses_promoted_strategy_for_latest_candidates() -> None
     assert selection["recommend_date"] == 20260512
     assert [pick["code"] for pick in selection["picks"]] == ["B20260512"]
     assert selection["picks"][0]["action_status"] == "ready_for_ai_review"
+    assert selection["picks"][0]["candidate_quality_score"] == 88.0
+    assert selection["picks"][0]["risk_adjusted_quality_score"] == 83.0
+    assert selection["picks"][0]["entry_risk_penalty"] == 5.0
+    assert "短线涨幅偏快" in selection["picks"][0]["risk_factors"]
     assert selection["picks"][0]["next_step"] == "生成 AI 研报并结合持仓形成攻防决策"
     assert selection["action_plan"]["new_buy_allowed"] is False
     assert selection["action_plan"]["ai_review_allowed"] is True

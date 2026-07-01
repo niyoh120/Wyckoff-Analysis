@@ -41,8 +41,11 @@ def _fake_eval_result(request):
                     "rank": 1,
                     "code": "300750",
                     "name": "宁德时代",
+                    "candidate_shadow_score": 92.0,
                     "candidate_shadow_grade": "S",
+                    "entry_quality_score": 84.0,
                     "entry_quality_grade": "A",
+                    "entry_quality_risk_flags": ["短线涨幅偏快"],
                     "action_status": "ready_for_ai_review",
                     "quality_factors": ["候选影子评级 S", "入场质量评级 A"],
                     "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
@@ -96,8 +99,12 @@ def test_evaluate_recommendation_events_records_report_handoff(monkeypatch):
     assert handoff["action_plan"]["ai_review_allowed"] is True
     assert handoff["action_plan"]["trade_readiness"] == "research_only"
     assert handoff["action_plan"]["review_targets"]["tool"] == "generate_ai_report"
+    assert handoff["symbols_for_report"][0]["candidate_quality_score"] == 92.0
+    assert handoff["symbols_for_report"][0]["risk_adjusted_quality_score"] == 87.0
+    assert handoff["symbols_for_report"][0]["entry_risk_penalty"] == 5.0
     assert handoff["symbols_for_report"][0]["candidate_shadow_grade"] == "S"
     assert handoff["symbols_for_report"][0]["action_status"] == "ready_for_ai_review"
+    assert "短线涨幅偏快" in handoff["symbols_for_report"][0]["risk_factors"]
     assert "最新候选的未来窗口标签尚未成熟" in handoff["symbols_for_report"][0]["risk_factors"]
     assert handoff["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
     assert handoff["selection_brief"]["tool_handoff"]["args"]["stock_codes"][0] == "300750"
