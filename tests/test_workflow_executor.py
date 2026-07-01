@@ -585,6 +585,34 @@ def test_workflow_handoff_state_compacts_candidate_context():
                 ],
                 "trigger_groups": [{"large": "omitted"}],
             },
+            "last_ai_report": {
+                "ok": True,
+                "model": "gpt-test",
+                "stock_count": 1,
+                "reviewed_codes": ["300750"],
+                "reviewed_symbols": [
+                    {
+                        "code": "300750",
+                        "name": "宁德时代",
+                        "action_status": "ready_for_ai_review",
+                        "label_ready": False,
+                    }
+                ],
+                "candidate_guard_summary": {
+                    "direct_buy_blocked_count": 1,
+                    "message": "以下候选仅可复核或观察，禁止直接买入",
+                    "candidates": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "reason": "候选标签未成熟，禁止直接买入",
+                            "action_status": "ready_for_ai_review",
+                            "label_ready": False,
+                            "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                        }
+                    ],
+                },
+            },
             "last_strategy_decision": {
                 "status": "skipped_notify_unconfigured",
                 "report_source": "last_ai_report",
@@ -631,6 +659,8 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert candidate["selection_strategy"] == "candidate_shadow_then_score"
     assert candidate["is_ai_recommended"] is True
     assert candidate["label_ready"] is False
+    report_guard = handoff["last_ai_report"]["candidate_guard_summary"]
+    assert report_guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
     guard = handoff["last_strategy_decision"]["candidate_guard_summary"]
     assert guard["direct_buy_blocked_count"] == 1
     assert guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"

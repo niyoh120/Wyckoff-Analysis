@@ -310,6 +310,7 @@ def _ai_report_preview(result: dict[str, Any]) -> str:
             "stock_count": result.get("stock_count"),
             "reviewed_codes": _preview_list(result.get("reviewed_codes"), 12),
             "reviewed_symbols": _candidate_preview_list(result.get("reviewed_symbols"), 12),
+            "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
             "next_action": result.get("next_action"),
             "next_tool": result.get("next_tool"),
             "report_excerpt": _text_excerpt(result.get("report_text"), 1400),
@@ -320,6 +321,8 @@ def _ai_report_preview(result: dict[str, Any]) -> str:
 
 def _ai_report_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
     lines = [_tool_stage_line("AI研报", result, _reviewed_count(result))]
+    if guard_line := _candidate_guard_brief_line(result.get("candidate_guard_summary")):
+        lines.append(guard_line)
     lines.extend(_reviewed_symbol_lines(result, max_lines=max_lines))
     return [line for line in lines if line][:max_lines]
 

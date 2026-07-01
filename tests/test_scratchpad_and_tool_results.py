@@ -369,8 +369,25 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
                 "action_status": "blocked_by_market_gate",
             },
         ],
-        "next_action": "研报已完成，可结合持仓和候选进入组合攻防决策",
-        "next_tool": {"tool": "generate_strategy_decision", "args": {}, "reason": "继续组合攻防"},
+        "candidate_guard_summary": {
+            "direct_buy_blocked_count": 1,
+            "message": "以下候选仅可复核或观察，禁止直接买入",
+            "candidates": [
+                {
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "reason": "候选状态 blocked_by_market_gate 不允许直接买入",
+                    "action_status": "blocked_by_market_gate",
+                    "risk_factors": ["大盘风险闸门关闭"],
+                }
+            ],
+        },
+        "next_action": "研报已完成；候选存在禁止直接买入边界，下一步只进入组合攻防复核",
+        "next_tool": {
+            "tool": "generate_strategy_decision",
+            "args": {},
+            "reason": "研报已完成，可继续生成组合攻防复核；候选护栏禁止把观察/未成熟候选直接写成买入",
+        },
     }
 
     content = format_tool_result_for_context("generate_ai_report", "call_report", result, max_chars=1000)
@@ -380,13 +397,15 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
     assert '"reviewed_codes": ["000001", "300750"]' in content
     assert '"risk_factors": ["大盘风险闸门关闭"]' in content
     assert '"action_status": "blocked_by_market_gate"' in content
+    assert '"candidate_guard_summary"' in content
+    assert '"direct_buy_blocked_count": 1' in content
     assert '"tool": "generate_strategy_decision"' in content
     assert '"report_excerpt": "# 研报' in content
     assert report_text not in content
     assert lines == [
-        "AI研报: reviewed=2, model=gpt-test, next=研报已完成，可结合持仓和候选进入组合攻防决策",
+        "AI研报: reviewed=2, model=gpt-test, next=研报已完成；候选存在禁止直接买入边界，下一步只进入组合攻防复核",
+        "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选状态 blocked_by_market_gate 不允许直接买入)",
         "000001 平安银行",
-        "300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭",
     ]
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1

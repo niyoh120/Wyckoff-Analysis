@@ -233,6 +233,21 @@ class TestAiReportTool:
         assert result["reviewed_symbols"][0]["quality_factors"] == ["高优先级研报候选", "优先分 12.50"]
         assert result["reviewed_symbols"][0]["risk_factors"] == ["大盘风险闸门关闭"]
         assert result["reviewed_symbols"][0]["action_status"] == "blocked_by_market_gate"
+        assert result["candidate_guard_summary"] == {
+            "direct_buy_blocked_count": 1,
+            "message": "以下候选仅可复核或观察，禁止直接买入",
+            "candidates": [
+                {
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "reason": "候选状态 blocked_by_market_gate 不允许直接买入",
+                    "action_status": "blocked_by_market_gate",
+                    "risk_factors": ["大盘风险闸门关闭"],
+                }
+            ],
+        }
+        assert result["next_action"] == "研报已完成；候选存在禁止直接买入边界，下一步只进入组合攻防复核"
+        assert "候选护栏禁止" in result["next_tool"]["reason"]
         assert ctx.state["last_ai_report"]["reviewed_codes"] == ["300750"]
 
     def test_generate_ai_report_accepts_candidate_object_inputs(self, monkeypatch):

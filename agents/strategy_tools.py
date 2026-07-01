@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agents.candidate_guards import candidate_guard_summary
 from agents.report_tools import (
     reviewed_symbols_from_info,
     run_ai_report,
@@ -15,15 +16,6 @@ from agents.screen_tools import screen_stocks
 from agents.tool_context import ToolContext, ensure_tushare_token, get_credential, get_user_id, resolve_llm_config
 
 logger = logging.getLogger(__name__)
-
-_BLOCKING_CANDIDATE_ACTION_STATUSES = {
-    "watch_only",
-    "blocked_by_data_quality",
-    "blocked_by_market_gate",
-    "blocked_by_policy_guard",
-    "repair_review_only",
-    "confirmation_required",
-}
 
 
 def generate_strategy_decision(
@@ -273,58 +265,9 @@ def _strategy_payload(
         "decision_brief": screen_result.get("decision_brief", {}),
         "next_action": _strategy_next_action(ok, reason),
     }
-    if guard_summary := _candidate_guard_summary(candidate_meta):
+    if guard_summary := candidate_guard_summary(candidate_meta):
         payload["candidate_guard_summary"] = guard_summary
     return payload
-
-
-def _candidate_guard_summary(candidate_meta: list[dict]) -> dict[str, Any]:
-    blocked = [_candidate_guard_item(row) for row in candidate_meta if isinstance(row, dict)]
-    blocked = [row for row in blocked if row]
-    if not blocked:
-        return {}
-    return {
-        "direct_buy_blocked_count": len(blocked),
-        "message": "以下候选仅可复核或观察，禁止直接买入",
-        "candidates": blocked[:5],
-    }
-
-
-def _candidate_guard_item(row: dict[str, Any]) -> dict[str, Any]:
-    reason = _candidate_guard_reason(row)
-    if not reason:
-        return {}
-    return _compact_guard_item(
-        {
-            "code": row.get("code"),
-            "name": row.get("name"),
-            "reason": reason,
-            "action_status": row.get("action_status"),
-            "label_ready": row.get("label_ready"),
-            "risk_factors": _candidate_guard_risks(row),
-            "next_step": row.get("next_step"),
-        }
-    )
-
-
-def _candidate_guard_reason(row: dict[str, Any]) -> str:
-    if row.get("label_ready") is False:
-        return "候选标签未成熟，禁止直接买入"
-    status = str(row.get("action_status") or "").strip()
-    if status.startswith("blocked_") or status in _BLOCKING_CANDIDATE_ACTION_STATUSES:
-        return f"候选状态 {status} 不允许直接买入"
-    return ""
-
-
-def _candidate_guard_risks(row: dict[str, Any]) -> list[str]:
-    risks = row.get("risk_factors")
-    if not isinstance(risks, list):
-        return []
-    return [str(item).strip() for item in risks[:3] if str(item).strip()]
-
-
-def _compact_guard_item(row: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in row.items() if _has_value(value)}
 
 
 def _strategy_next_action(ok: bool, reason: str) -> str:

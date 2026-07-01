@@ -567,6 +567,7 @@ def _compact_ai_report_handoff(value: Any) -> dict[str, Any]:
         value, ("ok", "reason", "model", "stock_count", "reviewed_codes", "next_action", "next_tool")
     )
     payload["reviewed_symbols"] = _candidate_rows(value.get("reviewed_symbols"), 8)
+    payload["candidate_guard_summary"] = _compact_candidate_guard(value.get("candidate_guard_summary"))
     return _drop_empty(payload)
 
 

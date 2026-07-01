@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any
 
+from agents.candidate_guards import candidate_guard_summary
 from agents.stock_data_helpers import code_to_name
 from agents.tool_context import ToolContext, ensure_tushare_token, resolve_llm_config
 
@@ -48,6 +49,7 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
         )
         ok_bool = bool(ok)
         reviewed_symbols = reviewed_symbols_from_info(symbols_info)
+        guard_summary = candidate_guard_summary(reviewed_symbols)
         result = {
             "ok": ok_bool,
             "reason": str(reason or ""),
@@ -56,9 +58,11 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
             "stock_count": len(symbols_info),
             "reviewed_codes": [row["code"] for row in reviewed_symbols],
             "reviewed_symbols": reviewed_symbols,
-            "next_action": report_next_action(ok_bool),
-            "next_tool": report_next_tool(ok_bool),
+            "next_action": report_next_action(ok_bool, guard_summary),
+            "next_tool": report_next_tool(ok_bool, guard_summary),
         }
+        if guard_summary:
+            result["candidate_guard_summary"] = guard_summary
         remember_ai_report(tool_context, result)
         return result
     except Exception as e:
@@ -274,19 +278,24 @@ def _compact_symbol_value(value: Any) -> Any:
     return text or None
 
 
-def report_next_action(ok: bool) -> str:
+def report_next_action(ok: bool, guard_summary: dict[str, Any] | None = None) -> str:
     if ok:
+        if guard_summary:
+            return "研报已完成；候选存在禁止直接买入边界，下一步只进入组合攻防复核"
         return "研报已完成，可结合持仓和候选进入组合攻防决策"
     return "研报未成功生成，先处理失败原因后再继续复核"
 
 
-def report_next_tool(ok: bool) -> dict:
+def report_next_tool(ok: bool, guard_summary: dict[str, Any] | None = None) -> dict:
     if not ok:
         return {}
+    reason = "研报已完成，可继续生成持仓去留和新标的攻防计划"
+    if guard_summary:
+        reason = "研报已完成，可继续生成组合攻防复核；候选护栏禁止把观察/未成熟候选直接写成买入"
     return {
         "tool": "generate_strategy_decision",
         "args": {},
-        "reason": "研报已完成，可继续生成持仓去留和新标的攻防计划",
+        "reason": reason,
     }
 
 
