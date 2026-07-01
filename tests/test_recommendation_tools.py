@@ -112,11 +112,37 @@ def test_evaluate_recommendation_events_records_report_handoff(monkeypatch):
     assert handoff["symbols_for_report"][0]["entry_risk_penalty"] == 5.0
     assert handoff["symbols_for_report"][0]["candidate_shadow_grade"] == "S"
     assert handoff["symbols_for_report"][0]["action_status"] == "ready_for_ai_review"
+    assert handoff["symbols_for_report"][0]["trade_readiness"] == "research_only"
+    assert handoff["symbols_for_report"][0]["new_buy_allowed"] is False
     assert "短线涨幅偏快" in handoff["symbols_for_report"][0]["risk_factors"]
     assert "最新候选的未来窗口标签尚未成熟" in handoff["symbols_for_report"][0]["risk_factors"]
     assert handoff["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
     assert handoff["selection_brief"]["tool_handoff"]["args"]["stock_codes"][0] == "300750"
     assert result["policy_selection"]["picks"][0]["code"] == "300750"
+
+
+def test_recommendation_eval_handoff_blocks_research_only_direct_buy_when_label_ready(monkeypatch):
+    from agents.tool_context import ToolContext
+
+    def fake_eval_result(request):
+        result = _fake_eval_result(request)
+        pick = result["policy_selection"]["picks"][0]
+        pick["label_ready"] = True
+        pick["label_status"] = "ready"
+        pick["risk_factors"] = []
+        return result
+
+    monkeypatch.setattr("workflows.recommendation_event_eval.build_recommendation_event_eval", fake_eval_result)
+    ctx = ToolContext({})
+
+    result = evaluate_recommendation_events(tool_context=ctx)
+    handoff = ctx.state["last_screen_result"]
+
+    assert result["candidate_guard_summary"]["direct_buy_blocked_count"] == 1
+    assert result["candidate_guard_summary"]["candidates"][0]["reason"] == "候选未开放新增买入，禁止直接买入"
+    assert handoff["symbols_for_report"][0]["trade_readiness"] == "research_only"
+    assert handoff["symbols_for_report"][0]["new_buy_allowed"] is False
+    assert handoff["candidate_guard_summary"]["candidates"][0]["reason"] == "候选未开放新增买入，禁止直接买入"
 
 
 def test_recommendation_eval_watch_only_handoff_blocks_auto_report(monkeypatch):

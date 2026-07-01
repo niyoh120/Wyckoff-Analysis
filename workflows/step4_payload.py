@@ -200,6 +200,8 @@ def build_candidate_meta_map(
             exit_reason=clean_text(item.get("exit_reason")),
             source_type=clean_text(item.get("source_type")) or "external",
             action_status=clean_text(item.get("action_status")),
+            trade_readiness=clean_text(item.get("trade_readiness")),
+            new_buy_allowed=parse_bool_like(item.get("new_buy_allowed")),
             label_ready=parse_bool_like(item.get("label_ready")),
             risk_factors=tuple(_candidate_risk_items(item)),
             next_step=clean_text(item.get("next_step")),
@@ -377,6 +379,10 @@ def candidate_quality_context_parts(item: dict) -> list[str]:
         parts.append(f"推荐次数={count:.0f}")
     if status := clean_text(item.get("action_status")):
         parts.append(f"动作={status}")
+    if readiness := clean_text(item.get("trade_readiness")):
+        parts.append(f"交易就绪={readiness}")
+    if item.get("new_buy_allowed") is False:
+        parts.append("不允许新增买入")
     if item.get("label_ready") is False:
         parts.append("标签未成熟")
     if risk := _candidate_risk_context(item):

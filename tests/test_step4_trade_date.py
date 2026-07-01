@@ -261,6 +261,55 @@ def test_candidate_guard_rejected_buy_does_not_consume_new_buy_slot():
     assert "组合级限购拦截" not in by_code["000390"].system_reject_reason
 
 
+def test_candidate_guard_blocks_research_only_policy_buy():
+    decision = DecisionItem(
+        code="300750",
+        name="宁德时代",
+        action="PROBE",
+        entry_zone_min=200.0,
+        entry_zone_max=205.0,
+        stop_loss=190.0,
+        trim_ratio=None,
+        tape_condition="放量高收",
+        invalidate_condition="跌破190",
+        is_add_on=False,
+        reason="模型建议试探",
+        confidence=0.8,
+    )
+    decisions = complete_step4_decisions(
+        [decision],
+        PortfolioState(free_cash=50000, total_equity=100000, positions=[]),
+        {
+            "300750": CandidateMeta(
+                code="300750",
+                name="宁德时代",
+                action_status="ready_for_ai_review",
+                trade_readiness="research_only",
+                new_buy_allowed=False,
+                label_ready=True,
+                next_step="生成 AI 研报并结合持仓形成攻防决策",
+            )
+        },
+        "RISK_ON",
+        step4.Step4RuntimeConfig(),
+    )
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={},
+        market_regime="RISK_ON",
+    )
+
+    tickets, cash = engine.process(decisions)
+
+    assert cash == 50000
+    assert decisions[0].system_reject_reason.startswith("候选护栏拦截: 候选未开放新增买入")
+    assert "new_buy_allowed=false" in decisions[0].system_reject_reason
+    assert tickets[0].status == "NO_TRADE"
+    assert "候选未开放新增买入" in tickets[0].reason
+
+
 def test_blocked_buy_ticket_renders_candidate_context():
     decision = DecisionItem(
         code="000390",

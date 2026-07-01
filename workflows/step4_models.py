@@ -142,6 +142,8 @@ class CandidateMeta:
     exit_reason: str = ""
     source_type: str = ""
     action_status: str = ""
+    trade_readiness: str = ""
+    new_buy_allowed: bool | None = None
     label_ready: bool | None = None
     risk_factors: tuple[str, ...] = ()
     next_step: str = ""

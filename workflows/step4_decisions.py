@@ -165,6 +165,10 @@ def _candidate_buy_guard_reason(dec: DecisionItem, meta: CandidateMeta) -> str:
         return ""
     if meta.label_ready is False:
         return _candidate_guard_reason("候选标签未成熟，禁止直接买入", meta)
+    if meta.new_buy_allowed is False:
+        return _candidate_guard_reason("候选未开放新增买入，禁止直接买入", meta)
+    if meta.trade_readiness in {"research_only", "review_only"}:
+        return _candidate_guard_reason(f"候选交易就绪状态 {meta.trade_readiness} 不允许直接买入", meta)
     status = meta.action_status.strip()
     if status.startswith("blocked_") or status in _BLOCKING_CANDIDATE_ACTION_STATUSES:
         return _candidate_guard_reason(f"候选状态 {status} 不允许直接买入", meta)
@@ -175,6 +179,10 @@ def _candidate_guard_reason(base: str, meta: CandidateMeta) -> str:
     parts = [base]
     if meta.action_status:
         parts.append(f"action_status={meta.action_status}")
+    if meta.trade_readiness:
+        parts.append(f"trade_readiness={meta.trade_readiness}")
+    if meta.new_buy_allowed is False:
+        parts.append("new_buy_allowed=false")
     if meta.risk_factors:
         parts.append("risk=" + "；".join(meta.risk_factors[:3]))
     if meta.next_step:

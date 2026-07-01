@@ -24,6 +24,8 @@ def test_build_candidate_meta_map_keeps_capital_migration_bonus_and_source() -> 
                 "capital_migration_bonus": 4.5,
                 "source_type": "supabase_recommendation_tracking",
                 "action_status": "ready_for_ai_review",
+                "trade_readiness": "research_only",
+                "new_buy_allowed": False,
                 "label_ready": False,
                 "risk_factors": ["评估标签尚未成熟"],
                 "entry_quality_risk_flags": ["追高延展"],
@@ -38,6 +40,8 @@ def test_build_candidate_meta_map_keeps_capital_migration_bonus_and_source() -> 
     assert meta.capital_migration_bonus == 4.5
     assert meta.source_type == "supabase_recommendation_tracking"
     assert meta.action_status == "ready_for_ai_review"
+    assert meta.trade_readiness == "research_only"
+    assert meta.new_buy_allowed is False
     assert meta.label_ready is False
     assert meta.risk_factors == ("评估标签尚未成熟", "追高延展")
     assert meta.next_step == "生成 AI 研报并结合持仓形成攻防决策"
@@ -75,6 +79,8 @@ def test_candidate_context_line_exposes_quality_and_action_guards() -> None:
             "is_ai_recommended": True,
             "recommend_count": 2,
             "action_status": "ready_for_ai_review",
+            "trade_readiness": "research_only",
+            "new_buy_allowed": False,
             "label_ready": False,
             "risk_factors": ["评估标签尚未成熟"],
             "next_step": "生成 AI 研报并结合持仓形成攻防决策",
@@ -87,6 +93,8 @@ def test_candidate_context_line_exposes_quality_and_action_guards() -> None:
     assert "已AI推荐" in line
     assert "推荐次数=2" in line
     assert "动作=ready_for_ai_review" in line
+    assert "交易就绪=research_only" in line
+    assert "不允许新增买入" in line
     assert "标签未成熟" in line
     assert "风险=评估标签尚未成熟；追高延展" in line
     assert "下一步=生成 AI 研报并结合持仓形成攻防决策" in line

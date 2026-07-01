@@ -250,6 +250,25 @@ def test_policy_selection_candidate_guard_blocks_unready_latest_pick() -> None:
     assert guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
 
 
+def test_policy_selection_candidate_guard_blocks_research_only_latest_pick() -> None:
+    events = []
+    for day in range(20260501, 20260513):
+        events.append(_event(day, f"A{day}", ai=False, score=0.99, count=2, hit=False, shadow=25.0))
+        events.append(_event(day, f"B{day}", ai=False, score=0.30, count=1, hit=True, shadow=88.0))
+    summary = _build_summary(events, (1,))
+
+    selection = _policy_selection(events, summary["ranking_decision"])
+    guard = policy_candidate_guard_summary(selection)
+
+    assert selection["picks"][0]["label_ready"] is True
+    assert selection["action_plan"]["trade_readiness"] == "research_only"
+    assert selection["action_plan"]["new_buy_allowed"] is False
+    assert guard["direct_buy_blocked_count"] == 1
+    assert guard["candidates"][0]["reason"] == "候选未开放新增买入，禁止直接买入"
+    assert guard["candidates"][0]["trade_readiness"] == "research_only"
+    assert guard["candidates"][0]["new_buy_allowed"] is False
+
+
 def test_policy_selection_marks_unpromoted_pick_as_watch_only() -> None:
     events = [
         _event(20260515, "A", ai=False, score=0.99, count=2, hit=True),

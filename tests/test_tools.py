@@ -723,10 +723,13 @@ class TestAiReportTool:
         assert result["reviewed_symbols"][0]["entry_risk_penalty"] == 5.0
         assert result["reviewed_symbols"][0]["label_ready"] is False
         assert result["reviewed_symbols"][0]["label_status"] == "pending"
+        assert result["reviewed_symbols"][0]["trade_readiness"] == "research_only"
+        assert result["reviewed_symbols"][0]["new_buy_allowed"] is False
         assert "短线涨幅偏快" in result["reviewed_symbols"][0]["risk_factors"]
         assert captured["symbols_info"][0]["risk_adjusted_quality_score"] == 87.0
         assert captured["symbols_info"][0]["entry_quality_grade"] == "A"
         assert captured["symbols_info"][0]["label_ready"] is False
+        assert captured["symbols_info"][0]["new_buy_allowed"] is False
         assert ctx.state["last_ai_report"]["report_text"] == "# 推荐评估候选研报"
 
     def test_generate_ai_report_blocks_auto_handoff_on_degraded_screen_data(self, monkeypatch):
