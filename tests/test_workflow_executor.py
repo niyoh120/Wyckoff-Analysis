@@ -11,6 +11,7 @@ from cli.workflows.executor import (
     _fallback_handoff_lines,
     _phase_batches,
     _step_context,
+    _synthesis_handoff_summary,
     _synthesis_prompt,
     _workflow_handoff_state,
 )
@@ -733,6 +734,53 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
     assert '"candidate_shadow_score": 92.0' in handoff_section
     assert '"300750"' in handoff_section
     assert '"candidate_shadow_score": 92.0' not in agent_results_section
+
+
+def test_workflow_synthesis_handoff_summary_dedupes_latest_keys():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "symbols_for_report": [{"code": "300750", "name": "宁德时代"}],
+                    }
+                }
+            },
+        },
+        {
+            "step": {"step_id": "report", "title": "AI研报"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "symbols_for_report": [{"code": "300750", "name": "宁德时代", "funnel_score": 89.5}],
+                    },
+                    "last_ai_report": {"reviewed_codes": ["300750"], "model": "gpt-test"},
+                }
+            },
+        },
+        {
+            "step": {"step_id": "decision", "title": "攻防决策"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "symbols_for_report": [{"code": "300750", "name": "宁德时代", "candidate_shadow_score": 92.0}],
+                    },
+                    "last_ai_report": {"reviewed_codes": ["300750"], "model": "gpt-test"},
+                    "last_strategy_decision": {"reviewed_codes": ["300750"], "status": "completed"},
+                }
+            },
+        },
+    ]
+
+    summary = _synthesis_handoff_summary(results)
+
+    assert len(summary) == 1
+    handoff = summary[0]["handoff_state"]
+    assert summary[0]["step_id"] == "decision"
+    assert set(handoff) == {"last_screen_result", "last_ai_report", "last_strategy_decision"}
+    assert handoff["last_screen_result"]["symbols_for_report"][0]["candidate_shadow_score"] == 92.0
+    assert json.dumps(summary, ensure_ascii=False).count("last_screen_result") == 1
 
 
 def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, monkeypatch):

@@ -666,10 +666,14 @@ def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:
 
 def _synthesis_handoff_summary(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     summary: list[dict[str, Any]] = []
-    for item in results:
+    seen_keys: set[str] = set()
+    for item in reversed(results):
         result = item.get("result") if isinstance(item, dict) else {}
         handoff = result.get("handoff_state") if isinstance(result, dict) else {}
         if not isinstance(handoff, dict) or not handoff:
+            continue
+        handoff = _latest_handoff_keys(handoff, seen_keys)
+        if not handoff:
             continue
         step = item.get("step") if isinstance(item.get("step"), dict) else {}
         summary.append(
@@ -681,7 +685,17 @@ def _synthesis_handoff_summary(results: list[dict[str, Any]]) -> list[dict[str, 
                 }
             )
         )
-    return summary
+    return list(reversed(summary))
+
+
+def _latest_handoff_keys(handoff: dict[str, Any], seen_keys: set[str]) -> dict[str, Any]:
+    latest: dict[str, Any] = {}
+    for key, value in handoff.items():
+        if key in seen_keys or value in (None, "", [], {}):
+            continue
+        seen_keys.add(key)
+        latest[key] = value
+    return latest
 
 
 def _collect_synthesis(
