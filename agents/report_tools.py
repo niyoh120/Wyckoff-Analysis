@@ -272,7 +272,11 @@ def screen_symbol_map(tool_context: ToolContext | None) -> dict[str, dict]:
     screen_result = tool_context.state.get("last_screen_result")
     if not isinstance(screen_result, dict):
         return {}
-    if screen_auto_handoff_block_status(screen_result) == "blocked_by_data_quality":
+    if screen_auto_handoff_block_status(screen_result) in {
+        "blocked_by_data_quality",
+        "blocked_by_quality_gate",
+        "blocked_by_policy_guard",
+    }:
         return {}
     symbols: dict[str, dict] = {}
     for row in _screen_symbol_rows(screen_result):

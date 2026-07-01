@@ -149,7 +149,8 @@ def _recommendation_eval_screen_handoff(result: dict[str, Any]) -> dict[str, Any
         "action_plan": _screen_action_plan(action_plan, codes, review_status, report_candidates, watch_candidates),
         "candidate_guard_summary": guard_summary,
         "top_candidates": picks,
-        "symbols_for_report": picks,
+        "symbols_for_report": report_candidates,
+        "watch_candidates": watch_candidates,
     }
 
 

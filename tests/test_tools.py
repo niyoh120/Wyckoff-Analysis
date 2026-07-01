@@ -452,6 +452,45 @@ class TestAiReportTool:
         assert result["reason"] == reason
         assert result["error"].startswith("上一轮候选质量门槛未过")
 
+    def test_generate_ai_report_does_not_enrich_from_policy_guard_candidates(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "scan_scope": {"source": "recommendation_event_eval"},
+                    "selection_brief": {"status": "watch_only"},
+                    "action_plan": {"ai_review_allowed": False, "reason": "只读推荐事件评估未通过排序接入门槛"},
+                    "top_candidates": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "candidate_shadow_score": 92.0,
+                            "action_status": "watch_only",
+                        }
+                    ],
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+        monkeypatch.setattr(report_tools, "code_to_name", lambda code: {"300750": "宁德时代"}[code])
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 显式研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(["300750"], tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["300750"]
+        assert captured["symbols_info"][0] == {"code": "300750", "name": "宁德时代", "tag": "chat_request"}
+        assert "candidate_shadow_score" not in result["reviewed_symbols"][0]
+        assert "action_status" not in result["reviewed_symbols"][0]
+
     def test_generate_ai_report_allows_top_level_quality_gate_with_passing_candidate(self, monkeypatch):
         from agents import report_tools
         from agents.tool_context import ToolContext

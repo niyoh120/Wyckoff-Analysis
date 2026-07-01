@@ -151,6 +151,8 @@ def test_recommendation_eval_watch_only_handoff_blocks_auto_report(monkeypatch):
     assert "状态=只读观察" in ctx.state["last_recommendation_event_eval"]["result_summary"]
     assert handoff["action_plan"]["ai_review_allowed"] is False
     assert handoff["action_plan"]["watch_candidates"][0]["code"] == "300750"
+    assert handoff["symbols_for_report"] == []
+    assert handoff["watch_candidates"][0]["code"] == "300750"
     assert report["status"] == "blocked_by_policy_guard"
     assert report["error"].startswith("上一轮候选仍是只读观察")
     assert "未通过排序接入门槛" in report["error"]
