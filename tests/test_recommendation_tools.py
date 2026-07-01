@@ -104,7 +104,10 @@ def test_evaluate_recommendation_events_records_report_handoff(monkeypatch):
     assert handoff["action_plan"]["ai_review_allowed"] is True
     assert handoff["action_plan"]["trade_readiness"] == "research_only"
     assert handoff["action_plan"]["review_targets"]["tool"] == "generate_ai_report"
+    assert handoff["summary"]["report_candidates"] == 1
+    assert handoff["summary"]["watch_candidates"] == 0
     assert handoff["symbols_for_report"][0]["candidate_quality_score"] == 92.0
+    assert handoff["report_candidates"][0]["code"] == "300750"
     assert handoff["symbols_for_report"][0]["risk_adjusted_quality_score"] == 87.0
     assert handoff["symbols_for_report"][0]["entry_risk_penalty"] == 5.0
     assert handoff["symbols_for_report"][0]["candidate_shadow_grade"] == "S"
@@ -151,7 +154,10 @@ def test_recommendation_eval_watch_only_handoff_blocks_auto_report(monkeypatch):
     assert "状态=只读观察" in ctx.state["last_recommendation_event_eval"]["result_summary"]
     assert handoff["action_plan"]["ai_review_allowed"] is False
     assert handoff["action_plan"]["watch_candidates"][0]["code"] == "300750"
+    assert handoff["summary"]["report_candidates"] == 0
+    assert handoff["summary"]["watch_candidates"] == 1
     assert handoff["symbols_for_report"] == []
+    assert handoff["report_candidates"] == []
     assert handoff["watch_candidates"][0]["code"] == "300750"
     assert report["status"] == "blocked_by_policy_guard"
     assert report["error"].startswith("上一轮候选仍是只读观察")

@@ -131,7 +131,7 @@ def _recommendation_eval_screen_handoff(result: dict[str, Any]) -> dict[str, Any
         "ok": True,
         "board": str((result.get("metadata") or {}).get("market") or "cn"),
         "scan_scope": {"source": "recommendation_event_eval", "recommend_date": selection.get("recommend_date")},
-        "summary": _policy_handoff_summary(result, len(picks)),
+        "summary": _policy_handoff_summary(result, len(report_candidates), len(watch_candidates)),
         "decision_brief": {
             "market_gate": "recommendation_event_eval",
             "next_action": action_plan["next_step"],
@@ -150,6 +150,7 @@ def _recommendation_eval_screen_handoff(result: dict[str, Any]) -> dict[str, Any
         "candidate_guard_summary": guard_summary,
         "top_candidates": picks,
         "symbols_for_report": report_candidates,
+        "report_candidates": report_candidates,
         "watch_candidates": watch_candidates,
     }
 
@@ -309,13 +310,18 @@ def _policy_handoff_headline(selection: dict[str, Any], picks: list[dict[str, An
     return f"最新推荐评估候选({rec_date}, {strategy}): {names}"
 
 
-def _policy_handoff_summary(result: dict[str, Any], pick_count: int) -> dict[str, Any]:
+def _policy_handoff_summary(
+    result: dict[str, Any],
+    report_candidate_count: int,
+    watch_candidate_count: int,
+) -> dict[str, Any]:
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
     all_rows = summary.get("all") if isinstance(summary.get("all"), dict) else {}
     decision = summary.get("ranking_decision") if isinstance(summary.get("ranking_decision"), dict) else {}
     return {
         "source": "recommendation_event_eval",
-        "report_candidates": pick_count,
+        "report_candidates": report_candidate_count,
+        "watch_candidates": watch_candidate_count,
         "rows_ready": all_rows.get("rows_ready", 0),
         "rows_total": all_rows.get("rows_total", 0),
         "hit_rate_pct": all_rows.get("hit_rate_pct"),
