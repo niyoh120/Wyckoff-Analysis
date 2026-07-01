@@ -526,6 +526,7 @@ def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -
     return {
         "title": title,
         "rationale": reason,
+        "runtime": {"planner": "fallback_script", "fallback_reason": reason},
         "phases": [
             {
                 "id": "single_pass",

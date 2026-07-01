@@ -165,6 +165,55 @@ def test_display_workflow_plan_event_surfaces_trimmed_model_plan():
     assert "已收敛 3 个过长任务" in str(writes[0])
 
 
+def test_display_workflow_plan_event_surfaces_planner_provenance():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_model",
+            "workflow": "dynamic_task",
+            "label": "今日选股",
+            "plan": {
+                "script": {"runtime": {"planner": "model_script"}},
+                "steps": [{"title": "扫描候选", "rationale": "先缩小候选池"}],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "脚本来源：模型生成" in rendered
+    assert "1. 扫描候选" in rendered
+
+
+def test_display_workflow_plan_event_surfaces_fallback_reason():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_fallback",
+            "workflow": "dynamic_task",
+            "label": "动态任务",
+            "plan": {
+                "script": {
+                    "runtime": {
+                        "planner": "fallback_script",
+                        "fallback_reason": "provider unavailable",
+                    }
+                },
+                "steps": [{"title": "单步处理", "success_criteria": "给出结论"}],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "脚本来源：回退单步 · provider unavailable" in rendered
+    assert "1. 单步处理" in rendered
+
+
 def test_display_workflow_plan_event_surfaces_model_step_boundaries():
     writes = []
 

@@ -472,6 +472,10 @@ def test_workflow_planner_fallback_uses_generic_task_executor():
     assert run.steps[0].tools == ()
     assert "用户原文" in run.steps[0].prompt
     assert "A 股选股" in run.steps[0].prompt
+    assert run.script["runtime"] == {
+        "planner": "fallback_script",
+        "fallback_reason": "provider unavailable",
+    }
 
 
 def test_workflow_planner_fallback_keeps_typo_like_task_model_authored():
@@ -489,6 +493,7 @@ def test_workflow_planner_fallback_keeps_typo_like_task_model_authored():
     assert "自然语言语义" in run.steps[0].prompt
     assert "常见别字" not in run.steps[0].prompt
     assert "磁场诊断" in run.steps[0].prompt
+    assert run.script["runtime"]["planner"] == "fallback_script"
 
 
 def test_workflow_planner_treats_tool_named_tasks_as_task_scopes():

@@ -410,6 +410,8 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
     script_title = str(event.get("plan", {}).get("script", {}).get("title", "") or "")
     if script_title and script_title != label:
         write(Text.from_markup(f"    [dim]动态脚本：{escape(script_title)}[/dim]"))
+    if planner_line := _workflow_planner_line(event.get("plan")):
+        write(Text.from_markup(planner_line))
     if step_count:
         for line in _workflow_plan_step_preview_lines(steps):
             write(Text.from_markup(line))
@@ -439,6 +441,33 @@ def _workflow_plan_runtime(plan: Any) -> dict[str, Any]:
     script = plan.get("script") if isinstance(plan.get("script"), dict) else {}
     runtime = script.get("runtime") if isinstance(script.get("runtime"), dict) else {}
     return runtime
+
+
+def _workflow_planner_line(plan: Any) -> str:
+    runtime = _workflow_plan_runtime(plan)
+    planner = str(runtime.get("planner") or "").strip()
+    if not planner:
+        return ""
+    label = _workflow_planner_label(planner)
+    reason = _workflow_planner_reason(runtime, planner)
+    suffix = f" · {escape(reason)}" if reason else ""
+    return f"    [dim]脚本来源：{label}{suffix}[/dim]"
+
+
+def _workflow_planner_label(planner: str) -> str:
+    return {
+        "model_script": "模型生成",
+        "stored_script": "已保存脚本",
+        "fallback_script": "回退单步",
+    }.get(planner, escape(planner))
+
+
+def _workflow_planner_reason(runtime: dict[str, Any], planner: str) -> str:
+    if planner == "fallback_script":
+        return str(runtime.get("fallback_reason") or "").strip()
+    if _runtime_int(runtime, "truncated_step_count") > 0:
+        return "任务过长已自动收敛"
+    return ""
 
 
 def _runtime_int(runtime: dict[str, Any], field: str) -> int:
