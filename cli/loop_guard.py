@@ -203,6 +203,21 @@ _AI_REPORT_CONTEXT_MARKERS = (
     "symbols_for_report",
 )
 
+_STRATEGY_DECISION_CONTEXT_TOOLS = ("screen_stocks", "generate_ai_report")
+
+_STRATEGY_DECISION_DELIVERY_HINTS = (
+    "攻防",
+    "风险边界",
+    "买卖计划",
+    "操作计划",
+    "交易计划",
+    "止损",
+    "止盈",
+    "入场",
+    "买点",
+    "生死线",
+)
+
 _EXPLANATION_ONLY_HINTS = (
     "是什么",
     "什么意思",
@@ -367,6 +382,35 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
     return None
 
 
+def resolve_progressive_turn_expectation(
+    messages: list[dict[str, Any]],
+    used_tools: Iterable[str | tuple[str, dict]],
+) -> TurnExpectation | None:
+    """Infer mandatory follow-up tools after earlier tools in the same turn."""
+
+    last_user = _last_user_text(messages)
+    if not last_user or _explanation_only_question(last_user):
+        return None
+    used_names = _used_tool_names(used_tools)
+    if "generate_strategy_decision" in used_names:
+        return None
+    if not used_names.intersection(_STRATEGY_DECISION_CONTEXT_TOOLS):
+        return None
+    if not _strategy_decision_expected(last_user):
+        return None
+    return TurnExpectation(
+        required_tool="generate_strategy_decision",
+        reason="用户要求候选攻防/风险边界，需要在筛选或研报后生成真实组合攻防复核。",
+    )
+
+
+def _used_tool_names(used_tools: Iterable[str | tuple[str, dict]]) -> set[str]:
+    names: set[str] = set()
+    for entry in used_tools:
+        names.add(entry[0] if isinstance(entry, tuple) else entry)
+    return names
+
+
 def _portfolio_view_expected(text: str) -> bool:
     return (
         not _explanation_only_question(text)
@@ -413,6 +457,10 @@ def _ai_report_expected(text: str, previous_context: str) -> bool:
         or any(hint in text for hint in _AI_REPORT_ACTION_HINTS)
         or text in _AI_REPORT_AFFIRMATIVE_PHRASES
     )
+
+
+def _strategy_decision_expected(text: str) -> bool:
+    return any(hint in text for hint in _STRATEGY_DECISION_DELIVERY_HINTS)
 
 
 def _explanation_only_question(text: str) -> bool:

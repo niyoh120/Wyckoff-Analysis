@@ -31,6 +31,7 @@ from cli.loop_guard import (
     build_retry_user_message,
     check_doom_loop,
     missing_required_tool,
+    resolve_progressive_turn_expectation,
     resolve_turn_expectation,
 )
 from cli.providers.base import LLMProvider
@@ -217,12 +218,13 @@ class AgentRuntime:
                 if completed:
                     continue
 
-            retry_event = self._maybe_retry_required_tool(messages, round_state, state, expectation)
+            active_expectation = self._active_turn_expectation(messages, state, expectation)
+            retry_event = self._maybe_retry_required_tool(messages, round_state, state, active_expectation)
             if retry_event:
                 yield retry_event
                 continue
 
-            self._apply_missing_tool_warning(round_state, state, expectation)
+            self._apply_missing_tool_warning(round_state, state, active_expectation)
             yield self._finish_turn(messages, round_state, state, round_idx + 1)
             return
 
@@ -408,6 +410,18 @@ class AgentRuntime:
             "retry": state.incomplete_tool_retries,
             "required_tool": expectation.required_tool if expectation else "",
         }
+
+    def _active_turn_expectation(
+        self,
+        messages: list[dict[str, Any]],
+        state: RunState,
+        expectation: Any,
+    ) -> Any:
+        if missing_required_tool(expectation, state.used_tools):
+            return expectation
+        return (
+            resolve_progressive_turn_expectation(messages, state.used_tools) if self.enforce_turn_expectations else None
+        )
 
     def _append_retry_messages(
         self,

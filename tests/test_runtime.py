@@ -195,11 +195,11 @@ def test_runtime_retries_when_chatty_watchlist_request_skips_screen_tool():
                     "text": "",
                 }
             ],
-            [{"type": "text_delta", "text": "候选和风险边界已生成。"}],
+            [{"type": "text_delta", "text": "候选和理由已生成。"}],
         ]
     )
     tools = StubToolRegistry(tool_results={"screen_stocks": {"symbols_for_report": ["300750"]}})
-    messages = [{"role": "user", "content": "给我找几只值得复核的票，带理由和风险边界"}]
+    messages = [{"role": "user", "content": "给我找几只值得复核的票，带理由"}]
 
     events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
 
@@ -207,7 +207,45 @@ def test_runtime_retries_when_chatty_watchlist_request_skips_screen_tool():
     assert len(retries) == 1
     assert retries[0]["required_tool"] == "screen_stocks"
     assert '建议参数：board="all"' in retries[0]["message"]
-    assert events[-1]["text"] == "候选和风险边界已生成。"
+    assert events[-1]["text"] == "候选和理由已生成。"
+
+
+def test_runtime_retries_strategy_when_attack_plan_stops_after_screen():
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {"board": "all"}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "候选已出，风险边界我先口头整理。"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_strategy", "name": "generate_strategy_decision", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "攻防计划已基于工具结果生成。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        tool_results={
+            "screen_stocks": {"symbols_for_report": ["300750"]},
+            "generate_strategy_decision": {"status": "skipped_notify_unconfigured", "reviewed_codes": ["300750"]},
+        }
+    )
+    messages = [{"role": "user", "content": "给我找几只值得复核的票，带理由和风险边界"}]
+
+    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
+
+    retries = [event for event in events if event["type"] == "retry"]
+    assert len(retries) == 1
+    assert retries[0]["required_tool"] == "generate_strategy_decision"
+    assert [call["name"] for call in tools.calls] == ["screen_stocks", "generate_strategy_decision"]
+    assert events[-1]["text"] == "攻防计划已基于工具结果生成。"
 
 
 def test_runtime_retries_when_ai_report_followup_skips_tool():
