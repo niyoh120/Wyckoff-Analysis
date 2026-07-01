@@ -92,6 +92,7 @@ def build_recommendation_event_eval(request: RecommendationEventEvalRequest) -> 
         "metadata": _metadata(request, market, records, grouped),
         "summary": summary,
         "daily": _daily_summary(events),
+        "policy_selection": _policy_selection(events, summary.get("ranking_decision") or {}),
         "events": events,
     }
 
@@ -351,6 +352,77 @@ def _ranking_decision_reason(status: str, best: dict[str, Any]) -> str:
     return "no alternative ranking beat score_only after risk adjustment"
 
 
+def _policy_selection(events: list[dict[str, Any]], decision: dict[str, Any]) -> dict[str, Any]:
+    by_date = _events_by_date(events)
+    if not by_date:
+        return _empty_policy_selection(decision)
+    latest_date = max(by_date)
+    strategy = _policy_strategy(decision)
+    top_k = _policy_top_k(decision)
+    picks = [
+        _policy_pick(row, idx + 1, strategy)
+        for idx, row in enumerate(_rank_events(by_date[latest_date], strategy)[:top_k])
+    ]
+    return {
+        "status": decision.get("status", "unknown"),
+        "selection_strategy": strategy,
+        "top_k": top_k,
+        "recommend_date": latest_date,
+        "uses_promoted_ranking": decision.get("status") == "candidate",
+        "watch_strategy": decision.get("watch_strategy"),
+        "reason": decision.get("reason", ""),
+        "picks": picks,
+    }
+
+
+def _empty_policy_selection(decision: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": decision.get("status", "unknown"),
+        "selection_strategy": "score_only",
+        "top_k": 0,
+        "recommend_date": None,
+        "uses_promoted_ranking": False,
+        "watch_strategy": decision.get("watch_strategy"),
+        "reason": "no recommendation events available",
+        "picks": [],
+    }
+
+
+def _policy_strategy(decision: dict[str, Any]) -> str:
+    if decision.get("status") == "candidate":
+        return str(decision.get("recommended_strategy") or "score_only")
+    return "score_only"
+
+
+def _policy_top_k(decision: dict[str, Any]) -> int:
+    if decision.get("status") != "candidate":
+        return 1
+    try:
+        return max(int(decision.get("recommended_top_k") or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _policy_pick(event: dict[str, Any], rank: int, strategy: str) -> dict[str, Any]:
+    return {
+        "rank": rank,
+        "selection_strategy": strategy,
+        "code": event.get("code"),
+        "name": event.get("name"),
+        "recommend_date": event.get("recommend_date"),
+        "is_ai_recommended": bool(event.get("is_ai_recommended")),
+        "funnel_score": event.get("funnel_score"),
+        "recommend_count": event.get("recommend_count"),
+        "candidate_shadow_score": event.get("candidate_shadow_score"),
+        "candidate_shadow_grade": event.get("candidate_shadow_grade"),
+        "entry_quality_score": event.get("entry_quality_score"),
+        "entry_quality_grade": event.get("entry_quality_grade"),
+        "entry_quality_risk_flags": event.get("entry_quality_risk_flags") or [],
+        "label_ready": bool(event.get("label_ready")),
+        "label_status": event.get("label_status"),
+    }
+
+
 def _top_k_summary(events: list[dict[str, Any]], k: int, strategy: str = "score_only") -> dict[str, Any]:
     selected: list[dict[str, Any]] = []
     for rows in _events_by_date(events).values():
@@ -433,6 +505,7 @@ def _write_markdown(path: Path, result: dict[str, Any]) -> None:
     lines.extend(_strategy_markdown(result["summary"]["top_k_by_strategy"]))
     lines.extend(_strategy_lift_markdown(result["summary"].get("top_k_lift_vs_score_only") or {}))
     lines.extend(_ranking_decision_markdown(result["summary"].get("ranking_decision") or {}))
+    lines.extend(_policy_selection_markdown(result.get("policy_selection") or {}))
     lines.extend(_quality_markdown(result["summary"]))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -505,6 +578,43 @@ def _ranking_decision_markdown(decision: dict[str, Any]) -> list[str]:
             f"{_fmt_delta(item.get('avg_mfe_delta_pct'))}pp | {_fmt_delta(item.get('avg_mae_delta_pct'))}pp |"
         )
     return rows
+
+
+def _policy_selection_markdown(selection: dict[str, Any]) -> list[str]:
+    rows = [
+        "",
+        "## Latest Policy Selection",
+        "",
+        f"- Selection strategy: `{selection.get('selection_strategy', 'score_only')}`",
+        f"- Recommended date: `{selection.get('recommend_date') or 'n/a'}`",
+        f"- Uses promoted ranking: `{bool(selection.get('uses_promoted_ranking'))}`",
+        "",
+        "| Rank | Code | Name | AI | Funnel | Shadow | Entry | Label |",
+        "|---:|---|---|---|---:|---:|---:|---|",
+    ]
+    picks = selection.get("picks") if isinstance(selection.get("picks"), list) else []
+    if not picks:
+        return [*rows, "| n/a | - | - | - | n/a | n/a | n/a | - |"]
+    for pick in picks:
+        if isinstance(pick, dict):
+            rows.append(_policy_pick_markdown_row(pick))
+    return rows
+
+
+def _policy_pick_markdown_row(pick: dict[str, Any]) -> str:
+    shadow = _quality_cell(pick.get("candidate_shadow_score"), pick.get("candidate_shadow_grade"))
+    entry = _quality_cell(pick.get("entry_quality_score"), pick.get("entry_quality_grade"))
+    return (
+        f"| {pick.get('rank', '')} | {pick.get('code', '')} | {pick.get('name', '')} | "
+        f"{'Y' if pick.get('is_ai_recommended') else 'N'} | {_fmt(pick.get('funnel_score'))} | "
+        f"{shadow} | {entry} | {pick.get('label_status') or '-'} |"
+    )
+
+
+def _quality_cell(score: Any, grade: Any) -> str:
+    grade_text = str(grade or "").strip()
+    score_text = _fmt(score)
+    return f"{grade_text}/{score_text}" if grade_text else score_text
 
 
 def _quality_markdown(summary: dict[str, Any]) -> list[str]:

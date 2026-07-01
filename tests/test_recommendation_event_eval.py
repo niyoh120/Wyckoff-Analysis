@@ -3,6 +3,7 @@ from __future__ import annotations
 from workflows.recommendation_event_eval import (
     _build_summary,
     _observation_feature_map,
+    _policy_selection,
     _quality_feature_fields,
     _top_k_summary,
 )
@@ -72,6 +73,21 @@ def test_ranking_decision_recommends_quality_strategy_after_sample_gate() -> Non
     assert candidate["lift_ok"] is True
     assert candidate["risk_ok"] is True
     assert candidate["hit_rate_delta_pct"] == 100.0
+
+
+def test_policy_selection_uses_promoted_strategy_for_latest_candidates() -> None:
+    events = []
+    for day in range(20260501, 20260513):
+        events.append(_event(day, f"A{day}", ai=False, score=0.99, count=2, hit=False, shadow=25.0))
+        events.append(_event(day, f"B{day}", ai=False, score=0.30, count=1, hit=True, shadow=88.0))
+    summary = _build_summary(events, (1,))
+
+    selection = _policy_selection(events, summary["ranking_decision"])
+
+    assert selection["uses_promoted_ranking"] is True
+    assert selection["selection_strategy"] == "candidate_shadow_then_score"
+    assert selection["recommend_date"] == 20260512
+    assert [pick["code"] for pick in selection["picks"]] == ["B20260512"]
 
 
 def test_top_k_summary_can_rank_by_quality_grade_when_score_missing() -> None:

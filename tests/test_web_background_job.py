@@ -103,6 +103,11 @@ def test_run_web_background_job_runs_recommendation_event_eval(monkeypatch, tmp_
                 },
             },
             "daily": [{"recommend_date": 20260601, "hit_rate_pct": 100.0}],
+            "policy_selection": {
+                "selection_strategy": "candidate_shadow_then_score",
+                "recommend_date": 20260601,
+                "picks": [{"code": "300750", "name": "宁德时代"}],
+            },
             "events": [],
         }
 
@@ -124,5 +129,6 @@ def test_run_web_background_job_runs_recommendation_event_eval(monkeypatch, tmp_
     assert payload["summary"]["all"]["hit_rate_pct"] == 60.0
     assert "ranking_decision=candidate" in payload["result_summary"]
     assert "candidate_shadow_then_score top1" in payload["result_summary"]
+    assert "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代" in payload["result_summary"]
     assert captured["request"].max_dates == 7
     assert captured["request"].top_k == (1, 3)

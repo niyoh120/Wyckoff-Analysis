@@ -113,6 +113,7 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 - `summary.top_k_by_strategy` 额外比较 `candidate_shadow_then_score` 和 `entry_quality_then_score`，用于观察“按质量分排序的 Top-K”是否优于原 `score_only`，但不改变真实推荐排序。
 - `summary.top_k_lift_vs_score_only` 会直接输出各排序策略相对原 `score_only` 的 hit rate、收盘收益、MFE、MAE 和赔率差值，减少人工对表误差。
 - `summary.ranking_decision` 把 Top-K lift 转成保守上线门槛：样本量、命中率 lift、MFE lift 和 MAE 恶化都过线时才把某个排序策略标为 `candidate`；否则保持 `score_only`，避免凭单次表格手动改生产排序。
+- `policy_selection` 根据 `ranking_decision` 对最新推荐日输出一组只读候选：未过门槛时仍按 `score_only`，过门槛时展示 promoted ranking 选出的 Top-K，供 agent / dashboard 快速复盘，不直接改生产推荐。
 
 当前 5 日 +10% 评估结果（最新 30 个推荐日，2026-06-28 本地实测）：
 
