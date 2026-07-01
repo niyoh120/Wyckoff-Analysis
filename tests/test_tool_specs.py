@@ -36,6 +36,7 @@ def test_tool_registry_reads_runtime_behavior_from_specs():
     assert registry.concurrency_safe("portfolio")
     assert registry.requires_approval("write_file")
     assert registry.is_background("run_backtest")
+    assert registry.is_background("evaluate_recommendation_events")
     assert registry.display_name("unknown_tool") == "unknown_tool"
 
 

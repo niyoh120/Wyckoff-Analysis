@@ -63,7 +63,10 @@ def _json_safe(value: Any) -> Any:
 
 
 def _is_recommendation_event_eval_result(tool_name: str, result: dict[str, Any]) -> bool:
-    return tool_name == "recommendation_event_eval" or result.get("job_kind") == "recommendation_event_eval"
+    return (
+        tool_name in {"recommendation_event_eval", "evaluate_recommendation_events"}
+        or result.get("job_kind") == "recommendation_event_eval"
+    )
 
 
 def _recommendation_event_eval_preview(result: dict[str, Any]) -> str:

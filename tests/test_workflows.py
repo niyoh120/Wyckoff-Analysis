@@ -423,6 +423,7 @@ def test_direct_turn_exposes_bounded_tools_without_keyword_gate():
     assert runtime.allowed_tools
     assert "analyze_stock" in runtime.allowed_tools
     assert "run_backtest" in runtime.allowed_tools
+    assert "evaluate_recommendation_events" in runtime.allowed_tools
     assert "update_portfolio" in runtime.allowed_tools
     assert "read_file" in runtime.allowed_tools
     assert "web_fetch" in runtime.allowed_tools
@@ -438,6 +439,7 @@ def test_direct_local_task_tools_are_not_keyword_gated():
     assert "web_fetch" in tools
     assert "write_file" in tools
     assert "exec_command" in tools
+    assert "evaluate_recommendation_events" in tools
     assert "execute_skill" not in tools
 
 

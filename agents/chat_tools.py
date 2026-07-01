@@ -5,6 +5,7 @@ from agents.diagnosis_tools import analyze_stock
 from agents.history_tools import query_history
 from agents.market_tools import get_market_history, get_market_overview
 from agents.portfolio_tools import portfolio, update_portfolio
+from agents.recommendation_tools import evaluate_recommendation_events
 from agents.report_tools import generate_ai_report
 from agents.screen_tools import screen_stocks
 from agents.search_tools import search_stock_by_name
@@ -24,6 +25,7 @@ WYCKOFF_TOOLS = [
     generate_ai_report,
     generate_strategy_decision,
     query_history,
+    evaluate_recommendation_events,
     update_portfolio,
     run_backtest,
 ]

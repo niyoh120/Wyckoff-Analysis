@@ -23,6 +23,7 @@ _BUILTIN_WORKFLOWS: dict[str, dict[str, Any]] = {
             "get_market_overview",
             "get_market_history",
             "query_history",
+            "evaluate_recommendation_events",
             "screen_stocks",
             "delegate_to_research",
             "delegate_to_analysis",

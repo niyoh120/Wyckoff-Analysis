@@ -21,6 +21,7 @@ _DIRECT_TOOL_ORDER = (
     "generate_ai_report",
     "generate_strategy_decision",
     "query_history",
+    "evaluate_recommendation_events",
     "update_portfolio",
     "run_backtest",
     "check_background_tasks",

@@ -194,6 +194,50 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "evaluate_recommendation_events",
+        "description": (
+            "只读评估近期推荐/复盘股票在固定交易日窗口内的命中情况，输出排序接入判断、"
+            "最新 policy picks 和候选质量字段。适合验证最近推荐池是否有可重点跟踪的股票。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "market": {
+                    "type": "string",
+                    "description": "市场，默认 cn；支持推荐追踪表已接入的市场标识。",
+                },
+                "horizon_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "评估未来交易日窗口，默认 5。",
+                },
+                "target_pct": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "description": "窗口内目标涨幅百分比，默认 10。",
+                },
+                "max_dates": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "回看最近多少个推荐日期，默认 30。",
+                },
+                "kline_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "每只股票拉取的日线数量，默认 160。",
+                },
+                "top_k": {
+                    "anyOf": [
+                        {"type": "array", "items": {"type": "integer"}},
+                        {"type": "string"},
+                        {"type": "integer"},
+                    ],
+                    "description": "可选 Top-K 集合，如 [1,3,5] 或 '1,3,5'。",
+                },
+            },
+        },
+    },
+    {
         "name": "update_portfolio",
         "description": "管理用户持仓或删除追踪记录。操作后返回最新状态。",
         "parameters": {
@@ -404,6 +448,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "generate_ai_report": ToolSpec("generate_ai_report", "深度审讯", background=True),
     "generate_strategy_decision": ToolSpec("generate_strategy_decision", "攻防决策", background=True),
     "query_history": ToolSpec("query_history", "历史查询", concurrency_safe=True),
+    "evaluate_recommendation_events": ToolSpec("evaluate_recommendation_events", "推荐评估", background=True),
     "update_portfolio": ToolSpec("update_portfolio", "调仓操作", requires_approval=True),
     "run_backtest": ToolSpec("run_backtest", "回测", background=True),
     "check_background_tasks": ToolSpec("check_background_tasks", "任务状态"),
@@ -550,6 +595,7 @@ class ToolRegistry:
         from agents.local_tools import exec_command, read_file, web_fetch, write_file
         from agents.market_tools import get_market_history, get_market_overview
         from agents.portfolio_tools import portfolio, update_portfolio
+        from agents.recommendation_tools import evaluate_recommendation_events
         from agents.report_tools import generate_ai_report
         from agents.screen_tools import screen_stocks
         from agents.search_tools import search_stock_by_name
@@ -570,6 +616,7 @@ class ToolRegistry:
             "generate_ai_report": generate_ai_report,
             "generate_strategy_decision": generate_strategy_decision,
             "query_history": query_history,
+            "evaluate_recommendation_events": evaluate_recommendation_events,
             "update_portfolio": update_portfolio,
             "run_backtest": run_backtest,
             "ask_user_question": ask_user_question,
