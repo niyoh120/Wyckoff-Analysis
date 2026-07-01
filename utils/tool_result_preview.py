@@ -183,7 +183,26 @@ def _recommendation_policy_selection_preview(value: Any) -> dict[str, Any]:
             "uses_promoted_ranking": value.get("uses_promoted_ranking"),
             "watch_strategy": value.get("watch_strategy"),
             "reason": value.get("reason"),
+            "action_plan": _recommendation_action_plan_preview(value.get("action_plan")),
             "picks": _recommendation_pick_preview_list(value.get("picks"), 6),
+        }
+    )
+
+
+def _recommendation_action_plan_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "primary_action": value.get("primary_action"),
+            "candidate_action": value.get("candidate_action"),
+            "new_buy_allowed": value.get("new_buy_allowed"),
+            "ai_review_allowed": value.get("ai_review_allowed"),
+            "trade_readiness": value.get("trade_readiness"),
+            "review_status": value.get("review_status"),
+            "reason": value.get("reason"),
+            "next_step": value.get("next_step"),
+            "next_tool": value.get("next_tool"),
         }
     )
 

@@ -61,12 +61,24 @@ def _recommendation_event_eval_result() -> dict:
             "top_k": 1,
             "recommend_date": 20260601,
             "uses_promoted_ranking": True,
+            "action_plan": {
+                "primary_action": "generate_ai_report",
+                "candidate_action": "generate_ai_report",
+                "new_buy_allowed": False,
+                "ai_review_allowed": True,
+                "trade_readiness": "research_only",
+                "review_status": "ready_for_ai_review",
+                "reason": "只读推荐事件评估已通过排序接入门槛，可进入 AI 研报；不直接触发买入",
+                "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+                "next_tool": {"tool": "generate_ai_report", "args": {"stock_codes": ["300750"]}},
+            },
             "picks": [
                 {
                     "rank": 1,
                     "code": "300750",
                     "name": "宁德时代",
                     "candidate_shadow_grade": "S",
+                    "action_status": "ready_for_ai_review",
                     "label_status": "ready",
                 }
             ],

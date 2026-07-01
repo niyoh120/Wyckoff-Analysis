@@ -90,6 +90,11 @@ def test_policy_selection_uses_promoted_strategy_for_latest_candidates() -> None
     assert [pick["code"] for pick in selection["picks"]] == ["B20260512"]
     assert selection["picks"][0]["action_status"] == "ready_for_ai_review"
     assert selection["picks"][0]["next_step"] == "生成 AI 研报并结合持仓形成攻防决策"
+    assert selection["action_plan"]["new_buy_allowed"] is False
+    assert selection["action_plan"]["ai_review_allowed"] is True
+    assert selection["action_plan"]["trade_readiness"] == "research_only"
+    assert selection["action_plan"]["candidate_action"] == "generate_ai_report"
+    assert selection["action_plan"]["next_tool"]["tool"] == "generate_ai_report"
 
 
 def test_policy_selection_marks_unpromoted_pick_as_watch_only() -> None:
@@ -106,6 +111,11 @@ def test_policy_selection_marks_unpromoted_pick_as_watch_only() -> None:
     assert selection["picks"][0]["code"] == "A"
     assert selection["picks"][0]["action_status"] == "watch_only"
     assert "排序接入门槛未过，按 score_only 观察" in selection["picks"][0]["risk_factors"]
+    assert selection["action_plan"]["new_buy_allowed"] is False
+    assert selection["action_plan"]["ai_review_allowed"] is False
+    assert selection["action_plan"]["candidate_action"] == "watch_only"
+    assert selection["action_plan"]["review_status"] == "watch_only"
+    assert "next_tool" not in selection["action_plan"]
 
 
 def test_top_k_summary_can_rank_by_quality_grade_when_score_missing() -> None:

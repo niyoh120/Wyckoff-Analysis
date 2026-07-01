@@ -22,10 +22,12 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
     try:
         ensure_tushare_token(tool_context)
         stock_items = _stock_code_items(stock_codes)
-        if not stock_items and (reason := screen_auto_handoff_block_reason(_last_screen_result(tool_context))):
+        screen_result = _last_screen_result(tool_context)
+        if not stock_items and (reason := screen_auto_handoff_block_reason(screen_result)):
+            status = screen_auto_handoff_block_status(screen_result)
             return {
-                "error": f"上一轮筛选数据质量不足，不能自动续接 AI 研报: {reason}",
-                "status": "blocked_by_data_quality",
+                "error": f"{screen_auto_handoff_block_message(status)}: {reason}",
+                "status": status,
                 "reason": reason,
             }
         stock_items = stock_items or _screen_handoff_stock_items(tool_context)
@@ -90,16 +92,59 @@ def screen_auto_handoff_block_reason(screen_result: dict[str, Any]) -> str:
     if not isinstance(screen_result, dict):
         return ""
     action_plan = screen_result.get("action_plan") if isinstance(screen_result.get("action_plan"), dict) else {}
+    selection = screen_result.get("selection_brief") if isinstance(screen_result.get("selection_brief"), dict) else {}
+    if reason := data_quality_auto_handoff_block_reason(action_plan, selection):
+        return reason
+    if reason := recommendation_eval_auto_handoff_block_reason(screen_result, selection, action_plan):
+        return reason
+    return ""
+
+
+def screen_auto_handoff_block_status(screen_result: dict[str, Any]) -> str:
+    if not isinstance(screen_result, dict):
+        return "blocked"
+    action_plan = screen_result.get("action_plan") if isinstance(screen_result.get("action_plan"), dict) else {}
+    selection = screen_result.get("selection_brief") if isinstance(screen_result.get("selection_brief"), dict) else {}
+    if data_quality_auto_handoff_block_reason(action_plan, selection):
+        return "blocked_by_data_quality"
+    if recommendation_eval_auto_handoff_block_reason(screen_result, selection, action_plan):
+        return "blocked_by_policy_guard"
+    return "blocked"
+
+
+def screen_auto_handoff_block_message(status: str) -> str:
+    if status == "blocked_by_data_quality":
+        return "上一轮筛选数据质量不足，不能自动续接 AI 研报"
+    return "上一轮候选仍是只读观察，不能自动续接 AI 研报"
+
+
+def data_quality_auto_handoff_block_reason(action_plan: dict[str, Any], selection: dict[str, Any]) -> str:
     gate = action_plan.get("data_quality_gate") if isinstance(action_plan.get("data_quality_gate"), dict) else {}
     if gate:
         return str(gate.get("reason") or "数据质量不足，先重跑或缩小扫描范围")
     review = action_plan.get("review_targets") if isinstance(action_plan.get("review_targets"), dict) else {}
     if review.get("status") == "blocked_by_data_quality":
         return str(review.get("reason") or "数据质量不足，先重跑或缩小扫描范围")
-    selection = screen_result.get("selection_brief") if isinstance(screen_result.get("selection_brief"), dict) else {}
     if selection.get("status") == "blocked_by_data_quality":
         return str(selection.get("headline") or "数据质量不足，先重跑或缩小扫描范围")
     return ""
+
+
+def recommendation_eval_auto_handoff_block_reason(
+    screen_result: dict[str, Any],
+    selection: dict[str, Any],
+    action_plan: dict[str, Any],
+) -> str:
+    scan_scope = screen_result.get("scan_scope") if isinstance(screen_result.get("scan_scope"), dict) else {}
+    if scan_scope.get("source") != "recommendation_event_eval":
+        return ""
+    if selection.get("status") == "ready_for_ai_review":
+        return ""
+    return str(
+        action_plan.get("reason")
+        or selection.get("headline")
+        or "推荐事件评估仍是观察候选，需先明确股票代码或等待排序门槛通过"
+    )
 
 
 def _screen_handoff_stock_items(tool_context: ToolContext | None) -> list[Any]:
@@ -189,7 +234,7 @@ def screen_symbol_map(tool_context: ToolContext | None) -> dict[str, dict]:
     screen_result = tool_context.state.get("last_screen_result")
     if not isinstance(screen_result, dict):
         return {}
-    if screen_auto_handoff_block_reason(screen_result):
+    if screen_auto_handoff_block_status(screen_result) == "blocked_by_data_quality":
         return {}
     symbols: dict[str, dict] = {}
     for row in _screen_symbol_rows(screen_result):

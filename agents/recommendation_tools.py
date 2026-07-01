@@ -115,6 +115,10 @@ def _recommendation_eval_screen_handoff(result: dict[str, Any]) -> dict[str, Any
         return {}
     codes = [row["code"] for row in picks if row.get("code")]
     headline = _policy_handoff_headline(selection, picks)
+    action_plan = _selection_action_plan(selection, picks, codes)
+    review_status = _selection_review_status(action_plan, picks)
+    report_candidates = picks if action_plan["ai_review_allowed"] else []
+    watch_candidates = [] if action_plan["ai_review_allowed"] else picks
     return {
         "ok": True,
         "board": str((result.get("metadata") or {}).get("market") or "cn"),
@@ -122,33 +126,99 @@ def _recommendation_eval_screen_handoff(result: dict[str, Any]) -> dict[str, Any
         "summary": _policy_handoff_summary(result, len(picks)),
         "decision_brief": {
             "market_gate": "recommendation_event_eval",
-            "next_action": "可对最新推荐评估候选生成 AI 研报，再进入攻防决策",
-            "report_focus": picks,
+            "next_action": action_plan["next_step"],
+            "report_focus": report_candidates,
+            "watch_focus": watch_candidates,
         },
         "selection_brief": {
-            "status": "ready_for_ai_review",
+            "status": review_status,
             "headline": headline,
             "best_codes": codes,
             "primary_pick": picks[0],
             "best_candidates": picks,
-            "tool_handoff": {"tool": "generate_ai_report", "args": {"stock_codes": picks}},
+            "tool_handoff": _selection_next_tool(action_plan),
         },
-        "action_plan": {
-            "primary_action": "generate_ai_report",
-            "candidate_action": "review_latest_policy_selection",
-            "new_buy_allowed": False,
-            "ai_review_allowed": True,
-            "review_targets": {
-                "codes": codes,
-                "status": "ready_for_ai_review",
-                "reason": "来自推荐事件评估的最新只读 policy_selection",
-                "report_candidates": picks,
-            },
-            "report_candidates": picks,
-        },
+        "action_plan": _screen_action_plan(action_plan, codes, review_status, report_candidates, watch_candidates),
         "top_candidates": picks,
         "symbols_for_report": picks,
     }
+
+
+def _selection_action_plan(selection: dict[str, Any], picks: list[dict[str, Any]], codes: list[str]) -> dict[str, Any]:
+    source = selection.get("action_plan") if isinstance(selection.get("action_plan"), dict) else {}
+    ai_review_allowed = bool(source.get("ai_review_allowed")) and bool(codes)
+    return {
+        "primary_action": str(
+            source.get("primary_action")
+            or ("generate_ai_report" if ai_review_allowed else "watch_latest_policy_selection")
+        ),
+        "candidate_action": str(
+            source.get("candidate_action") or ("generate_ai_report" if ai_review_allowed else "watch_only")
+        ),
+        "new_buy_allowed": False,
+        "ai_review_allowed": ai_review_allowed,
+        "trade_readiness": str(source.get("trade_readiness") or "research_only"),
+        "review_status": str(source.get("review_status") or _pick_review_status(picks, ai_review_allowed)),
+        "reason": str(source.get("reason") or "来自推荐事件评估的最新只读 policy_selection"),
+        "next_step": str(source.get("next_step") or _pick_next_step(picks)),
+        "next_tool": source.get("next_tool") if isinstance(source.get("next_tool"), dict) else {},
+    }
+
+
+def _screen_action_plan(
+    action_plan: dict[str, Any],
+    codes: list[str],
+    review_status: str,
+    report_candidates: list[dict[str, Any]],
+    watch_candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    review_targets = {
+        "codes": codes,
+        "status": review_status,
+        "reason": action_plan["reason"],
+        "report_candidates": report_candidates,
+        "watch_candidates": watch_candidates,
+    }
+    if next_tool := _selection_next_tool(action_plan):
+        review_targets.update({"tool": next_tool["tool"], "args": next_tool.get("args", {})})
+    return {
+        "primary_action": action_plan["primary_action"],
+        "candidate_action": action_plan["candidate_action"],
+        "new_buy_allowed": False,
+        "ai_review_allowed": action_plan["ai_review_allowed"],
+        "trade_readiness": action_plan["trade_readiness"],
+        "reason": action_plan["reason"],
+        "next_step": action_plan["next_step"],
+        "review_targets": review_targets,
+        "report_candidates": report_candidates,
+        "watch_candidates": watch_candidates,
+    }
+
+
+def _selection_review_status(action_plan: dict[str, Any], picks: list[dict[str, Any]]) -> str:
+    status = str(action_plan.get("review_status") or "").strip()
+    if status:
+        return status
+    return _pick_review_status(picks, bool(action_plan.get("ai_review_allowed")))
+
+
+def _pick_review_status(picks: list[dict[str, Any]], ai_review_allowed: bool) -> str:
+    if ai_review_allowed:
+        return "ready_for_ai_review"
+    first = picks[0] if picks else {}
+    return str(first.get("action_status") or "watch_only")
+
+
+def _selection_next_tool(action_plan: dict[str, Any]) -> dict[str, Any]:
+    if not action_plan.get("ai_review_allowed"):
+        return {}
+    next_tool = action_plan.get("next_tool") if isinstance(action_plan.get("next_tool"), dict) else {}
+    return dict(next_tool) if next_tool.get("tool") else {}
+
+
+def _pick_next_step(picks: list[dict[str, Any]]) -> str:
+    first = picks[0] if picks else {}
+    return str(first.get("next_step") or "先作为观察候选复核，等待更多样本或研报证据后再升级")
 
 
 def _policy_pick_handoff(row: dict[str, Any]) -> dict[str, Any]:

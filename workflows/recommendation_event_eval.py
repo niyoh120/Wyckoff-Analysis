@@ -372,6 +372,7 @@ def _policy_selection(events: list[dict[str, Any]], decision: dict[str, Any]) ->
         "uses_promoted_ranking": decision.get("status") == "candidate",
         "watch_strategy": decision.get("watch_strategy"),
         "reason": decision.get("reason", ""),
+        "action_plan": _policy_selection_action_plan(status, picks),
         "picks": picks,
     }
 
@@ -385,8 +386,41 @@ def _empty_policy_selection(decision: dict[str, Any]) -> dict[str, Any]:
         "uses_promoted_ranking": False,
         "watch_strategy": decision.get("watch_strategy"),
         "reason": "no recommendation events available",
+        "action_plan": _policy_selection_action_plan(str(decision.get("status", "unknown")), []),
         "picks": [],
     }
+
+
+def _policy_selection_action_plan(policy_status: str, picks: list[dict[str, Any]]) -> dict[str, Any]:
+    codes = [str(pick.get("code") or "").strip() for pick in picks if str(pick.get("code") or "").strip()]
+    ai_review_allowed = bool(codes) and policy_status == "candidate"
+    payload = {
+        "primary_action": "generate_ai_report" if ai_review_allowed else "watch_latest_policy_selection",
+        "candidate_action": "generate_ai_report" if ai_review_allowed else "watch_only",
+        "new_buy_allowed": False,
+        "ai_review_allowed": ai_review_allowed,
+        "trade_readiness": "research_only",
+        "review_status": "ready_for_ai_review" if ai_review_allowed else "watch_only",
+        "reason": _policy_selection_action_reason(policy_status, ai_review_allowed),
+        "next_step": _policy_pick_next_step(policy_status),
+    }
+    if ai_review_allowed:
+        payload["next_tool"] = {
+            "tool": "generate_ai_report",
+            "args": {"stock_codes": codes[:10]},
+            "reason": "推荐事件评估只读候选已过排序门槛，先生成 AI 研报再做攻防决策",
+        }
+    return payload
+
+
+def _policy_selection_action_reason(policy_status: str, ai_review_allowed: bool) -> str:
+    if ai_review_allowed:
+        return "只读推荐事件评估已通过排序接入门槛，可进入 AI 研报；不直接触发买入"
+    if policy_status == "insufficient_sample":
+        return "只读推荐事件评估样本不足，继续观察；不直接触发买入"
+    if policy_status == "watch":
+        return "只读推荐事件评估仅为观察项，尚未通过全部门槛；不直接触发买入"
+    return "只读推荐事件评估未通过排序接入门槛，继续观察；不直接触发买入"
 
 
 def _policy_strategy(decision: dict[str, Any]) -> str:
@@ -620,6 +654,7 @@ def _ranking_decision_markdown(decision: dict[str, Any]) -> list[str]:
 
 
 def _policy_selection_markdown(selection: dict[str, Any]) -> list[str]:
+    action_plan = selection.get("action_plan") if isinstance(selection.get("action_plan"), dict) else {}
     rows = [
         "",
         "## Latest Policy Selection",
@@ -627,6 +662,10 @@ def _policy_selection_markdown(selection: dict[str, Any]) -> list[str]:
         f"- Selection strategy: `{selection.get('selection_strategy', 'score_only')}`",
         f"- Recommended date: `{selection.get('recommend_date') or 'n/a'}`",
         f"- Uses promoted ranking: `{bool(selection.get('uses_promoted_ranking'))}`",
+        f"- Trade readiness: `{action_plan.get('trade_readiness', 'research_only')}`",
+        f"- New buy allowed: `{bool(action_plan.get('new_buy_allowed'))}`",
+        f"- AI review allowed: `{bool(action_plan.get('ai_review_allowed'))}`",
+        f"- Next step: {action_plan.get('next_step') or '-'}",
         "",
         "| Rank | Code | Name | AI | Funnel | Shadow | Entry | Label |",
         "|---:|---|---|---|---:|---:|---:|---|",

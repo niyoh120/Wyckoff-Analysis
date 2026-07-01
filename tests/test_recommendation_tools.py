@@ -16,8 +16,26 @@ def _fake_eval_result(request):
             },
         },
         "policy_selection": {
+            "status": "candidate",
             "selection_strategy": "candidate_shadow_then_score",
+            "top_k": 1,
             "recommend_date": 20260601,
+            "uses_promoted_ranking": True,
+            "action_plan": {
+                "primary_action": "generate_ai_report",
+                "candidate_action": "generate_ai_report",
+                "new_buy_allowed": False,
+                "ai_review_allowed": True,
+                "trade_readiness": "research_only",
+                "review_status": "ready_for_ai_review",
+                "reason": "只读推荐事件评估已通过排序接入门槛，可进入 AI 研报；不直接触发买入",
+                "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+                "next_tool": {
+                    "tool": "generate_ai_report",
+                    "args": {"stock_codes": ["300750"]},
+                    "reason": "推荐事件评估只读候选已过排序门槛，先生成 AI 研报再做攻防决策",
+                },
+            },
             "picks": [
                 {
                     "rank": 1,
@@ -67,12 +85,56 @@ def test_evaluate_recommendation_events_records_report_handoff(monkeypatch):
     assert ctx.state["last_recommendation_event_eval"]["policy_selection"]["picks"][0]["code"] == "300750"
     handoff = ctx.state["last_screen_result"]
     assert handoff["scan_scope"]["source"] == "recommendation_event_eval"
+    assert handoff["selection_brief"]["status"] == "ready_for_ai_review"
     assert handoff["selection_brief"]["best_codes"] == ["300750"]
+    assert handoff["action_plan"]["new_buy_allowed"] is False
+    assert handoff["action_plan"]["ai_review_allowed"] is True
+    assert handoff["action_plan"]["trade_readiness"] == "research_only"
+    assert handoff["action_plan"]["review_targets"]["tool"] == "generate_ai_report"
     assert handoff["symbols_for_report"][0]["candidate_shadow_grade"] == "S"
     assert handoff["symbols_for_report"][0]["action_status"] == "ready_for_ai_review"
     assert "最新候选的未来窗口标签尚未成熟" in handoff["symbols_for_report"][0]["risk_factors"]
-    assert handoff["selection_brief"]["tool_handoff"]["args"]["stock_codes"][0]["code"] == "300750"
+    assert handoff["selection_brief"]["tool_handoff"]["args"]["stock_codes"][0] == "300750"
     assert result["policy_selection"]["picks"][0]["code"] == "300750"
+
+
+def test_recommendation_eval_watch_only_handoff_blocks_auto_report(monkeypatch):
+    from agents.report_tools import generate_ai_report
+    from agents.tool_context import ToolContext
+
+    ctx = ToolContext({})
+    result = _fake_eval_result(type("Request", (), {"market": "cn", "horizon_days": 5})())
+    result["summary"]["ranking_decision"] = {"status": "keep_score_only"}
+    result["policy_selection"].update(
+        {
+            "status": "keep_score_only",
+            "uses_promoted_ranking": False,
+            "action_plan": {
+                "primary_action": "watch_latest_policy_selection",
+                "candidate_action": "watch_only",
+                "new_buy_allowed": False,
+                "ai_review_allowed": False,
+                "trade_readiness": "research_only",
+                "review_status": "watch_only",
+                "reason": "只读推荐事件评估未通过排序接入门槛，继续观察；不直接触发买入",
+                "next_step": "先作为观察候选复核，等待更多样本或研报证据后再升级",
+            },
+        }
+    )
+    result["policy_selection"]["picks"][0]["action_status"] = "watch_only"
+    monkeypatch.setattr("workflows.recommendation_event_eval.build_recommendation_event_eval", lambda _request: result)
+    evaluate_recommendation_events(tool_context=ctx)
+    monkeypatch.setattr("agents.report_tools.ensure_tushare_token", lambda _tool_context: None)
+
+    report = generate_ai_report(tool_context=ctx)
+    handoff = ctx.state["last_screen_result"]
+
+    assert handoff["selection_brief"]["status"] == "watch_only"
+    assert handoff["action_plan"]["ai_review_allowed"] is False
+    assert handoff["action_plan"]["watch_candidates"][0]["code"] == "300750"
+    assert report["status"] == "blocked_by_policy_guard"
+    assert report["error"].startswith("上一轮候选仍是只读观察")
+    assert "未通过排序接入门槛" in report["error"]
 
 
 def test_evaluate_recommendation_events_surfaces_config_error(monkeypatch):
