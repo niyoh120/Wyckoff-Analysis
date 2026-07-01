@@ -217,6 +217,28 @@ def test_check_background_tasks_restores_strategy_decision_handoff_state():
     assert registry.state["last_strategy_decision"]["report_source"] == "last_ai_report"
 
 
+def test_check_background_tasks_restores_recommendation_eval_handoff_state():
+    from cli.background import BackgroundTaskManager
+    from cli.tools import ToolRegistry
+
+    manager = BackgroundTaskManager()
+    registry = ToolRegistry()
+    registry.set_background_manager(manager)
+    task_id = manager.submit(
+        "bg_eval", "evaluate_recommendation_events", lambda: _recommendation_event_eval_result(), {}
+    )
+
+    _wait_completed(manager, task_id)
+    result = registry.execute("check_background_tasks", {})
+
+    assert result["tasks"][0]["status"] == "completed"
+    assert registry.state["last_recommendation_event_eval"]["policy_selection"]["picks"][0]["code"] == "300750"
+    handoff = registry.state["last_screen_result"]
+    assert handoff["scan_scope"]["source"] == "recommendation_event_eval"
+    assert handoff["symbols_for_report"][0]["code"] == "300750"
+    assert handoff["symbols_for_report"][0]["candidate_shadow_grade"] == "S"
+
+
 def test_local_db_chat_background_history_uses_shared_preview(tmp_path, monkeypatch):
     from integrations import local_db, local_db_chat
 

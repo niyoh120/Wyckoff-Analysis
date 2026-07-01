@@ -403,6 +403,56 @@ class TestAiReportTool:
         assert captured["symbols_info"][0]["priority_score"] == 11.0
         assert ctx.state["last_ai_report"]["reviewed_codes"] == ["000004"]
 
+    def test_generate_ai_report_reuses_recommendation_eval_handoff(self, monkeypatch):
+        from agents import recommendation_tools, report_tools
+        from agents.tool_context import ToolContext
+
+        captured = {}
+        ctx = ToolContext({})
+        recommendation_tools.remember_recommendation_event_eval(
+            ctx,
+            {
+                "ok": True,
+                "job_kind": "recommendation_event_eval",
+                "result_summary": "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",
+                "metadata": {"market": "cn"},
+                "summary": {
+                    "all": {"rows_ready": 12, "rows_total": 20, "hit_rate_pct": 60.0},
+                    "ranking_decision": {"status": "candidate"},
+                },
+                "policy_selection": {
+                    "selection_strategy": "candidate_shadow_then_score",
+                    "recommend_date": 20260601,
+                    "picks": [
+                        {
+                            "rank": 1,
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "candidate_shadow_grade": "S",
+                            "entry_quality_grade": "A",
+                        }
+                    ],
+                },
+                "daily": [],
+            },
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            captured["symbols_info"] = symbols_info
+            return True, "ok", "# 推荐评估候选研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result["reviewed_codes"] == ["300750"]
+        assert result["reviewed_symbols"][0]["selection_source"] == "recommendation_event_eval"
+        assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
+        assert captured["symbols_info"][0]["entry_quality_grade"] == "A"
+        assert ctx.state["last_ai_report"]["report_text"] == "# 推荐评估候选研报"
+
     def test_generate_ai_report_blocks_auto_handoff_on_degraded_screen_data(self, monkeypatch):
         from agents import report_tools
         from agents.tool_context import ToolContext

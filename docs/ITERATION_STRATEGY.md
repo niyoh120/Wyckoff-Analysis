@@ -108,7 +108,7 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 - `scripts/evaluate_recommendation_events.py`：读取 `recommendation_tracking`，拉 TickFlow 日 K，输出 `summary.json` / `events.json` / `summary.md`。
 - `core.recommendation_event_metrics.build_horizon_event()`：严格排除推荐日当天，只看推荐日之后未来 N 个交易日。
 - `workflows.web_background_job` 支持 `job_kind=recommendation_event_eval`，可由 GitHub Actions 或 Web 后台任务触发。
-- `evaluate_recommendation_events` 已作为 CLI agent 后台工具暴露，用户只在聊天里要求验证近期推荐/筛出重点候选时，模型可以直接读取 `ranking_decision` 和最新 `policy_selection`。
+- `evaluate_recommendation_events` 已作为 CLI agent 后台工具暴露，用户只在聊天里要求验证近期推荐/筛出重点候选时，模型可以直接读取 `ranking_decision` 和最新 `policy_selection`；完成后会写入候选 handoff，后续 `generate_ai_report` / `generate_strategy_decision` 可自然复用最新 policy picks。
 - 评估结果仅写 artifact，不写回 `recommendation_tracking`，避免在公开推荐页里增加难解释的短线事件列。
 - 评估会只读 join 同日 `signal_observations.features_json`，在 summary 中输出 `candidate_shadow_grade` 和 `entry_quality_grade` 分组，用同一套 5 日 hit/MFE/MAE 口径验证候选质量档位。
 - `summary.top_k_by_strategy` 额外比较 `candidate_shadow_then_score` 和 `entry_quality_then_score`，用于观察“按质量分排序的 Top-K”是否优于原 `score_only`，但不改变真实推荐排序。

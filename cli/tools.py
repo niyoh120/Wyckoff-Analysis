@@ -713,6 +713,10 @@ class ToolRegistry:
                 from agents.strategy_tools import remember_strategy_decision
 
                 remember_strategy_decision(self._tool_context, result)
+            elif tool_name == "evaluate_recommendation_events" or result.get("job_kind") == "recommendation_event_eval":
+                from agents.recommendation_tools import remember_recommendation_event_eval
+
+                remember_recommendation_event_eval(self._tool_context, result)
 
     def _confirm_high_risk_call(
         self,
