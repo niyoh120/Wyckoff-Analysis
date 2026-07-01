@@ -53,6 +53,36 @@ def test_candidate_context_line_exposes_score_source_and_capital_migration() -> 
     assert "通道=mainline" in line
 
 
+def test_candidate_context_line_exposes_quality_and_action_guards() -> None:
+    line = candidate_context_line(
+        {
+            "code": "300750",
+            "candidate_shadow_score": 92.0,
+            "candidate_shadow_grade": "S",
+            "entry_quality_score": 84.0,
+            "entry_quality_grade": "A",
+            "entry_quality_risk_flags": ["追高延展"],
+            "selection_strategy": "candidate_shadow_then_score",
+            "is_ai_recommended": True,
+            "recommend_count": 2,
+            "action_status": "ready_for_ai_review",
+            "label_ready": False,
+            "risk_factors": ["评估标签尚未成熟"],
+            "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+        }
+    )
+
+    assert "候选影子=S/92.00" in line
+    assert "入场=A/84.00" in line
+    assert "策略=candidate_shadow_then_score" in line
+    assert "已AI推荐" in line
+    assert "推荐次数=2" in line
+    assert "动作=ready_for_ai_review" in line
+    assert "标签未成熟" in line
+    assert "风险=评估标签尚未成熟；追高延展" in line
+    assert "下一步=生成 AI 研报并结合持仓形成攻防决策" in line
+
+
 def test_prepend_candidate_context_keeps_payload_header_first() -> None:
     payload = "• 000390 晨光\n  [价格锚点] 最新收盘价:10.00\n"
 

@@ -343,7 +343,54 @@ def candidate_context_line(item: dict) -> str:
     lane = clean_text(item.get("candidate_lane")) or clean_text(item.get("entry_type"))
     if lane:
         parts.append(f"通道={lane}")
+    parts.extend(candidate_quality_context_parts(item))
     return f"  [候选归因] {' | '.join(parts)}\n" if parts else ""
+
+
+def candidate_quality_context_parts(item: dict) -> list[str]:
+    parts = [
+        _grade_score_context("候选影子", item.get("candidate_shadow_grade"), item.get("candidate_shadow_score")),
+        _grade_score_context("入场", item.get("entry_quality_grade"), item.get("entry_quality_score")),
+    ]
+    if strategy := clean_text(item.get("selection_strategy")):
+        parts.append(f"策略={strategy}")
+    if item.get("is_ai_recommended") is True:
+        parts.append("已AI推荐")
+    if count := parse_float_like(item.get("recommend_count")):
+        parts.append(f"推荐次数={count:.0f}")
+    if status := clean_text(item.get("action_status")):
+        parts.append(f"动作={status}")
+    if item.get("label_ready") is False:
+        parts.append("标签未成熟")
+    if risk := _candidate_risk_context(item):
+        parts.append(f"风险={risk}")
+    if next_step := clean_text(item.get("next_step")):
+        parts.append(f"下一步={next_step}")
+    return [part for part in parts if part]
+
+
+def _grade_score_context(label: str, grade: object, score: object) -> str:
+    grade_text = clean_text(grade)
+    score_value = parse_float_like(score)
+    if grade_text and score_value is not None:
+        return f"{label}={grade_text}/{score_value:.2f}"
+    if grade_text:
+        return f"{label}={grade_text}"
+    if score_value is not None:
+        return f"{label}={score_value:.2f}"
+    return ""
+
+
+def _candidate_risk_context(item: dict) -> str:
+    risks = _text_items(item.get("risk_factors")) + _text_items(item.get("entry_quality_risk_flags"))
+    return "；".join(list(dict.fromkeys(risks))[:3])
+
+
+def _text_items(value: object) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [text for item in value if (text := clean_text(item))]
+    text = clean_text(value)
+    return [text] if text else []
 
 
 def prepend_candidate_context(payload: str, item: dict) -> str:
