@@ -802,33 +802,38 @@ def _fallback_candidate_conclusion(results: list[dict[str, Any]]) -> str:
             if not isinstance(value, dict):
                 continue
             if row := _fallback_stage_candidate(stage, value):
-                return _fallback_candidate_line(row, value)
+                merged = _fallback_merged_candidate(row, handoff)
+                return _fallback_candidate_line(merged, value, handoff)
     return ""
 
 
 def _fallback_stage_candidate(stage: str, value: dict[str, Any]) -> dict[str, Any]:
-    if stage == "last_screen_result":
-        selection = value.get("selection_brief") if isinstance(value.get("selection_brief"), dict) else {}
-        rows = [selection.get("primary_pick")]
-        rows.extend(_as_list(selection.get("best_candidates")))
-        rows.extend(_as_list(value.get("symbols_for_report")))
-        rows.extend(_as_list(value.get("top_candidates")))
-        return _first_candidate_row(rows)
-    if stage == "last_recommendation_event_eval":
-        selection = value.get("policy_selection") if isinstance(value.get("policy_selection"), dict) else {}
-        return _first_candidate_row(_as_list(selection.get("picks")))
-    return _first_candidate_row(_as_list(value.get("reviewed_symbols")))
+    return _first_candidate_row(_fallback_stage_candidates(stage, value))
 
 
-def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any]) -> str:
+def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
     parts = [
         f"首选 {_fallback_candidate_name(row)}",
         _fallback_status_part(row),
         _fallback_evidence_part(row),
-        _fallback_guard_part(row, stage),
+        _fallback_guard_part(row, stage, handoff),
         _fallback_next_part(row, stage),
     ]
     return "候选结论: " + "；".join(part for part in parts if part)
+
+
+def _fallback_merged_candidate(row: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
+    code = str(row.get("code") or "").strip()
+    merged: dict[str, Any] = {}
+    for stage in ("last_screen_result", "last_recommendation_event_eval", "last_ai_report", "last_strategy_decision"):
+        value = handoff.get(stage)
+        if not isinstance(value, dict):
+            continue
+        for candidate in _fallback_stage_candidates(stage, value):
+            if _candidate_matches(candidate, code):
+                merged.update(_drop_empty(candidate))
+    merged.update(_drop_empty(row))
+    return merged
 
 
 def _fallback_candidate_name(row: dict[str, Any]) -> str:
@@ -853,15 +858,24 @@ def _fallback_evidence_part(row: dict[str, Any]) -> str:
     return f"证据={','.join(evidence)}" if evidence else ""
 
 
-def _fallback_guard_part(row: dict[str, Any], stage: dict[str, Any]) -> str:
+def _fallback_guard_part(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
+    if reason := _fallback_guard_reason(row, stage):
+        return f"护栏={reason}"
+    for value in handoff.values():
+        if isinstance(value, dict) and (reason := _fallback_guard_reason(row, value)):
+            return f"护栏={reason}"
+    return ""
+
+
+def _fallback_guard_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:
     guard = stage.get("candidate_guard_summary") if isinstance(stage.get("candidate_guard_summary"), dict) else {}
     candidates = _as_list(guard.get("candidates")) if isinstance(guard, dict) else []
     code = str(row.get("code") or "").strip()
     for item in candidates:
         if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
-            return f"护栏={item['reason']}"
+            return str(item["reason"])
     first = next((item for item in candidates if isinstance(item, dict) and item.get("reason")), {})
-    return f"护栏={first['reason']}" if first else ""
+    return str(first["reason"]) if first else ""
 
 
 def _fallback_next_part(row: dict[str, Any], stage: dict[str, Any]) -> str:
@@ -872,6 +886,25 @@ def _fallback_next_part(row: dict[str, Any], stage: dict[str, Any]) -> str:
 
 def _first_candidate_row(rows: list[Any]) -> dict[str, Any]:
     return next((row for row in rows if isinstance(row, dict) and (row.get("code") or row.get("name"))), {})
+
+
+def _fallback_stage_candidates(stage: str, value: dict[str, Any]) -> list[dict[str, Any]]:
+    if stage == "last_screen_result":
+        selection = value.get("selection_brief") if isinstance(value.get("selection_brief"), dict) else {}
+        rows: list[Any] = [selection.get("primary_pick")]
+        rows.extend(_as_list(selection.get("best_candidates")))
+        rows.extend(_as_list(value.get("symbols_for_report")))
+        rows.extend(_as_list(value.get("top_candidates")))
+    elif stage == "last_recommendation_event_eval":
+        selection = value.get("policy_selection") if isinstance(value.get("policy_selection"), dict) else {}
+        rows = _as_list(selection.get("picks"))
+    else:
+        rows = _as_list(value.get("reviewed_symbols"))
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _candidate_matches(row: dict[str, Any], code: str) -> bool:
+    return bool(code and str(row.get("code") or "").strip() == code)
 
 
 def _as_list(value: Any) -> list[Any]:
