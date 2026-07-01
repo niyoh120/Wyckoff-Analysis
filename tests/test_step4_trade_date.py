@@ -182,6 +182,85 @@ def test_candidate_attribution_reaches_buy_ticket_and_persistence_row():
     assert rows[0]["wyckoff_context"] == tickets[0].wyckoff_context
 
 
+def test_candidate_guard_blocks_unlabeled_policy_buy_before_market_fetch():
+    decision = DecisionItem(
+        code="300750",
+        name="宁德时代",
+        action="PROBE",
+        entry_zone_min=200.0,
+        entry_zone_max=205.0,
+        stop_loss=190.0,
+        trim_ratio=None,
+        tape_condition="放量高收",
+        invalidate_condition="跌破190",
+        is_add_on=False,
+        reason="模型建议试探",
+        confidence=0.8,
+    )
+    decisions = complete_step4_decisions(
+        [decision],
+        PortfolioState(free_cash=50000, total_equity=100000, positions=[]),
+        {
+            "300750": CandidateMeta(
+                code="300750",
+                name="宁德时代",
+                action_status="ready_for_ai_review",
+                label_ready=False,
+                risk_factors=("评估标签尚未成熟",),
+                next_step="生成 AI 研报并结合持仓形成攻防决策",
+            )
+        },
+        "RISK_ON",
+        step4.Step4RuntimeConfig(),
+    )
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={},
+        market_regime="RISK_ON",
+    )
+
+    tickets, cash = engine.process(decisions)
+
+    assert cash == 50000
+    assert decisions[0].system_reject_reason.startswith("候选护栏拦截: 候选标签未成熟")
+    assert tickets[0].status == "NO_TRADE"
+    assert "候选标签未成熟" in tickets[0].reason
+    assert "评估标签尚未成熟" in tickets[0].reason
+
+
+def test_candidate_guard_rejected_buy_does_not_consume_new_buy_slot():
+    guarded = _decision("PROBE")
+    guarded.code = "300750"
+    guarded.name = "宁德时代"
+    guarded.funnel_score = 99
+    valid = _decision("PROBE")
+    valid.code = "000390"
+    valid.name = "晨光"
+    valid.funnel_score = 70
+
+    decisions = complete_step4_decisions(
+        [guarded, valid],
+        PortfolioState(free_cash=50000, total_equity=100000, positions=[]),
+        {
+            "300750": CandidateMeta(
+                code="300750",
+                name="宁德时代",
+                action_status="ready_for_ai_review",
+                label_ready=False,
+                risk_factors=("评估标签尚未成熟",),
+            )
+        },
+        "NEUTRAL",
+        step4.Step4RuntimeConfig(new_buy_limits=NewBuyLimits(neutral=1)),
+    )
+
+    by_code = {item.code: item for item in decisions}
+    assert by_code["300750"].system_reject_reason.startswith("候选护栏拦截")
+    assert "组合级限购拦截" not in by_code["000390"].system_reject_reason
+
+
 def test_blocked_buy_ticket_renders_candidate_context():
     decision = DecisionItem(
         code="000390",

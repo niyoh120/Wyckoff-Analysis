@@ -199,6 +199,10 @@ def build_candidate_meta_map(
             exit_price=parse_float_like(item.get("exit_price")),
             exit_reason=clean_text(item.get("exit_reason")),
             source_type=clean_text(item.get("source_type")) or "external",
+            action_status=clean_text(item.get("action_status")),
+            label_ready=parse_bool_like(item.get("label_ready")),
+            risk_factors=tuple(_candidate_risk_items(item)),
+            next_step=clean_text(item.get("next_step")),
         )
     for pos in positions:
         existing = meta_map.get(pos.code)
@@ -301,6 +305,19 @@ def parse_float_like(raw: object) -> float | None:
         return None
 
 
+def parse_bool_like(raw: object) -> bool | None:
+    if isinstance(raw, bool):
+        return raw
+    if raw in (None, ""):
+        return None
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    return None
+
+
 def candidate_score(item: dict) -> float | None:
     for key in ("priority_score", "score", "funnel_score"):
         score = parse_float_like(item.get(key))
@@ -382,8 +399,12 @@ def _grade_score_context(label: str, grade: object, score: object) -> str:
 
 
 def _candidate_risk_context(item: dict) -> str:
+    return "；".join(_candidate_risk_items(item)[:3])
+
+
+def _candidate_risk_items(item: dict) -> list[str]:
     risks = _text_items(item.get("risk_factors")) + _text_items(item.get("entry_quality_risk_flags"))
-    return "；".join(list(dict.fromkeys(risks))[:3])
+    return list(dict.fromkeys(risks))
 
 
 def _text_items(value: object) -> list[str]:

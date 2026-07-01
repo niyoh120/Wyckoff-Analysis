@@ -141,6 +141,10 @@ class CandidateMeta:
     exit_price: float | None = None
     exit_reason: str = ""
     source_type: str = ""
+    action_status: str = ""
+    label_ready: bool | None = None
+    risk_factors: tuple[str, ...] = ()
+    next_step: str = ""
 
 
 @dataclass(frozen=True)

@@ -65,7 +65,11 @@ def trim_new_buy_decisions(
     if max_new_names < 0:
         return decisions, [], max_new_names
 
-    new_buys = [dec for dec in decisions if dec.action in {"PROBE", "ATTACK"} and dec.code not in held_codes]
+    new_buys = [
+        dec
+        for dec in decisions
+        if dec.action in {"PROBE", "ATTACK"} and dec.code not in held_codes and not dec.system_reject_reason
+    ]
     if len(new_buys) <= max_new_names:
         return decisions, [], max_new_names
 
@@ -74,7 +78,12 @@ def trim_new_buy_decisions(
     trimmed = [
         dec
         for dec in decisions
-        if not (dec.action in {"PROBE", "ATTACK"} and dec.code not in held_codes and dec.code not in keep_codes)
+        if not (
+            dec.action in {"PROBE", "ATTACK"}
+            and dec.code not in held_codes
+            and not dec.system_reject_reason
+            and dec.code not in keep_codes
+        )
     ]
     return trimmed, dropped, max_new_names
 

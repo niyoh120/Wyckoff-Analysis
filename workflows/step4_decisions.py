@@ -22,6 +22,15 @@ from workflows.step4_payload import calc_atr, fetch_latest_real_close, load_qfq_
 
 logger = logging.getLogger(__name__)
 
+_BLOCKING_CANDIDATE_ACTION_STATUSES = {
+    "watch_only",
+    "blocked_by_data_quality",
+    "blocked_by_market_gate",
+    "blocked_by_policy_guard",
+    "repair_review_only",
+    "confirmation_required",
+}
+
 
 def rendered_step4_market_view(system_market_view: str, model_market_view: str) -> str:
     if model_market_view and system_market_view:
@@ -145,9 +154,32 @@ def _attach_candidate_meta(
                 capital_migration_bonus=(
                     meta.capital_migration_bonus if dec.capital_migration_bonus is None else dec.capital_migration_bonus
                 ),
+                system_reject_reason=dec.system_reject_reason or _candidate_buy_guard_reason(dec, meta),
             )
         )
     return out
+
+
+def _candidate_buy_guard_reason(dec: DecisionItem, meta: CandidateMeta) -> str:
+    if dec.action not in {"PROBE", "ATTACK"}:
+        return ""
+    if meta.label_ready is False:
+        return _candidate_guard_reason("候选标签未成熟，禁止直接买入", meta)
+    status = meta.action_status.strip()
+    if status.startswith("blocked_") or status in _BLOCKING_CANDIDATE_ACTION_STATUSES:
+        return _candidate_guard_reason(f"候选状态 {status} 不允许直接买入", meta)
+    return ""
+
+
+def _candidate_guard_reason(base: str, meta: CandidateMeta) -> str:
+    parts = [base]
+    if meta.action_status:
+        parts.append(f"action_status={meta.action_status}")
+    if meta.risk_factors:
+        parts.append("risk=" + "；".join(meta.risk_factors[:3]))
+    if meta.next_step:
+        parts.append(f"next_step={meta.next_step}")
+    return "候选护栏拦截: " + " | ".join(parts)
 
 
 def _append_rejected_new_buys(

@@ -23,6 +23,11 @@ def test_build_candidate_meta_map_keeps_capital_migration_bonus_and_source() -> 
                 "funnel_score": 88,
                 "capital_migration_bonus": 4.5,
                 "source_type": "supabase_recommendation_tracking",
+                "action_status": "ready_for_ai_review",
+                "label_ready": False,
+                "risk_factors": ["评估标签尚未成熟"],
+                "entry_quality_risk_flags": ["追高延展"],
+                "next_step": "生成 AI 研报并结合持仓形成攻防决策",
             }
         ],
         positions=[],
@@ -32,6 +37,10 @@ def test_build_candidate_meta_map_keeps_capital_migration_bonus_and_source() -> 
     assert meta.funnel_score == 91
     assert meta.capital_migration_bonus == 4.5
     assert meta.source_type == "supabase_recommendation_tracking"
+    assert meta.action_status == "ready_for_ai_review"
+    assert meta.label_ready is False
+    assert meta.risk_factors == ("评估标签尚未成熟", "追高延展")
+    assert meta.next_step == "生成 AI 研报并结合持仓形成攻防决策"
 
 
 def test_candidate_context_line_exposes_score_source_and_capital_migration() -> None:
