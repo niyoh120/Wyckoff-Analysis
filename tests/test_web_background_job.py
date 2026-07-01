@@ -93,7 +93,15 @@ def test_run_web_background_job_runs_recommendation_event_eval(monkeypatch, tmp_
         captured["request"] = request
         return {
             "metadata": {"market": request.market, "horizon_days": request.horizon_days},
-            "summary": {"all": {"rows_ready": 1, "hit_rate_pct": 100.0}},
+            "summary": {
+                "all": {"rows_ready": 12, "rows_total": 20, "hit_rate_pct": 60.0},
+                "ranking_decision": {
+                    "status": "candidate",
+                    "recommended_strategy": "candidate_shadow_then_score",
+                    "recommended_top_k": 1,
+                    "reason": "candidate_shadow_then_score top1 passed lift and risk gates",
+                },
+            },
             "daily": [{"recommend_date": 20260601, "hit_rate_pct": 100.0}],
             "events": [],
         }
@@ -113,6 +121,8 @@ def test_run_web_background_job_runs_recommendation_event_eval(monkeypatch, tmp_
     assert status == 0
     assert payload["status"] == "success"
     assert payload["job_kind"] == "recommendation_event_eval"
-    assert payload["summary"]["all"]["hit_rate_pct"] == 100.0
+    assert payload["summary"]["all"]["hit_rate_pct"] == 60.0
+    assert "ranking_decision=candidate" in payload["result_summary"]
+    assert "candidate_shadow_then_score top1" in payload["result_summary"]
     assert captured["request"].max_dates == 7
     assert captured["request"].top_k == (1, 3)

@@ -262,10 +262,44 @@ def _run_recommendation_event_eval(request_id: str, payload: dict[str, Any]) -> 
         "request_id": request_id,
         "job_kind": "recommendation_event_eval",
         "ok": True,
+        "result_summary": _recommendation_event_eval_result_summary(result),
         "metadata": result["metadata"],
         "summary": result["summary"],
         "daily": result["daily"],
     }
+
+
+def _recommendation_event_eval_result_summary(result: dict[str, Any]) -> str:
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    all_rows = summary.get("all") if isinstance(summary.get("all"), dict) else {}
+    decision = summary.get("ranking_decision") if isinstance(summary.get("ranking_decision"), dict) else {}
+    status = str(decision.get("status") or "unknown")
+    strategy = str(decision.get("recommended_strategy") or decision.get("watch_strategy") or "score_only")
+    top_k = decision.get("recommended_top_k") or "n/a"
+    ready = f"{all_rows.get('rows_ready', 0)}/{all_rows.get('rows_total', 0)}"
+    lines = [
+        f"推荐事件评估: ready={ready}, hit={_summary_pct(all_rows.get('hit_rate_pct'))}%, ranking_decision={status}",
+        _ranking_decision_line(status, strategy, top_k),
+    ]
+    reason = str(decision.get("reason") or "").strip()
+    if reason:
+        lines.append(f"reason: {reason}")
+    return "\n".join(line for line in lines if line)
+
+
+def _ranking_decision_line(status: str, strategy: str, top_k: Any) -> str:
+    if status == "candidate":
+        return f"排序接入候选: {strategy} top{top_k} 已通过样本/lift/风险门槛"
+    if status == "watch":
+        return f"排序观察项: {strategy} 有改善但未全部过门槛"
+    return "排序策略: 继续保持 score_only"
+
+
+def _summary_pct(raw: Any) -> str:
+    try:
+        return f"{float(raw):.2f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return "n/a"
 
 
 def _payload_str(payload: dict[str, Any], key: str, default: str) -> str:
