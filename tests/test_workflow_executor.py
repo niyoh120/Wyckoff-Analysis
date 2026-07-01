@@ -859,6 +859,8 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
     handoff_section = prompt.split("priority candidate handoff:\n", 1)[1].split("\n\nagent results:", 1)[0]
     agent_results_section = prompt.split("agent results:\n", 1)[1]
 
+    assert '"candidate_conclusion"' in handoff_section
+    assert "候选结论: 首选 300750 宁德时代" in handoff_section
     assert '"candidate_shadow_score": 92.0' in handoff_section
     assert '"300750"' in handoff_section
     assert '"candidate_shadow_score": 92.0' not in agent_results_section
@@ -910,7 +912,53 @@ def test_workflow_synthesis_handoff_summary_dedupes_latest_keys():
     assert summary[0]["step_id"] == "decision"
     assert set(handoff) == {"last_screen_result", "last_ai_report", "last_strategy_decision"}
     assert handoff["last_screen_result"]["symbols_for_report"][0]["candidate_shadow_score"] == 92.0
-    assert json.dumps(summary, ensure_ascii=False).count("last_screen_result") == 1
+    assert summary[0]["candidate_conclusion"]["evidence"] == ["候选影子92"]
+    assert json.dumps(handoff, ensure_ascii=False).count("last_screen_result") == 1
+
+
+def test_workflow_synthesis_handoff_summary_merges_split_candidate_conclusion():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "symbols_for_report": [
+                            {
+                                "code": "300750",
+                                "name": "宁德时代",
+                                "candidate_shadow_score": 92.0,
+                                "candidate_shadow_grade": "S",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+        {
+            "step": {"step_id": "decision", "title": "攻防决策"},
+            "result": {
+                "handoff_state": {
+                    "last_strategy_decision": {
+                        "reviewed_symbols": [
+                            {
+                                "code": "300750",
+                                "name": "宁德时代",
+                                "action_status": "ready_for_ai_review",
+                                "next_step": "等待通知配置后生成 OMS 工单",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+    ]
+
+    conclusion = _synthesis_handoff_summary(results)[0]["candidate_conclusion"]
+
+    assert conclusion["source_stage"] == "last_strategy_decision"
+    assert conclusion["evidence"] == ["候选影子S/92"]
+    assert conclusion["next_step"] == "等待通知配置后生成 OMS 工单"
 
 
 def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, monkeypatch):

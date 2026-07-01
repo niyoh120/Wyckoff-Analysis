@@ -719,6 +719,7 @@ def _synthesis_agent_result(item: Any) -> Any:
 
 def _synthesis_handoff_summary(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     summary: list[dict[str, Any]] = []
+    aggregate_handoff: dict[str, Any] = {}
     seen_keys: set[str] = set()
     for item in reversed(results):
         result = item.get("result") if isinstance(item, dict) else {}
@@ -728,6 +729,7 @@ def _synthesis_handoff_summary(results: list[dict[str, Any]]) -> list[dict[str, 
         handoff = _latest_handoff_keys(handoff, seen_keys)
         if not handoff:
             continue
+        aggregate_handoff.update(handoff)
         step = item.get("step") if isinstance(item.get("step"), dict) else {}
         summary.append(
             _drop_empty(
@@ -738,7 +740,10 @@ def _synthesis_handoff_summary(results: list[dict[str, Any]]) -> list[dict[str, 
                 }
             )
         )
-    return list(reversed(summary))
+    ordered = list(reversed(summary))
+    if ordered and (conclusion := _candidate_conclusion_from_handoff(aggregate_handoff)):
+        ordered[0] = {"candidate_conclusion": conclusion, **ordered[0]}
+    return ordered
 
 
 def _latest_handoff_keys(handoff: dict[str, Any], seen_keys: set[str]) -> dict[str, Any]:
@@ -792,23 +797,47 @@ def _fallback_candidate_conclusion(results: list[dict[str, Any]]) -> str:
         handoff = result.get("handoff_state") if isinstance(result, dict) else {}
         if not isinstance(handoff, dict):
             continue
-        for stage in (
-            "last_strategy_decision",
-            "last_ai_report",
-            "last_recommendation_event_eval",
-            "last_screen_result",
-        ):
-            value = handoff.get(stage)
-            if not isinstance(value, dict):
-                continue
-            if row := _fallback_stage_candidate(stage, value):
-                merged = _fallback_merged_candidate(row, handoff)
-                return _fallback_candidate_line(merged, value, handoff)
+        if conclusion := _candidate_conclusion_from_handoff(handoff):
+            return str(conclusion.get("line") or "")
     return ""
+
+
+def _candidate_conclusion_from_handoff(handoff: dict[str, Any]) -> dict[str, Any]:
+    for stage in (
+        "last_strategy_decision",
+        "last_ai_report",
+        "last_recommendation_event_eval",
+        "last_screen_result",
+    ):
+        value = handoff.get(stage)
+        if not isinstance(value, dict):
+            continue
+        if row := _fallback_stage_candidate(stage, value):
+            merged = _fallback_merged_candidate(row, handoff)
+            return _fallback_candidate_conclusion_payload(merged, value, handoff, stage)
+    return {}
 
 
 def _fallback_stage_candidate(stage: str, value: dict[str, Any]) -> dict[str, Any]:
     return _first_candidate_row(_fallback_stage_candidates(stage, value))
+
+
+def _fallback_candidate_conclusion_payload(
+    row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any], source_stage: str
+) -> dict[str, Any]:
+    line = _fallback_candidate_line(row, stage, handoff)
+    return _drop_empty(
+        {
+            "line": line,
+            "code": str(row.get("code") or "").strip(),
+            "name": str(row.get("name") or "").strip(),
+            "action_status": str(row.get("action_status") or "").strip(),
+            "evidence": _fallback_evidence_items(row),
+            "guard_reason": _fallback_guard_reason_from_handoff(row, stage, handoff),
+            "next_step": _fallback_next_value(row, stage),
+            "source_stage": source_stage,
+        }
+    )
 
 
 def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
@@ -848,22 +877,32 @@ def _fallback_status_part(row: dict[str, Any]) -> str:
 
 
 def _fallback_evidence_part(row: dict[str, Any]) -> str:
+    evidence = _fallback_evidence_items(row)
+    return f"证据={','.join(evidence)}" if evidence else ""
+
+
+def _fallback_evidence_items(row: dict[str, Any]) -> list[str]:
     evidence = [
         _grade_score_part("候选影子", row.get("candidate_shadow_grade"), row.get("candidate_shadow_score")),
         _grade_score_part("入场", row.get("entry_quality_grade"), row.get("entry_quality_score")),
         _score_part("漏斗分", row.get("funnel_score")),
         _score_part("优先分", row.get("priority_score")),
     ]
-    evidence = [part for part in evidence if part]
-    return f"证据={','.join(evidence)}" if evidence else ""
+    return [part for part in evidence if part]
 
 
 def _fallback_guard_part(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
-    if reason := _fallback_guard_reason(row, stage):
+    if reason := _fallback_guard_reason_from_handoff(row, stage, handoff):
         return f"护栏={reason}"
+    return ""
+
+
+def _fallback_guard_reason_from_handoff(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
+    if reason := _fallback_guard_reason(row, stage):
+        return reason
     for value in handoff.values():
         if isinstance(value, dict) and (reason := _fallback_guard_reason(row, value)):
-            return f"护栏={reason}"
+            return reason
     return ""
 
 
@@ -879,9 +918,13 @@ def _fallback_guard_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:
 
 
 def _fallback_next_part(row: dict[str, Any], stage: dict[str, Any]) -> str:
+    return f"下一步={value}" if (value := _fallback_next_value(row, stage)) else ""
+
+
+def _fallback_next_value(row: dict[str, Any], stage: dict[str, Any]) -> str:
     action_plan = stage.get("action_plan") if isinstance(stage.get("action_plan"), dict) else {}
     next_step = row.get("next_step") or stage.get("next_action") or action_plan.get("next_step")
-    return f"下一步={next_step}" if next_step else ""
+    return str(next_step or "")
 
 
 def _first_candidate_row(rows: list[Any]) -> dict[str, Any]:
