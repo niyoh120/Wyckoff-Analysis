@@ -3500,6 +3500,11 @@ class WyckoffTUI(App):
 
         display = TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
         is_error = isinstance(result, dict) and result.get("error")
+        if self._tools is not None and not is_error:
+            try:
+                self._tools.remember_tool_handoff(tool_name, result)
+            except Exception:
+                logger.debug("restore background handoff failed", exc_info=True)
 
         try:
             from integrations.local_db import save_background_task_result

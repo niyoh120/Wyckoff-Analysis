@@ -239,6 +239,19 @@ def test_check_background_tasks_restores_recommendation_eval_handoff_state():
     assert handoff["symbols_for_report"][0]["candidate_shadow_grade"] == "S"
 
 
+def test_tool_registry_remembers_recommendation_eval_handoff_without_status_poll():
+    from cli.tools import ToolRegistry
+
+    registry = ToolRegistry()
+
+    registry.remember_tool_handoff("evaluate_recommendation_events", _recommendation_event_eval_result())
+
+    assert registry.state["last_recommendation_event_eval"]["policy_selection"]["picks"][0]["code"] == "300750"
+    handoff = registry.state["last_screen_result"]
+    assert handoff["selection_brief"]["best_codes"] == ["300750"]
+    assert handoff["symbols_for_report"][0]["selection_source"] == "recommendation_event_eval"
+
+
 def test_local_db_chat_background_history_uses_shared_preview(tmp_path, monkeypatch):
     from integrations import local_db, local_db_chat
 

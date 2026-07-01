@@ -699,24 +699,29 @@ class ToolRegistry:
 
     def _remember_background_handoffs(self) -> None:
         for _task_id, tool_name, result in self._bg_manager.completed_results():
-            if not isinstance(result, dict) or result.get("error"):
-                continue
-            if tool_name == "screen_stocks":
-                from agents.screen_tools import remember_screen_handoff
+            self.remember_tool_handoff(tool_name, result)
 
-                remember_screen_handoff(self._tool_context, result)
-            elif tool_name == "generate_ai_report":
-                from agents.report_tools import remember_ai_report
+    def remember_tool_handoff(self, tool_name: str, result: Any) -> None:
+        """Restore session handoff state from a completed tool result."""
 
-                remember_ai_report(self._tool_context, result)
-            elif tool_name == "generate_strategy_decision":
-                from agents.strategy_tools import remember_strategy_decision
+        if not isinstance(result, dict) or result.get("error"):
+            return
+        if tool_name == "screen_stocks":
+            from agents.screen_tools import remember_screen_handoff
 
-                remember_strategy_decision(self._tool_context, result)
-            elif tool_name == "evaluate_recommendation_events" or result.get("job_kind") == "recommendation_event_eval":
-                from agents.recommendation_tools import remember_recommendation_event_eval
+            remember_screen_handoff(self._tool_context, result)
+        elif tool_name == "generate_ai_report":
+            from agents.report_tools import remember_ai_report
 
-                remember_recommendation_event_eval(self._tool_context, result)
+            remember_ai_report(self._tool_context, result)
+        elif tool_name == "generate_strategy_decision":
+            from agents.strategy_tools import remember_strategy_decision
+
+            remember_strategy_decision(self._tool_context, result)
+        elif tool_name == "evaluate_recommendation_events" or result.get("job_kind") == "recommendation_event_eval":
+            from agents.recommendation_tools import remember_recommendation_event_eval
+
+            remember_recommendation_event_eval(self._tool_context, result)
 
     def _confirm_high_risk_call(
         self,
