@@ -290,6 +290,7 @@ def _strategy_decision_preview(result: dict[str, Any]) -> str:
             "candidate_count": result.get("candidate_count"),
             "reviewed_codes": _preview_list(result.get("reviewed_codes"), 12),
             "reviewed_symbols": _candidate_preview_list(result.get("reviewed_symbols"), 12),
+            "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
             "screen_summary": result.get("screen_summary"),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "next_action": result.get("next_action"),
@@ -325,6 +326,8 @@ def _ai_report_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[st
 
 def _strategy_decision_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
     lines = [_strategy_stage_line(result)]
+    if guard_line := _candidate_guard_brief_line(result.get("candidate_guard_summary")):
+        lines.append(guard_line)
     lines.extend(_reviewed_symbol_lines(result, max_lines=max_lines))
     return [line for line in lines if line][:max_lines]
 
@@ -348,6 +351,54 @@ def _tool_stage_line(label: str, result: dict[str, Any], reviewed: int) -> str:
     ]
     detail = ", ".join(part for part in parts if part)
     return f"{label}: {detail}" if detail else ""
+
+
+def _candidate_guard_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "direct_buy_blocked_count": value.get("direct_buy_blocked_count"),
+            "message": value.get("message"),
+            "candidates": _candidate_guard_candidate_preview(value.get("candidates")),
+        }
+    )
+
+
+def _candidate_guard_candidate_preview(value: Any) -> list[dict[str, Any]]:
+    rows = _preview_list(value, 5)
+    return [
+        _drop_empty_preview_fields(
+            {
+                "code": row.get("code"),
+                "name": row.get("name"),
+                "reason": row.get("reason"),
+                "action_status": row.get("action_status"),
+                "label_ready": row.get("label_ready"),
+                "risk_factors": _preview_list(row.get("risk_factors"), 3),
+                "next_step": _text_excerpt(row.get("next_step"), 120),
+            }
+        )
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
+def _candidate_guard_brief_line(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    candidates = [row for row in _preview_list(value.get("candidates"), 3) if isinstance(row, dict)]
+    count = value.get("direct_buy_blocked_count") or len(candidates)
+    detail = "、".join(_candidate_guard_candidate_line(row) for row in candidates[:2])
+    detail = detail.strip("、")
+    head = f"候选护栏: {count}只禁止直接买入"
+    return f"{head} · {detail}" if detail else head
+
+
+def _candidate_guard_candidate_line(row: dict[str, Any]) -> str:
+    name = _candidate_name(row)
+    reason = _text_excerpt(row.get("reason"), 60)
+    return f"{name}({reason})" if reason else name
 
 
 def _key_value(key: str, value: Any) -> str:

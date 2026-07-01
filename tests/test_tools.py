@@ -603,7 +603,18 @@ class TestStrategyDecisionTool:
                 "last_ai_report": {
                     "report_text": "# 上一跳研报",
                     "reviewed_codes": ["300750"],
-                    "reviewed_symbols": [{"code": "300750", "name": "宁德时代", "track": "Trend"}],
+                    "reviewed_symbols": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "track": "Trend",
+                            "label_ready": False,
+                            "label_status": "pending",
+                            "action_status": "ready_for_ai_review",
+                            "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                            "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+                        }
+                    ],
                 },
                 "last_screen_result": {
                     "summary": {"report_candidates": 1},
@@ -629,6 +640,21 @@ class TestStrategyDecisionTool:
         assert result["report_source"] == "last_ai_report"
         assert result["reviewed_codes"] == ["300750"]
         assert result["screen_summary"] == {"report_candidates": 1}
+        assert result["candidate_guard_summary"] == {
+            "direct_buy_blocked_count": 1,
+            "message": "以下候选仅可复核或观察，禁止直接买入",
+            "candidates": [
+                {
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "reason": "候选标签未成熟，禁止直接买入",
+                    "action_status": "ready_for_ai_review",
+                    "label_ready": False,
+                    "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                    "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+                }
+            ],
+        }
         assert result["report_preview"] == "# 上一跳研报"
         assert ctx.state["last_strategy_decision"]["reviewed_codes"] == ["300750"]
 
@@ -726,6 +752,19 @@ class TestStrategyDecisionTool:
         assert result["reviewed_symbols"][0]["entry_type"] == "launchpad"
         assert result["reviewed_symbols"][0]["risk_factors"] == ["未进入本轮研报候选", "观察池，不进入本轮AI复核"]
         assert result["reviewed_symbols"][0]["action_status"] == "watch_only"
+        assert result["candidate_guard_summary"] == {
+            "direct_buy_blocked_count": 1,
+            "message": "以下候选仅可复核或观察，禁止直接买入",
+            "candidates": [
+                {
+                    "code": "000007",
+                    "name": "启动平台",
+                    "reason": "候选状态 watch_only 不允许直接买入",
+                    "action_status": "watch_only",
+                    "risk_factors": ["未进入本轮研报候选", "观察池，不进入本轮AI复核"],
+                }
+            ],
+        }
         assert result["report_preview"] == "# 观察候选研报"
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主升阶段 / 启动平台"
         assert captured["symbols_info"][0]["quality_factors"] == ["强观察候选", "启动平台"]

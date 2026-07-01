@@ -411,6 +411,19 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
                 "action_status": "blocked_by_market_gate",
             }
         ],
+        "candidate_guard_summary": {
+            "direct_buy_blocked_count": 1,
+            "message": "以下候选仅可复核或观察，禁止直接买入",
+            "candidates": [
+                {
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "reason": "候选状态 blocked_by_market_gate 不允许直接买入",
+                    "action_status": "blocked_by_market_gate",
+                    "risk_factors": ["大盘风险闸门关闭"],
+                }
+            ],
+        },
         "screen_summary": {"report_candidates": 1},
         "decision_brief": {
             "next_action": "允许候选进入AI复核",
@@ -429,9 +442,13 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
     assert '"reviewed_codes": ["300750"]' in content
     assert '"risk_factors": ["大盘风险闸门关闭"]' in content
     assert '"action_status": "blocked_by_market_gate"' in content
+    assert '"candidate_guard_summary"' in content
+    assert '"direct_buy_blocked_count": 1' in content
+    assert "候选状态 blocked_by_market_gate 不允许直接买入" in content
     assert "补充 Telegram 配置后可生成并发送 OMS 工单" in content
     assert result["report_preview"] not in content
     assert lines == [
         "攻防决策: status=skipped_notify_unconfigured, source=last_ai_report, reviewed=1, next=补充 Telegram 配置后可生成并发送 OMS 工单",
+        "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选状态 blocked_by_market_gate 不允许直接买入)",
         "300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭",
     ]
