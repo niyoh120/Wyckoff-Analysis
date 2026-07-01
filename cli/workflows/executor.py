@@ -720,17 +720,39 @@ def _fallback_summary(results: list[dict[str, Any]]) -> str:
 def _fallback_handoff_lines(handoff: Any) -> list[str]:
     if not isinstance(handoff, dict):
         return []
-    lines: list[str] = []
+    groups: list[list[str]] = []
     screen = handoff.get("last_screen_result")
     if isinstance(screen, dict):
-        lines.extend(tool_result_brief_lines("screen_stocks", screen, max_lines=3))
+        groups.append(tool_result_brief_lines("screen_stocks", screen, max_lines=3))
     recommendation = handoff.get("last_recommendation_event_eval")
     if isinstance(recommendation, dict):
-        lines.extend(tool_result_brief_lines("evaluate_recommendation_events", recommendation, max_lines=3))
+        groups.append(tool_result_brief_lines("evaluate_recommendation_events", recommendation, max_lines=3))
     report = handoff.get("last_ai_report")
     if isinstance(report, dict):
-        lines.extend(tool_result_brief_lines("generate_ai_report", report, max_lines=3))
+        groups.append(tool_result_brief_lines("generate_ai_report", report, max_lines=3))
     decision = handoff.get("last_strategy_decision")
     if isinstance(decision, dict):
-        lines.extend(tool_result_brief_lines("generate_strategy_decision", decision, max_lines=3))
-    return list(dict.fromkeys(line for line in lines if line))[:8]
+        groups.append(tool_result_brief_lines("generate_strategy_decision", decision, max_lines=3))
+    return _balanced_handoff_lines(groups, limit=8)
+
+
+def _balanced_handoff_lines(groups: list[list[str]], limit: int) -> list[str]:
+    selected: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        _append_handoff_line(selected, seen, _first_handoff_line(group), limit)
+    for group in groups:
+        for line in group[1:]:
+            _append_handoff_line(selected, seen, line, limit)
+    return selected
+
+
+def _first_handoff_line(lines: list[str]) -> str:
+    return next((line for line in lines if line), "")
+
+
+def _append_handoff_line(selected: list[str], seen: set[str], line: str, limit: int) -> None:
+    if len(selected) >= limit or not line or line in seen:
+        return
+    seen.add(line)
+    selected.append(line)

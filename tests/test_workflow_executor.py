@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from cli.workflows.control import WorkflowControl
 from cli.workflows.executor import (
     WorkflowExecutor,
+    _fallback_handoff_lines,
     _phase_batches,
     _step_context,
     _synthesis_prompt,
@@ -817,6 +818,62 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
         assert "等待通知配置后生成 OMS 工单" in final_text
     finally:
         _reset_local_db(local_db)
+
+
+def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():
+    handoff = {
+        "last_screen_result": {
+            "selection_brief": {
+                "headline": "候选池已形成",
+                "best_candidates": [
+                    {"code": "300750", "name": "宁德时代", "action_status": "ready_for_ai_review"},
+                    {"code": "000001", "name": "平安银行", "action_status": "watch_only"},
+                    {"code": "000002", "name": "万科A", "action_status": "watch_only"},
+                ],
+            }
+        },
+        "last_recommendation_event_eval": {
+            "result_summary": "推荐评估完成\n样本仍需继续观察",
+            "summary": {
+                "all": {"rows_ready": 12, "rows_total": 20, "hit_rate_pct": 60},
+                "ranking_decision": {
+                    "status": "candidate",
+                    "recommended_strategy": "candidate_shadow_then_score",
+                    "recommended_top_k": 1,
+                },
+            },
+            "policy_selection": {
+                "selection_strategy": "candidate_shadow_then_score",
+                "recommend_date": "2026-06-30",
+                "picks": [{"code": "300750", "name": "宁德时代", "next_step": "生成 AI 研报"}],
+            },
+        },
+        "last_ai_report": {
+            "model": "gpt-test",
+            "stock_count": 1,
+            "reviewed_symbols": [
+                {"code": "300750", "name": "宁德时代", "risk_factors": ["不直接买入"]},
+                {"code": "000001", "name": "平安银行", "risk_factors": ["观察"]},
+            ],
+            "next_action": "研报完成，进入攻防决策",
+        },
+        "last_strategy_decision": {
+            "status": "skipped_notify_unconfigured",
+            "report_source": "last_ai_report",
+            "candidate_count": 1,
+            "reviewed_symbols": [{"code": "300750", "name": "宁德时代", "next_step": "等待通知配置后生成 OMS 工单"}],
+            "next_action": "补充 Telegram 配置后可发送攻防工单",
+        },
+    }
+
+    lines = _fallback_handoff_lines(handoff)
+
+    assert len(lines) == 8
+    assert lines[0] == "候选池已形成"
+    assert "推荐评估完成" in lines
+    assert any(line.startswith("AI研报:") for line in lines)
+    assert any(line.startswith("攻防决策:") for line in lines)
+    assert any("补充 Telegram 配置后可发送攻防工单" in line for line in lines)
 
 
 def test_workflow_executor_waits_step_background_tasks_for_handoff(tmp_path, monkeypatch):
