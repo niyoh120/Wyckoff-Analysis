@@ -47,6 +47,8 @@ runtime router 的输出仍提示模型使用标准 `direct` / `dynamic_workflow
 
 workflow planner 支持模型在每个 task 上输出 `rationale`、`success_criteria` 和 `risk_guard`。这些字段会随 `WorkflowStep` 持久化、进入 sub-agent 执行上下文，并在 workflow 详情中展示，避免把动态 workflow 退化成只有标题和工具名的硬编码步骤列表。
 
+workflow planner 允许模型自己拆分任务，但会把模型生成的脚本限制在 24 个 task 内；超过上限时，持久化脚本会记录 `step_limit`、`original_step_count` 和 `truncated_step_count`。这样保留动态 workflow 的语义生成权，同时避免坏计划把 CLI/TUI、workflow 存储和最终 synthesis 拖成不可用。
+
 workflow executor 会在每个 step 完成后短暂等待本 step 启动的后台任务，并提取压缩版工具 handoff（例如 `last_screen_result`、`last_recommendation_event_eval`、`last_ai_report`），放入 step result 和最终 synthesis prompt。这样“选出好股票”这类多阶段任务不会只依赖 sub-agent 文本转述或后台 `task_id`，最终汇总仍能看到候选代码、行动状态、质量分/评级和下一跳边界。
 
 workflow 最终 synthesis 明确要求在存在候选或 `policy_selection` 时输出候选分层、关键质量分/评级、风险因素和下一步；遇到 `new_buy_allowed=false`、`trade_readiness=research_only` 或非可执行 `action_status` 时，不得写成买入建议，只能给观察、研报复核或攻防决策下一步。

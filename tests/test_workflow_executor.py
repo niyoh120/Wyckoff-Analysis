@@ -14,7 +14,7 @@ from cli.workflows.executor import (
     _workflow_handoff_state,
 )
 from cli.workflows.models import WorkflowRun, WorkflowStep
-from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, plan_workflow
+from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, MAX_WORKFLOW_STEPS, plan_workflow
 from cli.workflows.resume import build_resume_prompt
 from cli.workflows.router import WORKFLOWS, route_workflow
 from cli.workflows.store import get_workflow_run, load_workflow_events
@@ -252,6 +252,42 @@ def test_model_generated_workflow_ignores_legacy_agent_and_tool_aliases():
     assert run.steps[0].agent == "task"
     assert run.steps[0].tools == ()
     assert run.steps[0].tool_scope == ("screen_stocks",)
+
+
+def test_model_generated_workflow_script_is_trimmed_before_persistence():
+    tasks = [
+        {"id": f"task_{index}", "title": f"复核候选 {index}", "prompt": f"复核候选 {index}"}
+        for index in range(MAX_WORKFLOW_STEPS + 3)
+    ]
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": json.dumps(
+                        {"title": "过长选股计划", "phases": [{"id": "review", "tasks": tasks}]},
+                        ensure_ascii=False,
+                    ),
+                }
+            ]
+        ]
+    )
+
+    run = plan_workflow(
+        "帮我选出好股票",
+        context=WORKFLOWS["dynamic_task"],
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    runtime = run.script["runtime"]
+    assert len(run.steps) == MAX_WORKFLOW_STEPS
+    assert len(run.script["phases"][0]["tasks"]) == MAX_WORKFLOW_STEPS
+    assert run.steps[-1].step_id == f"task_{MAX_WORKFLOW_STEPS - 1}"
+    assert runtime["planner"] == "model_script"
+    assert runtime["step_limit"] == MAX_WORKFLOW_STEPS
+    assert runtime["original_step_count"] == MAX_WORKFLOW_STEPS + 3
+    assert runtime["truncated_step_count"] == 3
 
 
 def test_workflow_planner_ignores_agent_aliases_and_keeps_steps_field():

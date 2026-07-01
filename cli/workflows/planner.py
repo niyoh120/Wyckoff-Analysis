@@ -12,7 +12,7 @@ from cli.tools import TOOL_SPECS
 from cli.workflows.models import WorkflowContext, WorkflowRun, WorkflowStep
 from cli.workflows.router import route_workflow
 
-MAX_WORKFLOW_STEPS = 1000
+MAX_WORKFLOW_STEPS = 24
 TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions", "plan")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
 TOOL_SCOPE_FIELDS = ("tool_scope", "allowed_tools", "tools", "tool")
@@ -51,7 +51,7 @@ _PLAN_SYSTEM_PROMPT = """\
 
 运行边界:
 - 只输出 JSON，不要 Markdown，不要代码块。
-- phases 总任务数 1-1000 个。
+- phases 总任务数 1-24 个；如果要处理很多股票或对象，用工具批量处理，不要为每个对象单独生成 task。
 - 同一 phase 内的 task 会并发执行；有依赖关系的 task 必须拆到后续 phase。
 - 如果用 depends_on/after/needs/dependencies 表达 task 依赖，runtime 会按依赖顺序切批执行。
 - 不需要选择内部执行角色；不要填写 agent/role。
@@ -121,6 +121,45 @@ def _mark_model_script(script: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _limit_generated_script(script: dict[str, Any]) -> dict[str, Any]:
+    phases = _script_phases(script)
+    total = sum(len(_phase_tasks(phase)) for phase in phases)
+    if total <= MAX_WORKFLOW_STEPS:
+        return script
+    payload = {key: value for key, value in script.items() if key not in (*TASK_LIST_FIELDS, "phases")}
+    payload["phases"] = _limited_phases(phases)
+    runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+    runtime.update(
+        {
+            "step_limit": MAX_WORKFLOW_STEPS,
+            "original_step_count": total,
+            "truncated_step_count": total - MAX_WORKFLOW_STEPS,
+        }
+    )
+    payload["runtime"] = runtime
+    return payload
+
+
+def _limited_phases(phases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    kept = 0
+    limited: list[dict[str, Any]] = []
+    for phase in phases:
+        if kept >= MAX_WORKFLOW_STEPS:
+            break
+        tasks = _phase_tasks(phase)
+        keep = tasks[: MAX_WORKFLOW_STEPS - kept]
+        if keep:
+            limited.append(_phase_with_tasks(phase, keep))
+            kept += len(keep)
+    return limited
+
+
+def _phase_with_tasks(phase: dict[str, Any], tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    payload = {key: value for key, value in phase.items() if key not in TASK_LIST_FIELDS}
+    payload["tasks"] = tasks
+    return payload
+
+
 def _generate_script(
     user_text: str,
     context: WorkflowContext,
@@ -137,7 +176,7 @@ def _generate_script(
         return _fallback_script(user_text, context, reason=f"planner failed: {exc}")
     if not isinstance(script, dict):
         return _fallback_script(user_text, context, reason="planner returned non-object JSON")
-    return _mark_model_script(script)
+    return _mark_model_script(_limit_generated_script(script))
 
 
 def _planner_user_prompt(user_text: str, context: WorkflowContext, tools: Any | None) -> str:
