@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import threading
 import time
+from copy import deepcopy
 from types import SimpleNamespace
 
+from cli.tools import TOOL_SCHEMAS
 from cli.workflows.control import WorkflowControl
 from cli.workflows.executor import (
     WorkflowExecutor,
@@ -801,6 +803,72 @@ def test_workflow_synthesis_receives_step_handoff_state(tmp_path, monkeypatch):
             == "300750"
         )
         assert events[-1]["text"] == "已基于候选 handoff 汇总。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_explicit_tool_scope_continues_attack_plan_after_screen(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-tool-contract.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {"board": "all"}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "候选已出，风险边界我先口头整理。"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_strategy", "name": "generate_strategy_decision", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "攻防计划已基于工具结果生成。"}],
+            [{"type": "text_delta", "text": "已汇总候选与攻防计划。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={
+            "screen_stocks": {"symbols_for_report": ["300750"]},
+            "generate_strategy_decision": {"status": "skipped_notify_unconfigured", "reviewed_codes": ["300750"]},
+        },
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_tool_contract",
+        user_text="用 workflow 选出好股票，带风险边界",
+        workflow_context=route_workflow("用 workflow 选出好股票，带风险边界"),
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "scan_decide",
+                    "title": "候选与攻防",
+                    "tools": ["screen_stocks", "generate_strategy_decision"],
+                    "prompt": "给我找几只值得复核的票，带理由和风险边界",
+                }
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 选出好股票，带风险边界"}]))
+
+    try:
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert detail["tool_scope"] == ["screen_stocks", "generate_strategy_decision"]
+        assert detail["tool_calls"] == ["screen_stocks", "generate_strategy_decision"]
+        assert detail["result"] == "攻防计划已基于工具结果生成。"
+        assert [call["name"] for call in tools.calls] == ["screen_stocks", "generate_strategy_decision"]
+        assert events[-1]["text"] == "已汇总候选与攻防计划。"
     finally:
         _reset_local_db(local_db)
 

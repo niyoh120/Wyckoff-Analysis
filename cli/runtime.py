@@ -418,10 +418,17 @@ class AgentRuntime:
         expectation: Any,
     ) -> Any:
         if missing_required_tool(expectation, state.used_tools):
-            return expectation
-        return (
-            resolve_progressive_turn_expectation(messages, state.used_tools) if self.enforce_turn_expectations else None
-        )
+            return self._available_expectation(expectation)
+        if not self.enforce_turn_expectations:
+            return None
+        return self._available_expectation(resolve_progressive_turn_expectation(messages, state.used_tools))
+
+    def _available_expectation(self, expectation: Any) -> Any:
+        if expectation is None:
+            return None
+        if self.allowed_tools is not None and expectation.required_tool not in self.allowed_tools:
+            return None
+        return expectation
 
     def _append_retry_messages(
         self,

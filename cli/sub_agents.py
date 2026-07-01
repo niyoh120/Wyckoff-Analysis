@@ -124,6 +124,7 @@ _FALLBACK_TOOLS_BY_AGENT = {
     "analysis": ("analyze_stock", "portfolio", "get_market_overview"),
     "trading": ("portfolio", "generate_strategy_decision", "get_market_overview"),
 }
+_WORKFLOW_EXPECTATION_TOOLS = frozenset({"screen_stocks", "generate_ai_report", "generate_strategy_decision"})
 
 _POLICY_BY_STATUS = {
     "completed": ("use_result", False, "使用子 Agent 返回的结论。"),
@@ -202,15 +203,17 @@ def run_sub_agent(
     on_progress=None,
     cancel_check: Callable[[], bool] | None = None,
     tool_names: tuple[str, ...] | None = None,
+    enforce_turn_expectations: bool = False,
 ) -> dict[str, Any]:
     """启动一个 sub-agent mini loop，通过 on_progress 实时上报事件。"""
     from cli.runtime import AgentRuntime
 
     started_at = time.monotonic()
     deadline = started_at + max(1, sub.timeout_seconds)
+    allowed_tools = _sub_agent_tool_set(sub, tool_names)
     proxy = SubAgentToolProxy(
         registry,
-        _sub_agent_tool_set(sub, tool_names),
+        allowed_tools,
         tool_timeout_seconds=sub.tool_timeout_seconds,
         deadline=deadline,
     )
@@ -227,7 +230,12 @@ def run_sub_agent(
         max_tool_rounds=sub.max_tool_rounds,
         cancel_check=cancelled,
         stream_chunk_timeout=min(60.0, float(sub.timeout_seconds)),
-        enforce_turn_expectations=False,
+        allowed_tools=allowed_tools,
+        enforce_turn_expectations=_sub_agent_turn_expectations_enabled(
+            sub,
+            allowed_tools,
+            enforce_turn_expectations,
+        ),
     )
 
     return _run_sub_agent_loop(
@@ -249,6 +257,14 @@ def _sub_agent_tool_set(sub: SubAgent, tool_names: tuple[str, ...] | None) -> se
         return set(sub.tool_names)
     default_tools = set(sub.tool_names)
     return {name for name in tool_names if name in default_tools}
+
+
+def _sub_agent_turn_expectations_enabled(sub: SubAgent, allowed_tools: set[str], requested: bool) -> bool:
+    return (
+        requested
+        and sub.name == WORKFLOW_TASK_AGENT.name
+        and bool(allowed_tools.intersection(_WORKFLOW_EXPECTATION_TOOLS))
+    )
 
 
 def _run_sub_agent_loop(

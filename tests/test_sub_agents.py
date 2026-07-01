@@ -7,6 +7,7 @@ from cli.sub_agents import (
     ANALYSIS_AGENT,
     RESEARCH_AGENT,
     TRADING_AGENT,
+    WORKFLOW_TASK_AGENT,
     SubAgentToolProxy,
     _delegate_result_policy,
     delegate_to_analysis,
@@ -139,6 +140,82 @@ def test_run_sub_agent_does_not_enforce_top_level_screening_expectation():
     assert result["result"] == "扫描完成，候选 A。"
     assert result["tool_calls"] == []
     assert registry.calls == []
+
+
+def test_workflow_task_agent_continues_attack_plan_after_screen():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {"board": "all"}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "候选已出，风险边界我先口头整理。"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_strategy", "name": "generate_strategy_decision", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "攻防计划已基于工具结果生成。"}],
+        ]
+    )
+    registry = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={
+            "screen_stocks": {"symbols_for_report": ["300750"]},
+            "generate_strategy_decision": {"status": "skipped_notify_unconfigured", "reviewed_codes": ["300750"]},
+        },
+    )
+
+    result = run_sub_agent(
+        WORKFLOW_TASK_AGENT,
+        task="给我找几只值得复核的票，带理由和风险边界",
+        context="",
+        provider=provider,
+        registry=registry,
+        enforce_turn_expectations=True,
+    )
+
+    assert result["status"] == "completed"
+    assert result["tool_calls"] == ["screen_stocks", "generate_strategy_decision"]
+    assert result["result"] == "攻防计划已基于工具结果生成。"
+
+
+def test_workflow_task_agent_does_not_require_scoped_out_strategy_tool():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {"board": "all"}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "候选已出，等待后续攻防任务。"}],
+        ]
+    )
+    registry = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={"screen_stocks": {"symbols_for_report": ["300750"]}},
+    )
+
+    result = run_sub_agent(
+        WORKFLOW_TASK_AGENT,
+        task="给我找几只值得复核的票，带理由和风险边界",
+        context="",
+        provider=provider,
+        registry=registry,
+        tool_names=("screen_stocks",),
+        enforce_turn_expectations=True,
+    )
+
+    assert result["status"] == "completed"
+    assert result["tool_calls"] == ["screen_stocks"]
+    assert result["result"] == "候选已出，等待后续攻防任务。"
 
 
 def test_run_sub_agent_with_tool_call():

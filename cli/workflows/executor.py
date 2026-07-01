@@ -40,6 +40,7 @@ _AGENTS: dict[str, SubAgent] = {
     "analysis": ANALYSIS_AGENT,
     "trading": TRADING_AGENT,
 }
+_TURN_EXPECTATION_TOOL_SCOPES = frozenset({"screen_stocks", "generate_ai_report", "generate_strategy_decision"})
 MAX_CONCURRENT_AGENTS = 16
 WORKFLOW_BACKGROUND_WAIT_SECONDS = 45.0
 _SYNTHESIS_REQUIREMENTS = (
@@ -271,6 +272,7 @@ class WorkflowExecutor:
             self.tools,
             cancel_check=self._cancel_requested,
             tool_names=_step_tool_names(step, self._require_run().allowed_tools),
+            enforce_turn_expectations=_step_turn_expectations_enabled(step),
         )
         if wait_result := _wait_step_background_tasks(self.tools, result.get("background_task_ids") or []):
             result["background_tasks"] = wait_result
@@ -436,6 +438,10 @@ def _step_tool_names(step: WorkflowStep, allowed_tools: tuple[str, ...]) -> tupl
         return step.tool_scope or None
     scope = tuple(name for name in (step.tool_scope or allowed) if name in allowed)
     return scope or None
+
+
+def _step_turn_expectations_enabled(step: WorkflowStep) -> bool:
+    return bool(set(step.tool_scope).intersection(_TURN_EXPECTATION_TOOL_SCOPES))
 
 
 def _concrete_tools(names: tuple[str, ...]) -> tuple[str, ...]:
