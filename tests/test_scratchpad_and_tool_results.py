@@ -248,6 +248,52 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
     ]
 
 
+def test_recommendation_event_eval_large_result_preview_preserves_policy_selection(tmp_path, monkeypatch):
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    result = {
+        "ok": True,
+        "job_kind": "recommendation_event_eval",
+        "result_summary": (
+            "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate\n"
+            "排序接入候选: candidate_shadow_then_score top1 已通过样本/lift/风险门槛\n"
+            "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代"
+        ),
+        "summary": {
+            "all": {"rows_ready": 12, "rows_total": 20, "hit_rate_pct": 60.0},
+            "ranking_decision": {
+                "status": "candidate",
+                "recommended_strategy": "candidate_shadow_then_score",
+                "recommended_top_k": 1,
+                "reason": "candidate_shadow_then_score top1 passed lift and risk gates",
+            },
+        },
+        "policy_selection": {
+            "status": "candidate",
+            "selection_strategy": "candidate_shadow_then_score",
+            "top_k": 1,
+            "recommend_date": 20260601,
+            "uses_promoted_ranking": True,
+            "picks": [{"rank": 1, "code": "300750", "name": "宁德时代", "candidate_shadow_grade": "S"}],
+        },
+        "events": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(20)],
+    }
+
+    content = format_tool_result_for_context("web_background_job", "call_eval", result, max_chars=1000)
+    preview = tool_result_preview("web_background_job", result)
+    lines = tool_result_brief_lines("web_background_job", result)
+
+    assert "result_ref:" in content
+    assert "ranking_decision=candidate" in content
+    assert "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代" in content
+    assert '"candidate_shadow_grade": "S"' in preview
+    assert '"events"' not in content
+    assert lines == [
+        "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",
+        "排序接入候选: candidate_shadow_then_score top1 已通过样本/lift/风险门槛",
+        "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代",
+    ]
+
+
 def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, monkeypatch):
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     report_text = "# 研报\n" + "量价结构良好。" * 500

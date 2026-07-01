@@ -16,6 +16,10 @@ def serialize_tool_result(result: Any) -> str:
 
 
 def tool_result_preview(tool_name: str, result: Any, content: str = "") -> str:
+    if isinstance(result, dict) and _is_recommendation_event_eval_result(tool_name, result):
+        preview = _recommendation_event_eval_preview(result)
+        if preview:
+            return preview[:PREVIEW_CHARS]
     if tool_name == "screen_stocks" and isinstance(result, dict):
         preview = _screen_stocks_preview(result)
         if preview:
@@ -34,6 +38,8 @@ def tool_result_preview(tool_name: str, result: Any, content: str = "") -> str:
 def tool_result_brief_lines(tool_name: str, result: Any, *, max_lines: int = 3) -> list[str]:
     if not isinstance(result, dict) or result.get("error"):
         return []
+    if _is_recommendation_event_eval_result(tool_name, result):
+        return _recommendation_event_eval_brief_lines(result, max_lines=max_lines)
     if tool_name == "screen_stocks":
         return _screen_stocks_brief_lines(result, max_lines=max_lines)
     return []
@@ -54,6 +60,182 @@ def _json_safe(value: Any) -> Any:
         except Exception:
             return str(value)
     return value
+
+
+def _is_recommendation_event_eval_result(tool_name: str, result: dict[str, Any]) -> bool:
+    return tool_name == "recommendation_event_eval" or result.get("job_kind") == "recommendation_event_eval"
+
+
+def _recommendation_event_eval_preview(result: dict[str, Any]) -> str:
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    payload = _drop_empty_preview_fields(
+        {
+            "ok": result.get("ok"),
+            "job_kind": result.get("job_kind"),
+            "result_summary": _text_excerpt(result.get("result_summary"), 900),
+            "metadata": _recommendation_metadata_preview(result.get("metadata")),
+            "all": _recommendation_metric_preview(summary.get("all")),
+            "ranking_decision": _recommendation_ranking_decision_preview(summary.get("ranking_decision")),
+            "policy_selection": _recommendation_policy_selection_preview(result.get("policy_selection")),
+        }
+    )
+    return serialize_tool_result(payload) if payload else ""
+
+
+def _recommendation_event_eval_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    lines = [line.strip() for line in str(result.get("result_summary") or "").splitlines() if line.strip()]
+    if not lines:
+        lines = _recommendation_fallback_brief_lines(result)
+    return lines[:max_lines]
+
+
+def _recommendation_fallback_brief_lines(result: dict[str, Any]) -> list[str]:
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    all_rows = summary.get("all") if isinstance(summary.get("all"), dict) else {}
+    decision = summary.get("ranking_decision") if isinstance(summary.get("ranking_decision"), dict) else {}
+    ready = f"{all_rows.get('rows_ready', 0)}/{all_rows.get('rows_total', 0)}"
+    lines = [
+        f"推荐事件评估: ready={ready}, hit={_format_pct(all_rows.get('hit_rate_pct'))}%, "
+        f"ranking_decision={decision.get('status', 'unknown')}",
+        _recommendation_decision_line(decision),
+    ]
+    if pick_line := _recommendation_policy_line(result.get("policy_selection")):
+        lines.append(pick_line)
+    return [line for line in lines if line]
+
+
+def _recommendation_metadata_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    keys = ("market", "horizon_days", "target_pct", "max_dates", "records", "codes")
+    return _drop_empty_preview_fields({key: value.get(key) for key in keys})
+
+
+def _recommendation_metric_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    keys = (
+        "rows_ready",
+        "rows_total",
+        "hit_rate_pct",
+        "close_win_rate_pct",
+        "avg_close_return_horizon_pct",
+        "avg_mfe_horizon_pct",
+        "avg_mae_horizon_pct",
+    )
+    return _drop_empty_preview_fields({key: value.get(key) for key in keys})
+
+
+def _recommendation_ranking_decision_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "status": value.get("status"),
+            "recommended_strategy": value.get("recommended_strategy"),
+            "recommended_top_k": value.get("recommended_top_k"),
+            "watch_strategy": value.get("watch_strategy"),
+            "reason": value.get("reason"),
+            "candidates": _recommendation_decision_candidates_preview(value.get("candidates")),
+        }
+    )
+
+
+def _recommendation_decision_candidates_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(strategy): _drop_empty_preview_fields(
+            {
+                "status": row.get("status"),
+                "top_k": row.get("top_k"),
+                "decision_score": row.get("decision_score"),
+                "rows_ready": row.get("rows_ready"),
+                "hit_rate_delta_pct": row.get("hit_rate_delta_pct"),
+                "avg_mfe_delta_pct": row.get("avg_mfe_delta_pct"),
+                "avg_mae_delta_pct": row.get("avg_mae_delta_pct"),
+                "sample_ok": row.get("sample_ok"),
+                "lift_ok": row.get("lift_ok"),
+                "risk_ok": row.get("risk_ok"),
+            }
+        )
+        for strategy, row in value.items()
+        if isinstance(row, dict)
+    }
+
+
+def _recommendation_policy_selection_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "status": value.get("status"),
+            "selection_strategy": value.get("selection_strategy"),
+            "top_k": value.get("top_k"),
+            "recommend_date": value.get("recommend_date"),
+            "uses_promoted_ranking": value.get("uses_promoted_ranking"),
+            "watch_strategy": value.get("watch_strategy"),
+            "reason": value.get("reason"),
+            "picks": _recommendation_pick_preview_list(value.get("picks"), 6),
+        }
+    )
+
+
+def _recommendation_pick_preview_list(value: Any, limit: int) -> list[dict[str, Any]]:
+    rows = _preview_list(value, limit)
+    return [_recommendation_pick_preview(row) for row in rows if isinstance(row, dict)]
+
+
+def _recommendation_pick_preview(value: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "rank",
+        "selection_strategy",
+        "code",
+        "name",
+        "recommend_date",
+        "is_ai_recommended",
+        "funnel_score",
+        "recommend_count",
+        "candidate_shadow_score",
+        "candidate_shadow_grade",
+        "entry_quality_score",
+        "entry_quality_grade",
+        "entry_quality_risk_flags",
+        "label_ready",
+        "label_status",
+    )
+    return _drop_empty_preview_fields({key: value.get(key) for key in keys})
+
+
+def _recommendation_decision_line(decision: dict[str, Any]) -> str:
+    status = str(decision.get("status") or "unknown")
+    strategy = str(decision.get("recommended_strategy") or decision.get("watch_strategy") or "score_only")
+    top_k = decision.get("recommended_top_k") or "n/a"
+    if status == "candidate":
+        return f"排序接入候选: {strategy} top{top_k} 已通过样本/lift/风险门槛"
+    if status == "watch":
+        return f"排序观察项: {strategy} 有改善但未全部过门槛"
+    return "排序策略: 继续保持 score_only"
+
+
+def _recommendation_policy_line(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    picks = value.get("picks") if isinstance(value.get("picks"), list) else []
+    names = [_candidate_name(pick) for pick in picks if isinstance(pick, dict)]
+    names = [name for name in names if name]
+    if not names:
+        return ""
+    strategy = str(value.get("selection_strategy") or "score_only")
+    rec_date = value.get("recommend_date") or "-"
+    return f"最新候选({rec_date}, {strategy}): {', '.join(names[:5])}"
+
+
+def _format_pct(raw: Any) -> str:
+    try:
+        return f"{float(raw):.2f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return "n/a"
 
 
 def _strategy_decision_preview(result: dict[str, Any]) -> str:

@@ -127,6 +127,7 @@ def test_run_web_background_job_runs_recommendation_event_eval(monkeypatch, tmp_
     assert payload["status"] == "success"
     assert payload["job_kind"] == "recommendation_event_eval"
     assert payload["summary"]["all"]["hit_rate_pct"] == 60.0
+    assert payload["policy_selection"]["picks"][0]["code"] == "300750"
     assert "ranking_decision=candidate" in payload["result_summary"]
     assert "candidate_shadow_then_score top1" in payload["result_summary"]
     assert "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代" in payload["result_summary"]

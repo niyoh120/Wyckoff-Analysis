@@ -265,6 +265,7 @@ def _run_recommendation_event_eval(request_id: str, payload: dict[str, Any]) -> 
         "result_summary": _recommendation_event_eval_result_summary(result),
         "metadata": result["metadata"],
         "summary": result["summary"],
+        "policy_selection": result["policy_selection"],
         "daily": result["daily"],
     }
 

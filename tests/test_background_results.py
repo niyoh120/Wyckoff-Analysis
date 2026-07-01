@@ -23,6 +23,58 @@ def _screen_result() -> dict:
     }
 
 
+def _recommendation_event_eval_result() -> dict:
+    return {
+        "ok": True,
+        "job_kind": "recommendation_event_eval",
+        "result_summary": (
+            "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate\n"
+            "排序接入候选: candidate_shadow_then_score top1 已通过样本/lift/风险门槛\n"
+            "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代"
+        ),
+        "summary": {
+            "all": {"rows_ready": 12, "rows_total": 20, "hit_rate_pct": 60.0},
+            "ranking_decision": {
+                "status": "candidate",
+                "recommended_strategy": "candidate_shadow_then_score",
+                "recommended_top_k": 1,
+                "reason": "candidate_shadow_then_score top1 passed lift and risk gates",
+                "candidates": {
+                    "candidate_shadow_then_score": {
+                        "status": "candidate",
+                        "top_k": "1",
+                        "decision_score": 101.0,
+                        "rows_ready": 12,
+                        "hit_rate_delta_pct": 100.0,
+                        "avg_mfe_delta_pct": 8.0,
+                        "avg_mae_delta_pct": 0.0,
+                        "sample_ok": True,
+                        "lift_ok": True,
+                        "risk_ok": True,
+                    }
+                },
+            },
+        },
+        "policy_selection": {
+            "status": "candidate",
+            "selection_strategy": "candidate_shadow_then_score",
+            "top_k": 1,
+            "recommend_date": 20260601,
+            "uses_promoted_ranking": True,
+            "picks": [
+                {
+                    "rank": 1,
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "candidate_shadow_grade": "S",
+                    "label_status": "ready",
+                }
+            ],
+        },
+        "events": [{"code": f"{idx:06d}", "blob": "x" * 200} for idx in range(80)],
+    }
+
+
 def _wait_completed(manager, task_id: str) -> dict:
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
@@ -54,6 +106,32 @@ def test_local_db_background_history_uses_tool_result_preview(tmp_path, monkeypa
         assert "本轮首选可进入 AI 研报复核: 300750 宁德时代" in row["summary"]
         assert "完整 trigger_groups 已保留在完整结果中" in row["summary"]
         assert '"trigger_groups"' not in row["summary"]
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_local_db_background_history_uses_recommendation_event_eval_preview(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "background-eval.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    try:
+        local_db.init_db()
+
+        local_db.save_background_task_result(
+            "bg_eval",
+            "web_background_job",
+            _recommendation_event_eval_result(),
+            session_id="s1",
+        )
+        row = local_db.load_background_task_results(limit=1)[0]
+
+        assert row["task_id"] == "bg_eval"
+        assert "ranking_decision=candidate" in row["summary"]
+        assert "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代" in row["summary"]
+        assert '"policy_selection"' in row["summary"]
+        assert '"events"' not in row["summary"]
     finally:
         _reset_local_db(local_db)
 
