@@ -84,8 +84,8 @@ def _recommendation_event_eval_preview(result: dict[str, Any]) -> str:
             "all": _recommendation_metric_preview(summary.get("all")),
             "ranking_decision": _recommendation_ranking_decision_preview(summary.get("ranking_decision")),
             "policy_selection": _recommendation_policy_selection_preview(result.get("policy_selection")),
-            "candidate_conclusion": _candidate_conclusion_preview("last_recommendation_event_eval", result),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
+            "candidate_conclusion": _candidate_conclusion_preview("last_recommendation_event_eval", result),
         }
     )
     return serialize_tool_result(payload) if payload else ""
@@ -240,6 +240,9 @@ def _recommendation_pick_preview(value: dict[str, Any]) -> dict[str, Any]:
         "entry_quality_score",
         "entry_quality_grade",
         "entry_quality_risk_flags",
+        "candidate_quality_score",
+        "risk_adjusted_quality_score",
+        "entry_risk_penalty",
         "label_ready",
         "label_status",
         "action_status",
@@ -500,9 +503,14 @@ def _first_candidate_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _candidate_conclusion_line(row: dict[str, Any], result: dict[str, Any]) -> str:
     line = f"候选结论: 首选 {_candidate_brief_line(row)}"
-    if reason := _candidate_conclusion_guard_reason(row, result):
-        line += f" · 护栏: {reason}"
     next_step = _candidate_conclusion_next_step(row, result)
+    if reason := _candidate_conclusion_guard_reason(row, result):
+        guard_text = f"护栏: {reason}"
+        next_text = f"下一步: {next_step}" if next_step else ""
+        if next_text and f" · {next_text}" in line:
+            line = line.replace(f" · {next_text}", f" · {guard_text} · {next_text}", 1)
+        elif guard_text not in line:
+            line += f" · {guard_text}"
     if next_step and f"下一步: {next_step}" not in line:
         line += f" · 下一步: {next_step}"
     return line
@@ -558,8 +566,8 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "trade_mode": result.get("trade_mode"),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "selection_brief": _screen_selection_preview(result.get("selection_brief")),
-            "candidate_conclusion": _candidate_conclusion_preview("last_screen_result", result),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
+            "candidate_conclusion": _candidate_conclusion_preview("last_screen_result", result),
             "top_candidates": _candidate_preview_list(result.get("top_candidates"), 10),
             "symbols_for_report": _candidate_preview_list(result.get("symbols_for_report"), 12),
             "action_plan": _screen_action_plan_preview(result.get("action_plan")),
@@ -671,6 +679,7 @@ def _brief_evidence(row: dict[str, Any]) -> str:
         _score_evidence("漏斗分", row.get("funnel_score")),
         _grade_score_evidence("候选影子", row.get("candidate_shadow_grade"), row.get("candidate_shadow_score")),
         _grade_score_evidence("入场", row.get("entry_quality_grade"), row.get("entry_quality_score")),
+        _score_evidence("风险调整分", row.get("risk_adjusted_quality_score")),
         "已AI推荐" if row.get("is_ai_recommended") is True else "",
         _strategy_evidence(row.get("selection_strategy")),
     ]
@@ -679,7 +688,13 @@ def _brief_evidence(row: dict[str, Any]) -> str:
 
 
 def _score_evidence(label: str, value: Any) -> str:
-    score = _format_score(value)
+    try:
+        raw_score = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if not math.isfinite(raw_score) or raw_score <= 0:
+        return ""
+    score = _format_score(raw_score)
     return f"{label}{score}" if score else ""
 
 
@@ -794,6 +809,9 @@ _CANDIDATE_PREVIEW_FIELDS = (
     "entry_quality_score",
     "entry_quality_grade",
     "entry_quality_risk_flags",
+    "candidate_quality_score",
+    "risk_adjusted_quality_score",
+    "entry_risk_penalty",
     "label_ready",
     "label_status",
     "rank_reason",

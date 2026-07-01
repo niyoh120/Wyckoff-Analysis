@@ -252,7 +252,7 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
     assert "护栏: 不要直接据此选股，先重跑或缩小扫描范围" in preview
     assert lines == [
         "本轮有候选，但数据质量未过关: 300750 宁德时代",
-        "候选结论: 首选 300750 宁德时代 · 数据质量未过关 · 证据: 优先分12.5 · 亮点: 高优先级研报候选 · 风险: 不要直接据此选股，先重跑或缩小扫描范围 · 下一步: 数据质量不足，先重跑或缩小扫描范围 · 护栏: 不要直接据此选股，先重跑或缩小扫描范围",
+        "候选结论: 首选 300750 宁德时代 · 数据质量未过关 · 证据: 优先分12.5 · 亮点: 高优先级研报候选 · 风险: 不要直接据此选股，先重跑或缩小扫描范围 · 护栏: 不要直接据此选股，先重跑或缩小扫描范围 · 下一步: 数据质量不足，先重跑或缩小扫描范围",
     ]
 
 
@@ -323,6 +323,9 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
                     "candidate_shadow_grade": "S",
                     "entry_quality_score": 84.0,
                     "entry_quality_grade": "A",
+                    "candidate_quality_score": 92.0,
+                    "risk_adjusted_quality_score": 87.0,
+                    "entry_risk_penalty": 5.0,
                     "action_status": "ready_for_ai_review",
                     "quality_factors": ["候选影子评级 S"],
                     "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
@@ -362,14 +365,16 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert '"action_status": "ready_for_ai_review"' in preview
     assert '"candidate_conclusion"' in preview
     assert "候选结论: 首选 300750 宁德时代" in preview
-    assert "证据: 漏斗分89.5；候选影子S/92；入场A/84" in preview
-    assert "护栏: 候选标签未成熟，禁止直接买入" in preview
+    assert '"risk_adjusted_quality_score": 87.0' in preview
+    assert "证据: 漏斗分89.5；候选影子S/92；入场A/84；风险调整分87" in preview
     assert '"candidate_guard_summary"' in preview
+    assert "候选标签未成熟，禁止直接买入" in preview
+    assert "护栏: 候选标签未成熟" in preview
     assert "最新候选的未来窗口标签尚未成熟" in preview
     assert '"events"' not in content
     assert lines == [
         "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",
-        "候选结论: 首选 300750 宁德时代 · 可进入AI复核 · 证据: 漏斗分89.5；候选影子S/92；入场A/84 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 下一步: 生成 AI 研报并结合持仓形成攻防决策 · 护栏: 候选标签未成熟，禁止直接买入",
+        "候选结论: 首选 300750 宁德时代 · 可进入AI复核 · 证据: 漏斗分89.5；候选影子S/92；入场A/84；风险调整分87 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 护栏: 候选标签未成熟，禁止直接买入 · 下一步: 生成 AI 研报并结合持仓形成攻防决策",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选标签未成熟，禁止直接买入)",
     ]
 

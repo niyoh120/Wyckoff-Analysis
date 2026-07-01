@@ -205,6 +205,9 @@ class TestAiReportTool:
                             "candidate_lane": "launchpad",
                             "entry_type": "launchpad",
                             "priority_score": 12.5,
+                            "candidate_quality_score": 92.0,
+                            "risk_adjusted_quality_score": 87.0,
+                            "entry_risk_penalty": 5.0,
                             "rank_reason": "研报候选#1；优先分 12.50",
                             "quality_factors": ["高优先级研报候选", "优先分 12.50"],
                             "risk_factors": ["大盘风险闸门关闭"],
@@ -229,6 +232,9 @@ class TestAiReportTool:
         assert captured["symbols_info"][0]["candidate_lane"] == "launchpad"
         assert captured["symbols_info"][0]["entry_type"] == "launchpad"
         assert result["reviewed_symbols"][0]["priority_score"] == 12.5
+        assert result["reviewed_symbols"][0]["candidate_quality_score"] == 92.0
+        assert result["reviewed_symbols"][0]["risk_adjusted_quality_score"] == 87.0
+        assert result["reviewed_symbols"][0]["entry_risk_penalty"] == 5.0
         assert result["reviewed_symbols"][0]["rank_reason"] == "研报候选#1；优先分 12.50"
         assert result["reviewed_symbols"][0]["quality_factors"] == ["高优先级研报候选", "优先分 12.50"]
         assert result["reviewed_symbols"][0]["risk_factors"] == ["大盘风险闸门关闭"]
@@ -2206,6 +2212,9 @@ class TestSymbolPool:
             assert row["candidate_shadow_grade"] == "S"
             assert row["entry_quality_score"] == 84.0
             assert row["entry_quality_grade"] == "A"
+            assert row["candidate_quality_score"] == 92.0
+            assert row["risk_adjusted_quality_score"] == 87.0
+            assert row["entry_risk_penalty"] == 5.0
             assert row["selection_strategy"] == "candidate_shadow_then_score"
             assert row["label_ready"] is False
             assert row["label_status"] == "pending"
@@ -2222,7 +2231,7 @@ class TestSymbolPool:
         assert result["candidate_guard_summary"]["direct_buy_blocked_count"] == 1
         assert result["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
         assert any(line.startswith("候选护栏: 1只禁止直接买入") for line in lines)
-        assert any("候选影子S/92" in line and "入场A/84" in line for line in lines)
+        assert any("候选影子S/92" in line and "入场A/84" in line and "风险调整分87" in line for line in lines)
 
     def test_screen_stocks_uses_quality_score_as_same_priority_tiebreaker(self, monkeypatch):
         from agents import screen_tools

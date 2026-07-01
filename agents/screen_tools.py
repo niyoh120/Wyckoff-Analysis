@@ -576,7 +576,23 @@ _CANDIDATE_QUALITY_METRIC_FIELDS = (
 
 
 def _candidate_quality_metrics(row: dict) -> dict[str, Any]:
-    return {field: row.get(field) for field in _CANDIDATE_QUALITY_METRIC_FIELDS if row.get(field) not in (None, "", [])}
+    payload = {
+        field: row.get(field) for field in _CANDIDATE_QUALITY_METRIC_FIELDS if row.get(field) not in (None, "", [])
+    }
+    payload.update(_candidate_risk_adjusted_quality_metrics(row))
+    return payload
+
+
+def _candidate_risk_adjusted_quality_metrics(row: dict) -> dict[str, float]:
+    raw_score = _candidate_raw_quality_score(row)
+    risk_penalty = _entry_quality_risk_penalty(row)
+    payload: dict[str, float] = {}
+    if raw_score:
+        payload["candidate_quality_score"] = round(raw_score, 2)
+        payload["risk_adjusted_quality_score"] = round(_candidate_quality_sort_score(row), 2)
+    if risk_penalty:
+        payload["entry_risk_penalty"] = round(risk_penalty, 2)
+    return payload
 
 
 def _candidate_quality_label(row: dict) -> str:

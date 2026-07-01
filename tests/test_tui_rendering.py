@@ -366,6 +366,9 @@ def test_tool_result_view_surfaces_recommendation_eval_pick_action():
                             "candidate_shadow_grade": "S",
                             "entry_quality_score": 84.0,
                             "entry_quality_grade": "A",
+                            "candidate_quality_score": 92.0,
+                            "risk_adjusted_quality_score": 87.0,
+                            "entry_risk_penalty": 5.0,
                             "action_status": "ready_for_ai_review",
                             "quality_factors": ["候选影子评级 S"],
                             "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
@@ -384,6 +387,7 @@ def test_tool_result_view_surfaces_recommendation_eval_pick_action():
     assert "漏斗分89.5" in rendered
     assert "候选影子S/92" in rendered
     assert "入场A/84" in rendered
+    assert "风险调整分87" in rendered
     assert "候选影子评级 S" in rendered
     assert "最新候选的未来窗口标签尚未成熟" in rendered
 
