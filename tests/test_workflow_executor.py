@@ -579,6 +579,67 @@ def test_workflow_synthesis_receives_step_handoff_state(tmp_path, monkeypatch):
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_waits_step_background_tasks_for_handoff(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    class BackgroundHandoffTools(StubToolRegistry):
+        def __init__(self):
+            super().__init__(tool_results={"screen_stocks": {"status": "background", "task_id": "bg_screen"}})
+            self._tool_context = SimpleNamespace(state={})
+            self.wait_calls: list[dict[str, object]] = []
+
+        def wait_background_tasks(self, task_ids, timeout_seconds=30.0):
+            self.wait_calls.append({"task_ids": list(task_ids), "timeout_seconds": timeout_seconds})
+            self._tool_context.state["last_screen_result"] = {
+                "selection_brief": {"status": "ready_for_ai_review", "best_codes": ["300750"]},
+                "symbols_for_report": [{"code": "300750", "name": "宁德时代"}],
+            }
+            return [{"task_id": "bg_screen", "tool_name": "screen_stocks", "status": "completed"}]
+
+    def _synthesis_round(messages, _tools, _system_prompt):
+        content = messages[0]["content"]
+        assert '"background_task_ids": ["bg_screen"]' in content
+        assert '"background_tasks": [{"task_id": "bg_screen"' in content
+        assert '"symbols_for_report": [{"code": "300750"' in content
+        return [{"type": "text_delta", "text": "已等待后台筛选并汇总候选。"}]
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-bg-wait.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    monkeypatch.setenv("WYCKOFF_WORKFLOW_BG_WAIT_SECONDS", "2")
+    tools = BackgroundHandoffTools()
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "tool_calls", "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {}}]}],
+            [{"type": "text_delta", "text": "筛选已提交后台。"}],
+            _synthesis_round,
+        ]
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_bg_wait",
+        user_text="用 workflow 选出好股票",
+        workflow_context=route_workflow("用 workflow 选出好股票"),
+        workflow_script={
+            "tasks": [{"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描候选"}]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 选出好股票"}]))
+
+    try:
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert tools.wait_calls == [{"task_ids": ["bg_screen"], "timeout_seconds": 2.0}]
+        assert detail["background_task_ids"] == ["bg_screen"]
+        assert detail["background_tasks"][0]["status"] == "completed"
+        assert detail["handoff_state"]["last_screen_result"]["selection_brief"]["best_codes"] == ["300750"]
+        assert events[-1]["text"] == "已等待后台筛选并汇总候选。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
     from integrations import local_db
 

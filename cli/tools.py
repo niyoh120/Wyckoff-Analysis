@@ -701,6 +701,13 @@ class ToolRegistry:
         for _task_id, tool_name, result in self._bg_manager.completed_results():
             self.remember_tool_handoff(tool_name, result)
 
+    def wait_background_tasks(self, task_ids: list[str], timeout_seconds: float = 30.0) -> list[dict[str, Any]]:
+        if not self._bg_manager:
+            return []
+        statuses = self._bg_manager.wait_for_tasks(task_ids, timeout_seconds=timeout_seconds)
+        self._remember_background_handoffs()
+        return statuses
+
     def remember_tool_handoff(self, tool_name: str, result: Any) -> None:
         """Restore session handoff state from a completed tool result."""
 

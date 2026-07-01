@@ -175,6 +175,28 @@ def test_run_sub_agent_with_tool_call():
     assert registry.calls[0]["name"] == "get_market_overview"
 
 
+def test_run_sub_agent_captures_background_task_ids():
+    provider = ScriptedProvider(
+        [
+            [{"type": "tool_calls", "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {}}]}],
+            [{"type": "text_delta", "text": "筛选已提交后台。"}],
+        ]
+    )
+    registry = StubToolRegistry(tool_results={"screen_stocks": {"status": "background", "task_id": "bg_screen"}})
+
+    result = run_sub_agent(
+        RESEARCH_AGENT,
+        task="扫描候选",
+        context="phase=scan",
+        provider=provider,
+        registry=registry,
+    )
+
+    assert result["status"] == "completed"
+    assert result["tool_calls"] == ["screen_stocks"]
+    assert result["background_task_ids"] == ["bg_screen"]
+
+
 def test_run_sub_agent_trims_large_context():
     provider = ScriptedProvider([[{"type": "text_delta", "text": "收到"}]])
     registry = StubToolRegistry()

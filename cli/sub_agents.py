@@ -218,6 +218,7 @@ def run_sub_agent(
     user_content = f"{task}\n\n上下文:\n{trimmed_context}" if trimmed_context else task
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
     tool_calls: list[str] = []
+    background_task_ids: list[str] = []
     cancelled = _sub_agent_cancel_check(cancel_check, deadline)
 
     runtime = AgentRuntime(
@@ -235,6 +236,7 @@ def run_sub_agent(
         messages,
         started_at,
         tool_calls,
+        background_task_ids,
         context_truncated,
         cancelled,
         deadline,
@@ -255,6 +257,7 @@ def _run_sub_agent_loop(
     messages: list[dict[str, Any]],
     started_at: float,
     tool_calls: list[str],
+    background_task_ids: list[str],
     context_truncated: bool,
     cancelled: Callable[[], bool],
     deadline: float,
@@ -268,23 +271,45 @@ def _run_sub_agent_loop(
                 raise AgentCancelled()
             if event["type"] == "tool_start":
                 tool_calls.append(event["name"])
+            if event["type"] == "tool_result":
+                background_task_ids.extend(_background_task_ids(event.get("result")))
             if on_progress:
                 event["sub_agent"] = sub.name
                 on_progress(event)
             if event["type"] == "done":
-                return _sub_agent_result(sub, "completed", event, started_at, tool_calls, context_truncated)
+                return _sub_agent_result(
+                    sub, "completed", event, started_at, tool_calls, background_task_ids, context_truncated
+                )
     except AgentCancelled:
         status = "timeout" if time.monotonic() >= deadline else "cancelled"
         return _sub_agent_result(
-            sub, status, {}, started_at, tool_calls, context_truncated, error=f"sub-agent {status}"
+            sub,
+            status,
+            {},
+            started_at,
+            tool_calls,
+            background_task_ids,
+            context_truncated,
+            error=f"sub-agent {status}",
         )
     except TimeoutError as exc:
-        return _sub_agent_result(sub, "timeout", {}, started_at, tool_calls, context_truncated, error=str(exc))
+        return _sub_agent_result(
+            sub, "timeout", {}, started_at, tool_calls, background_task_ids, context_truncated, error=str(exc)
+        )
     except Exception as exc:
         logger.exception("Sub-agent %s failed", sub.name)
-        return _sub_agent_result(sub, "error", {}, started_at, tool_calls, context_truncated, error=str(exc))
+        return _sub_agent_result(
+            sub, "error", {}, started_at, tool_calls, background_task_ids, context_truncated, error=str(exc)
+        )
 
-    return _sub_agent_result(sub, "empty", {}, started_at, tool_calls, context_truncated)
+    return _sub_agent_result(sub, "empty", {}, started_at, tool_calls, background_task_ids, context_truncated)
+
+
+def _background_task_ids(result: Any) -> list[str]:
+    if not isinstance(result, dict) or result.get("status") != "background":
+        return []
+    task_id = str(result.get("task_id") or "").strip()
+    return [task_id] if task_id else []
 
 
 def _sub_agent_cancel_check(cancel_check: Callable[[], bool] | None, deadline: float) -> Callable[[], bool]:
@@ -330,6 +355,7 @@ def _sub_agent_result(
     event: dict[str, Any],
     started_at: float,
     tool_calls: list[str],
+    background_task_ids: list[str],
     context_truncated: bool,
     *,
     error: str = "",
@@ -346,6 +372,7 @@ def _sub_agent_result(
         "elapsed": elapsed,
         "rounds": event.get("rounds", 0),
         "tool_calls": tool_calls,
+        "background_task_ids": list(dict.fromkeys(background_task_ids)),
         "context_truncated": context_truncated,
         "result_truncated": result_truncated,
         "error": error,
@@ -375,6 +402,7 @@ def _sub_agent_start_error(sub: SubAgent) -> dict[str, Any]:
         "error",
         {},
         time.monotonic(),
+        [],
         [],
         False,
         error="provider/registry 未注入，无法启动 sub-agent",

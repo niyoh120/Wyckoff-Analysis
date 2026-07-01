@@ -164,6 +164,22 @@ def test_background_manager_completed_results_keeps_status_summary_compact():
     assert payloads[0][2]["selection_brief"]["best_codes"] == ["300750"]
 
 
+def test_tool_registry_wait_background_tasks_restores_handoff_state():
+    from cli.background import BackgroundTaskManager
+    from cli.tools import ToolRegistry
+
+    manager = BackgroundTaskManager()
+    registry = ToolRegistry()
+    registry.set_background_manager(manager)
+    task_id = manager.submit("bg_screen", "screen_stocks", lambda: _screen_result(), {})
+
+    statuses = registry.wait_background_tasks([task_id], timeout_seconds=2)
+
+    assert statuses[0]["status"] == "completed"
+    assert statuses[0]["result_summary"]
+    assert registry.state["last_screen_result"]["selection_brief"]["best_codes"] == ["300750"]
+
+
 def test_check_background_tasks_restores_screen_handoff_state():
     from cli.background import BackgroundTaskManager
     from cli.tools import ToolRegistry

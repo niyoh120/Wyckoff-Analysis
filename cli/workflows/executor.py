@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -39,6 +40,7 @@ _AGENTS: dict[str, SubAgent] = {
     "trading": TRADING_AGENT,
 }
 MAX_CONCURRENT_AGENTS = 16
+WORKFLOW_BACKGROUND_WAIT_SECONDS = 45.0
 
 
 class WorkflowExecutor:
@@ -257,6 +259,8 @@ class WorkflowExecutor:
             cancel_check=self._cancel_requested,
             tool_names=_step_tool_names(step, self._require_run().allowed_tools),
         )
+        if wait_result := _wait_step_background_tasks(self.tools, result.get("background_task_ids") or []):
+            result["background_tasks"] = wait_result
         if handoff_state := _workflow_handoff_state(self.tools):
             result["handoff_state"] = handoff_state
         return result
@@ -464,6 +468,8 @@ def _agent_detail(step: WorkflowStep, result: dict[str, Any]) -> dict[str, Any]:
         "status": str(result.get("status", "")),
         "elapsed": result.get("elapsed", 0),
         "tool_calls": list(result.get("tool_calls", []) or [])[:40],
+        "background_task_ids": list(result.get("background_task_ids", []) or [])[:20],
+        "background_tasks": list(result.get("background_tasks", []) or [])[:20],
         "handoff_state": result.get("handoff_state", {}),
         "result": _clip(str(result.get("result", "") or ""), 8000),
         "error": _clip(str(result.get("error", "") or ""), 2000),
@@ -472,6 +478,23 @@ def _agent_detail(step: WorkflowStep, result: dict[str, Any]) -> dict[str, Any]:
 
 def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
+
+
+def _wait_step_background_tasks(tools: Any, task_ids: list[str]) -> list[dict[str, Any]]:
+    ids = [str(task_id).strip() for task_id in task_ids if str(task_id).strip()]
+    if not ids or not hasattr(tools, "wait_background_tasks"):
+        return []
+    return tools.wait_background_tasks(ids, timeout_seconds=_workflow_background_wait_seconds())
+
+
+def _workflow_background_wait_seconds() -> float:
+    raw = os.getenv("WYCKOFF_WORKFLOW_BG_WAIT_SECONDS", "").strip()
+    if not raw:
+        return WORKFLOW_BACKGROUND_WAIT_SECONDS
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return WORKFLOW_BACKGROUND_WAIT_SECONDS
 
 
 def _workflow_handoff_state(tools: Any) -> dict[str, Any]:
