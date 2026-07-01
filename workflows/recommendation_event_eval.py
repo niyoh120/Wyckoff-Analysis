@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 
 from core.candidate_guards import policy_candidate_guard_summary
-from core.candidate_quality import risk_adjusted_quality_metrics
+from core.candidate_quality import entry_quality_risk_penalty, risk_adjusted_quality_metrics
 from core.constants import TABLE_SIGNAL_OBSERVATIONS
 from core.recommendation_event_metrics import build_horizon_event, summarize_horizon_events
 from integrations.recommendation_performance import (
@@ -545,9 +545,9 @@ def _rank_key(event: dict[str, Any], strategy: str) -> tuple[Any, ...]:
     if strategy == "recommend_count":
         return count, score, ai, code
     if strategy == "candidate_shadow_then_score":
-        return _quality_rank(event, "candidate_shadow"), score, ai, count, code
+        return _risk_adjusted_quality_rank(event, "candidate_shadow"), score, ai, count, code
     if strategy == "entry_quality_then_score":
-        return _quality_rank(event, "entry_quality"), score, ai, count, code
+        return _risk_adjusted_quality_rank(event, "entry_quality"), score, ai, count, code
     return score, ai, count, code
 
 
@@ -755,6 +755,10 @@ def _quality_rank(event: dict[str, Any], prefix: str) -> float:
     if (score := _optional_number(event.get(f"{prefix}_score"))) is not None:
         return score
     return _GRADE_FALLBACK_SCORE[_grade(event.get(f"{prefix}_grade"))]
+
+
+def _risk_adjusted_quality_rank(event: dict[str, Any], prefix: str) -> float:
+    return max(0.0, _quality_rank(event, prefix) - entry_quality_risk_penalty(event))
 
 
 def _quality_feature_fields(row: dict[str, Any], observed_features: dict[str, Any] | None = None) -> dict[str, Any]:

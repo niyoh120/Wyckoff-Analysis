@@ -58,6 +58,27 @@ def test_top_k_summary_can_rank_by_candidate_quality_scores() -> None:
     assert summary["ranking_decision"]["status"] == "insufficient_sample"
 
 
+def test_policy_selection_ranks_candidate_quality_after_entry_risk_penalty() -> None:
+    events = [
+        {
+            **_event(20260515, "RISKY", ai=False, score=0.99, count=2, hit=False, shadow=92.0, entry=84.0),
+            "entry_quality_risk_flags": ["短线涨幅偏快"],
+        },
+        _event(20260515, "CLEAN", ai=False, score=0.30, count=1, hit=True, shadow=90.0, entry=82.0),
+    ]
+    decision = {
+        "status": "candidate",
+        "recommended_strategy": "candidate_shadow_then_score",
+        "recommended_top_k": 1,
+    }
+
+    selection = _policy_selection(events, decision)
+
+    assert [pick["code"] for pick in selection["picks"]] == ["CLEAN"]
+    assert selection["picks"][0]["candidate_quality_score"] == 90.0
+    assert selection["picks"][0]["risk_adjusted_quality_score"] == 90.0
+
+
 def test_ranking_decision_recommends_quality_strategy_after_sample_gate() -> None:
     events = []
     for day in range(20260501, 20260513):
