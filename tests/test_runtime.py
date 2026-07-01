@@ -184,6 +184,32 @@ def test_runtime_retries_when_stock_screening_request_skips_tool():
     assert events[-1]["text"] == "创业板候选已筛出。"
 
 
+def test_runtime_retries_when_chatty_watchlist_request_skips_screen_tool():
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "我先说一下筛选思路。"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {"board": "all"}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "候选和风险边界已生成。"}],
+        ]
+    )
+    tools = StubToolRegistry(tool_results={"screen_stocks": {"symbols_for_report": ["300750"]}})
+    messages = [{"role": "user", "content": "给我找几只值得复核的票，带理由和风险边界"}]
+
+    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
+
+    retries = [event for event in events if event["type"] == "retry"]
+    assert len(retries) == 1
+    assert retries[0]["required_tool"] == "screen_stocks"
+    assert '建议参数：board="all"' in retries[0]["message"]
+    assert events[-1]["text"] == "候选和风险边界已生成。"
+
+
 def test_runtime_retries_when_ai_report_followup_skips_tool():
     provider = ScriptedProvider(
         rounds=[
@@ -238,6 +264,7 @@ def test_runtime_does_not_retry_stock_screening_explanation_question():
 def test_turn_expectation_does_not_force_tool_for_concept_questions():
     assert resolve_turn_expectation([{"role": "user", "content": "选股规则是什么"}]) is None
     assert resolve_turn_expectation([{"role": "user", "content": "持仓管理是什么"}]) is None
+    assert resolve_turn_expectation([{"role": "user", "content": "机会是什么意思"}]) is None
 
 
 def test_turn_expectation_requires_ai_report_after_screen_handoff():
@@ -278,11 +305,15 @@ def test_turn_expectation_does_not_force_ai_report_for_concept_question():
 
 def test_turn_expectation_still_forces_tool_for_concrete_concept_wording():
     screen = resolve_turn_expectation([{"role": "user", "content": "今天怎么选创业板好股票"}])
+    opportunity = resolve_turn_expectation([{"role": "user", "content": "今天有什么机会"}])
     portfolio = resolve_turn_expectation([{"role": "user", "content": "解释一下我的持仓风险"}])
 
     assert screen is not None
     assert screen.required_tool == "screen_stocks"
     assert screen.suggested_args == {"board": "chinext"}
+    assert opportunity is not None
+    assert opportunity.required_tool == "screen_stocks"
+    assert opportunity.suggested_args == {"board": "all"}
     assert portfolio is not None
     assert portfolio.required_tool == "portfolio"
     assert portfolio.suggested_args == {"mode": "diagnose"}

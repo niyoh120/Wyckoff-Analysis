@@ -122,6 +122,7 @@ _STOCK_SCREEN_HINTS = (
 )
 
 _STOCK_SCREEN_TARGET_HINTS = (
+    "机会",
     "机会池",
     "候选",
 )
@@ -149,8 +150,13 @@ _STOCK_SCREEN_CONTEXT_HINTS = (
 _STOCK_SCREEN_INTENT_HINTS = (
     "推荐",
     "机会",
+    "值得",
+    "值得复核",
     "值得关注",
     "值得跟踪",
+    "重点跟踪",
+    "复核",
+    "风险边界",
     "挑",
 )
 
