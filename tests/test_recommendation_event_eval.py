@@ -53,6 +53,25 @@ def test_top_k_summary_can_rank_by_candidate_quality_scores() -> None:
     assert summary["top_k_lift_vs_score_only"]["candidate_shadow_then_score"]["1"]["hit_rate_delta_pct"] == 100.0
     assert summary["top_k_lift_vs_score_only"]["candidate_shadow_then_score"]["1"]["avg_mfe_delta_pct"] == 8.0
     assert summary["top_k_lift_vs_score_only"]["entry_quality_then_score"]["1"]["hit_rate_delta_pct"] == 100.0
+    assert summary["ranking_decision"]["status"] == "insufficient_sample"
+
+
+def test_ranking_decision_recommends_quality_strategy_after_sample_gate() -> None:
+    events = []
+    for day in range(20260501, 20260513):
+        events.append(_event(day, f"A{day}", ai=False, score=0.99, count=2, hit=False, shadow=25.0))
+        events.append(_event(day, f"B{day}", ai=False, score=0.30, count=1, hit=True, shadow=88.0))
+
+    decision = _build_summary(events, (1,))["ranking_decision"]
+
+    assert decision["status"] == "candidate"
+    assert decision["recommended_strategy"] == "candidate_shadow_then_score"
+    assert decision["recommended_top_k"] == 1
+    candidate = decision["candidates"]["candidate_shadow_then_score"]
+    assert candidate["sample_ok"] is True
+    assert candidate["lift_ok"] is True
+    assert candidate["risk_ok"] is True
+    assert candidate["hit_rate_delta_pct"] == 100.0
 
 
 def test_top_k_summary_can_rank_by_quality_grade_when_score_missing() -> None:

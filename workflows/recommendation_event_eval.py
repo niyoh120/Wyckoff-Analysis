@@ -39,6 +39,10 @@ _GRADE_FALLBACK_SCORE = {
     "D": 30.0,
     "unknown": -1.0,
 }
+_DECISION_MIN_READY_ROWS = 10
+_DECISION_MIN_HIT_LIFT_PCT = 5.0
+_DECISION_MIN_MFE_LIFT_PCT = 0.0
+_DECISION_MAX_MAE_WORSE_PCT = -1.0
 
 
 @dataclass(frozen=True)
@@ -198,13 +202,15 @@ def _event_with_quality(
 
 def _build_summary(events: list[dict[str, Any]], top_k: tuple[int, ...]) -> dict[str, Any]:
     top_k_by_strategy = _top_k_by_strategy(events, top_k)
+    lift_by_strategy = _strategy_lift_summary(top_k_by_strategy)
     summary = {
         "all": summarize_horizon_events(events),
         "ai": summarize_horizon_events([event for event in events if event.get("is_ai_recommended")]),
         "non_ai": summarize_horizon_events([event for event in events if not event.get("is_ai_recommended")]),
         "top_k": top_k_by_strategy["score_only"],
         "top_k_by_strategy": top_k_by_strategy,
-        "top_k_lift_vs_score_only": _strategy_lift_summary(top_k_by_strategy),
+        "top_k_lift_vs_score_only": lift_by_strategy,
+        "ranking_decision": _ranking_decision(lift_by_strategy),
         "candidate_shadow_grade": _grade_summary(events, "candidate_shadow_grade"),
         "entry_quality_grade": _grade_summary(events, "entry_quality_grade"),
     }
@@ -255,6 +261,94 @@ def _strategy_lift_row(row: dict[str, Any], baseline: dict[str, Any]) -> dict[st
         "avg_mae_delta_pct": _delta(row, baseline, "avg_mae_horizon_pct"),
         "mfe_mae_delta": _delta(row, baseline, "mfe_mae_ratio"),
     }
+
+
+def _ranking_decision(lift_by_strategy: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    candidates = {
+        strategy: _ranking_strategy_decision(strategy, top_rows) for strategy, top_rows in lift_by_strategy.items()
+    }
+    promotable = [item for item in candidates.values() if item.get("status") == "candidate"]
+    watch = [item for item in candidates.values() if item.get("status") == "watch"]
+    best = _best_decision(promotable or watch)
+    status = "candidate" if promotable else "watch" if watch else _fallback_decision_status(candidates)
+    return {
+        "status": status,
+        "recommended_strategy": best.get("strategy", "score_only") if promotable else "score_only",
+        "recommended_top_k": best.get("top_k") if promotable else None,
+        "watch_strategy": best.get("strategy") if watch and not promotable else None,
+        "reason": _ranking_decision_reason(status, best),
+        "thresholds": {
+            "min_ready_rows": _DECISION_MIN_READY_ROWS,
+            "min_hit_lift_pct": _DECISION_MIN_HIT_LIFT_PCT,
+            "min_mfe_lift_pct": _DECISION_MIN_MFE_LIFT_PCT,
+            "max_mae_worse_pct": _DECISION_MAX_MAE_WORSE_PCT,
+        },
+        "candidates": candidates,
+    }
+
+
+def _ranking_strategy_decision(strategy: str, top_rows: dict[str, Any]) -> dict[str, Any]:
+    rows = [_decision_candidate(strategy, k, row) for k, row in top_rows.items()]
+    return _best_decision(rows) or _empty_decision(strategy)
+
+
+def _decision_candidate(strategy: str, top_k: str, row: dict[str, Any]) -> dict[str, Any]:
+    ready = int(row.get("rows_ready") or 0)
+    baseline_ready = int(row.get("baseline_rows_ready") or 0)
+    hit_lift = _optional_number(row.get("hit_rate_delta_pct")) or 0.0
+    mfe_lift = _optional_number(row.get("avg_mfe_delta_pct")) or 0.0
+    mae_delta = _optional_number(row.get("avg_mae_delta_pct"))
+    sample_ok = ready >= _DECISION_MIN_READY_ROWS and baseline_ready >= _DECISION_MIN_READY_ROWS
+    lift_ok = hit_lift >= _DECISION_MIN_HIT_LIFT_PCT and mfe_lift >= _DECISION_MIN_MFE_LIFT_PCT
+    risk_ok = mae_delta is not None and mae_delta >= _DECISION_MAX_MAE_WORSE_PCT
+    return {
+        "strategy": strategy,
+        "top_k": str(top_k),
+        "status": _candidate_status(sample_ok, lift_ok, risk_ok, _decision_score(hit_lift, mfe_lift, mae_delta)),
+        "decision_score": _decision_score(hit_lift, mfe_lift, mae_delta),
+        "sample_ok": sample_ok,
+        "lift_ok": lift_ok,
+        "risk_ok": risk_ok,
+        **row,
+    }
+
+
+def _candidate_status(sample_ok: bool, lift_ok: bool, risk_ok: bool, score: float) -> str:
+    if not sample_ok:
+        return "insufficient_sample"
+    if lift_ok and risk_ok and score > 0:
+        return "candidate"
+    if risk_ok and score > 0:
+        return "watch"
+    return "keep_score_only"
+
+
+def _decision_score(hit_lift: float, mfe_lift: float, mae_delta: float | None) -> float:
+    risk_adjustment = mae_delta if mae_delta is not None else -5.0
+    return round(hit_lift + 0.5 * mfe_lift + min(max(risk_adjustment, -5.0), 2.0), 2)
+
+
+def _best_decision(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return max(rows, key=lambda item: (item.get("decision_score", -999.0), item.get("rows_ready", 0)), default={})
+
+
+def _empty_decision(strategy: str) -> dict[str, Any]:
+    return {"strategy": strategy, "status": "insufficient_sample", "decision_score": 0.0}
+
+
+def _fallback_decision_status(candidates: dict[str, dict[str, Any]]) -> str:
+    statuses = {item.get("status") for item in candidates.values()}
+    return "insufficient_sample" if statuses == {"insufficient_sample"} else "keep_score_only"
+
+
+def _ranking_decision_reason(status: str, best: dict[str, Any]) -> str:
+    if status == "candidate":
+        return f"{best.get('strategy')} top{best.get('top_k')} passed lift and risk gates"
+    if status == "watch":
+        return f"{best.get('strategy')} improved some metrics but did not pass all promotion gates"
+    if status == "insufficient_sample":
+        return "not enough ready labeled rows to change ranking"
+    return "no alternative ranking beat score_only after risk adjustment"
 
 
 def _top_k_summary(events: list[dict[str, Any]], k: int, strategy: str = "score_only") -> dict[str, Any]:
@@ -338,6 +432,7 @@ def _write_markdown(path: Path, result: dict[str, Any]) -> None:
     lines.extend(_summary_markdown_rows(result["summary"]))
     lines.extend(_strategy_markdown(result["summary"]["top_k_by_strategy"]))
     lines.extend(_strategy_lift_markdown(result["summary"].get("top_k_lift_vs_score_only") or {}))
+    lines.extend(_ranking_decision_markdown(result["summary"].get("ranking_decision") or {}))
     lines.extend(_quality_markdown(result["summary"]))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -386,6 +481,29 @@ def _strategy_lift_markdown(lift_by_strategy: dict[str, dict[str, Any]]) -> list
                 f"{_fmt_delta(item.get('close_payoff_delta'))} | {_fmt_delta(item.get('avg_mfe_delta_pct'))}pp | "
                 f"{_fmt_delta(item.get('avg_mae_delta_pct'))}pp |"
             )
+    return rows
+
+
+def _ranking_decision_markdown(decision: dict[str, Any]) -> list[str]:
+    rows = [
+        "",
+        "## Ranking Decision Gate",
+        "",
+        f"- Status: `{decision.get('status', 'unknown')}`",
+        f"- Recommended strategy: `{decision.get('recommended_strategy', 'score_only')}`",
+        f"- Recommended Top-K: `{decision.get('recommended_top_k') or 'n/a'}`",
+        f"- Reason: {decision.get('reason', '-')}",
+        "",
+        "| Strategy | Best Top-K | Status | Score | Ready | Hit Δ | MFE Δ | MAE Δ |",
+        "|---|---:|---|---:|---:|---:|---:|---:|",
+    ]
+    for strategy, item in (decision.get("candidates") or {}).items():
+        ready = f"{item.get('rows_ready', 0)}/{item.get('baseline_rows_ready', 0)}"
+        rows.append(
+            f"| {strategy} | {item.get('top_k', 'n/a')} | {item.get('status', 'unknown')} | "
+            f"{_fmt(item.get('decision_score'))} | {ready} | {_fmt_delta(item.get('hit_rate_delta_pct'))}pp | "
+            f"{_fmt_delta(item.get('avg_mfe_delta_pct'))}pp | {_fmt_delta(item.get('avg_mae_delta_pct'))}pp |"
+        )
     return rows
 
 
