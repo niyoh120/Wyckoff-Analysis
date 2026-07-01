@@ -73,6 +73,37 @@ def test_run_funnel_screen_sanitizes_nonfinite_trigger_scores(monkeypatch) -> No
     ]
 
 
+def test_run_funnel_screen_filters_low_quality_report_handoff(monkeypatch) -> None:
+    fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+    def fake_run_funnel(*_args, **_kwargs):
+        return (
+            True,
+            [
+                {"code": "000001", "name": "强候选", "candidate_shadow_score": 88.0},
+                {"code": "000002", "name": "弱候选", "candidate_shadow_score": 65.0},
+            ],
+            {},
+            {
+                "metrics": {},
+                "triggers": {"sos": [("000001", 10.0), ("000002", 9.0)]},
+                "selected_for_ai": ["000001", "000002"],
+            },
+        )
+
+    fake_pipeline.run = fake_run_funnel
+    monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+
+    result = workflow._run_funnel_screen("req-quality", {})
+
+    assert [row["code"] for row in result["symbols_for_report"]] == ["000001"]
+    assert [row["code"] for row in result["report_candidates"]] == ["000001"]
+    assert [row["code"] for row in result["watch_candidates"]] == ["000002"]
+    assert result["selected_for_ai"] == ["000001", "000002"]
+    assert result["quality_gate"]["blocked_count"] == 1
+    assert result["quality_gate"]["reason"] == "000002 弱候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+
+
 def test_run_web_background_job_writes_error_for_unknown_kind(tmp_path) -> None:
     target = tmp_path / "result.json"
     args = Namespace(job_kind="unknown", request_id="req1", payload_json='{"user_id":"u1"}', output=str(target))

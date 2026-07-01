@@ -11,10 +11,12 @@ from core.candidate_metadata import build_candidate_metadata_map, code6
 from core.candidate_policy import candidate_score_value
 from core.candidate_quality import (
     ai_review_quality_gate_reason,
+    candidate_ai_review_label,
     entry_quality_risk_flags,
     entry_quality_risk_penalty,
     risk_adjusted_quality_metrics,
     risk_adjusted_quality_score,
+    split_ai_review_candidates,
 )
 from core.candidate_ranker import TRIGGER_SHORT_LABELS
 from core.candidate_tracks import candidate_entry_track
@@ -446,39 +448,15 @@ def _drop_empty_candidate_fields(payload: dict) -> dict:
 
 
 def _report_candidates(top_candidates: list[dict]) -> list[dict]:
-    return [row for row in top_candidates if _candidate_allows_ai_review(row)]
+    return list(split_ai_review_candidates(top_candidates).get("report_candidates") or [])
 
 
 def _watch_candidates(top_candidates: list[dict]) -> list[dict]:
-    return [row for row in top_candidates if not _candidate_allows_ai_review(row)]
-
-
-def _candidate_allows_ai_review(row: dict) -> bool:
-    return bool(row.get("selected_for_report")) and not ai_review_quality_gate_reason(row, _candidate_label(row))
+    return list(split_ai_review_candidates(top_candidates).get("watch_candidates") or [])
 
 
 def _quality_gate(top_candidates: list[dict]) -> dict[str, Any]:
-    blocked = [
-        {"code": row.get("code"), "name": row.get("name"), "reason": reason}
-        for row in top_candidates
-        if row.get("selected_for_report")
-        if (reason := ai_review_quality_gate_reason(row, _candidate_label(row)))
-    ]
-    if not blocked:
-        return {}
-    return {
-        "status": "blocked_by_quality_gate",
-        "reason": blocked[0]["reason"],
-        "blocked_count": len(blocked),
-        "candidates": blocked[:5],
-    }
-
-
-def _candidate_label(row: dict) -> str:
-    return (
-        " ".join(part for part in (str(row.get("code") or "").strip(), str(row.get("name") or "").strip()) if part)
-        or "候选"
-    )
+    return dict(split_ai_review_candidates(top_candidates).get("quality_gate") or {})
 
 
 def _review_targets(
@@ -744,7 +722,7 @@ def _candidate_risk_factors(
     if not row.get("triggers") and not row.get("selected_for_report"):
         factors.append("触发信号未列明")
     factors.extend(entry_quality_risk_flags(row.get("entry_quality_risk_flags")))
-    if reason := ai_review_quality_gate_reason(row, _candidate_label(row)):
+    if reason := ai_review_quality_gate_reason(row, candidate_ai_review_label(row)):
         factors.append(reason)
     if trade_mode:
         if _data_quality_blocks_ready_flow(trade_mode, data_quality) and bucket != "watch":

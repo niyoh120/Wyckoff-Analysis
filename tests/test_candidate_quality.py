@@ -5,6 +5,7 @@ from core.candidate_quality import (
     entry_quality_risk_flags,
     entry_quality_risk_penalty,
     risk_adjusted_quality_metrics,
+    split_ai_review_candidates,
 )
 
 
@@ -41,3 +42,20 @@ def test_ai_review_quality_gate_reason_requires_explicit_quality_score() -> None
         "LOW 风险调整质量分 65.00 低于AI复核门槛 70.00"
     )
     assert ai_review_quality_gate_reason({"candidate_shadow_score": 70.0}, "OK") == ""
+
+
+def test_split_ai_review_candidates_blocks_low_quality_selected_rows() -> None:
+    rows = [
+        {"code": "000001", "name": "强候选", "selected_for_report": True, "candidate_shadow_score": 88.0},
+        {"code": "000002", "name": "弱候选", "selected_for_report": True, "candidate_shadow_score": 65.0},
+        {"code": "000003", "name": "观察项", "selected_for_report": False, "candidate_shadow_score": 92.0},
+    ]
+
+    split = split_ai_review_candidates(rows)
+
+    assert [row["code"] for row in split["report_candidates"]] == ["000001"]
+    assert [row["code"] for row in split["watch_candidates"]] == ["000002", "000003"]
+    assert split["quality_gate"]["blocked_count"] == 1
+    assert split["quality_gate"]["candidates"][0]["reason"] == (
+        "000002 弱候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+    )

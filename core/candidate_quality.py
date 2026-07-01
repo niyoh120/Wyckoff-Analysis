@@ -57,6 +57,53 @@ def ai_review_quality_gate_reason(row: dict[str, Any], label: str = "候选") ->
     return f"{label} 风险调整质量分 {score:.2f} 低于AI复核门槛 {MIN_AI_REVIEW_RISK_ADJUSTED_QUALITY:.2f}"
 
 
+def candidate_ai_review_label(row: dict[str, Any]) -> str:
+    code = str(row.get("code") or row.get("symbol") or "").strip()
+    name = str(row.get("name") or "").strip()
+    return " ".join(part for part in (code, name) if part) or "候选"
+
+
+def split_ai_review_candidates(
+    rows: list[Any],
+    *,
+    selected_required: bool = True,
+    selected_key: str = "selected_for_report",
+) -> dict[str, Any]:
+    report_candidates: list[Any] = []
+    watch_candidates: list[Any] = []
+    blocked: list[dict[str, Any]] = []
+    for row in rows:
+        row_payload = _candidate_row_payload(row)
+        if selected_required and not bool(row_payload.get(selected_key)):
+            watch_candidates.append(row)
+            continue
+        reason = ai_review_quality_gate_reason(row_payload, candidate_ai_review_label(row_payload))
+        if reason:
+            watch_candidates.append(row)
+            blocked.append(_blocked_candidate(row_payload, reason))
+            continue
+        report_candidates.append(row)
+    payload: dict[str, Any] = {"report_candidates": report_candidates, "watch_candidates": watch_candidates}
+    if blocked:
+        payload["quality_gate"] = {
+            "status": "blocked_by_quality_gate",
+            "reason": blocked[0]["reason"],
+            "blocked_count": len(blocked),
+            "candidates": blocked[:5],
+        }
+    return payload
+
+
+def _candidate_row_payload(row: Any) -> dict[str, Any]:
+    if isinstance(row, dict):
+        return row
+    return {"code": str(row or "").strip()}
+
+
+def _blocked_candidate(row: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {"code": row.get("code") or row.get("symbol"), "name": row.get("name"), "reason": reason}
+
+
 def _has_explicit_quality_score(row: dict[str, Any]) -> bool:
     return row.get("candidate_shadow_score") not in (None, "", []) or row.get("entry_quality_score") not in (
         None,

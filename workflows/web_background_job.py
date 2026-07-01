@@ -12,6 +12,7 @@ from typing import Any
 
 from core.candidate_guards import policy_candidate_guard_summary
 from core.candidate_policy import candidate_score_value
+from core.candidate_quality import split_ai_review_candidates
 from tools.funnel_public import public_funnel_metrics
 from workflows.recommendation_event_eval_summary import recommendation_event_eval_result_summary
 
@@ -118,7 +119,9 @@ def _run_funnel_screen(request_id: str, payload: dict[str, Any]) -> dict[str, An
             )
         trigger_groups[str(trigger_name)] = group_rows
 
-    return {
+    ai_review_split = split_ai_review_candidates(list(symbols_for_report or []), selected_required=False)
+    filtered_symbols_for_report = list(ai_review_split.get("report_candidates") or [])
+    result = {
         "request_id": request_id,
         "job_kind": "funnel_screen",
         "ok": bool(ok),
@@ -133,13 +136,18 @@ def _run_funnel_screen(request_id: str, payload: dict[str, Any]) -> dict[str, An
             "selected_for_ai": int(len(details.get("selected_for_ai", []) or [])),
         },
         "trigger_groups": trigger_groups,
-        "symbols_for_report": symbols_for_report,
+        "symbols_for_report": filtered_symbols_for_report,
+        "report_candidates": filtered_symbols_for_report,
+        "watch_candidates": list(ai_review_split.get("watch_candidates") or []),
         "selected_for_ai": details.get("selected_for_ai", []) or [],
         "trend_selected": details.get("trend_selected", []) or [],
         "accum_selected": details.get("accum_selected", []) or [],
         "top_sectors": metrics.get("top_sectors", []) or [],
         "content_preview": str(details.get("content", "") or "")[:4000],
     }
+    if quality_gate := ai_review_split.get("quality_gate"):
+        result["quality_gate"] = quality_gate
+    return result
 
 
 def _resolve_model_credentials(payload: dict[str, Any]) -> tuple[str, str, str, str]:
