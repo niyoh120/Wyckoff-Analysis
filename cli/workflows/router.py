@@ -7,6 +7,18 @@ from dataclasses import replace
 from cli.workflows.models import WorkflowContext
 
 ASK_TOOLS = ("ask_user_question",)
+_STOCK_SELECTION_DELIVERY_MARKERS = (
+    "选出好股票",
+    "挑出好股票",
+    "筛出好股票",
+)
+_STOCK_SELECTION_EXPLAINER_MARKERS = (
+    "是什么",
+    "什么意思",
+    "怎么",
+    "如何",
+    "解释",
+)
 _STOCK_SELECTION_TARGET_MARKERS = (
     "选股",
     "选出好股票",
@@ -166,6 +178,9 @@ def _explicit_dynamic_workflow_matches(text: str) -> tuple[str, ...]:
 
 
 def _stock_selection_workflow_matches(text: str) -> tuple[str, ...]:
+    delivery_matches = _marker_matches(text, _STOCK_SELECTION_DELIVERY_MARKERS)
+    if delivery_matches and not _stock_selection_explainer_matches(text):
+        return delivery_matches
     target_matches = _marker_matches(text, _STOCK_SELECTION_TARGET_MARKERS)
     if not target_matches:
         return ()
@@ -177,6 +192,10 @@ def _stock_selection_workflow_matches(text: str) -> tuple[str, ...]:
 
 def _marker_matches(text: str, markers: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(marker for marker in markers if marker in text)
+
+
+def _stock_selection_explainer_matches(text: str) -> bool:
+    return any(marker in text for marker in _STOCK_SELECTION_EXPLAINER_MARKERS)
 
 
 def _with_route(

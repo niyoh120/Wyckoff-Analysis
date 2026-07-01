@@ -132,11 +132,27 @@ def test_route_workflow_routes_obvious_stock_selection_to_dynamic_fallback():
     assert {"选股", "完整", "今天", "买卖计划"}.issubset(workflow.route_matches)
 
 
+def test_route_workflow_routes_short_stock_selection_delivery_to_dynamic_fallback():
+    workflow = route_workflow("帮我选出好股票")
+
+    assert workflow.name == "dynamic_task"
+    assert "screen_stocks" in workflow.allowed_tools
+    assert workflow.route_reason == "明显的多阶段选股任务"
+    assert workflow.route_matches == ("选出好股票",)
+
+
 def test_route_workflow_keeps_simple_stock_selection_concept_direct():
     workflow = route_workflow("好股票是什么意思？")
 
     assert workflow.name == "general_chat"
     assert workflow.route_reason == "普通工具型对话交给直接 agent"
+    assert workflow.route_matches == ()
+
+
+def test_route_workflow_keeps_stock_selection_how_to_direct():
+    workflow = route_workflow("怎么选出好股票？")
+
+    assert workflow.name == "general_chat"
     assert workflow.route_matches == ()
 
 
@@ -381,6 +397,20 @@ def test_dispatch_uses_stock_selection_fallback_when_model_router_is_unavailable
     assert workflow.route_reason == "模型路由不可用（无路由响应），沿用兜底路由：明显的多阶段选股任务"
     assert workflow.route_matches[0] == "model_router_fallback"
     assert "选股" in workflow.route_matches
+
+
+def test_dispatch_uses_short_stock_selection_fallback_when_model_router_is_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我选出好股票",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），沿用兜底路由：明显的多阶段选股任务"
+    assert workflow.route_matches == ("model_router_fallback", "选出好股票")
 
 
 def test_dispatch_surfaces_invalid_model_router_json():
