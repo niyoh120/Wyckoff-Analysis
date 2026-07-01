@@ -32,6 +32,7 @@ from cli.workflows.models import (
 )
 from cli.workflows.planner import plan_workflow
 from cli.workflows.store import append_workflow_event, persist_workflow_script, save_workflow_run
+from utils.tool_result_preview import tool_result_brief_lines
 
 _AGENTS: dict[str, SubAgent] = {
     "task": WORKFLOW_TASK_AGENT,
@@ -327,10 +328,11 @@ class WorkflowExecutor:
 
     def _synthesize_results(self, results: list[dict[str, Any]], system_prompt: str) -> tuple[str, dict[str, int]]:
         prompt = _synthesis_prompt(self._require_run(), results)
+        fallback_text = _fallback_summary(results)
         try:
-            return _collect_synthesis(self.provider, prompt, system_prompt)
+            return _collect_synthesis(self.provider, prompt, system_prompt, fallback_text=fallback_text)
         except Exception:
-            return _fallback_summary(results), {"input_tokens": 0, "output_tokens": 0}
+            return fallback_text, {"input_tokens": 0, "output_tokens": 0}
 
     def _mark_run_done(self, final_text: str) -> RuntimeEvent:
         run = self._require_run()
@@ -671,7 +673,13 @@ def _synthesis_handoff_summary(results: list[dict[str, Any]]) -> list[dict[str, 
     return summary
 
 
-def _collect_synthesis(provider: Any, prompt: str, system_prompt: str) -> tuple[str, dict[str, int]]:
+def _collect_synthesis(
+    provider: Any,
+    prompt: str,
+    system_prompt: str,
+    *,
+    fallback_text: str = "",
+) -> tuple[str, dict[str, int]]:
     text_parts: list[str] = []
     usage = {"input_tokens": 0, "output_tokens": 0}
     for chunk in provider.chat_stream([{"role": "user", "content": prompt}], [], system_prompt):
@@ -681,7 +689,7 @@ def _collect_synthesis(provider: Any, prompt: str, system_prompt: str) -> tuple[
             usage["input_tokens"] += int(chunk.get("input_tokens", 0) or 0)
             usage["output_tokens"] += int(chunk.get("output_tokens", 0) or 0)
     text = "".join(text_parts).strip()
-    return (text or _fallback_summary([]), usage)
+    return (text or fallback_text or _fallback_summary([]), usage)
 
 
 def _fallback_summary(results: list[dict[str, Any]]) -> str:
@@ -693,4 +701,19 @@ def _fallback_summary(results: list[dict[str, Any]]) -> str:
         status = result.get("status", "unknown")
         content = result.get("result") or result.get("error") or "无结果"
         lines.append(f"- {title} [{status}]: {str(content)[:500]}")
+        for line in _fallback_handoff_lines(result.get("handoff_state")):
+            lines.append(f"  候选: {line}")
     return "\n".join(lines)
+
+
+def _fallback_handoff_lines(handoff: Any) -> list[str]:
+    if not isinstance(handoff, dict):
+        return []
+    lines: list[str] = []
+    screen = handoff.get("last_screen_result")
+    if isinstance(screen, dict):
+        lines.extend(tool_result_brief_lines("screen_stocks", screen, max_lines=3))
+    recommendation = handoff.get("last_recommendation_event_eval")
+    if isinstance(recommendation, dict):
+        lines.extend(tool_result_brief_lines("evaluate_recommendation_events", recommendation, max_lines=3))
+    return list(dict.fromkeys(line for line in lines if line))[:6]

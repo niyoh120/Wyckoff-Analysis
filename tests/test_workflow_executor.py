@@ -698,6 +698,57 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
     assert '"candidate_shadow_score": 92.0' not in agent_results_section
 
 
+def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-empty-synthesis.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    tools = StubToolRegistry()
+    tools._tool_context = SimpleNamespace(
+        state={
+            "last_screen_result": {
+                "symbols_for_report": [
+                    {
+                        "code": "300750",
+                        "name": "宁德时代",
+                        "candidate_shadow_score": 92.0,
+                        "candidate_shadow_grade": "S",
+                        "action_status": "ready_for_ai_review",
+                        "next_step": "生成 AI 研报",
+                    }
+                ]
+            }
+        }
+    )
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "候选扫描完成。"}],
+            [],
+        ]
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_empty_synthesis",
+        user_text="用 workflow 选出好股票",
+        workflow_context=route_workflow("用 workflow 选出好股票"),
+        workflow_script={"tasks": [{"id": "scan", "title": "扫描候选", "prompt": "扫描候选"}]},
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 选出好股票"}]))
+
+    try:
+        final_text = events[-1]["text"]
+        assert "动态 workflow 已完成" in final_text
+        assert "候选扫描完成" in final_text
+        assert "300750 宁德时代" in final_text
+        assert "候选影子S/92" in final_text
+        assert "下一步: 生成 AI 研报" in final_text
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_waits_step_background_tasks_for_handoff(tmp_path, monkeypatch):
     from integrations import local_db
 

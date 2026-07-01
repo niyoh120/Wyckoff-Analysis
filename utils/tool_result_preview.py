@@ -352,6 +352,7 @@ def _screen_brief_candidates(result: dict[str, Any]) -> list[dict[str, Any]]:
     selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
     rows: list[Any] = [selection.get("primary_pick")]
     rows.extend(_preview_list(selection.get("best_candidates"), 3))
+    rows.extend(_preview_list(result.get("symbols_for_report"), 3))
     rows.extend(_preview_list(result.get("top_candidates"), 3))
     return _dedupe_candidate_rows(rows)
 

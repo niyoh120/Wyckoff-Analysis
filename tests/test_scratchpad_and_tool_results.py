@@ -252,6 +252,27 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
     ]
 
 
+def test_screen_stocks_brief_lines_use_symbols_for_report_handoff():
+    result = {
+        "symbols_for_report": [
+            {
+                "code": "300750",
+                "name": "宁德时代",
+                "candidate_shadow_score": 92.0,
+                "candidate_shadow_grade": "S",
+                "action_status": "ready_for_ai_review",
+                "next_step": "生成 AI 研报",
+            }
+        ]
+    }
+
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert lines == [
+        "300750 宁德时代 · 可进入AI复核 · 证据: 候选影子S/92 · 下一步: 生成 AI 研报",
+    ]
+
+
 def test_recommendation_event_eval_large_result_preview_preserves_policy_selection(tmp_path, monkeypatch):
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     result = {
