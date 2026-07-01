@@ -772,6 +772,8 @@ def _collect_synthesis(
 
 def _fallback_summary(results: list[dict[str, Any]]) -> str:
     lines = ["动态 workflow 已完成，以下是各 sub-agent 的结果摘要："]
+    if conclusion := _fallback_candidate_conclusion(results):
+        lines.append(conclusion)
     for item in results:
         step = item.get("step", {})
         result = item.get("result", {})
@@ -782,6 +784,117 @@ def _fallback_summary(results: list[dict[str, Any]]) -> str:
         for line in _fallback_handoff_lines(result.get("handoff_state")):
             lines.append(f"  证据: {line}")
     return "\n".join(lines)
+
+
+def _fallback_candidate_conclusion(results: list[dict[str, Any]]) -> str:
+    for item in reversed(results):
+        result = item.get("result") if isinstance(item, dict) else {}
+        handoff = result.get("handoff_state") if isinstance(result, dict) else {}
+        if not isinstance(handoff, dict):
+            continue
+        for stage in (
+            "last_strategy_decision",
+            "last_ai_report",
+            "last_recommendation_event_eval",
+            "last_screen_result",
+        ):
+            value = handoff.get(stage)
+            if not isinstance(value, dict):
+                continue
+            if row := _fallback_stage_candidate(stage, value):
+                return _fallback_candidate_line(row, value)
+    return ""
+
+
+def _fallback_stage_candidate(stage: str, value: dict[str, Any]) -> dict[str, Any]:
+    if stage == "last_screen_result":
+        selection = value.get("selection_brief") if isinstance(value.get("selection_brief"), dict) else {}
+        rows = [selection.get("primary_pick")]
+        rows.extend(_as_list(selection.get("best_candidates")))
+        rows.extend(_as_list(value.get("symbols_for_report")))
+        rows.extend(_as_list(value.get("top_candidates")))
+        return _first_candidate_row(rows)
+    if stage == "last_recommendation_event_eval":
+        selection = value.get("policy_selection") if isinstance(value.get("policy_selection"), dict) else {}
+        return _first_candidate_row(_as_list(selection.get("picks")))
+    return _first_candidate_row(_as_list(value.get("reviewed_symbols")))
+
+
+def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any]) -> str:
+    parts = [
+        f"首选 {_fallback_candidate_name(row)}",
+        _fallback_status_part(row),
+        _fallback_evidence_part(row),
+        _fallback_guard_part(row, stage),
+        _fallback_next_part(row, stage),
+    ]
+    return "候选结论: " + "；".join(part for part in parts if part)
+
+
+def _fallback_candidate_name(row: dict[str, Any]) -> str:
+    code = str(row.get("code") or "").strip()
+    name = str(row.get("name") or "").strip()
+    return " ".join(part for part in (code, name) if part) or "候选"
+
+
+def _fallback_status_part(row: dict[str, Any]) -> str:
+    status = str(row.get("action_status") or "").strip()
+    return f"状态={status}" if status else ""
+
+
+def _fallback_evidence_part(row: dict[str, Any]) -> str:
+    evidence = [
+        _grade_score_part("候选影子", row.get("candidate_shadow_grade"), row.get("candidate_shadow_score")),
+        _grade_score_part("入场", row.get("entry_quality_grade"), row.get("entry_quality_score")),
+        _score_part("漏斗分", row.get("funnel_score")),
+        _score_part("优先分", row.get("priority_score")),
+    ]
+    evidence = [part for part in evidence if part]
+    return f"证据={','.join(evidence)}" if evidence else ""
+
+
+def _fallback_guard_part(row: dict[str, Any], stage: dict[str, Any]) -> str:
+    guard = stage.get("candidate_guard_summary") if isinstance(stage.get("candidate_guard_summary"), dict) else {}
+    candidates = _as_list(guard.get("candidates")) if isinstance(guard, dict) else []
+    code = str(row.get("code") or "").strip()
+    for item in candidates:
+        if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
+            return f"护栏={item['reason']}"
+    first = next((item for item in candidates if isinstance(item, dict) and item.get("reason")), {})
+    return f"护栏={first['reason']}" if first else ""
+
+
+def _fallback_next_part(row: dict[str, Any], stage: dict[str, Any]) -> str:
+    action_plan = stage.get("action_plan") if isinstance(stage.get("action_plan"), dict) else {}
+    next_step = row.get("next_step") or stage.get("next_action") or action_plan.get("next_step")
+    return f"下一步={next_step}" if next_step else ""
+
+
+def _first_candidate_row(rows: list[Any]) -> dict[str, Any]:
+    return next((row for row in rows if isinstance(row, dict) and (row.get("code") or row.get("name"))), {})
+
+
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _grade_score_part(label: str, grade: Any, score: Any) -> str:
+    grade_text = str(grade or "").strip()
+    score_text = _score_text(score)
+    if grade_text and score_text:
+        return f"{label}{grade_text}/{score_text}"
+    return f"{label}{grade_text or score_text}" if grade_text or score_text else ""
+
+
+def _score_part(label: str, score: Any) -> str:
+    return f"{label}{value}" if (value := _score_text(score)) else ""
+
+
+def _score_text(value: Any) -> str:
+    try:
+        return f"{float(value):.1f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return ""
 
 
 def _fallback_handoff_lines(handoff: Any) -> list[str]:

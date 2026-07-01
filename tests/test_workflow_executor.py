@@ -1001,6 +1001,9 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
     try:
         final_text = events[-1]["text"]
         assert "动态 workflow 已完成" in final_text
+        assert "候选结论: 首选 300750 宁德时代" in final_text
+        assert "状态=ready_for_ai_review" in final_text
+        assert "护栏=候选标签未成熟，禁止直接买入" in final_text
         assert "候选扫描完成" in final_text
         assert "300750 宁德时代" in final_text
         assert "候选影子S/92" in final_text
