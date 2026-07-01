@@ -95,10 +95,13 @@ def _recommendation_event_eval_brief_lines(result: dict[str, Any], *, max_lines:
     lines = [line.strip() for line in str(result.get("result_summary") or "").splitlines() if line.strip()]
     if not lines:
         lines = _recommendation_fallback_brief_lines(result)
+    conclusion_line = _candidate_conclusion_brief_line("last_recommendation_event_eval", result)
     guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
-    pick_lines = _recommendation_policy_brief_lines(result.get("policy_selection"))
-    reserved = int(bool(guard_line)) + int(bool(pick_lines))
+    pick_lines = [] if conclusion_line else _recommendation_policy_brief_lines(result.get("policy_selection"))
+    reserved = int(bool(conclusion_line)) + int(bool(guard_line)) + int(bool(pick_lines))
     lines = lines[: max(max_lines - reserved, 0)]
+    if conclusion_line:
+        lines.append(conclusion_line)
     if guard_line:
         lines.append(guard_line)
     if pick_lines:
@@ -329,6 +332,8 @@ def _ai_report_preview(result: dict[str, Any]) -> str:
 
 def _ai_report_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
     lines = [_tool_stage_line("AI研报", result, _reviewed_count(result))]
+    if conclusion_line := _candidate_conclusion_brief_line("last_ai_report", result):
+        lines.append(conclusion_line)
     if guard_line := _candidate_guard_brief_line(result.get("candidate_guard_summary")):
         lines.append(guard_line)
     lines.extend(_reviewed_symbol_lines(result, max_lines=max_lines))
@@ -337,6 +342,8 @@ def _ai_report_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[st
 
 def _strategy_decision_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
     lines = [_strategy_stage_line(result)]
+    if conclusion_line := _candidate_conclusion_brief_line("last_strategy_decision", result):
+        lines.append(conclusion_line)
     if guard_line := _candidate_guard_brief_line(result.get("candidate_guard_summary")):
         lines.append(guard_line)
     lines.extend(_reviewed_symbol_lines(result, max_lines=max_lines))
@@ -453,6 +460,11 @@ def _candidate_conclusion_preview(source_stage: str, result: dict[str, Any]) -> 
     )
 
 
+def _candidate_conclusion_brief_line(source_stage: str, result: dict[str, Any]) -> str:
+    conclusion = _candidate_conclusion_preview(source_stage, result)
+    return _text_excerpt(conclusion.get("line"), 280) if conclusion else ""
+
+
 def _candidate_conclusion_row(source_stage: str, result: dict[str, Any]) -> dict[str, Any]:
     rows = _candidate_conclusion_candidates(source_stage, result)
     first = _first_candidate_row(rows)
@@ -564,14 +576,29 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     headline = _text_excerpt(selection.get("headline"), 120)
     if headline:
         lines.append(headline)
+    conclusion = _candidate_conclusion_preview("last_screen_result", result)
+    if conclusion_line := _text_excerpt(conclusion.get("line"), 280):
+        lines.append(conclusion_line)
     if guard_line := _candidate_guard_brief_line(result.get("candidate_guard_summary")):
         lines.append(guard_line)
     for row in _screen_brief_candidates(result):
+        if _candidate_matches_conclusion(row, conclusion):
+            continue
         if line := _candidate_brief_line(row):
             lines.append(line)
         if len(lines) >= max_lines:
             break
     return lines[:max_lines]
+
+
+def _candidate_matches_conclusion(row: dict[str, Any], conclusion: dict[str, Any]) -> bool:
+    if not conclusion:
+        return False
+    code = str(conclusion.get("code") or "").strip()
+    if code and str(row.get("code") or "").strip() == code:
+        return True
+    name = str(conclusion.get("name") or "").strip()
+    return bool(name and str(row.get("name") or "").strip() == name)
 
 
 def _screen_brief_candidates(result: dict[str, Any]) -> list[dict[str, Any]]:

@@ -333,9 +333,10 @@ def test_tool_result_view_surfaces_screen_candidate_risk():
     rendered = str(renderable)
     assert summary["brief"] == [
         "本轮首选可进入 AI 研报复核: 300750 宁德时代",
-        "300750 宁德时代 · 风险闸门关闭 · 证据: 优先分12.5；动态分4.2 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察",
+        "候选结论: 首选 300750 宁德时代 · 风险闸门关闭 · 证据: 优先分12.5；动态分4.2 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察",
     ]
     assert "screen_stocks" in rendered
+    assert "候选结论: 首选 300750 宁德时代" in rendered
     assert "优先分12.5" in rendered
     assert "动态分4.2" in rendered
     assert "高优先级研报候选" in rendered
@@ -378,7 +379,8 @@ def test_tool_result_view_surfaces_recommendation_eval_pick_action():
     )
 
     rendered = str(renderable)
-    assert summary["brief"][-1].startswith("300750 宁德时代 · 可进入AI复核")
+    assert summary["brief"][-1].startswith("候选结论: 首选 300750 宁德时代 · 可进入AI复核")
+    assert "候选结论: 首选 300750 宁德时代" in rendered
     assert "漏斗分89.5" in rendered
     assert "候选影子S/92" in rendered
     assert "入场A/84" in rendered

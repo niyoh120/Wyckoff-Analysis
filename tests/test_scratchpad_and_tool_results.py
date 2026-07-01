@@ -208,7 +208,7 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
 
     assert lines == [
         "本轮首选可进入 AI 研报复核: 300750 宁德时代",
-        "300750 宁德时代 · 风险闸门关闭 · 证据: 优先分12.5；动态分4.2 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察，等待风险闸门重新打开",
+        "候选结论: 首选 300750 宁德时代 · 风险闸门关闭 · 证据: 优先分12.5；动态分4.2 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察，等待风险闸门重新打开",
         "000001 平安银行 · 观察池 · 证据: 触发分8.5 · 亮点: 触发:SOS；缩量回踩 · 风险: 未进入本轮研报候选",
     ]
 
@@ -252,7 +252,7 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
     assert "护栏: 不要直接据此选股，先重跑或缩小扫描范围" in preview
     assert lines == [
         "本轮有候选，但数据质量未过关: 300750 宁德时代",
-        "300750 宁德时代 · 数据质量未过关 · 证据: 优先分12.5 · 亮点: 高优先级研报候选 · 风险: 不要直接据此选股，先重跑或缩小扫描范围 · 下一步: 数据质量不足，先重跑或缩小扫描范围",
+        "候选结论: 首选 300750 宁德时代 · 数据质量未过关 · 证据: 优先分12.5 · 亮点: 高优先级研报候选 · 风险: 不要直接据此选股，先重跑或缩小扫描范围 · 下一步: 数据质量不足，先重跑或缩小扫描范围 · 护栏: 不要直接据此选股，先重跑或缩小扫描范围",
     ]
 
 
@@ -273,7 +273,7 @@ def test_screen_stocks_brief_lines_use_symbols_for_report_handoff():
     lines = tool_result_brief_lines("screen_stocks", result)
 
     assert lines == [
-        "300750 宁德时代 · 可进入AI复核 · 证据: 候选影子S/92 · 下一步: 生成 AI 研报",
+        "候选结论: 首选 300750 宁德时代 · 可进入AI复核 · 证据: 候选影子S/92 · 下一步: 生成 AI 研报",
     ]
 
 
@@ -369,8 +369,8 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert '"events"' not in content
     assert lines == [
         "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",
+        "候选结论: 首选 300750 宁德时代 · 可进入AI复核 · 证据: 漏斗分89.5；候选影子S/92；入场A/84 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 下一步: 生成 AI 研报并结合持仓形成攻防决策 · 护栏: 候选标签未成熟，禁止直接买入",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选标签未成熟，禁止直接买入)",
-        "300750 宁德时代 · 可进入AI复核 · 证据: 漏斗分89.5；候选影子S/92；入场A/84 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 下一步: 生成 AI 研报并结合持仓形成攻防决策",
     ]
 
 
@@ -431,8 +431,8 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
     assert report_text not in content
     assert lines == [
         "AI研报: reviewed=2, model=gpt-test, next=研报已完成；候选存在禁止直接买入边界，下一步只进入组合攻防复核",
+        "候选结论: 首选 300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 护栏: 候选状态 blocked_by_market_gate 不允许直接买入 · 下一步: 研报已完成；候选存在禁止直接买入边界，下一步只进入组合攻防复核",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选状态 blocked_by_market_gate 不允许直接买入)",
-        "000001 平安银行",
     ]
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1
@@ -497,6 +497,6 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
     assert result["report_preview"] not in content
     assert lines == [
         "攻防决策: status=skipped_notify_unconfigured, source=last_ai_report, reviewed=1, next=补充 Telegram 配置后可生成并发送 OMS 工单",
+        "候选结论: 首选 300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 护栏: 候选状态 blocked_by_market_gate 不允许直接买入 · 下一步: 补充 Telegram 配置后可生成并发送 OMS 工单",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选状态 blocked_by_market_gate 不允许直接买入)",
-        "300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭",
     ]
