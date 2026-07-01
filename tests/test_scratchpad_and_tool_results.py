@@ -182,6 +182,8 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
             "primary_pick": {
                 "code": "300750",
                 "name": "宁德时代",
+                "priority_score": 12.5,
+                "shadow_score": 4.2,
                 "quality_factors": ["高优先级研报候选", "趋势线"],
                 "risk_factors": ["大盘风险闸门关闭"],
                 "action_status": "blocked_by_market_gate",
@@ -193,6 +195,7 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
                 "code": "000001",
                 "name": "平安银行",
                 "why": "触发:SOS；缩量回踩",
+                "score": 8.5,
                 "risk_factors": ["未进入本轮研报候选"],
                 "action_status": "watch_only",
             }
@@ -203,8 +206,8 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
 
     assert lines == [
         "本轮首选可进入 AI 研报复核: 300750 宁德时代",
-        "300750 宁德时代 · 风险闸门关闭 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察，等待风险闸门重新打开",
-        "000001 平安银行 · 观察池 · 亮点: 触发:SOS；缩量回踩 · 风险: 未进入本轮研报候选",
+        "300750 宁德时代 · 风险闸门关闭 · 证据: 优先分12.5；动态分4.2 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察，等待风险闸门重新打开",
+        "000001 平安银行 · 观察池 · 证据: 触发分8.5 · 亮点: 触发:SOS；缩量回踩 · 风险: 未进入本轮研报候选",
     ]
 
 
@@ -215,6 +218,7 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
             "primary_pick": {
                 "code": "300750",
                 "name": "宁德时代",
+                "priority_score": 12.5,
                 "quality_factors": ["高优先级研报候选"],
                 "risk_factors": ["不要直接据此选股，先重跑或缩小扫描范围"],
                 "action_status": "blocked_by_data_quality",
@@ -244,7 +248,7 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
     assert '"status": "blocked_by_data_quality"' in preview
     assert lines == [
         "本轮有候选，但数据质量未过关: 300750 宁德时代",
-        "300750 宁德时代 · 数据质量未过关 · 亮点: 高优先级研报候选 · 风险: 不要直接据此选股，先重跑或缩小扫描范围 · 下一步: 数据质量不足，先重跑或缩小扫描范围",
+        "300750 宁德时代 · 数据质量未过关 · 证据: 优先分12.5 · 亮点: 高优先级研报候选 · 风险: 不要直接据此选股，先重跑或缩小扫描范围 · 下一步: 数据质量不足，先重跑或缩小扫描范围",
     ]
 
 
@@ -289,7 +293,11 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
                     "rank": 1,
                     "code": "300750",
                     "name": "宁德时代",
+                    "funnel_score": 89.5,
+                    "candidate_shadow_score": 92.0,
                     "candidate_shadow_grade": "S",
+                    "entry_quality_score": 84.0,
+                    "entry_quality_grade": "A",
                     "action_status": "ready_for_ai_review",
                     "quality_factors": ["候选影子评级 S"],
                     "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
@@ -316,7 +324,7 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert lines == [
         "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",
         "排序接入候选: candidate_shadow_then_score top1 已通过样本/lift/风险门槛",
-        "300750 宁德时代 · 可进入AI复核 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 下一步: 生成 AI 研报并结合持仓形成攻防决策",
+        "300750 宁德时代 · 可进入AI复核 · 证据: 漏斗分89.5；候选影子S/92；入场A/84 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 下一步: 生成 AI 研报并结合持仓形成攻防决策",
     ]
 
 

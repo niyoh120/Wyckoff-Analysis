@@ -176,6 +176,8 @@ def test_tool_result_view_surfaces_screen_candidate_risk():
                     "primary_pick": {
                         "code": "300750",
                         "name": "宁德时代",
+                        "priority_score": 12.5,
+                        "shadow_score": 4.2,
                         "quality_factors": ["高优先级研报候选", "趋势线"],
                         "risk_factors": ["大盘风险闸门关闭"],
                         "action_status": "blocked_by_market_gate",
@@ -190,9 +192,11 @@ def test_tool_result_view_surfaces_screen_candidate_risk():
     rendered = str(renderable)
     assert summary["brief"] == [
         "本轮首选可进入 AI 研报复核: 300750 宁德时代",
-        "300750 宁德时代 · 风险闸门关闭 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察",
+        "300750 宁德时代 · 风险闸门关闭 · 证据: 优先分12.5；动态分4.2 · 亮点: 高优先级研报候选；趋势线 · 风险: 大盘风险闸门关闭 · 下一步: 只观察",
     ]
     assert "screen_stocks" in rendered
+    assert "优先分12.5" in rendered
+    assert "动态分4.2" in rendered
     assert "高优先级研报候选" in rendered
     assert "风险闸门关闭" in rendered
     assert "大盘风险闸门关闭" in rendered
@@ -215,6 +219,11 @@ def test_tool_result_view_surfaces_recommendation_eval_pick_action():
                         {
                             "code": "300750",
                             "name": "宁德时代",
+                            "funnel_score": 89.5,
+                            "candidate_shadow_score": 92.0,
+                            "candidate_shadow_grade": "S",
+                            "entry_quality_score": 84.0,
+                            "entry_quality_grade": "A",
                             "action_status": "ready_for_ai_review",
                             "quality_factors": ["候选影子评级 S"],
                             "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
@@ -229,6 +238,9 @@ def test_tool_result_view_surfaces_recommendation_eval_pick_action():
 
     rendered = str(renderable)
     assert summary["brief"][-1].startswith("300750 宁德时代 · 可进入AI复核")
+    assert "漏斗分89.5" in rendered
+    assert "候选影子S/92" in rendered
+    assert "入场A/84" in rendered
     assert "候选影子评级 S" in rendered
     assert "最新候选的未来窗口标签尚未成熟" in rendered
 

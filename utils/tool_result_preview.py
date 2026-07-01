@@ -374,6 +374,7 @@ def _candidate_brief_line(row: dict[str, Any]) -> str:
     name = _candidate_name(row)
     parts = [
         _action_status_label(row.get("action_status")),
+        _brief_evidence(row),
         _brief_quality(row),
         _brief_risk(row),
         _brief_next_step(row),
@@ -402,6 +403,53 @@ def _action_status_label(value: Any) -> str:
 def _brief_risk(row: dict[str, Any]) -> str:
     risks = [str(item).strip() for item in _preview_list(row.get("risk_factors"), 2) if str(item).strip()]
     return f"风险: {'；'.join(risks)}" if risks else ""
+
+
+def _brief_evidence(row: dict[str, Any]) -> str:
+    parts = [
+        _score_evidence("优先分", row.get("priority_score")),
+        _score_evidence("动态分", row.get("shadow_score")),
+        _score_evidence("触发分", row.get("score")),
+        _score_evidence("漏斗分", row.get("funnel_score")),
+        _grade_score_evidence("候选影子", row.get("candidate_shadow_grade"), row.get("candidate_shadow_score")),
+        _grade_score_evidence("入场", row.get("entry_quality_grade"), row.get("entry_quality_score")),
+        "已AI推荐" if row.get("is_ai_recommended") is True else "",
+        _strategy_evidence(row.get("selection_strategy")),
+    ]
+    evidence = [part for part in parts if part]
+    return f"证据: {'；'.join(evidence[:5])}" if evidence else ""
+
+
+def _score_evidence(label: str, value: Any) -> str:
+    score = _format_score(value)
+    return f"{label}{score}" if score else ""
+
+
+def _grade_score_evidence(label: str, grade: Any, score: Any) -> str:
+    grade_text = str(grade or "").strip()
+    score_text = _format_score(score)
+    if grade_text and score_text:
+        return f"{label}{grade_text}/{score_text}"
+    if grade_text:
+        return f"{label}{grade_text}"
+    if score_text:
+        return f"{label}{score_text}"
+    return ""
+
+
+def _strategy_evidence(value: Any) -> str:
+    strategy = str(value or "").strip()
+    return f"排序:{strategy}" if strategy else ""
+
+
+def _format_score(value: Any) -> str:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if not math.isfinite(score):
+        return ""
+    return f"{score:.2f}".rstrip("0").rstrip(".")
 
 
 def _brief_quality(row: dict[str, Any]) -> str:
@@ -473,10 +521,23 @@ _CANDIDATE_PREVIEW_FIELDS = (
     "candidate_lane",
     "entry_type",
     "selection_source",
+    "source_type",
     "priority_rank",
     "priority_score",
     "shadow_score",
     "score",
+    "selection_strategy",
+    "recommend_date",
+    "is_ai_recommended",
+    "funnel_score",
+    "recommend_count",
+    "candidate_shadow_score",
+    "candidate_shadow_grade",
+    "entry_quality_score",
+    "entry_quality_grade",
+    "entry_quality_risk_flags",
+    "label_ready",
+    "label_status",
     "rank_reason",
     "quality_factors",
     "risk_factors",
