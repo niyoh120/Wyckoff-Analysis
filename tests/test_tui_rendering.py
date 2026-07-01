@@ -198,6 +198,41 @@ def test_tool_result_view_surfaces_screen_candidate_risk():
     assert "大盘风险闸门关闭" in rendered
 
 
+def test_tool_result_view_surfaces_recommendation_eval_pick_action():
+    summary, renderable = _tool_result_view(
+        {
+            "type": "tool_result",
+            "name": "evaluate_recommendation_events",
+            "elapsed_ms": 1200,
+            "result": {
+                "result_summary": (
+                    "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate\n"
+                    "排序接入候选: candidate_shadow_then_score top1 已通过样本/lift/风险门槛\n"
+                    "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代"
+                ),
+                "policy_selection": {
+                    "picks": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "action_status": "ready_for_ai_review",
+                            "quality_factors": ["候选影子评级 S"],
+                            "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                            "next_step": "生成 AI 研报并结合持仓形成攻防决策",
+                        }
+                    ]
+                },
+            },
+        },
+        None,
+    )
+
+    rendered = str(renderable)
+    assert summary["brief"][-1].startswith("300750 宁德时代 · 可进入AI复核")
+    assert "候选影子评级 S" in rendered
+    assert "最新候选的未来窗口标签尚未成熟" in rendered
+
+
 def test_workflow_detail_step_line_includes_tool_scope():
     line = _workflow_detail_step_line(
         {

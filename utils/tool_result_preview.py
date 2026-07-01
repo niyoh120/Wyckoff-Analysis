@@ -89,6 +89,10 @@ def _recommendation_event_eval_brief_lines(result: dict[str, Any], *, max_lines:
     lines = [line.strip() for line in str(result.get("result_summary") or "").splitlines() if line.strip()]
     if not lines:
         lines = _recommendation_fallback_brief_lines(result)
+    pick_lines = _recommendation_policy_brief_lines(result.get("policy_selection"))
+    if pick_lines:
+        keep = max(max_lines - len(pick_lines[:1]), 0)
+        lines = lines[:keep] + pick_lines[: max_lines - keep]
     return lines[:max_lines]
 
 
@@ -236,6 +240,14 @@ def _recommendation_policy_line(value: Any) -> str:
     strategy = str(value.get("selection_strategy") or "score_only")
     rec_date = value.get("recommend_date") or "-"
     return f"最新候选({rec_date}, {strategy}): {', '.join(names[:5])}"
+
+
+def _recommendation_policy_brief_lines(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return []
+    picks = value.get("picks") if isinstance(value.get("picks"), list) else []
+    lines = [_candidate_brief_line(pick) for pick in picks if isinstance(pick, dict)]
+    return [line for line in lines if line]
 
 
 def _format_pct(raw: Any) -> str:

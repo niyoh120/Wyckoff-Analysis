@@ -280,6 +280,7 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
                     "name": "宁德时代",
                     "candidate_shadow_grade": "S",
                     "action_status": "ready_for_ai_review",
+                    "quality_factors": ["候选影子评级 S"],
                     "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
                     "next_step": "生成 AI 研报并结合持仓形成攻防决策",
                 }
@@ -302,7 +303,7 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert lines == [
         "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",
         "排序接入候选: candidate_shadow_then_score top1 已通过样本/lift/风险门槛",
-        "最新候选(20260601, candidate_shadow_then_score): 300750 宁德时代",
+        "300750 宁德时代 · 可进入AI复核 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 下一步: 生成 AI 研报并结合持仓形成攻防决策",
     ]
 
 
