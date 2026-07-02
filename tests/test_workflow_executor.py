@@ -2855,15 +2855,39 @@ def test_build_resume_prompt_includes_step_state():
             "label": "持仓复盘",
             "status": "completed",
             "user_text": "我的持仓怎么样",
+            "result_summary": "初步建议继续观察",
             "plan": {
+                "allowed_tools": ["portfolio", "generate_strategy_decision"],
                 "steps": [
-                    {"status": "completed", "title": "读取持仓与资金", "summary": "portfolio: ok"},
-                    {"status": "skipped", "title": "形成去留和风险动作", "summary": ""},
-                ]
+                    {
+                        "step_id": "positions",
+                        "status": "completed",
+                        "phase": "collect",
+                        "title": "读取持仓与资金",
+                        "tool_scope": ["portfolio"],
+                        "summary": "portfolio: ok",
+                    },
+                    {
+                        "step_id": "decision",
+                        "status": "skipped",
+                        "phase": "decide",
+                        "title": "形成去留和风险动作",
+                        "depends_on": ["positions"],
+                        "tool_scope": ["generate_strategy_decision"],
+                        "effective_tool_scope": ["generate_strategy_decision"],
+                        "prompt": "根据持仓事实输出去留和风险动作",
+                        "summary": "",
+                    },
+                ],
             },
         }
     )
 
     assert "继续 workflow wf_1" in prompt
-    assert "[completed] 读取持仓与资金 portfolio: ok" in prompt
+    assert "可用工具: portfolio, generate_strategy_decision" in prompt
+    assert "已有结果摘要: 初步建议继续观察" in prompt
+    assert "[completed] 读取持仓与资金 (id=positions; phase=collect; tool_scope=portfolio) - portfolio: ok" in prompt
+    assert "id=decision; phase=decide; depends_on=positions; tool_scope=generate_strategy_decision" in prompt
+    assert "prompt: 根据持仓事实输出去留和风险动作" in prompt
     assert "不要重复已完成工具调用" in prompt
+    assert "保持原有 tool_scope 和 depends_on" in prompt
