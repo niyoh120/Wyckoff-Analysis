@@ -717,12 +717,14 @@ def _compact_candidate_guard_row(row: dict[str, Any]) -> dict[str, Any]:
 def _candidate_rows(value: Any, limit: int) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
-    rows: list[dict[str, Any]] = []
-    for item in value[:limit]:
+    rows: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
+    for index, item in enumerate(value):
         row = _compact_candidate(item) if isinstance(item, dict) else _scalar_candidate(item)
         if row:
-            rows.append(row)
-    return rows
+            rank_row = item if isinstance(item, dict) else row
+            rows.append((index, row, rank_row))
+    ranked_rows = sorted(rows, key=lambda item: _candidate_rank_key(item[2], item[0]), reverse=True)
+    return [row for _index, row, _rank_row in ranked_rows[:limit]]
 
 
 def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
@@ -754,6 +756,7 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "selection_strategy",
         "recommend_date",
         "is_ai_recommended",
+        "selected_for_report",
         "funnel_score",
         "recommend_count",
         "candidate_shadow_score",
@@ -764,6 +767,7 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "quality_factors",
         "risk_factors",
         "action_status",
+        "status",
         "trade_readiness",
         "new_buy_allowed",
         "ai_review_allowed",

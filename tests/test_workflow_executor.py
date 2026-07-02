@@ -745,6 +745,45 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert "trigger_groups" not in screen
 
 
+def test_workflow_handoff_candidate_rows_rank_before_limit():
+    tools = StubToolRegistry()
+    low_rows = [
+        {
+            "code": f"00000{index}",
+            "name": f"观察候选{index}",
+            "action_status": "watch_only",
+            "candidate_shadow_score": 20 + index,
+        }
+        for index in range(6)
+    ]
+    tools._tool_context = SimpleNamespace(
+        state={
+            "last_screen_result": {
+                "symbols_for_report": [
+                    *low_rows,
+                    {
+                        "code": "300999",
+                        "name": "高质量候选",
+                        "status": "candidate",
+                        "selected_for_report": True,
+                        "risk_adjusted_quality_score": 91.0,
+                    },
+                ]
+            }
+        }
+    )
+
+    handoff = _workflow_handoff_state(tools)
+
+    rows = handoff["last_screen_result"]["symbols_for_report"]
+    codes = [row["code"] for row in rows]
+    assert len(rows) == 6
+    assert codes[0] == "300999"
+    assert "000000" not in codes
+    assert rows[0]["selected_for_report"] is True
+    assert rows[0]["status"] == "candidate"
+
+
 def test_workflow_handoff_state_preserves_recommendation_candidate_guard():
     tools = StubToolRegistry()
     tools._tool_context = SimpleNamespace(
