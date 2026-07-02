@@ -85,6 +85,23 @@ def test_workflow_script_cli_line_surfaces_model_contract_repair():
     assert "tool_contract_repair=model:2" in line
 
 
+def test_workflow_script_cli_line_labels_stock_selection_fallback():
+    line = _workflow_script_cli_line(
+        {
+            "script": {
+                "runtime": {
+                    "planner": "fallback_script",
+                    "fallback_kind": "stock_selection",
+                    "fallback_reason": "provider unavailable",
+                }
+            }
+        }
+    )
+
+    assert "source=stock_selection_fallback" in line
+    assert "source=fallback_script" not in line
+
+
 def test_route_workflow_keeps_task_like_typo_direct_for_model_inference():
     workflow = route_workflow("给我做磁场诊断")
 

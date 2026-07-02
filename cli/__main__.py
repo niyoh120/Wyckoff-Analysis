@@ -974,13 +974,19 @@ def _workflow_script_cli_line(plan: dict[str, Any]) -> str:
     parts: list[str] = []
     planner = str(runtime.get("planner") or "").strip()
     if planner:
-        parts.append(f"source={planner}")
+        parts.append(f"source={_workflow_script_source_label(runtime, planner)}")
     if runtime.get("tool_contract_repair") == "model":
         parts.append(_workflow_tool_contract_repair_label(runtime))
     if truncated := _workflow_runtime_int(runtime, "truncated_step_count"):
         original = _workflow_runtime_int(runtime, "original_step_count")
         parts.append(f"trimmed={truncated}/{original}")
     return f"脚本: {' '.join(parts)}" if parts else ""
+
+
+def _workflow_script_source_label(runtime: dict[str, Any], planner: str) -> str:
+    if planner == "fallback_script" and runtime.get("fallback_kind") == "stock_selection":
+        return "stock_selection_fallback"
+    return planner
 
 
 def _workflow_plan_runtime(plan: dict[str, Any]) -> dict[str, Any]:

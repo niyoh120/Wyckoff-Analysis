@@ -533,13 +533,15 @@ def _workflow_planner_line(plan: Any) -> str:
     planner = str(runtime.get("planner") or "").strip()
     if not planner:
         return ""
-    label = _workflow_planner_label(planner)
+    label = _workflow_planner_label(planner, runtime)
     reason = _workflow_planner_reason(runtime, planner)
     suffix = f" · {escape(reason)}" if reason else ""
     return f"    [dim]脚本来源：{label}{suffix}[/dim]"
 
 
-def _workflow_planner_label(planner: str) -> str:
+def _workflow_planner_label(planner: str, runtime: dict[str, Any]) -> str:
+    if planner == "fallback_script" and runtime.get("fallback_kind") == "stock_selection":
+        return "选股兜底"
     return {
         "model_script": "模型生成",
         "stored_script": "已保存脚本",
@@ -549,13 +551,17 @@ def _workflow_planner_label(planner: str) -> str:
 
 def _workflow_planner_reason(runtime: dict[str, Any], planner: str) -> str:
     if planner == "fallback_script":
-        return str(runtime.get("fallback_reason") or "").strip()
+        return _workflow_fallback_reason(runtime)
     reasons: list[str] = []
     if runtime.get("tool_contract_repair") == "model":
         reasons.append(_workflow_tool_contract_repair_reason(runtime))
     if _runtime_int(runtime, "truncated_step_count") > 0:
         reasons.append("任务过长已自动收敛")
     return " · ".join(reason for reason in reasons if reason)
+
+
+def _workflow_fallback_reason(runtime: dict[str, Any]) -> str:
+    return str(runtime.get("fallback_reason") or "").strip()
 
 
 def _workflow_tool_contract_repair_reason(runtime: dict[str, Any]) -> str:

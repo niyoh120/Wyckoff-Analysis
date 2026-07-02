@@ -540,6 +540,38 @@ def test_display_workflow_plan_event_surfaces_fallback_reason():
     assert "1. 单步处理" in rendered
 
 
+def test_display_workflow_plan_event_labels_stock_selection_fallback():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_stock_fallback",
+            "workflow": "dynamic_task",
+            "label": "动态任务",
+            "plan": {
+                "script": {
+                    "runtime": {
+                        "planner": "fallback_script",
+                        "fallback_reason": "provider unavailable",
+                        "fallback_kind": "stock_selection",
+                    }
+                },
+                "steps": [
+                    {"title": "扫描候选", "tool_scope": ["screen_stocks"]},
+                    {"title": "形成攻防边界", "tool_scope": ["generate_strategy_decision"]},
+                ],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "脚本来源：选股兜底 · provider unavailable" in rendered
+    assert "回退单步" not in rendered
+    assert "2 个动态任务" in rendered
+
+
 def test_display_workflow_plan_event_surfaces_model_step_boundaries():
     writes = []
 
