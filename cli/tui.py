@@ -1843,12 +1843,12 @@ class WyckoffTUI(App):
 
         log = self.query_one("#chat-log", ChatLog)
 
-        if self._busy and self._answer_pending_user_question(text, log):
-            return
-
         # 斜杠命令
         if text.startswith("/"):
             self._handle_command(text)
+            return
+
+        if self._busy and self._answer_pending_user_question(text, log):
             return
 
         if self._handle_workflow_control_text(text, log):

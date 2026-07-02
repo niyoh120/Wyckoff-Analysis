@@ -62,6 +62,18 @@ class _FakeLog:
         self.scrolled = True
 
 
+class _FakeInput:
+    def __init__(self) -> None:
+        self._pasted_text = None
+        self.cleared = False
+
+    def consume_pasted(self):
+        return None
+
+    def clear(self) -> None:
+        self.cleared = True
+
+
 def test_write_counted_returns_actual_added_strips_for_wrapped_renderable():
     log = _FakeLog()
 
@@ -626,6 +638,28 @@ def test_busy_input_rejects_invalid_pending_question_option():
     assert result == [""]
     assert app._pending_user_question is pending
     assert "请从当前提问的选项中选择" in str(log.lines[-1])
+
+
+def test_slash_command_still_runs_while_pending_user_question():
+    app = object.__new__(WyckoffTUI)
+    fake_input = _FakeInput()
+    log = _FakeLog()
+    event = threading.Event()
+    result = [""]
+    app._input_mode = "none"
+    app._busy = True
+    app._pending_user_question = _PendingUserQuestion("是否确认？", ["确认", "取消"], False, "", event, result)
+    handled = []
+    app.query_one = lambda selector, *_args, **_kwargs: fake_input if selector == "#chat-input" else log
+    app._handle_command = lambda text: handled.append(text)
+
+    WyckoffTUI.on_input_submitted(app, SimpleNamespace(value="/help"))
+
+    assert handled == ["/help"]
+    assert not event.is_set()
+    assert result == [""]
+    assert app._pending_user_question is not None
+    assert fake_input.cleared is True
 
 
 def test_pending_user_question_lines_render_inline_chat_prompt():
