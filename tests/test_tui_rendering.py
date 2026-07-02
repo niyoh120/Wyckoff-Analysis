@@ -71,6 +71,37 @@ def test_pop_lines_removes_actual_added_strips():
     assert log.refreshed is True
 
 
+def test_expand_recent_workflow_followup_uses_current_session(monkeypatch):
+    app = object.__new__(WyckoffTUI)
+    app._session_id = "s1"
+    monkeypatch.setattr(
+        "cli.workflows.store.list_workflow_runs",
+        lambda limit=8: [
+            {
+                "run_id": "wf_other",
+                "session_id": "s2",
+                "label": "其他",
+                "status": "running",
+                "user_text": "其他任务",
+                "plan": {"steps": [{"step_id": "other", "title": "其他"}]},
+            },
+            {
+                "run_id": "wf_current",
+                "session_id": "s1",
+                "label": "当前",
+                "status": "running",
+                "user_text": "给我选股",
+                "plan": {"steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
+            },
+        ],
+    )
+
+    expanded = app._expand_recent_workflow_followup("接着刚才那个")
+
+    assert "继续 workflow wf_current" in expanded
+    assert "wf_other" not in expanded
+
+
 def test_replace_streamed_response_redraws_markdown():
     log = _FakeLog()
     log.lines.extend(["  ---", "## raw", "| a |"])

@@ -1835,6 +1835,8 @@ class WyckoffTUI(App):
         if self._handle_workflow_control_text(text, log):
             return
 
+        text = self._expand_recent_workflow_followup(text)
+
         if not self._provider:
             log.write(Text.from_markup("[yellow]⚠ 未配置模型，请先输入 /model add[/yellow]"))
             return
@@ -2174,6 +2176,23 @@ class WyckoffTUI(App):
             return True
         self._show_workflow_detail(run_id, log)
         return True
+
+    def _expand_recent_workflow_followup(self, text: str) -> str:
+        from cli.workflows.resume import build_chat_resume_prompt, is_recent_workflow_followup
+
+        if not is_recent_workflow_followup(text):
+            return text
+        if run := self._latest_session_workflow_run():
+            return build_chat_resume_prompt(run, text)
+        return text
+
+    def _latest_session_workflow_run(self) -> dict[str, Any] | None:
+        from cli.workflows.store import list_workflow_runs
+
+        for run in list_workflow_runs(limit=8):
+            if str(run.get("session_id", "")) == self._session_id:
+                return run
+        return None
 
     def _resume_workflow(self, run_id: str, log) -> None:
         from cli.workflows.resume import build_resume_prompt

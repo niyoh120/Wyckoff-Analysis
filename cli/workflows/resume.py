@@ -2,7 +2,24 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+_SHORT_CONTINUATION_REPLIES = {
+    "继续",
+    "继续吧",
+    "继续做",
+    "接着",
+    "接着做",
+    "接着来",
+    "刚才那个继续",
+    "继续刚才那个",
+    "接着刚才那个",
+    "上个继续",
+    "上一个继续",
+    "继续上个",
+    "继续上一个",
+}
 
 
 def build_resume_prompt(run: dict[str, Any]) -> str:
@@ -29,6 +46,29 @@ def build_resume_prompt(run: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def is_recent_workflow_followup(user_text: str) -> bool:
+    """Return True when a short chat reply likely means continuing the last workflow."""
+
+    text = _one_line(user_text).lower()
+    if not text or "workflow" in text or "工作流" in text or re.search(r"\bwf_[a-z0-9_-]+\b", text):
+        return False
+    compact = re.sub(r"[\s。！!,.，、？?]+", "", text)
+    if compact in _SHORT_CONTINUATION_REPLIES:
+        return True
+    if len(compact) > 12:
+        return False
+    has_previous_ref = any(token in compact for token in ("刚才", "上个", "上一个", "前面"))
+    has_continue = "继续" in compact or "接着" in compact
+    return has_previous_ref and has_continue
+
+
+def build_chat_resume_prompt(run: dict[str, Any], user_text: str) -> str:
+    prompt = build_resume_prompt(run)
+    if reply := _one_line(user_text):
+        return f"{prompt}\n\n用户当前回复: {reply}"
+    return prompt
 
 
 def _step_dicts(plan: dict[str, Any]) -> list[dict[str, Any]]:

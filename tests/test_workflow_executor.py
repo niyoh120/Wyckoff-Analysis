@@ -21,7 +21,7 @@ from cli.workflows.executor import (
 )
 from cli.workflows.models import WorkflowRun, WorkflowStep
 from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, MAX_WORKFLOW_STEPS, plan_workflow
-from cli.workflows.resume import build_resume_prompt
+from cli.workflows.resume import build_chat_resume_prompt, build_resume_prompt, is_recent_workflow_followup
 from cli.workflows.router import WORKFLOWS, route_workflow
 from cli.workflows.store import get_workflow_run, load_workflow_events
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
@@ -2891,3 +2891,28 @@ def test_build_resume_prompt_includes_step_state():
     assert "prompt: 根据持仓事实输出去留和风险动作" in prompt
     assert "不要重复已完成工具调用" in prompt
     assert "保持原有 tool_scope 和 depends_on" in prompt
+
+
+def test_short_recent_workflow_followup_detection_is_narrow():
+    assert is_recent_workflow_followup("继续")
+    assert is_recent_workflow_followup("接着刚才那个")
+    assert is_recent_workflow_followup("继续上一个")
+    assert not is_recent_workflow_followup("继续观察吗")
+    assert not is_recent_workflow_followup("继续 workflow wf_1")
+
+
+def test_build_chat_resume_prompt_keeps_user_reply():
+    prompt = build_chat_resume_prompt(
+        {
+            "run_id": "wf_1",
+            "label": "选股",
+            "status": "running",
+            "user_text": "给我选股",
+            "plan": {"steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
+        },
+        "接着刚才那个",
+    )
+
+    assert "继续 workflow wf_1" in prompt
+    assert "tool_scope=screen_stocks" in prompt
+    assert "用户当前回复: 接着刚才那个" in prompt
