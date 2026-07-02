@@ -993,7 +993,7 @@ def _make_sub_agent_progress_handler(tools, write, scroll, spinner_start, spinne
 
     def _on_sub_agent_progress(event):
         nonlocal sub_buf
-        agent = event.get("sub_agent", "sub")
+        agent = _sub_agent_progress_label(event.get("sub_agent", ""))
         etype = event.get("type")
         if etype == "text_delta":
             sub_buf += event.get("text", "")
@@ -1003,16 +1003,13 @@ def _make_sub_agent_progress_handler(tools, write, scroll, spinner_start, spinne
                     write(Text.from_markup(f"    [dim italic]{agent}: {line}[/dim italic]"))
                     scroll()
         elif etype == "tool_start":
-            spinner_start(f"{agent} → {_tool_display_name(tools, event['name'])}")
+            spinner_start(f"{agent} 调用 {_tool_display_name(tools, str(event.get('name', '')))}")
         elif etype in ("tool_result", "tool_error"):
             spinner_stop()
             elapsed = event.get("elapsed_ms", 0) / 1000
             mark = "[green]✓[/green]" if event.get("status") != "error" else "[red]✗[/red]"
-            write(
-                Text.from_markup(
-                    f"    {mark} [dim]{agent} → {_tool_display_name(tools, event['name'])} {elapsed:.1f}s[/dim]"
-                )
-            )
+            display = _tool_display_name(tools, str(event.get("name", "")))
+            write(Text.from_markup(f"    {mark} [dim]{agent} 完成 {display} {elapsed:.1f}s[/dim]"))
             scroll()
         elif etype == "done":
             spinner_stop()
@@ -1022,6 +1019,15 @@ def _make_sub_agent_progress_handler(tools, write, scroll, spinner_start, spinne
             scroll()
 
     return _on_sub_agent_progress
+
+
+def _sub_agent_progress_label(name: Any) -> str:
+    return {
+        "task": "agent",
+        "research": "研究 agent",
+        "analysis": "分析 agent",
+        "trading": "交易 agent",
+    }.get(str(name or "").strip(), "agent")
 
 
 def _build_thinking_preview(text: str) -> Text | None:

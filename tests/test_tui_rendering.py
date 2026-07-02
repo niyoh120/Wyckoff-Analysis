@@ -18,6 +18,7 @@ from cli.tui import (
     _display_workflow_plan_event,
     _display_workflow_step_event,
     _is_system_notification_message,
+    _make_sub_agent_progress_handler,
     _pending_workflow_reply_intent,
     _pop_lines,
     _replace_streamed_response,
@@ -547,6 +548,40 @@ def test_display_workflow_plan_event_previews_tool_only_model_steps():
     assert "工具: 持仓、大盘水温" in rendered
     assert "3. 形成去留和风险动作" in rendered
     assert "工具: 攻防决策" in rendered
+
+
+def test_sub_agent_progress_handler_uses_reader_facing_tool_labels():
+    writes = []
+    scrolls = []
+    spinners = []
+    stops = []
+    tools = SimpleNamespace(display_name=lambda name: {"ask_user_question": "提问用户"}.get(name, name))
+    handler = _make_sub_agent_progress_handler(
+        tools,
+        writes.append,
+        lambda: scrolls.append(True),
+        spinners.append,
+        lambda: stops.append(True),
+    )
+
+    handler({"type": "tool_start", "sub_agent": "task", "name": "ask_user_question"})
+    handler(
+        {
+            "type": "tool_result",
+            "sub_agent": "task",
+            "name": "ask_user_question",
+            "elapsed_ms": 1234,
+            "status": "ok",
+        }
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert spinners == ["agent 调用 提问用户"]
+    assert "agent 完成 提问用户 1.2s" in rendered
+    assert "ask_user_question" not in rendered
+    assert "task →" not in rendered
+    assert stops == [True]
+    assert scrolls == [True]
 
 
 def test_submit_workflow_background_auto_starts_model_plan():
