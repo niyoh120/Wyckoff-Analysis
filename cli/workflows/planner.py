@@ -425,6 +425,53 @@ def _tool_name_aliases() -> dict[str, str]:
 
 _TOOL_NAME_ALIASES = _tool_name_aliases()
 
+_TEXT_TASK_TOOL_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "screen_stocks",
+        (
+            "screen_stocks",
+            "全市场扫描",
+            "扫描",
+            "扫描候选",
+            "候选扫描",
+            "扫描股票",
+            "筛选",
+            "筛选候选",
+            "筛股",
+            "选股",
+            "候选股",
+            "候选股票",
+            "股票池",
+            "好股票",
+        ),
+    ),
+    (
+        "generate_ai_report",
+        (
+            "generate_ai_report",
+            "深度审讯",
+            "ai研报",
+            "ai 研报",
+            "生成研报",
+            "研报",
+        ),
+    ),
+    (
+        "generate_strategy_decision",
+        (
+            "generate_strategy_decision",
+            "攻防",
+            "买卖计划",
+            "风险边界",
+            "交易计划",
+            "策略决策",
+        ),
+    ),
+    ("portfolio", ("portfolio", "持仓", "仓位", "组合")),
+    ("run_backtest", ("run_backtest", "回测")),
+    ("get_market_overview", ("get_market_overview", "大盘水温", "市场环境", "市场风险")),
+)
+
 
 def _generated_task_like(task: dict[str, Any]) -> bool:
     fields = ("id", "title", "name", *PROMPT_FIELDS, *TOOL_SCOPE_FIELDS)
@@ -587,7 +634,18 @@ def _keyed_task_payload(key: Any, item: Any) -> dict[str, Any]:
 
 def _string_task_payload(text: str, key: Any) -> dict[str, Any]:
     title = _strip_list_marker(text)
-    return {"id": str(key), "title": title, "prompt": title} if title else {}
+    if not title:
+        return {}
+    payload = {"id": str(key), "title": title, "prompt": title}
+    if tools := _text_task_tool_scope(title):
+        payload["tools"] = list(tools)
+    return payload
+
+
+def _text_task_tool_scope(text: str) -> tuple[str, ...]:
+    normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
+    names = [name for name, markers in _TEXT_TASK_TOOL_MARKERS if any(marker in normalized for marker in markers)]
+    return tuple(dict.fromkeys(names))
 
 
 def _strip_list_marker(text: str) -> str:

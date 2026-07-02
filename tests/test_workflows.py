@@ -850,6 +850,35 @@ def test_planner_parses_outline_text_when_model_skips_json():
     assert run.script["rationale"] == "planner returned outline text"
 
 
+def test_planner_infers_tools_from_outline_text_when_model_skips_json():
+    provider = ScriptedProvider(
+        [
+            [
+                {"type": "text_delta", "text": "1. 扫描今日候选\n"},
+                {"type": "text_delta", "text": "2. 生成研报\n"},
+                {"type": "text_delta", "text": "3. 形成攻防动作"},
+            ]
+        ]
+    )
+    context = route_workflow("用 workflow 选出好股票，给出研报和攻防计划")
+    run = plan_workflow(
+        "选出好股票，给出研报和攻防计划",
+        context=context,
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert [step.title for step in run.steps] == ["扫描今日候选", "生成研报", "形成攻防动作"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("screen_stocks",),
+        ("generate_ai_report",),
+        ("generate_strategy_decision",),
+    ]
+    assert run.steps[0].depends_on == ()
+    assert run.steps[1].depends_on == ("1",)
+    assert run.steps[2].depends_on == ("2",)
+
+
 def test_tool_descriptions_do_not_use_user_phrase_triggers():
     descriptions = "\n".join(str(schema.get("description") or "") for schema in TOOL_SCHEMAS)
 
