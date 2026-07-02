@@ -16,6 +16,7 @@ from cli.tui import (
     _background_task_summary,
     _chatlog_role_for_turn,
     _display_final_response,
+    _display_retry_event,
     _display_workflow_plan_event,
     _display_workflow_step_event,
     _is_system_notification_message,
@@ -913,6 +914,26 @@ def test_complete_workflow_background_queues_system_notification_when_busy():
     assert "dynamic-workflow event" in item["content"]
     assert "候选结论: 首选 300750 宁德时代" in item["content"]
     assert app._messages[-1]["role"] == "assistant"
+
+
+def test_display_retry_event_surfaces_required_tool_and_reason():
+    writes = []
+    scrolled = []
+
+    _display_retry_event(
+        {
+            "retry": 1,
+            "required_tool": "portfolio",
+            "message": "持仓体检需要先读取真实持仓数据。请先调用 `portfolio` 获取真实数据。",
+        },
+        writes.append,
+        lambda: scrolled.append(True),
+    )
+
+    rendered = str(writes[0])
+    assert "运行时校验：第 1 次要求先调用 持仓" in rendered
+    assert "持仓体检需要先读取真实持仓数据" in rendered
+    assert scrolled == [True]
 
 
 def test_display_workflow_step_event_hides_internal_scope():

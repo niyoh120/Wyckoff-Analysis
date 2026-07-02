@@ -596,6 +596,16 @@ def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
     scroll()
 
 
+def _display_retry_event(event: dict[str, Any], write, scroll) -> None:
+    retry = int(event.get("retry") or 0)
+    tool_name = str(event.get("required_tool") or "").strip()
+    display = _workflow_tool_display_name(tool_name) if tool_name else "必需工具"
+    reason = _workflow_meta_text(event.get("message"), 96)
+    suffix = f" · {escape(reason)}" if reason else ""
+    write(Text.from_markup(f"  [yellow]⚠ 运行时校验：第 {retry} 次要求先调用 {escape(display)}{suffix}[/yellow]"))
+    scroll()
+
+
 def _workflow_detail_step_line(step: dict[str, Any]) -> str:
     step_id = escape(str(step.get("step_id") or step.get("id") or "task"))
     title = escape(str(step.get("title") or step_id))
@@ -3664,8 +3674,7 @@ class WyckoffTUI(App):
                 event.get("retry", 0),
                 event.get("required_tool", ""),
             )
-            ui.write(Text.from_markup("  [yellow]⚠ 模型未执行必需工具，已自动要求继续执行[/yellow]"))
-            ui.scroll()
+            _display_retry_event(event, ui.write, ui.scroll)
             ui.spinner_start()
         elif event_type == "done":
             ui.spinner_stop()
