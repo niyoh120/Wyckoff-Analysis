@@ -531,6 +531,8 @@ _TEXT_TASK_TOOL_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "股票池",
             "好股票",
             "好票",
+            "好标的",
+            "优质标的",
             "机会池",
         ),
     ),

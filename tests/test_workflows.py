@@ -165,6 +165,15 @@ def test_route_workflow_routes_colloquial_good_stock_request_to_dynamic_fallback
     assert {"好票", "理由", "攻防"}.issubset(workflow.route_matches)
 
 
+def test_route_workflow_routes_colloquial_good_target_request_to_dynamic_fallback():
+    workflow = route_workflow("帮我找好标的")
+
+    assert workflow.name == "dynamic_task"
+    assert "screen_stocks" in workflow.allowed_tools
+    assert workflow.route_reason == "明显的多阶段选股任务"
+    assert workflow.route_matches == ("找好标的",)
+
+
 def test_route_workflow_routes_chatty_stock_opportunity_request_to_dynamic_fallback():
     workflow = route_workflow("今天A股有什么机会，给我候选和风险边界")
 
@@ -198,6 +207,13 @@ def test_route_workflow_keeps_stock_selection_how_to_direct():
 
 def test_route_workflow_keeps_good_stock_term_question_direct():
     workflow = route_workflow("好票是什么意思？")
+
+    assert workflow.name == "general_chat"
+    assert workflow.route_matches == ()
+
+
+def test_route_workflow_keeps_good_target_term_question_direct():
+    workflow = route_workflow("好标的是什么意思？")
 
     assert workflow.name == "general_chat"
     assert workflow.route_matches == ()
@@ -1243,6 +1259,27 @@ def test_planner_infers_screen_tool_from_colloquial_good_stock_outline():
     context = route_workflow("用 workflow 找好票，给出攻防")
     run = plan_workflow(
         "找好票，给出攻防",
+        context=context,
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
+    assert run.steps[1].depends_on == ("1",)
+
+
+def test_planner_infers_screen_tool_from_colloquial_good_target_outline():
+    provider = ScriptedProvider(
+        [
+            [
+                {"type": "text_delta", "text": "1. 找好标的\n"},
+                {"type": "text_delta", "text": "2. 形成攻防动作"},
+            ]
+        ]
+    )
+    context = route_workflow("用 workflow 找好标的，给出攻防")
+    run = plan_workflow(
+        "找好标的，给出攻防",
         context=context,
         provider=provider,
         tools=StubToolRegistry(),
