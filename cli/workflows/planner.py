@@ -65,12 +65,12 @@ _PLAN_SYSTEM_PROMPT = """\
 运行边界:
 - 只输出 JSON，不要 Markdown，不要代码块。
 - phases 总任务数 1-24 个；如果要处理很多股票或对象，用工具批量处理，不要为每个对象单独生成 task。
-- 同一 phase 内无依赖的 task 会并发执行；有 depends_on 的 task 会按依赖顺序切批执行。
-- 如果用 depends_on/after/needs/dependencies 表达 task 依赖，runtime 会按依赖顺序切批执行。
+- 同一 phase 内无依赖的 task 会并发执行；depends_on 指向的已命名 task 会先完成。
+- 如果用 depends_on/after/needs/dependencies 表达 task 依赖，runtime 会跨 phase 按依赖顺序切批执行。
 - 不需要选择内部执行角色；不要填写 agent/role。
 - 工具是脚本契约：能用工具验证或交付的 task，必须用工具摘要里的精确工具名填写 tools；只有纯汇总/解释且不需要工具时才省略。
 - 不要生成“识别代码/读取事实/形成计划”这类无工具占位 task；如果工具能完成，直接把对应工具写进同一个 task。
-- 如果后续 task 需要前序候选、研报或持仓事实，填写 depends_on 指向前序 task，不要让它们无依赖并发。
+- 如果 task 需要候选、研报或持仓事实，填写 depends_on 指向提供这些事实的 task id，不要让它们无依赖并发。
 - 选股交付如果要求候选、理由、风险边界或攻防计划，脚本里必须出现 screen_stocks，并在需要攻防/买卖计划/风险边界时出现 generate_strategy_decision；需要研报时再使用 generate_ai_report。
 - 任务拆分围绕用户当前目标；能单步完成就生成 1 个 task，需要事实收集/分析/决策链路时再拆分。
 - 每个 task 尽量写清 rationale / success_criteria / risk_guard，让执行 agent 知道目标、验收和边界。

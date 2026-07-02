@@ -216,7 +216,9 @@ def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
     assert "工具是脚本契约" in _PLAN_SYSTEM_PROMPT
     assert "精确工具名填写 tools" in _PLAN_SYSTEM_PROMPT
     assert "无工具占位 task" in _PLAN_SYSTEM_PROMPT
-    assert "depends_on 指向前序 task" in _PLAN_SYSTEM_PROMPT
+    assert "runtime 会跨 phase 按依赖顺序切批执行" in _PLAN_SYSTEM_PROMPT
+    assert "depends_on 指向提供这些事实的 task id" in _PLAN_SYSTEM_PROMPT
+    assert "depends_on 指向前序 task" not in _PLAN_SYSTEM_PROMPT
     assert "必须出现 screen_stocks" in _PLAN_SYSTEM_PROMPT
     assert "generate_strategy_decision" in _PLAN_SYSTEM_PROMPT
 
