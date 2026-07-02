@@ -495,7 +495,21 @@ def _brief_agent_result(result: dict[str, Any]) -> str:
     elapsed = float(result.get("elapsed", 0.0))
     if result.get("error"):
         return f"{status} {str(result['error'])[:100]}"
+    if background := _brief_background_result(result.get("background_tasks")):
+        return f"{status} {elapsed:.1f}s {background}"
     return f"{status} {elapsed:.1f}s"
+
+
+def _brief_background_result(tasks: Any) -> str:
+    for task in _as_list(tasks):
+        if not isinstance(task, dict):
+            continue
+        if summary := _clip_text(task.get("result_summary"), 160):
+            name = str(task.get("tool_name") or task.get("task_id") or "background").strip()
+            return f"{name}: {summary}"
+        if task.get("status") == "failed" and task.get("error"):
+            return f"{task.get('tool_name') or 'background'} failed: {_clip_text(task.get('error'), 120)}"
+    return ""
 
 
 def _source_payload(event: RuntimeEvent) -> dict[str, Any]:
@@ -904,9 +918,25 @@ def _fallback_summary(results: list[dict[str, Any]]) -> str:
         status = result.get("status", "unknown")
         content = result.get("result") or result.get("error") or "无结果"
         lines.append(f"- {title} [{status}]: {str(content)[:500]}")
+        for line in _fallback_background_lines(result.get("background_tasks")):
+            lines.append(f"  后台: {line}")
         for line in _fallback_handoff_lines(result.get("handoff_state")):
             lines.append(f"  证据: {line}")
     return "\n".join(lines)
+
+
+def _fallback_background_lines(tasks: Any) -> list[str]:
+    lines: list[str] = []
+    for task in _as_list(tasks):
+        if not isinstance(task, dict):
+            continue
+        name = str(task.get("tool_name") or task.get("task_id") or "background").strip()
+        status = str(task.get("status") or "").strip()
+        if summary := _clip_text(task.get("result_summary"), 500):
+            lines.append(f"{name} [{status}]: {summary}")
+        elif task.get("error"):
+            lines.append(f"{name} [{status or 'failed'}]: {_clip_text(task.get('error'), 300)}")
+    return lines
 
 
 def _fallback_candidate_conclusion(results: list[dict[str, Any]]) -> str:

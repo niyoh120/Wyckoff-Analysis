@@ -1450,7 +1450,14 @@ def test_workflow_executor_waits_step_background_tasks_for_handoff(tmp_path, mon
                 "selection_brief": {"status": "ready_for_ai_review", "best_codes": ["300750"]},
                 "symbols_for_report": [{"code": "300750", "name": "宁德时代"}],
             }
-            return [{"task_id": "bg_screen", "tool_name": "screen_stocks", "status": "completed"}]
+            return [
+                {
+                    "task_id": "bg_screen",
+                    "tool_name": "screen_stocks",
+                    "status": "completed",
+                    "result_summary": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+                }
+            ]
 
     def _synthesis_round(messages, _tools, _system_prompt):
         content = messages[0]["content"]
@@ -1491,9 +1498,35 @@ def test_workflow_executor_waits_step_background_tasks_for_handoff(tmp_path, mon
         assert detail["background_task_ids"] == ["bg_screen"]
         assert detail["background_tasks"][0]["status"] == "completed"
         assert detail["handoff_state"]["last_screen_result"]["selection_brief"]["best_codes"] == ["300750"]
+        assert "screen_stocks: 本轮首选可进入 AI 研报复核: 300750 宁德时代" in done_event["step"]["summary"]
         assert events[-1]["text"] == "已等待后台筛选并汇总候选。"
     finally:
         _reset_local_db(local_db)
+
+
+def test_workflow_fallback_summary_includes_completed_background_result_summary():
+    summary = _fallback_summary(
+        [
+            {
+                "step": {"title": "扫描候选"},
+                "result": {
+                    "status": "completed",
+                    "result": "筛选已提交后台。",
+                    "background_tasks": [
+                        {
+                            "task_id": "bg_screen",
+                            "tool_name": "screen_stocks",
+                            "status": "completed",
+                            "result_summary": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+                        }
+                    ],
+                },
+            }
+        ]
+    )
+
+    assert "扫描候选 [completed]: 筛选已提交后台。" in summary
+    assert "后台: screen_stocks [completed]: 本轮首选可进入 AI 研报复核: 300750 宁德时代" in summary
 
 
 def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
