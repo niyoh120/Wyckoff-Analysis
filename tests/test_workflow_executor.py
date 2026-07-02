@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from cli.tools import TOOL_SCHEMAS
 from cli.workflows.control import WorkflowControl
+from cli.workflows.dispatch import build_turn_runtime
 from cli.workflows.executor import (
     WorkflowExecutor,
     _candidate_conclusion_from_handoff,
@@ -197,6 +198,19 @@ class ParallelResultProvider:
             yield {"type": "text_delta", "text": "结构视角完成。"}
             return
         yield {"type": "text_delta", "text": "未知任务。"}
+
+
+class RoutingScriptedProvider(ScriptedProvider):
+    def __init__(self, decision: str, rounds: list):
+        super().__init__(rounds)
+        self.decision = decision
+        self.chat_calls: list[dict] = []
+
+    def chat(self, messages, tools, system_prompt=""):
+        self.chat_calls.append(
+            {"messages": deepcopy(messages), "tools": deepcopy(tools), "system_prompt": system_prompt}
+        )
+        return {"type": "text", "text": self.decision}
 
 
 def _reset_local_db(local_db) -> None:
@@ -1026,6 +1040,75 @@ def test_workflow_explicit_tool_scope_continues_attack_plan_after_screen(tmp_pat
         assert detail["result"] == "攻防计划已基于工具结果生成。"
         assert [call["name"] for call in tools.calls] == ["screen_stocks", "generate_strategy_decision"]
         assert events[-1]["text"] == "已汇总候选与攻防计划。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_natural_stock_selection_turn_runs_dynamic_workflow_end_to_end(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    user_text = "帮我完整做一遍今天的 A 股选股，给出候选、理由和买卖计划"
+    script = {
+        "title": "自然聊天选股",
+        "rationale": "用户需要候选、理由和买卖计划，适合用可见 workflow 链路交付。",
+        "tasks": [
+            {
+                "id": "select_and_plan",
+                "title": "筛选候选并形成攻防",
+                "tools": ["screen_stocks", "generate_strategy_decision"],
+                "prompt": "筛选今日 A 股候选，保留理由并给出买卖计划和风险边界。",
+                "success_criteria": "输出候选、理由、风险边界和下一步动作。",
+            }
+        ],
+        "synthesis_prompt": "输出候选、理由、风险边界和下一步动作。",
+    }
+    provider = RoutingScriptedProvider(
+        '{"mode":"dynamic_workflow","confidence":0.9,"reason":"需要候选池、理由和行动计划"}',
+        rounds=[
+            [{"type": "text_delta", "text": json.dumps(script, ensure_ascii=False)}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {"id": "tc_screen", "name": "screen_stocks", "args": {"board": "all"}},
+                        {"id": "tc_strategy", "name": "generate_strategy_decision", "args": {}},
+                    ],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "候选和攻防计划已基于工具结果生成。"}],
+            [{"type": "text_delta", "text": "首选候选：300750 宁德时代；风险边界已给出。"}],
+        ],
+    )
+    tools = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={
+            "screen_stocks": {"symbols_for_report": ["300750"], "selection_brief": {"best_codes": ["300750"]}},
+            "generate_strategy_decision": {"status": "ok", "reviewed_codes": ["300750"]},
+        },
+    )
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "natural-workflow.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    runtime, workflow = build_turn_runtime(provider, tools, session_id="s_natural", user_text=user_text)
+    events = list(runtime.run_stream([{"role": "user", "content": user_text}]))
+
+    try:
+        assert isinstance(runtime, WorkflowExecutor)
+        assert workflow.name == "dynamic_task"
+        assert workflow.route_reason == "模型判断需要动态 workflow：需要候选池、理由和行动计划"
+        assert provider.chat_calls
+        assert "用 workflow" not in provider.chat_calls[0]["messages"][0]["content"]
+        plan_event = events[0]
+        assert plan_event["type"] == "workflow_plan"
+        assert plan_event["route"]["matches"] == ["model_router"]
+        assert plan_event["plan"]["script"]["runtime"]["planner"] == "model_script"
+        assert plan_event["plan"]["steps"][0]["tool_scope"] == ["screen_stocks", "generate_strategy_decision"]
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        assert done_event["source"]["agent_detail"]["tool_calls"] == ["screen_stocks", "generate_strategy_decision"]
+        assert [call["name"] for call in tools.calls] == ["screen_stocks", "generate_strategy_decision"]
+        assert events[-1]["text"] == "首选候选：300750 宁德时代；风险边界已给出。"
     finally:
         _reset_local_db(local_db)
 
