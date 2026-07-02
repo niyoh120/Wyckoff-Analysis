@@ -569,6 +569,16 @@ _TEXT_TASK_TOOL_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "止损位",
             "入场位",
             "出场位",
+            "去留",
+            "持仓去留",
+            "风险动作",
+            "操作动作",
+            "处理动作",
+            "操作建议",
+            "调仓",
+            "减仓",
+            "加仓",
+            "仓位动作",
         ),
     ),
     ("portfolio", ("portfolio", "持仓", "仓位", "组合", "磁场")),
@@ -651,6 +661,12 @@ def _stabilized_step_dependencies(step: WorkflowStep, steps: list[WorkflowStep])
             deps,
             _nearest_tool_step_id(step, steps, "generate_ai_report")
             or _nearest_tool_step_id(step, steps, "screen_stocks"),
+        )
+    if "generate_strategy_decision" in scope and not scope.intersection({"portfolio", "get_market_overview"}):
+        _append_dependency(
+            deps,
+            _nearest_tool_step_id(step, steps, "portfolio")
+            or _nearest_tool_step_id(step, steps, "get_market_overview"),
         )
     return tuple(deps)
 

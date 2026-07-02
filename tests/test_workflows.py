@@ -1215,6 +1215,28 @@ def test_planner_infers_tools_from_outline_text_when_model_skips_json():
     assert run.steps[2].depends_on == ("2",)
 
 
+def test_planner_infers_holding_decision_tools_from_outline_text():
+    provider = ScriptedProvider(
+        [
+            [
+                {"type": "text_delta", "text": "1. 读取持仓与资金\n"},
+                {"type": "text_delta", "text": "2. 诊断持仓与市场环境\n"},
+                {"type": "text_delta", "text": "3. 形成去留和风险动作"},
+            ]
+        ]
+    )
+    context = route_workflow("用 workflow 你看我持仓呀")
+    run = plan_workflow("你看我持仓呀", context=context, provider=provider, tools=StubToolRegistry())
+
+    assert [step.title for step in run.steps] == ["读取持仓与资金", "诊断持仓与市场环境", "形成去留和风险动作"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("portfolio",),
+        ("portfolio", "get_market_overview"),
+        ("generate_strategy_decision",),
+    ]
+    assert run.steps[2].depends_on == ("2",)
+
+
 def test_tool_descriptions_do_not_use_user_phrase_triggers():
     descriptions = "\n".join(str(schema.get("description") or "") for schema in TOOL_SCHEMAS)
 
