@@ -101,6 +101,7 @@ _SAFE_WRITE_SUFFIXES = {
     ".yaml",
     ".yml",
 }
+_SECRET_FILE_HINT = "不要读取密钥文件；如果凭据已由 CLI/.env 加载，直接运行需要凭据的命令即可继承当前环境。"
 
 
 def security_error(message: str) -> dict:
@@ -167,11 +168,11 @@ def validate_agent_path(path: str, *, for_write: bool = False) -> pathlib.Path |
         return security_error("禁止读取或写入 Wyckoff 凭据、会话和配置目录")
     if any(part in parts for part in _BLOCKED_PATH_PARTS) or any(part in joined for part in _BLOCKED_PATH_PARTS):
         return security_error("禁止访问凭据、密钥或云配置目录")
+    if name in _BLOCKED_FILE_NAMES or name.startswith(".env"):
+        return security_error(f"禁止访问环境变量或密钥文件。{_SECRET_FILE_HINT}")
     hidden_parts = [part for part in parts if part.startswith(".") and part not in {".", "..", ".wyckoff"}]
     if hidden_parts and not allowed_wyckoff_path:
         return security_error("禁止访问隐藏文件或隐藏目录")
-    if name in _BLOCKED_FILE_NAMES or name.startswith(".env"):
-        return security_error("禁止访问环境变量或密钥文件")
     if SENSITIVE_KEY_RE.search(name):
         return security_error("文件名疑似包含凭据或会话数据")
     if for_write and p.suffix.lower() not in _SAFE_WRITE_SUFFIXES:
@@ -207,7 +208,7 @@ def validate_agent_command(command: str) -> list[str] | dict:
             f".wyckoff/{subdir}" in lowered for subdir in _ALLOWED_WYCKOFF_SUBDIRS
         )
         if SENSITIVE_KEY_RE.search(arg) or ".ssh" in lowered or ".env" in lowered or touches_wyckoff_config:
-            return security_error("命令参数疑似访问凭据、会话或密钥")
+            return security_error(f"命令参数疑似访问凭据、会话或密钥。{_SECRET_FILE_HINT}")
     return args
 
 

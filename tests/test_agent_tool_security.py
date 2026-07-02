@@ -35,6 +35,8 @@ def test_exec_command_blocks_sensitive_working_directory(tmp_path):
 def test_exec_command_schema_exposes_working_directory():
     schema = next(item for item in TOOL_SCHEMAS if item["name"] == "exec_command")
 
+    assert "继承当前 CLI 进程环境变量" in schema["description"]
+    assert "不要读取 .env" in schema["description"]
     cwd = schema["parameters"]["properties"]["cwd"]
     assert cwd["type"] == "string"
     assert "项目根目录" in cwd["description"]
@@ -76,6 +78,17 @@ def test_exec_command_blocks_wyckoff_config_path():
     assert "凭据" in result["error"] or "会话" in result["error"]
 
 
+def test_exec_command_blocks_env_file_with_inherited_env_hint(tmp_path):
+    target = tmp_path / ".env"
+    target.write_text("PYPI_TOKEN=secret", encoding="utf-8")
+
+    result = exec_command("ls .env", cwd=str(tmp_path))
+
+    assert result["error"].startswith("安全拦截")
+    assert "不要读取密钥文件" in result["error"]
+    assert "继承当前环境" in result["error"]
+
+
 def test_read_file_blocks_sensitive_path_name(tmp_path):
     target = tmp_path / "api_key.txt"
     target.write_text("api_key=secret", encoding="utf-8")
@@ -84,6 +97,17 @@ def test_read_file_blocks_sensitive_path_name(tmp_path):
 
     assert result["error"].startswith("安全拦截")
     assert "凭据" in result["error"]
+
+
+def test_read_file_blocks_env_file_with_inherited_env_hint(tmp_path):
+    target = tmp_path / ".env"
+    target.write_text("PYPI_TOKEN=secret", encoding="utf-8")
+
+    result = read_file(str(target))
+
+    assert result["error"].startswith("安全拦截")
+    assert "不要读取密钥文件" in result["error"]
+    assert "继承当前环境" in result["error"]
 
 
 def test_read_file_redacts_secret_assignments(tmp_path):

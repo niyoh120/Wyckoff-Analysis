@@ -377,7 +377,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     # ── Agent 标准工具 ──
     {
         "name": "exec_command",
-        "description": "在用户本地执行 shell 命令并返回输出。可用于安装软件、查看系统状态、运行脚本等。",
+        "description": (
+            "在用户本地执行 shell 命令并返回输出。可用于安装软件、查看系统状态、运行脚本等。"
+            "命令会继承当前 CLI 进程环境变量；不要读取 .env 或密钥文件。"
+        ),
         "parameters": {
             "type": "object",
             "properties": {
