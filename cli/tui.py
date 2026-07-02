@@ -524,7 +524,7 @@ def _workflow_route_line(route: dict[str, Any]) -> Text | None:
     reason = escape(str(route.get("reason", "") or ""))
     if not reason:
         return None
-    matches = [escape(str(item)) for item in route.get("matches", []) if str(item)]
+    matches = [escape(item) for item in _workflow_visible_route_matches(route)]
     confidence = route.get("confidence")
     parts = [f"    [dim]识别原因：{reason}"]
     if matches:
@@ -533,6 +533,12 @@ def _workflow_route_line(route: dict[str, Any]) -> Text | None:
         parts.append(f" · 置信度：{confidence:.0%}")
     parts.append("[/dim]")
     return Text.from_markup("".join(parts))
+
+
+def _workflow_visible_route_matches(route: dict[str, Any]) -> list[str]:
+    return [
+        text for item in route.get("matches", []) if (text := str(item).strip()) and not text.startswith("model_router")
+    ]
 
 
 def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:

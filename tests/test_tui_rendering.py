@@ -322,6 +322,55 @@ def test_display_workflow_plan_event_uses_plan_route_for_saved_events():
     assert "脚本来源：已保存脚本" in rendered
 
 
+def test_display_workflow_plan_event_hides_internal_model_router_matches():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_model",
+            "workflow": "dynamic_task",
+            "label": "动态任务",
+            "route": {
+                "reason": "模型判断需要动态 workflow",
+                "matches": ["model_router_guard", "选股", "model_router_fallback"],
+                "confidence": 0.82,
+            },
+            "plan": {"steps": [{"title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "命中：选股" in rendered
+    assert "model_router" not in rendered
+
+
+def test_display_workflow_plan_event_omits_empty_internal_matches():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_model",
+            "workflow": "dynamic_task",
+            "label": "动态任务",
+            "route": {
+                "reason": "模型判断需要动态 workflow",
+                "matches": ["model_router"],
+                "confidence": 0.82,
+            },
+            "plan": {"steps": [{"title": "读取事实", "tool_scope": ["get_market_overview"]}]},
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "识别原因：模型判断需要动态 workflow" in rendered
+    assert "命中：" not in rendered
+    assert "model_router" not in rendered
+
+
 def test_display_workflow_plan_event_surfaces_trimmed_model_plan():
     writes = []
 
