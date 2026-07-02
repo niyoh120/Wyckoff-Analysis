@@ -533,6 +533,8 @@ def _candidate_conclusion_preview(source_stage: str, result: dict[str, Any]) -> 
             if row.get("new_buy_allowed") is not None
             else action_plan.get("new_buy_allowed"),
             "evidence": _candidate_conclusion_evidence_items(row),
+            "quality_factors": _candidate_conclusion_text_items(row.get("quality_factors"), 5, 100),
+            "risk_factors": _candidate_conclusion_text_items(row.get("risk_factors"), 5, 100),
             "guard_reason": _candidate_conclusion_guard_reason(row, result),
             "next_step": _candidate_conclusion_next_step(row, result),
             "source_stage": source_stage,
@@ -624,6 +626,10 @@ def _candidate_conclusion_evidence_items(row: dict[str, Any]) -> list[str]:
     if not text:
         return []
     return [part.strip() for part in text.removeprefix("证据: ").split("；") if part.strip()]
+
+
+def _candidate_conclusion_text_items(value: Any, limit: int, clip: int) -> list[str]:
+    return [_text_excerpt(item, clip) for item in _preview_list(value, limit) if str(item or "").strip()]
 
 
 def _candidate_conclusion_guard_reason(row: dict[str, Any], result: dict[str, Any]) -> str:

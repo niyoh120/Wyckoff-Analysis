@@ -892,6 +892,8 @@ def _fallback_candidate_conclusion_payload(
             "name": str(row.get("name") or "").strip(),
             "action_status": str(row.get("action_status") or "").strip(),
             "evidence": _fallback_evidence_items(row),
+            "quality_factors": _fallback_text_items(row.get("quality_factors"), 4, 120),
+            "risk_factors": _fallback_text_items(row.get("risk_factors"), 4, 120),
             "guard_reason": _fallback_guard_reason_from_handoff(row, stage, handoff),
             "next_step": _fallback_next_value(row, stage),
             "source_stage": source_stage,
@@ -905,6 +907,8 @@ def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any], handoff
         f"{_fallback_candidate_prefix(row, guard_reason)} {_fallback_candidate_name(row)}",
         _fallback_status_part(row),
         _fallback_evidence_part(row),
+        _fallback_quality_part(row),
+        _fallback_risk_part(row),
         _fallback_guard_part(guard_reason),
         _fallback_next_part(row, stage),
     ]
@@ -967,6 +971,20 @@ def _fallback_evidence_items(row: dict[str, Any]) -> list[str]:
         _theme_evidence_part(row),
     ]
     return [part for part in evidence if part]
+
+
+def _fallback_quality_part(row: dict[str, Any]) -> str:
+    factors = _fallback_text_items(row.get("quality_factors"), 3, 80)
+    return f"亮点={','.join(factors)}" if factors else ""
+
+
+def _fallback_risk_part(row: dict[str, Any]) -> str:
+    risks = _fallback_text_items(row.get("risk_factors"), 3, 80)
+    return f"风险={','.join(risks)}" if risks else ""
+
+
+def _fallback_text_items(value: Any, limit: int, clip: int) -> list[str]:
+    return [_clip_text(item, clip) for item in _as_list(value)[:limit] if str(item or "").strip()]
 
 
 def _theme_evidence_part(row: dict[str, Any]) -> str:

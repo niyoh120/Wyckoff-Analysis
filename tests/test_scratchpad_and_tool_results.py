@@ -508,6 +508,8 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     assert '"candidate_conclusion"' in preview
     assert "候选结论: 受限复核候选 300750 宁德时代" in preview
     assert '"risk_adjusted_quality_score": 87.0' in preview
+    assert '"quality_factors": ["候选影子评级 S"]' in preview
+    assert '"risk_factors": ["最新候选的未来窗口标签尚未成熟"]' in preview
     assert "证据: 漏斗分89.5；候选影子S/92；入场A/84；风险调整分87" in preview
     assert '"candidate_guard_summary"' in preview
     assert "候选标签未成熟，禁止直接买入" in preview

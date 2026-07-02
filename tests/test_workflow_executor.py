@@ -969,6 +969,8 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
                     "strategic_theme": "机器人",
                     "theme_source": "ths_hot_event",
                     "theme_event_reason": "灵巧手",
+                    "quality_factors": ["事件主线:机器人", "候选影子评级 S"],
+                    "risk_factors": ["未来窗口标签尚未成熟"],
                     "next_step": "生成 AI 研报",
                 }
             ],
@@ -990,6 +992,8 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
     assert '"candidate_shadow_score": 92.0' in handoff_section
     assert '"theme_context": {"event_mainlines": "机器人 0.82/爆发"' in handoff_section
     assert "事件主线机器人(灵巧手)" in handoff_section
+    assert "亮点=事件主线:机器人,候选影子评级 S" in handoff_section
+    assert "风险=未来窗口标签尚未成熟" in handoff_section
     assert '"300750"' in handoff_section
     assert '"candidate_shadow_score": 92.0' not in agent_results_section
     assert "候选扫描完成" in agent_results_section
@@ -1024,7 +1028,15 @@ def test_workflow_synthesis_handoff_summary_dedupes_latest_keys():
             "result": {
                 "handoff_state": {
                     "last_screen_result": {
-                        "symbols_for_report": [{"code": "300750", "name": "宁德时代", "candidate_shadow_score": 92.0}],
+                        "symbols_for_report": [
+                            {
+                                "code": "300750",
+                                "name": "宁德时代",
+                                "candidate_shadow_score": 92.0,
+                                "quality_factors": ["候选影子评级 S"],
+                                "risk_factors": ["未来窗口标签尚未成熟"],
+                            }
+                        ],
                     },
                     "last_ai_report": {"reviewed_codes": ["300750"], "model": "gpt-test"},
                     "last_strategy_decision": {"reviewed_codes": ["300750"], "status": "completed"},
@@ -1041,6 +1053,8 @@ def test_workflow_synthesis_handoff_summary_dedupes_latest_keys():
     assert set(handoff) == {"last_screen_result", "last_ai_report", "last_strategy_decision"}
     assert handoff["last_screen_result"]["symbols_for_report"][0]["candidate_shadow_score"] == 92.0
     assert summary[0]["candidate_conclusion"]["evidence"] == ["候选影子92"]
+    assert summary[0]["candidate_conclusion"]["quality_factors"] == ["候选影子评级 S"]
+    assert summary[0]["candidate_conclusion"]["risk_factors"] == ["未来窗口标签尚未成熟"]
     assert json.dumps(handoff, ensure_ascii=False).count("last_screen_result") == 1
 
 
