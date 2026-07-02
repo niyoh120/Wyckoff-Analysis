@@ -24,6 +24,7 @@ from cli.tui import (
     _pending_user_question_answer,
     _pending_user_question_lines,
     _pending_workflow_reply_intent,
+    _pending_workflow_revision_intent,
     _PendingUserQuestion,
     _pop_lines,
     _replace_streamed_response,
@@ -1363,8 +1364,50 @@ def test_workflow_control_intent_requires_explicit_control_action():
 def test_pending_workflow_reply_intent_accepts_chat_style_approval():
     assert _pending_workflow_reply_intent("好") == "approve"
     assert _pending_workflow_reply_intent("开始吧") == "approve"
+    assert _pending_workflow_reply_intent("执行吧") == "approve"
+    assert _pending_workflow_reply_intent("按这个来") == "approve"
     assert _pending_workflow_reply_intent("取消") == "deny"
+    assert _pending_workflow_reply_intent("不用 workflow") == "deny"
     assert _pending_workflow_reply_intent("解释一下 workflow 是什么") == ""
+
+
+def test_pending_workflow_revision_intent_accepts_chat_style_edits():
+    assert _pending_workflow_revision_intent("别这么拆，直接先扫候选")
+    assert _pending_workflow_revision_intent("不用研报，先给攻防")
+    assert _pending_workflow_revision_intent("把第二步改成生成研报")
+    assert not _pending_workflow_revision_intent("开始吧")
+    assert not _pending_workflow_revision_intent("取消")
+    assert not _pending_workflow_revision_intent("解释一下 workflow 是什么")
+    assert not _pending_workflow_revision_intent("先等等")
+    assert not _pending_workflow_revision_intent("直接回答我")
+
+
+def test_pending_workflow_feedback_revises_single_pending_workflow():
+    app = object.__new__(WyckoffTUI)
+    feedbacks = []
+
+    class Runtime:
+        def revise_prepared_script(self, feedback):
+            feedbacks.append(feedback)
+            return {
+                "run_id": "wf_pending",
+                "workflow": "dynamic_task",
+                "label": "动态任务",
+                "plan": {
+                    "script": {"title": "改后脚本", "runtime": {"planner": "model_script"}},
+                    "steps": [{"title": "扫描候选", "tool_scope": ["screen_stocks"]}],
+                },
+            }
+
+    app._pending_workflows = {"wf_pending": SimpleNamespace(runtime=Runtime())}
+    log = _FakeLog()
+
+    handled = WyckoffTUI._handle_workflow_control_text(app, "别这么拆，直接先扫候选", log)
+
+    assert handled is True
+    assert feedbacks == ["别这么拆，直接先扫候选"]
+    assert any("改后脚本" in str(line) for line in log.lines)
+    assert "已根据反馈更新 workflow" in str(log.lines[-1])
 
 
 def test_background_task_summary_uses_tool_result_preview_for_large_screen_result(tmp_path, monkeypatch):

@@ -152,6 +152,27 @@ _EDITED_PLAN_JSON = """{
   "synthesis_prompt": "汇总编辑后的任务。"
 }"""
 
+_REVISED_PLAN_JSON = """{
+  "title": "按反馈修订脚本",
+  "rationale": "用户要求先收窄到真实持仓事实。",
+  "phases": [
+    {
+      "id": "revised",
+      "title": "修订阶段",
+      "tasks": [
+        {
+          "id": "read_positions_only",
+          "title": "只读取持仓",
+          "tools": ["portfolio"],
+          "prompt": "读取用户真实持仓并输出摘要。",
+          "risk_guard": "不写入交易。"
+        }
+      ]
+    }
+  ],
+  "synthesis_prompt": "基于持仓事实给出简洁复盘。"
+}"""
+
 _SCOPED_TOOL_PLAN_JSON = """{
   "title": "收窄工具复核",
   "phases": [
@@ -3036,6 +3057,39 @@ def test_prepared_workflow_can_reload_edited_script(tmp_path, monkeypatch):
         assert event["plan"]["script"]["title"] == "编辑后脚本"
         assert event["plan"]["steps"][0]["step_id"] == "edited_task"
         assert run and run["plan"]["script"]["title"] == "编辑后脚本"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_prepared_workflow_can_revise_script_from_feedback(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider([[{"type": "text_delta", "text": _REVISED_PLAN_JSON}]])
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(),
+        session_id="s6",
+        user_text="用 workflow 复盘我的持仓",
+        workflow_context=route_workflow("用 workflow 复盘我的持仓"),
+        workflow_script=json.loads(_PLAN_JSON),
+    )
+    plan = executor.prepare_run()
+
+    event = executor.revise_prepared_script("别这么拆，直接只读持仓")
+
+    try:
+        run = get_workflow_run(plan["run_id"])
+        events = load_workflow_events(plan["run_id"], limit=20)
+        assert event["run_id"] == plan["run_id"]
+        assert event["plan"]["script"]["title"] == "按反馈修订脚本"
+        assert event["plan"]["script"]["runtime"]["revision"] == "model_feedback"
+        assert event["plan"]["steps"][0]["step_id"] == "read_positions_only"
+        assert run and run["plan"]["script"]["title"] == "按反馈修订脚本"
+        assert any(row["event_type"] == "workflow_script_revised" for row in events)
+        assert "用户最新反馈" in provider.calls[0]["messages"][0]["content"]
     finally:
         _reset_local_db(local_db)
 

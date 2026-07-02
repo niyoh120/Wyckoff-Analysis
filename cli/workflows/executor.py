@@ -31,7 +31,7 @@ from cli.workflows.models import (
     WorkflowStep,
     effective_tool_scope,
 )
-from cli.workflows.planner import plan_workflow
+from cli.workflows.planner import plan_workflow, revise_workflow_script
 from cli.workflows.store import append_workflow_event, persist_workflow_script, save_workflow_run
 from core.candidate_guards import candidate_guard_reason
 from utils.tool_result_preview import tool_result_brief_lines
@@ -124,8 +124,22 @@ class WorkflowExecutor:
         return self._plan_event()
 
     def replace_prepared_script(self, script: dict[str, Any]) -> RuntimeEvent:
+        return self._replace_prepared_script(script, "workflow_script_reloaded")
+
+    def revise_prepared_script(self, feedback: str) -> RuntimeEvent:
         run = self._require_run()
-        old_run_id = run.run_id
+        script = revise_workflow_script(
+            self.user_text,
+            feedback,
+            run.script,
+            context=run.context,
+            provider=self.provider,
+            tools=self.tools,
+        )
+        return self._replace_prepared_script(script, "workflow_script_revised")
+
+    def _replace_prepared_script(self, script: dict[str, Any], event_type: str) -> RuntimeEvent:
+        old_run_id = self._require_run().run_id
         self.workflow_script = script
         self.run = plan_workflow(
             self.user_text,
@@ -143,7 +157,7 @@ class WorkflowExecutor:
         persist_workflow_script(self.run)
         save_workflow_run(self.run)
         payload = self._plan_event()
-        append_workflow_event(old_run_id, "workflow_script_reloaded", payload)
+        append_workflow_event(old_run_id, event_type, payload)
         return payload
 
     def run_stream(self, messages: list[dict[str, Any]], system_prompt: str = "") -> Iterator[RuntimeEvent]:

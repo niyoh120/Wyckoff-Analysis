@@ -59,6 +59,13 @@ _PENDING_WORKFLOW_APPROVE_REPLIES = {
     "跑",
     "跑吧",
     "运行",
+    "执行",
+    "执行吧",
+    "确认",
+    "没问题",
+    "可以跑",
+    "就这样",
+    "按这个来",
 }
 _PENDING_WORKFLOW_DENY_REPLIES = {
     "n",
@@ -67,10 +74,49 @@ _PENDING_WORKFLOW_DENY_REPLIES = {
     "不用了",
     "不要",
     "先不要",
+    "不要了",
+    "不用workflow",
+    "不要workflow",
+    "先不用workflow",
     "取消",
     "取消吧",
     "算了",
 }
+_PENDING_WORKFLOW_REVISION_MARKERS = (
+    "修改",
+    "改成",
+    "调整",
+    "换成",
+    "删掉",
+    "删除",
+    "去掉",
+    "加上",
+    "增加",
+    "补上",
+    "合并",
+    "拆开",
+    "重排",
+    "太死板",
+)
+_PENDING_WORKFLOW_REVISION_SOFT_MARKERS = ("不要", "不用", "别", "先", "直接", "只")
+_PENDING_WORKFLOW_REVISION_OBJECT_MARKERS = (
+    "扫",
+    "筛",
+    "候选",
+    "票",
+    "标的",
+    "持仓",
+    "研报",
+    "攻防",
+    "回测",
+    "步骤",
+    "任务",
+    "task",
+    "工具",
+    "计划",
+    "拆",
+)
+_PENDING_WORKFLOW_REVISION_QUESTION_MARKERS = ("解释", "说明", "为什么", "是什么", "啥意思", "怎么用")
 _BUSY_FORCE_EXIT_WINDOW = 1.5
 _HARD_EXIT_DELAY = 1.0
 _RECENT_WORKFLOW_FALLBACK_MAX_AGE_SECONDS = 24 * 60 * 60
@@ -928,6 +974,19 @@ def _pending_workflow_reply_intent(text: str) -> str:
     if normalized in _PENDING_WORKFLOW_DENY_REPLIES:
         return "deny"
     return ""
+
+
+def _pending_workflow_revision_intent(text: str) -> bool:
+    normalized = re.sub(r"[\s。！!,.，、？?]+", "", text.lower())
+    if not normalized or _pending_workflow_reply_intent(text):
+        return False
+    if "workflow" in normalized and any(marker in normalized for marker in _PENDING_WORKFLOW_REVISION_QUESTION_MARKERS):
+        return False
+    if any(marker in normalized for marker in _PENDING_WORKFLOW_REVISION_MARKERS):
+        return True
+    return any(marker in normalized for marker in _PENDING_WORKFLOW_REVISION_SOFT_MARKERS) and any(
+        marker in normalized for marker in _PENDING_WORKFLOW_REVISION_OBJECT_MARKERS
+    )
 
 
 def _workflow_run_is_recent(
@@ -2294,6 +2353,9 @@ class WyckoffTUI(App):
         if not intent and len(self._pending_workflows) == 1:
             pending_intent = _pending_workflow_reply_intent(text)
             intent = (pending_intent, "") if pending_intent else None
+            if not intent and _pending_workflow_revision_intent(text):
+                self._revise_pending_workflow("", text, log)
+                return True
         if not intent:
             return False
         action, run_id = intent
@@ -2637,6 +2699,24 @@ class WyckoffTUI(App):
             return
         _display_workflow_plan_event(event, log.write, lambda: log.scroll_end(animate=False))
         log.write(Text.from_markup(f"[green]已从脚本文件 reload[/green] [dim]{escape(script_path)}[/dim]"))
+
+    def _revise_pending_workflow(self, run_id: str, feedback: str, log) -> None:
+        target_id = self._resolve_pending_workflow_id(run_id, log)
+        if not target_id:
+            return
+        pending = self._pending_workflows[target_id]
+        try:
+            event = pending.runtime.revise_prepared_script(feedback)
+        except Exception as exc:
+            log.write(Text.from_markup(f"[red]修订 workflow 失败: {escape(str(exc))}[/red]"))
+            return
+        _display_workflow_plan_event(event, log.write, lambda: log.scroll_end(animate=False))
+        log.write(
+            Text.from_markup(
+                f"[green]已根据反馈更新 workflow[/green] [dim]{escape(target_id)}[/dim] "
+                "[dim]回复“开始”运行 · 回复“取消”停止[/dim]"
+            )
+        )
 
     def _restart_workflow_step(self, run_id: str, raw_step_and_args: str, log) -> None:
         step_id, args = _split_workflow_name_args(raw_step_and_args, "")

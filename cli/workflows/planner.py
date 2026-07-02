@@ -107,6 +107,20 @@ _REPAIR_SYSTEM_PROMPT = """\
 - 不要新增写入、交易或文件修改类任务。
 """
 
+_REVISION_SYSTEM_PROMPT = """\
+你是 Wyckoff CLI workflow script 的动态改稿器。
+
+用户正在批准前修改一个待执行 workflow script。你的任务是根据用户反馈重写完整 script JSON，不是执行工具。
+
+改稿边界:
+- 只输出完整 JSON，不要 Markdown，不要代码块。
+- 保留用户原始目标，但优先服从最新反馈。
+- 能删除、合并、重排或新增 task；不要只是给解释。
+- 需要真实数据、分析、筛选、研报或策略决策的 task，必须从工具摘要中选择精确工具名写入 tools。
+- 不要新增写入、交易或文件修改类任务。
+- 每个 task 尽量写清 rationale / success_criteria / risk_guard。
+"""
+
 
 def plan_workflow(
     user_text: str,
@@ -137,6 +151,69 @@ def plan_workflow(
         steps=steps,
         script=raw_script,
     )
+
+
+def revise_workflow_script(
+    user_text: str,
+    feedback: str,
+    current_script: dict[str, Any],
+    *,
+    context: WorkflowContext,
+    provider: Any | None,
+    tools: Any | None,
+) -> dict[str, Any]:
+    """Ask the model to rewrite a pending workflow script from chat feedback."""
+
+    if provider is None:
+        return _revision_failed_script(current_script, "provider unavailable")
+    prompt = _revision_prompt(user_text, feedback, current_script, context, tools)
+    try:
+        text = _collect_planner_text(provider, prompt, _REVISION_SYSTEM_PROMPT)
+        script = _normalize_generated_script(_loads_repair_script(text))
+    except Exception as exc:
+        return _revision_failed_script(current_script, f"revision failed: {exc}")
+    if not isinstance(script, dict) or not _workflow_script_like(script):
+        return _revision_failed_script(current_script, "revision returned non-workflow JSON")
+    payload = _mark_revised_script(_limit_generated_script(script), feedback)
+    return _repair_model_tool_contract(user_text, context, provider, tools, payload)
+
+
+def _revision_prompt(
+    user_text: str,
+    feedback: str,
+    current_script: dict[str, Any],
+    context: WorkflowContext,
+    tools: Any | None,
+) -> str:
+    return (
+        f"用户原始请求:\n{user_text}\n\n"
+        f"用户最新反馈:\n{feedback}\n\n"
+        f"运行上下文: {context.label} ({context.name})\n"
+        f"当前可用工具摘要:\n{_tool_catalog(tools, context)}\n\n"
+        "请基于最新反馈重写完整 workflow JSON。\n\n"
+        f"当前 workflow JSON:\n{json.dumps(current_script, ensure_ascii=False, default=str)[:8000]}"
+    )
+
+
+def _mark_revised_script(script: dict[str, Any], feedback: str) -> dict[str, Any]:
+    payload = _mark_model_script(script)
+    runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+    runtime.update({"revision": "model_feedback", "revision_feedback": _clip_runtime_text(feedback)})
+    payload["runtime"] = runtime
+    return payload
+
+
+def _revision_failed_script(script: dict[str, Any], reason: str) -> dict[str, Any]:
+    payload = deepcopy(script)
+    runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+    runtime.update({"revision": "failed", "revision_error": _clip_runtime_text(reason)})
+    payload["runtime"] = runtime
+    return payload
+
+
+def _clip_runtime_text(value: Any, limit: int = 180) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text[:limit]
 
 
 def _normalize_supplied_script(
