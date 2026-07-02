@@ -353,6 +353,10 @@ def test_model_router_prompt_is_minimal_runtime_contract():
     assert "语义判断" in _ROUTER_SYSTEM_PROMPT
     assert "错别字" in _ROUTER_SYSTEM_PROMPT
     assert "逐字匹配" in _ROUTER_SYSTEM_PROMPT
+    assert "候选池" in _ROUTER_SYSTEM_PROMPT
+    assert "风险边界" in _ROUTER_SYSTEM_PROMPT
+    assert "行动计划" in _ROUTER_SYSTEM_PROMPT
+    assert "不需要可见进度" in _ROUTER_SYSTEM_PROMPT
     assert "一个清楚目标" not in _ROUTER_SYSTEM_PROMPT
     assert "用户表达不标准" not in _ROUTER_SYSTEM_PROMPT
     assert "语义恢复" not in _ROUTER_SYSTEM_PROMPT
