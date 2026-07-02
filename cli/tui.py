@@ -553,7 +553,8 @@ def _workflow_detail_step_line(step: dict[str, Any]) -> str:
     status = str(step.get("status", "") or "pending")
     meta = _workflow_step_meta(step, status, include_debug=True)
     detail = _workflow_step_detail_meta(step)
-    suffix = " ".join(part for part in (summary, detail) if part)
+    dependency = _workflow_step_dependency_meta(step)
+    suffix = " ".join(part for part in (summary, dependency, detail) if part)
     suffix = f" {suffix}" if suffix else ""
     return f"    - [dim]{step_id}[/dim] {title} [dim]{meta}{suffix}[/dim]"
 
@@ -594,10 +595,23 @@ def _workflow_step_detail_meta(step: dict[str, Any], *, field_limit: int | None 
 def _workflow_plan_step_meta(step: dict[str, Any], *, field_limit: int | None = None) -> str:
     parts = [
         item
-        for item in (_workflow_step_tool_meta(step), _workflow_step_detail_meta(step, field_limit=field_limit))
+        for item in (
+            _workflow_step_tool_meta(step),
+            _workflow_step_dependency_meta(step),
+            _workflow_step_detail_meta(step, field_limit=field_limit),
+        )
         if item
     ]
     return "；".join(parts)
+
+
+def _workflow_step_dependency_meta(step: dict[str, Any]) -> str:
+    deps = [escape(str(item)) for item in step.get("depends_on", []) if str(item)]
+    if not deps:
+        return ""
+    visible = "、".join(deps[:4])
+    suffix = f"、+{len(deps) - 4}" if len(deps) > 4 else ""
+    return f"依赖: {visible}{suffix}"
 
 
 def _workflow_step_tool_meta(step: dict[str, Any]) -> str:

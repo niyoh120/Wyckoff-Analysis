@@ -267,6 +267,7 @@ def test_display_workflow_plan_event_surfaces_model_step_boundaries():
                     {
                         "title": "攻防计划",
                         "tool_scope": ["generate_strategy_decision"],
+                        "depends_on": ["scan"],
                         "success_criteria": "说明观察、复核和禁止直接买入的边界",
                     },
                 ],
@@ -284,6 +285,7 @@ def test_display_workflow_plan_event_surfaces_model_step_boundaries():
     assert "边界: 不写入推荐或持仓" in rendered
     assert "2. 攻防计划" in rendered
     assert "工具: 攻防决策" in rendered
+    assert "依赖: scan" in rendered
     assert "禁止直接买入" in rendered
     assert "/workflow show wf_dynamic" in rendered
 
@@ -614,6 +616,7 @@ def test_workflow_detail_step_line_includes_tool_scope():
             "agent": "analysis",
             "status": "completed",
             "tool_scope": ["portfolio"],
+            "depends_on": ["market"],
             "rationale": "先确认真实仓位",
             "success_criteria": "输出持仓风险",
             "risk_guard": "不写入交易",
@@ -625,6 +628,7 @@ def test_workflow_detail_step_line_includes_tool_scope():
     assert "工具：portfolio" in line
     assert "completed" in line
     assert "analysis: completed" in line
+    assert "依赖: market" in line
     assert "目标: 先确认真实仓位" in line
     assert "验收: 输出持仓风险" in line
     assert "边界: 不写入交易" in line
