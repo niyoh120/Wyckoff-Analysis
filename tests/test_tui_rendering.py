@@ -361,6 +361,27 @@ def test_display_workflow_plan_event_keeps_pending_plan_compact():
     assert scrolled == [True]
 
 
+def test_display_workflow_plan_event_shows_pending_approval_state():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_pending",
+            "workflow": "dynamic_task",
+            "label": "持仓复盘",
+            "plan": {"steps": [{"title": "读取持仓", "tool_scope": ["portfolio"]}]},
+        },
+        writes.append,
+        lambda: None,
+        launch_state="pending_approval",
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "计划已准备好，等待批准" in rendered
+    assert "/workflow show wf_pending" in rendered
+    assert "已交给 agent 动态执行" not in rendered
+
+
 def test_display_workflow_plan_event_uses_plan_route_for_saved_events():
     writes = []
 
@@ -395,7 +416,7 @@ def test_display_workflow_plan_event_hides_internal_model_router_matches():
             "label": "动态任务",
             "route": {
                 "reason": "模型判断需要动态 workflow",
-                "matches": ["model_router_guard", "选股", "model_router_fallback"],
+                "matches": ["model_router_guard", "stock_selection_guard", "选股", "model_router_fallback"],
                 "confidence": 0.82,
             },
             "plan": {"steps": [{"title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
@@ -407,6 +428,7 @@ def test_display_workflow_plan_event_hides_internal_model_router_matches():
     rendered = "\n".join(str(item) for item in writes)
     assert "命中：选股" in rendered
     assert "model_router" not in rendered
+    assert "stock_selection_guard" not in rendered
 
 
 def test_display_workflow_plan_event_omits_empty_internal_matches():
@@ -419,7 +441,7 @@ def test_display_workflow_plan_event_omits_empty_internal_matches():
             "label": "动态任务",
             "route": {
                 "reason": "模型判断需要动态 workflow",
-                "matches": ["model_router"],
+                "matches": ["model_router", "stock_selection_guard"],
                 "confidence": 0.82,
             },
             "plan": {"steps": [{"title": "读取事实", "tool_scope": ["get_market_overview"]}]},
@@ -432,6 +454,7 @@ def test_display_workflow_plan_event_omits_empty_internal_matches():
     assert "识别原因：模型判断需要动态 workflow" in rendered
     assert "命中：" not in rendered
     assert "model_router" not in rendered
+    assert "stock_selection_guard" not in rendered
 
 
 def test_display_workflow_plan_event_surfaces_trimmed_model_plan():
@@ -926,8 +949,57 @@ def test_submit_workflow_background_auto_starts_model_plan():
     assert launched[0][5].startswith("wfbg_wf_auto_")
     rendered = "\n".join(str(item) for item in writes)
     assert "脚本来源：模型生成" in rendered
+    assert "已交给 agent 动态执行" in rendered
+    assert "等待批准" not in rendered
     assert "/workflow show wf_auto" in rendered
     assert scrolls
+
+
+def test_prepare_workflow_approval_keeps_plan_pending():
+    app = object.__new__(WyckoffTUI)
+    app._messages = [{"role": "user", "content": "继续 workflow"}]
+    app._pending_workflows = {}
+    chatlog_rows = []
+    writes = []
+    scrolls = []
+
+    class Runtime:
+        def prepare_run(self):
+            return {
+                "run_id": "wf_pending",
+                "workflow": "dynamic_task",
+                "label": "持仓复盘",
+                "plan": {
+                    "script": {"runtime": {"planner": "model_script"}},
+                    "steps": [{"title": "读取持仓", "rationale": "先取当前事实"}],
+                },
+            }
+
+    app._chatlog_save = lambda role, content, **kwargs: chatlog_rows.append((role, content, kwargs))
+
+    prepared = WyckoffTUI._prepare_workflow_approval(
+        app,
+        Runtime(),
+        SimpleNamespace(
+            turn_user_index=0,
+            user_text="继续 workflow",
+            model_name="model",
+            provider_name="provider",
+        ),
+        "system prompt",
+        writes.append,
+        lambda: scrolls.append(True),
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert prepared is True
+    assert "wf_pending" in app._pending_workflows
+    assert "计划已准备好，等待批准" in rendered
+    assert "也可以直接补充修改意见" in rendered
+    assert "已交给 agent 动态执行" not in rendered
+    assert chatlog_rows[1][0] == "assistant"
+    assert "workflow_pending_approval" in chatlog_rows[1][2]["metadata_json"]
+    assert scrolls == [True, True]
 
 
 def test_workflow_background_event_summary_keeps_handoff_evidence():

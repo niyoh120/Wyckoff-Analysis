@@ -466,7 +466,13 @@ def _display_tool_result_event(event: dict[str, Any], tools, write, scroll) -> d
     return summary
 
 
-def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[str, str]:
+def _display_workflow_plan_event(
+    event: dict[str, Any],
+    write,
+    scroll,
+    *,
+    launch_state: str = "running",
+) -> tuple[str, str]:
     run_id = str(event.get("run_id", ""))
     workflow_name = str(event.get("workflow", ""))
     label = str(event.get("label") or workflow_name)
@@ -492,13 +498,16 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
     if step_count:
         for line in _workflow_plan_step_preview_lines(steps):
             write(Text.from_markup(line))
-        write(
-            Text.from_markup(
-                f"    [dim]已交给 agent 动态执行，进度会按实际工具结果展开；详情用 /workflow show {escape(run_id)}[/dim]"
-            )
-        )
+        write(Text.from_markup(_workflow_plan_footer_line(run_id, launch_state)))
     scroll()
     return run_id, workflow_name
+
+
+def _workflow_plan_footer_line(run_id: str, launch_state: str) -> str:
+    detail = f"；详情用 /workflow show {escape(run_id)}" if run_id else ""
+    if launch_state == "pending_approval":
+        return f"    [dim]计划已准备好，等待批准{detail}[/dim]"
+    return f"    [dim]已交给 agent 动态执行，进度会按实际工具结果展开{detail}[/dim]"
 
 
 def _workflow_event_route_line(event: dict[str, Any]) -> Text | None:
@@ -640,9 +649,11 @@ def _workflow_route_line(route: dict[str, Any]) -> Text | None:
 
 
 def _workflow_visible_route_matches(route: dict[str, Any]) -> list[str]:
-    return [
-        text for item in route.get("matches", []) if (text := str(item).strip()) and not text.startswith("model_router")
-    ]
+    return [text for item in route.get("matches", []) if (text := str(item).strip()) and _is_visible_route_match(text)]
+
+
+def _is_visible_route_match(text: str) -> bool:
+    return not text.startswith("model_router") and not text.endswith("_guard")
 
 
 def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
@@ -2703,7 +2714,12 @@ class WyckoffTUI(App):
         except Exception as exc:
             log.write(Text.from_markup(f"[red]reload workflow script 失败: {escape(str(exc))}[/red]"))
             return
-        _display_workflow_plan_event(event, log.write, lambda: log.scroll_end(animate=False))
+        _display_workflow_plan_event(
+            event,
+            log.write,
+            lambda: log.scroll_end(animate=False),
+            launch_state="pending_approval",
+        )
         log.write(Text.from_markup(f"[green]已从脚本文件 reload[/green] [dim]{escape(script_path)}[/dim]"))
 
     def _revise_pending_workflow(self, run_id: str, feedback: str, log) -> None:
@@ -2716,7 +2732,12 @@ class WyckoffTUI(App):
         except Exception as exc:
             log.write(Text.from_markup(f"[red]修订 workflow 失败: {escape(str(exc))}[/red]"))
             return
-        _display_workflow_plan_event(event, log.write, lambda: log.scroll_end(animate=False))
+        _display_workflow_plan_event(
+            event,
+            log.write,
+            lambda: log.scroll_end(animate=False),
+            launch_state="pending_approval",
+        )
         log.write(
             Text.from_markup(
                 f"[green]已根据反馈更新 workflow[/green] [dim]{escape(target_id)}[/dim] "
@@ -3681,7 +3702,7 @@ class WyckoffTUI(App):
         run_id = str(event.get("run_id", ""))
         self._restore_turn_user_message(state.turn_user_index)
         self._chatlog_save("user", state.user_text, model=state.model_name, provider=state.provider_name)
-        _display_workflow_plan_event(event, write, scroll)
+        _display_workflow_plan_event(event, write, scroll, launch_state="pending_approval")
         messages_snapshot = [dict(item) for item in self._messages]
         self._pending_workflows[run_id] = _PendingWorkflowLaunch(
             runtime=runtime,
@@ -3701,7 +3722,11 @@ class WyckoffTUI(App):
                 {"workflow_pending_approval": True, "workflow_run_id": run_id}, ensure_ascii=False
             ),
         )
-        write(Text.from_markup("  [yellow]等待批准[/yellow] [dim]回复“开始”运行 · 回复“取消”停止[/dim]"))
+        write(
+            Text.from_markup(
+                "  [yellow]等待批准[/yellow] [dim]回复“开始”运行 · 回复“取消”停止 · 也可以直接补充修改意见[/dim]"
+            )
+        )
         scroll()
         return True
 
