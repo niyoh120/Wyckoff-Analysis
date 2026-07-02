@@ -45,6 +45,31 @@ TOOL_SCOPE_NESTED_FIELDS = (
     "names",
     *TOOL_SCOPE_FIELDS,
 )
+_STOCK_FALLBACK_TARGETS = (
+    "完整选股",
+    "选股",
+    "候选",
+    "好股票",
+    "好票",
+    "好标的",
+    "股票池",
+    "机会",
+    "值得复核",
+    "值得跟踪",
+)
+_STOCK_FALLBACK_EXPLAINERS = ("怎么", "如何", "方法", "是什么意思", "啥意思", "概念", "解释")
+_STOCK_FALLBACK_REPORT_MARKERS = ("研报", "深度", "报告")
+_STOCK_FALLBACK_DECISION_MARKERS = (
+    "攻防",
+    "买卖",
+    "计划",
+    "行动",
+    "风险",
+    "风险边界",
+    "触发位",
+    "失效位",
+    "下一步",
+)
 
 _PLAN_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的动态 workflow 编排器。
@@ -919,6 +944,8 @@ def _slug(value: Any) -> str:
 
 
 def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -> dict[str, Any]:
+    if stock_script := _stock_selection_fallback_script(user_text, context, reason):
+        return stock_script
     title = _fallback_task_title(user_text, context)
     return {
         "title": title,
@@ -939,6 +966,93 @@ def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -
         ],
         "synthesis_prompt": "基于任务结果给出简洁中文答复。",
     }
+
+
+def _stock_selection_fallback_script(user_text: str, context: WorkflowContext, reason: str) -> dict[str, Any] | None:
+    if context.name != "dynamic_task" or not _looks_like_stock_selection_delivery(user_text):
+        return None
+    tasks = [_stock_scan_task(user_text)]
+    if _wants_ai_report(user_text):
+        tasks.append(_stock_report_task())
+    if _wants_strategy_decision(user_text):
+        tasks.append(_stock_decision_task(depends_on=tasks[-1]["id"]))
+    return {
+        "title": "选股候选复核",
+        "rationale": reason,
+        "runtime": {
+            "planner": "fallback_script",
+            "fallback_reason": reason,
+            "fallback_kind": "stock_selection",
+        },
+        "phases": [{"id": "stock_selection", "title": "选股复核", "tasks": tasks}],
+        "synthesis_prompt": (
+            "基于真实工具结果给出中文答复：列出候选、核心理由、质量评分/评级、风险因素和下一步。"
+            "如果工具结果显示禁止直接买入或仅适合观察，不得写成买入建议。"
+        ),
+    }
+
+
+def _looks_like_stock_selection_delivery(user_text: str) -> bool:
+    text = _compact_task_text(user_text)
+    if not text or any(marker in text for marker in _STOCK_FALLBACK_EXPLAINERS):
+        return False
+    return any(marker in text for marker in _STOCK_FALLBACK_TARGETS)
+
+
+def _stock_scan_task(user_text: str) -> dict[str, Any]:
+    return {
+        "id": "scan_candidates",
+        "title": "扫描候选",
+        "tools": ["screen_stocks"],
+        "prompt": (
+            "按用户当前目标筛选股票候选，保留候选代码、名称、入选理由、质量评分/评级、风险因素、"
+            "候选护栏和下一步。不要直接给买入指令。\n\n"
+            f"用户原文：{user_text}"
+        ),
+        "rationale": "先用真实筛选工具收集候选和质量证据。",
+        "success_criteria": "输出候选列表、质量证据、风险因素和是否允许进入下一步复核。",
+        "risk_guard": "只做研究候选，不写入交易或持仓。",
+    }
+
+
+def _stock_report_task() -> dict[str, Any]:
+    return {
+        "id": "ai_report",
+        "title": "生成候选研报",
+        "tools": ["generate_ai_report"],
+        "depends_on": ["scan_candidates"],
+        "prompt": "基于上一阶段候选生成 AI 研报，保留结构、逻辑破产条件、储备营地和起跳板证据。",
+        "rationale": "用户要求研报或深度复核时，需要在候选之后补充结构化研究。",
+        "success_criteria": "候选研报包含结构判断、失效条件和可继续复核的对象。",
+        "risk_guard": "研报只作研究，不输出交易执行指令。",
+    }
+
+
+def _stock_decision_task(depends_on: str) -> dict[str, Any]:
+    return {
+        "id": "strategy_decision",
+        "title": "形成攻防边界",
+        "tools": ["generate_strategy_decision"],
+        "depends_on": [depends_on],
+        "prompt": "基于候选和已有研报/筛选证据形成攻防边界，输出触发位、失效位、观察/复核/禁止直接买入状态。",
+        "rationale": "用户要求风险、攻防、买卖计划或下一步时，需要把候选转成可复核的动作边界。",
+        "success_criteria": "输出每个重点候选的行动状态、触发条件、失效条件和风险护栏。",
+        "risk_guard": "遵守候选护栏；未成熟、观察池或市场阻断候选不得转成直接买入。",
+    }
+
+
+def _wants_ai_report(user_text: str) -> bool:
+    text = _compact_task_text(user_text)
+    return any(marker in text for marker in _STOCK_FALLBACK_REPORT_MARKERS)
+
+
+def _wants_strategy_decision(user_text: str) -> bool:
+    text = _compact_task_text(user_text)
+    return any(marker in text for marker in _STOCK_FALLBACK_DECISION_MARKERS)
+
+
+def _compact_task_text(value: Any) -> str:
+    return re.sub(r"[\s。！!,.，、？?]+", "", str(value or "").lower())
 
 
 def _fallback_task_prompt(user_text: str) -> str:

@@ -514,17 +514,61 @@ def test_workflow_planner_keeps_subtasks_without_agent_fields():
     assert run.steps[1].prompt == "复核候选结构"
 
 
-def test_workflow_planner_fallback_uses_generic_task_executor():
+def test_workflow_planner_fallback_builds_stock_selection_tool_chain():
     run = plan_workflow(
         "用 workflow 完整做一遍今天的 A 股选股，给出候选、理由和买卖计划",
         context=route_workflow("用 workflow 完整做一遍今天的 A 股选股，给出候选、理由和买卖计划"),
     )
 
-    assert len(run.steps) == 1
-    assert run.steps[0].agent == "task"
-    assert run.steps[0].tools == ()
+    assert [step.step_id for step in run.steps] == ["scan_candidates", "strategy_decision"]
+    assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
+    assert run.steps[1].depends_on == ("scan_candidates",)
     assert "用户原文" in run.steps[0].prompt
     assert "A 股选股" in run.steps[0].prompt
+    assert run.script["runtime"] == {
+        "planner": "fallback_script",
+        "fallback_reason": "provider unavailable",
+        "fallback_kind": "stock_selection",
+    }
+
+
+def test_workflow_planner_stock_fallback_adds_report_when_requested():
+    run = plan_workflow(
+        "选出好股票，给出研报和攻防计划",
+        context=WORKFLOWS["dynamic_task"],
+    )
+
+    assert [step.step_id for step in run.steps] == ["scan_candidates", "ai_report", "strategy_decision"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("screen_stocks",),
+        ("generate_ai_report",),
+        ("generate_strategy_decision",),
+    ]
+    assert run.steps[1].depends_on == ("scan_candidates",)
+    assert run.steps[2].depends_on == ("ai_report",)
+    assert run.script["runtime"]["fallback_kind"] == "stock_selection"
+
+
+def test_workflow_planner_short_stock_fallback_scans_candidates():
+    run = plan_workflow(
+        "帮我选出好股票",
+        context=WORKFLOWS["dynamic_task"],
+    )
+
+    assert [step.step_id for step in run.steps] == ["scan_candidates"]
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.script["runtime"]["fallback_kind"] == "stock_selection"
+
+
+def test_workflow_planner_stock_method_question_keeps_generic_fallback():
+    run = plan_workflow(
+        "用 workflow 解释怎么选出好股票",
+        context=route_workflow("用 workflow 解释怎么选出好股票"),
+    )
+
+    assert len(run.steps) == 1
+    assert run.steps[0].step_id == "agent_task"
+    assert run.steps[0].tool_scope == ()
     assert run.script["runtime"] == {
         "planner": "fallback_script",
         "fallback_reason": "provider unavailable",
