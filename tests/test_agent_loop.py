@@ -231,14 +231,15 @@ def test_agent_loop_retries_hallucinated_portfolio_list_until_portfolio_runs():
     assert [call["name"] for call in outcome["tool_calls"]] == ["portfolio"]
 
 
-def test_agent_loop_default_does_not_force_phrase_based_tool_retry():
+def test_agent_loop_can_disable_phrase_based_tool_retry():
     harness = AgentLoopHarness(
         rounds=[
             [
                 {"type": "text_delta", "text": "计划\n1. 读取持仓\n2. 汇总风险"},
                 {"type": "usage", "input_tokens": 10, "output_tokens": 6},
             ]
-        ]
+        ],
+        enforce_turn_expectations=False,
     )
 
     outcome = harness.run_turn([{"role": "user", "content": "你看我持仓呀"}])

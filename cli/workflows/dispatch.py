@@ -60,7 +60,7 @@ def build_turn_runtime(
             "scratchpad": scratchpad,
             "cancel_check": cancel_check,
             "allowed_tools": infer_direct_allowed_tools(user_text),
-            "enforce_turn_expectations": enforce_turn_expectations,
+            "enforce_turn_expectations": _direct_turn_expectations_default(enforce_turn_expectations),
         }
         if stream_chunk_timeout is not None:
             kwargs["stream_chunk_timeout"] = stream_chunk_timeout
@@ -88,3 +88,7 @@ def infer_direct_allowed_tools(user_text: str) -> tuple[str, ...]:
     """Expose bounded direct-chat tools without keyword-gating intent."""
 
     return _DIRECT_TOOL_ORDER
+
+
+def _direct_turn_expectations_default(value: bool | None) -> bool:
+    return True if value is None else bool(value)

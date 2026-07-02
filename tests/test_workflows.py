@@ -232,6 +232,50 @@ def test_dispatch_uses_direct_runtime_for_portfolio_turn():
     assert isinstance(runtime, AgentRuntime)
 
 
+def test_dispatch_direct_runtime_enforces_tool_expectations_by_default():
+    provider = ScriptedProvider(
+        [
+            [{"type": "text_delta", "text": "计划\n1. 读取持仓\n2. 汇总风险"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "view"}}],
+                }
+            ],
+            [{"type": "text_delta", "text": "已读取持仓。"}],
+        ]
+    )
+    tools = StubToolRegistry(tool_results={"portfolio": {"positions": []}})
+    runtime, workflow = build_turn_runtime(provider, tools, session_id="s1", user_text="你看我持仓呀")
+
+    events = list(runtime.run_stream([{"role": "user", "content": "你看我持仓呀"}]))
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+    assert [call["name"] for call in tools.calls] == ["portfolio"]
+    assert [event["type"] for event in events].count("retry") == 1
+    assert events[-1]["text"] == "已读取持仓。"
+
+
+def test_dispatch_can_disable_direct_runtime_tool_expectations():
+    provider = ScriptedProvider([[{"type": "text_delta", "text": "计划\n1. 读取持仓\n2. 汇总风险"}]])
+    tools = StubToolRegistry(tool_results={"portfolio": {"positions": []}})
+    runtime, workflow = build_turn_runtime(
+        provider,
+        tools,
+        session_id="s1",
+        user_text="你看我持仓呀",
+        enforce_turn_expectations=False,
+    )
+
+    events = list(runtime.run_stream([{"role": "user", "content": "你看我持仓呀"}]))
+
+    assert workflow.name == "general_chat"
+    assert tools.calls == []
+    assert not [event for event in events if event["type"] == "retry"]
+    assert events[-1]["text"] == "计划\n1. 读取持仓\n2. 汇总风险"
+
+
 def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn():
     provider = RouterDecisionProvider(
         '{"mode":"dynamic_workflow","confidence":0.84,"reason":"需要先筛选候选，再分析结构和攻防动作"}'
