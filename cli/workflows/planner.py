@@ -322,6 +322,7 @@ def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowConte
         steps.extend(_phase_steps(phase, user_text, args_text, infer_text_tools, allowed_tool_names))
         if len(steps) >= MAX_WORKFLOW_STEPS:
             break
+    steps = _normalize_step_dependencies(steps)
     steps = _stabilize_tool_dependencies(steps)
     steps = _filter_runtime_steps(steps, script)
     if steps:
@@ -611,6 +612,27 @@ def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
     for field in ("depends_on", "dependsOn", "dependencies", "after", "needs", "requires"):
         deps.extend(dep for item in _field_items(task.get(field)) if (dep := _dependency_id(item)))
     return tuple(dict.fromkeys(dep for dep in deps if dep))
+
+
+def _normalize_step_dependencies(steps: list[WorkflowStep]) -> list[WorkflowStep]:
+    aliases = _dependency_aliases(steps)
+    for step in steps:
+        deps: list[str] = []
+        for dep in step.depends_on:
+            resolved = aliases.get(dep, dep)
+            if resolved and resolved != step.step_id and resolved not in deps:
+                deps.append(resolved)
+        step.depends_on = tuple(deps)
+    return steps
+
+
+def _dependency_aliases(steps: list[WorkflowStep]) -> dict[str, str]:
+    buckets: dict[str, set[str]] = {}
+    for step in steps:
+        for alias in (step.step_id, _slug(step.title)):
+            if alias:
+                buckets.setdefault(alias, set()).add(step.step_id)
+    return {alias: next(iter(ids)) for alias, ids in buckets.items() if len(ids) == 1}
 
 
 def _stabilize_tool_dependencies(steps: list[WorkflowStep]) -> list[WorkflowStep]:
