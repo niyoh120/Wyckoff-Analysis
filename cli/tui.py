@@ -82,6 +82,37 @@ _PENDING_WORKFLOW_DENY_REPLIES = {
     "取消吧",
     "算了",
 }
+_PENDING_WORKFLOW_APPROVE_MARKERS = (
+    "开始",
+    "运行",
+    "执行",
+    "继续",
+    "跑一下",
+    "跑起来",
+    "可以跑",
+    "可以执行",
+    "可以运行",
+    "按这个",
+    "就这样",
+    "没问题",
+    "同意",
+    "确认",
+)
+_PENDING_WORKFLOW_DENY_MARKERS = (
+    "不可以",
+    "不能",
+    "先不要",
+    "不要跑",
+    "不要执行",
+    "不要运行",
+    "别跑",
+    "别执行",
+    "别运行",
+    "先别",
+    "拒绝",
+    "取消",
+)
+_PENDING_WORKFLOW_REPLY_QUESTION_MARKERS = ("要不要", "可不可以", "能不能", "是否")
 _PENDING_WORKFLOW_REVISION_MARKERS = (
     "修改",
     "改成",
@@ -985,17 +1016,25 @@ def _workflow_control_intent(text: str) -> tuple[str, str] | None:
 
 
 def _pending_workflow_reply_intent(text: str) -> str:
-    normalized = re.sub(r"[\s。！!,.，、]+", "", text.lower())
+    normalized = _normalize_pending_workflow_text(text)
+    if not normalized or _pending_workflow_revision_intent(text):
+        return ""
+    if _pending_workflow_reply_question_like(normalized):
+        return ""
     if normalized in _PENDING_WORKFLOW_APPROVE_REPLIES:
         return "approve"
     if normalized in _PENDING_WORKFLOW_DENY_REPLIES:
         return "deny"
+    if any(marker in normalized for marker in _PENDING_WORKFLOW_DENY_MARKERS):
+        return "deny"
+    if any(marker in normalized for marker in _PENDING_WORKFLOW_APPROVE_MARKERS):
+        return "approve"
     return ""
 
 
 def _pending_workflow_revision_intent(text: str) -> bool:
-    normalized = re.sub(r"[\s。！!,.，、？?]+", "", text.lower())
-    if not normalized or _pending_workflow_reply_intent(text):
+    normalized = _normalize_pending_workflow_text(text)
+    if not normalized:
         return False
     if "workflow" in normalized and any(marker in normalized for marker in _PENDING_WORKFLOW_REVISION_QUESTION_MARKERS):
         return False
@@ -1003,6 +1042,16 @@ def _pending_workflow_revision_intent(text: str) -> bool:
         return True
     return any(marker in normalized for marker in _PENDING_WORKFLOW_REVISION_SOFT_MARKERS) and any(
         marker in normalized for marker in _PENDING_WORKFLOW_REVISION_OBJECT_MARKERS
+    )
+
+
+def _normalize_pending_workflow_text(text: str) -> str:
+    return re.sub(r"[\s。！!,.，、？?]+", "", text.lower())
+
+
+def _pending_workflow_reply_question_like(normalized: str) -> bool:
+    return normalized.endswith(("吗", "么", "嘛")) or any(
+        marker in normalized for marker in _PENDING_WORKFLOW_REPLY_QUESTION_MARKERS
     )
 
 
@@ -2368,11 +2417,11 @@ class WyckoffTUI(App):
     def _handle_workflow_control_text(self, text: str, log) -> bool:
         intent = _workflow_control_intent(text)
         if not intent and len(self._pending_workflows) == 1:
-            pending_intent = _pending_workflow_reply_intent(text)
-            intent = (pending_intent, "") if pending_intent else None
-            if not intent and _pending_workflow_revision_intent(text):
+            if _pending_workflow_revision_intent(text):
                 self._revise_pending_workflow("", text, log)
                 return True
+            pending_intent = _pending_workflow_reply_intent(text)
+            intent = (pending_intent, "") if pending_intent else None
         if not intent:
             return False
         action, run_id = intent

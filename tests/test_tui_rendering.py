@@ -1468,16 +1468,24 @@ def test_workflow_control_intent_requires_explicit_control_action():
 def test_pending_workflow_reply_intent_accepts_chat_style_approval():
     assert _pending_workflow_reply_intent("好") == "approve"
     assert _pending_workflow_reply_intent("开始吧") == "approve"
+    assert _pending_workflow_reply_intent("好，开始吧") == "approve"
     assert _pending_workflow_reply_intent("执行吧") == "approve"
+    assert _pending_workflow_reply_intent("嗯可以跑一下") == "approve"
+    assert _pending_workflow_reply_intent("没问题，按这个执行") == "approve"
     assert _pending_workflow_reply_intent("按这个来") == "approve"
     assert _pending_workflow_reply_intent("取消") == "deny"
     assert _pending_workflow_reply_intent("不用 workflow") == "deny"
+    assert _pending_workflow_reply_intent("先别跑") == "deny"
     assert _pending_workflow_reply_intent("解释一下 workflow 是什么") == ""
+    assert _pending_workflow_reply_intent("好，但是不用研报，先给攻防") == ""
+    assert _pending_workflow_reply_intent("可以开始吗") == ""
+    assert _pending_workflow_reply_intent("要不要开始") == ""
 
 
 def test_pending_workflow_revision_intent_accepts_chat_style_edits():
     assert _pending_workflow_revision_intent("别这么拆，直接先扫候选")
     assert _pending_workflow_revision_intent("不用研报，先给攻防")
+    assert _pending_workflow_revision_intent("好，但是不用研报，先给攻防")
     assert _pending_workflow_revision_intent("把第二步改成生成研报")
     assert not _pending_workflow_revision_intent("开始吧")
     assert not _pending_workflow_revision_intent("取消")
@@ -1511,6 +1519,33 @@ def test_pending_workflow_feedback_revises_single_pending_workflow():
     assert handled is True
     assert feedbacks == ["别这么拆，直接先扫候选"]
     assert any("改后脚本" in str(line) for line in log.lines)
+    assert "已根据反馈更新 workflow" in str(log.lines[-1])
+
+
+def test_pending_workflow_feedback_prefers_revision_over_approval_phrase():
+    app = object.__new__(WyckoffTUI)
+    feedbacks = []
+    approved = []
+
+    class Runtime:
+        def revise_prepared_script(self, feedback):
+            feedbacks.append(feedback)
+            return {
+                "run_id": "wf_pending",
+                "workflow": "dynamic_task",
+                "label": "动态任务",
+                "plan": {"steps": [{"title": "形成攻防", "tool_scope": ["generate_strategy_decision"]}]},
+            }
+
+    app._pending_workflows = {"wf_pending": SimpleNamespace(runtime=Runtime())}
+    app._approve_workflow = lambda run_id, log: approved.append(run_id)
+    log = _FakeLog()
+
+    handled = WyckoffTUI._handle_workflow_control_text(app, "好，但是不用研报，先给攻防", log)
+
+    assert handled is True
+    assert feedbacks == ["好，但是不用研报，先给攻防"]
+    assert approved == []
     assert "已根据反馈更新 workflow" in str(log.lines[-1])
 
 
