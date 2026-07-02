@@ -559,6 +559,49 @@ def test_workflow_step_context_includes_outcome_metadata():
     assert "task context:\n只读运行" in context
 
 
+def test_workflow_step_context_surfaces_prior_candidate_handoff_summary():
+    step = WorkflowStep(
+        step_id="decision",
+        title="形成攻防",
+        phase="decision",
+        depends_on=("scan",),
+        tool_scope=("generate_strategy_decision",),
+    )
+    handoff = {
+        "last_screen_result": {
+            "symbols_for_report": [
+                {
+                    "code": "300750",
+                    "name": "宁德时代",
+                    "action_status": "ready_for_ai_review",
+                    "candidate_shadow_score": 92.0,
+                    "candidate_shadow_grade": "S",
+                    "risk_adjusted_quality_score": 87.0,
+                    "quality_factors": ["事件主线"],
+                    "risk_factors": ["未来窗口标签尚未成熟"],
+                    "next_step": "生成 AI 研报",
+                }
+            ],
+            "candidate_guard_summary": {"candidates": [{"code": "300750", "reason": "只能研报复核，不可直接买入"}]},
+        }
+    }
+    prior_results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {"status": "completed", "result": "候选扫描完成。", "handoff_state": handoff},
+        }
+    ]
+
+    context = _step_context(step, prior_results)
+
+    assert "前序候选 handoff 摘要:" in context
+    assert "- 候选结论:" in context
+    assert "300750 宁德时代" in context
+    assert "护栏: 只能研报复核，不可直接买入" in context
+    assert context.index("前序候选 handoff 摘要:") < context.index("前序 agent 结果:")
+    assert '"handoff_state"' in context
+
+
 def test_workflow_handoff_state_compacts_candidate_context():
     tools = StubToolRegistry()
     tools._tool_context = SimpleNamespace(

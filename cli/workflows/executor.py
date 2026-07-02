@@ -415,9 +415,22 @@ def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> st
         lines.extend(["", "task context:", step.context])
     if not prior_results:
         return "\n".join(lines)
+    if handoff_lines := _prior_handoff_context_lines(prior_results):
+        lines.extend(["", "前序候选 handoff 摘要:", *handoff_lines])
     preview = json.dumps(prior_results[-3:], ensure_ascii=False, default=str)[:6000]
     lines.extend(["", "前序 agent 结果:", preview])
     return "\n".join(lines)
+
+
+def _prior_handoff_context_lines(prior_results: list[dict[str, Any]], limit: int = 8) -> list[str]:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for item in reversed(prior_results):
+        result = item.get("result") if isinstance(item, dict) else {}
+        handoff = result.get("handoff_state") if isinstance(result, dict) else {}
+        for line in _fallback_handoff_lines(handoff):
+            _append_handoff_line(lines, seen, line, limit)
+    return [f"- {line}" for line in lines]
 
 
 def _phase_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
