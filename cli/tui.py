@@ -15,6 +15,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from rich.highlighter import Highlighter
@@ -72,6 +73,8 @@ _PENDING_WORKFLOW_DENY_REPLIES = {
 }
 _BUSY_FORCE_EXIT_WINDOW = 1.5
 _HARD_EXIT_DELAY = 1.0
+_RECENT_WORKFLOW_FALLBACK_MAX_AGE_SECONDS = 24 * 60 * 60
+_RECENT_WORKFLOW_FALLBACK_CLOCK_SKEW_SECONDS = 5 * 60
 
 
 def _decode_csi_u(m: re.Match[str]) -> str:
@@ -780,6 +783,29 @@ def _pending_workflow_reply_intent(text: str) -> str:
     if normalized in _PENDING_WORKFLOW_DENY_REPLIES:
         return "deny"
     return ""
+
+
+def _workflow_run_is_recent(
+    run: dict[str, Any], *, max_age_seconds: int = _RECENT_WORKFLOW_FALLBACK_MAX_AGE_SECONDS
+) -> bool:
+    timestamp = _workflow_run_timestamp(run)
+    if timestamp is None:
+        return False
+    now = datetime.now(UTC) if timestamp.tzinfo else datetime.now()
+    age_seconds = (now - timestamp).total_seconds()
+    return -_RECENT_WORKFLOW_FALLBACK_CLOCK_SKEW_SECONDS <= age_seconds <= max_age_seconds
+
+
+def _workflow_run_timestamp(run: dict[str, Any]) -> datetime | None:
+    for field_name in ("updated_at", "created_at"):
+        raw = str(run.get(field_name, "") or "").strip()
+        if not raw:
+            continue
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+    return None
 
 
 def _split_workflow_name_args(name_part: str, rest: str) -> tuple[str, str]:
@@ -2195,7 +2221,9 @@ class WyckoffTUI(App):
         for run in rows:
             if str(run.get("session_id", "")) == self._session_id:
                 return run
-        return rows[0] if rows else None
+        if rows and _workflow_run_is_recent(rows[0]):
+            return rows[0]
+        return None
 
     def _recent_workflow_context(self, text: str) -> str:
         try:

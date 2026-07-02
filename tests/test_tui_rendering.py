@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +28,10 @@ from cli.tui import (
     _workflow_detail_step_line,
     _write_counted,
 )
+
+
+def _recent_timestamp() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 class _FakeLog:
@@ -114,6 +119,7 @@ def test_expand_recent_workflow_followup_falls_back_to_latest_run(monkeypatch):
                 "label": "最近",
                 "status": "completed",
                 "user_text": "给我选股",
+                "updated_at": _recent_timestamp(),
                 "plan": {"steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
             }
         ],
@@ -122,6 +128,27 @@ def test_expand_recent_workflow_followup_falls_back_to_latest_run(monkeypatch):
     expanded = app._expand_recent_workflow_followup("接着刚才那个")
 
     assert "继续 workflow wf_latest" in expanded
+
+
+def test_expand_recent_workflow_followup_ignores_stale_latest_run(monkeypatch):
+    app = object.__new__(WyckoffTUI)
+    app._session_id = "new_session"
+    monkeypatch.setattr(
+        "cli.workflows.store.list_workflow_runs",
+        lambda limit=8: [
+            {
+                "run_id": "wf_stale",
+                "session_id": "old_session",
+                "label": "过期",
+                "status": "completed",
+                "user_text": "给我选股",
+                "updated_at": "2000-01-01 00:00:00",
+                "plan": {"steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
+            }
+        ],
+    )
+
+    assert app._expand_recent_workflow_followup("接着刚才那个") == "接着刚才那个"
 
 
 def test_recent_workflow_context_skips_explicit_resume(monkeypatch):
@@ -163,6 +190,7 @@ def test_recent_workflow_context_falls_back_to_latest_run(monkeypatch):
                 "status": "completed",
                 "user_text": "给我选股",
                 "result_summary": "候选 A",
+                "updated_at": _recent_timestamp(),
                 "plan": {"steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
             }
         ],
@@ -171,6 +199,28 @@ def test_recent_workflow_context_falls_back_to_latest_run(monkeypatch):
     context = app._recent_workflow_context("第一个怎么样")
 
     assert "run_id: wf_latest" in context
+
+
+def test_recent_workflow_context_ignores_stale_latest_run(monkeypatch):
+    app = object.__new__(WyckoffTUI)
+    app._session_id = "new_session"
+    monkeypatch.setattr(
+        "cli.workflows.store.list_workflow_runs",
+        lambda limit=8: [
+            {
+                "run_id": "wf_stale",
+                "session_id": "old_session",
+                "label": "过期",
+                "status": "completed",
+                "user_text": "给我选股",
+                "result_summary": "候选 A",
+                "updated_at": "2000-01-01 00:00:00",
+                "plan": {"steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
+            }
+        ],
+    )
+
+    assert app._recent_workflow_context("第一个怎么样") == ""
 
 
 def test_replace_streamed_response_redraws_markdown():
