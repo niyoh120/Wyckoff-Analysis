@@ -53,6 +53,18 @@ _TURN_EXPECTATION_TOOL_SCOPES = frozenset(
 )
 MAX_CONCURRENT_AGENTS = 16
 WORKFLOW_BACKGROUND_WAIT_SECONDS = 45.0
+SYNTHESIS_PROMPT_FIELDS = (
+    "synthesis_prompt",
+    "synthesis",
+    "synthesis_instructions",
+    "summary_prompt",
+    "final_prompt",
+    "final_response",
+    "final_answer",
+    "output",
+    "deliverable",
+    "deliverables",
+)
 _SYNTHESIS_REQUIREMENTS = (
     "输出要求：\n"
     "- 先给结论和可执行下一步，不要只复述 workflow 步骤。\n"
@@ -828,9 +840,7 @@ def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:
-    script_prompt = ""
-    if isinstance(run.script, dict):
-        script_prompt = str(run.script.get("synthesis_prompt", "") or "").strip()
+    script_prompt = _script_synthesis_prompt(run.script)
     handoff_summary = _synthesis_handoff_summary(results)
     agent_results = _synthesis_agent_results(results)
     return (
@@ -843,6 +853,25 @@ def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:
         f"priority candidate handoff:\n{json.dumps(handoff_summary, ensure_ascii=False, default=str)[:6000]}\n\n"
         f"agent results:\n{json.dumps(agent_results, ensure_ascii=False, default=str)[:12000]}"
     )
+
+
+def _script_synthesis_prompt(script: Any) -> str:
+    if not isinstance(script, dict):
+        return ""
+    for field in SYNTHESIS_PROMPT_FIELDS:
+        if value := _script_text_value(script.get(field)):
+            return value
+    return ""
+
+
+def _script_text_value(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, (list, tuple, set)):
+        return "；".join(str(item).strip() for item in value if str(item).strip())
+    if isinstance(value, dict):
+        return "；".join(f"{key}: {item}" for key, item in value.items() if str(item).strip())
+    return str(value).strip()
 
 
 def _synthesis_agent_results(results: list[dict[str, Any]]) -> list[Any]:

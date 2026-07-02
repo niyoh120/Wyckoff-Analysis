@@ -1033,6 +1033,38 @@ def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
     assert '"new_buy_allowed": false' in prompt
 
 
+def test_workflow_synthesis_prompt_accepts_model_summary_aliases():
+    run = WorkflowRun(
+        run_id="wf_synth_alias",
+        session_id="s_synth_alias",
+        user_text="帮我选出好股票",
+        context=WORKFLOWS["dynamic_task"],
+        script={"final_response": "最终按候选、理由、风险边界输出。"},
+    )
+
+    prompt = _synthesis_prompt(run, [])
+
+    assert "模型脚本的汇总要求:\n最终按候选、理由、风险边界输出。" in prompt
+
+
+def test_workflow_synthesis_prompt_prefers_canonical_field_over_aliases():
+    run = WorkflowRun(
+        run_id="wf_synth_prefer",
+        session_id="s_synth_prefer",
+        user_text="帮我选出好股票",
+        context=WORKFLOWS["dynamic_task"],
+        script={
+            "synthesis_prompt": "优先输出可执行下一步。",
+            "final_response": "这个别名不应覆盖 canonical 字段。",
+        },
+    )
+
+    prompt = _synthesis_prompt(run, [])
+    script_section = prompt.split("模型脚本的汇总要求:\n", 1)[1].split("\n\n用户请求:", 1)[0]
+
+    assert script_section == "优先输出可执行下一步。"
+
+
 def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
     run = WorkflowRun(
         run_id="wf_long_handoff",
