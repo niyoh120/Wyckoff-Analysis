@@ -32,6 +32,8 @@ _PORTFOLIO_SUBJECT_HINTS = (
 )
 
 _PORTFOLIO_VIEW_HINTS = (
+    "读",
+    "读取",
     "看",
     "查",
     "列",

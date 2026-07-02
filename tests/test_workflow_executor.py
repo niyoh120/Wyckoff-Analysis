@@ -1605,6 +1605,49 @@ def test_workflow_executor_scopes_sub_agent_tools_per_step(tmp_path, monkeypatch
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_retries_read_positions_task_until_portfolio_runs(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-read-positions-expectation.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "我先口头整理持仓。"}],
+            [{"type": "tool_calls", "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "view"}}]}],
+            [{"type": "text_delta", "text": "持仓工具已读取。"}],
+            [{"type": "text_delta", "text": "已汇总持仓结果。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "portfolio", "description": "Mock portfolio", "parameters": {"type": "object"}},
+        ],
+        tool_results={"portfolio": {"positions": []}},
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_read_positions_expectation",
+        user_text="用 workflow 读取真实持仓",
+        workflow_context=route_workflow("用 workflow 读取真实持仓"),
+        workflow_script={
+            "tasks": [{"id": "positions", "title": "读取真实持仓", "tools": ["portfolio"], "prompt": "读取真实持仓"}]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 读取真实持仓"}]))
+
+    try:
+        detail = next(event for event in events if event["type"] == "workflow_step_done")["source"]["agent_detail"]
+        assert detail["tool_scope"] == ["portfolio"]
+        assert detail["tool_calls"] == ["portfolio"]
+        assert [call["name"] for call in tools.calls] == ["portfolio"]
+        assert events[-1]["text"] == "已汇总持仓结果。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_retries_scoped_report_task_until_tool_runs(tmp_path, monkeypatch):
     from integrations import local_db
 

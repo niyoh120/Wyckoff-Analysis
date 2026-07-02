@@ -158,6 +158,14 @@ def test_runtime_accepts_any_portfolio_mode_for_soft_expectation():
     assert events[-1]["text"] == "已读取持仓。"
 
 
+def test_turn_expectation_requires_portfolio_for_read_positions_wording():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "读取真实持仓"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "portfolio"
+    assert expectation.suggested_args == {"mode": "view"}
+
+
 def test_runtime_blocks_question_before_required_portfolio_tool():
     def _portfolio_round(messages, _tools, _system_prompt):
         ask_result = next(m for m in messages if m.get("role") == "tool" and m.get("name") == "ask_user_question")
