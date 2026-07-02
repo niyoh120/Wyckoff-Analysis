@@ -21,10 +21,13 @@ MAX_AGENT_TEXT_WRITE_BYTES = 2 * 1024 * 1024
 MAX_AGENT_WEB_BYTES = 1024 * 1024
 
 
-def exec_command(command: str, timeout: int = 30, tool_context: Any = None) -> dict:
+def exec_command(command: str, timeout: int = 30, cwd: str = "", tool_context: Any = None) -> dict:
     args = validate_agent_command(command)
     if isinstance(args, dict):
         return args
+    workdir = _command_cwd(cwd)
+    if isinstance(workdir, dict):
+        return workdir
 
     timeout = max(1, min(int(timeout), 120))
     try:
@@ -34,11 +37,12 @@ def exec_command(command: str, timeout: int = 30, tool_context: Any = None) -> d
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=os.path.expanduser("~"),
+            cwd=workdir,
         )
         stdout = redact_sensitive_text(result.stdout)
         stderr = redact_sensitive_text(result.stderr)
         return {
+            "cwd": str(workdir),
             "stdout": stdout[:8000] + ("...(截断)" if len(stdout) > 8000 else ""),
             "stderr": stderr[:2000] + ("...(截断)" if len(stderr) > 2000 else ""),
             "returncode": result.returncode,
@@ -47,6 +51,19 @@ def exec_command(command: str, timeout: int = 30, tool_context: Any = None) -> d
         return {"error": f"命令超时（{timeout}s）", "returncode": -1}
     except Exception as e:
         return {"error": str(e)}
+
+
+def _command_cwd(cwd: str) -> str | dict:
+    if not str(cwd or "").strip():
+        return os.path.expanduser("~")
+    resolved = validate_agent_path(cwd, for_write=False)
+    if isinstance(resolved, dict):
+        return resolved
+    if not resolved.exists():
+        return security_error(f"工作目录不存在: {resolved}")
+    if not resolved.is_dir():
+        return security_error(f"工作目录不是目录: {resolved}")
+    return str(resolved)
 
 
 def read_file(path: str, encoding: str = "utf-8", tool_context: Any = None) -> dict:

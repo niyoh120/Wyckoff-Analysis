@@ -4,6 +4,7 @@ import socket
 
 from agents.local_tools import exec_command, read_file, web_fetch, write_file
 from agents.tool_security import validate_public_http_url
+from cli.tools import TOOL_SCHEMAS
 
 
 def test_exec_command_allows_simple_read_only_command():
@@ -11,6 +12,33 @@ def test_exec_command_allows_simple_read_only_command():
 
     assert result["returncode"] == 0
     assert "hello" in result["stdout"]
+
+
+def test_exec_command_runs_in_validated_working_directory(tmp_path):
+    result = exec_command("pwd", cwd=str(tmp_path))
+
+    assert result["returncode"] == 0
+    assert result["cwd"] == str(tmp_path)
+    assert str(tmp_path) in result["stdout"]
+
+
+def test_exec_command_blocks_sensitive_working_directory(tmp_path):
+    hidden = tmp_path / ".secrets"
+    hidden.mkdir()
+
+    result = exec_command("pwd", cwd=str(hidden))
+
+    assert result["error"].startswith("安全拦截")
+    assert "隐藏" in result["error"]
+
+
+def test_exec_command_schema_exposes_working_directory():
+    schema = next(item for item in TOOL_SCHEMAS if item["name"] == "exec_command")
+
+    cwd = schema["parameters"]["properties"]["cwd"]
+    assert cwd["type"] == "string"
+    assert "项目根目录" in cwd["description"]
+    assert "安全校验" in cwd["description"]
 
 
 def test_exec_command_blocks_shell_control_operators():

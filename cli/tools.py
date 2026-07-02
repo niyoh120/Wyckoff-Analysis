@@ -383,6 +383,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "command": {"type": "string", "description": "要执行的 shell 命令"},
                 "timeout": {"type": "integer", "description": "超时秒数，默认 30，最大 120"},
+                "cwd": {
+                    "type": "string",
+                    "description": "可选工作目录。用于在指定项目根目录执行命令，会经过本地路径安全校验。",
+                },
             },
             "required": ["command"],
         },
