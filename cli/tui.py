@@ -430,6 +430,8 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
         write(Text.from_markup(planner_line))
     if rationale_line := _workflow_script_rationale_line(event.get("plan")):
         write(Text.from_markup(rationale_line))
+    if contract_line := _workflow_plan_contract_line(event.get("plan")):
+        write(Text.from_markup(contract_line))
     if step_count:
         for line in _workflow_plan_step_preview_lines(steps):
             write(Text.from_markup(line))
@@ -502,6 +504,25 @@ def _workflow_script_rationale_line(plan: Any) -> str:
     script = plan.get("script") if isinstance(plan.get("script"), dict) else {}
     rationale = _workflow_meta_text(script.get("rationale"), 120)
     return f"    [dim]模型拆分：{escape(rationale)}[/dim]" if rationale else ""
+
+
+def _workflow_plan_contract_line(plan: Any) -> str:
+    if not isinstance(plan, dict):
+        return ""
+    planner = str(_workflow_plan_runtime(plan).get("planner") or "").strip()
+    if planner not in {"model_script", "stored_script"}:
+        return ""
+    steps = [step for step in plan.get("steps", []) if isinstance(step, dict)]
+    count = sum(1 for step in steps if _workflow_step_uses_optional_tool_pool(step))
+    if count <= 0:
+        return ""
+    return f"    [dim]脚本边界：{count} 个任务未声明必用工具，agent 将从可选工具中自选[/dim]"
+
+
+def _workflow_step_uses_optional_tool_pool(step: dict[str, Any]) -> bool:
+    return not any(str(item) for item in step.get("tool_scope", [])) and any(
+        str(item) for item in step.get("effective_tool_scope", [])
+    )
 
 
 def _runtime_int(runtime: dict[str, Any], field: str) -> int:

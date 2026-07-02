@@ -517,6 +517,7 @@ def test_display_workflow_plan_event_surfaces_effective_tool_scope():
             "workflow": "portfolio_review",
             "label": "持仓复盘",
             "plan": {
+                "script": {"runtime": {"planner": "model_script"}},
                 "steps": [
                     {
                         "title": "复盘持仓",
@@ -533,8 +534,37 @@ def test_display_workflow_plan_event_surfaces_effective_tool_scope():
 
     rendered = "\n".join(str(item) for item in writes)
     assert "1. 复盘持仓" in rendered
+    assert "脚本边界：1 个任务未声明必用工具" in rendered
     assert "可选工具: 持仓、个股分析" in rendered
     assert "目标: 让模型按上下文决定最小工具调用" in rendered
+
+
+def test_display_workflow_plan_event_does_not_warn_for_explicit_tool_scope():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_scoped",
+            "workflow": "dynamic_task",
+            "label": "选股扫描",
+            "plan": {
+                "script": {"runtime": {"planner": "model_script"}},
+                "steps": [
+                    {
+                        "title": "扫描候选",
+                        "tool_scope": ["screen_stocks"],
+                        "effective_tool_scope": ["screen_stocks"],
+                    }
+                ],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "脚本边界" not in rendered
+    assert "工具: 全市场扫描" in rendered
 
 
 def test_display_workflow_plan_event_previews_tool_only_model_steps():
