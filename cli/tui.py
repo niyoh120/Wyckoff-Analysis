@@ -1866,6 +1866,8 @@ class WyckoffTUI(App):
             mem_ctx = build_memory_context(text)
         except Exception:
             logger.debug("memory context injection failed", exc_info=True)
+        if workflow_ctx := self._recent_workflow_context(text):
+            mem_ctx = "\n\n".join(item for item in (mem_ctx, workflow_ctx) if item)
         user_message = {"role": "user", "content": text}
         if mem_ctx:
             user_message["_memory_context"] = mem_ctx
@@ -2193,6 +2195,18 @@ class WyckoffTUI(App):
             if str(run.get("session_id", "")) == self._session_id:
                 return run
         return None
+
+    def _recent_workflow_context(self, text: str) -> str:
+        if text.lstrip().startswith("继续 workflow"):
+            return ""
+        try:
+            from cli.workflows.resume import build_recent_workflow_context
+
+            run = self._latest_session_workflow_run()
+            return build_recent_workflow_context(run) if run else ""
+        except Exception:
+            logger.debug("recent workflow context injection failed", exc_info=True)
+            return ""
 
     def _resume_workflow(self, run_id: str, log) -> None:
         from cli.workflows.resume import build_resume_prompt

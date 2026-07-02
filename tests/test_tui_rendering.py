@@ -102,6 +102,31 @@ def test_expand_recent_workflow_followup_uses_current_session(monkeypatch):
     assert "wf_other" not in expanded
 
 
+def test_recent_workflow_context_skips_explicit_resume(monkeypatch):
+    app = object.__new__(WyckoffTUI)
+    app._session_id = "s1"
+    monkeypatch.setattr(
+        "cli.workflows.store.list_workflow_runs",
+        lambda limit=8: [
+            {
+                "run_id": "wf_current",
+                "session_id": "s1",
+                "label": "当前",
+                "status": "completed",
+                "user_text": "给我选股",
+                "result_summary": "候选 A",
+                "plan": {"steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
+            }
+        ],
+    )
+
+    context = app._recent_workflow_context("第一个怎么样")
+
+    assert "<recent-workflow-context>" in context
+    assert "run_id: wf_current" in context
+    assert app._recent_workflow_context("继续 workflow wf_current") == ""
+
+
 def test_replace_streamed_response_redraws_markdown():
     log = _FakeLog()
     log.lines.extend(["  ---", "## raw", "| a |"])

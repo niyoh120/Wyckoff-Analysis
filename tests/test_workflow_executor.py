@@ -21,7 +21,12 @@ from cli.workflows.executor import (
 )
 from cli.workflows.models import WorkflowRun, WorkflowStep
 from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, MAX_WORKFLOW_STEPS, plan_workflow
-from cli.workflows.resume import build_chat_resume_prompt, build_resume_prompt, is_recent_workflow_followup
+from cli.workflows.resume import (
+    build_chat_resume_prompt,
+    build_recent_workflow_context,
+    build_resume_prompt,
+    is_recent_workflow_followup,
+)
 from cli.workflows.router import WORKFLOWS, route_workflow
 from cli.workflows.store import get_workflow_run, load_workflow_events
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
@@ -2916,3 +2921,33 @@ def test_build_chat_resume_prompt_keeps_user_reply():
     assert "继续 workflow wf_1" in prompt
     assert "tool_scope=screen_stocks" in prompt
     assert "用户当前回复: 接着刚才那个" in prompt
+
+
+def test_build_recent_workflow_context_is_bounded_reference():
+    context = build_recent_workflow_context(
+        {
+            "run_id": "wf_1",
+            "label": "选股",
+            "status": "completed",
+            "user_text": "给我选出三只股票",
+            "result_summary": "候选：A、B、C",
+            "plan": {
+                "steps": [
+                    {"status": "completed", "title": "扫描候选", "tool_scope": ["screen_stocks"], "summary": "A 入选"},
+                    {
+                        "status": "completed",
+                        "title": "形成攻防",
+                        "tool_scope": ["generate_strategy_decision"],
+                        "summary": "A 低吸，跌破支撑失效",
+                    },
+                ]
+            },
+        }
+    )
+
+    assert context.startswith("<recent-workflow-context>")
+    assert "仅当用户问题引用刚才、上面、候选、推荐、序号或代词时参考" in context
+    assert "run_id: wf_1" in context
+    assert "结果摘要: 候选：A、B、C" in context
+    assert "tools=screen_stocks" in context
+    assert context.endswith("</recent-workflow-context>")
