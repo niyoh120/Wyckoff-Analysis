@@ -1029,6 +1029,62 @@ def test_display_workflow_step_event_surfaces_handoff_candidate_brief():
     assert "候选影子S/92" in rendered
 
 
+def test_display_workflow_step_event_prioritizes_current_tool_handoff():
+    writes = []
+
+    _display_workflow_step_event(
+        {
+            "step": {
+                "title": "形成攻防",
+                "status": "completed",
+                "tool_scope": ["generate_strategy_decision"],
+                "summary": "completed 1.0s",
+            },
+            "source": {
+                "agent_detail": {
+                    "tool_calls": ["generate_strategy_decision"],
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "selection_brief": {
+                                "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+                                "primary_pick": {
+                                    "code": "300750",
+                                    "name": "宁德时代",
+                                    "action_status": "ready_for_ai_review",
+                                },
+                            }
+                        },
+                        "last_strategy_decision": {
+                            "status": "skipped_notify_unconfigured",
+                            "report_source": "last_ai_report",
+                            "reviewed_codes": ["300750"],
+                            "reviewed_symbols": [
+                                {
+                                    "code": "300750",
+                                    "name": "宁德时代",
+                                    "action_status": "blocked_by_market_gate",
+                                    "risk_factors": ["大盘风险闸门关闭"],
+                                    "next_step": "补充 Telegram 配置后可生成并发送 OMS 工单",
+                                }
+                            ],
+                            "next_action": "补充 Telegram 配置后可生成并发送 OMS 工单",
+                        },
+                    },
+                }
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "形成攻防" in rendered
+    assert "工具: 攻防决策" in rendered
+    assert "证据: 攻防决策: status=skipped_notify_unconfigured" in str(writes[1])
+    assert "本轮首选可进入 AI 研报复核" not in str(writes[1])
+    assert rendered.index("攻防决策: status=skipped_notify_unconfigured") < rendered.index("本轮首选可进入 AI 研报复核")
+
+
 def test_tool_result_view_surfaces_screen_candidate_risk():
     summary, renderable = _tool_result_view(
         {

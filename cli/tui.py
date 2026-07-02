@@ -75,6 +75,17 @@ _BUSY_FORCE_EXIT_WINDOW = 1.5
 _HARD_EXIT_DELAY = 1.0
 _RECENT_WORKFLOW_FALLBACK_MAX_AGE_SECONDS = 24 * 60 * 60
 _RECENT_WORKFLOW_FALLBACK_CLOCK_SKEW_SECONDS = 5 * 60
+_WORKFLOW_HANDOFF_TOOL_ORDER = (
+    ("last_screen_result", "screen_stocks"),
+    ("last_recommendation_event_eval", "evaluate_recommendation_events"),
+    ("last_ai_report", "generate_ai_report"),
+    ("last_strategy_decision", "generate_strategy_decision"),
+)
+_WORKFLOW_HANDOFF_BY_TOOL = {item[1]: item for item in _WORKFLOW_HANDOFF_TOOL_ORDER}
+_WORKFLOW_HANDOFF_BY_TOOL["recommendation_event_eval"] = (
+    "last_recommendation_event_eval",
+    "evaluate_recommendation_events",
+)
 
 
 def _decode_csi_u(m: re.Match[str]) -> str:
@@ -647,18 +658,16 @@ def _workflow_step_handoff_lines(event: dict[str, Any], *, limit: int = 4) -> li
     source = event.get("source") if isinstance(event.get("source"), dict) else {}
     detail = source.get("agent_detail") if isinstance(source.get("agent_detail"), dict) else {}
     handoff = detail.get("handoff_state") if isinstance(detail.get("handoff_state"), dict) else {}
-    return _workflow_handoff_brief_lines(handoff, limit=limit)
+    tool_calls = [str(item) for item in detail.get("tool_calls", []) if str(item)]
+    return _workflow_handoff_brief_lines(handoff, limit=limit, tool_calls=tool_calls)
 
 
-def _workflow_handoff_brief_lines(handoff: dict[str, Any], *, limit: int) -> list[str]:
+def _workflow_handoff_brief_lines(
+    handoff: dict[str, Any], *, limit: int, tool_calls: list[str] | tuple[str, ...] = ()
+) -> list[str]:
     lines: list[str] = []
     seen: set[str] = set()
-    for key, tool_name in (
-        ("last_screen_result", "screen_stocks"),
-        ("last_recommendation_event_eval", "evaluate_recommendation_events"),
-        ("last_ai_report", "generate_ai_report"),
-        ("last_strategy_decision", "generate_strategy_decision"),
-    ):
+    for key, tool_name in _workflow_handoff_tool_order(tool_calls):
         result = handoff.get(key)
         if not isinstance(result, dict):
             continue
@@ -670,6 +679,23 @@ def _workflow_handoff_brief_lines(handoff: dict[str, Any], *, limit: int) -> lis
             if len(lines) >= limit:
                 return lines
     return lines
+
+
+def _workflow_handoff_tool_order(tool_calls: list[str] | tuple[str, ...]) -> list[tuple[str, str]]:
+    ordered: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for tool_name in tool_calls:
+        if item := _WORKFLOW_HANDOFF_BY_TOOL.get(tool_name):
+            key = item[0]
+            if key not in seen:
+                seen.add(key)
+                ordered.append(item)
+    for item in _WORKFLOW_HANDOFF_TOOL_ORDER:
+        key = item[0]
+        if key not in seen:
+            seen.add(key)
+            ordered.append(item)
+    return ordered
 
 
 def _workflow_step_detail_meta(step: dict[str, Any], *, field_limit: int | None = None) -> str:
