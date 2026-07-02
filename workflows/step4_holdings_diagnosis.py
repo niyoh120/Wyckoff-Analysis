@@ -27,7 +27,7 @@ def run_step4_holdings_diagnosis(portfolio_id: str, logs_path: str | None, log_f
             signal_map={},
             style="conservative",
             intraday_batch_size=200,
-            hard_stop_pct=6.0,
+            hard_stop_pct=8.0,
             strategy_config=tail_buy_strategy_config_from_env(),
             deadline_at=datetime.now(TZ) + timedelta(minutes=5),
             logs_path=logs_path,

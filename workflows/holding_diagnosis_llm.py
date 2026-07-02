@@ -21,6 +21,8 @@ SYSTEM_PROMPT = (
     "你是A股持仓诊断助手。根据持仓分钟级特征和规则一判结果，"
     "给出最终操作结论。你只能在 ADD/HOLD/TRIM/EXIT 中选择一个，必须返回 JSON。\n"
     "ADD=加仓, HOLD=不动, TRIM=减仓, EXIT=清仓。\n"
+    "若规则理由包含疑似洗盘、回踩测试、未确认破位，默认保持 HOLD；"
+    "只有硬风控跌破、放量收低、确认破位或派发特征明确时，才输出 TRIM/EXIT。\n"
     "禁止输出投资建议免责声明，禁止输出 markdown。"
 )
 
@@ -153,6 +155,9 @@ def _build_holding_llm_prompt(advice: Any, free_cash: float, total_equity: float
         f"- day_ret_pct={_sf(features.get('day_ret_pct')):.3f}\n"
         f"- tail30_volume_share={_sf(features.get('tail30_volume_share')):.3f}\n"
         f"- drop_from_high_pct={_sf(features.get('drop_from_high_pct')):.3f}\n"
+        f"- close_below_support={bool(features.get('close_below_support'))}\n"
+        f"- day_low_breached_support={bool(features.get('day_low_breached_support'))}\n"
+        f"- risk_tag={getattr(advice, 'risk_tag', '')}\n"
         '\n请输出严格 JSON：{"action":"ADD|HOLD|TRIM|EXIT","reason":"<=80字","confidence":0.0}'
     )
 
@@ -203,7 +208,7 @@ def _build_report(
 ) -> str:
     lines = _report_header(holdings, free_cash, total_equity, elapsed)
     action_map = _group_results_by_action(llm_results)
-    for action, label in [("ADD", "加仓"), ("HOLD", "不动"), ("TRIM", "减仓"), ("EXIT", "清仓")]:
+    for action, label in [("ADD", "加仓"), ("HOLD", "持有/洗盘观察"), ("TRIM", "确认破位减仓"), ("EXIT", "清仓")]:
         lines.extend(_action_section(action, label, action_map.get(action, [])))
     lines.append("---")
     lines.append(rule_section)

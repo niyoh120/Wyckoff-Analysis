@@ -658,9 +658,9 @@ def test_build_tail_buy_markdown_can_append_extra_sections():
         llm_total=1,
         llm_success=1,
         elapsed_seconds=10.0,
-        extra_sections=["## 持仓动作建议（加仓/减仓）\n- 持仓数量: 1"],
+        extra_sections=["## 持仓动作建议（硬止损/结构减仓/洗盘观察）\n- 持仓数量: 1"],
     )
-    assert "持仓动作建议（加仓/减仓）" in md
+    assert "持仓动作建议（硬止损/结构减仓/洗盘观察）" in md
     assert "持仓数量: 1" in md
 
 
@@ -743,10 +743,10 @@ def test_build_tail_buy_markdown_can_prepend_extra_sections():
         llm_total=1,
         llm_success=1,
         elapsed_seconds=10.0,
-        extra_sections=["## 持仓动作建议（加仓/减仓）\n- 持仓数量: 1"],
+        extra_sections=["## 持仓动作建议（硬止损/结构减仓/洗盘观察）\n- 持仓数量: 1"],
         extra_sections_first=True,
     )
-    assert md.find("持仓动作建议（加仓/减仓）") < md.find("## BUY（优先关注）")
+    assert md.find("持仓动作建议（硬止损/结构减仓/洗盘观察）") < md.find("## BUY（优先关注）")
 
 
 def test_normalize_signal_score_lps_inverted():
@@ -831,6 +831,87 @@ def test_holding_tail_action_adds_clear_signal_even_if_losing(monkeypatch):
 
     assert holdings[0].action == holdings_workflow.HOLDING_ACTION_ADD
     assert "尾盘结构延续走强" in "；".join(holdings[0].reasons)
+
+
+def test_holding_weak_tail_washout_stays_hold():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingAdvice
+
+    advice = HoldingAdvice(code="000001", name="平安银行", cost=10.0, current_price=9.45, pnl_pct=-5.5)
+    features = {
+        "day_low": 9.1,
+        "close_pos": 0.66,
+        "dist_vwap_pct": -0.7,
+        "last30_ret_pct": -1.0,
+        "drop_from_high_pct": -1.9,
+        "tail30_volume_share": 0.3,
+        "tail_blowoff_reversal": False,
+        "reclaim_vwap": False,
+        "strong_hold_vwap": False,
+    }
+
+    holdings_workflow._resolve_scored_holding_action(
+        advice,
+        features,
+        DECISION_SKIP,
+        ["尾盘跌回VWAP下方", "尾盘30分钟转弱"],
+        None,
+        "",
+        9.2,
+    )
+
+    assert advice.action == holdings_workflow.HOLDING_ACTION_HOLD
+    assert advice.risk_tag == "washout"
+    assert "疑似洗盘" in "；".join(advice.reasons)
+
+
+def test_holding_confirmed_breakdown_trims():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingAdvice
+
+    advice = HoldingAdvice(code="000001", name="平安银行", cost=10.0, current_price=9.35, pnl_pct=-6.5)
+    features = {
+        "day_low": 9.3,
+        "close_pos": 0.22,
+        "dist_vwap_pct": -1.4,
+        "last30_ret_pct": -1.2,
+        "drop_from_high_pct": -3.1,
+        "tail30_volume_share": 0.34,
+        "tail_blowoff_reversal": False,
+        "close_below_support": False,
+    }
+
+    holdings_workflow._resolve_scored_holding_action(
+        advice,
+        features,
+        DECISION_SKIP,
+        ["尾盘跌回VWAP下方", "尾盘30分钟转弱"],
+        None,
+        "",
+        9.2,
+    )
+
+    assert advice.action == holdings_workflow.HOLDING_ACTION_TRIM
+    assert advice.risk_tag == "confirmed_breakdown"
+
+
+def test_holding_markdown_splits_washout_from_trim():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingAdvice
+
+    wash = HoldingAdvice(code="000001", name="平安银行", action="HOLD", risk_tag="washout", reasons=["疑似洗盘"])
+    trim = HoldingAdvice(code="000002", name="万科A", action="TRIM", risk_tag="hard_stop", reasons=["跌破风控位"])
+
+    md = holdings_workflow.build_holdings_markdown(
+        holdings=[wash, trim],
+        portfolio_meta="portfolio=demo",
+        tickflow_limit_hit=False,
+    )
+
+    assert "持仓动作建议（硬止损/结构减仓/洗盘观察）" in md
+    assert "TRIM（硬止损/确认破位，优先处理）" in md
+    assert "WASH（疑似洗盘/回踩测试，不直接卖）" in md
+    assert "000001 平安银行" in md
 
 
 def test_build_tail_buy_markdown_truncates_error_items_over_limit():

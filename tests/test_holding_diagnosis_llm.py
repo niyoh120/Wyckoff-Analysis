@@ -44,7 +44,7 @@ def test_run_holding_llm_report_overrides_rule_action(monkeypatch):
         log=logs.append,
     )
 
-    assert "## TRIM（减仓）" in report
+    assert "## TRIM（确认破位减仓）" in report
     assert "000001 平安银行 [规则:HOLD] conf=76% | 尾盘转弱" in report
     assert "规则明细" in report
     assert any("LLM: 1/1 success" in line for line in logs)

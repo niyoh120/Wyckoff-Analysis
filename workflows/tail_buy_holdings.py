@@ -33,6 +33,8 @@ from workflows.tail_buy_holding_portfolio import (
 from workflows.tail_buy_utils import TICKFLOW_UPGRADE_HINT, log_line, resolve_quote_price, safe_float
 
 TAIL_BUY_TRIM_WEAK_LOSS_PCT = -abs(float(os.getenv("TAIL_BUY_TRIM_WEAK_LOSS_PCT", "2.0")))
+TAIL_BUY_WASHOUT_CLOSE_POS_MIN = float(os.getenv("TAIL_BUY_WASHOUT_CLOSE_POS_MIN", "0.52"))
+TAIL_BUY_WASHOUT_TAIL_VOLUME_MAX = float(os.getenv("TAIL_BUY_WASHOUT_TAIL_VOLUME_MAX", "0.55"))
 
 
 def _resolve_effective_stop(cost: float, stop_loss: Any, hard_stop_pct: float) -> float:
@@ -92,6 +94,7 @@ def _apply_missing_intraday_advice(advice: HoldingAdvice, fetch_error: str, effe
     advice.reasons = _dedupe_texts(["分时数据缺失，先维持观察", advice.fetch_error], limit=2)
     if advice.current_price > 0 and effective_stop > 0 and advice.current_price <= effective_stop:
         advice.action = HOLDING_ACTION_TRIM
+        advice.risk_tag = "hard_stop"
         advice.reasons = _dedupe_texts(
             [f"现价{advice.current_price:.2f}跌破风控位{effective_stop:.2f}", advice.fetch_error],
             limit=2,
@@ -114,7 +117,7 @@ def _apply_scored_holding_advice(
     signal_score = safe_float(signal_item.signal_score, 0.0) if signal_item else 0.0
     signal_type = str(signal_item.signal_type if signal_item else "")
     status = str(signal_item.status if signal_item else "pending")
-    features = compute_tail_features(df_1m, config=strategy_config)
+    features = compute_tail_features(df_1m, daily_context=_signal_daily_context(signal_item), config=strategy_config)
     score, decision, reasons = score_tail_features(
         features,
         signal_score=signal_score,
@@ -152,6 +155,7 @@ def _resolve_scored_holding_action(
     base_reasons = _dedupe_texts(reasons, limit=2)
     if advice.current_price > 0 and effective_stop > 0 and advice.current_price <= effective_stop:
         advice.action = HOLDING_ACTION_TRIM
+        advice.risk_tag = "hard_stop"
         advice.reasons = _dedupe_texts(
             [f"现价{advice.current_price:.2f}跌破风控位{effective_stop:.2f}", *base_reasons], limit=3
         )
@@ -165,8 +169,7 @@ def _resolve_scored_holding_action(
         advice.action = HOLDING_ACTION_ADD
         advice.reasons = _dedupe_texts(["尾盘结构延续走强，可考虑小幅加仓", *base_reasons], limit=3)
     elif decision == DECISION_SKIP and weak_tail and (advice.pnl_pct <= TAIL_BUY_TRIM_WEAK_LOSS_PCT or severe_tail):
-        advice.action = HOLDING_ACTION_TRIM
-        advice.reasons = _dedupe_texts(["尾盘结构转弱，优先减仓控制回撤", *base_reasons], limit=3)
+        _apply_weak_tail_action(advice, features, severe_tail, effective_stop, base_reasons)
     else:
         advice.action = HOLDING_ACTION_HOLD
         hold_reason = "结构中性，先持有观察"
@@ -175,6 +178,73 @@ def _resolve_scored_holding_action(
         elif decision == DECISION_BUY:
             hold_reason = "尾盘强度未达加仓触发线，先持有观察"
         advice.reasons = _dedupe_texts([hold_reason, *base_reasons], limit=3)
+
+
+def _signal_daily_context(signal_item: TailBuyCandidate | None) -> dict[str, Any] | None:
+    snap = signal_item.snap if signal_item else {}
+    if not isinstance(snap, dict):
+        return None
+    support = safe_float(snap.get("snap_support") or snap.get("support_level"), 0.0)
+    if support <= 0:
+        return None
+    return {"support_level": support, "snap_ma20": safe_float(snap.get("snap_ma20"), 0.0)}
+
+
+def _apply_weak_tail_action(
+    advice: HoldingAdvice,
+    features: dict[str, Any],
+    severe_tail: bool,
+    effective_stop: float,
+    base_reasons: list[str],
+) -> None:
+    if _is_washout_like(features, advice.current_price, effective_stop):
+        advice.action = HOLDING_ACTION_HOLD
+        advice.risk_tag = "washout"
+        advice.reasons = _dedupe_texts(["疑似洗盘/回踩测试，未确认破位，不直接减仓", *base_reasons], limit=3)
+        return
+    if severe_tail or _is_confirmed_breakdown(features):
+        advice.action = HOLDING_ACTION_TRIM
+        advice.risk_tag = "confirmed_breakdown"
+        advice.reasons = _dedupe_texts(["尾盘转弱且确认破位/派发特征，优先减仓控制回撤", *base_reasons], limit=3)
+        return
+    advice.action = HOLDING_ACTION_HOLD
+    advice.risk_tag = "weak_watch"
+    advice.reasons = _dedupe_texts(["尾盘转弱但未确认破位，等待收盘/次日确认", *base_reasons], limit=3)
+
+
+def _is_washout_like(features: dict[str, Any], current_price: float, effective_stop: float) -> bool:
+    recovered = _tail_recovered(features)
+    if not recovered or bool(features.get("tail_blowoff_reversal")):
+        return False
+    if safe_float(features.get("tail30_volume_share"), 0.0) > TAIL_BUY_WASHOUT_TAIL_VOLUME_MAX:
+        return False
+    day_low = safe_float(features.get("day_low"), 0.0)
+    stop_sweep = effective_stop > 0 and day_low <= effective_stop < current_price
+    support_sweep = bool(features.get("day_low_breached_support")) and not bool(features.get("close_below_support"))
+    return bool(stop_sweep or support_sweep)
+
+
+def _tail_recovered(features: dict[str, Any]) -> bool:
+    close_pos = safe_float(features.get("close_pos"), 0.0)
+    spring_quality = safe_float(features.get("spring_quality"), 0.0)
+    return bool(
+        close_pos >= TAIL_BUY_WASHOUT_CLOSE_POS_MIN
+        or features.get("reclaim_vwap")
+        or features.get("strong_hold_vwap")
+        or spring_quality >= 50
+    )
+
+
+def _is_confirmed_breakdown(features: dict[str, Any]) -> bool:
+    if bool(features.get("close_below_support")):
+        return True
+    if bool(features.get("tail_blowoff_reversal")):
+        return True
+    close_pos = safe_float(features.get("close_pos"), 0.0)
+    dist_vwap_pct = safe_float(features.get("dist_vwap_pct"), 0.0)
+    last30_ret_pct = safe_float(features.get("last30_ret_pct"), 0.0)
+    drop_from_high_pct = safe_float(features.get("drop_from_high_pct"), 0.0)
+    return close_pos < 0.38 and (dist_vwap_pct <= -1.0 or last30_ret_pct <= -0.8 or drop_from_high_pct <= -2.8)
 
 
 def _build_holding_advice(
@@ -223,9 +293,20 @@ def _build_holding_advices(
         )
         for position in positions
     ]
-    rank = {HOLDING_ACTION_ADD: 0, HOLDING_ACTION_TRIM: 1, HOLDING_ACTION_HOLD: 2}
-    out.sort(key=lambda x: (rank.get(x.action, 9), -x.rule_score, x.code))
+    out.sort(key=lambda x: (_holding_rank(x), -x.rule_score, x.code))
     return out
+
+
+def _holding_rank(advice: HoldingAdvice) -> int:
+    if advice.action == HOLDING_ACTION_ADD:
+        return 0
+    if advice.action == HOLDING_ACTION_TRIM:
+        return 1
+    if advice.risk_tag in {"washout", "weak_watch"}:
+        return 2
+    if advice.action == HOLDING_ACTION_HOLD:
+        return 3
+    return 9
 
 
 def analyze_holdings_actions(
@@ -285,31 +366,34 @@ def build_holdings_markdown(
     portfolio_meta: str,
     tickflow_limit_hit: bool,
 ) -> str:
-    lines: list[str] = ["## 持仓动作建议（加仓/减仓）"]
+    lines: list[str] = ["## 持仓动作建议（硬止损/结构减仓/洗盘观察）"]
     if portfolio_meta:
         lines.append(f"- 持仓来源: {portfolio_meta}")
 
     if not holdings:
         lines.append("- 持仓数量: 0")
-        lines.append("- 动作分布: ADD=0 / HOLD=0 / TRIM=0")
+        lines.append("- 动作分布: ADD=0 / TRIM=0 / 洗盘观察=0 / HOLD=0")
         lines.append("- 无可分析持仓（仅输出候选池结果）")
         lines.append("")
-        lines.append("说明：持仓动作仅为盘中辅助建议，不自动下单。")
+        lines.append("说明：TRIM 仅代表硬风控或确认破位；洗盘观察不等于卖出。")
         return "\n".join(lines)
 
     counter = Counter([x.action for x in holdings])
+    wash_count = _risk_count(holdings, "washout")
+    weak_count = _risk_count(holdings, "weak_watch")
+    neutral_hold_count = counter.get(HOLDING_ACTION_HOLD, 0) - wash_count - weak_count
     lines.append(f"- 持仓数量: {len(holdings)}")
     lines.append(
         f"- 动作分布: ADD={counter.get(HOLDING_ACTION_ADD, 0)} / "
-        f"HOLD（持有观察）={counter.get(HOLDING_ACTION_HOLD, 0)} / "
-        f"TRIM（减仓）={counter.get(HOLDING_ACTION_TRIM, 0)}"
+        f"TRIM（硬止损/确认破位）={counter.get(HOLDING_ACTION_TRIM, 0)} / "
+        f"洗盘观察={wash_count} / 弱势待确认={weak_count} / HOLD={max(neutral_hold_count, 0)}"
     )
     if tickflow_limit_hit:
         lines.append(f"- ⚠️ {TICKFLOW_UPGRADE_HINT}")
+    lines.append("- 读法: TRIM 才是需要处理的风险动作；洗盘观察/弱势待确认先看收盘与次日确认。")
     lines.append("")
 
-    def _append_block(title: str, action: str) -> None:
-        block = [x for x in holdings if x.action == action]
+    def _append_block(title: str, block: list[HoldingAdvice]) -> None:
         lines.append(f"### {title}")
         if not block:
             lines.append("- 无")
@@ -325,8 +409,26 @@ def build_holdings_markdown(
             )
         lines.append("")
 
-    _append_block("ADD（可考虑加仓）", HOLDING_ACTION_ADD)
-    _append_block("TRIM（可考虑减仓）", HOLDING_ACTION_TRIM)
-    _append_block("HOLD（持有观察）", HOLDING_ACTION_HOLD)
-    lines.append("说明：持仓动作仅为盘中辅助建议，不自动下单。")
+    _append_block("ADD（可考虑加仓）", [x for x in holdings if x.action == HOLDING_ACTION_ADD])
+    _append_block("TRIM（硬止损/确认破位，优先处理）", [x for x in holdings if x.action == HOLDING_ACTION_TRIM])
+    _append_block("WASH（疑似洗盘/回踩测试，不直接卖）", _risk_items(holdings, "washout"))
+    _append_block("WEAK（尾盘转弱待确认）", _risk_items(holdings, "weak_watch"))
+    _append_block("HOLD（结构中性持有观察）", _neutral_hold_items(holdings))
+    lines.append("说明：持仓动作仅为盘中辅助建议，不自动下单；TRIM 也应结合仓位和收盘结构人工确认。")
     return "\n".join(lines)
+
+
+def _risk_items(holdings: list[HoldingAdvice], tag: str) -> list[HoldingAdvice]:
+    return [item for item in holdings if item.action == HOLDING_ACTION_HOLD and item.risk_tag == tag]
+
+
+def _risk_count(holdings: list[HoldingAdvice], tag: str) -> int:
+    return len(_risk_items(holdings, tag))
+
+
+def _neutral_hold_items(holdings: list[HoldingAdvice]) -> list[HoldingAdvice]:
+    return [
+        item
+        for item in holdings
+        if item.action == HOLDING_ACTION_HOLD and item.risk_tag not in {"washout", "weak_watch"}
+    ]

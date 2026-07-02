@@ -26,6 +26,7 @@ class HoldingAdvice:
     reasons: list[str] = field(default_factory=list)
     fetch_error: str = ""
     features: dict[str, Any] = field(default_factory=dict)
+    risk_tag: str = ""
 
 
 @dataclass(frozen=True)

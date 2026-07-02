@@ -12,6 +12,8 @@ from integrations.tickflow_notice import (
 )
 from utils.feishu_text import annotate_financial_terms, lark_md_div, lark_note
 
+HOLDING_HEADINGS = ("持仓动作建议（硬止损/结构减仓/洗盘观察）", "持仓动作建议（加仓/减仓）")
+
 
 @dataclass(frozen=True)
 class TailBuyCardLimits:
@@ -39,6 +41,8 @@ class TailBuyReportSections:
     holding_distribution: str
     add_items: list[str]
     trim_items: list[str]
+    wash_items: list[str]
+    weak_items: list[str]
     hold_items: list[str]
     buy_items: list[str]
     watch_items: list[str]
@@ -91,6 +95,19 @@ def _extract_subsection_items(lines: list[str], parent_heading: str, sub_heading
         if in_sub and text.startswith("- "):
             out.append(text[2:].strip())
     return out
+
+
+def _extract_first_subsection_items(
+    lines: list[str],
+    parent_headings: tuple[str, ...],
+    sub_headings: tuple[str, ...],
+) -> list[str]:
+    for parent in parent_headings:
+        for sub in sub_headings:
+            items = _extract_subsection_items(lines, parent, sub)
+            if items:
+                return items
+    return []
 
 
 def _trim_text(text: str, limit: int) -> str:
@@ -148,9 +165,19 @@ def _report_sections(content: str) -> TailBuyReportSections:
         holding_source=_extract_line(lines, "- 持仓来源:"),
         holding_count=_extract_line(lines, "- 持仓数量:"),
         holding_distribution=_extract_line(lines, "- 动作分布:"),
-        add_items=_extract_subsection_items(lines, "持仓动作建议（加仓/减仓）", "ADD（可考虑加仓）"),
-        trim_items=_extract_subsection_items(lines, "持仓动作建议（加仓/减仓）", "TRIM（可考虑减仓）"),
-        hold_items=_extract_subsection_items(lines, "持仓动作建议（加仓/减仓）", "HOLD（持有观察）"),
+        add_items=_extract_first_subsection_items(lines, HOLDING_HEADINGS, ("ADD（可考虑加仓）",)),
+        trim_items=_extract_first_subsection_items(
+            lines,
+            HOLDING_HEADINGS,
+            ("TRIM（硬止损/确认破位，优先处理）", "TRIM（可考虑减仓）"),
+        ),
+        wash_items=_extract_first_subsection_items(lines, HOLDING_HEADINGS, ("WASH（疑似洗盘/回踩测试，不直接卖）",)),
+        weak_items=_extract_first_subsection_items(lines, HOLDING_HEADINGS, ("WEAK（尾盘转弱待确认）",)),
+        hold_items=_extract_first_subsection_items(
+            lines,
+            HOLDING_HEADINGS,
+            ("HOLD（结构中性持有观察）", "HOLD（持有观察）"),
+        ),
         buy_items=_extract_section_items(lines, "BUY（优先关注）"),
         watch_items=_extract_section_items(lines, "WATCH（观察）"),
         skip_items=_extract_section_items(lines, "SKIP（暂不买入）"),
@@ -218,11 +245,13 @@ def _summary_columns(sections: TailBuyReportSections) -> dict:
 
 
 def _holding_elements(sections: TailBuyReportSections, limits: TailBuyCardLimits) -> list[dict]:
-    elements = [{"tag": "hr"}, lark_md_div("**持仓动作建议（加仓/减仓）**")]
+    elements = [{"tag": "hr"}, lark_md_div("**持仓动作建议（硬止损/结构减仓/洗盘观察）**")]
     elements.extend(_holding_meta_elements(sections))
     _add_bucket(elements, "ADD（可考虑加仓）", sections.add_items, limits.max_hold_each, limits.item_char_limit)
-    _add_bucket(elements, "TRIM（可考虑减仓）", sections.trim_items, limits.max_hold_each, limits.item_char_limit)
-    _add_bucket(elements, "HOLD（持有观察）", sections.hold_items, limits.max_hold_each, limits.item_char_limit)
+    _add_bucket(elements, "TRIM（硬止损/确认破位）", sections.trim_items, limits.max_hold_each, limits.item_char_limit)
+    _add_bucket(elements, "WASH（疑似洗盘观察）", sections.wash_items, limits.max_hold_each, limits.item_char_limit)
+    _add_bucket(elements, "WEAK（弱势待确认）", sections.weak_items, limits.max_hold_each, limits.item_char_limit)
+    _add_bucket(elements, "HOLD（结构中性）", sections.hold_items, limits.max_hold_each, limits.item_char_limit)
     return elements
 
 

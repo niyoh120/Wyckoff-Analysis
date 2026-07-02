@@ -15,18 +15,18 @@ def _sample_tail_buy_report() -> str:
         "",
         "⚠️ 风险提醒: UNKNOWN/NORMAL（常态） | 风险提示文案",
         "",
-        "## 持仓动作建议（加仓/减仓）",
+        "## 持仓动作建议（硬止损/结构减仓/洗盘观察）",
         "- 持仓来源: portfolio=USER_LIVE:demo, state_sig=abc",
         "- 持仓数量: 3",
-        "- 动作分布: ADD=0 / HOLD（持有观察）=1 / TRIM（减仓）=2",
+        "- 动作分布: ADD=0 / TRIM（硬止损/确认破位）=2 / 洗盘观察=0 / 弱势待确认=0 / HOLD=1",
         "",
         "### ADD（可考虑加仓）",
         "- 无",
         "",
-        "### TRIM（可考虑减仓）",
+        "### TRIM（硬止损/确认破位，优先处理）",
         "- 300613 富瀚微 | 持仓=100股 | 现价=60.21 | 浮盈=-6.2%",
         "",
-        "### HOLD（持有观察）",
+        "### HOLD（结构中性持有观察）",
         "- 300590 移为通信 | 持仓=2100股 | 现价=14.02 | 浮盈=-4.5%",
         "",
         "## BUY（优先关注）",
@@ -66,7 +66,7 @@ def test_send_tail_buy_card_uses_rich_card_and_keeps_full_items_by_default(monke
     body_text = "\n".join(
         str(el.get("text", {}).get("content", "")) for el in captured["elements"] if isinstance(el, dict)
     )
-    assert "持仓动作建议（加仓/减仓）" in body_text
+    assert "持仓动作建议（硬止损/结构减仓/洗盘观察）" in body_text
     assert "BUY（优先关注）" in body_text
     assert "WATCH（观察）" in body_text
     assert "SKIP（暂不买入）" in body_text
