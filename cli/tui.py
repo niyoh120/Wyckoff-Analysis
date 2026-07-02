@@ -619,7 +619,7 @@ def _display_retry_event(event: dict[str, Any], write, scroll) -> None:
     scroll()
 
 
-def _workflow_detail_step_line(step: dict[str, Any]) -> str:
+def _workflow_detail_step_line(step: dict[str, Any], agent_detail: dict[str, Any] | None = None) -> str:
     step_id = escape(str(step.get("step_id") or step.get("id") or "task"))
     title = escape(str(step.get("title") or step_id))
     summary = escape(str(step.get("summary", "")))
@@ -629,7 +629,9 @@ def _workflow_detail_step_line(step: dict[str, Any]) -> str:
     dependency = _workflow_step_dependency_meta(step)
     suffix = " ".join(part for part in (summary, dependency, detail) if part)
     suffix = f" {suffix}" if suffix else ""
-    return f"    - [dim]{step_id}[/dim] {title} [dim]{meta}{suffix}[/dim]"
+    line = f"    - [dim]{step_id}[/dim] {title} [dim]{meta}{suffix}[/dim]"
+    evidence = [f"      [dim]证据: {escape(item)}[/dim]" for item in _workflow_handoff_lines_from_detail(agent_detail)]
+    return "\n".join([line, *evidence])
 
 
 def _workflow_step_meta(step: dict[str, Any], label: str, *, include_debug: bool = False) -> str:
@@ -657,6 +659,12 @@ def _workflow_step_handoff_lines(event: dict[str, Any], *, limit: int = 4) -> li
         return []
     source = event.get("source") if isinstance(event.get("source"), dict) else {}
     detail = source.get("agent_detail") if isinstance(source.get("agent_detail"), dict) else {}
+    return _workflow_handoff_lines_from_detail(detail, limit=limit)
+
+
+def _workflow_handoff_lines_from_detail(detail: dict[str, Any] | None, *, limit: int = 4) -> list[str]:
+    if not isinstance(detail, dict):
+        return []
     handoff = detail.get("handoff_state") if isinstance(detail.get("handoff_state"), dict) else {}
     tool_calls = [str(item) for item in detail.get("tool_calls", []) if str(item)]
     return _workflow_handoff_brief_lines(handoff, limit=limit, tool_calls=tool_calls)
@@ -812,13 +820,19 @@ def _workflow_has_step(run: dict[str, Any], step_id: str) -> bool:
 
 
 def _workflow_agent_detail_from_events(rows: list[dict[str, Any]], step_id: str) -> dict[str, Any]:
+    return _workflow_agent_details_from_events(rows).get(step_id, {})
+
+
+def _workflow_agent_details_from_events(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    details: dict[str, dict[str, Any]] = {}
     for row in reversed(rows):
         payload = row.get("payload", {})
         source = payload.get("source", {}) if isinstance(payload, dict) else {}
         detail = source.get("agent_detail", {}) if isinstance(source, dict) else {}
-        if isinstance(detail, dict) and str(detail.get("step_id", "")) == step_id:
-            return detail
-    return {}
+        step_id = str(detail.get("step_id", "")) if isinstance(detail, dict) else ""
+        if step_id and step_id not in details:
+            details[step_id] = detail
+    return details
 
 
 def _workflow_context_from_run(run: dict[str, Any]) -> Any:
@@ -2342,10 +2356,13 @@ class WyckoffTUI(App):
         self._send_message(build_resume_prompt(run))
 
     def _show_workflow_detail(self, run_id: str, log) -> None:
+        from cli.workflows.store import load_workflow_events
+
         run = self._load_workflow_run(run_id, log)
         if not run:
             return
         script = _workflow_script(run)
+        agent_details = _workflow_agent_details_from_events(load_workflow_events(str(run.get("run_id", "")), limit=500))
         lines = [
             "\n[bold]Workflow[/bold] "
             f"[cyan]{escape(str(run.get('run_id', '')))}[/cyan] "
@@ -2362,7 +2379,14 @@ class WyckoffTUI(App):
         steps = run.get("plan", {}).get("steps", [])
         if isinstance(steps, list) and steps:
             lines.append("  [bold]步骤[/bold]")
-            lines.extend(_workflow_detail_step_line(step) for step in steps if isinstance(step, dict))
+            lines.extend(
+                _workflow_detail_step_line(
+                    step,
+                    agent_details.get(str(step.get("step_id") or step.get("id") or "")),
+                )
+                for step in steps
+                if isinstance(step, dict)
+            )
         log.write(Text.from_markup("\n".join(lines)))
 
     def _show_workflow_script(self, run_id: str, log) -> None:

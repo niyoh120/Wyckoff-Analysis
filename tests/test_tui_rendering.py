@@ -1198,6 +1198,55 @@ def test_workflow_detail_step_line_includes_tool_scope():
     assert "边界: 不写入交易" in line
 
 
+def test_workflow_detail_step_line_surfaces_handoff_evidence():
+    line = _workflow_detail_step_line(
+        {
+            "step_id": "decision",
+            "title": "形成攻防",
+            "agent": "trading",
+            "status": "completed",
+            "tool_scope": ["generate_strategy_decision"],
+            "summary": "completed 1.0s",
+        },
+        {
+            "step_id": "decision",
+            "tool_calls": ["generate_strategy_decision"],
+            "handoff_state": {
+                "last_screen_result": {
+                    "selection_brief": {
+                        "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+                        "primary_pick": {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "action_status": "ready_for_ai_review",
+                        },
+                    }
+                },
+                "last_strategy_decision": {
+                    "status": "skipped_notify_unconfigured",
+                    "report_source": "last_ai_report",
+                    "reviewed_codes": ["300750"],
+                    "reviewed_symbols": [
+                        {
+                            "code": "300750",
+                            "name": "宁德时代",
+                            "action_status": "blocked_by_market_gate",
+                            "risk_factors": ["大盘风险闸门关闭"],
+                            "next_step": "补充 Telegram 配置后可生成并发送 OMS 工单",
+                        }
+                    ],
+                    "next_action": "补充 Telegram 配置后可生成并发送 OMS 工单",
+                },
+            },
+        },
+    )
+
+    assert "decision" in line
+    assert "形成攻防" in line
+    assert "证据: 攻防决策: status=skipped_notify_unconfigured" in line
+    assert line.index("攻防决策: status=skipped_notify_unconfigured") < line.index("本轮首选可进入 AI 研报复核")
+
+
 def test_workflow_detail_step_line_includes_effective_tool_scope():
     line = _workflow_detail_step_line(
         {
