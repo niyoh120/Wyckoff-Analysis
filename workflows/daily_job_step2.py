@@ -99,7 +99,13 @@ def _prepare_step3_review_input(step2: Step2StageResult, trade_mode: MarketTrade
         "reason": trade_mode.reason,
     }
     step2.details["step3_symbols_info"] = (
-        daily_persistence.step3_review_symbols(step2.symbols_info) if trade_mode.allow_ai_review else []
+        daily_persistence.step3_review_symbols(
+            step2.symbols_info,
+            step2_details=step2.details,
+            trade_mode=trade_mode,
+        )
+        if trade_mode.allow_ai_review
+        else []
     )
     log_line(
         "Step2.8 AI研报输入收口: "

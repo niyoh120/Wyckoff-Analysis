@@ -22,6 +22,7 @@ from workflows.step4_pipeline import TZ, is_confirmed_step4_candidate
 RECOMMENDATION_MAINLINE_STATUSES = TRADEABLE_MAINLINE_STATUSES
 RECOMMENDATION_STRATEGIC_MIN_THEME_SCORE = 0.45
 RECOMMENDATION_STRATEGIC_MIN_STOCK_SCORE = 0.55
+STEP3_REPAIR_REVIEW_SPRINGBOARD_CAP = "STEP3_REPAIR_REVIEW_SPRINGBOARD_CAP"
 
 
 def persist_benchmark_context(
@@ -102,8 +103,67 @@ def recommendation_write_symbols(
     return _dedupe_tracking_symbols(rows)
 
 
-def step3_review_symbols(symbols_info: list[dict]) -> list[dict]:
-    return [item for item in symbols_info if is_recommendation_review_candidate(item)]
+def step3_review_symbols(
+    symbols_info: list[dict],
+    *,
+    step2_details: dict | None = None,
+    trade_mode: MarketTradeMode | None = None,
+) -> list[dict]:
+    strict = [item for item in symbols_info if is_recommendation_review_candidate(item)]
+    extras = repair_review_springboard_symbols(
+        step2_details,
+        trade_mode,
+        exclude_codes={code6(item.get("code")) for item in strict},
+    )
+    return strict + extras
+
+
+def repair_review_springboard_symbols(
+    step2_details: dict | None,
+    trade_mode: MarketTradeMode | None,
+    *,
+    exclude_codes: set[str] | None = None,
+) -> list[dict]:
+    if not _allow_repair_springboard_review(step2_details, trade_mode):
+        return []
+    mode = trade_mode or resolve_market_trade_mode(None)
+    excluded = exclude_codes or set()
+    rows = _dedupe_tracking_symbols(_springboard_tracking_symbols(step2_details or {}, mode))
+    rows.sort(key=_tracking_rank, reverse=True)
+    out: list[dict] = []
+    for row in rows:
+        code = code6(row.get("code"))
+        if not code or code in excluded:
+            continue
+        out.append(_step3_repair_springboard_row(row))
+        if len(out) >= _repair_springboard_review_cap():
+            break
+    return out
+
+
+def _allow_repair_springboard_review(step2_details: dict | None, trade_mode: MarketTradeMode | None) -> bool:
+    if not step2_details or _repair_springboard_review_cap() <= 0:
+        return False
+    mode = trade_mode or resolve_market_trade_mode(None)
+    return mode.mode == "repair_review" and not mode.allow_recommendation_write
+
+
+def _step3_repair_springboard_row(row: dict) -> dict:
+    out = dict(row)
+    out["selection_source"] = "l4_springboard"
+    out["source_type"] = "repair_springboard_review"
+    out["signal_status"] = "confirmed"
+    out["candidate_status"] = "修复复核候选"
+    out["selection_is_fill"] = False
+    out.setdefault("confirm_reason", out.get("tag") or "修复期起跳板二次确认")
+    return out
+
+
+def _repair_springboard_review_cap() -> int:
+    try:
+        return max(int(float(os.getenv(STEP3_REPAIR_REVIEW_SPRINGBOARD_CAP, "3"))), 0)
+    except (TypeError, ValueError):
+        return 3
 
 
 def is_recommendation_tracking_candidate(item: dict) -> bool:

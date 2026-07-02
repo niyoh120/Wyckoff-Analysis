@@ -478,6 +478,14 @@ def _apply_breadth_regime(
     return regime
 
 
+def _apply_caution_regime(regime: str, breadth_ratio: float | None, regime_config: MarketRegimeConfig) -> str:
+    if regime != "RISK_ON" or breadth_ratio is None:
+        return regime
+    if float(breadth_ratio) < regime_config.breadth_risk_on_threshold:
+        return "CAUTION"
+    return regime
+
+
 def _panic_reasons(
     main: MainBenchmarkMetrics,
     small: SmallcapMetrics,
@@ -535,6 +543,7 @@ def _repair_reasons(
     main: MainBenchmarkMetrics,
     small: SmallcapMetrics,
     regime_config: MarketRegimeConfig,
+    base_regime: str,
 ) -> list[str]:
     prev_panic = (main.prev_pct is not None and float(main.prev_pct) <= regime_config.crash_main_day_drop_pct) or (
         small.prev_pct is not None and float(small.prev_pct) <= regime_config.crash_small_day_drop_pct
@@ -548,12 +557,23 @@ def _repair_reasons(
             float(main.today_pct) >= regime_config.panic_repair_main_rebound_pct * 0.5
             and float(main.prev_pct) >= regime_config.panic_repair_main_rebound_pct * 0.5
         )
-    if not ((prev_panic and rebound_ok) or continuous_rebound):
+    panic_reversal = prev_panic and rebound_ok
+    defensive_continuation = str(base_regime or "").strip().upper() in {"RISK_OFF", "CRASH"} and continuous_rebound
+    if not (panic_reversal or defensive_continuation):
         return []
-    return [
-        f"prev_panic(main_prev={main.prev_pct}, small_prev={small.prev_pct})",
-        f"rebound_ok(main_today={main.today_pct}, small_today={small.today_pct})",
-    ]
+    reasons = []
+    if panic_reversal:
+        reasons.extend(
+            [
+                f"prev_panic(main_prev={main.prev_pct}, small_prev={small.prev_pct})",
+                f"rebound_ok(main_today={main.today_pct}, small_today={small.today_pct})",
+            ]
+        )
+    if defensive_continuation:
+        reasons.append(
+            f"continuous_rebound_after_{base_regime}(main_prev={main.prev_pct}, main_today={main.today_pct})"
+        )
+    return reasons
 
 
 def _apply_panic_repair_regime(
@@ -573,7 +593,7 @@ def _apply_panic_repair_regime(
         regime = "RISK_OFF"
     if not regime_config.panic_repair_enabled:
         return regime, [], []
-    repair_reasons = _repair_reasons(main, small, regime_config)
+    repair_reasons = _repair_reasons(main, small, regime_config, base_regime=regime)
     return ("PANIC_REPAIR", [], repair_reasons) if repair_reasons else (regime, [], [])
 
 
@@ -805,6 +825,7 @@ def analyze_benchmark_and_tune_cfg(
     small = _smallcap_metrics(smallcap_df)
     breadth_ratio, breadth_prev, breadth_delta, breadth_sample = _breadth_values(breadth)
     regime = _apply_breadth_regime(_trend_regime(main), breadth_ratio, breadth_delta, runtime)
+    regime = _apply_caution_regime(regime, breadth_ratio, runtime)
     regime, panic_reasons, repair_reasons = _apply_panic_repair_regime(
         regime,
         main,

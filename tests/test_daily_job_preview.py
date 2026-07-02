@@ -215,6 +215,44 @@ def test_step3_review_symbols_keeps_only_strict_trade_candidates():
     assert [row["code"] for row in got] == ["000003", "000004", "000006"]
 
 
+def test_step3_review_symbols_adds_capped_repair_springboards(monkeypatch):
+    from core.market_trade_mode import resolve_market_trade_mode
+    from workflows.daily_job_persistence import step3_review_symbols
+
+    monkeypatch.setenv("STEP3_REPAIR_REVIEW_SPRINGBOARD_CAP", "1")
+    details = {
+        "formal_triggers": {"sos": [("000007", 9.0), ("000008", 8.0)]},
+        "springboard_map": {
+            "sos:000007": {
+                "springboard_met_count": 2,
+                "springboard_grade": "A+C",
+                "springboard_scored": True,
+            },
+            "sos:000008": {
+                "springboard_met_count": 2,
+                "springboard_grade": "B+C",
+                "springboard_scored": True,
+            },
+        },
+        "metrics": {
+            "latest_close_map": {"000007": 12.3, "000008": 8.6},
+            "accum_stage_map": {"000007": "Markup", "000008": "Markup"},
+        },
+        "name_map": {"000007": "全新好", "000008": "测试股"},
+        "sector_map": {"000007": "测试行业", "000008": "测试行业"},
+    }
+
+    got = step3_review_symbols([], step2_details=details, trade_mode=resolve_market_trade_mode("PANIC_REPAIR"))
+
+    assert len(got) == 1
+    assert got[0]["code"] == "000007"
+    assert got[0]["selection_source"] == "l4_springboard"
+    assert got[0]["source_type"] == "repair_springboard_review"
+    assert got[0]["signal_status"] == "confirmed"
+    assert got[0]["candidate_status"] == "修复复核候选"
+    assert got[0]["springboard_grade"] == "A+C"
+
+
 def test_recommendation_write_symbols_tracks_market_blocked_springboard_candidates():
     from core.market_trade_mode import resolve_market_trade_mode
     from workflows.daily_job_persistence import recommendation_write_symbols

@@ -18,6 +18,7 @@ SOURCE_LABELS = {
     "mainline": "主线买点",
     "alpha_candidate": "候选车道",
     "l4_hit": "买点确认",
+    "l4_springboard": "买点确认",
     "l2_bypass": "形态旁路观察",
     "strategic_l2_bypass": "战略主题观察",
     "l3_fill": "板块阶段补位",
