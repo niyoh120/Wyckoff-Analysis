@@ -11,6 +11,9 @@ _STOCK_SELECTION_DELIVERY_MARKERS = (
     "选出好股票",
     "挑出好股票",
     "筛出好股票",
+    "找好票",
+    "挑好票",
+    "筛好票",
 )
 _STOCK_SELECTION_EXPLAINER_MARKERS = (
     "是什么",
@@ -23,6 +26,7 @@ _STOCK_SELECTION_TARGET_MARKERS = (
     "选股",
     "选出好股票",
     "好股票",
+    "好票",
     "候选股",
     "候选股票",
     "股票池",
@@ -67,6 +71,7 @@ _STOCK_SELECTION_QUALITY_MARKERS = (
     "复核",
     "强势",
     "优质",
+    "好票",
     "机会",
     "买点",
 )

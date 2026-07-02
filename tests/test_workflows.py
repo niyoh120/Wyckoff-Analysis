@@ -156,6 +156,15 @@ def test_route_workflow_routes_short_stock_selection_delivery_to_dynamic_fallbac
     assert workflow.route_matches == ("选出好股票",)
 
 
+def test_route_workflow_routes_colloquial_good_stock_request_to_dynamic_fallback():
+    workflow = route_workflow("给我找几个好票，带理由和攻防计划")
+
+    assert workflow.name == "dynamic_task"
+    assert "screen_stocks" in workflow.allowed_tools
+    assert workflow.route_reason == "明显的多阶段选股任务"
+    assert {"好票", "理由", "攻防"}.issubset(workflow.route_matches)
+
+
 def test_route_workflow_routes_chatty_stock_opportunity_request_to_dynamic_fallback():
     workflow = route_workflow("今天A股有什么机会，给我候选和风险边界")
 
@@ -182,6 +191,13 @@ def test_route_workflow_keeps_simple_stock_selection_concept_direct():
 
 def test_route_workflow_keeps_stock_selection_how_to_direct():
     workflow = route_workflow("怎么选出好股票？")
+
+    assert workflow.name == "general_chat"
+    assert workflow.route_matches == ()
+
+
+def test_route_workflow_keeps_good_stock_term_question_direct():
+    workflow = route_workflow("好票是什么意思？")
 
     assert workflow.name == "general_chat"
     assert workflow.route_matches == ()
@@ -1213,6 +1229,27 @@ def test_planner_infers_tools_from_outline_text_when_model_skips_json():
     assert run.steps[0].depends_on == ()
     assert run.steps[1].depends_on == ("1",)
     assert run.steps[2].depends_on == ("2",)
+
+
+def test_planner_infers_screen_tool_from_colloquial_good_stock_outline():
+    provider = ScriptedProvider(
+        [
+            [
+                {"type": "text_delta", "text": "1. 找好票\n"},
+                {"type": "text_delta", "text": "2. 形成攻防动作"},
+            ]
+        ]
+    )
+    context = route_workflow("用 workflow 找好票，给出攻防")
+    run = plan_workflow(
+        "找好票，给出攻防",
+        context=context,
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
+    assert run.steps[1].depends_on == ("1",)
 
 
 def test_planner_infers_holding_decision_tools_from_outline_text():
