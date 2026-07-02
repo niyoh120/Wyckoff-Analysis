@@ -20,6 +20,32 @@ _SHORT_CONTINUATION_REPLIES = {
     "继续上个",
     "继续上一个",
 }
+_RECENT_CONTEXT_MARKERS = (
+    "刚才",
+    "上面",
+    "前面",
+    "上个",
+    "上一个",
+    "其中",
+    "候选",
+    "推荐",
+    "入选",
+    "名单",
+    "前者",
+    "后者",
+)
+_RECENT_CONTEXT_PRONOUNS = ("这个", "那个", "这只", "那只", "它", "他们", "它们")
+_RECENT_CONTEXT_QUESTIONS = (
+    "哪个更",
+    "哪只更",
+    "哪个最",
+    "哪只最",
+    "第一个",
+    "第二个",
+    "第三个",
+)
+_RECENT_CONTEXT_ACTIONS = ("怎么", "看", "风险", "稳", "买", "卖", "加", "减", "为什么", "原因")
+_RECENT_CONTEXT_TOPIC_EXCLUSIONS = ("cli", "工具", "项目", "系统", "代码")
 
 
 def build_resume_prompt(run: dict[str, Any]) -> str:
@@ -62,6 +88,28 @@ def is_recent_workflow_followup(user_text: str) -> bool:
     has_previous_ref = any(token in compact for token in ("刚才", "上个", "上一个", "前面"))
     has_continue = "继续" in compact or "接着" in compact
     return has_previous_ref and has_continue
+
+
+def should_include_recent_workflow_context(user_text: str) -> bool:
+    """Return True when a user turn appears to reference the latest workflow output."""
+
+    text = _one_line(user_text).lower()
+    if not text or text.startswith("继续 workflow") or re.search(r"\bwf_[a-z0-9_-]+\b", text):
+        return False
+    compact = re.sub(r"[\s。！!,.，、？?]+", "", text)
+    if any(marker in compact for marker in _RECENT_CONTEXT_MARKERS):
+        return True
+    if any(marker in compact for marker in _RECENT_CONTEXT_QUESTIONS):
+        return True
+    if any(topic in compact for topic in _RECENT_CONTEXT_TOPIC_EXCLUSIONS):
+        return False
+    if len(compact) <= 18 and any(marker in compact for marker in _RECENT_CONTEXT_PRONOUNS):
+        return any(action in compact for action in _RECENT_CONTEXT_ACTIONS)
+    return bool(
+        re.search(
+            r"(?:第[一二三四五六七八九十\d]+个?|[一二三四五六七八九十\d]+号).{0,8}(?:怎么|看|风险|稳|买|卖)", compact
+        )
+    )
 
 
 def build_chat_resume_prompt(run: dict[str, Any], user_text: str) -> str:

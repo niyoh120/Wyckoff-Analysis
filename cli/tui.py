@@ -2197,11 +2197,11 @@ class WyckoffTUI(App):
         return None
 
     def _recent_workflow_context(self, text: str) -> str:
-        if text.lstrip().startswith("继续 workflow"):
-            return ""
         try:
-            from cli.workflows.resume import build_recent_workflow_context
+            from cli.workflows.resume import build_recent_workflow_context, should_include_recent_workflow_context
 
+            if not should_include_recent_workflow_context(text):
+                return ""
             run = self._latest_session_workflow_run()
             return build_recent_workflow_context(run) if run else ""
         except Exception:

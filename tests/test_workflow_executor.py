@@ -26,6 +26,7 @@ from cli.workflows.resume import (
     build_recent_workflow_context,
     build_resume_prompt,
     is_recent_workflow_followup,
+    should_include_recent_workflow_context,
 )
 from cli.workflows.router import WORKFLOWS, route_workflow
 from cli.workflows.store import get_workflow_run, load_workflow_events
@@ -2904,6 +2905,18 @@ def test_short_recent_workflow_followup_detection_is_narrow():
     assert is_recent_workflow_followup("继续上一个")
     assert not is_recent_workflow_followup("继续观察吗")
     assert not is_recent_workflow_followup("继续 workflow wf_1")
+
+
+def test_recent_workflow_context_detection_targets_references():
+    assert should_include_recent_workflow_context("第一个怎么样")
+    assert should_include_recent_workflow_context("刚才那个候选风险呢")
+    assert should_include_recent_workflow_context("哪个更稳")
+    assert should_include_recent_workflow_context("2号还能买吗")
+    assert should_include_recent_workflow_context("这个能买吗")
+    assert not should_include_recent_workflow_context("今天市场怎么样")
+    assert not should_include_recent_workflow_context("600519 怎么样")
+    assert not should_include_recent_workflow_context("这个 CLI 怎么迭代")
+    assert not should_include_recent_workflow_context("继续 workflow wf_1")
 
 
 def test_build_chat_resume_prompt_keeps_user_reply():

@@ -124,6 +124,7 @@ def test_recent_workflow_context_skips_explicit_resume(monkeypatch):
 
     assert "<recent-workflow-context>" in context
     assert "run_id: wf_current" in context
+    assert app._recent_workflow_context("今天市场怎么样") == ""
     assert app._recent_workflow_context("继续 workflow wf_current") == ""
 
 
