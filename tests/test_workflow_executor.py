@@ -973,7 +973,8 @@ def test_workflow_synthesis_receives_step_handoff_state(tmp_path, monkeypatch):
             done_event["source"]["agent_detail"]["handoff_state"]["last_screen_result"]["symbols_for_report"][0]["code"]
             == "300750"
         )
-        assert events[-1]["text"] == "已基于候选 handoff 汇总。"
+        assert events[-1]["text"].startswith("候选结论: 候选 300750 宁德时代")
+        assert "已基于候选 handoff 汇总。" in events[-1]["text"]
     finally:
         _reset_local_db(local_db)
 
@@ -1150,17 +1151,16 @@ def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
 
     prompt = _synthesis_prompt(run, results)
 
-    assert "必须按候选分层输出" in prompt
-    assert "priority_score/shadow_score/funnel_score" in prompt
-    assert "candidate_shadow_score/grade" in prompt
-    assert "candidate_quality_score" in prompt
-    assert "risk_adjusted_quality_score" in prompt
-    assert "entry_quality_score/grade" in prompt
-    assert "new_buy_allowed=false" in prompt
-    assert "trade_readiness=research_only" in prompt
-    assert "存在 candidate_guard_summary" in prompt
-    assert "必须明确哪些候选禁止直接买入" in prompt
-    assert "不得写成买入建议" in prompt
+    assert "候选代码/名称" in prompt
+    assert "为什么入选" in prompt
+    assert "主要风险" in prompt
+    assert "下一步动作" in prompt
+    assert "多候选场景不要压成一个泛泛结论" in prompt
+    assert "首选/可复核、观察、被阻断" in prompt
+    assert "候选护栏、市场闸门、数据质量、交易就绪或新增买入限制" in prompt
+    assert "不能把受限候选写成买入建议" in prompt
+    assert "自然语言，不要照抄内部字段名" in prompt
+    assert "候选行要优先使用代码/名称、action_status" not in prompt
     assert '"candidate_shadow_score": 92.0' in prompt
     assert '"new_buy_allowed": false' in prompt
 
@@ -1898,7 +1898,8 @@ def test_workflow_executor_waits_step_background_tasks_for_handoff(tmp_path, mon
         assert detail["background_tasks"][0]["status"] == "completed"
         assert detail["handoff_state"]["last_screen_result"]["selection_brief"]["best_codes"] == ["300750"]
         assert "screen_stocks: 本轮首选可进入 AI 研报复核: 300750 宁德时代" in done_event["step"]["summary"]
-        assert events[-1]["text"] == "已等待后台筛选并汇总候选。"
+        assert events[-1]["text"].startswith("候选结论: 候选 300750 宁德时代")
+        assert "已等待后台筛选并汇总候选。" in events[-1]["text"]
     finally:
         _reset_local_db(local_db)
 

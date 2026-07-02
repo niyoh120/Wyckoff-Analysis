@@ -69,14 +69,13 @@ SYNTHESIS_PROMPT_FIELDS = (
 _SYNTHESIS_REQUIREMENTS = (
     "输出要求：\n"
     "- 先给结论和可执行下一步，不要只复述 workflow 步骤。\n"
-    "- 如果 agent results 里有候选、policy_selection、last_screen_result 或 last_recommendation_event_eval，"
-    "必须按候选分层输出：可进入 AI 研报/攻防决策、仅观察、被数据质量/市场闸门/策略保护阻断。\n"
-    "- 候选行要优先使用代码/名称、action_status、trade_readiness、priority_score/shadow_score/"
-    "funnel_score、candidate_shadow_score/grade、candidate_quality_score、risk_adjusted_quality_score、"
-    "entry_quality_score/grade、entry_quality_risk_flags、quality_factors、risk_factors、next_step。\n"
-    "- 如果存在 candidate_guard_summary，必须明确哪些候选禁止直接买入以及原因；"
-    "如果 new_buy_allowed=false、trade_readiness=research_only 或 action_status 不是可执行状态，"
-    "不得写成买入建议；只能写观察、研报复核或攻防决策下一步。\n"
+    "- 如果结果里有候选、选股、推荐或攻防证据，先按候选给用户可读结论：候选代码/名称、"
+    "为什么入选、当前状态、主要风险、下一步动作。\n"
+    "- 多候选场景不要压成一个泛泛结论；按首选/可复核、观察、被阻断分层。\n"
+    "- 结果里出现候选护栏、市场闸门、数据质量、交易就绪或新增买入限制时，必须保留限制原因；"
+    "不能把受限候选写成买入建议，只能写观察、研报复核或攻防决策下一步。\n"
+    "- 优先使用 handoff 里的分数、评级、主题、质量因子和风险因子作为证据，"
+    "但回答要用自然语言，不要照抄内部字段名。\n"
     "- 如果没有可靠候选或数据质量不足，说明不能选出股票的原因和修复动作。\n"
 )
 
@@ -361,9 +360,10 @@ class WorkflowExecutor:
         prompt = _synthesis_prompt(self._require_run(), results)
         fallback_text = _fallback_summary(results)
         try:
-            return _collect_synthesis(self.provider, prompt, system_prompt, fallback_text=fallback_text)
+            text, usage = _collect_synthesis(self.provider, prompt, system_prompt, fallback_text=fallback_text)
         except Exception:
-            return fallback_text, {"input_tokens": 0, "output_tokens": 0}
+            text, usage = fallback_text, {"input_tokens": 0, "output_tokens": 0}
+        return _ensure_candidate_delivery(text, results), usage
 
     def _mark_run_done(self, final_text: str) -> RuntimeEvent:
         run = self._require_run()
@@ -999,20 +999,52 @@ def _fallback_background_lines(tasks: Any) -> list[str]:
 
 
 def _fallback_candidate_conclusion(results: list[dict[str, Any]]) -> str:
-    for item in reversed(results):
-        result = item.get("result") if isinstance(item, dict) else {}
-        handoff = result.get("handoff_state") if isinstance(result, dict) else {}
-        if not isinstance(handoff, dict):
-            continue
-        conclusions = _candidate_conclusions_from_handoff(handoff)
-        lines = [str(item.get("line") or "") for item in conclusions if item.get("line")]
-        if lines:
-            return "\n".join(lines)
+    conclusions = _candidate_conclusions_from_results(results)
+    lines = [str(item.get("line") or "") for item in conclusions if item.get("line")]
+    if lines:
+        return "\n".join(lines)
     return ""
 
 
 def _candidate_conclusion_from_handoff(handoff: dict[str, Any]) -> dict[str, Any]:
     return next(iter(_candidate_conclusions_from_handoff(handoff, limit=1)), {})
+
+
+def _candidate_conclusions_from_results(results: list[dict[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
+    handoff = _latest_results_handoff(results)
+    return _candidate_conclusions_from_handoff(handoff, limit=limit) if handoff else []
+
+
+def _latest_results_handoff(results: list[dict[str, Any]]) -> dict[str, Any]:
+    aggregate: dict[str, Any] = {}
+    seen_keys: set[str] = set()
+    for item in reversed(results):
+        result = item.get("result") if isinstance(item, dict) else {}
+        handoff = result.get("handoff_state") if isinstance(result, dict) else {}
+        if isinstance(handoff, dict):
+            aggregate.update(_latest_handoff_keys(handoff, seen_keys))
+    return aggregate
+
+
+def _ensure_candidate_delivery(text: str, results: list[dict[str, Any]]) -> str:
+    conclusions = _candidate_conclusions_from_results(results)
+    if not conclusions or _text_mentions_candidate(text, conclusions):
+        return text
+    lines = [str(item.get("line") or "") for item in conclusions if item.get("line")]
+    if not lines:
+        return text
+    candidate_text = "\n".join(lines)
+    return f"{candidate_text}\n\n{text}" if text.strip() else candidate_text
+
+
+def _text_mentions_candidate(text: str, conclusions: list[dict[str, Any]]) -> bool:
+    lowered = text.lower()
+    for item in conclusions:
+        for field in ("code", "name"):
+            value = str(item.get(field) or "").strip()
+            if value and value.lower() in lowered:
+                return True
+    return False
 
 
 def _candidate_conclusions_from_handoff(handoff: dict[str, Any], limit: int = 3) -> list[dict[str, Any]]:
