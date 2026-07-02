@@ -2152,7 +2152,7 @@ def test_workflow_executor_bounds_generic_task_tools_by_workflow_context(tmp_pat
     def _bounded_round(_messages, tools, _system_prompt):
         exposed = {schema["name"] for schema in tools}
         assert "portfolio" in exposed
-        assert "ask_user_question" in exposed
+        assert "ask_user_question" not in exposed
         assert "run_backtest" not in exposed
         return [{"type": "text_delta", "text": "已按持仓上下文复盘。"}]
 
@@ -2186,7 +2186,66 @@ def test_workflow_executor_bounds_generic_task_tools_by_workflow_context(tmp_pat
 
     try:
         assert events[0]["plan"]["steps"][0]["agent"] == "task"
+        assert "ask_user_question" not in events[0]["plan"]["steps"][0]["effective_tool_scope"]
         assert events[-1]["text"] == "复盘完成。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_executor_keeps_explicit_clarification_scope(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    def _ask_round(_messages, tools, _system_prompt):
+        assert {schema["name"] for schema in tools} == {"ask_user_question"}
+        return [
+            {
+                "type": "tool_calls",
+                "tool_calls": [{"id": "tc_ask", "name": "ask_user_question", "args": {"question": "回测区间？"}}],
+            }
+        ]
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-explicit-ask.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            _ask_round,
+            [{"type": "text_delta", "text": "已确认需要回测区间。"}],
+            [{"type": "text_delta", "text": "澄清完成。"}],
+        ]
+    )
+    schemas = [
+        {"name": "portfolio", "description": "Mock portfolio tool", "parameters": {"type": "object"}},
+        {"name": "ask_user_question", "description": "Mock ask tool", "parameters": {"type": "object"}},
+    ]
+    tools = StubToolRegistry(schemas=schemas, tool_results={"ask_user_question": {"status": "queued"}})
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_explicit_ask",
+        user_text="用 workflow 先问清楚回测区间",
+        workflow_context=route_workflow("用 workflow 先问清楚回测区间"),
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "clarify",
+                    "title": "确认回测区间",
+                    "tools": ["ask_user_question"],
+                    "prompt": "询问用户回测区间。",
+                }
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 先问清楚回测区间"}]))
+
+    try:
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert events[0]["plan"]["steps"][0]["effective_tool_scope"] == ["ask_user_question"]
+        assert detail["tool_calls"] == ["ask_user_question"]
+        assert [call["name"] for call in tools.calls] == ["ask_user_question"]
+        assert events[-1]["text"] == "澄清完成。"
     finally:
         _reset_local_db(local_db)
 

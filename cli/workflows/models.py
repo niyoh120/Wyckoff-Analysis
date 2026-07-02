@@ -139,7 +139,7 @@ class WorkflowRun:
 
     def step_payload(self, step: WorkflowStep) -> dict[str, Any]:
         payload = step.to_dict()
-        if effective_scope := _effective_tool_scope(step.tool_scope, self.allowed_tools):
+        if effective_scope := effective_tool_scope(step.tool_scope, self.allowed_tools):
             payload["effective_tool_scope"] = list(effective_scope)
         return payload
 
@@ -151,8 +151,15 @@ class WorkflowRun:
         self.current_step = len(self.steps)
 
 
-def _effective_tool_scope(tool_scope: tuple[str, ...], allowed_tools: tuple[str, ...]) -> tuple[str, ...]:
+def effective_tool_scope(tool_scope: tuple[str, ...], allowed_tools: tuple[str, ...]) -> tuple[str, ...]:
     allowed = tuple(name for name in allowed_tools if name and not name.startswith("delegate_to_"))
     if tool_scope:
         return tuple(name for name in tool_scope if name and not name.startswith("delegate_to_") and name in allowed)
-    return allowed
+    return _drop_question_tool_when_concrete_tools_present(allowed)
+
+
+def _drop_question_tool_when_concrete_tools_present(names: tuple[str, ...]) -> tuple[str, ...]:
+    concrete = [name for name in names if name != "ask_user_question"]
+    if not concrete:
+        return names
+    return tuple(concrete)

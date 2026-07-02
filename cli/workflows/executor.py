@@ -29,6 +29,7 @@ from cli.workflows.models import (
     WorkflowContext,
     WorkflowRun,
     WorkflowStep,
+    effective_tool_scope,
 )
 from cli.workflows.planner import plan_workflow
 from cli.workflows.store import append_workflow_event, persist_workflow_script, save_workflow_run
@@ -485,9 +486,7 @@ def _step_tool_names(step: WorkflowStep, allowed_tools: tuple[str, ...]) -> tupl
     allowed = _concrete_tools(allowed_tools)
     if not allowed:
         return step.tool_scope or None
-    if step.tool_scope:
-        return tuple(name for name in step.tool_scope if name in allowed)
-    return allowed
+    return effective_tool_scope(step.tool_scope, allowed)
 
 
 def _step_turn_expectations_enabled(step: WorkflowStep) -> bool:
