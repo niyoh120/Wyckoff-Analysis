@@ -7,94 +7,6 @@ from dataclasses import replace
 from cli.workflows.models import WorkflowContext
 
 ASK_TOOLS = ("ask_user_question",)
-_STOCK_SELECTION_DELIVERY_MARKERS = (
-    "选出好股票",
-    "挑出好股票",
-    "筛出好股票",
-    "找好票",
-    "挑好票",
-    "筛好票",
-    "找好标的",
-    "挑好标的",
-    "筛好标的",
-)
-_STOCK_SELECTION_EXPLAINER_MARKERS = (
-    "是什么",
-    "什么意思",
-    "怎么",
-    "如何",
-    "解释",
-)
-_STOCK_SELECTION_TARGET_MARKERS = (
-    "选股",
-    "选出好股票",
-    "好股票",
-    "好票",
-    "好标的",
-    "候选股",
-    "候选股票",
-    "股票池",
-    "值得跟踪",
-    "重点跟踪",
-)
-_STOCK_SELECTION_REQUEST_MARKERS = (
-    "帮我",
-    "给我",
-    "帮忙",
-    "麻烦",
-    "看下",
-    "看看",
-    "今天",
-    "当前",
-    "本轮",
-    "现在",
-)
-_STOCK_SELECTION_ACTION_MARKERS = (
-    "选",
-    "筛",
-    "挑",
-    "找",
-    "挖",
-    "扫描",
-    "复核",
-    "列出",
-    "给出",
-)
-_STOCK_SELECTION_OBJECT_MARKERS = (
-    "股票",
-    "a股",
-    "个股",
-    "票",
-    "标的",
-    "机会",
-)
-_STOCK_SELECTION_QUALITY_MARKERS = (
-    "候选",
-    "值得",
-    "跟踪",
-    "复核",
-    "强势",
-    "优质",
-    "好票",
-    "好标的",
-    "机会",
-    "买点",
-)
-_STOCK_SELECTION_DEPTH_MARKERS = (
-    "完整",
-    "一遍",
-    "今天",
-    "当前",
-    "给出候选",
-    "理由",
-    "买卖计划",
-    "攻防",
-    "研报",
-    "决策",
-    "筛选",
-    "扫描",
-    "复核",
-)
 
 WORKFLOWS: dict[str, WorkflowContext] = {
     "portfolio_review": WorkflowContext(
@@ -184,7 +96,7 @@ WORKFLOWS: dict[str, WorkflowContext] = {
 
 
 def route_workflow(user_text: str) -> WorkflowContext:
-    """Select only the runtime lane; model planning owns task semantics."""
+    """Select hard workflow boundaries; model routing owns task semantics."""
 
     resumed = route_resume_workflow(user_text)
     if resumed:
@@ -192,8 +104,6 @@ def route_workflow(user_text: str) -> WorkflowContext:
     text = user_text.lower()
     if matches := _explicit_dynamic_workflow_matches(text):
         return _with_route(WORKFLOWS["dynamic_task"], "用户显式要求动态 workflow", 0.96, matches)
-    if matches := _stock_selection_workflow_matches(text):
-        return _with_route(WORKFLOWS["dynamic_task"], "明显的多阶段选股任务", 0.72, matches)
     return _with_route(WORKFLOWS["general_chat"], "普通工具型对话交给直接 agent", 0.0, ())
 
 
@@ -226,47 +136,6 @@ def build_workflow_system_prompt(workflow: WorkflowContext | None) -> str:
 def _explicit_dynamic_workflow_matches(text: str) -> tuple[str, ...]:
     markers = ("ultracode", "用 workflow", "使用 workflow", "以 workflow", "用动态 workflow", "动态 workflow 跑")
     return tuple(marker for marker in markers if marker in text)
-
-
-def _stock_selection_workflow_matches(text: str) -> tuple[str, ...]:
-    delivery_matches = _marker_matches(text, _STOCK_SELECTION_DELIVERY_MARKERS)
-    if delivery_matches and (not _stock_selection_explainer_matches(text) or _concrete_stock_selection_request(text)):
-        return delivery_matches
-    if _stock_selection_explainer_matches(text) and not _concrete_stock_selection_request(text):
-        return ()
-    target_matches = _marker_matches(text, _STOCK_SELECTION_TARGET_MARKERS)
-    if not target_matches:
-        return _semantic_stock_selection_matches(text)
-    depth_matches = _marker_matches(text, _STOCK_SELECTION_DEPTH_MARKERS)
-    if not depth_matches:
-        return ()
-    return tuple(dict.fromkeys((*target_matches, *depth_matches)))
-
-
-def _semantic_stock_selection_matches(text: str) -> tuple[str, ...]:
-    request_matches = _marker_matches(text, _STOCK_SELECTION_REQUEST_MARKERS)
-    action_matches = _marker_matches(text, _STOCK_SELECTION_ACTION_MARKERS)
-    object_matches = _marker_matches(text, _STOCK_SELECTION_OBJECT_MARKERS)
-    quality_matches = _marker_matches(text, _STOCK_SELECTION_QUALITY_MARKERS)
-    depth_matches = _marker_matches(text, _STOCK_SELECTION_DEPTH_MARKERS)
-    has_action = bool(action_matches or request_matches)
-    has_intent = bool(quality_matches or (action_matches and depth_matches))
-    if not (has_action and object_matches and has_intent):
-        return ()
-    matches = (*request_matches, *action_matches, *object_matches, *quality_matches, *depth_matches)
-    return tuple(dict.fromkeys(matches))
-
-
-def _marker_matches(text: str, markers: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(marker for marker in markers if marker in text)
-
-
-def _stock_selection_explainer_matches(text: str) -> bool:
-    return any(marker in text for marker in _STOCK_SELECTION_EXPLAINER_MARKERS)
-
-
-def _concrete_stock_selection_request(text: str) -> bool:
-    return any(marker in text for marker in _STOCK_SELECTION_REQUEST_MARKERS)
 
 
 def _with_route(
