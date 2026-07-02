@@ -534,7 +534,7 @@ def _candidate_conclusion_preview(source_stage: str, result: dict[str, Any]) -> 
             else action_plan.get("new_buy_allowed"),
             "evidence": _candidate_conclusion_evidence_items(row),
             "quality_factors": _candidate_conclusion_text_items(row.get("quality_factors"), 5, 100),
-            "risk_factors": _candidate_conclusion_text_items(row.get("risk_factors"), 5, 100),
+            "risk_factors": _candidate_risk_text_items(row, 5, 100),
             "guard_reason": _candidate_conclusion_guard_reason(row, result),
             "next_step": _candidate_conclusion_next_step(row, result),
             "source_stage": source_stage,
@@ -630,6 +630,17 @@ def _candidate_conclusion_evidence_items(row: dict[str, Any]) -> list[str]:
 
 def _candidate_conclusion_text_items(value: Any, limit: int, clip: int) -> list[str]:
     return [_text_excerpt(item, clip) for item in _preview_list(value, limit) if str(item or "").strip()]
+
+
+def _candidate_risk_text_items(row: dict[str, Any], limit: int, clip: int) -> list[str]:
+    risks: list[str] = []
+    for value in (row.get("risk_factors"), row.get("entry_quality_risk_flags")):
+        for item in _candidate_conclusion_text_items(value, limit, clip):
+            if item not in risks:
+                risks.append(item)
+            if len(risks) >= limit:
+                return risks
+    return risks
 
 
 def _candidate_conclusion_guard_reason(row: dict[str, Any], result: dict[str, Any]) -> str:
@@ -811,7 +822,7 @@ def _action_status_label(value: Any) -> str:
 
 
 def _brief_risk(row: dict[str, Any]) -> str:
-    risks = [str(item).strip() for item in _preview_list(row.get("risk_factors"), 2) if str(item).strip()]
+    risks = _candidate_risk_text_items(row, 2, 80)
     return f"风险: {'；'.join(risks)}" if risks else ""
 
 

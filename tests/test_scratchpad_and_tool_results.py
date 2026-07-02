@@ -213,6 +213,29 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
     ]
 
 
+def test_screen_stocks_preview_merges_entry_risk_flags_into_visible_risks():
+    result = {
+        "selection_brief": {
+            "headline": "本轮首选可进入 AI 研报复核: 000012 高分带风险",
+            "primary_pick": {
+                "code": "000012",
+                "name": "高分带风险",
+                "candidate_shadow_score": 91.0,
+                "candidate_shadow_grade": "S",
+                "entry_quality_risk_flags": ["短线涨幅偏快", "量能未确认"],
+                "action_status": "ready_for_ai_review",
+                "next_step": "生成 AI 研报",
+            },
+        },
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert preview["candidate_conclusion"]["risk_factors"] == ["短线涨幅偏快", "量能未确认"]
+    assert "风险: 短线涨幅偏快；量能未确认" in lines[1]
+
+
 def test_screen_stocks_preview_surfaces_theme_context_and_event_candidate():
     result = {
         "theme_context": {
