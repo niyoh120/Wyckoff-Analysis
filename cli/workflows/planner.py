@@ -485,6 +485,20 @@ def _stabilized_step_dependencies(step: WorkflowStep, steps: list[WorkflowStep])
 
 def _nearest_tool_step_id(step: WorkflowStep, steps: list[WorkflowStep], tool_name: str) -> str:
     rows = [candidate for candidate in steps if _same_phase(step, candidate) and candidate is not step]
+    return _nearest_step_id(step, steps, rows, tool_name) or _nearest_step_id(
+        step,
+        steps,
+        [candidate for candidate in steps if candidate is not step],
+        tool_name,
+    )
+
+
+def _nearest_step_id(
+    step: WorkflowStep,
+    steps: list[WorkflowStep],
+    rows: list[WorkflowStep],
+    tool_name: str,
+) -> str:
     previous = [
         candidate for candidate in rows if tool_name in candidate.tool_scope and _step_before(candidate, step, steps)
     ]

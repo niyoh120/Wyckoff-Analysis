@@ -710,6 +710,51 @@ def test_planner_stabilizes_out_of_order_stock_selection_dependencies():
     assert run.steps[2].depends_on == ()
 
 
+def test_planner_stabilizes_cross_phase_stock_selection_dependencies():
+    context = route_workflow("用 workflow 做选股、研报和攻防计划")
+    run = plan_workflow(
+        "做选股、研报和攻防计划",
+        context=context,
+        workflow_script={
+            "phases": [
+                {
+                    "id": "decision",
+                    "tasks": [
+                        {
+                            "id": "decision",
+                            "title": "形成攻防",
+                            "tools": ["generate_strategy_decision"],
+                            "prompt": "基于候选和研报输出攻防边界。",
+                        }
+                    ],
+                },
+                {
+                    "id": "report",
+                    "tasks": [
+                        {
+                            "id": "report",
+                            "title": "生成研报",
+                            "tools": ["generate_ai_report"],
+                            "prompt": "基于候选生成研报。",
+                        }
+                    ],
+                },
+                {
+                    "id": "scan",
+                    "tasks": [
+                        {"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描今日候选。"}
+                    ],
+                },
+            ]
+        },
+    )
+
+    assert [step.step_id for step in run.steps] == ["decision", "report", "scan"]
+    assert run.steps[0].depends_on == ("report",)
+    assert run.steps[1].depends_on == ("scan",)
+    assert run.steps[2].depends_on == ()
+
+
 def test_planner_does_not_self_depend_when_task_combines_screen_and_decision_tools():
     context = route_workflow("用 workflow 做选股和攻防计划")
     run = plan_workflow(
