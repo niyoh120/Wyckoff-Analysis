@@ -7,7 +7,7 @@ from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tool
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.model_router import _ROUTER_SYSTEM_PROMPT
 from cli.workflows.planner import plan_workflow
-from cli.workflows.router import build_workflow_system_prompt, route_workflow
+from cli.workflows.router import WORKFLOWS, build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
 
@@ -628,6 +628,34 @@ def test_planner_infers_tools_from_json_task_text_when_model_omits_tools():
         ("screen_stocks",),
         ("generate_strategy_decision",),
     ]
+
+
+def test_planner_filters_model_task_tools_by_workflow_context():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": (
+                        '{"title":"历史选股上下文","phases":[{"tasks":['
+                        '{"id":"scan","title":"扫描候选","tools":["screen_stocks","generate_strategy_decision"],'
+                        '"prompt":"扫描候选并形成攻防计划。"},'
+                        '{"id":"levels","title":"输出触发位和失效位",'
+                        '"prompt":"给出触发位、失效位和风险边界。"}'
+                        "]}]}"
+                    ),
+                }
+            ]
+        ]
+    )
+    run = plan_workflow(
+        "继续选股扫描",
+        context=WORKFLOWS["stock_screen"],
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ()]
 
 
 def test_planner_normalizes_tool_suffixes_from_model_script():

@@ -281,8 +281,9 @@ def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowConte
     steps: list[WorkflowStep] = []
     args_text = _runtime_args(script)
     infer_text_tools = _should_infer_text_tools(script)
+    allowed_tool_names = _context_tool_names(context) if infer_text_tools else None
     for phase in _script_phases(script):
-        steps.extend(_phase_steps(phase, user_text, args_text, infer_text_tools))
+        steps.extend(_phase_steps(phase, user_text, args_text, infer_text_tools, allowed_tool_names))
         if len(steps) >= MAX_WORKFLOW_STEPS:
             break
     steps = _stabilize_tool_dependencies(steps)
@@ -298,11 +299,12 @@ def _phase_steps(
     user_text: str,
     args_text: str,
     infer_text_tools: bool,
+    allowed_tool_names: set[str] | None,
 ) -> list[WorkflowStep]:
     phase_id = _slug(phase.get("id") or phase.get("title") or "phase")
     steps: list[WorkflowStep] = []
     for task in _phase_tasks(phase):
-        step = _task_step(task, phase_id, user_text, args_text, infer_text_tools)
+        step = _task_step(task, phase_id, user_text, args_text, infer_text_tools, allowed_tool_names)
         if step:
             steps.append(step)
     return steps
@@ -314,6 +316,7 @@ def _task_step(
     user_text: str,
     args_text: str,
     infer_text_tools: bool,
+    allowed_tool_names: set[str] | None,
 ) -> WorkflowStep | None:
     if not _generated_task_like(task):
         return None
@@ -334,7 +337,7 @@ def _task_step(
         risk_guard=_task_meta(task, ("risk_guard", "guard", "guardrail", "guardrails", "boundary", "constraints")),
         phase=phase_id,
         depends_on=_task_dependencies(task),
-        tool_scope=_task_tool_scope(task, title, prompt, context, infer_text_tools),
+        tool_scope=_task_tool_scope(task, title, prompt, context, infer_text_tools, allowed_tool_names),
         dynamic=True,
     )
 
@@ -372,6 +375,7 @@ def _task_tool_scope(
     prompt: str = "",
     context: str = "",
     infer_text_tools: bool = False,
+    allowed_tool_names: set[str] | None = None,
 ) -> tuple[str, ...]:
     names: list[str] = []
     for field in TOOL_SCOPE_FIELDS:
@@ -380,16 +384,26 @@ def _task_tool_scope(
                 names.append(name)
     explicit = tuple(dict.fromkeys(names))
     if explicit:
-        return explicit
+        return _filter_tool_scope(explicit, allowed_tool_names)
     if not infer_text_tools:
         return ()
-    return _text_task_tool_scope(" ".join((title, prompt, context)))
+    return _filter_tool_scope(_text_task_tool_scope(" ".join((title, prompt, context))), allowed_tool_names)
 
 
 def _should_infer_text_tools(script: dict[str, Any]) -> bool:
     runtime = script.get("runtime")
     planner = runtime.get("planner") if isinstance(runtime, dict) else ""
     return planner in {"model_script", "fallback_script"}
+
+
+def _context_tool_names(context: WorkflowContext) -> set[str]:
+    return {name for name in context.allowed_tools if name and not name.startswith("delegate_to_")}
+
+
+def _filter_tool_scope(scope: tuple[str, ...], allowed_tool_names: set[str] | None) -> tuple[str, ...]:
+    if allowed_tool_names is None:
+        return scope
+    return tuple(name for name in scope if name in allowed_tool_names)
 
 
 def _tool_name(raw: Any) -> str:
