@@ -280,8 +280,9 @@ def _strip_json_fence(text: str) -> str:
 def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowContext) -> list[WorkflowStep]:
     steps: list[WorkflowStep] = []
     args_text = _runtime_args(script)
+    infer_text_tools = _should_infer_text_tools(script)
     for phase in _script_phases(script):
-        steps.extend(_phase_steps(phase, user_text, args_text))
+        steps.extend(_phase_steps(phase, user_text, args_text, infer_text_tools))
         if len(steps) >= MAX_WORKFLOW_STEPS:
             break
     steps = _stabilize_tool_dependencies(steps)
@@ -296,11 +297,12 @@ def _phase_steps(
     phase: dict[str, Any],
     user_text: str,
     args_text: str,
+    infer_text_tools: bool,
 ) -> list[WorkflowStep]:
     phase_id = _slug(phase.get("id") or phase.get("title") or "phase")
     steps: list[WorkflowStep] = []
     for task in _phase_tasks(phase):
-        step = _task_step(task, phase_id, user_text, args_text)
+        step = _task_step(task, phase_id, user_text, args_text, infer_text_tools)
         if step:
             steps.append(step)
     return steps
@@ -311,6 +313,7 @@ def _task_step(
     phase_id: str,
     user_text: str,
     args_text: str,
+    infer_text_tools: bool,
 ) -> WorkflowStep | None:
     if not _generated_task_like(task):
         return None
@@ -331,7 +334,7 @@ def _task_step(
         risk_guard=_task_meta(task, ("risk_guard", "guard", "guardrail", "guardrails", "boundary", "constraints")),
         phase=phase_id,
         depends_on=_task_dependencies(task),
-        tool_scope=_task_tool_scope(task),
+        tool_scope=_task_tool_scope(task, title, prompt, context, infer_text_tools),
         dynamic=True,
     )
 
@@ -363,13 +366,30 @@ def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def _task_tool_scope(task: dict[str, Any]) -> tuple[str, ...]:
+def _task_tool_scope(
+    task: dict[str, Any],
+    title: str = "",
+    prompt: str = "",
+    context: str = "",
+    infer_text_tools: bool = False,
+) -> tuple[str, ...]:
     names: list[str] = []
     for field in TOOL_SCOPE_FIELDS:
         for item in _field_items(task.get(field)):
             if name := _tool_name(item):
                 names.append(name)
-    return tuple(dict.fromkeys(names))
+    explicit = tuple(dict.fromkeys(names))
+    if explicit:
+        return explicit
+    if not infer_text_tools:
+        return ()
+    return _text_task_tool_scope(" ".join((title, prompt, context)))
+
+
+def _should_infer_text_tools(script: dict[str, Any]) -> bool:
+    runtime = script.get("runtime")
+    planner = runtime.get("planner") if isinstance(runtime, dict) else ""
+    return planner in {"model_script", "fallback_script"}
 
 
 def _tool_name(raw: Any) -> str:
@@ -443,6 +463,18 @@ _TEXT_TASK_TOOL_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "候选股票",
             "股票池",
             "好股票",
+            "机会池",
+        ),
+    ),
+    (
+        "analyze_stock",
+        (
+            "analyze_stock",
+            "个股诊断",
+            "单股诊断",
+            "读盘诊断",
+            "量价结构",
+            "个股结构",
         ),
     ),
     (
@@ -465,6 +497,11 @@ _TEXT_TASK_TOOL_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "风险边界",
             "交易计划",
             "策略决策",
+            "触发位",
+            "失效位",
+            "止损位",
+            "入场位",
+            "出场位",
         ),
     ),
     ("portfolio", ("portfolio", "持仓", "仓位", "组合")),

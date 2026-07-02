@@ -1685,7 +1685,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert events[0]["plan"]["label"] == "持仓复盘"
         assert events[0]["plan"]["script"]["title"] == "持仓复盘"
         assert events[0]["plan"]["steps"][0]["agent"] == "task"
-        assert events[0]["plan"]["steps"][0]["tool_scope"] == []
+        assert events[0]["plan"]["steps"][0]["tool_scope"] == ["portfolio"]
         assert any(event["type"] == "workflow_step_start" for event in events)
         assert any(event["type"] == "workflow_done" for event in events)
         assert events[-1]["type"] == "done"

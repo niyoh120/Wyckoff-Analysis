@@ -597,6 +597,39 @@ def test_planner_accepts_tool_display_names_from_model_script():
     assert run.steps[0].tool_scope == ("portfolio", "screen_stocks", "ask_user_question")
 
 
+def test_planner_infers_tools_from_json_task_text_when_model_omits_tools():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": (
+                        '{"title":"自然工具推断","phases":[{"tasks":['
+                        '{"id":"positions","title":"读取真实持仓","prompt":"诊断持仓风险并输出当前仓位摘要。"},'
+                        '{"id":"scan","title":"扫描今日机会池","prompt":"筛选候选股票并保留候选理由。"},'
+                        '{"id":"plan","title":"输出触发位和失效位",'
+                        '"prompt":"形成候选攻防计划，给出入场位、止损位和风险边界。"}'
+                        "]}]}"
+                    ),
+                }
+            ]
+        ]
+    )
+    context = route_workflow("用 workflow 做持仓和选股复盘")
+    run = plan_workflow(
+        "做持仓和选股复盘",
+        context=context,
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert [step.tool_scope for step in run.steps] == [
+        ("portfolio",),
+        ("screen_stocks",),
+        ("generate_strategy_decision",),
+    ]
+
+
 def test_planner_normalizes_tool_suffixes_from_model_script():
     context = route_workflow("用 workflow 做持仓复盘")
     run = plan_workflow(
