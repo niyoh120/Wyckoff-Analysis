@@ -639,6 +639,39 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
     assert json.loads(stored[0].read_text(encoding="utf-8"))["report_text"] == report_text
 
 
+def test_ai_report_preview_prioritizes_ready_reviewed_candidate_over_guarded_watch():
+    result = {
+        "reviewed_symbols": [
+            {
+                "code": "000014",
+                "name": "高质量候选",
+                "action_status": "ready_for_ai_review",
+                "candidate_shadow_score": 92.0,
+                "candidate_shadow_grade": "S",
+            }
+        ],
+        "candidate_guard_summary": {
+            "direct_buy_blocked_count": 1,
+            "candidates": [
+                {
+                    "code": "000013",
+                    "name": "观察候选",
+                    "reason": "候选状态 watch_only 不允许直接买入",
+                    "action_status": "watch_only",
+                    "candidate_shadow_score": 96.0,
+                }
+            ],
+        },
+    }
+
+    preview = json.loads(tool_result_preview("generate_ai_report", result))
+    lines = tool_result_brief_lines("generate_ai_report", result, max_lines=3)
+
+    assert preview["candidate_conclusion"]["code"] == "000014"
+    assert lines[1].startswith("候选结论: 首选 000014 高质量候选")
+    assert lines[2].startswith("候选护栏: 1只禁止直接买入")
+
+
 def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_path, monkeypatch):
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     result = {

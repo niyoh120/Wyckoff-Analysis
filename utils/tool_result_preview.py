@@ -582,12 +582,10 @@ def _candidate_conclusion_candidates(source_stage: str, result: dict[str, Any]) 
     if source_stage == "last_recommendation_event_eval":
         selection = result.get("policy_selection") if isinstance(result.get("policy_selection"), dict) else {}
         return _ranked_candidate_rows(selection.get("picks"), 12, 4)
-    return _dedupe_candidate_rows(
-        [
-            *_ranked_candidate_rows(_candidate_guard_rows(result), 5, 5),
-            *_ranked_candidate_rows(result.get("reviewed_symbols"), 12, 4),
-        ]
-    )
+    return [
+        *_ranked_candidate_rows(_candidate_guard_rows(result), 5, 4),
+        *_ranked_candidate_rows(result.get("reviewed_symbols"), 12, 4),
+    ]
 
 
 def _candidate_guard_rows(result: dict[str, Any]) -> list[Any]:
@@ -629,7 +627,7 @@ def _candidate_status_rank(row: dict[str, Any]) -> int:
         return 2
     if status.startswith("blocked_"):
         return 1
-    return 2
+    return 0
 
 
 def _candidate_best_score(row: dict[str, Any]) -> float:
@@ -710,9 +708,10 @@ def _candidate_conclusion_guard_reason(row: dict[str, Any], result: dict[str, An
     for item in candidates:
         if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
             return str(item["reason"])
-    first = next((item for item in candidates if isinstance(item, dict) and item.get("reason")), {})
-    if first:
-        return str(first["reason"])
+    if not code:
+        first = next((item for item in candidates if isinstance(item, dict) and item.get("reason")), {})
+        if first:
+            return str(first["reason"])
     if reason := _candidate_conclusion_action_reason(result):
         return reason
     return _candidate_conclusion_row_guard_reason(row)
