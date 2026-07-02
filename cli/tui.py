@@ -2184,17 +2184,18 @@ class WyckoffTUI(App):
 
         if not is_recent_workflow_followup(text):
             return text
-        if run := self._latest_session_workflow_run():
+        if run := self._latest_relevant_workflow_run():
             return build_chat_resume_prompt(run, text)
         return text
 
-    def _latest_session_workflow_run(self) -> dict[str, Any] | None:
+    def _latest_relevant_workflow_run(self) -> dict[str, Any] | None:
         from cli.workflows.store import list_workflow_runs
 
-        for run in list_workflow_runs(limit=8):
+        rows = list_workflow_runs(limit=8)
+        for run in rows:
             if str(run.get("session_id", "")) == self._session_id:
                 return run
-        return None
+        return rows[0] if rows else None
 
     def _recent_workflow_context(self, text: str) -> str:
         try:
@@ -2202,7 +2203,7 @@ class WyckoffTUI(App):
 
             if not should_include_recent_workflow_context(text):
                 return ""
-            run = self._latest_session_workflow_run()
+            run = self._latest_relevant_workflow_run()
             return build_recent_workflow_context(run) if run else ""
         except Exception:
             logger.debug("recent workflow context injection failed", exc_info=True)
