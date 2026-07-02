@@ -687,10 +687,15 @@ def _compact_candidate_guard_row(row: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _candidate_rows(value: Any, limit: int) -> list[Any]:
+def _candidate_rows(value: Any, limit: int) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
-    return [_compact_candidate(row) if isinstance(row, dict) else row for row in value[:limit]]
+    rows: list[dict[str, Any]] = []
+    for item in value[:limit]:
+        row = _compact_candidate(item) if isinstance(item, dict) else _scalar_candidate(item)
+        if row:
+            rows.append(row)
+    return rows
 
 
 def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
@@ -741,10 +746,30 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "label_status",
     )
     payload = _pick_fields(row, fields)
+    if "code" not in payload and (code := _candidate_code(row)):
+        payload["code"] = code
     for field in ("theme_event_title", "theme_event_reason"):
         if field in payload:
             payload[field] = _clip_text(payload[field], 240)
     return _drop_empty(payload)
+
+
+def _scalar_candidate(value: Any) -> dict[str, Any]:
+    text = str(value or "").strip()
+    if not text:
+        return {}
+    return {"code": text} if any(char.isdigit() for char in text) else {"name": text}
+
+
+def _candidate_code(row: dict[str, Any]) -> str:
+    return str(
+        row.get("symbol")
+        or row.get("stock_code")
+        or row.get("stockCode")
+        or row.get("ticker")
+        or row.get("sec_code")
+        or ""
+    ).strip()
 
 
 def _pick_fields(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:

@@ -784,6 +784,35 @@ def test_workflow_handoff_state_preserves_recommendation_candidate_guard():
     assert "debug_payload" not in guard["candidates"][0]
 
 
+def test_workflow_handoff_state_normalizes_scalar_candidate_rows():
+    tools = StubToolRegistry()
+    tools._tool_context = SimpleNamespace(
+        state={
+            "last_screen_result": {
+                "symbols_for_report": ["300750", "宁德时代", {"symbol": "AAPL.US", "name": "Apple"}],
+            },
+            "last_ai_report": {
+                "reviewed_symbols": ["000001"],
+            },
+        }
+    )
+
+    handoff = _workflow_handoff_state(tools)
+    summary = _fallback_summary(
+        [
+            {
+                "step": {"title": "扫描候选"},
+                "result": {"status": "completed", "result": "扫描完成。", "handoff_state": handoff},
+            }
+        ]
+    )
+
+    screen_rows = handoff["last_screen_result"]["symbols_for_report"]
+    assert screen_rows == [{"code": "300750"}, {"name": "宁德时代"}, {"name": "Apple", "code": "AAPL.US"}]
+    assert handoff["last_ai_report"]["reviewed_symbols"] == [{"code": "000001"}]
+    assert "候选结论: 候选 000001" in summary
+
+
 def test_workflow_synthesis_receives_step_handoff_state(tmp_path, monkeypatch):
     from integrations import local_db
 
