@@ -812,6 +812,20 @@ def _workflow_script_path(run: Any) -> str:
     return str(runtime.get("script_path", "") or "") if isinstance(runtime, dict) else ""
 
 
+def _workflow_run_with_events(run: dict[str, Any]) -> dict[str, Any]:
+    if run.get("events"):
+        return run
+    try:
+        from cli.workflows.store import load_workflow_events
+
+        enriched = dict(run)
+        enriched["events"] = load_workflow_events(str(run.get("run_id", "")), limit=120)
+        return enriched
+    except Exception:
+        logger.debug("load workflow events for recent context failed", exc_info=True)
+        return run
+
+
 def _workflow_has_step(run: dict[str, Any], step_id: str) -> bool:
     for step in run.get("plan", {}).get("steps", []):
         if isinstance(step, dict) and str(step.get("step_id", "")) == step_id:
@@ -2323,7 +2337,7 @@ class WyckoffTUI(App):
         if not is_recent_workflow_followup(text):
             return text
         if run := self._latest_relevant_workflow_run():
-            return build_chat_resume_prompt(run, text)
+            return build_chat_resume_prompt(_workflow_run_with_events(run), text)
         return text
 
     def _latest_relevant_workflow_run(self) -> dict[str, Any] | None:
@@ -2344,7 +2358,7 @@ class WyckoffTUI(App):
             if not should_include_recent_workflow_context(text):
                 return ""
             run = self._latest_relevant_workflow_run()
-            return build_recent_workflow_context(run) if run else ""
+            return build_recent_workflow_context(_workflow_run_with_events(run)) if run else ""
         except Exception:
             logger.debug("recent workflow context injection failed", exc_info=True)
             return ""

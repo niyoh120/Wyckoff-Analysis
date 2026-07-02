@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from utils.tool_result_preview import tool_result_brief_lines
+
 _SHORT_CONTINUATION_REPLIES = {
     "继续",
     "继续吧",
@@ -46,6 +48,14 @@ _RECENT_CONTEXT_QUESTIONS = (
 )
 _RECENT_CONTEXT_ACTIONS = ("怎么", "看", "风险", "稳", "买", "卖", "加", "减", "为什么", "原因")
 _RECENT_CONTEXT_TOPIC_EXCLUSIONS = ("cli", "工具", "项目", "系统", "代码")
+_HANDOFF_TOOL_ORDER = (
+    ("last_screen_result", "screen_stocks"),
+    ("last_recommendation_event_eval", "evaluate_recommendation_events"),
+    ("last_ai_report", "generate_ai_report"),
+    ("last_strategy_decision", "generate_strategy_decision"),
+)
+_HANDOFF_BY_TOOL = {item[1]: item for item in _HANDOFF_TOOL_ORDER}
+_HANDOFF_BY_TOOL["recommendation_event_eval"] = ("last_recommendation_event_eval", "evaluate_recommendation_events")
 
 
 def build_resume_prompt(run: dict[str, Any]) -> str:
@@ -64,6 +74,9 @@ def build_resume_prompt(run: dict[str, Any]) -> str:
     lines.extend(["", "已记录步骤:"])
     for idx, step in enumerate(_step_dicts(plan), start=1):
         lines.extend(_step_lines(idx, step))
+    if evidence := _workflow_event_evidence_lines(run.get("events"), limit=6):
+        lines.extend(["", "已记录关键证据:"])
+        lines.extend(f"- {line}" for line in evidence)
     lines.extend(
         [
             "",
@@ -139,6 +152,8 @@ def build_recent_workflow_context(run: dict[str, Any]) -> str:
     for idx, step in enumerate(_step_dicts(plan)[:5], start=1):
         if line := _context_step_line(idx, step):
             lines.append(line)
+    for line in _workflow_event_evidence_lines(run.get("events"), limit=6):
+        lines.append(f"证据: {line}")
     lines.append("</recent-workflow-context>")
     return "\n".join(line for line in lines if line.strip())
 
@@ -189,6 +204,72 @@ def _context_step_line(idx: int, step: dict[str, Any]) -> str:
     if summary := _clip_text(step.get("summary"), 260):
         parts.append(f"summary={summary}")
     return " | ".join(parts)
+
+
+def _workflow_event_evidence_lines(events: Any, *, limit: int) -> list[str]:
+    rows: list[str] = []
+    for payload in reversed(_event_payloads(events)):
+        step = payload.get("step") if isinstance(payload.get("step"), dict) else {}
+        for line in (*_event_evidence_items(step.get("evidence")), *_event_handoff_lines(payload)):
+            _append_evidence_line(rows, line, limit=limit)
+            if len(rows) >= limit:
+                return rows
+    return rows
+
+
+def _event_payloads(events: Any) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for item in events if isinstance(events, list) else []:
+        if not isinstance(item, dict):
+            continue
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else item
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    return payloads
+
+
+def _event_handoff_lines(payload: dict[str, Any]) -> tuple[str, ...]:
+    source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+    detail = source.get("agent_detail") if isinstance(source.get("agent_detail"), dict) else {}
+    handoff = detail.get("handoff_state") if isinstance(detail.get("handoff_state"), dict) else {}
+    tool_calls = [str(item) for item in detail.get("tool_calls", []) if str(item)]
+    return tuple(
+        line for key, tool in _handoff_tool_order(tool_calls) for line in _tool_brief_lines(handoff, key, tool)
+    )
+
+
+def _tool_brief_lines(handoff: dict[str, Any], key: str, tool_name: str) -> list[str]:
+    result = handoff.get(key)
+    return tool_result_brief_lines(tool_name, result, max_lines=2) if isinstance(result, dict) else []
+
+
+def _handoff_tool_order(tool_calls: list[str]) -> list[tuple[str, str]]:
+    ordered: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for tool_name in tool_calls:
+        if item := _HANDOFF_BY_TOOL.get(tool_name):
+            _append_handoff_tool(ordered, seen, item)
+    for item in _HANDOFF_TOOL_ORDER:
+        _append_handoff_tool(ordered, seen, item)
+    return ordered
+
+
+def _append_handoff_tool(ordered: list[tuple[str, str]], seen: set[str], item: tuple[str, str]) -> None:
+    if item[0] not in seen:
+        seen.add(item[0])
+        ordered.append(item)
+
+
+def _event_evidence_items(value: Any) -> tuple[str, ...]:
+    if isinstance(value, list | tuple):
+        return tuple(text for item in value if (text := _one_line(item)))
+    return (text,) if (text := _one_line(value)) else ()
+
+
+def _append_evidence_line(rows: list[str], value: Any, *, limit: int) -> None:
+    text = _clip_text(value, 240)
+    if len(rows) < limit and text and text not in rows:
+        rows.append(text)
 
 
 def _join_items(value: Any) -> str:

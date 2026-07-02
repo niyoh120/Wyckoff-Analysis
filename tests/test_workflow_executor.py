@@ -3176,6 +3176,21 @@ def test_build_recent_workflow_context_is_bounded_reference():
                     },
                 ]
             },
+            "events": [
+                {
+                    "payload": {
+                        "type": "workflow_step_done",
+                        "step": {
+                            "title": "扫描候选",
+                            "status": "completed",
+                            "evidence": [
+                                "候选结论: 首选 A 高质量候选",
+                                "候选护栏: 禁止直接买入",
+                            ],
+                        },
+                    }
+                }
+            ],
         }
     )
 
@@ -3184,4 +3199,6 @@ def test_build_recent_workflow_context_is_bounded_reference():
     assert "run_id: wf_1" in context
     assert "结果摘要: 候选：A、B、C" in context
     assert "tools=screen_stocks" in context
+    assert "证据: 候选结论: 首选 A 高质量候选" in context
+    assert "证据: 候选护栏: 禁止直接买入" in context
     assert context.endswith("</recent-workflow-context>")

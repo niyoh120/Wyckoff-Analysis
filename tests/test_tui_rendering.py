@@ -220,6 +220,49 @@ def test_recent_workflow_context_falls_back_to_latest_run(monkeypatch):
     assert "run_id: wf_latest" in context
 
 
+def test_recent_workflow_context_loads_event_evidence(monkeypatch):
+    app = object.__new__(WyckoffTUI)
+    app._session_id = "s1"
+    monkeypatch.setattr(
+        "cli.workflows.store.list_workflow_runs",
+        lambda limit=8: [
+            {
+                "run_id": "wf_current",
+                "session_id": "s1",
+                "label": "当前",
+                "status": "completed",
+                "user_text": "给我选股",
+                "result_summary": "候选摘要",
+                "plan": {"steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "cli.workflows.store.load_workflow_events",
+        lambda run_id, limit=120: [
+            {
+                "payload": {
+                    "type": "workflow_step_done",
+                    "step": {
+                        "title": "扫描候选",
+                        "status": "completed",
+                        "evidence": [
+                            "候选结论: 首选 300750 宁德时代",
+                            "候选护栏: 禁止直接买入",
+                        ],
+                    },
+                }
+            }
+        ],
+    )
+
+    context = app._recent_workflow_context("第一个怎么样")
+
+    assert "run_id: wf_current" in context
+    assert "证据: 候选结论: 首选 300750 宁德时代" in context
+    assert "证据: 候选护栏: 禁止直接买入" in context
+
+
 def test_recent_workflow_context_ignores_stale_latest_run(monkeypatch):
     app = object.__new__(WyckoffTUI)
     app._session_id = "new_session"
