@@ -1691,6 +1691,99 @@ def test_workflow_executor_retries_scoped_report_task_until_tool_runs(tmp_path, 
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_retries_market_scope_until_tool_runs(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-market-expectation.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "我先口头判断市场环境。"}],
+            [{"type": "tool_calls", "tool_calls": [{"id": "tc_market", "name": "get_market_overview", "args": {}}]}],
+            [{"type": "text_delta", "text": "市场工具已读取。"}],
+            [{"type": "text_delta", "text": "已汇总市场环境。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "get_market_overview", "description": "Mock market", "parameters": {"type": "object"}},
+        ],
+        tool_results={"get_market_overview": {"status": "ok"}},
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_market_expectation",
+        user_text="用 workflow 读取市场环境",
+        workflow_context=route_workflow("用 workflow 读取市场环境"),
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "market",
+                    "title": "读取市场环境",
+                    "tools": ["get_market_overview"],
+                    "prompt": "读取市场环境",
+                }
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 读取市场环境"}]))
+
+    try:
+        detail = next(event for event in events if event["type"] == "workflow_step_done")["source"]["agent_detail"]
+        assert detail["tool_scope"] == ["get_market_overview"]
+        assert detail["tool_calls"] == ["get_market_overview"]
+        assert [call["name"] for call in tools.calls] == ["get_market_overview"]
+        assert events[-1]["text"] == "已汇总市场环境。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_executor_retries_backtest_scope_until_tool_runs(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-backtest-expectation.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "我先口头整理回测口径。"}],
+            [{"type": "tool_calls", "tool_calls": [{"id": "tc_backtest", "name": "run_backtest", "args": {}}]}],
+            [{"type": "text_delta", "text": "回测工具已执行。"}],
+            [{"type": "text_delta", "text": "已汇总回测结果。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "run_backtest", "description": "Mock backtest", "parameters": {"type": "object"}},
+        ],
+        tool_results={"run_backtest": {"status": "ok"}},
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_backtest_expectation",
+        user_text="用 workflow 跑策略回测",
+        workflow_context=route_workflow("用 workflow 跑策略回测"),
+        workflow_script={
+            "tasks": [{"id": "backtest", "title": "跑策略回测", "tools": ["run_backtest"], "prompt": "跑策略回测"}]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 跑策略回测"}]))
+
+    try:
+        detail = next(event for event in events if event["type"] == "workflow_step_done")["source"]["agent_detail"]
+        assert detail["tool_scope"] == ["run_backtest"]
+        assert detail["tool_calls"] == ["run_backtest"]
+        assert [call["name"] for call in tools.calls] == ["run_backtest"]
+        assert events[-1]["text"] == "已汇总回测结果。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_does_not_widen_filtered_explicit_tool_scope(tmp_path, monkeypatch):
     from integrations import local_db
 

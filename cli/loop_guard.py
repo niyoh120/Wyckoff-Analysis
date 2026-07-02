@@ -270,9 +270,11 @@ _CONCRETE_DATA_HINTS = (
 _TOOL_CN_NAMES = {
     "portfolio": "持仓数据",
     "analyze_stock": "个股分析",
+    "get_market_overview": "大盘水温",
     "screen_stocks": "全市场扫描",
     "generate_ai_report": "AI 研报",
     "generate_strategy_decision": "攻防决策",
+    "run_backtest": "回测",
 }
 
 _CURRENT_USER_OPEN = "<current-user-message>"

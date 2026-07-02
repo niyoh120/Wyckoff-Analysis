@@ -27,6 +27,7 @@ from cli.compaction import compact_messages
 from cli.loop_guard import (
     MAX_INCOMPLETE_TOOL_RETRIES,
     MAX_TOOL_ROUNDS,
+    TurnExpectation,
     build_retry_exhausted_warning,
     build_retry_user_message,
     check_doom_loop,
@@ -167,6 +168,7 @@ class AgentRuntime:
         cancel_check: Callable[[], bool] | None = None,
         stream_chunk_timeout: float = STREAM_CHUNK_TIMEOUT,
         allowed_tools: set[str] | tuple[str, ...] | None = None,
+        required_tools: tuple[str, ...] | None = None,
         workflow: Any | None = None,
         enforce_turn_expectations: bool | None = None,
     ) -> None:
@@ -181,6 +183,11 @@ class AgentRuntime:
         self.allowed_tools = set(tool_scope) if allowed_tools is not None or tool_scope else None
         self.workflow = workflow
         self.enforce_turn_expectations = _strict_turn_expectations_enabled(enforce_turn_expectations)
+        self.required_tools = tuple(
+            name
+            for name in dict.fromkeys(required_tools or ())
+            if self.enforce_turn_expectations and (self.allowed_tools is None or name in self.allowed_tools)
+        )
 
     def run_stream(
         self,
@@ -193,7 +200,7 @@ class AgentRuntime:
         if self.tools and hasattr(self.tools, "_tool_context") and self.tools._tool_context:
             self.tools._tool_context.state["session_id"] = self._session_id()
         state = RunState(started_at=time.monotonic())
-        expectation = resolve_turn_expectation(messages) if self.enforce_turn_expectations else None
+        expectation = None if self.required_tools else self._natural_turn_expectation(messages)
         model_name = getattr(self.provider, "name", "")
         workflow_event = self._workflow_start_event()
         if workflow_event:
@@ -417,11 +424,30 @@ class AgentRuntime:
         state: RunState,
         expectation: Any,
     ) -> Any:
+        if scoped_expectation := self._required_tools_expectation(state):
+            return scoped_expectation
         if missing_required_tool(expectation, state.used_tools):
             return self._available_expectation(expectation)
         if not self.enforce_turn_expectations:
             return None
         return self._available_expectation(resolve_progressive_turn_expectation(messages, state.used_tools))
+
+    def _natural_turn_expectation(self, messages: list[dict[str, Any]]) -> Any:
+        if not self.enforce_turn_expectations:
+            return None
+        return self._available_expectation(resolve_turn_expectation(messages))
+
+    def _required_tools_expectation(self, state: RunState) -> TurnExpectation | None:
+        if not self.required_tools:
+            return None
+        used = {name for name, _args in state.used_tools}
+        for name in self.required_tools:
+            if name not in used:
+                return TurnExpectation(
+                    required_tool=name,
+                    reason="当前 workflow step 声明了必需工具，必须先运行对应工具获取真实数据。",
+                )
+        return None
 
     def _available_expectation(self, expectation: Any) -> Any:
         if expectation is None:
@@ -750,7 +776,9 @@ class AgentRuntime:
     ) -> Any:
         if name != "ask_user_question" or not self.enforce_turn_expectations:
             return None
-        expectation = self._available_expectation(resolve_turn_expectation(messages))
+        expectation = self._required_tools_expectation(state) or self._available_expectation(
+            resolve_turn_expectation(messages)
+        )
         return expectation if missing_required_tool(expectation, state.used_tools) else None
 
     def _append_premature_question_result(
