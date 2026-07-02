@@ -386,6 +386,23 @@ def test_dispatch_keeps_direct_runtime_when_model_routes_direct():
     assert isinstance(runtime, AgentRuntime)
 
 
+def test_dispatch_overrides_direct_model_route_for_stock_selection_delivery():
+    provider = RouterDecisionProvider('{"mode":"direct","confidence":0.91,"reason":"用户只是要几个股票名字"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我选出好股票",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_reason == "模型判断 direct，但本地兜底识别为多阶段选股任务：用户只是要几个股票名字"
+    assert workflow.route_confidence == 0.91
+    assert workflow.route_matches == ("model_router_guard", "选出好股票")
+    assert isinstance(runtime, WorkflowExecutor)
+
+
 def test_dispatch_model_can_override_explicit_workflow_marker_to_direct():
     provider = RouterDecisionProvider('{"mode":"direct","confidence":0.93,"reason":"只是解释概念"}')
 
