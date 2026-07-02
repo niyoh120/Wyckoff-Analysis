@@ -986,6 +986,49 @@ def test_display_workflow_step_event_shows_effective_tool_scope():
     assert "task" not in rendered
 
 
+def test_display_workflow_step_event_surfaces_handoff_candidate_brief():
+    writes = []
+
+    _display_workflow_step_event(
+        {
+            "step": {
+                "title": "扫描候选",
+                "status": "completed",
+                "tool_scope": ["screen_stocks"],
+                "summary": "completed 1.0s",
+            },
+            "source": {
+                "agent_detail": {
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "selection_brief": {
+                                "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+                                "primary_pick": {
+                                    "code": "300750",
+                                    "name": "宁德时代",
+                                    "action_status": "ready_for_ai_review",
+                                    "candidate_shadow_score": 92.0,
+                                    "candidate_shadow_grade": "S",
+                                    "next_step": "生成 AI 研报",
+                                },
+                            }
+                        }
+                    }
+                }
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "扫描候选" in rendered
+    assert "工具: 全市场扫描" in rendered
+    assert "证据: 本轮首选可进入 AI 研报复核: 300750 宁德时代" in rendered
+    assert "候选结论: 首选 300750 宁德时代" in rendered
+    assert "候选影子S/92" in rendered
+
+
 def test_tool_result_view_surfaces_screen_candidate_risk():
     summary, renderable = _tool_result_view(
         {

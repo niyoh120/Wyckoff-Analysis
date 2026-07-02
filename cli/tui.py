@@ -593,6 +593,8 @@ def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
     meta = _workflow_step_live_meta(step, label)
     suffix = f" {summary}" if summary else ""
     write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{meta}{suffix}[/dim]"))
+    for line in _workflow_step_handoff_lines(event):
+        write(Text.from_markup(f"      [dim]证据: {escape(line)}[/dim]"))
     scroll()
 
 
@@ -636,6 +638,38 @@ def _workflow_step_meta(step: dict[str, Any], label: str, *, include_debug: bool
 def _workflow_step_live_meta(step: dict[str, Any], label: str) -> str:
     parts = [item for item in (_workflow_step_tool_meta(step), escape(label)) if item]
     return " · ".join(parts)
+
+
+def _workflow_step_handoff_lines(event: dict[str, Any], *, limit: int = 4) -> list[str]:
+    step = event.get("step") if isinstance(event.get("step"), dict) else {}
+    if step.get("status") != "completed":
+        return []
+    source = event.get("source") if isinstance(event.get("source"), dict) else {}
+    detail = source.get("agent_detail") if isinstance(source.get("agent_detail"), dict) else {}
+    handoff = detail.get("handoff_state") if isinstance(detail.get("handoff_state"), dict) else {}
+    return _workflow_handoff_brief_lines(handoff, limit=limit)
+
+
+def _workflow_handoff_brief_lines(handoff: dict[str, Any], *, limit: int) -> list[str]:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for key, tool_name in (
+        ("last_screen_result", "screen_stocks"),
+        ("last_recommendation_event_eval", "evaluate_recommendation_events"),
+        ("last_ai_report", "generate_ai_report"),
+        ("last_strategy_decision", "generate_strategy_decision"),
+    ):
+        result = handoff.get(key)
+        if not isinstance(result, dict):
+            continue
+        for line in tool_result_brief_lines(tool_name, result, max_lines=2):
+            clipped = _workflow_meta_text(line, 180)
+            if clipped and clipped not in seen:
+                seen.add(clipped)
+                lines.append(clipped)
+            if len(lines) >= limit:
+                return lines
+    return lines
 
 
 def _workflow_step_detail_meta(step: dict[str, Any], *, field_limit: int | None = None) -> str:
