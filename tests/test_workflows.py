@@ -6,7 +6,7 @@ from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.model_router import _ROUTER_SYSTEM_PROMPT
-from cli.workflows.planner import plan_workflow
+from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, plan_workflow
 from cli.workflows.router import WORKFLOWS, build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
@@ -105,7 +105,7 @@ def test_workflow_prompt_prefers_model_inference_before_clarifying():
     assert "合理推断" in prompt
     assert "按假设执行" in prompt
     assert "关键对象仍缺失" in prompt
-    assert "错别字" not in prompt
+    assert "错别字" in prompt
 
 
 def test_ask_user_question_schema_makes_clarification_last_resort():
@@ -337,16 +337,22 @@ def test_model_router_prompt_is_minimal_runtime_contract():
     assert "默认用 direct" in _ROUTER_SYSTEM_PROMPT
     assert "dynamic_workflow" in _ROUTER_SYSTEM_PROMPT
     assert "不改写" in _ROUTER_SYSTEM_PROMPT
-    assert "用户只是" not in _ROUTER_SYSTEM_PROMPT
+    assert "语义判断" in _ROUTER_SYSTEM_PROMPT
+    assert "错别字" in _ROUTER_SYSTEM_PROMPT
+    assert "逐字匹配" in _ROUTER_SYSTEM_PROMPT
     assert "一个清楚目标" not in _ROUTER_SYSTEM_PROMPT
     assert "用户表达不标准" not in _ROUTER_SYSTEM_PROMPT
     assert "语义恢复" not in _ROUTER_SYSTEM_PROMPT
     assert "措辞恢复" not in _ROUTER_SYSTEM_PROMPT
-    assert "口语、省略、别字" not in _ROUTER_SYSTEM_PROMPT
-    assert "错别字" not in _ROUTER_SYSTEM_PROMPT
     assert "谐音" not in _ROUTER_SYSTEM_PROMPT
     assert "查看持仓" not in _ROUTER_SYSTEM_PROMPT
     assert "单只股票诊断" not in _ROUTER_SYSTEM_PROMPT
+
+
+def test_planner_prompt_preserves_multi_candidate_delivery_contract():
+    assert "找几个/几只/一些候选" in _PLAN_SYSTEM_PROMPT
+    assert "保留候选名称、理由、风险边界和下一步动作" in _PLAN_SYSTEM_PROMPT
+    assert "错别字" in _PLAN_SYSTEM_PROMPT
 
 
 def test_dispatch_accepts_semantic_model_router_aliases():
@@ -487,7 +493,7 @@ def test_dispatch_keeps_direct_runtime_when_model_routes_direct():
     assert isinstance(runtime, AgentRuntime)
 
 
-def test_dispatch_overrides_direct_model_route_for_stock_selection_delivery():
+def test_dispatch_respects_direct_model_route_for_stock_selection_delivery():
     provider = RouterDecisionProvider('{"mode":"direct","confidence":0.91,"reason":"用户只是要几个股票名字"}')
 
     runtime, workflow = build_turn_runtime(
@@ -497,11 +503,11 @@ def test_dispatch_overrides_direct_model_route_for_stock_selection_delivery():
         user_text="帮我选出好股票",
     )
 
-    assert workflow.name == "dynamic_task"
-    assert workflow.route_reason == "模型判断 direct，但本地兜底识别为多阶段选股任务：用户只是要几个股票名字"
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "模型判断直接处理：用户只是要几个股票名字"
     assert workflow.route_confidence == 0.91
-    assert workflow.route_matches == ("model_router_guard", "选出好股票")
-    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_matches == ("model_router",)
+    assert isinstance(runtime, AgentRuntime)
 
 
 def test_dispatch_model_can_override_explicit_workflow_marker_to_direct():
@@ -677,6 +683,7 @@ def test_direct_runtime_prompt_prefers_model_inference_before_clarifying():
     assert "上下文恢复" in prompt
     assert "可用工具验证" in prompt
     assert "合理推断" in prompt
+    assert "错别字" in prompt
     assert "说明假设" in prompt
     assert "写入/交易/高风险确认" in prompt
     assert "谐音" not in prompt

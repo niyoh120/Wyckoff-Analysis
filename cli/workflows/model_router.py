@@ -73,6 +73,7 @@ _ROUTER_SYSTEM_PROMPT = """\
 
 只选择本轮执行模式，不改写、不解释、不确认用户请求。
 默认用 direct；只有需要持久化计划、并发/后台执行、跨对象复核或多阶段交付时，才用 dynamic_workflow。
+口语、省略、错别字和术语混用按语义判断，不要按关键词逐字匹配。
 confidence 只表示把握度，不会覆盖 mode 判断。
 
 只输出 JSON:
@@ -89,32 +90,16 @@ def route_workflow_with_model(user_text: str, provider: Any | None) -> WorkflowC
     fallback_context = route_workflow(user_text)
     decision, fallback_reason = _model_decision(user_text, provider)
     if decision:
-        return _context_from_model_decision(decision, fallback_context)
+        return _context_from_model_decision(decision)
     return _context_with_router_fallback(fallback_context, fallback_reason)
 
 
-def _context_from_model_decision(decision: dict[str, Any], fallback_context: WorkflowContext) -> WorkflowContext:
-    if _direct_model_conflicts_with_required_workflow(decision, fallback_context):
-        return _required_workflow_context(decision, fallback_context)
+def _context_from_model_decision(decision: dict[str, Any]) -> WorkflowContext:
     return replace(
         WORKFLOWS["dynamic_task"] if _should_use_workflow(decision) else WORKFLOWS["general_chat"],
         route_reason=_model_route_reason(decision),
         route_confidence=float(decision["confidence"]),
         route_matches=("model_router",),
-    )
-
-
-def _direct_model_conflicts_with_required_workflow(decision: dict[str, Any], fallback_context: WorkflowContext) -> bool:
-    return not _should_use_workflow(decision) and fallback_context.route_reason == "明显的多阶段选股任务"
-
-
-def _required_workflow_context(decision: dict[str, Any], fallback_context: WorkflowContext) -> WorkflowContext:
-    matches = tuple(dict.fromkeys(("model_router_guard", *fallback_context.route_matches)))
-    return replace(
-        fallback_context,
-        route_reason=f"模型判断 direct，但本地兜底识别为多阶段选股任务：{decision['reason']}",
-        route_confidence=max(float(decision["confidence"]), fallback_context.route_confidence),
-        route_matches=matches,
     )
 
 
