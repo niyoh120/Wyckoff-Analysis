@@ -153,6 +153,7 @@ _patch_driver_no_kitty()
 # ---------------------------------------------------------------------------
 from cli.runtime import AgentCancelled
 from cli.scratchpad import AgentScratchpad
+from cli.tools import TOOL_SPECS
 from cli.workflows.dispatch import build_turn_runtime
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.router import WORKFLOWS
@@ -414,6 +415,8 @@ def _display_workflow_plan_event(event: dict[str, Any], write, scroll) -> tuple[
         write(Text.from_markup(f"    [dim]动态脚本：{escape(script_title)}[/dim]"))
     if planner_line := _workflow_planner_line(event.get("plan")):
         write(Text.from_markup(planner_line))
+    if rationale_line := _workflow_script_rationale_line(event.get("plan")):
+        write(Text.from_markup(rationale_line))
     if step_count:
         for line in _workflow_plan_step_preview_lines(steps):
             write(Text.from_markup(line))
@@ -480,6 +483,14 @@ def _workflow_planner_reason(runtime: dict[str, Any], planner: str) -> str:
     return ""
 
 
+def _workflow_script_rationale_line(plan: Any) -> str:
+    if not isinstance(plan, dict):
+        return ""
+    script = plan.get("script") if isinstance(plan.get("script"), dict) else {}
+    rationale = _workflow_meta_text(script.get("rationale"), 120)
+    return f"    [dim]模型拆分：{escape(rationale)}[/dim]" if rationale else ""
+
+
 def _runtime_int(runtime: dict[str, Any], field: str) -> int:
     try:
         return int(runtime.get(field, 0) or 0)
@@ -501,7 +512,7 @@ def _workflow_plan_step_preview_lines(steps: Any, *, limit: int = 3) -> list[str
 
 def _workflow_plan_step_preview_line(index: int, step: dict[str, Any]) -> str:
     title = escape(str(step.get("title") or step.get("step_id") or step.get("id") or "task")[:60])
-    detail = _workflow_step_detail_meta(step, field_limit=72)
+    detail = _workflow_plan_step_meta(step, field_limit=72)
     suffix = f" · {detail}" if detail else ""
     return f"    [dim]{index}. {title}{suffix}[/dim]"
 
@@ -572,6 +583,30 @@ def _workflow_step_detail_meta(step: dict[str, Any], *, field_limit: int | None 
         if _workflow_meta_text(step.get(field), field_limit)
     ]
     return "；".join(parts)
+
+
+def _workflow_plan_step_meta(step: dict[str, Any], *, field_limit: int | None = None) -> str:
+    parts = [
+        item
+        for item in (_workflow_step_tool_meta(step), _workflow_step_detail_meta(step, field_limit=field_limit))
+        if item
+    ]
+    return "；".join(parts)
+
+
+def _workflow_step_tool_meta(step: dict[str, Any]) -> str:
+    labels = [_workflow_tool_display_name(item) for item in step.get("tool_scope", []) if str(item)]
+    if not labels:
+        return ""
+    visible = "、".join(labels[:4])
+    suffix = f"、+{len(labels) - 4}" if len(labels) > 4 else ""
+    return f"工具: {escape(visible + suffix)}"
+
+
+def _workflow_tool_display_name(name: Any) -> str:
+    text = str(name or "").strip()
+    spec = TOOL_SPECS.get(text)
+    return spec.display_name if spec else text
 
 
 def _workflow_meta_text(value: Any, limit: int | None) -> str:

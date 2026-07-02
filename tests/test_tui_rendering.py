@@ -205,7 +205,7 @@ def test_display_workflow_plan_event_surfaces_planner_provenance():
             "workflow": "dynamic_task",
             "label": "今日选股",
             "plan": {
-                "script": {"runtime": {"planner": "model_script"}},
+                "script": {"rationale": "模型决定先缩小候选池再做攻防复核", "runtime": {"planner": "model_script"}},
                 "steps": [{"title": "扫描候选", "rationale": "先缩小候选池"}],
             },
         },
@@ -215,6 +215,7 @@ def test_display_workflow_plan_event_surfaces_planner_provenance():
 
     rendered = "\n".join(str(item) for item in writes)
     assert "脚本来源：模型生成" in rendered
+    assert "模型拆分：模型决定先缩小候选池再做攻防复核" in rendered
     assert "1. 扫描候选" in rendered
 
 
@@ -257,12 +258,14 @@ def test_display_workflow_plan_event_surfaces_model_step_boundaries():
                 "steps": [
                     {
                         "title": "扫描候选",
+                        "tool_scope": ["screen_stocks", "get_market_overview"],
                         "rationale": "先缩小候选池",
                         "success_criteria": "输出候选代码和风险状态",
                         "risk_guard": "不写入推荐或持仓",
                     },
                     {
                         "title": "攻防计划",
+                        "tool_scope": ["generate_strategy_decision"],
                         "success_criteria": "说明观察、复核和禁止直接买入的边界",
                     },
                 ],
@@ -274,13 +277,14 @@ def test_display_workflow_plan_event_surfaces_model_step_boundaries():
 
     rendered = "\n".join(str(item) for item in writes)
     assert "1. 扫描候选" in rendered
+    assert "工具: 全市场扫描、大盘水温" in rendered
     assert "目标: 先缩小候选池" in rendered
     assert "验收: 输出候选代码和风险状态" in rendered
     assert "边界: 不写入推荐或持仓" in rendered
     assert "2. 攻防计划" in rendered
+    assert "工具: 攻防决策" in rendered
     assert "禁止直接买入" in rendered
     assert "/workflow show wf_dynamic" in rendered
-    assert "工具：" not in rendered
 
 
 def test_submit_workflow_background_auto_starts_model_plan():
