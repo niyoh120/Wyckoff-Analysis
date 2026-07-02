@@ -284,6 +284,7 @@ def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowConte
         steps.extend(_phase_steps(phase, user_text, args_text))
         if len(steps) >= MAX_WORKFLOW_STEPS:
             break
+    steps = _stabilize_tool_dependencies(steps)
     steps = _filter_runtime_steps(steps, script)
     if steps:
         return steps[:MAX_WORKFLOW_STEPS]
@@ -460,6 +461,34 @@ def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
     for field in ("depends_on", "dependsOn", "dependencies", "after", "needs", "requires"):
         deps.extend(dep for item in _field_items(task.get(field)) if (dep := _dependency_id(item)))
     return tuple(dict.fromkeys(dep for dep in deps if dep))
+
+
+def _stabilize_tool_dependencies(steps: list[WorkflowStep]) -> list[WorkflowStep]:
+    last_screen = ""
+    last_report = ""
+    for step in steps:
+        step.depends_on = _stabilized_step_dependencies(step, last_screen, last_report)
+        scope = set(step.tool_scope)
+        if "screen_stocks" in scope:
+            last_screen = step.step_id
+        if "generate_ai_report" in scope:
+            last_report = step.step_id
+    return steps
+
+
+def _stabilized_step_dependencies(step: WorkflowStep, last_screen: str, last_report: str) -> tuple[str, ...]:
+    scope = set(step.tool_scope)
+    deps = list(step.depends_on)
+    if "generate_ai_report" in scope and "screen_stocks" not in scope:
+        _append_dependency(deps, last_screen)
+    if "generate_strategy_decision" in scope and not scope.intersection({"screen_stocks", "generate_ai_report"}):
+        _append_dependency(deps, last_report or last_screen)
+    return tuple(deps)
+
+
+def _append_dependency(deps: list[str], dep: str) -> None:
+    if dep and dep not in deps:
+        deps.append(dep)
 
 
 def _dependency_id(value: Any) -> str:
