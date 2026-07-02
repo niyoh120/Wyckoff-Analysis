@@ -15,6 +15,7 @@ from cli.workflows.router import route_workflow
 MAX_WORKFLOW_STEPS = 24
 ASK_USER_TOOL = "ask_user_question"
 TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions", "plan")
+SCRIPT_CONTAINER_FIELDS = ("workflow", "workflow_script", "script", "plan")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
 TOOL_SCOPE_FIELDS = (
     "tool_scope",
@@ -131,7 +132,7 @@ def _normalize_supplied_script(
     workflow_args: Any,
     only_step_id: str,
 ) -> dict[str, Any]:
-    payload = deepcopy(script)
+    payload = _unwrap_script_container(deepcopy(script))
     runtime = payload.setdefault("runtime", {})
     if source_run_id:
         runtime["rerun_of"] = source_run_id
@@ -259,12 +260,32 @@ def _loads_script(text: str) -> Any:
 
 def _normalize_generated_script(script: Any) -> Any:
     if isinstance(script, dict):
-        return script
+        return _unwrap_script_container(script)
     if isinstance(script, list):
         return _lightweight_script(_safe_task_list(script), "planner returned top-level task list") or script
     if isinstance(script, str):
         return _outline_script(script) or script
     return script
+
+
+def _unwrap_script_container(script: dict[str, Any]) -> dict[str, Any]:
+    for field in SCRIPT_CONTAINER_FIELDS:
+        nested = script.get(field)
+        if isinstance(nested, dict) and _workflow_script_like(nested):
+            return _script_with_container_defaults(script, nested)
+    return script
+
+
+def _script_with_container_defaults(container: dict[str, Any], nested: dict[str, Any]) -> dict[str, Any]:
+    payload = deepcopy(nested)
+    for field in ("title", "rationale", "synthesis_prompt", "runtime"):
+        if field in container and payload.get(field) in (None, "", [], {}):
+            payload[field] = deepcopy(container[field])
+    return payload
+
+
+def _workflow_script_like(value: dict[str, Any]) -> bool:
+    return bool(_safe_list(value.get("phases")) or _first_task_list(value) or _generated_task_like(value))
 
 
 def _outline_script(text: str) -> dict[str, Any] | None:

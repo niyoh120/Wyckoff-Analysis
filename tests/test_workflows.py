@@ -1007,6 +1007,61 @@ def test_planner_accepts_plan_field_from_model_script():
     assert [step.title for step in run.steps] == ["读取真实持仓", "诊断持仓风险"]
 
 
+def test_planner_unwraps_workflow_container_from_generated_script():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": (
+                        '{"workflow":{"title":"选股流程","phases":[{"tasks":['
+                        '{"id":"scan","title":"扫描候选","tools":["screen_stocks"],"prompt":"扫描候选"}'
+                        "]}]}}"
+                    ),
+                }
+            ]
+        ]
+    )
+    context = route_workflow("用 workflow 选出好股票")
+    run = plan_workflow("选出好股票", context=context, provider=provider, tools=StubToolRegistry())
+
+    assert run.script["title"] == "选股流程"
+    assert run.script["runtime"]["planner"] == "model_script"
+    assert [step.step_id for step in run.steps] == ["scan"]
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+
+
+def test_planner_unwraps_structured_plan_container_from_model_script():
+    context = route_workflow("用 workflow 做选股")
+    run = plan_workflow(
+        "做选股",
+        context=context,
+        workflow_script={
+            "title": "外层标题",
+            "plan": {
+                "phases": [
+                    {
+                        "id": "scan_phase",
+                        "tasks": [
+                            {
+                                "id": "scan",
+                                "title": "扫描候选",
+                                "tools": ["screen_stocks"],
+                                "prompt": "扫描候选。",
+                            }
+                        ],
+                    }
+                ]
+            },
+        },
+    )
+
+    assert run.script["title"] == "外层标题"
+    assert [step.step_id for step in run.steps] == ["scan"]
+    assert run.steps[0].phase == "scan_phase"
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+
+
 def test_planner_wraps_top_level_json_task_array():
     provider = ScriptedProvider(
         [
