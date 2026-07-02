@@ -27,8 +27,21 @@ TOOL_SCOPE_FIELDS = (
     "tool",
     "functions",
     "function",
+    "function_calls",
+    "function_call",
     "tool_calls",
     "tool_call",
+    "tool_uses",
+    "tool_use",
+    "calls",
+    "call",
+)
+TOOL_SCOPE_NESTED_FIELDS = (
+    "tool_scope",
+    "allowed",
+    "required",
+    "names",
+    *TOOL_SCOPE_FIELDS,
 )
 
 _PLAN_SYSTEM_PROMPT = """\
@@ -380,7 +393,7 @@ def _task_tool_scope(
 ) -> tuple[str, ...]:
     names: list[str] = []
     for field in TOOL_SCOPE_FIELDS:
-        for item in _field_items(task.get(field)):
+        for item in _tool_scope_items(task.get(field)):
             if name := _tool_name(item):
                 names.append(name)
     explicit = tuple(dict.fromkeys(names))
@@ -644,6 +657,23 @@ def _field_items(value: Any) -> list[Any]:
     if isinstance(value, str):
         return [part for part in re.split(r"[,，、\n]+", value) if part.strip()]
     return [value]
+
+
+def _tool_scope_items(value: Any) -> list[Any]:
+    items: list[Any] = []
+    for item in _field_items(value):
+        nested = _nested_tool_scope_items(item)
+        items.extend(nested or [item])
+    return items
+
+
+def _nested_tool_scope_items(value: Any) -> list[Any]:
+    if not isinstance(value, dict):
+        return []
+    items: list[Any] = []
+    for field in TOOL_SCOPE_NESTED_FIELDS:
+        items.extend(_field_items(value.get(field)))
+    return items
 
 
 def _safe_list(value: Any) -> list[dict[str, Any]]:
