@@ -1838,10 +1838,12 @@ class WyckoffTUI(App):
             self._handle_interactive_input(text)
             return
 
-        if not text:
-            return
-
         log = self.query_one("#chat-log", ChatLog)
+
+        if not text:
+            if self._busy and self._pending_user_question and self._pending_user_question.default_answer:
+                self._answer_pending_user_question(text, log)
+            return
 
         # 斜杠命令
         if text.startswith("/"):

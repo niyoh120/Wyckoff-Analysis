@@ -662,6 +662,44 @@ def test_slash_command_still_runs_while_pending_user_question():
     assert fake_input.cleared is True
 
 
+def test_empty_input_uses_pending_question_default_answer():
+    app = object.__new__(WyckoffTUI)
+    fake_input = _FakeInput()
+    log = _FakeLog()
+    event = threading.Event()
+    result = [""]
+    app._input_mode = "none"
+    app._busy = True
+    app._pending_user_question = _PendingUserQuestion("确认默认范围？", [], True, "最近一年", event, result)
+    app.query_one = lambda selector, *_args, **_kwargs: fake_input if selector == "#chat-input" else log
+
+    WyckoffTUI.on_input_submitted(app, SimpleNamespace(value=""))
+
+    assert event.is_set()
+    assert result[0] == "最近一年"
+    assert app._pending_user_question is None
+    assert "最近一年" in str(log.lines[-1])
+
+
+def test_empty_input_without_pending_default_is_ignored():
+    app = object.__new__(WyckoffTUI)
+    fake_input = _FakeInput()
+    log = _FakeLog()
+    event = threading.Event()
+    result = [""]
+    app._input_mode = "none"
+    app._busy = True
+    app._pending_user_question = _PendingUserQuestion("请输入范围", [], True, "", event, result)
+    app.query_one = lambda selector, *_args, **_kwargs: fake_input if selector == "#chat-input" else log
+
+    WyckoffTUI.on_input_submitted(app, SimpleNamespace(value=""))
+
+    assert not event.is_set()
+    assert result == [""]
+    assert app._pending_user_question is not None
+    assert log.lines == ["kept"]
+
+
 def test_pending_user_question_lines_render_inline_chat_prompt():
     pending = _PendingUserQuestion(
         "是否确认执行？",
