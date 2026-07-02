@@ -285,7 +285,7 @@ class WorkflowExecutor:
 
     def _phase_event(self, event_type: str, phase_steps: list[WorkflowStep]) -> RuntimeEvent:
         run = self._require_run()
-        phase_id = phase_steps[0].phase if phase_steps else ""
+        phase_id = _batch_phase_id(phase_steps)
         payload = {
             "type": event_type,
             "run_id": run.run_id,
@@ -396,11 +396,13 @@ def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> st
 
 
 def _phase_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
+    if _has_cross_phase_dependencies(steps):
+        return _dependency_batches(steps)
     batches: list[list[WorkflowStep]] = []
     phase_steps: list[WorkflowStep] = []
     for step in steps:
-        phase = step.phase or step.step_id
-        if not phase_steps or (phase_steps[-1].phase or phase_steps[-1].step_id) == phase:
+        phase = _step_phase_id(step)
+        if not phase_steps or _step_phase_id(phase_steps[-1]) == phase:
             phase_steps.append(step)
         else:
             batches.extend(_dependency_batches(phase_steps))
@@ -414,9 +416,9 @@ def _dependency_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
     batches: list[list[WorkflowStep]] = []
     remaining = list(steps)
     completed_ids: set[str] = set()
-    phase_ids = {step.step_id for step in steps}
+    step_ids = {step.step_id for step in steps}
     while remaining:
-        ready = [step for step in remaining if _phase_dependencies(step, phase_ids).issubset(completed_ids)]
+        ready = [step for step in remaining if _known_dependencies(step, step_ids).issubset(completed_ids)]
         if not ready:
             batches.extend([step] for step in remaining)
             break
@@ -427,8 +429,28 @@ def _dependency_batches(steps: list[WorkflowStep]) -> list[list[WorkflowStep]]:
     return batches
 
 
-def _phase_dependencies(step: WorkflowStep, phase_ids: set[str]) -> set[str]:
-    return {dep for dep in step.depends_on if dep in phase_ids}
+def _has_cross_phase_dependencies(steps: list[WorkflowStep]) -> bool:
+    phase_by_step_id = {step.step_id: _step_phase_id(step) for step in steps}
+    return any(
+        dep in phase_by_step_id and phase_by_step_id[dep] != _step_phase_id(step)
+        for step in steps
+        for dep in step.depends_on
+    )
+
+
+def _known_dependencies(step: WorkflowStep, step_ids: set[str]) -> set[str]:
+    return {dep for dep in step.depends_on if dep in step_ids}
+
+
+def _batch_phase_id(phase_steps: list[WorkflowStep]) -> str:
+    if not phase_steps:
+        return ""
+    phase_ids = [_step_phase_id(step) for step in phase_steps]
+    return phase_ids[0] if len(set(phase_ids)) == 1 else "mixed"
+
+
+def _step_phase_id(step: WorkflowStep) -> str:
+    return step.phase or step.step_id
 
 
 def _script_ordered_results(results: list[tuple[int, dict[str, Any]]]) -> list[dict[str, Any]]:

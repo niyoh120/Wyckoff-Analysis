@@ -1900,6 +1900,77 @@ def test_workflow_executor_respects_task_dependencies_within_phase(tmp_path, mon
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_respects_task_dependencies_across_phases(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-cross-phase.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "扫描完成，候选 A。"}],
+            [{"type": "text_delta", "text": "研报完成，确认候选 A。"}],
+            [{"type": "text_delta", "text": "攻防计划完成。"}],
+            [{"type": "text_delta", "text": "跨阶段依赖复核完成。"}],
+        ]
+    )
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(),
+        session_id="s_cross_phase_dep",
+        user_text="按依赖完成选股研报和攻防计划",
+        workflow_context=route_workflow("用 workflow 完成选股研报和攻防计划"),
+        workflow_script={
+            "title": "跨阶段依赖复核",
+            "phases": [
+                {
+                    "id": "decision",
+                    "tasks": [
+                        {
+                            "id": "decision",
+                            "title": "形成攻防",
+                            "depends_on": ["report"],
+                            "prompt": "基于研报输出攻防边界",
+                        }
+                    ],
+                },
+                {
+                    "id": "report",
+                    "tasks": [
+                        {
+                            "id": "report",
+                            "title": "生成研报",
+                            "depends_on": ["scan"],
+                            "prompt": "基于候选生成研报",
+                        }
+                    ],
+                },
+                {
+                    "id": "scan",
+                    "tasks": [{"id": "scan", "title": "扫描候选", "prompt": "先扫描候选"}],
+                },
+            ],
+            "synthesis_prompt": "按依赖顺序汇总。",
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "按依赖完成选股研报和攻防计划"}]))
+
+    try:
+        step_starts = [event for event in events if event["type"] == "workflow_step_start"]
+        step_dones = [event for event in events if event["type"] == "workflow_step_done"]
+        phase_starts = [event for event in events if event["type"] == "workflow_phase_start"]
+        assert [event["step"]["step_id"] for event in step_starts] == ["scan", "report", "decision"]
+        assert [event["phase"] for event in phase_starts] == ["scan", "report", "decision"]
+        assert events.index(step_dones[0]) < events.index(step_starts[1])
+        assert events.index(step_dones[1]) < events.index(step_starts[2])
+        assert "扫描完成，候选 A。" in provider.calls[1]["messages"][0]["content"]
+        assert "研报完成，确认候选 A。" in provider.calls[2]["messages"][0]["content"]
+        assert events[-1]["text"] == "跨阶段依赖复核完成。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_serializes_inferred_stock_selection_dependencies(tmp_path, monkeypatch):
     from integrations import local_db
 
@@ -2080,6 +2151,18 @@ def test_phase_batches_tolerates_external_and_cyclic_dependencies():
     a = WorkflowStep(step_id="a", title="A", phase="cycle", depends_on=("b",))
     b = WorkflowStep(step_id="b", title="B", phase="cycle", depends_on=("a",))
     assert [[step.step_id for step in batch] for batch in _phase_batches([a, b])] == [["a"], ["b"]]
+
+
+def test_phase_batches_orders_cross_phase_dependencies_globally():
+    decision = WorkflowStep(step_id="decision", title="形成攻防", phase="decision", depends_on=("report",))
+    report = WorkflowStep(step_id="report", title="生成研报", phase="report", depends_on=("scan",))
+    scan = WorkflowStep(step_id="scan", title="扫描候选", phase="scan")
+
+    assert [[step.step_id for step in batch] for batch in _phase_batches([decision, report, scan])] == [
+        ["scan"],
+        ["report"],
+        ["decision"],
+    ]
 
 
 def test_prepared_workflow_can_be_stopped_before_agents_run(tmp_path, monkeypatch):
