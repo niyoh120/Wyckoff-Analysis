@@ -10,6 +10,7 @@ from cli.tools import TOOL_SCHEMAS
 from cli.workflows.control import WorkflowControl
 from cli.workflows.executor import (
     WorkflowExecutor,
+    _candidate_conclusion_from_handoff,
     _fallback_handoff_lines,
     _fallback_summary,
     _phase_batches,
@@ -1357,6 +1358,70 @@ def test_workflow_handoff_and_fallback_prioritize_report_candidates_over_watch()
     assert "候选结论: 首选 000014 高质量候选" in summary
     assert "候选影子S/92" in summary
     assert "观察候选 000013 观察候选" not in summary.splitlines()[1]
+
+
+def test_workflow_candidate_conclusion_prefers_ready_high_score_over_first_watch():
+    summary = _fallback_summary(
+        [
+            {
+                "step": {"title": "扫描候选"},
+                "result": {
+                    "status": "completed",
+                    "result": "扫描完成。",
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "report_candidates": [
+                                {
+                                    "code": "000013",
+                                    "name": "观察候选",
+                                    "action_status": "watch_only",
+                                    "candidate_shadow_score": 96.0,
+                                },
+                                {
+                                    "code": "000014",
+                                    "name": "高质量候选",
+                                    "action_status": "ready_for_ai_review",
+                                    "candidate_shadow_score": 92.0,
+                                    "candidate_shadow_grade": "S",
+                                },
+                            ]
+                        }
+                    },
+                },
+            }
+        ]
+    )
+
+    assert "候选结论: 首选 000014 高质量候选" in summary
+    assert "候选影子S/92" in summary
+    assert "观察候选 000013 观察候选" not in summary.splitlines()[1]
+
+
+def test_workflow_candidate_conclusion_prefers_higher_quality_within_same_status():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "report_candidates": [
+                    {
+                        "code": "000011",
+                        "name": "低分候选",
+                        "action_status": "ready_for_ai_review",
+                        "candidate_shadow_score": 72.0,
+                    },
+                    {
+                        "code": "000012",
+                        "name": "高分候选",
+                        "action_status": "ready_for_ai_review",
+                        "candidate_shadow_score": 91.0,
+                    },
+                ]
+            }
+        }
+    )
+
+    assert conclusion["code"] == "000012"
+    assert "候选结论: 首选 000012 高分候选" in conclusion["line"]
+    assert conclusion["evidence"] == ["候选影子91"]
 
 
 def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():

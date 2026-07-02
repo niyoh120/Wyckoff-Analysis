@@ -1150,7 +1150,54 @@ def _fallback_next_value(row: dict[str, Any], stage: dict[str, Any]) -> str:
 
 
 def _first_candidate_row(rows: list[Any]) -> dict[str, Any]:
-    return next((row for row in rows if isinstance(row, dict) and (row.get("code") or row.get("name"))), {})
+    candidates = [row for row in rows if isinstance(row, dict) and (row.get("code") or row.get("name"))]
+    if not candidates:
+        return {}
+    return max(enumerate(candidates), key=lambda item: _candidate_rank_key(item[1], item[0]))[1]
+
+
+def _candidate_rank_key(row: dict[str, Any], index: int) -> tuple[int, int, float, int]:
+    return (
+        _candidate_status_rank(row),
+        1 if row.get("selected_for_report") is True or row.get("is_ai_recommended") is True else 0,
+        _candidate_best_score(row),
+        -index,
+    )
+
+
+def _candidate_status_rank(row: dict[str, Any]) -> int:
+    status = str(row.get("action_status") or row.get("status") or "").strip()
+    if status == "ready_for_ai_review":
+        return 4
+    if status in {"candidate", "review_ready"}:
+        return 3
+    if status == "watch_only":
+        return 2
+    if status.startswith("blocked_"):
+        return 1
+    return 2
+
+
+def _candidate_best_score(row: dict[str, Any]) -> float:
+    scores = (
+        row.get("candidate_shadow_score"),
+        row.get("risk_adjusted_quality_score"),
+        row.get("candidate_quality_score"),
+        row.get("entry_quality_score"),
+        row.get("funnel_score"),
+        row.get("priority_score"),
+        row.get("shadow_score"),
+        row.get("score"),
+    )
+    values = [_score_float(value) for value in scores]
+    return max((value for value in values if value is not None), default=0.0)
+
+
+def _score_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _fallback_stage_candidates(stage: str, value: dict[str, Any]) -> list[dict[str, Any]]:
