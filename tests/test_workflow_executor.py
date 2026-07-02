@@ -1481,6 +1481,28 @@ def test_workflow_candidate_conclusion_prefers_higher_quality_within_same_status
     assert conclusion["evidence"] == ["候选影子91"]
 
 
+def test_workflow_candidate_conclusion_preserves_entry_risk_flags():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_ai_report": {
+                "reviewed_symbols": [
+                    {
+                        "code": "000012",
+                        "name": "高分带风险",
+                        "action_status": "ready_for_ai_review",
+                        "candidate_shadow_score": 91.0,
+                        "risk_factors": ["估值偏高"],
+                        "entry_quality_risk_flags": ["估值偏高", "短线涨幅偏快"],
+                    }
+                ]
+            }
+        }
+    )
+
+    assert conclusion["risk_factors"] == ["估值偏高", "短线涨幅偏快"]
+    assert "风险=估值偏高,短线涨幅偏快" in conclusion["line"]
+
+
 def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():
     handoff = {
         "last_screen_result": {

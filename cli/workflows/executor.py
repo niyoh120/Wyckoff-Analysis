@@ -60,7 +60,7 @@ _SYNTHESIS_REQUIREMENTS = (
     "必须按候选分层输出：可进入 AI 研报/攻防决策、仅观察、被数据质量/市场闸门/策略保护阻断。\n"
     "- 候选行要优先使用代码/名称、action_status、trade_readiness、priority_score/shadow_score/"
     "funnel_score、candidate_shadow_score/grade、candidate_quality_score、risk_adjusted_quality_score、"
-    "entry_quality_score/grade、quality_factors、risk_factors、next_step。\n"
+    "entry_quality_score/grade、entry_quality_risk_flags、quality_factors、risk_factors、next_step。\n"
     "- 如果存在 candidate_guard_summary，必须明确哪些候选禁止直接买入以及原因；"
     "如果 new_buy_allowed=false、trade_readiness=research_only 或 action_status 不是可执行状态，"
     "不得写成买入建议；只能写观察、研报复核或攻防决策下一步。\n"
@@ -996,7 +996,7 @@ def _fallback_candidate_conclusion_payload(
             "action_status": str(row.get("action_status") or "").strip(),
             "evidence": _fallback_evidence_items(row),
             "quality_factors": _fallback_text_items(row.get("quality_factors"), 4, 120),
-            "risk_factors": _fallback_text_items(row.get("risk_factors"), 4, 120),
+            "risk_factors": _fallback_risk_items(row, 4, 120),
             "guard_reason": _fallback_guard_reason_from_handoff(row, stage, handoff),
             "next_step": _fallback_next_value(row, stage),
             "source_stage": source_stage,
@@ -1084,8 +1084,19 @@ def _fallback_quality_part(row: dict[str, Any]) -> str:
 
 
 def _fallback_risk_part(row: dict[str, Any]) -> str:
-    risks = _fallback_text_items(row.get("risk_factors"), 3, 80)
+    risks = _fallback_risk_items(row, 3, 80)
     return f"风险={','.join(risks)}" if risks else ""
+
+
+def _fallback_risk_items(row: dict[str, Any], limit: int, clip: int) -> list[str]:
+    risks: list[str] = []
+    for value in (row.get("risk_factors"), row.get("entry_quality_risk_flags")):
+        for item in _fallback_text_items(value, limit, clip):
+            if item not in risks:
+                risks.append(item)
+            if len(risks) >= limit:
+                return risks
+    return risks
 
 
 def _fallback_text_items(value: Any, limit: int, clip: int) -> list[str]:
