@@ -1605,6 +1605,49 @@ def test_workflow_executor_scopes_sub_agent_tools_per_step(tmp_path, monkeypatch
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_retries_scoped_report_task_until_tool_runs(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-report-expectation.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "我先口头整理研报。"}],
+            [{"type": "tool_calls", "tool_calls": [{"id": "tc_report", "name": "generate_ai_report", "args": {}}]}],
+            [{"type": "text_delta", "text": "研报工具已完成。"}],
+            [{"type": "text_delta", "text": "已汇总研报结果。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "generate_ai_report", "description": "Mock report", "parameters": {"type": "object"}},
+        ],
+        tool_results={"generate_ai_report": {"reviewed_codes": ["300750"]}},
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_report_expectation",
+        user_text="用 workflow 生成研报",
+        workflow_context=route_workflow("用 workflow 生成研报"),
+        workflow_script={
+            "tasks": [{"id": "report", "title": "生成研报", "tools": ["generate_ai_report"], "prompt": "生成研报"}]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 生成研报"}]))
+
+    try:
+        detail = next(event for event in events if event["type"] == "workflow_step_done")["source"]["agent_detail"]
+        assert detail["tool_scope"] == ["generate_ai_report"]
+        assert detail["tool_calls"] == ["generate_ai_report"]
+        assert [call["name"] for call in tools.calls] == ["generate_ai_report"]
+        assert events[-1]["text"] == "已汇总研报结果。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_does_not_widen_filtered_explicit_tool_scope(tmp_path, monkeypatch):
     from integrations import local_db
 

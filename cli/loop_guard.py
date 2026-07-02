@@ -176,6 +176,12 @@ _AI_REPORT_HINTS = (
     "审讯",
 )
 
+_AI_REPORT_DIRECT_HINTS = (
+    "研报",
+    "报告",
+    "审讯",
+)
+
 _AI_REPORT_ACTION_HINTS = (
     "继续",
     "下一步",
@@ -264,6 +270,7 @@ _TOOL_CN_NAMES = {
     "analyze_stock": "个股分析",
     "screen_stocks": "全市场扫描",
     "generate_ai_report": "AI 研报",
+    "generate_strategy_decision": "攻防决策",
 }
 
 _CURRENT_USER_OPEN = "<current-user-message>"
@@ -346,10 +353,22 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
             suggested_args={"board": _screen_board_hint(last_user)},
         )
 
+    if _ai_report_direct_expected(last_user):
+        return TurnExpectation(
+            required_tool="generate_ai_report",
+            reason="AI 研报任务需要先运行真实研报工具。",
+        )
+
     if _ai_report_expected(last_user, previous_context):
         return TurnExpectation(
             required_tool="generate_ai_report",
             reason="上一轮已有筛股候选，这一轮需要先生成真实 AI 研报。",
+        )
+
+    if _strategy_decision_direct_expected(last_user):
+        return TurnExpectation(
+            required_tool="generate_strategy_decision",
+            reason="攻防/买卖计划任务需要先运行真实组合攻防复核。",
         )
 
     if (
@@ -459,8 +478,20 @@ def _ai_report_expected(text: str, previous_context: str) -> bool:
     )
 
 
+def _ai_report_direct_expected(text: str) -> bool:
+    if _explanation_only_question(text):
+        return False
+    return any(hint in text for hint in _AI_REPORT_DIRECT_HINTS) and any(
+        hint in text for hint in _AI_REPORT_ACTION_HINTS
+    )
+
+
 def _strategy_decision_expected(text: str) -> bool:
     return any(hint in text for hint in _STRATEGY_DECISION_DELIVERY_HINTS)
+
+
+def _strategy_decision_direct_expected(text: str) -> bool:
+    return not _explanation_only_question(text) and _strategy_decision_expected(text)
 
 
 def _explanation_only_question(text: str) -> bool:

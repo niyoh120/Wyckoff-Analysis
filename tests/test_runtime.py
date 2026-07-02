@@ -369,6 +369,19 @@ def test_turn_expectation_requires_ai_report_after_screen_handoff():
     assert expectation.suggested_args == {}
 
 
+def test_turn_expectation_requires_direct_ai_report_task():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "生成研报"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "generate_ai_report"
+
+
+def test_turn_expectation_does_not_force_ai_report_for_vague_review_without_context():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "继续复核"}])
+
+    assert expectation is None
+
+
 def test_turn_expectation_does_not_force_ai_report_for_concept_question():
     expectation = resolve_turn_expectation(
         [
@@ -408,10 +421,11 @@ def test_turn_expectation_does_not_screen_past_recommendation_review():
     assert expectation is None
 
 
-def test_turn_expectation_does_not_rescreen_existing_candidates():
+def test_turn_expectation_requires_strategy_without_rescreening_existing_candidates():
     expectation = resolve_turn_expectation([{"role": "user", "content": "基于候选 A 制定攻防计划"}])
 
-    assert expectation is None
+    assert expectation is not None
+    assert expectation.required_tool == "generate_strategy_decision"
 
 
 def test_turn_expectation_ignores_background_system_notification():
