@@ -533,7 +533,7 @@ def test_display_workflow_plan_event_surfaces_effective_tool_scope():
 
     rendered = "\n".join(str(item) for item in writes)
     assert "1. 复盘持仓" in rendered
-    assert "可用工具: 持仓、个股分析" in rendered
+    assert "可选工具: 持仓、个股分析" in rendered
     assert "目标: 让模型按上下文决定最小工具调用" in rendered
 
 
@@ -902,7 +902,7 @@ def test_display_workflow_step_event_shows_effective_tool_scope():
 
     rendered = str(writes[0])
     assert "复盘持仓" in rendered
-    assert "可用工具: 持仓、个股分析" in rendered
+    assert "可选工具: 持仓、个股分析" in rendered
     assert "task" not in rendered
 
 
@@ -1031,7 +1031,7 @@ def test_workflow_detail_step_line_includes_effective_tool_scope():
         }
     )
 
-    assert "可用工具：portfolio, analyze_stock" in line
+    assert "可选工具：portfolio, analyze_stock" in line
 
 
 def test_workflow_control_intent_requires_explicit_control_action():

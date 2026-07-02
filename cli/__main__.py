@@ -982,7 +982,7 @@ def _workflow_step_tool_label(step: dict) -> str:
     label = "tools"
     if not tools:
         tools = [str(item) for item in step.get("effective_tool_scope", []) if str(item)]
-        label = "available_tools"
+        label = "optional_tools"
     if not tools:
         return ""
     visible = ",".join(tools[:4])

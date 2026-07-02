@@ -63,7 +63,7 @@ def test_workflow_step_cli_line_includes_effective_tool_scope():
     )
 
     assert "[running] 复盘持仓" in line
-    assert "available_tools=portfolio,analyze_stock" in line
+    assert "optional_tools=portfolio,analyze_stock" in line
 
 
 def test_route_workflow_keeps_task_like_typo_direct_for_model_inference():

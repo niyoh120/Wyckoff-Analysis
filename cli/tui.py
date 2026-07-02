@@ -649,7 +649,7 @@ def _workflow_step_tool_values(step: dict[str, Any]) -> tuple[list[str], str]:
         return scoped, "工具"
     effective = [str(item) for item in step.get("effective_tool_scope", []) if str(item)]
     if effective:
-        return effective, "可用工具"
+        return effective, "可选工具"
     return [], "工具"
 
 
