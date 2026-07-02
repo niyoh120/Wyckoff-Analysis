@@ -797,7 +797,7 @@ def test_planner_keeps_question_tool_for_clarification_only_task():
     assert run.steps[0].tool_scope == ("ask_user_question",)
 
 
-def test_planner_infers_tools_from_json_task_text_when_model_omits_tools():
+def test_planner_does_not_infer_tools_from_json_task_text_when_model_omits_tools():
     provider = ScriptedProvider(
         [
             [
@@ -823,11 +823,7 @@ def test_planner_infers_tools_from_json_task_text_when_model_omits_tools():
         tools=StubToolRegistry(),
     )
 
-    assert [step.tool_scope for step in run.steps] == [
-        ("portfolio",),
-        ("screen_stocks",),
-        ("generate_strategy_decision",),
-    ]
+    assert [step.tool_scope for step in run.steps] == [(), (), ()]
 
 
 def test_planner_filters_model_task_tools_by_workflow_context():
@@ -1290,7 +1286,7 @@ def test_planner_parses_outline_text_when_model_skips_json():
     assert run.script["rationale"] == "planner returned outline text"
 
 
-def test_planner_infers_tools_from_outline_text_when_model_skips_json():
+def test_planner_preserves_outline_text_without_inferred_tools_when_model_skips_json():
     provider = ScriptedProvider(
         [
             [
@@ -1309,17 +1305,13 @@ def test_planner_infers_tools_from_outline_text_when_model_skips_json():
     )
 
     assert [step.title for step in run.steps] == ["扫描今日候选", "生成研报", "形成攻防动作"]
-    assert [step.tool_scope for step in run.steps] == [
-        ("screen_stocks",),
-        ("generate_ai_report",),
-        ("generate_strategy_decision",),
-    ]
+    assert [step.tool_scope for step in run.steps] == [(), (), ()]
     assert run.steps[0].depends_on == ()
-    assert run.steps[1].depends_on == ("1",)
-    assert run.steps[2].depends_on == ("2",)
+    assert run.steps[1].depends_on == ()
+    assert run.steps[2].depends_on == ()
 
 
-def test_planner_infers_screen_tool_from_colloquial_good_stock_outline():
+def test_planner_preserves_colloquial_good_stock_outline_without_inferred_tools():
     provider = ScriptedProvider(
         [
             [
@@ -1336,11 +1328,11 @@ def test_planner_infers_screen_tool_from_colloquial_good_stock_outline():
         tools=StubToolRegistry(),
     )
 
-    assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
-    assert run.steps[1].depends_on == ("1",)
+    assert [step.tool_scope for step in run.steps] == [(), ()]
+    assert run.steps[1].depends_on == ()
 
 
-def test_planner_infers_screen_tool_from_colloquial_good_target_outline():
+def test_planner_preserves_colloquial_good_target_outline_without_inferred_tools():
     provider = ScriptedProvider(
         [
             [
@@ -1357,11 +1349,11 @@ def test_planner_infers_screen_tool_from_colloquial_good_target_outline():
         tools=StubToolRegistry(),
     )
 
-    assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
-    assert run.steps[1].depends_on == ("1",)
+    assert [step.tool_scope for step in run.steps] == [(), ()]
+    assert run.steps[1].depends_on == ()
 
 
-def test_planner_infers_holding_decision_tools_from_outline_text():
+def test_planner_preserves_holding_outline_without_inferred_tools():
     provider = ScriptedProvider(
         [
             [
@@ -1375,12 +1367,8 @@ def test_planner_infers_holding_decision_tools_from_outline_text():
     run = plan_workflow("你看我持仓呀", context=context, provider=provider, tools=StubToolRegistry())
 
     assert [step.title for step in run.steps] == ["读取持仓与资金", "诊断持仓与市场环境", "形成去留和风险动作"]
-    assert [step.tool_scope for step in run.steps] == [
-        ("portfolio",),
-        ("portfolio", "get_market_overview"),
-        ("generate_strategy_decision",),
-    ]
-    assert run.steps[2].depends_on == ("2",)
+    assert [step.tool_scope for step in run.steps] == [(), (), ()]
+    assert run.steps[2].depends_on == ()
 
 
 def test_tool_descriptions_do_not_use_user_phrase_triggers():

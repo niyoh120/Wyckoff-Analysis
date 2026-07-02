@@ -317,10 +317,9 @@ def _strip_json_fence(text: str) -> str:
 def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowContext) -> list[WorkflowStep]:
     steps: list[WorkflowStep] = []
     args_text = _runtime_args(script)
-    infer_text_tools = _should_infer_text_tools(script)
-    allowed_tool_names = _context_tool_names(context) if infer_text_tools else None
+    allowed_tool_names = _context_tool_names(context) or None
     for phase in _script_phases(script):
-        steps.extend(_phase_steps(phase, user_text, args_text, infer_text_tools, allowed_tool_names))
+        steps.extend(_phase_steps(phase, user_text, args_text, allowed_tool_names))
         if len(steps) >= MAX_WORKFLOW_STEPS:
             break
     steps = _normalize_step_dependencies(steps)
@@ -336,13 +335,12 @@ def _phase_steps(
     phase: dict[str, Any],
     user_text: str,
     args_text: str,
-    infer_text_tools: bool,
     allowed_tool_names: set[str] | None,
 ) -> list[WorkflowStep]:
     phase_id = _slug(phase.get("id") or phase.get("title") or "phase")
     steps: list[WorkflowStep] = []
     for task in _phase_tasks(phase):
-        step = _task_step(task, phase_id, user_text, args_text, infer_text_tools, allowed_tool_names)
+        step = _task_step(task, phase_id, user_text, args_text, allowed_tool_names)
         if step:
             steps.append(step)
     return steps
@@ -353,7 +351,6 @@ def _task_step(
     phase_id: str,
     user_text: str,
     args_text: str,
-    infer_text_tools: bool,
     allowed_tool_names: set[str] | None,
 ) -> WorkflowStep | None:
     if not _generated_task_like(task):
@@ -375,7 +372,7 @@ def _task_step(
         risk_guard=_task_meta(task, ("risk_guard", "guard", "guardrail", "guardrails", "boundary", "constraints")),
         phase=phase_id,
         depends_on=_task_dependencies(task),
-        tool_scope=_task_tool_scope(task, title, prompt, context, infer_text_tools, allowed_tool_names),
+        tool_scope=_task_tool_scope(task, allowed_tool_names),
         dynamic=True,
     )
 
@@ -417,10 +414,6 @@ def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _task_tool_scope(
     task: dict[str, Any],
-    title: str = "",
-    prompt: str = "",
-    context: str = "",
-    infer_text_tools: bool = False,
     allowed_tool_names: set[str] | None = None,
 ) -> tuple[str, ...]:
     names: list[str] = []
@@ -429,17 +422,7 @@ def _task_tool_scope(
             if name := _tool_name(item):
                 names.append(name)
     explicit = tuple(dict.fromkeys(names))
-    if explicit:
-        return _filter_tool_scope(explicit, allowed_tool_names)
-    if not infer_text_tools:
-        return ()
-    return _filter_tool_scope(_text_task_tool_scope(" ".join((title, prompt, context))), allowed_tool_names)
-
-
-def _should_infer_text_tools(script: dict[str, Any]) -> bool:
-    runtime = script.get("runtime")
-    planner = runtime.get("planner") if isinstance(runtime, dict) else ""
-    return planner in {"model_script", "fallback_script"}
+    return _filter_tool_scope(explicit, allowed_tool_names) if explicit else ()
 
 
 def _context_tool_names(context: WorkflowContext) -> set[str]:
@@ -450,7 +433,8 @@ def _filter_tool_scope(scope: tuple[str, ...], allowed_tool_names: set[str] | No
     scope = _drop_question_tool_when_fact_tool_present(scope)
     if allowed_tool_names is None:
         return scope
-    return tuple(name for name in scope if name in allowed_tool_names)
+    filtered = tuple(name for name in scope if name in allowed_tool_names)
+    return filtered or scope
 
 
 def _drop_question_tool_when_fact_tool_present(scope: tuple[str, ...]) -> tuple[str, ...]:
@@ -512,83 +496,6 @@ def _tool_name_aliases() -> dict[str, str]:
 
 
 _TOOL_NAME_ALIASES = _tool_name_aliases()
-
-_TEXT_TASK_TOOL_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "screen_stocks",
-        (
-            "screen_stocks",
-            "全市场扫描",
-            "扫描",
-            "扫描候选",
-            "候选扫描",
-            "扫描股票",
-            "筛选",
-            "筛选候选",
-            "筛股",
-            "选股",
-            "候选股",
-            "候选股票",
-            "股票池",
-            "好股票",
-            "好票",
-            "好标的",
-            "优质标的",
-            "机会池",
-        ),
-    ),
-    (
-        "analyze_stock",
-        (
-            "analyze_stock",
-            "个股诊断",
-            "单股诊断",
-            "读盘诊断",
-            "量价结构",
-            "个股结构",
-        ),
-    ),
-    (
-        "generate_ai_report",
-        (
-            "generate_ai_report",
-            "深度审讯",
-            "ai研报",
-            "ai 研报",
-            "生成研报",
-            "研报",
-        ),
-    ),
-    (
-        "generate_strategy_decision",
-        (
-            "generate_strategy_decision",
-            "攻防",
-            "买卖计划",
-            "风险边界",
-            "交易计划",
-            "策略决策",
-            "触发位",
-            "失效位",
-            "止损位",
-            "入场位",
-            "出场位",
-            "去留",
-            "持仓去留",
-            "风险动作",
-            "操作动作",
-            "处理动作",
-            "操作建议",
-            "调仓",
-            "减仓",
-            "加仓",
-            "仓位动作",
-        ),
-    ),
-    ("portfolio", ("portfolio", "持仓", "仓位", "组合")),
-    ("run_backtest", ("run_backtest", "回测")),
-    ("get_market_overview", ("get_market_overview", "大盘水温", "市场环境", "市场风险")),
-)
 
 
 def _generated_task_like(task: dict[str, Any]) -> bool:
@@ -798,16 +705,7 @@ def _string_task_payload(text: str, key: Any) -> dict[str, Any]:
     title = _strip_list_marker(text)
     if not title:
         return {}
-    payload = {"id": str(key), "title": title, "prompt": title}
-    if tools := _text_task_tool_scope(title):
-        payload["tools"] = list(tools)
-    return payload
-
-
-def _text_task_tool_scope(text: str) -> tuple[str, ...]:
-    normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
-    names = [name for name, markers in _TEXT_TASK_TOOL_MARKERS if any(marker in normalized for marker in markers)]
-    return tuple(dict.fromkeys(names))
+    return {"id": str(key), "title": title, "prompt": title}
 
 
 def _strip_list_marker(text: str) -> str:
