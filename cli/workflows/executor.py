@@ -59,7 +59,8 @@ _SYNTHESIS_REQUIREMENTS = (
     "- 如果 agent results 里有候选、policy_selection、last_screen_result 或 last_recommendation_event_eval，"
     "必须按候选分层输出：可进入 AI 研报/攻防决策、仅观察、被数据质量/市场闸门/策略保护阻断。\n"
     "- 候选行要优先使用代码/名称、action_status、trade_readiness、priority_score/shadow_score/"
-    "funnel_score、candidate_shadow_score/grade、entry_quality_score/grade、quality_factors、risk_factors、next_step。\n"
+    "funnel_score、candidate_shadow_score/grade、candidate_quality_score、risk_adjusted_quality_score、"
+    "entry_quality_score/grade、quality_factors、risk_factors、next_step。\n"
     "- 如果存在 candidate_guard_summary，必须明确哪些候选禁止直接买入以及原因；"
     "如果 new_buy_allowed=false、trade_readiness=research_only 或 action_status 不是可执行状态，"
     "不得写成买入建议；只能写观察、研报复核或攻防决策下一步。\n"
@@ -756,6 +757,9 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "funnel_score",
         "recommend_count",
         "candidate_shadow_score",
+        "candidate_quality_score",
+        "risk_adjusted_quality_score",
+        "entry_risk_penalty",
         "rank_reason",
         "quality_factors",
         "risk_factors",
@@ -1056,6 +1060,8 @@ def _fallback_evidence_items(row: dict[str, Any]) -> list[str]:
         _grade_score_part("候选影子", row.get("candidate_shadow_grade"), row.get("candidate_shadow_score")),
         _grade_score_part("入场", row.get("entry_quality_grade"), row.get("entry_quality_score")),
         _score_part("漏斗分", row.get("funnel_score")),
+        _score_part("风险调整分", row.get("risk_adjusted_quality_score")),
+        _score_part("候选质量分", row.get("candidate_quality_score")),
         _score_part("优先分", row.get("priority_score")),
         _theme_evidence_part(row),
     ]

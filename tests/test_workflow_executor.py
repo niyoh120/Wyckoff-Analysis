@@ -605,6 +605,9 @@ def test_workflow_handoff_state_compacts_candidate_context():
                         "recommend_count": 2,
                         "candidate_shadow_score": 92.0,
                         "candidate_shadow_grade": "S",
+                        "candidate_quality_score": 92.0,
+                        "risk_adjusted_quality_score": 87.0,
+                        "entry_risk_penalty": 5.0,
                         "entry_quality_score": 84.0,
                         "entry_quality_grade": "A",
                         "entry_quality_risk_flags": ["短线涨幅偏快"],
@@ -719,6 +722,9 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert candidate["candidate_shadow_score"] == 92.0
     assert candidate["entry_quality_score"] == 84.0
     assert candidate["funnel_score"] == 89.5
+    assert candidate["candidate_quality_score"] == 92.0
+    assert candidate["risk_adjusted_quality_score"] == 87.0
+    assert candidate["entry_risk_penalty"] == 5.0
     assert candidate["selection_strategy"] == "candidate_shadow_then_score"
     assert candidate["is_ai_recommended"] is True
     assert candidate["label_ready"] is False
@@ -970,6 +976,8 @@ def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
     assert "必须按候选分层输出" in prompt
     assert "priority_score/shadow_score/funnel_score" in prompt
     assert "candidate_shadow_score/grade" in prompt
+    assert "candidate_quality_score" in prompt
+    assert "risk_adjusted_quality_score" in prompt
     assert "entry_quality_score/grade" in prompt
     assert "new_buy_allowed=false" in prompt
     assert "trade_readiness=research_only" in prompt
@@ -998,6 +1006,8 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
                     "action_status": "ready_for_ai_review",
                     "candidate_shadow_score": 92.0,
                     "candidate_shadow_grade": "S",
+                    "candidate_quality_score": 92.0,
+                    "risk_adjusted_quality_score": 87.0,
                     "strategic_theme": "机器人",
                     "theme_source": "ths_hot_event",
                     "theme_event_reason": "灵巧手",
@@ -1022,8 +1032,10 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
     assert '"candidate_conclusion"' in handoff_section
     assert "候选结论: 首选 300750 宁德时代" in handoff_section
     assert '"candidate_shadow_score": 92.0' in handoff_section
+    assert '"risk_adjusted_quality_score": 87.0' in handoff_section
     assert '"theme_context": {"event_mainlines": "机器人 0.82/爆发"' in handoff_section
     assert "事件主线机器人(灵巧手)" in handoff_section
+    assert "风险调整分87" in handoff_section
     assert "亮点=事件主线:机器人,候选影子评级 S" in handoff_section
     assert "风险=未来窗口标签尚未成熟" in handoff_section
     assert '"300750"' in handoff_section
