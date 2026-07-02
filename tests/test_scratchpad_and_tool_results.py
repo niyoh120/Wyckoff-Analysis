@@ -236,6 +236,34 @@ def test_screen_stocks_preview_merges_entry_risk_flags_into_visible_risks():
     assert "风险: 短线涨幅偏快；量能未确认" in lines[1]
 
 
+def test_screen_stocks_preview_prioritizes_ready_candidate_over_first_watch():
+    result = {
+        "report_candidates": [
+            {
+                "code": "000013",
+                "name": "观察候选",
+                "action_status": "watch_only",
+                "candidate_shadow_score": 96.0,
+            },
+            {
+                "code": "000014",
+                "name": "高质量候选",
+                "action_status": "ready_for_ai_review",
+                "candidate_shadow_score": 92.0,
+                "candidate_shadow_grade": "S",
+                "next_step": "生成 AI 研报",
+            },
+        ]
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert preview["candidate_conclusion"]["code"] == "000014"
+    assert lines[0].startswith("候选结论: 首选 000014 高质量候选")
+    assert "候选影子S/92" in lines[0]
+
+
 def test_screen_stocks_preview_surfaces_theme_context_and_event_candidate():
     result = {
         "theme_context": {

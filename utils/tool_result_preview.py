@@ -581,8 +581,13 @@ def _candidate_conclusion_candidates(source_stage: str, result: dict[str, Any]) 
         return _screen_candidate_rows(result)
     if source_stage == "last_recommendation_event_eval":
         selection = result.get("policy_selection") if isinstance(result.get("policy_selection"), dict) else {}
-        return _dedupe_candidate_rows(_preview_list(selection.get("picks"), 12))
-    return _dedupe_candidate_rows([*_candidate_guard_rows(result), *_preview_list(result.get("reviewed_symbols"), 12)])
+        return _ranked_candidate_rows(selection.get("picks"), 12, 4)
+    return _dedupe_candidate_rows(
+        [
+            *_ranked_candidate_rows(_candidate_guard_rows(result), 5, 5),
+            *_ranked_candidate_rows(result.get("reviewed_symbols"), 12, 4),
+        ]
+    )
 
 
 def _candidate_guard_rows(result: dict[str, Any]) -> list[Any]:
@@ -591,7 +596,62 @@ def _candidate_guard_rows(result: dict[str, Any]) -> list[Any]:
 
 
 def _first_candidate_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    return next((row for row in rows if row.get("code") or row.get("name") or row.get("summary")), {})
+    candidates = [row for row in rows if row.get("code") or row.get("name") or row.get("summary")]
+    if not candidates:
+        return {}
+    return max(enumerate(candidates), key=lambda item: _candidate_rank_key(item[1], item[0]))[1]
+
+
+def _candidate_rank_key(row: dict[str, Any], index: int) -> tuple[int, int, int, float, int]:
+    return (
+        _candidate_source_rank(row),
+        _candidate_status_rank(row),
+        1 if row.get("selected_for_report") is True or row.get("is_ai_recommended") is True else 0,
+        _candidate_best_score(row),
+        -index,
+    )
+
+
+def _candidate_source_rank(row: dict[str, Any]) -> int:
+    try:
+        return int(row.get("_preview_source_rank") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _candidate_status_rank(row: dict[str, Any]) -> int:
+    status = str(row.get("action_status") or row.get("status") or "").strip()
+    if status == "ready_for_ai_review":
+        return 4
+    if status in {"candidate", "review_ready"}:
+        return 3
+    if status == "watch_only":
+        return 2
+    if status.startswith("blocked_"):
+        return 1
+    return 2
+
+
+def _candidate_best_score(row: dict[str, Any]) -> float:
+    scores = (
+        row.get("candidate_shadow_score"),
+        row.get("risk_adjusted_quality_score"),
+        row.get("candidate_quality_score"),
+        row.get("entry_quality_score"),
+        row.get("funnel_score"),
+        row.get("priority_score"),
+        row.get("shadow_score"),
+        row.get("score"),
+    )
+    values = [_score_float(value) for value in scores]
+    return max((value for value in values if value is not None), default=0.0)
+
+
+def _score_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _candidate_conclusion_line(row: dict[str, Any], result: dict[str, Any]) -> str:
@@ -766,14 +826,23 @@ def _screen_brief_candidates(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _screen_candidate_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
     selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
-    rows: list[Any] = []
-    rows.extend(_preview_list(result.get("report_candidates"), 3))
-    rows.extend(_preview_list(result.get("symbols_for_report"), 3))
-    rows.append(selection.get("primary_pick"))
-    rows.extend(_preview_list(selection.get("best_candidates"), 3))
-    rows.extend(_preview_list(result.get("watch_candidates"), 3))
-    rows.extend(_preview_list(result.get("top_candidates"), 3))
-    return [row for row in rows if isinstance(row, dict)]
+    rows: list[dict[str, Any]] = []
+    rows.extend(_ranked_candidate_rows(result.get("report_candidates"), 3, 5))
+    rows.extend(_ranked_candidate_rows(result.get("symbols_for_report"), 3, 5))
+    if isinstance(selection.get("primary_pick"), dict):
+        rows.append(_rank_candidate_row(selection["primary_pick"], 4))
+    rows.extend(_ranked_candidate_rows(selection.get("best_candidates"), 3, 4))
+    rows.extend(_ranked_candidate_rows(result.get("watch_candidates"), 3, 2))
+    rows.extend(_ranked_candidate_rows(result.get("top_candidates"), 3, 1))
+    return rows
+
+
+def _ranked_candidate_rows(value: Any, limit: int, source_rank: int) -> list[dict[str, Any]]:
+    return [_rank_candidate_row(row, source_rank) for row in _preview_list(value, limit) if isinstance(row, dict)]
+
+
+def _rank_candidate_row(row: dict[str, Any], source_rank: int) -> dict[str, Any]:
+    return {**row, "_preview_source_rank": source_rank}
 
 
 def _dedupe_candidate_rows(rows: list[Any]) -> list[dict[str, Any]]:
