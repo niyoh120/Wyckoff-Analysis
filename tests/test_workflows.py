@@ -656,7 +656,7 @@ def test_dispatch_accepts_semantic_direct_router_alias():
     assert isinstance(runtime, AgentRuntime)
 
 
-def test_dispatch_keeps_stock_selection_direct_when_model_router_is_unavailable():
+def test_dispatch_falls_back_to_workflow_for_stock_selection_when_model_router_is_unavailable():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
         StubToolRegistry(),
@@ -664,15 +664,13 @@ def test_dispatch_keeps_stock_selection_direct_when_model_router_is_unavailable(
         user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
     )
 
-    assert workflow.name == "general_chat"
-    assert isinstance(runtime, AgentRuntime)
-    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
-    assert workflow.route_matches == ("model_router_fallback",)
-    assert "screen_stocks" in runtime.allowed_tools
-    assert "generate_strategy_decision" in runtime.allowed_tools
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），核心选股请求兜底进入动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
 
 
-def test_dispatch_keeps_short_stock_selection_direct_when_model_router_is_unavailable():
+def test_dispatch_falls_back_to_workflow_for_short_stock_selection_when_model_router_is_unavailable():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
         StubToolRegistry(),
@@ -680,14 +678,13 @@ def test_dispatch_keeps_short_stock_selection_direct_when_model_router_is_unavai
         user_text="帮我选出好股票",
     )
 
-    assert workflow.name == "general_chat"
-    assert isinstance(runtime, AgentRuntime)
-    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
-    assert workflow.route_matches == ("model_router_fallback",)
-    assert "screen_stocks" in runtime.allowed_tools
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），核心选股请求兜底进入动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
 
 
-def test_dispatch_keeps_chatty_stock_selection_direct_when_model_router_is_unavailable():
+def test_dispatch_falls_back_to_workflow_for_chatty_stock_selection_when_model_router_is_unavailable():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
         StubToolRegistry(),
@@ -695,11 +692,10 @@ def test_dispatch_keeps_chatty_stock_selection_direct_when_model_router_is_unava
         user_text="今天A股有什么机会，给我候选和风险边界",
     )
 
-    assert workflow.name == "general_chat"
-    assert isinstance(runtime, AgentRuntime)
-    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
-    assert workflow.route_matches == ("model_router_fallback",)
-    assert "screen_stocks" in runtime.allowed_tools
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），核心选股请求兜底进入动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
 
 
 def test_dispatch_surfaces_invalid_model_router_json():
@@ -712,11 +708,38 @@ def test_dispatch_surfaces_invalid_model_router_json():
         user_text="帮我完整做一遍今天的A股选股，给出候选、理由和买卖计划",
     )
 
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），核心选股请求兜底进入动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
+
+
+def test_dispatch_keeps_stock_selection_method_question_direct_when_model_router_is_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="怎么选出好股票？",
+    )
+
     assert workflow.name == "general_chat"
     assert isinstance(runtime, AgentRuntime)
-    assert workflow.route_reason == "模型路由不可用（路由 JSON 无效），直接 agent 处理"
+    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
     assert workflow.route_matches == ("model_router_fallback",)
-    assert "screen_stocks" in runtime.allowed_tools
+
+
+def test_dispatch_keeps_non_stock_opportunity_question_direct_when_model_router_is_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="这个项目有什么机会和风险",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
+    assert workflow.route_matches == ("model_router_fallback",)
 
 
 def test_dispatch_keeps_explicit_workflow_when_model_router_is_unavailable():

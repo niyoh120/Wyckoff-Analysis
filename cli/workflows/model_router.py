@@ -32,6 +32,36 @@ _WORKFLOW_FLAG_FIELDS = (
     "multi_step",
     "multi_stage",
 )
+_STOCK_SELECTION_SCOPE_MARKERS = (
+    "完整选股",
+    "候选股",
+    "候选",
+    "好股票",
+    "好票",
+    "好标的",
+    "股票池",
+    "机会",
+    "值得复核",
+    "值得跟踪",
+)
+_STOCK_CONTEXT_MARKERS = ("a股", "股票", "股", "票", "标的", "市场", "板块", "行业", "方向")
+_STOCK_SELECTION_DELIVERY_MARKERS = (
+    "理由",
+    "风险",
+    "风险边界",
+    "攻防",
+    "研报",
+    "复核",
+    "买卖计划",
+    "行动计划",
+    "触发位",
+    "失效位",
+    "下一步",
+)
+_SHORT_STOCK_SELECTION_RE = re.compile(
+    r"(?:选出|挑出|筛出|找(?:几只|几个)?|给我找|帮我找).{0,10}(?:好股票|好票|好标的|值得复核的票|值得跟踪的票)"
+)
+_STOCK_SELECTION_METHOD_MARKERS = ("怎么", "如何", "方法", "是什么意思", "啥意思", "概念", "解释")
 _MODE_ALIASES = {
     "direct": {
         "answer",
@@ -99,6 +129,8 @@ def route_workflow_with_model(
     decision, fallback_reason = _model_decision(user_text, provider, messages)
     if decision:
         return _context_from_model_decision(decision)
+    if guarded := _stock_selection_fallback_context(user_text, fallback_reason):
+        return guarded
     return _context_with_router_fallback(fallback_context, fallback_reason)
 
 
@@ -184,6 +216,34 @@ def _context_with_router_fallback(context: WorkflowContext, fallback_reason: str
     reason = _fallback_route_reason(context, fallback_reason)
     matches = tuple(dict.fromkeys(("model_router_fallback", *context.route_matches)))
     return replace(context, route_reason=reason, route_matches=matches)
+
+
+def _stock_selection_fallback_context(user_text: str, fallback_reason: str) -> WorkflowContext | None:
+    if not fallback_reason or not _needs_stock_selection_workflow_fallback(user_text):
+        return None
+    label = _fallback_reason_label(fallback_reason)
+    return replace(
+        WORKFLOWS["dynamic_task"],
+        route_reason=f"模型路由不可用（{label}），核心选股请求兜底进入动态 workflow",
+        route_confidence=0.62,
+        route_matches=("model_router_fallback", "stock_selection_guard"),
+    )
+
+
+def _needs_stock_selection_workflow_fallback(user_text: str) -> bool:
+    text = _compact_user_text(user_text)
+    if not text or any(marker in text for marker in _STOCK_SELECTION_METHOD_MARKERS):
+        return False
+    if _SHORT_STOCK_SELECTION_RE.search(text):
+        return True
+    has_scope = any(marker in text for marker in _STOCK_SELECTION_SCOPE_MARKERS)
+    has_delivery = any(marker in text for marker in _STOCK_SELECTION_DELIVERY_MARKERS)
+    has_context = any(marker in text for marker in _STOCK_CONTEXT_MARKERS)
+    return has_scope and has_delivery and has_context
+
+
+def _compact_user_text(value: Any) -> str:
+    return re.sub(r"[\s。！!,.，、？?]+", "", str(value or "").lower())
 
 
 def _fallback_route_reason(context: WorkflowContext, fallback_reason: str) -> str:
