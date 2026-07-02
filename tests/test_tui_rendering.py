@@ -30,6 +30,7 @@ from cli.tui import (
     _settle_markdown_render,
     _system_notification_queue_item,
     _tool_result_view,
+    _workflow_bg_event_summary,
     _workflow_control_intent,
     _workflow_detail_step_line,
     _write_counted,
@@ -851,6 +852,46 @@ def test_submit_workflow_background_auto_starts_model_plan():
     assert "脚本来源：模型生成" in rendered
     assert "/workflow show wf_auto" in rendered
     assert scrolls
+
+
+def test_workflow_background_event_summary_keeps_handoff_evidence():
+    summary = _workflow_bg_event_summary(
+        {
+            "type": "workflow_step_done",
+            "step": {
+                "title": "形成攻防",
+                "agent": "trading",
+                "status": "completed",
+                "summary": "completed 1.0s",
+            },
+            "source": {
+                "agent_detail": {
+                    "tool_calls": ["generate_strategy_decision"],
+                    "handoff_state": {
+                        "last_strategy_decision": {
+                            "status": "skipped_notify_unconfigured",
+                            "report_source": "last_ai_report",
+                            "reviewed_codes": ["300750"],
+                            "reviewed_symbols": [
+                                {
+                                    "code": "300750",
+                                    "name": "宁德时代",
+                                    "action_status": "blocked_by_market_gate",
+                                    "risk_factors": ["大盘风险闸门关闭"],
+                                    "next_step": "补充 Telegram 配置后可生成并发送 OMS 工单",
+                                }
+                            ],
+                            "next_action": "补充 Telegram 配置后可生成并发送 OMS 工单",
+                        }
+                    },
+                }
+            },
+        }
+    )
+
+    assert summary["step"]["title"] == "形成攻防"
+    assert summary["step"]["evidence"][0].startswith("攻防决策: status=skipped_notify_unconfigured")
+    assert "候选结论: 阻断候选 300750 宁德时代" in summary["step"]["evidence"][1]
 
 
 def test_complete_workflow_background_does_not_wake_idle_agent():

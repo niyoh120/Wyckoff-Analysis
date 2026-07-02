@@ -1013,6 +1013,8 @@ def _workflow_bg_event_summary(event: dict[str, Any]) -> dict[str, Any]:
             "status": step.get("status", ""),
             "summary": step.get("summary", ""),
         }
+        if evidence := _workflow_step_handoff_lines(event):
+            payload["step"]["evidence"] = evidence
     return payload
 
 

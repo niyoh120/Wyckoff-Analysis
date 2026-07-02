@@ -362,6 +362,7 @@ def _dynamic_workflow_step_preview(value: Any) -> dict[str, Any]:
             "title": _text_excerpt(value.get("title"), 120),
             "status": value.get("status"),
             "summary": _text_excerpt(value.get("summary"), 240),
+            "evidence": [_text_excerpt(item, 240) for item in _preview_list(value.get("evidence"), 4)],
         }
     )
 

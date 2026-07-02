@@ -169,7 +169,15 @@ def test_local_db_background_history_uses_dynamic_workflow_preview(tmp_path, mon
                 "events": [
                     {
                         "type": "workflow_step_done",
-                        "step": {"title": "扫描候选", "status": "completed", "summary": "候选扫描完成"},
+                        "step": {
+                            "title": "扫描候选",
+                            "status": "completed",
+                            "summary": "候选扫描完成",
+                            "evidence": [
+                                "候选结论: 首选 300750 宁德时代 · 可进入AI复核",
+                                "候选护栏: 1只禁止直接买入",
+                            ],
+                        },
                     }
                 ],
                 "huge": [{"blob": "x" * 200} for _ in range(80)],
@@ -182,6 +190,7 @@ def test_local_db_background_history_uses_dynamic_workflow_preview(tmp_path, mon
         assert "候选结论: 首选 300750 宁德时代" in row["summary"]
         assert "wf_screen" in row["summary"]
         assert "扫描候选" in row["summary"]
+        assert "候选护栏: 1只禁止直接买入" in row["summary"]
         assert '"huge"' not in row["summary"]
     finally:
         _reset_local_db(local_db)
