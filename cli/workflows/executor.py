@@ -542,6 +542,7 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
     payload = _pick_fields(value, ("scan_scope", "summary", "data_quality", "decision_brief", "selection_brief"))
+    payload["theme_context"] = _compact_theme_context(value.get("theme_context"))
     payload["action_plan"] = _pick_fields(
         value.get("action_plan"),
         (
@@ -563,6 +564,20 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
     payload["top_candidates"] = _candidate_rows(value.get("top_candidates"), 6)
     payload["candidate_guard_summary"] = _compact_candidate_guard(value.get("candidate_guard_summary"))
     return _drop_empty(payload)
+
+
+def _compact_theme_context(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty(
+        {
+            "event_mainlines": _clip_text(value.get("event_mainlines"), 240),
+            "today_activity": _clip_text(value.get("today_activity"), 240),
+            "theme_radar": _clip_text(value.get("theme_radar"), 240),
+            "theme_radar_source": value.get("theme_radar_source"),
+            "hot_concepts": _as_list(value.get("hot_concepts"))[:6],
+        }
+    )
 
 
 def _compact_recommendation_handoff(value: Any) -> dict[str, Any]:
@@ -671,6 +686,13 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "stage",
         "candidate_lane",
         "entry_type",
+        "strategic_theme",
+        "theme_score",
+        "theme_source",
+        "theme_event_id",
+        "theme_event_date",
+        "theme_event_title",
+        "theme_event_reason",
         "priority_rank",
         "priority_score",
         "shadow_score",
@@ -696,13 +718,22 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "label_ready",
         "label_status",
     )
-    return _pick_fields(row, fields)
+    payload = _pick_fields(row, fields)
+    for field in ("theme_event_title", "theme_event_reason"):
+        if field in payload:
+            payload[field] = _clip_text(payload[field], 240)
+    return _drop_empty(payload)
 
 
 def _pick_fields(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
     return _drop_empty({field: value.get(field) for field in fields})
+
+
+def _clip_text(value: Any, limit: int) -> str:
+    text = str(value or "").strip()
+    return text if len(text) <= limit else text[:limit] + "..."
 
 
 def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
@@ -933,8 +964,19 @@ def _fallback_evidence_items(row: dict[str, Any]) -> list[str]:
         _grade_score_part("入场", row.get("entry_quality_grade"), row.get("entry_quality_score")),
         _score_part("漏斗分", row.get("funnel_score")),
         _score_part("优先分", row.get("priority_score")),
+        _theme_evidence_part(row),
     ]
     return [part for part in evidence if part]
+
+
+def _theme_evidence_part(row: dict[str, Any]) -> str:
+    theme = str(row.get("strategic_theme") or row.get("theme") or "").strip()
+    if not theme:
+        return ""
+    source = str(row.get("theme_source") or "").strip()
+    label = "事件主线" if source == "ths_hot_event" else "主题"
+    reason = str(row.get("theme_event_reason") or "").strip()
+    return f"{label}{theme}({reason})" if reason else f"{label}{theme}"
 
 
 def _fallback_guard_part(reason: str) -> str:

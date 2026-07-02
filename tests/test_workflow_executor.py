@@ -555,6 +555,13 @@ def test_workflow_handoff_state_compacts_candidate_context():
         state={
             "last_screen_result": {
                 "scan_scope": {"source": "screen_stocks"},
+                "theme_context": {
+                    "event_mainlines": "机器人 0.82/爆发",
+                    "today_activity": "机器人 0.76/活跃",
+                    "theme_radar": "人形机器人 0.78/confirmed",
+                    "theme_radar_source": "current",
+                    "hot_concepts": ["机器人", "灵巧手", "滚柱丝杠", "电子皮肤", "控制系统", "减速器", "extra"],
+                },
                 "selection_brief": {"status": "ready_for_ai_review", "best_codes": ["300750"]},
                 "action_plan": {
                     "candidate_action": "generate_ai_report",
@@ -576,6 +583,12 @@ def test_workflow_handoff_state_compacts_candidate_context():
                         "stage": "Markup",
                         "candidate_lane": "mainline",
                         "entry_type": "launchpad",
+                        "strategic_theme": "机器人",
+                        "theme_score": 0.72,
+                        "theme_source": "ths_hot_event",
+                        "theme_event_id": "evt-robot",
+                        "theme_event_title": "特斯拉量产临近，机器人板块还能回归市场主线吗？",
+                        "theme_event_reason": "灵巧手",
                         "selection_source": "recommendation_event_eval",
                         "source_type": "policy_selection",
                         "priority_rank": 1,
@@ -693,6 +706,8 @@ def test_workflow_handoff_state_compacts_candidate_context():
 
     screen = handoff["last_screen_result"]
     assert screen["selection_brief"]["best_codes"] == ["300750"]
+    assert screen["theme_context"]["event_mainlines"] == "机器人 0.82/爆发"
+    assert screen["theme_context"]["hot_concepts"] == ["机器人", "灵巧手", "滚柱丝杠", "电子皮肤", "控制系统", "减速器"]
     assert screen["action_plan"]["new_buy_allowed"] is False
     assert screen["action_plan"]["quality_gate"]["status"] == "blocked_by_quality_gate"
     assert screen["quality_gate"]["status"] == "blocked_by_quality_gate"
@@ -704,6 +719,10 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert candidate["selection_strategy"] == "candidate_shadow_then_score"
     assert candidate["is_ai_recommended"] is True
     assert candidate["label_ready"] is False
+    assert candidate["strategic_theme"] == "机器人"
+    assert candidate["theme_source"] == "ths_hot_event"
+    assert candidate["theme_event_id"] == "evt-robot"
+    assert candidate["theme_event_reason"] == "灵巧手"
     assert screen["watch_candidates"][0]["code"] == "000013"
     screen_guard = screen["candidate_guard_summary"]
     assert screen_guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
@@ -939,6 +958,7 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
     )
     handoff = {
         "last_screen_result": {
+            "theme_context": {"event_mainlines": "机器人 0.82/爆发", "today_activity": "机器人 0.76/活跃"},
             "symbols_for_report": [
                 {
                     "code": "300750",
@@ -946,9 +966,12 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
                     "action_status": "ready_for_ai_review",
                     "candidate_shadow_score": 92.0,
                     "candidate_shadow_grade": "S",
+                    "strategic_theme": "机器人",
+                    "theme_source": "ths_hot_event",
+                    "theme_event_reason": "灵巧手",
                     "next_step": "生成 AI 研报",
                 }
-            ]
+            ],
         }
     }
     results = [
@@ -965,6 +988,8 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
     assert '"candidate_conclusion"' in handoff_section
     assert "候选结论: 首选 300750 宁德时代" in handoff_section
     assert '"candidate_shadow_score": 92.0' in handoff_section
+    assert '"theme_context": {"event_mainlines": "机器人 0.82/爆发"' in handoff_section
+    assert "事件主线机器人(灵巧手)" in handoff_section
     assert '"300750"' in handoff_section
     assert '"candidate_shadow_score": 92.0' not in agent_results_section
     assert "候选扫描完成" in agent_results_section
