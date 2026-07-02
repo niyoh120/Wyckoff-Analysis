@@ -2832,6 +2832,34 @@ def test_workflow_executor_serializes_inferred_stock_selection_dependencies(tmp_
         _reset_local_db(local_db)
 
 
+def test_phase_batches_serializes_no_tool_synthesis_after_fact_tasks():
+    run = plan_workflow(
+        "复盘我的持仓，结合市场给出去留和风险动作",
+        context=WORKFLOWS["portfolio_review"],
+        workflow_script={
+            "tasks": [
+                {"id": "positions", "title": "读取持仓", "tools": ["portfolio"], "prompt": "读取当前持仓。"},
+                {
+                    "id": "market",
+                    "title": "读取市场环境",
+                    "tools": ["get_market_overview"],
+                    "prompt": "读取当前市场水温。",
+                },
+                {
+                    "id": "decision",
+                    "title": "形成去留和风险动作",
+                    "prompt": "基于持仓和市场环境，输出每个持仓的去留、风险边界和下一步动作。",
+                },
+            ]
+        },
+    )
+
+    assert [[step.step_id for step in batch] for batch in _phase_batches(run.steps)] == [
+        ["positions", "market"],
+        ["decision"],
+    ]
+
+
 def test_workflow_executor_topologically_runs_out_of_order_stock_selection_tools(tmp_path, monkeypatch):
     from integrations import local_db
 

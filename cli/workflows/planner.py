@@ -70,6 +70,22 @@ _STOCK_FALLBACK_DECISION_MARKERS = (
     "失效位",
     "下一步",
 )
+_SYNTHESIS_TASK_MARKERS = (
+    "汇总",
+    "总结",
+    "整合",
+    "输出",
+    "形成",
+    "结论",
+    "建议",
+    "去留",
+    "动作",
+    "风险",
+    "攻防",
+    "复盘",
+    "诊断",
+)
+_SYNTHESIS_CONTEXT_MARKERS = ("基于", "根据", "结合", "整合", "汇总", "上一", "前面", "已有")
 
 _PLAN_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的动态 workflow 编排器。
@@ -770,7 +786,38 @@ def _stabilized_step_dependencies(step: WorkflowStep, steps: list[WorkflowStep])
             _nearest_tool_step_id(step, steps, "portfolio")
             or _nearest_tool_step_id(step, steps, "get_market_overview"),
         )
+    if not scope and not deps and _looks_like_synthesis_step(step):
+        deps.extend(_synthesis_fact_step_ids(step, steps))
     return tuple(deps)
+
+
+def _looks_like_synthesis_step(step: WorkflowStep) -> bool:
+    text = _compact_task_text(
+        " ".join(
+            [
+                step.title,
+                step.prompt,
+                step.context,
+                step.rationale,
+                step.success_criteria,
+            ]
+        )
+    )
+    return any(marker in text for marker in _SYNTHESIS_TASK_MARKERS) and any(
+        marker in text for marker in _SYNTHESIS_CONTEXT_MARKERS
+    )
+
+
+def _synthesis_fact_step_ids(step: WorkflowStep, steps: list[WorkflowStep]) -> list[str]:
+    return [
+        candidate.step_id
+        for candidate in steps
+        if candidate is not step and _step_has_fact_tool(candidate) and step.step_id not in candidate.depends_on
+    ]
+
+
+def _step_has_fact_tool(step: WorkflowStep) -> bool:
+    return any(name for name in step.tool_scope if name != ASK_USER_TOOL)
 
 
 def _nearest_tool_step_id(step: WorkflowStep, steps: list[WorkflowStep], tool_name: str) -> str:

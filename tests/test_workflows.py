@@ -1185,6 +1185,34 @@ def test_planner_stabilizes_missing_stock_selection_dependencies():
     assert run.steps[2].depends_on == ("market", "report")
 
 
+def test_planner_stabilizes_no_tool_synthesis_after_fact_tasks():
+    run = plan_workflow(
+        "复盘我的持仓，结合市场给出去留和风险动作",
+        context=WORKFLOWS["portfolio_review"],
+        workflow_script={
+            "tasks": [
+                {"id": "positions", "title": "读取持仓", "tools": ["portfolio"], "prompt": "读取当前持仓。"},
+                {
+                    "id": "market",
+                    "title": "读取市场环境",
+                    "tools": ["get_market_overview"],
+                    "prompt": "读取当前市场水温。",
+                },
+                {
+                    "id": "decision",
+                    "title": "形成去留和风险动作",
+                    "prompt": "基于持仓和市场环境，输出每个持仓的去留、风险边界和下一步动作。",
+                },
+            ]
+        },
+    )
+
+    assert [step.step_id for step in run.steps] == ["positions", "market", "decision"]
+    assert run.steps[0].depends_on == ()
+    assert run.steps[1].depends_on == ()
+    assert run.steps[2].depends_on == ("positions", "market")
+
+
 def test_planner_resolves_dependency_titles_to_step_ids():
     context = route_workflow("用 workflow 做选股、研报和攻防计划")
     run = plan_workflow(
