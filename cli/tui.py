@@ -294,6 +294,16 @@ class _PendingWorkflowLaunch:
 
 
 @dataclass
+class _PendingUserQuestion:
+    question: str
+    options: list[str]
+    allow_free_text: bool
+    default_answer: str
+    event: threading.Event
+    result: list[str]
+
+
+@dataclass
 class _AgentUiOps:
     log: Any
     write: Any
@@ -1030,6 +1040,21 @@ def _sub_agent_progress_label(name: Any) -> str:
     }.get(str(name or "").strip(), "agent")
 
 
+def _pending_user_question_answer(text: str, pending: _PendingUserQuestion) -> str:
+    answer = text.strip()
+    if not pending.options:
+        return answer or pending.default_answer
+    if answer in pending.options:
+        return answer
+    if answer.isdigit():
+        index = int(answer)
+        if 0 <= index < len(pending.options):
+            return pending.options[index]
+    if pending.allow_free_text:
+        return answer or pending.default_answer
+    return ""
+
+
 def _build_thinking_preview(text: str) -> Text | None:
     preview = text.strip().replace("\n", " ")
     if len(preview) > 80:
@@ -1539,6 +1564,7 @@ class WyckoffTUI(App):
         self._queue: deque[Any] = deque()
         self._workflow_override: _WorkflowOverride | None = None
         self._pending_workflows: dict[str, _PendingWorkflowLaunch] = {}
+        self._pending_user_question: _PendingUserQuestion | None = None
         self._session_id = uuid.uuid4().hex[:12]
         self._agent_log = _get_agent_logger()
         # 后台任务管理
@@ -1688,12 +1714,16 @@ class WyckoffTUI(App):
         """从 worker 线程调用，阻塞并向用户提问，返回用户的回答。"""
         event = threading.Event()
         result: list[str] = [""]
+        pending = _PendingUserQuestion(question, options or [], allow_free_text, default_answer, event, result)
 
         def _on_dismiss(answer: str) -> None:
+            if event.is_set():
+                return
             result[0] = answer
             event.set()
 
         def _show() -> None:
+            self._pending_user_question = pending
             screen = AskUserScreen(
                 question,
                 options,
@@ -1704,7 +1734,26 @@ class WyckoffTUI(App):
 
         self.call_from_thread(_show)
         event.wait(timeout=300)  # 等待最长 5 分钟
+        self.call_from_thread(self._clear_pending_user_question, pending)
         return result[0] or default_answer or "已超时未作答"
+
+    def _clear_pending_user_question(self, pending: _PendingUserQuestion) -> None:
+        if self._pending_user_question is pending:
+            self._pending_user_question = None
+
+    def _answer_pending_user_question(self, text: str, log) -> bool:
+        pending = self._pending_user_question
+        if not pending or pending.event.is_set():
+            return False
+        answer = _pending_user_question_answer(text, pending)
+        if not answer:
+            log.write(Text.from_markup("  [yellow]请从当前提问的选项中选择，或先取消该提问。[/yellow]"))
+            return True
+        pending.result[0] = answer
+        pending.event.set()
+        self._pending_user_question = None
+        log.write(Text.from_markup(f"  [dim]↳ 已作为当前提问的回答：{escape(answer)}[/dim]"))
+        return True
 
     # ----- 快捷键动作 -----
 
@@ -1864,6 +1913,9 @@ class WyckoffTUI(App):
             return
 
         log = self.query_one("#chat-log", ChatLog)
+
+        if self._busy and self._answer_pending_user_question(text, log):
+            return
 
         # 斜杠命令
         if text.startswith("/"):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections import deque
 from datetime import datetime
 from types import SimpleNamespace
@@ -20,6 +21,7 @@ from cli.tui import (
     _is_system_notification_message,
     _make_sub_agent_progress_handler,
     _pending_workflow_reply_intent,
+    _PendingUserQuestion,
     _pop_lines,
     _replace_streamed_response,
     _settle_markdown_render,
@@ -582,6 +584,46 @@ def test_sub_agent_progress_handler_uses_reader_facing_tool_labels():
     assert "task →" not in rendered
     assert stops == [True]
     assert scrolls == [True]
+
+
+def test_busy_input_answers_pending_user_question_instead_of_queueing():
+    app = object.__new__(WyckoffTUI)
+    event = threading.Event()
+    result = [""]
+    app._pending_user_question = _PendingUserQuestion(
+        "把你要看的持仓代码发来",
+        [],
+        True,
+        "",
+        event,
+        result,
+    )
+    log = _FakeLog()
+
+    handled = WyckoffTUI._answer_pending_user_question(app, "你看我持仓呀", log)
+
+    assert handled is True
+    assert event.is_set()
+    assert result[0] == "你看我持仓呀"
+    assert app._pending_user_question is None
+    assert "已作为当前提问的回答" in str(log.lines[-1])
+
+
+def test_busy_input_rejects_invalid_pending_question_option():
+    app = object.__new__(WyckoffTUI)
+    event = threading.Event()
+    result = [""]
+    pending = _PendingUserQuestion("是否确认？", ["确认", "取消"], False, "", event, result)
+    app._pending_user_question = pending
+    log = _FakeLog()
+
+    handled = WyckoffTUI._answer_pending_user_question(app, "随便说", log)
+
+    assert handled is True
+    assert not event.is_set()
+    assert result == [""]
+    assert app._pending_user_question is pending
+    assert "请从当前提问的选项中选择" in str(log.lines[-1])
 
 
 def test_submit_workflow_background_auto_starts_model_plan():
