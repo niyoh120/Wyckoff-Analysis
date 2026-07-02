@@ -3263,18 +3263,22 @@ class WyckoffTUI(App):
         write,
         scroll,
     ) -> bool:
-        task_id = f"wfbg_{time.time_ns()}"
-        messages_snapshot = [dict(item) for item in self._messages]
+        event = runtime.prepare_run()
+        run_id = str(event.get("run_id", ""))
+        task_id = f"wfbg_{run_id or time.time_ns()}_{time.time_ns()}"
         self._restore_turn_user_message(state.turn_user_index)
         self._chatlog_save("user", state.user_text, model=state.model_name, provider=state.provider_name)
-        ack = "workflow 已提交后台运行；可继续聊天，用 /workflow 查看进度。"
+        _display_workflow_plan_event(event, write, scroll)
+        messages_snapshot = [dict(item) for item in self._messages]
+        workflow_label = f"workflow {run_id}" if run_id else "workflow"
+        ack = f"{workflow_label} 自动开始后台运行；可继续聊天，用 /workflow 查看进度。"
         self._messages.append({"role": "assistant", "content": ack})
         self._chatlog_save(
             "assistant",
             ack,
             model=state.model_name,
             provider=state.provider_name,
-            metadata_json=json.dumps({"workflow_background": True}, ensure_ascii=False),
+            metadata_json=json.dumps({"workflow_background": True, "workflow_run_id": run_id}, ensure_ascii=False),
         )
         self._launch_workflow_background(
             runtime,
@@ -3549,7 +3553,10 @@ class WyckoffTUI(App):
             system_prompt = with_current_time(self._system_prompt)
             if isinstance(runtime, WorkflowExecutor):
                 ui.spinner_stop()
-                self._prepare_workflow_approval(runtime, state, system_prompt, _write, _scroll)
+                if workflow_override:
+                    self._prepare_workflow_approval(runtime, state, system_prompt, _write, _scroll)
+                else:
+                    self._submit_workflow_background(runtime, state, system_prompt, _write, _scroll)
                 return
             for event in runtime.run_stream(self._messages, with_current_time(self._system_prompt)):
                 if self._cancel_event.is_set():

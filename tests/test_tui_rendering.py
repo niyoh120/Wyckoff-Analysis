@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 pytest.importorskip("textual")
@@ -7,6 +9,7 @@ pytest.importorskip("textual")
 from rich.markdown import Markdown
 
 from cli.tui import (
+    WyckoffTUI,
     _background_task_summary,
     _chatlog_role_for_turn,
     _display_final_response,
@@ -277,6 +280,66 @@ def test_display_workflow_plan_event_surfaces_model_step_boundaries():
     assert "禁止直接买入" in rendered
     assert "/workflow show wf_dynamic" in rendered
     assert "工具：" not in rendered
+
+
+def test_submit_workflow_background_auto_starts_model_plan():
+    app = object.__new__(WyckoffTUI)
+    app._messages = [{"role": "user", "content": "memory\n帮我选出好股票", "_raw_content": "帮我选出好股票"}]
+    chatlog_rows = []
+    launched = []
+    writes = []
+    scrolls = []
+
+    class Runtime:
+        def __init__(self) -> None:
+            self.prepared = False
+
+        def prepare_run(self):
+            self.prepared = True
+            return {
+                "run_id": "wf_auto",
+                "workflow": "dynamic_task",
+                "label": "今日选股",
+                "plan": {
+                    "script": {"runtime": {"planner": "model_script"}},
+                    "steps": [{"title": "扫描候选", "rationale": "先缩小候选池"}],
+                },
+            }
+
+    runtime = Runtime()
+    app._chatlog_save = lambda role, content, **kwargs: chatlog_rows.append((role, content, kwargs))
+    app._launch_workflow_background = lambda *args: launched.append(args)
+
+    started = WyckoffTUI._submit_workflow_background(
+        app,
+        runtime,
+        SimpleNamespace(
+            turn_user_index=0,
+            user_text="帮我选出好股票",
+            model_name="model",
+            provider_name="provider",
+        ),
+        "system prompt",
+        writes.append,
+        lambda: scrolls.append(True),
+    )
+
+    assert started is True
+    assert runtime.prepared is True
+    assert app._messages[0]["content"] == "帮我选出好股票"
+    assert app._messages[-1]["role"] == "assistant"
+    assert "自动开始后台运行" in app._messages[-1]["content"]
+    assert chatlog_rows[0][0] == "user"
+    assert chatlog_rows[1][0] == "assistant"
+    assert "workflow_run_id" in chatlog_rows[1][2]["metadata_json"]
+    assert len(launched) == 1
+    assert launched[0][1] == [{"role": "user", "content": "帮我选出好股票"}]
+    assert launched[0][2] == "system prompt"
+    assert launched[0][5].startswith("wfbg_wf_auto_")
+    rendered = "\n".join(str(item) for item in writes)
+    assert "脚本来源：模型生成" in rendered
+    assert "/workflow show wf_auto" in rendered
+    assert scrolls
 
 
 def test_display_workflow_step_event_hides_internal_scope():
