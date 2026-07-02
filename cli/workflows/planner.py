@@ -15,6 +15,7 @@ from cli.workflows.router import route_workflow
 MAX_WORKFLOW_STEPS = 24
 ASK_USER_TOOL = "ask_user_question"
 TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions", "plan")
+PHASE_LIST_FIELDS = ("phases", "stages", "stage_groups", "sections", "groups", "milestones")
 SCRIPT_CONTAINER_FIELDS = ("workflow", "workflow_script", "script", "plan")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
 TOOL_SCOPE_FIELDS = (
@@ -285,7 +286,7 @@ def _script_with_container_defaults(container: dict[str, Any], nested: dict[str,
 
 
 def _workflow_script_like(value: dict[str, Any]) -> bool:
-    return bool(_safe_list(value.get("phases")) or _first_task_list(value) or _generated_task_like(value))
+    return bool(_first_phase_list(value) or _first_task_list(value) or _generated_task_like(value))
 
 
 def _outline_script(text: str) -> dict[str, Any] | None:
@@ -378,7 +379,7 @@ def _task_step(
 
 
 def _script_phases(script: dict[str, Any]) -> list[dict[str, Any]]:
-    phases = _safe_list(script.get("phases"))
+    phases = _first_phase_list(script)
     if phases:
         return phases
     tasks = _first_task_list(script)
@@ -386,6 +387,14 @@ def _script_phases(script: dict[str, Any]) -> list[dict[str, Any]]:
         return [{"id": "top_level", "title": script.get("title") or "动态任务", "tasks": tasks}]
     if _generated_task_like(script):
         return [{"id": "top_level", "title": script.get("title") or "动态任务", "tasks": [script]}]
+    return []
+
+
+def _first_phase_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    for field in PHASE_LIST_FIELDS:
+        phases = _safe_list(payload.get(field))
+        if phases:
+            return phases
     return []
 
 

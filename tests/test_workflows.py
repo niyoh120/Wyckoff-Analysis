@@ -1062,6 +1062,63 @@ def test_planner_unwraps_structured_plan_container_from_model_script():
     assert run.steps[0].tool_scope == ("screen_stocks",)
 
 
+def test_planner_accepts_stage_phase_alias_from_generated_script():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": (
+                        '{"title":"选股流程","stages":[{"id":"screening","title":"筛选阶段","steps":['
+                        '{"id":"scan","title":"扫描候选","tools":["screen_stocks"],"prompt":"扫描候选"}'
+                        "]}]}"
+                    ),
+                }
+            ]
+        ]
+    )
+    context = route_workflow("用 workflow 选出好股票")
+    run = plan_workflow("选出好股票", context=context, provider=provider, tools=StubToolRegistry())
+
+    assert run.script["runtime"]["planner"] == "model_script"
+    assert [step.step_id for step in run.steps] == ["scan"]
+    assert run.steps[0].phase == "screening"
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+
+
+def test_planner_accepts_keyed_section_phase_alias_from_model_script():
+    context = route_workflow("用 workflow 做选股和攻防")
+    run = plan_workflow(
+        "做选股和攻防",
+        context=context,
+        workflow_script={
+            "sections": {
+                "screening": {
+                    "title": "筛选阶段",
+                    "tasks": [{"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描候选。"}],
+                },
+                "decision": {
+                    "title": "攻防阶段",
+                    "tasks": [
+                        {
+                            "id": "attack",
+                            "title": "形成攻防",
+                            "tools": ["generate_strategy_decision"],
+                            "prompt": "输出攻防计划。",
+                        }
+                    ],
+                },
+            }
+        },
+    )
+
+    assert [step.step_id for step in run.steps] == ["scan", "attack"]
+    assert [step.phase for step in run.steps] == ["screening", "decision"]
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[1].tool_scope == ("generate_strategy_decision",)
+    assert run.steps[1].depends_on == ("scan",)
+
+
 def test_planner_wraps_top_level_json_task_array():
     provider = ScriptedProvider(
         [
