@@ -210,15 +210,29 @@ def _parse_decision(response: Any) -> dict[str, Any] | None:
 
 
 def _router_decision_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if _payload_has_top_level_decision_value(payload):
+        return payload
+    if nested := _nested_router_decision_payload(payload):
+        return nested
     if _payload_has_decision_value(payload):
         return payload
-    for field in _DECISION_CONTAINER_FIELDS:
+    return payload
+
+
+def _nested_router_decision_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    for field in (*_DECISION_CONTAINER_FIELDS, *_MODE_FIELDS, *_WORKFLOW_FLAG_FIELDS):
         nested = payload.get(field)
-        if isinstance(nested, dict):
+        if isinstance(nested, dict) and _payload_has_decision_value(nested):
             merged = dict(payload)
             merged.update(nested)
             return merged
-    return payload
+    return None
+
+
+def _payload_has_top_level_decision_value(payload: dict[str, Any]) -> bool:
+    if any(not isinstance(payload.get(field), dict) and _mode_value(payload.get(field)) for field in _MODE_FIELDS):
+        return True
+    return _workflow_flag(payload) is not None
 
 
 def _payload_has_decision_value(payload: dict[str, Any]) -> bool:

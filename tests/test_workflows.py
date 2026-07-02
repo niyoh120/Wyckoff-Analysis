@@ -400,6 +400,41 @@ def test_dispatch_accepts_nested_router_decision_payload():
     assert isinstance(runtime, WorkflowExecutor)
 
 
+def test_dispatch_preserves_reason_from_nested_route_mode_payload():
+    provider = RouterDecisionProvider(
+        '{"route":{"mode":"dynamic_workflow","confidence":0.87,"reason":"需要先筛候选再给攻防"}}'
+    )
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="今天找几个好票带攻防",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_confidence == 0.87
+    assert workflow.route_reason == "模型判断需要动态 workflow：需要先筛候选再给攻防"
+    assert isinstance(runtime, WorkflowExecutor)
+
+
+def test_dispatch_keeps_top_level_router_mode_over_nested_metadata():
+    provider = RouterDecisionProvider(
+        '{"mode":"direct","reason":"单轮解释","route":{"mode":"dynamic_workflow","reason":"嵌套调试信息"}}'
+    )
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="解释一下 workflow 是什么",
+    )
+
+    assert workflow.name == "general_chat"
+    assert workflow.route_reason == "模型判断直接处理：单轮解释"
+    assert isinstance(runtime, AgentRuntime)
+
+
 def test_dispatch_accepts_planning_flag_without_mode():
     provider = RouterDecisionProvider('{"needs_plan":true,"score":"71%","reason":"需要跨候选复核"}')
 
