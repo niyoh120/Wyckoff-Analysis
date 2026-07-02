@@ -493,9 +493,19 @@ def _workflow_planner_label(planner: str) -> str:
 def _workflow_planner_reason(runtime: dict[str, Any], planner: str) -> str:
     if planner == "fallback_script":
         return str(runtime.get("fallback_reason") or "").strip()
+    reasons: list[str] = []
+    if runtime.get("tool_contract_repair") == "model":
+        reasons.append(_workflow_tool_contract_repair_reason(runtime))
     if _runtime_int(runtime, "truncated_step_count") > 0:
-        return "任务过长已自动收敛"
-    return ""
+        reasons.append("任务过长已自动收敛")
+    return " · ".join(reason for reason in reasons if reason)
+
+
+def _workflow_tool_contract_repair_reason(runtime: dict[str, Any]) -> str:
+    unscoped = _runtime_int(runtime, "unscoped_step_count_before_repair")
+    if unscoped > 0:
+        return f"模型已修订工具契约（修订前 {unscoped} 个任务未声明必用工具）"
+    return "模型已修订工具契约"
 
 
 def _workflow_script_rationale_line(plan: Any) -> str:

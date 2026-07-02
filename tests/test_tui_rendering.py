@@ -438,6 +438,35 @@ def test_display_workflow_plan_event_surfaces_planner_provenance():
     assert "1. 扫描候选" in rendered
 
 
+def test_display_workflow_plan_event_surfaces_model_contract_repair():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_repaired",
+            "workflow": "dynamic_task",
+            "label": "今日选股",
+            "plan": {
+                "script": {
+                    "runtime": {
+                        "planner": "model_script",
+                        "tool_contract_repair": "model",
+                        "unscoped_step_count_before_repair": 2,
+                    }
+                },
+                "steps": [{"title": "扫描候选", "tool_scope": ["screen_stocks"]}],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "脚本来源：模型生成" in rendered
+    assert "模型已修订工具契约（修订前 2 个任务未声明必用工具）" in rendered
+    assert "脚本边界" not in rendered
+
+
 def test_display_workflow_plan_event_surfaces_fallback_reason():
     writes = []
 

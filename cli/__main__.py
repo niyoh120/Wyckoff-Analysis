@@ -963,8 +963,45 @@ def _cmd_workflow_show(run_id: str) -> None:
         return
     print(f"{run['run_id']}  {run['status']}  {run['label']}")
     print(f"用户输入: {run.get('user_text', '')}")
+    if script_line := _workflow_script_cli_line(run.get("plan", {})):
+        print(script_line)
     for idx, step in enumerate(run.get("plan", {}).get("steps", []), start=1):
         print(f"  {idx}. {_workflow_step_cli_line(step)}")
+
+
+def _workflow_script_cli_line(plan: dict[str, Any]) -> str:
+    runtime = _workflow_plan_runtime(plan)
+    parts: list[str] = []
+    planner = str(runtime.get("planner") or "").strip()
+    if planner:
+        parts.append(f"source={planner}")
+    if runtime.get("tool_contract_repair") == "model":
+        parts.append(_workflow_tool_contract_repair_label(runtime))
+    if truncated := _workflow_runtime_int(runtime, "truncated_step_count"):
+        original = _workflow_runtime_int(runtime, "original_step_count")
+        parts.append(f"trimmed={truncated}/{original}")
+    return f"脚本: {' '.join(parts)}" if parts else ""
+
+
+def _workflow_plan_runtime(plan: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(plan, dict):
+        return {}
+    script = plan.get("script") if isinstance(plan.get("script"), dict) else {}
+    runtime = script.get("runtime") if isinstance(script.get("runtime"), dict) else {}
+    return runtime
+
+
+def _workflow_tool_contract_repair_label(runtime: dict[str, Any]) -> str:
+    count = _workflow_runtime_int(runtime, "unscoped_step_count_before_repair")
+    suffix = f":{count}" if count > 0 else ""
+    return f"tool_contract_repair=model{suffix}"
+
+
+def _workflow_runtime_int(runtime: dict[str, Any], field: str) -> int:
+    try:
+        return int(runtime.get(field, 0) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _workflow_step_cli_line(step: dict) -> str:

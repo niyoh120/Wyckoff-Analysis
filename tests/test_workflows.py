@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from cli.__main__ import _workflow_step_cli_line
+from cli.__main__ import _workflow_script_cli_line, _workflow_step_cli_line
 from cli.runtime import AgentRuntime
 from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
@@ -66,6 +66,23 @@ def test_workflow_step_cli_line_includes_effective_tool_scope():
 
     assert "[running] 复盘持仓" in line
     assert "optional_tools=portfolio,analyze_stock" in line
+
+
+def test_workflow_script_cli_line_surfaces_model_contract_repair():
+    line = _workflow_script_cli_line(
+        {
+            "script": {
+                "runtime": {
+                    "planner": "model_script",
+                    "tool_contract_repair": "model",
+                    "unscoped_step_count_before_repair": 2,
+                }
+            }
+        }
+    )
+
+    assert "source=model_script" in line
+    assert "tool_contract_repair=model:2" in line
 
 
 def test_route_workflow_keeps_task_like_typo_direct_for_model_inference():
