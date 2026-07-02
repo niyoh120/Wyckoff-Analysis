@@ -51,6 +51,21 @@ def test_workflow_step_cli_line_includes_agent_and_tool_scope():
     assert "analysis: completed" in line
 
 
+def test_workflow_step_cli_line_includes_effective_tool_scope():
+    line = _workflow_step_cli_line(
+        {
+            "status": "running",
+            "title": "复盘持仓",
+            "agent": "task",
+            "tool_scope": [],
+            "effective_tool_scope": ["portfolio", "analyze_stock"],
+        }
+    )
+
+    assert "[running] 复盘持仓" in line
+    assert "available_tools=portfolio,analyze_stock" in line
+
+
 def test_route_workflow_keeps_task_like_typo_direct_for_model_inference():
     workflow = route_workflow("给我做磁场诊断")
 

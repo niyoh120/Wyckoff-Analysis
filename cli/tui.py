@@ -562,9 +562,10 @@ def _workflow_step_meta(step: dict[str, Any], label: str, *, include_debug: bool
     parts: list[str] = []
     if include_debug:
         parts.append(escape(str(step.get("agent", "") or "agent")))
-        tool_scope = [escape(str(item)) for item in step.get("tool_scope", []) if str(item)]
+        tool_scope, tool_label = _workflow_step_tool_values(step)
+        tool_scope = [escape(item) for item in tool_scope]
         if tool_scope:
-            parts.append(f"工具：{', '.join(tool_scope[:4])}")
+            parts.append(f"{tool_label}：{', '.join(tool_scope[:4])}")
             if len(tool_scope) > 4:
                 parts.append(f"+{len(tool_scope) - 4}")
     parts.append(escape(label))
@@ -595,12 +596,23 @@ def _workflow_plan_step_meta(step: dict[str, Any], *, field_limit: int | None = 
 
 
 def _workflow_step_tool_meta(step: dict[str, Any]) -> str:
-    labels = [_workflow_tool_display_name(item) for item in step.get("tool_scope", []) if str(item)]
+    tools, label = _workflow_step_tool_values(step)
+    labels = [_workflow_tool_display_name(item) for item in tools]
     if not labels:
         return ""
     visible = "、".join(labels[:4])
     suffix = f"、+{len(labels) - 4}" if len(labels) > 4 else ""
-    return f"工具: {escape(visible + suffix)}"
+    return f"{label}: {escape(visible + suffix)}"
+
+
+def _workflow_step_tool_values(step: dict[str, Any]) -> tuple[list[str], str]:
+    scoped = [str(item) for item in step.get("tool_scope", []) if str(item)]
+    if scoped:
+        return scoped, "工具"
+    effective = [str(item) for item in step.get("effective_tool_scope", []) if str(item)]
+    if effective:
+        return effective, "可用工具"
+    return [], "工具"
 
 
 def _workflow_tool_display_name(name: Any) -> str:

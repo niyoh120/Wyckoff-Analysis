@@ -244,7 +244,7 @@ class WorkflowExecutor:
                 break
             yield self._mark_step_start(step)
             result = self._run_step(step, prior_results)
-            results.append({"step": step.to_dict(), "result": result})
+            results.append({"step": self._step_payload(step), "result": result})
             yield self._mark_step_done(step, result)
         return results
 
@@ -266,7 +266,7 @@ class WorkflowExecutor:
                     result = future.result()
                 except Exception as exc:
                     result = {"status": "error", "error": str(exc)}
-                results.append((idx, {"step": step.to_dict(), "result": result}))
+                results.append((idx, {"step": self._step_payload(step), "result": result}))
                 yield self._mark_step_done(step, result)
         return _script_ordered_results(results)
 
@@ -299,7 +299,7 @@ class WorkflowExecutor:
             "type": event_type,
             "run_id": run.run_id,
             "phase": phase_id,
-            "steps": [step.to_dict() for step in phase_steps],
+            "steps": [run.step_payload(step) for step in phase_steps],
             "parallel": len(phase_steps) > 1,
         }
         append_workflow_event(run.run_id, event_type, payload)
@@ -335,11 +335,14 @@ class WorkflowExecutor:
         payload = {
             "type": event_type,
             "run_id": run.run_id,
-            "step": step.to_dict(),
+            "step": run.step_payload(step),
             "source": _source_payload(source),
         }
         append_workflow_event(run.run_id, event_type, payload)
         return payload
+
+    def _step_payload(self, step: WorkflowStep) -> dict[str, Any]:
+        return self._require_run().step_payload(step)
 
     def _synthesize_results(self, results: list[dict[str, Any]], system_prompt: str) -> tuple[str, dict[str, int]]:
         prompt = _synthesis_prompt(self._require_run(), results)

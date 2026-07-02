@@ -979,11 +979,15 @@ def _workflow_step_cli_line(step: dict) -> str:
 
 def _workflow_step_tool_label(step: dict) -> str:
     tools = [str(item) for item in step.get("tool_scope", []) if str(item)]
+    label = "tools"
+    if not tools:
+        tools = [str(item) for item in step.get("effective_tool_scope", []) if str(item)]
+        label = "available_tools"
     if not tools:
         return ""
     visible = ",".join(tools[:4])
     suffix = f",+{len(tools) - 4}" if len(tools) > 4 else ""
-    return f" tools={visible}{suffix}"
+    return f" {label}={visible}{suffix}"
 
 
 def _workflow_step_detail_label(step: dict) -> str:

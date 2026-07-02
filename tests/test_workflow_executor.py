@@ -1994,6 +1994,40 @@ def test_workflow_executor_does_not_widen_filtered_explicit_tool_scope(tmp_path,
         _reset_local_db(local_db)
 
 
+def test_workflow_plan_surfaces_effective_tool_scope_for_generic_task(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-effective-scope.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "按持仓上下文完成。"}],
+            [{"type": "text_delta", "text": "复盘完成。"}],
+        ]
+    )
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(),
+        session_id="s_effective_scope",
+        user_text="复盘持仓",
+        workflow_context=WORKFLOWS["portfolio_review"],
+        workflow_script={"tasks": [{"id": "review", "title": "复盘持仓", "prompt": "读取事实后复盘持仓"}]},
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "复盘持仓"}]))
+
+    try:
+        plan_step = events[0]["plan"]["steps"][0]
+        done_step = next(event for event in events if event["type"] == "workflow_step_done")["step"]
+        assert plan_step["tool_scope"] == []
+        assert "portfolio" in plan_step["effective_tool_scope"]
+        assert "analyze_stock" in plan_step["effective_tool_scope"]
+        assert done_step["effective_tool_scope"] == plan_step["effective_tool_scope"]
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_portfolio_scope_blocks_question_before_reading_positions(tmp_path, monkeypatch):
     from integrations import local_db
 

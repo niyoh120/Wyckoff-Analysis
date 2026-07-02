@@ -287,6 +287,35 @@ def test_display_workflow_plan_event_surfaces_model_step_boundaries():
     assert "/workflow show wf_dynamic" in rendered
 
 
+def test_display_workflow_plan_event_surfaces_effective_tool_scope():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_generic",
+            "workflow": "portfolio_review",
+            "label": "持仓复盘",
+            "plan": {
+                "steps": [
+                    {
+                        "title": "复盘持仓",
+                        "tool_scope": [],
+                        "effective_tool_scope": ["portfolio", "analyze_stock"],
+                        "rationale": "让模型按上下文决定最小工具调用",
+                    }
+                ],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "1. 复盘持仓" in rendered
+    assert "可用工具: 持仓、个股分析" in rendered
+    assert "目标: 让模型按上下文决定最小工具调用" in rendered
+
+
 def test_submit_workflow_background_auto_starts_model_plan():
     app = object.__new__(WyckoffTUI)
     app._messages = [{"role": "user", "content": "memory\n帮我选出好股票", "_raw_content": "帮我选出好股票"}]
@@ -545,6 +574,21 @@ def test_workflow_detail_step_line_includes_tool_scope():
     assert "目标: 先确认真实仓位" in line
     assert "验收: 输出持仓风险" in line
     assert "边界: 不写入交易" in line
+
+
+def test_workflow_detail_step_line_includes_effective_tool_scope():
+    line = _workflow_detail_step_line(
+        {
+            "step_id": "review",
+            "title": "复盘持仓",
+            "agent": "task",
+            "status": "running",
+            "tool_scope": [],
+            "effective_tool_scope": ["portfolio", "analyze_stock"],
+        }
+    )
+
+    assert "可用工具：portfolio, analyze_stock" in line
 
 
 def test_workflow_control_intent_requires_explicit_control_action():

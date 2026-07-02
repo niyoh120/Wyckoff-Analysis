@@ -134,8 +134,14 @@ class WorkflowRun:
             "allowed_tools": list(self.allowed_tools),
             "route": self.context.route_payload(),
             "script": self.script,
-            "steps": [step.to_dict() for step in self.steps],
+            "steps": [self.step_payload(step) for step in self.steps],
         }
+
+    def step_payload(self, step: WorkflowStep) -> dict[str, Any]:
+        payload = step.to_dict()
+        if effective_scope := _effective_tool_scope(step.tool_scope, self.allowed_tools):
+            payload["effective_tool_scope"] = list(effective_scope)
+        return payload
 
     def refresh_current_step(self) -> None:
         for idx, step in enumerate(self.steps):
@@ -143,3 +149,10 @@ class WorkflowRun:
                 self.current_step = idx
                 return
         self.current_step = len(self.steps)
+
+
+def _effective_tool_scope(tool_scope: tuple[str, ...], allowed_tools: tuple[str, ...]) -> tuple[str, ...]:
+    allowed = tuple(name for name in allowed_tools if name and not name.startswith("delegate_to_"))
+    if tool_scope:
+        return tuple(name for name in tool_scope if name and not name.startswith("delegate_to_") and name in allowed)
+    return allowed
