@@ -464,26 +464,43 @@ def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
 
 
 def _stabilize_tool_dependencies(steps: list[WorkflowStep]) -> list[WorkflowStep]:
-    last_screen = ""
-    last_report = ""
     for step in steps:
-        step.depends_on = _stabilized_step_dependencies(step, last_screen, last_report)
-        scope = set(step.tool_scope)
-        if "screen_stocks" in scope:
-            last_screen = step.step_id
-        if "generate_ai_report" in scope:
-            last_report = step.step_id
+        step.depends_on = _stabilized_step_dependencies(step, steps)
     return steps
 
 
-def _stabilized_step_dependencies(step: WorkflowStep, last_screen: str, last_report: str) -> tuple[str, ...]:
+def _stabilized_step_dependencies(step: WorkflowStep, steps: list[WorkflowStep]) -> tuple[str, ...]:
     scope = set(step.tool_scope)
     deps = list(step.depends_on)
     if "generate_ai_report" in scope and "screen_stocks" not in scope:
-        _append_dependency(deps, last_screen)
+        _append_dependency(deps, _nearest_tool_step_id(step, steps, "screen_stocks"))
     if "generate_strategy_decision" in scope and not scope.intersection({"screen_stocks", "generate_ai_report"}):
-        _append_dependency(deps, last_report or last_screen)
+        _append_dependency(
+            deps,
+            _nearest_tool_step_id(step, steps, "generate_ai_report")
+            or _nearest_tool_step_id(step, steps, "screen_stocks"),
+        )
     return tuple(deps)
+
+
+def _nearest_tool_step_id(step: WorkflowStep, steps: list[WorkflowStep], tool_name: str) -> str:
+    rows = [candidate for candidate in steps if _same_phase(step, candidate) and candidate is not step]
+    previous = [
+        candidate for candidate in rows if tool_name in candidate.tool_scope and _step_before(candidate, step, steps)
+    ]
+    following = [
+        candidate for candidate in rows if tool_name in candidate.tool_scope and _step_before(step, candidate, steps)
+    ]
+    candidate = (previous[-1:] or following[:1] or [None])[0]
+    return candidate.step_id if candidate else ""
+
+
+def _same_phase(left: WorkflowStep, right: WorkflowStep) -> bool:
+    return (left.phase or "") == (right.phase or "")
+
+
+def _step_before(left: WorkflowStep, right: WorkflowStep, steps: list[WorkflowStep]) -> bool:
+    return steps.index(left) < steps.index(right)
 
 
 def _append_dependency(deps: list[str], dep: str) -> None:

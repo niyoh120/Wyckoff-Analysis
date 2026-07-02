@@ -1970,6 +1970,74 @@ def test_workflow_executor_serializes_inferred_stock_selection_dependencies(tmp_
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_topologically_runs_out_of_order_stock_selection_tools(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-out-of-order-stock-deps.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "tool_calls", "tool_calls": [{"id": "tc_scan", "name": "screen_stocks", "args": {}}]}],
+            [{"type": "text_delta", "text": "候选扫描完成。"}],
+            [{"type": "tool_calls", "tool_calls": [{"id": "tc_report", "name": "generate_ai_report", "args": {}}]}],
+            [{"type": "text_delta", "text": "研报生成完成。"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_decision", "name": "generate_strategy_decision", "args": {}}],
+                }
+            ],
+            [{"type": "text_delta", "text": "攻防计划完成。"}],
+            [{"type": "text_delta", "text": "乱序选股链路完成。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={
+            "screen_stocks": {"selection_brief": {"best_codes": ["300750"]}},
+            "generate_ai_report": {"reviewed_codes": ["300750"]},
+            "generate_strategy_decision": {"reviewed_codes": ["300750"], "status": "completed"},
+        },
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_out_of_order_stock_deps",
+        user_text="用 workflow 做选股、研报和攻防计划",
+        workflow_context=route_workflow("用 workflow 做选股、研报和攻防计划"),
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "decision",
+                    "title": "形成攻防",
+                    "tools": ["generate_strategy_decision"],
+                    "prompt": "基于候选和研报输出攻防边界。",
+                },
+                {"id": "report", "title": "生成研报", "tools": ["generate_ai_report"], "prompt": "基于候选生成研报。"},
+                {"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描今日候选。"},
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 做选股、研报和攻防计划"}]))
+
+    try:
+        starts = [event for event in events if event["type"] == "workflow_step_start"]
+        assert [event["step"]["step_id"] for event in starts] == ["scan", "report", "decision"]
+        assert starts[0]["step"]["depends_on"] == []
+        assert starts[1]["step"]["depends_on"] == ["scan"]
+        assert starts[2]["step"]["depends_on"] == ["report"]
+        assert [call["name"] for call in tools.calls] == [
+            "screen_stocks",
+            "generate_ai_report",
+            "generate_strategy_decision",
+        ]
+        assert events[-1]["text"] == "乱序选股链路完成。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_topologically_orders_out_of_order_dependencies(tmp_path, monkeypatch):
     from integrations import local_db
 
