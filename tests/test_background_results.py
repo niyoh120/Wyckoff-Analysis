@@ -150,6 +150,43 @@ def test_local_db_background_history_uses_tool_result_preview(tmp_path, monkeypa
         _reset_local_db(local_db)
 
 
+def test_local_db_background_history_uses_dynamic_workflow_preview(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "background-workflow.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    try:
+        local_db.init_db()
+
+        local_db.save_background_task_result(
+            "wfbg_screen",
+            "dynamic_workflow",
+            {
+                "workflow_run_id": "wf_screen",
+                "workflow": "dynamic_task",
+                "final_text": "候选结论: 首选 300750 宁德时代\n风险边界: 跌破 20 日线转观察",
+                "events": [
+                    {
+                        "type": "workflow_step_done",
+                        "step": {"title": "扫描候选", "status": "completed", "summary": "候选扫描完成"},
+                    }
+                ],
+                "huge": [{"blob": "x" * 200} for _ in range(80)],
+            },
+            session_id="s1",
+        )
+        row = local_db.load_background_task_results(limit=1)[0]
+
+        assert row["task_id"] == "wfbg_screen"
+        assert "候选结论: 首选 300750 宁德时代" in row["summary"]
+        assert "wf_screen" in row["summary"]
+        assert "扫描候选" in row["summary"]
+        assert '"huge"' not in row["summary"]
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_local_db_background_history_uses_recommendation_event_eval_preview(tmp_path, monkeypatch):
     from integrations import local_db
 

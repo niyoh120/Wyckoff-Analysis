@@ -18,6 +18,10 @@ def serialize_tool_result(result: Any) -> str:
 
 
 def tool_result_preview(tool_name: str, result: Any, content: str = "") -> str:
+    if tool_name == "dynamic_workflow" and isinstance(result, dict):
+        preview = _dynamic_workflow_preview(result)
+        if preview:
+            return preview[:PREVIEW_CHARS]
     if isinstance(result, dict) and _is_recommendation_event_eval_result(tool_name, result):
         preview = _recommendation_event_eval_preview(result)
         if preview:
@@ -296,6 +300,50 @@ def _format_pct(raw: Any) -> str:
         return f"{float(raw):.2f}".rstrip("0").rstrip(".")
     except (TypeError, ValueError):
         return "n/a"
+
+
+def _dynamic_workflow_preview(result: dict[str, Any]) -> str:
+    payload = _drop_empty_preview_fields(
+        {
+            "workflow_run_id": result.get("workflow_run_id"),
+            "workflow": result.get("workflow"),
+            "status": "failed" if result.get("error") else "completed",
+            "error": _text_excerpt(result.get("error"), 500),
+            "final_text": _text_excerpt(result.get("final_text"), 1400),
+            "elapsed": result.get("elapsed"),
+            "events": _dynamic_workflow_event_preview(result.get("events")),
+        }
+    )
+    return serialize_tool_result(payload) if payload else ""
+
+
+def _dynamic_workflow_event_preview(value: Any) -> list[dict[str, Any]]:
+    rows = _preview_list(value, 8)
+    return [
+        _drop_empty_preview_fields(
+            {
+                "type": row.get("type"),
+                "workflow": row.get("workflow"),
+                "phase": row.get("phase"),
+                "status": row.get("status"),
+                "step": _dynamic_workflow_step_preview(row.get("step")),
+            }
+        )
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
+def _dynamic_workflow_step_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "title": _text_excerpt(value.get("title"), 120),
+            "status": value.get("status"),
+            "summary": _text_excerpt(value.get("summary"), 240),
+        }
+    )
 
 
 def _strategy_decision_preview(result: dict[str, Any]) -> str:

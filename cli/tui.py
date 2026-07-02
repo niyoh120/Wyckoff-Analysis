@@ -803,6 +803,23 @@ def _system_notification_queue_item(content: str) -> dict[str, str]:
     return {"type": "system_notification", "content": content}
 
 
+def _workflow_background_notification(task_id: str, result: dict[str, Any], status: str, summary: str) -> str:
+    return (
+        "[SYSTEM NOTIFICATION - NOT USER INPUT]\n"
+        "This is an automated dynamic-workflow event, NOT a message from the user.\n"
+        "Do NOT interpret this as user acknowledgement, confirmation, or response to any pending question.\n\n"
+        "<system-reminder>\n"
+        "<workflow-notification>\n"
+        f"<task-id>{task_id}</task-id>\n"
+        f"<run-id>{result.get('workflow_run_id', '')}</run-id>\n"
+        f"<workflow>{result.get('workflow', '')}</workflow>\n"
+        f"<status>{status}</status>\n"
+        f"<summary>{summary}</summary>\n"
+        "</workflow-notification>\n"
+        "</system-reminder>"
+    )
+
+
 def _is_system_notification_message(message: dict[str, Any]) -> bool:
     return bool(message.get("_system_notification"))
 
@@ -3365,6 +3382,7 @@ class WyckoffTUI(App):
 
         log = self.query_one("#chat-log", ChatLog)
         is_error = bool(result.get("error"))
+        notify_followup = self._busy or bool(self._queue)
         run_id = str(result.get("workflow_run_id", ""))
         if run_id:
             unregister_workflow_control(run_id)
@@ -3374,6 +3392,7 @@ class WyckoffTUI(App):
                     f"  [red]✗ workflow 后台失败[/red] [dim]{escape(str(result.get('error', ''))[:100])}[/dim]"
                 )
             )
+            self._queue_workflow_background_notification(task_id, result, "failed", notify_followup)
             return
         final_text = str(result.get("final_text", "") or "workflow 已完成，但没有生成最终文本。")
         log.write(Text.from_markup(f"  [green]✓ workflow 后台完成[/green] [dim]{escape(run_id or task_id)}[/dim]"))
@@ -3404,6 +3423,19 @@ class WyckoffTUI(App):
                 ensure_ascii=False,
             ),
         )
+        self._queue_workflow_background_notification(task_id, result, "completed", notify_followup)
+
+    def _queue_workflow_background_notification(
+        self, task_id: str, result: dict[str, Any], status: str, notify_followup: bool
+    ) -> None:
+        if not notify_followup:
+            return
+        summary = _background_task_summary("dynamic_workflow", task_id, result)
+        self._queue.append(
+            _system_notification_queue_item(_workflow_background_notification(task_id, result, status, summary))
+        )
+        if not self._busy:
+            self._dispatch_queued_item(self._queue.popleft())
 
     def _handle_agent_event(
         self,

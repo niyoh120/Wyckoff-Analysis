@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from types import SimpleNamespace
 
 import pytest
@@ -340,6 +341,69 @@ def test_submit_workflow_background_auto_starts_model_plan():
     assert "脚本来源：模型生成" in rendered
     assert "/workflow show wf_auto" in rendered
     assert scrolls
+
+
+def test_complete_workflow_background_does_not_wake_idle_agent():
+    app = object.__new__(WyckoffTUI)
+    log = _FakeLog()
+    chatlog_rows = []
+    updates = []
+    app.query_one = lambda *_args, **_kwargs: log
+    app._busy = False
+    app._queue = deque()
+    app._messages = []
+    app._session_tokens = {"input": 0, "output": 0, "rounds": 0}
+    app._update_status = lambda: updates.append(True)
+    app._chatlog_save = lambda role, content, **kwargs: chatlog_rows.append((role, content, kwargs))
+
+    WyckoffTUI._complete_workflow_background(
+        app,
+        "wfbg_idle",
+        {
+            "workflow_run_id": "wf_idle",
+            "workflow": "dynamic_task",
+            "final_text": "候选结论: 首选 300750 宁德时代",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        },
+    )
+
+    assert app._queue == deque()
+    assert app._messages[-1]["content"] == "候选结论: 首选 300750 宁德时代"
+    assert app._session_tokens == {"input": 10, "output": 5, "rounds": 1}
+    assert chatlog_rows[0][0] == "assistant"
+    assert updates == [True]
+    assert "workflow 后台完成" in str(log.lines[-2])
+
+
+def test_complete_workflow_background_queues_system_notification_when_busy():
+    app = object.__new__(WyckoffTUI)
+    log = _FakeLog()
+    app.query_one = lambda *_args, **_kwargs: log
+    app._busy = True
+    app._queue = deque()
+    app._messages = []
+    app._session_tokens = {"input": 0, "output": 0, "rounds": 0}
+    app._update_status = lambda: None
+    app._chatlog_save = lambda *_args, **_kwargs: None
+
+    WyckoffTUI._complete_workflow_background(
+        app,
+        "wfbg_busy",
+        {
+            "workflow_run_id": "wf_busy",
+            "workflow": "dynamic_task",
+            "final_text": "候选结论: 首选 300750 宁德时代\n风险边界: 跌破 20 日线转观察",
+            "events": [{"type": "workflow_step_done", "step": {"title": "扫描候选", "status": "completed"}}],
+        },
+    )
+
+    assert len(app._queue) == 1
+    item = app._queue[0]
+    assert item["type"] == "system_notification"
+    assert "<run-id>wf_busy</run-id>" in item["content"]
+    assert "dynamic-workflow event" in item["content"]
+    assert "候选结论: 首选 300750 宁德时代" in item["content"]
+    assert app._messages[-1]["role"] == "assistant"
 
 
 def test_display_workflow_step_event_hides_internal_scope():
