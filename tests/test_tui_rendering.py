@@ -140,7 +140,8 @@ def test_display_workflow_plan_event_keeps_pending_plan_compact():
     assert "置信度：90%" in rendered
     assert "/workflow show wf_1" in rendered
     assert "待执行" not in rendered
-    assert "工具：run_backtest" not in rendered
+    assert "1. 执行回测任务" in rendered
+    assert "工具: 回测" in rendered
     assert "research" not in rendered
     assert scrolled == [True]
 
@@ -314,6 +315,35 @@ def test_display_workflow_plan_event_surfaces_effective_tool_scope():
     assert "1. 复盘持仓" in rendered
     assert "可用工具: 持仓、个股分析" in rendered
     assert "目标: 让模型按上下文决定最小工具调用" in rendered
+
+
+def test_display_workflow_plan_event_previews_tool_only_model_steps():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_outline",
+            "workflow": "dynamic_task",
+            "label": "持仓复盘",
+            "plan": {
+                "steps": [
+                    {"title": "读取持仓与资金", "tool_scope": ["portfolio"]},
+                    {"title": "诊断持仓与市场环境", "tool_scope": ["portfolio", "get_market_overview"]},
+                    {"title": "形成去留和风险动作", "tool_scope": ["generate_strategy_decision"]},
+                ],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "1. 读取持仓与资金" in rendered
+    assert "工具: 持仓" in rendered
+    assert "2. 诊断持仓与市场环境" in rendered
+    assert "工具: 持仓、大盘水温" in rendered
+    assert "3. 形成去留和风险动作" in rendered
+    assert "工具: 攻防决策" in rendered
 
 
 def test_submit_workflow_background_auto_starts_model_plan():

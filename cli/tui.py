@@ -502,7 +502,7 @@ def _workflow_plan_step_preview_lines(steps: Any, *, limit: int = 3) -> list[str
     if not isinstance(steps, list):
         return []
     rows = [step for step in steps if isinstance(step, dict)]
-    if not any(_workflow_step_detail_meta(step) for step in rows[:limit]):
+    if not any(_workflow_plan_step_meta(step) for step in rows[:limit]):
         return []
     lines = [_workflow_plan_step_preview_line(index, step) for index, step in enumerate(rows[:limit], 1)]
     if len(rows) > limit:
