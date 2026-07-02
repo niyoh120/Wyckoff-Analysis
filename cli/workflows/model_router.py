@@ -15,14 +15,30 @@ logger = logging.getLogger(__name__)
 
 _MAX_REASON_CHARS = 120
 _VALID_MODES = {"direct", "dynamic_workflow"}
-_MODE_FIELDS = ("mode", "route", "runtime", "execution_mode")
-_WORKFLOW_FLAG_FIELDS = ("workflow", "use_workflow", "dynamic_workflow", "needs_workflow")
+_MODE_FIELDS = ("mode", "route", "runtime", "execution_mode", "execution", "answer_mode", "plan_mode")
+_MODE_VALUE_FIELDS = ("mode", "name", "value", "route", "runtime", "execution_mode", "execution", "type", "kind")
+_DECISION_CONTAINER_FIELDS = ("decision", "routing", "router", "result", "selection", "choice", "classification")
+_WORKFLOW_FLAG_FIELDS = (
+    "workflow",
+    "use_workflow",
+    "dynamic_workflow",
+    "needs_workflow",
+    "needs_plan",
+    "use_plan",
+    "requires_plan",
+    "needs_steps",
+    "multi_step",
+    "multi_stage",
+)
 _MODE_ALIASES = {
     "direct": {
+        "answer",
         "chat",
         "general",
         "general_chat",
         "normal",
+        "single",
+        "single_step",
         "直接",
         "直接回答",
         "直接处理",
@@ -31,11 +47,19 @@ _MODE_ALIASES = {
         "直答",
     },
     "dynamic_workflow": {
+        "agentic",
+        "background",
         "dynamic",
         "dynamic workflow",
+        "multi_stage",
+        "multi_step",
+        "parallel",
+        "plan",
+        "planned",
         "workflow",
         "work_flow",
         "多阶段",
+        "拆分执行",
         "动态 workflow",
         "动态任务",
         "动态工作流",
@@ -173,6 +197,7 @@ def _parse_decision(response: Any) -> dict[str, Any] | None:
         payload = _loads_json(str(response.get("text") or ""))
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
+    payload = _router_decision_payload(payload)
     mode = _decision_mode(payload)
     if not mode:
         return None
@@ -182,6 +207,24 @@ def _parse_decision(response: Any) -> dict[str, Any] | None:
         "confidence": confidence,
         "reason": _clean_reason(payload.get("reason")),
     }
+
+
+def _router_decision_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if _payload_has_decision_value(payload):
+        return payload
+    for field in _DECISION_CONTAINER_FIELDS:
+        nested = payload.get(field)
+        if isinstance(nested, dict):
+            merged = dict(payload)
+            merged.update(nested)
+            return merged
+    return payload
+
+
+def _payload_has_decision_value(payload: dict[str, Any]) -> bool:
+    if any(_mode_value(payload.get(field)) for field in _MODE_FIELDS):
+        return True
+    return _workflow_flag(payload) is not None
 
 
 def _loads_json(text: str) -> dict[str, Any]:
@@ -217,6 +260,11 @@ def _decision_mode(payload: dict[str, Any]) -> str:
 
 
 def _mode_value(value: Any) -> str:
+    if isinstance(value, dict):
+        for field in _MODE_VALUE_FIELDS:
+            if mode := _mode_value(value.get(field)):
+                return mode
+        return ""
     text = _normalize_mode_text(value)
     if text in _VALID_MODES:
         return text

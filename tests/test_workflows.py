@@ -382,6 +382,40 @@ def test_dispatch_accepts_boolean_workflow_router_flag():
     assert isinstance(runtime, WorkflowExecutor)
 
 
+def test_dispatch_accepts_nested_router_decision_payload():
+    provider = RouterDecisionProvider(
+        '{"runtime":{"latency_ms":12},"routing":{"execution":"plan","reason":"需要先看市场再筛候选"},"confidence":0.86}'
+    )
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="今天帮我找几个有攻防空间的机会",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_confidence == 0.86
+    assert workflow.route_reason == "模型判断需要动态 workflow：需要先看市场再筛候选"
+    assert isinstance(runtime, WorkflowExecutor)
+
+
+def test_dispatch_accepts_planning_flag_without_mode():
+    provider = RouterDecisionProvider('{"needs_plan":true,"score":"71%","reason":"需要跨候选复核"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="把今天值得看的方向分层复核一下",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_confidence == 0.71
+    assert workflow.route_reason == "模型判断需要动态 workflow：需要跨候选复核"
+    assert isinstance(runtime, WorkflowExecutor)
+
+
 def test_dispatch_uses_streaming_router_when_chat_is_unimplemented():
     provider = ScriptedProvider(
         [[{"type": "text_delta", "text": '{"mode":"dynamic_workflow","confidence":0.82,"reason":"需要多阶段选股"}'}]]
