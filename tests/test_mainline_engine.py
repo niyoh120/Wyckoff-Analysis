@@ -95,6 +95,40 @@ def test_mainline_can_seed_candidates_from_theme_activity() -> None:
     assert mainline_candidate_entries(candidates, max_count=3)
 
 
+def test_mainline_can_seed_candidates_from_ths_hot_event_without_concept_map() -> None:
+    candidates = build_mainline_candidates(
+        l1_passed=["000012"],
+        l2_passed=[],
+        concept_map={},
+        concept_heat=[],
+        theme_radar={"themes": [], "strategic_candidates": []},
+        hot_events={
+            "events": [
+                {
+                    "event_id": "evt-robot",
+                    "theme": "人形机器人",
+                    "title": "机器人主题发酵",
+                    "heat": 650000,
+                    "rise_pct": 2.1,
+                    "limit_up_count": 20,
+                    "stocks": [{"code": "000012", "name": "事件机器人", "reason": "灵巧手"}],
+                }
+            ]
+        },
+        df_map={"000012": _frame(_trend_values())},
+        financial_map={},
+        name_map={},
+        config=MainlineEngineConfig(),
+    )
+
+    assert candidates[0]["theme"] == "机器人"
+    assert candidates[0]["source"] == "ths_hot_event"
+    assert candidates[0]["theme_event_id"] == "evt-robot"
+    entry = mainline_candidate_entries(candidates, max_count=3)[0]
+    assert entry["opportunity"] == "事件主线: 机器人"
+    assert entry["metrics"]["theme_event_reason"] == "灵巧手"
+
+
 def test_mainline_blocks_candidate_without_timing_gate() -> None:
     weak = [10 + i * 0.03 for i in range(120)] + [10.0, 9.8, 9.5, 9.2, 9.1]
     candidates = build_mainline_candidates(

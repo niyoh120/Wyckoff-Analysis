@@ -23,6 +23,7 @@ from core.wyckoff_engine import (
     layer4_triggers,
 )
 from integrations.market_metadata import CONCEPT_HEAT_HISTORY
+from integrations.ths_hot_concept import merge_concept_heat
 from tools.mainline_config import load_mainline_engine_config
 from workflows.funnel_data import FunnelReferenceData
 from workflows.funnel_settings import (
@@ -81,7 +82,7 @@ def run_base_funnel_layers(
         etf_l2_passed,
         etf_sector_map,
         etf_df_map,
-        _activity_hot_concepts(theme_activity),
+        _hot_concepts(ref_data, theme_activity),
     )
     benchmark_context["sector_rotation"] = sector_rotation
     triggers = layer4_triggers(
@@ -94,9 +95,10 @@ def run_base_funnel_layers(
         l1_passed=l1_passed,
         l2_passed=l2_passed,
         concept_map=ref_data.concept_map,
-        concept_heat=ref_data.concept_heat,
+        concept_heat=_effective_concept_heat(ref_data),
         theme_radar=theme_current,
         theme_activity=theme_activity,
+        hot_events=ref_data.ths_hot_events,
         df_map=all_df_map,
         financial_map=ref_data.financial_map,
         name_map=ref_data.name_map,
@@ -181,8 +183,25 @@ def _build_theme_activity(window, ref_data: FunnelReferenceData, all_df_map: dic
         df_map=all_df_map,
         concept_map=ref_data.concept_map,
         sector_map=ref_data.sector_map,
-        concept_heat=ref_data.concept_heat,
+        concept_heat=_effective_concept_heat(ref_data),
     )
+
+
+def _effective_concept_heat(ref_data: FunnelReferenceData) -> list[dict]:
+    return merge_concept_heat(ref_data.concept_heat, ref_data.event_concept_heat)
+
+
+def _hot_concepts(ref_data: FunnelReferenceData, theme_activity: dict) -> list[str]:
+    return list(dict.fromkeys([*_event_hot_concepts(ref_data), *_activity_hot_concepts(theme_activity)]))
+
+
+def _event_hot_concepts(ref_data: FunnelReferenceData) -> list[str]:
+    rows: list[str] = []
+    for item in ref_data.event_concept_heat or []:
+        name = str(item.get("name") or "").strip()
+        if name and _safe_float(item.get("event_heat")) > 0:
+            rows.append(name)
+    return rows[:10]
 
 
 def _activity_hot_concepts(theme_activity: dict) -> list[str]:
@@ -209,7 +228,7 @@ def _build_theme_context(
     trade_date = window.end_trade_date.isoformat()
     current = _safe_build_theme_radar(
         trade_date=trade_date,
-        concept_heat=ref_data.concept_heat,
+        concept_heat=_effective_concept_heat(ref_data),
         concept_map=ref_data.concept_map,
         sector_map=ref_data.sector_map,
         df_map=all_df_map,

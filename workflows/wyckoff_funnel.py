@@ -26,6 +26,7 @@ from core.wyckoff_engine import (
     FunnelConfig,
     layer4_triggers,
 )
+from integrations.ths_hot_concept import merge_concept_heat, summarize_ths_hot_events
 from workflows.candidate_policy_config import candidate_policy_config_from_env
 from workflows.funnel_ai_selection import (
     FunnelAiSelection,
@@ -550,17 +551,21 @@ def _theme_metrics(inputs: FunnelMetricsInputs, ranked_l3_symbols: list[str]) ->
     ref_data = inputs.ref_data
     layers = inputs.layers
     theme_activity = layers.theme_activity
+    concept_heat = merge_concept_heat(ref_data.concept_heat, ref_data.event_concept_heat)
     capital_migration = build_capital_migration_report(
         trade_date=inputs.window.end_trade_date.isoformat(),
-        concept_heat=ref_data.concept_heat,
+        concept_heat=concept_heat,
         concept_history=ref_data.concept_heat_history,
         sector_rotation=layers.sector_rotation,
         theme_radar=layers.theme_radar_current,
         theme_activity=theme_activity,
     )
     return {
-        "concept_heat": ref_data.concept_heat[:20],
-        "concept_heat_full": ref_data.concept_heat,
+        "concept_heat": concept_heat[:20],
+        "concept_heat_full": concept_heat,
+        "event_concept_heat": ref_data.event_concept_heat,
+        "ths_hot_events": ref_data.ths_hot_events,
+        "ths_hot_events_summary": summarize_ths_hot_events(ref_data.ths_hot_events),
         "theme_activity": theme_activity,
         "theme_activity_summary": summarize_theme_activity(theme_activity),
         "capital_migration": capital_migration,

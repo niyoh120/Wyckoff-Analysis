@@ -41,6 +41,23 @@ def test_write_snapshot_outputs_writes_core_artifacts(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(snapshot, "fetch_market_cap_map", lambda: {"000001": 100.0})
     monkeypatch.setattr(snapshot, "fetch_concept_map", lambda: {"000001": ["CPO"]})
     monkeypatch.setattr(snapshot, "fetch_concept_heat", lambda: [{"name": "CPO", "pct": 3.2}])
+    monkeypatch.setattr(
+        snapshot,
+        "fetch_ths_hot_events",
+        lambda: {
+            "events": [
+                {
+                    "event_id": "e1",
+                    "theme": "人形机器人",
+                    "title": "机器人催化",
+                    "heat": 500000,
+                    "rise_pct": 2.0,
+                    "limit_up_count": 10,
+                    "stocks": [{"code": "000001", "name": "平安银行"}],
+                }
+            ]
+        },
+    )
 
     snapshot._write_snapshot_outputs(
         tmp_path,
@@ -54,5 +71,7 @@ def test_write_snapshot_outputs_writes_core_artifacts(monkeypatch, tmp_path: Pat
     assert (tmp_path / "benchmark_main.csv").exists()
     assert json.loads((tmp_path / "name_map.json").read_text(encoding="utf-8")) == {"000001": "平安银行"}
     assert json.loads((tmp_path / "concept_map.json").read_text(encoding="utf-8")) == {"000001": ["CPO"]}
-    assert json.loads((tmp_path / "concept_heat.json").read_text(encoding="utf-8")) == [{"name": "CPO", "pct": 3.2}]
+    heat = json.loads((tmp_path / "concept_heat.json").read_text(encoding="utf-8"))
+    assert {row["name"] for row in heat} == {"机器人", "CPO"}
+    assert json.loads((tmp_path / "ths_hot_events.json").read_text(encoding="utf-8"))["events"][0]["event_id"] == "e1"
     assert json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8")) == meta

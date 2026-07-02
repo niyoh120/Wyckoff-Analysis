@@ -16,6 +16,7 @@ from integrations.data_source import fetch_stock_hist
 from integrations.fetch_a_share_csv import get_stocks_by_board, normalize_symbols
 from integrations.index_data_source import fetch_index_akshare, fetch_index_hist
 from integrations.market_metadata import fetch_concept_heat, fetch_concept_map, fetch_market_cap_map, fetch_sector_map
+from integrations.ths_hot_concept import fetch_ths_hot_events, merge_concept_heat, ths_hot_events_to_concept_heat
 
 
 @dataclass(frozen=True)
@@ -291,10 +292,23 @@ def _write_optional_maps(out_dir: Path) -> None:
 
     try:
         concept_heat = fetch_concept_heat()
-        _write_json(out_dir / "concept_heat.json", concept_heat)
-        print(f"[snapshot] concept_heat.json: {len(concept_heat)} entries")
+        hot_events, event_heat = _fetch_snapshot_hot_events()
+        merged_heat = merge_concept_heat(concept_heat, event_heat)
+        _write_json(out_dir / "ths_hot_events.json", hot_events)
+        _write_json(out_dir / "concept_heat.json", merged_heat)
+        print(f"[snapshot] ths_hot_events.json: {len(hot_events.get('events') or [])} events")
+        print(f"[snapshot] concept_heat.json: {len(merged_heat)} entries")
     except Exception as exc:
         print(f"[snapshot] concept_heat 拉取失败（不阻塞）: {exc}")
+
+
+def _fetch_snapshot_hot_events() -> tuple[dict, list[dict]]:
+    try:
+        hot_events = fetch_ths_hot_events()
+        return hot_events, ths_hot_events_to_concept_heat(hot_events)
+    except Exception as exc:
+        print(f"[snapshot] 同花顺事件主线拉取失败（不阻塞）: {exc}")
+        return {}, []
 
 
 def _write_snapshot_outputs(

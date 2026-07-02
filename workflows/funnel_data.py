@@ -25,6 +25,12 @@ from integrations.market_metadata import (
     stale_json_cache,
     update_concept_heat_history,
 )
+from integrations.ths_hot_concept import (
+    fetch_ths_hot_events,
+    merge_concept_heat,
+    summarize_ths_hot_events,
+    ths_hot_events_to_concept_heat,
+)
 from tools.data_fetcher import fetch_all_ohlcv
 from tools.external_seeds import (
     ExternalSeedConfig,
@@ -78,6 +84,8 @@ class FunnelReferenceData:
     sector_map: dict[str, str]
     concept_map: dict[str, list[str]]
     concept_heat: list[dict]
+    ths_hot_events: dict[str, Any]
+    event_concept_heat: list[dict]
     concept_heat_history: dict[str, dict]
     hot_concepts: list
     market_cap_map: dict[str, float]
@@ -268,7 +276,7 @@ def _resolve_executor_mode(raw: str | None) -> str:
 
 def _load_market_metadata(
     window, cfg: FunnelConfig
-) -> tuple[dict, dict, list[dict], dict[str, dict], list, dict[str, float]]:
+) -> tuple[dict, dict, list[dict], dict[str, Any], list[dict], dict[str, dict], list, dict[str, float]]:
     print("[funnel] 加载行业映射...")
     try:
         sector_map = fetch_sector_map()
@@ -287,8 +295,10 @@ def _load_market_metadata(
     except Exception as e:
         logger.warning("概念热度加载失败: %s", e)
         concept_heat = []
-    if concept_heat:
-        update_concept_heat_history(window.end_trade_date.isoformat(), concept_heat, top_n=cfg.theme_line_top_n)
+    ths_events, event_heat = _load_ths_hot_events()
+    heat_for_history = merge_concept_heat(concept_heat, event_heat)
+    if heat_for_history:
+        update_concept_heat_history(window.end_trade_date.isoformat(), heat_for_history, top_n=cfg.theme_line_top_n)
     concept_history = stale_json_cache(CONCEPT_HEAT_HISTORY, {})
     if not isinstance(concept_history, dict):
         concept_history = {}
@@ -301,7 +311,22 @@ def _load_market_metadata(
         market_cap_map = {}
     if not market_cap_map:
         print("[funnel] ⚠️ 市值数据为空（TUSHARE_TOKEN 可能缺失/失效），Layer1 将跳过市值过滤")
-    return sector_map, concept_map, concept_heat, concept_history, hot_concepts, market_cap_map
+    return sector_map, concept_map, concept_heat, ths_events, event_heat, concept_history, hot_concepts, market_cap_map
+
+
+def _load_ths_hot_events() -> tuple[dict[str, Any], list[dict]]:
+    print("[funnel] 加载同花顺事件主线...")
+    try:
+        snapshot = fetch_ths_hot_events()
+        rows = ths_hot_events_to_concept_heat(snapshot)
+        summary = summarize_ths_hot_events(snapshot, limit=5)
+        print(
+            f"[funnel] 同花顺事件主线: events={len(snapshot.get('events') or [])}, heat_rows={len(rows)}, {summary or '无'}"
+        )
+        return snapshot, rows
+    except Exception as e:
+        logger.warning("同花顺事件主线加载失败，降级为空: %s", e)
+        return {}, []
 
 
 def _load_financial_metrics(all_symbols: list[str]) -> dict[str, dict]:
@@ -340,13 +365,22 @@ def _load_stock_names() -> dict[str, str]:
 
 
 def _load_reference_data(all_symbols: list[str], window, cfg: FunnelConfig) -> FunnelReferenceData:
-    sector_map, concept_map, concept_heat, concept_history, hot_concepts, market_cap_map = _load_market_metadata(
-        window, cfg
-    )
+    (
+        sector_map,
+        concept_map,
+        concept_heat,
+        ths_hot_events,
+        event_concept_heat,
+        concept_history,
+        hot_concepts,
+        market_cap_map,
+    ) = _load_market_metadata(window, cfg)
     return FunnelReferenceData(
         sector_map=sector_map,
         concept_map=concept_map,
         concept_heat=concept_heat,
+        ths_hot_events=ths_hot_events,
+        event_concept_heat=event_concept_heat,
         concept_heat_history=concept_history,
         hot_concepts=hot_concepts,
         market_cap_map=market_cap_map,

@@ -130,6 +130,11 @@ def _theme_activity_report_line(metrics: dict | None) -> str:
     return f"**今日异动主题**: {text}" if text else ""
 
 
+def _hot_events_report_line(metrics: dict | None) -> str:
+    text = str((metrics or {}).get("ths_hot_events_summary") or "").strip()
+    return f"**今日事件主线**: {text}" if text else ""
+
+
 def _pv_policy_shadow_report_line(benchmark_context: dict | None) -> str:
     if not benchmark_context:
         return ""
@@ -446,6 +451,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selected_for_ai))}",
         f"**大盘资金趋势**: {money_line}",
         *_capital_migration_report_lines(ctx.metrics),
+        _hot_events_report_line(ctx.metrics),
         _theme_activity_report_line(ctx.metrics),
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",
@@ -528,6 +534,7 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selection.selected_for_ai))}",
         f"**大盘资金趋势**: {money_line}",
         *_capital_migration_report_lines(ctx.metrics),
+        _hot_events_report_line(ctx.metrics),
         _theme_activity_report_line(ctx.metrics),
         f"**成交额分布**: {amount_line}",
         f"**大盘量价推演**: {pv_line}",

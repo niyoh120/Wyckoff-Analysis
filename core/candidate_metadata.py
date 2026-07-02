@@ -70,8 +70,8 @@ def candidate_entry_metadata(item: dict[str, Any], mainline: dict[str, Any] | No
         "candidate_status": _text(item.get("state")) or _text((mainline or {}).get("status")),
         "candidate_timing": _text(item.get("timing")) or _text((mainline or {}).get("entry_type")),
         "candidate_risk": _text(item.get("risk")) or _join_texts((mainline or {}).get("risk_flags")),
-        "candidate_reasons": _json_object({"reasons": item.get("reasons") or []}),
-        "candidate_metrics": _json_object(item.get("metrics") or (mainline or {}).get("metrics") or {}),
+        "candidate_reasons": _json_object(_candidate_reason_payload(item, mainline)),
+        "candidate_metrics": _json_object(item.get("metrics") or _mainline_metrics_payload(mainline or {}) or {}),
     }
     if mainline:
         meta.update(_mainline_score_fields(mainline))
@@ -90,11 +90,39 @@ def mainline_metadata(item: dict[str, Any]) -> dict[str, Any]:
         "candidate_status": _text(item.get("status")),
         "candidate_timing": entry_type,
         "candidate_risk": _join_texts(item.get("risk_flags")),
-        "candidate_reasons": _json_object({"reasons": item.get("reasons") or [], "theme": item.get("theme")}),
-        "candidate_metrics": _json_object(item.get("metrics") or {}),
+        "candidate_reasons": _json_object(_candidate_reason_payload(item, item)),
+        "candidate_metrics": _json_object(_mainline_metrics_payload(item)),
         **_mainline_score_fields(item),
     }
     return _without_empty(meta)
+
+
+def _candidate_reason_payload(item: dict[str, Any], mainline: dict[str, Any] | None) -> dict[str, Any]:
+    source = mainline or item
+    return {
+        "reasons": item.get("reasons") or source.get("reasons") or [],
+        "theme": source.get("theme"),
+        "theme_source": source.get("theme_source"),
+        "theme_event_id": source.get("theme_event_id"),
+        "theme_event_date": source.get("theme_event_date"),
+        "theme_event_title": source.get("theme_event_title"),
+        "theme_event_reason": source.get("theme_event_reason"),
+    }
+
+
+def _mainline_metrics_payload(item: dict[str, Any]) -> dict[str, Any]:
+    metrics = dict(item.get("metrics") or {})
+    for key in (
+        "theme_source",
+        "theme_event_id",
+        "theme_event_date",
+        "theme_event_title",
+        "theme_event_heat",
+        "theme_event_reason",
+    ):
+        if item.get(key) not in (None, "", [], {}):
+            metrics[key] = item.get(key)
+    return metrics
 
 
 def candidate_signal_triggers(candidate_entries: list[dict[str, Any]] | None) -> dict[str, list[tuple[str, float]]]:
