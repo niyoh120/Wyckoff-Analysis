@@ -540,7 +540,7 @@ def _display_workflow_step_event(event: dict[str, Any], write, scroll) -> None:
     title = escape(str(step.get("title", "")))
     summary = _workflow_visible_summary(step)
     label = {"running": "运行中", "completed": "完成", "failed": "失败", "skipped": "跳过"}.get(status, status)
-    meta = _workflow_step_meta(step, label)
+    meta = _workflow_step_live_meta(step, label)
     suffix = f" {summary}" if summary else ""
     write(Text.from_markup(f"    [{color}]{mark} {title}[/{color}] [dim]{meta}{suffix}[/dim]"))
     scroll()
@@ -569,6 +569,11 @@ def _workflow_step_meta(step: dict[str, Any], label: str, *, include_debug: bool
             if len(tool_scope) > 4:
                 parts.append(f"+{len(tool_scope) - 4}")
     parts.append(escape(label))
+    return " · ".join(parts)
+
+
+def _workflow_step_live_meta(step: dict[str, Any], label: str) -> str:
+    parts = [item for item in (_workflow_step_tool_meta(step), escape(label)) if item]
     return " · ".join(parts)
 
 

@@ -490,9 +490,33 @@ def test_display_workflow_step_event_hides_internal_scope():
     rendered = str(writes[0])
     assert "读取持仓" in rendered
     assert "运行中" in rendered
+    assert "工具: 持仓、个股分析" in rendered
     assert "工具：portfolio, analyze_stock" not in rendered
     assert "analysis:" not in rendered
     assert scrolled == [True]
+
+
+def test_display_workflow_step_event_shows_effective_tool_scope():
+    writes = []
+
+    _display_workflow_step_event(
+        {
+            "step": {
+                "title": "复盘持仓",
+                "agent": "task",
+                "status": "running",
+                "tool_scope": [],
+                "effective_tool_scope": ["portfolio", "analyze_stock"],
+            }
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = str(writes[0])
+    assert "复盘持仓" in rendered
+    assert "可用工具: 持仓、个股分析" in rendered
+    assert "task" not in rendered
 
 
 def test_tool_result_view_surfaces_screen_candidate_risk():
