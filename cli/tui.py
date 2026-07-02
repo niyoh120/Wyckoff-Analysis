@@ -743,9 +743,13 @@ def _workflow_control_intent(text: str) -> tuple[str, str] | None:
         return "reload", run_id
     if "rerun" in lower or any(token in text for token in ("复跑", "重跑", "重新运行", "按原脚本再跑")):
         return "rerun", run_id
+    if "events" in lower or any(token in text for token in ("事件", "日志")):
+        return "events", run_id
+    if "status" in lower or any(token in text for token in ("状态", "进度")):
+        return "status", run_id
     if "script" in lower or "脚本" in text:
         return "script", run_id
-    if any(token in text for token in ("查看", "显示", "打开", "看看")) or "show" in lower:
+    if any(token in text for token in ("查看", "显示", "打开", "看看", "详情")) or "show" in lower:
         return "show", run_id
     return None
 
@@ -2140,6 +2144,12 @@ class WyckoffTUI(App):
             self._reload_pending_workflow_script(run_id, log)
             return True
         log.write(Text.from_markup(f"[bold cyan]❯[/bold cyan] {escape(text)}"))
+        if action == "events":
+            self._show_workflow_events(run_id, log)
+            return True
+        if action == "status":
+            self._show_workflow_runtime_status(log)
+            return True
         if action == "script":
             self._show_workflow_script(run_id, log)
             return True

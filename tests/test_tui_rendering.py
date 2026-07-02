@@ -594,7 +594,11 @@ def test_workflow_detail_step_line_includes_effective_tool_scope():
 def test_workflow_control_intent_requires_explicit_control_action():
     assert _workflow_control_intent("解释一下 workflow 是什么") is None
     assert _workflow_control_intent("查看 workflow wf_abc123") == ("show", "wf_abc123")
+    assert _workflow_control_intent("workflow wf_abc123 详情") == ("show", "wf_abc123")
     assert _workflow_control_intent("把 workflow wf_abc123 的脚本打开") == ("script", "wf_abc123")
+    assert _workflow_control_intent("看 workflow wf_abc123 的事件") == ("events", "wf_abc123")
+    assert _workflow_control_intent("打开 workflow wf_abc123 日志") == ("events", "wf_abc123")
+    assert _workflow_control_intent("workflow 运行状态") == ("status", "")
     assert _workflow_control_intent("复跑刚才的 workflow") == ("rerun", "")
     assert _workflow_control_intent("批准 workflow wf_abc123") == ("approve", "wf_abc123")
     assert _workflow_control_intent("暂停 workflow wf_abc123") == ("pause", "wf_abc123")
