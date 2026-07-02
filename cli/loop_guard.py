@@ -31,6 +31,8 @@ _PORTFOLIO_SUBJECT_HINTS = (
     "我买",
 )
 
+_PORTFOLIO_TYPO_SUBJECT_HINTS = ("磁场",)
+
 _PORTFOLIO_VIEW_HINTS = (
     "读",
     "读取",
@@ -451,7 +453,7 @@ def _portfolio_diagnose_expected(text: str) -> bool:
 
 
 def _mentions_portfolio_subject(text: str) -> bool:
-    return any(hint in text for hint in _PORTFOLIO_SUBJECT_HINTS)
+    return any(hint in text for hint in (*_PORTFOLIO_SUBJECT_HINTS, *_PORTFOLIO_TYPO_SUBJECT_HINTS))
 
 
 def _stock_screen_expected(text: str) -> bool:

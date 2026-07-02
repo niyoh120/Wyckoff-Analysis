@@ -500,6 +500,7 @@ def test_workflow_planner_fallback_keeps_typo_like_task_model_authored():
     assert run.script["title"] == "用 workflow 给我做磁场诊断"
     assert run.steps[0].agent == "task"
     assert run.steps[0].tools == ()
+    assert run.steps[0].tool_scope == ("portfolio",)
     assert run.steps[0].title == "用 workflow 给我做磁场诊断"
     assert "sub-agent" not in run.steps[0].title
     assert "自然语言语义" in run.steps[0].prompt

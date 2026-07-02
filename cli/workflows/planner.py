@@ -527,7 +527,7 @@ _TEXT_TASK_TOOL_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "出场位",
         ),
     ),
-    ("portfolio", ("portfolio", "持仓", "仓位", "组合")),
+    ("portfolio", ("portfolio", "持仓", "仓位", "组合", "磁场")),
     ("run_backtest", ("run_backtest", "回测")),
     ("get_market_overview", ("get_market_overview", "大盘水温", "市场环境", "市场风险")),
 )

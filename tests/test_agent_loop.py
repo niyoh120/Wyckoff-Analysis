@@ -87,6 +87,14 @@ def test_resolve_turn_expectation_keeps_removed_diagnose_phrase_covered_by_hints
     assert expectation.suggested_args == {"mode": "diagnose"}
 
 
+def test_resolve_turn_expectation_handles_portfolio_typo_diagnosis():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "给我做磁场诊断"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "portfolio"
+    assert expectation.suggested_args == {"mode": "diagnose"}
+
+
 def test_resolve_turn_expectation_does_not_hijack_explicit_stock_after_portfolio_context():
     messages = [
         {"role": "user", "content": "跟我的持仓股票做一下未来的预测"},
