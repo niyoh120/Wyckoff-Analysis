@@ -13,6 +13,7 @@ from cli.workflows.models import WorkflowContext, WorkflowRun, WorkflowStep
 from cli.workflows.router import route_workflow
 
 MAX_WORKFLOW_STEPS = 24
+ASK_USER_TOOL = "ask_user_question"
 TASK_LIST_FIELDS = ("tasks", "steps", "items", "subtasks", "jobs", "actions", "plan")
 PROMPT_FIELDS = ("prompt", "instruction", "instructions", "task", "description", "goal", "objective")
 TOOL_SCOPE_FIELDS = (
@@ -401,9 +402,17 @@ def _context_tool_names(context: WorkflowContext) -> set[str]:
 
 
 def _filter_tool_scope(scope: tuple[str, ...], allowed_tool_names: set[str] | None) -> tuple[str, ...]:
+    scope = _drop_question_tool_when_fact_tool_present(scope)
     if allowed_tool_names is None:
         return scope
     return tuple(name for name in scope if name in allowed_tool_names)
+
+
+def _drop_question_tool_when_fact_tool_present(scope: tuple[str, ...]) -> tuple[str, ...]:
+    concrete = [name for name in scope if name and name != ASK_USER_TOOL]
+    if not concrete:
+        return scope
+    return tuple(name for name in scope if name != ASK_USER_TOOL)
 
 
 def _tool_name(raw: Any) -> str:

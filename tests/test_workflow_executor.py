@@ -2036,10 +2036,8 @@ def test_workflow_plan_surfaces_effective_tool_scope_for_generic_task(tmp_path, 
 def test_workflow_portfolio_scope_blocks_question_before_reading_positions(tmp_path, monkeypatch):
     from integrations import local_db
 
-    def _portfolio_round(messages, tools, _system_prompt):
-        assert {schema["name"] for schema in tools} == {"portfolio", "ask_user_question"}
-        ask_result = next(m for m in messages if m.get("role") == "tool" and m.get("name") == "ask_user_question")
-        assert "先不要向用户提问" in ask_result["content"]
+    def _portfolio_round(_messages, tools, _system_prompt):
+        assert {schema["name"] for schema in tools} == {"portfolio"}
         return [
             {
                 "type": "tool_calls",
@@ -2052,18 +2050,6 @@ def test_workflow_portfolio_scope_blocks_question_before_reading_positions(tmp_p
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     provider = ScriptedProvider(
         rounds=[
-            [
-                {
-                    "type": "tool_calls",
-                    "tool_calls": [
-                        {
-                            "id": "tc_ask",
-                            "name": "ask_user_question",
-                            "args": {"question": "你现在有持仓吗？"},
-                        }
-                    ],
-                }
-            ],
             _portfolio_round,
             [{"type": "text_delta", "text": "已读取持仓。"}],
             [{"type": "text_delta", "text": "持仓摘要完成。"}],
@@ -2097,6 +2083,7 @@ def test_workflow_portfolio_scope_blocks_question_before_reading_positions(tmp_p
     try:
         done_event = next(event for event in events if event["type"] == "workflow_step_done")
         detail = done_event["source"]["agent_detail"]
+        assert events[0]["plan"]["steps"][0]["tool_scope"] == ["portfolio"]
         assert detail["tool_calls"] == ["portfolio"]
         assert [call["name"] for call in tools.calls] == ["portfolio"]
         assert events[-1]["text"] == "持仓摘要完成。"

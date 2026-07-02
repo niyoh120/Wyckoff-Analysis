@@ -609,7 +609,27 @@ def test_planner_accepts_tool_display_names_from_model_script():
     )
 
     assert run.steps[0].agent == "task"
-    assert run.steps[0].tool_scope == ("portfolio", "screen_stocks", "ask_user_question")
+    assert run.steps[0].tool_scope == ("portfolio", "screen_stocks")
+
+
+def test_planner_keeps_question_tool_for_clarification_only_task():
+    context = route_workflow("用 workflow 问清楚回测范围")
+    run = plan_workflow(
+        "问清楚回测范围",
+        context=context,
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "clarify",
+                    "title": "确认回测范围",
+                    "tools": ["ask_user_question"],
+                    "prompt": "只有用户未给出必要范围时，询问回测区间。",
+                }
+            ]
+        },
+    )
+
+    assert run.steps[0].tool_scope == ("ask_user_question",)
 
 
 def test_planner_infers_tools_from_json_task_text_when_model_omits_tools():
