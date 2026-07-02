@@ -88,5 +88,6 @@ def _build_runtime(provider, tools, messages, scratchpad, workflow, enforce_turn
         scratchpad=scratchpad,
         workflow_context=workflow_context,
         enforce_turn_expectations=enforce_turn_expectations,
+        routing_messages=messages,
     )
     return runtime

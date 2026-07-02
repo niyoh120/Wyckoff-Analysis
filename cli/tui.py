@@ -3753,6 +3753,7 @@ class WyckoffTUI(App):
                 workflow_source_run_id=workflow_override.source_run_id if workflow_override else "",
                 workflow_args=workflow_override.args if workflow_override else None,
                 workflow_only_step_id=workflow_override.only_step_id if workflow_override else "",
+                routing_messages=self._messages,
             )
             state.workflow_name = "" if workflow_context.is_general else workflow_context.name
             system_prompt = with_current_time(self._system_prompt)

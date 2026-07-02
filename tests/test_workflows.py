@@ -346,6 +346,55 @@ def test_dispatch_uses_workflow_executor_when_model_routes_complex_natural_turn(
     assert "单只股票诊断" not in router_prompt
 
 
+def test_dispatch_passes_recent_dialogue_to_model_router():
+    provider = RouterDecisionProvider(
+        '{"mode":"dynamic_workflow","confidence":0.86,"reason":"承接上一轮候选继续做攻防计划"}'
+    )
+    messages = [
+        {"role": "user", "content": "帮我找几只值得复核的票"},
+        {"role": "assistant", "content": "候选：300750 宁德时代、002475 立讯精密。"},
+        {"role": "user", "content": "再带上风险边界和买卖计划"},
+    ]
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="再带上风险边界和买卖计划",
+        routing_messages=messages,
+    )
+
+    prompt = provider.chat_calls[0]["messages"][0]["content"]
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.name == "dynamic_task"
+    assert "最近对话" in prompt
+    assert "候选：300750 宁德时代" in prompt
+    assert "再带上风险边界和买卖计划" in prompt
+
+
+def test_dispatch_router_uses_raw_current_user_text_when_memory_is_prepended():
+    provider = RouterDecisionProvider('{"mode":"direct","confidence":0.9,"reason":"单轮问题"}')
+    messages = [
+        {
+            "role": "user",
+            "content": "memory\n- 过去偏好...\n\n<user-request>\n解释一下攻防计划\n</user-request>",
+            "_raw_content": "解释一下攻防计划",
+        }
+    ]
+
+    build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="解释一下攻防计划",
+        routing_messages=messages,
+    )
+
+    prompt = provider.chat_calls[0]["messages"][0]["content"]
+    assert "用户请求:\n解释一下攻防计划" in prompt
+    assert "memory" not in prompt
+
+
 def test_model_router_prompt_is_minimal_runtime_contract():
     assert "默认用 direct" in _ROUTER_SYSTEM_PROMPT
     assert "dynamic_workflow" in _ROUTER_SYSTEM_PROMPT

@@ -14,6 +14,8 @@ from cli.workflows.router import WORKFLOWS, route_resume_workflow, route_workflo
 logger = logging.getLogger(__name__)
 
 _MAX_REASON_CHARS = 120
+_MAX_ROUTING_CONTEXT_MESSAGES = 6
+_MAX_ROUTING_CONTEXT_CHARS = 240
 _VALID_MODES = {"direct", "dynamic_workflow"}
 _MODE_FIELDS = ("mode", "route", "runtime", "execution_mode", "execution", "answer_mode", "plan_mode")
 _MODE_VALUE_FIELDS = ("mode", "name", "value", "route", "runtime", "execution_mode", "execution", "type", "kind")
@@ -83,14 +85,18 @@ confidence 只表示把握度，不会覆盖 mode 判断。
 """
 
 
-def route_workflow_with_model(user_text: str, provider: Any | None) -> WorkflowContext:
+def route_workflow_with_model(
+    user_text: str,
+    provider: Any | None,
+    messages: list[dict[str, Any]] | None = None,
+) -> WorkflowContext:
     """Use the model as the primary semantic router when it is available."""
 
     resumed = route_resume_workflow(user_text)
     if resumed:
         return resumed
     fallback_context = route_workflow(user_text)
-    decision, fallback_reason = _model_decision(user_text, provider)
+    decision, fallback_reason = _model_decision(user_text, provider, messages)
     if decision:
         return _context_from_model_decision(decision)
     return _context_with_router_fallback(fallback_context, fallback_reason)
@@ -111,12 +117,17 @@ def _model_route_reason(decision: dict[str, Any]) -> str:
     return f"模型判断直接处理：{decision['reason']}"
 
 
-def _model_decision(user_text: str, provider: Any | None) -> tuple[dict[str, Any] | None, str]:
+def _model_decision(
+    user_text: str,
+    provider: Any | None,
+    messages: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any] | None, str]:
     if provider is None:
         return None, "provider_unavailable"
-    messages = [{"role": "user", "content": f"用户请求:\n{user_text}\n\n请输出 routing JSON。"}]
+    prompt = _router_user_prompt(user_text, messages)
+    request_messages = [{"role": "user", "content": prompt}]
     try:
-        response = _router_response(provider, messages)
+        response = _router_response(provider, request_messages)
         if response is None:
             return None, "router_response_unavailable"
         decision = _parse_decision(response)
@@ -126,6 +137,45 @@ def _model_decision(user_text: str, provider: Any | None) -> tuple[dict[str, Any
     except Exception:
         logger.debug("model workflow router failed", exc_info=True)
         return None, "router_error"
+
+
+def _router_user_prompt(user_text: str, messages: list[dict[str, Any]] | None = None) -> str:
+    context = _recent_dialogue_context(messages, user_text)
+    context_block = f"\n\n最近对话（仅用于判断本轮是否承接上一轮，不要改写用户请求）:\n{context}" if context else ""
+    return f"用户请求:\n{user_text}{context_block}\n\n请输出 routing JSON。"
+
+
+def _recent_dialogue_context(messages: list[dict[str, Any]] | None, current_user_text: str) -> str:
+    if not messages:
+        return ""
+    lines: list[str] = []
+    skipped_current = False
+    for message in reversed(messages):
+        role = str(message.get("role") or "").strip()
+        if role not in {"user", "assistant"}:
+            continue
+        text = _routing_message_text(message)
+        if not text:
+            continue
+        if not skipped_current and role == "user" and text == current_user_text:
+            skipped_current = True
+            continue
+        label = "用户" if role == "user" else "助手"
+        lines.append(f"{label}: {_clip_routing_context(text)}")
+        if len(lines) >= _MAX_ROUTING_CONTEXT_MESSAGES:
+            break
+    return "\n".join(reversed(lines))
+
+
+def _routing_message_text(message: dict[str, Any]) -> str:
+    raw = message.get("_raw_content") or message.get("content") or ""
+    if isinstance(raw, list):
+        raw = " ".join(str(item) for item in raw)
+    return " ".join(str(raw).split())
+
+
+def _clip_routing_context(text: str) -> str:
+    return text[:_MAX_ROUTING_CONTEXT_CHARS] + ("..." if len(text) > _MAX_ROUTING_CONTEXT_CHARS else "")
 
 
 def _context_with_router_fallback(context: WorkflowContext, fallback_reason: str) -> WorkflowContext:

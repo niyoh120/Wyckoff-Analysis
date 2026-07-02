@@ -51,10 +51,11 @@ def build_turn_runtime(
     workflow_args: Any = None,
     workflow_only_step_id: str = "",
     enforce_turn_expectations: bool | None = None,
+    routing_messages: list[dict[str, Any]] | None = None,
 ) -> tuple[Any, WorkflowContext]:
     """Return direct runtime for general chat, workflow executor for task turns."""
 
-    workflow = workflow_context or route_workflow_with_model(user_text, provider)
+    workflow = workflow_context or route_workflow_with_model(user_text, provider, routing_messages)
     if workflow.is_general and not workflow_script:
         kwargs: dict[str, Any] = {
             "scratchpad": scratchpad,
