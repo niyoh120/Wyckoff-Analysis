@@ -928,8 +928,12 @@ def _synthesis_handoff_summary(results: list[dict[str, Any]]) -> list[dict[str, 
             )
         )
     ordered = list(reversed(summary))
-    if ordered and (conclusion := _candidate_conclusion_from_handoff(aggregate_handoff)):
-        ordered[0] = {"candidate_conclusion": conclusion, **ordered[0]}
+    if ordered and (conclusions := _candidate_conclusions_from_handoff(aggregate_handoff)):
+        ordered[0] = {
+            "candidate_conclusion": conclusions[0],
+            "candidate_conclusions": conclusions,
+            **ordered[0],
+        }
     return ordered
 
 
@@ -1000,12 +1004,20 @@ def _fallback_candidate_conclusion(results: list[dict[str, Any]]) -> str:
         handoff = result.get("handoff_state") if isinstance(result, dict) else {}
         if not isinstance(handoff, dict):
             continue
-        if conclusion := _candidate_conclusion_from_handoff(handoff):
-            return str(conclusion.get("line") or "")
+        conclusions = _candidate_conclusions_from_handoff(handoff)
+        lines = [str(item.get("line") or "") for item in conclusions if item.get("line")]
+        if lines:
+            return "\n".join(lines)
     return ""
 
 
 def _candidate_conclusion_from_handoff(handoff: dict[str, Any]) -> dict[str, Any]:
+    return next(iter(_candidate_conclusions_from_handoff(handoff, limit=1)), {})
+
+
+def _candidate_conclusions_from_handoff(handoff: dict[str, Any], limit: int = 3) -> list[dict[str, Any]]:
+    conclusions: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for stage in (
         "last_strategy_decision",
         "last_ai_report",
@@ -1015,14 +1027,32 @@ def _candidate_conclusion_from_handoff(handoff: dict[str, Any]) -> dict[str, Any
         value = handoff.get(stage)
         if not isinstance(value, dict):
             continue
-        if row := _fallback_stage_candidate(stage, value):
+        for row in _ranked_stage_candidates(stage, value):
+            key = _candidate_identity(row)
+            if key in seen:
+                continue
+            seen.add(key)
             merged = _fallback_merged_candidate(row, handoff)
-            return _fallback_candidate_conclusion_payload(merged, value, handoff, stage)
-    return {}
+            conclusions.append(_fallback_candidate_conclusion_payload(merged, value, handoff, stage))
+            if len(conclusions) >= limit:
+                return conclusions
+    return conclusions
 
 
-def _fallback_stage_candidate(stage: str, value: dict[str, Any]) -> dict[str, Any]:
-    return _first_candidate_row(_fallback_stage_candidates(stage, value))
+def _ranked_stage_candidates(stage: str, value: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = _fallback_stage_candidates(stage, value)
+    return [
+        row
+        for _index, row in sorted(
+            enumerate(rows),
+            key=lambda item: _candidate_rank_key(item[1], item[0]),
+            reverse=True,
+        )
+    ]
+
+
+def _candidate_identity(row: dict[str, Any]) -> str:
+    return str(row.get("code") or row.get("name") or id(row)).strip()
 
 
 def _fallback_candidate_conclusion_payload(
@@ -1215,13 +1245,6 @@ def _fallback_next_value(row: dict[str, Any], stage: dict[str, Any]) -> str:
     action_plan = stage.get("action_plan") if isinstance(stage.get("action_plan"), dict) else {}
     next_step = row.get("next_step") or stage.get("next_action") or action_plan.get("next_step")
     return str(next_step or "")
-
-
-def _first_candidate_row(rows: list[Any]) -> dict[str, Any]:
-    candidates = [row for row in rows if isinstance(row, dict) and (row.get("code") or row.get("name"))]
-    if not candidates:
-        return {}
-    return max(enumerate(candidates), key=lambda item: _candidate_rank_key(item[1], item[0]))[1]
 
 
 def _candidate_rank_key(row: dict[str, Any], index: int) -> tuple[int, int, float, int]:

@@ -1273,6 +1273,51 @@ def test_workflow_synthesis_handoff_summary_merges_split_candidate_conclusion():
     assert conclusion["next_step"] == "等待通知配置后生成 OMS 工单"
 
 
+def test_workflow_synthesis_handoff_summary_keeps_multiple_candidate_conclusions():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "report_candidates": [
+                            {
+                                "code": "000014",
+                                "name": "高质量候选",
+                                "action_status": "ready_for_ai_review",
+                                "candidate_shadow_score": 92.0,
+                                "candidate_shadow_grade": "S",
+                            },
+                            {
+                                "code": "000015",
+                                "name": "次优候选",
+                                "action_status": "ready_for_ai_review",
+                                "candidate_shadow_score": 88.0,
+                            },
+                        ],
+                        "watch_candidates": [
+                            {
+                                "code": "000013",
+                                "name": "观察候选",
+                                "action_status": "watch_only",
+                                "candidate_shadow_score": 96.0,
+                            }
+                        ],
+                    }
+                }
+            },
+        }
+    ]
+
+    summary = _synthesis_handoff_summary(results)
+
+    conclusions = summary[0]["candidate_conclusions"]
+    assert [item["code"] for item in conclusions] == ["000014", "000015", "000013"]
+    assert summary[0]["candidate_conclusion"]["code"] == "000014"
+    assert "首选 000014 高质量候选" in conclusions[0]["line"]
+    assert "观察候选 000013 观察候选" in conclusions[2]["line"]
+
+
 def test_workflow_synthesis_handoff_summary_derives_guard_from_candidate_fields():
     results = [
         {
@@ -1496,6 +1541,52 @@ def test_workflow_handoff_and_fallback_prioritize_report_candidates_over_watch()
     assert "候选结论: 首选 000014 高质量候选" in summary
     assert "候选影子S/92" in summary
     assert "观察候选 000013 观察候选" not in summary.splitlines()[1]
+
+
+def test_workflow_fallback_summary_keeps_multiple_candidate_conclusions():
+    summary = _fallback_summary(
+        [
+            {
+                "step": {"title": "扫描候选"},
+                "result": {
+                    "status": "completed",
+                    "result": "扫描完成。",
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "report_candidates": [
+                                {
+                                    "code": "000014",
+                                    "name": "高质量候选",
+                                    "action_status": "ready_for_ai_review",
+                                    "candidate_shadow_score": 92.0,
+                                    "candidate_shadow_grade": "S",
+                                },
+                                {
+                                    "code": "000015",
+                                    "name": "次优候选",
+                                    "action_status": "ready_for_ai_review",
+                                    "candidate_shadow_score": 88.0,
+                                },
+                            ],
+                            "watch_candidates": [
+                                {
+                                    "code": "000013",
+                                    "name": "观察候选",
+                                    "action_status": "watch_only",
+                                    "candidate_shadow_score": 96.0,
+                                }
+                            ],
+                        }
+                    },
+                },
+            }
+        ]
+    )
+
+    assert "候选结论: 首选 000014 高质量候选" in summary
+    assert "候选结论: 首选 000015 次优候选" in summary
+    assert "候选结论: 观察候选 000013 观察候选" in summary
+    assert summary.index("000014") < summary.index("000015") < summary.index("000013")
 
 
 def test_workflow_candidate_conclusion_prefers_ready_high_score_over_first_watch():
