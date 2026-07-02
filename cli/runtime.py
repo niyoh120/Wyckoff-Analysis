@@ -776,9 +776,7 @@ class AgentRuntime:
     ) -> Any:
         if name != "ask_user_question" or not self.enforce_turn_expectations:
             return None
-        expectation = self._required_tools_expectation(state) or self._available_expectation(
-            resolve_turn_expectation(messages)
-        )
+        expectation = self._required_tools_expectation(state)
         return expectation if missing_required_tool(expectation, state.used_tools) else None
 
     def _append_premature_question_result(

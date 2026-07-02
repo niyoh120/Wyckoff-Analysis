@@ -166,7 +166,53 @@ def test_turn_expectation_requires_portfolio_for_read_positions_wording():
     assert expectation.suggested_args == {"mode": "view"}
 
 
-def test_runtime_blocks_question_before_required_portfolio_tool():
+def test_runtime_allows_question_before_natural_tool_expectation():
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tc_ask",
+                            "name": "ask_user_question",
+                            "args": {"question": "你是要看真实持仓，还是只讨论方法？"},
+                        }
+                    ],
+                    "text": "",
+                }
+            ],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "view"}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "已读取持仓。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        tool_results={
+            "ask_user_question": {"answer": "看真实持仓"},
+            "portfolio": {"positions": []},
+        }
+    )
+    messages = [{"role": "user", "content": "你看我持仓呀"}]
+
+    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
+
+    assert [event["type"] for event in events if event.get("name") == "ask_user_question"] == [
+        "tool_start",
+        "tool_result",
+    ]
+    assert not [event for event in events if event["type"] == "tool_error"]
+    assert [call["name"] for call in tools.calls] == ["ask_user_question", "portfolio"]
+    assert not [event for event in events if event["type"] == "retry"]
+    assert events[-1]["text"] == "已读取持仓。"
+
+
+def test_runtime_blocks_question_before_declared_required_tool():
     def _portfolio_round(messages, _tools, _system_prompt):
         ask_result = next(m for m in messages if m.get("role") == "tool" and m.get("name") == "ask_user_question")
         assert "先不要向用户提问" in ask_result["content"]
@@ -201,7 +247,11 @@ def test_runtime_blocks_question_before_required_portfolio_tool():
     tools = StubToolRegistry(tool_results={"portfolio": {"positions": []}})
     messages = [{"role": "user", "content": "你看我持仓呀"}]
 
-    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
+    events = list(
+        AgentRuntime(provider, tools, required_tools=("portfolio",), enforce_turn_expectations=True).run_stream(
+            messages
+        )
+    )
 
     ask_errors = [event for event in events if event["type"] == "tool_error" and event["name"] == "ask_user_question"]
     assert len(ask_errors) == 1
