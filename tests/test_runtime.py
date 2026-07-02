@@ -211,18 +211,10 @@ def test_runtime_blocks_question_before_required_portfolio_tool():
     assert events[-1]["text"] == "已读取持仓。"
 
 
-def test_runtime_retries_portfolio_typo_diagnosis_until_tool_executes():
+def test_runtime_leaves_portfolio_typo_diagnosis_to_model_semantics():
     provider = ScriptedProvider(
         rounds=[
-            [{"type": "text_delta", "text": "我先按持仓诊断来处理。"}],
-            [
-                {
-                    "type": "tool_calls",
-                    "tool_calls": [{"id": "tc_pf", "name": "portfolio", "args": {"mode": "diagnose"}}],
-                    "text": "",
-                }
-            ],
-            [{"type": "text_delta", "text": "持仓诊断完成。"}],
+            [{"type": "text_delta", "text": "我先按最可能语义处理，并说明假设。"}],
         ]
     )
     tools = StubToolRegistry(tool_results={"portfolio": {"positions": []}})
@@ -231,11 +223,9 @@ def test_runtime_retries_portfolio_typo_diagnosis_until_tool_executes():
     events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
 
     retries = [event for event in events if event["type"] == "retry"]
-    assert len(retries) == 1
-    assert retries[0]["required_tool"] == "portfolio"
-    assert '建议参数：mode="diagnose"' in retries[0]["message"]
-    assert [call["name"] for call in tools.calls] == ["portfolio"]
-    assert events[-1]["text"] == "持仓诊断完成。"
+    assert retries == []
+    assert tools.calls == []
+    assert events[-1]["text"] == "我先按最可能语义处理，并说明假设。"
 
 
 def test_runtime_retries_when_stock_screening_request_skips_tool():
