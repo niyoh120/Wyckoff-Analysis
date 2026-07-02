@@ -2860,6 +2860,35 @@ def test_phase_batches_serializes_no_tool_synthesis_after_fact_tasks():
     ]
 
 
+def test_phase_batches_keeps_unrelated_following_fact_task_out_of_synthesis_dependency():
+    run = plan_workflow(
+        "复盘我的持仓，结合市场给出去留和风险动作，然后再扫候选",
+        context=WORKFLOWS["portfolio_review"],
+        workflow_script={
+            "tasks": [
+                {"id": "positions", "title": "读取持仓", "tools": ["portfolio"], "prompt": "读取当前持仓。"},
+                {
+                    "id": "market",
+                    "title": "读取市场环境",
+                    "tools": ["get_market_overview"],
+                    "prompt": "读取当前市场水温。",
+                },
+                {
+                    "id": "decision",
+                    "title": "形成去留和风险动作",
+                    "prompt": "基于持仓和市场环境，输出每个持仓的去留、风险边界和下一步动作。",
+                },
+                {"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描候选股票。"},
+            ]
+        },
+    )
+
+    assert [[step.step_id for step in batch] for batch in _phase_batches(run.steps)] == [
+        ["positions", "market", "scan"],
+        ["decision"],
+    ]
+
+
 def test_workflow_executor_topologically_runs_out_of_order_stock_selection_tools(tmp_path, monkeypatch):
     from integrations import local_db
 

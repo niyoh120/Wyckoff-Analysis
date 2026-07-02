@@ -86,6 +86,14 @@ _SYNTHESIS_TASK_MARKERS = (
     "诊断",
 )
 _SYNTHESIS_CONTEXT_MARKERS = ("基于", "根据", "结合", "整合", "汇总", "上一", "前面", "已有")
+_SYNTHESIS_TOOL_MARKERS = (
+    ("portfolio", ("持仓", "仓位", "资金", "账户")),
+    ("get_market_overview", ("市场", "大盘", "水温", "环境")),
+    ("screen_stocks", ("候选", "选股", "股票池", "好股票", "好票", "标的")),
+    ("generate_ai_report", ("研报", "报告", "深度", "复核")),
+    ("generate_strategy_decision", ("攻防", "买卖", "计划", "触发", "失效", "动作", "边界", "风险")),
+    ("analyze_stock", ("诊断", "结构", "个股", "股票")),
+)
 
 _PLAN_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的动态 workflow 编排器。
@@ -792,7 +800,14 @@ def _stabilized_step_dependencies(step: WorkflowStep, steps: list[WorkflowStep])
 
 
 def _looks_like_synthesis_step(step: WorkflowStep) -> bool:
-    text = _compact_task_text(
+    text = _synthesis_step_text(step)
+    return any(marker in text for marker in _SYNTHESIS_TASK_MARKERS) and any(
+        marker in text for marker in _SYNTHESIS_CONTEXT_MARKERS
+    )
+
+
+def _synthesis_step_text(step: WorkflowStep) -> str:
+    return _compact_task_text(
         " ".join(
             [
                 step.title,
@@ -803,17 +818,36 @@ def _looks_like_synthesis_step(step: WorkflowStep) -> bool:
             ]
         )
     )
-    return any(marker in text for marker in _SYNTHESIS_TASK_MARKERS) and any(
-        marker in text for marker in _SYNTHESIS_CONTEXT_MARKERS
-    )
 
 
 def _synthesis_fact_step_ids(step: WorkflowStep, steps: list[WorkflowStep]) -> list[str]:
-    return [
-        candidate.step_id
+    candidates = [
+        candidate
         for candidate in steps
         if candidate is not step and _step_has_fact_tool(candidate) and step.step_id not in candidate.depends_on
     ]
+    text = _synthesis_step_text(step)
+    previous = [candidate for candidate in candidates if _step_before(candidate, step, steps)]
+    following = [candidate for candidate in candidates if _step_before(step, candidate, steps)]
+    return (
+        _matching_synthesis_fact_step_ids(previous, text)
+        or [candidate.step_id for candidate in previous]
+        or _matching_synthesis_fact_step_ids(following, text)
+        or [candidate.step_id for candidate in following]
+    )
+
+
+def _matching_synthesis_fact_step_ids(steps: list[WorkflowStep], text: str) -> list[str]:
+    return [step.step_id for step in steps if _step_matches_synthesis_text(step, text)]
+
+
+def _step_matches_synthesis_text(step: WorkflowStep, text: str) -> bool:
+    return any(_tool_matches_synthesis_text(tool_name, text) for tool_name in step.tool_scope)
+
+
+def _tool_matches_synthesis_text(tool_name: str, text: str) -> bool:
+    markers = next((markers for name, markers in _SYNTHESIS_TOOL_MARKERS if name == tool_name), ())
+    return any(marker in text for marker in markers)
 
 
 def _step_has_fact_tool(step: WorkflowStep) -> bool:
