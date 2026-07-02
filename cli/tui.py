@@ -1048,11 +1048,25 @@ def _pending_user_question_answer(text: str, pending: _PendingUserQuestion) -> s
         return answer
     if answer.isdigit():
         index = int(answer)
-        if 0 <= index < len(pending.options):
+        if index == 0:
             return pending.options[index]
+        if 1 <= index <= len(pending.options):
+            return pending.options[index - 1]
     if pending.allow_free_text:
         return answer or pending.default_answer
     return ""
+
+
+def _pending_user_question_lines(pending: _PendingUserQuestion) -> list[str]:
+    lines = [
+        "  [yellow]？ agent 需要你补充[/yellow] [dim]直接在输入框回复，会作为当前问题的回答[/dim]",
+        f"    {escape(pending.question)}",
+    ]
+    if pending.options:
+        lines.extend(f"    [dim]{index}. {escape(option)}[/dim]" for index, option in enumerate(pending.options, 1))
+    elif pending.default_answer:
+        lines.append(f"    [dim]直接回车默认：{escape(pending.default_answer)}[/dim]")
+    return lines
 
 
 def _build_thinking_preview(text: str) -> Text | None:
@@ -1391,84 +1405,6 @@ class ToolConfirmScreen(ModalScreen[dict]):
         self.dismiss({"action": "deny"})
 
 
-class AskUserScreen(ModalScreen[str]):
-    """向用户提问并等待选择或输入的交互弹窗。"""
-
-    DEFAULT_CSS = """
-    AskUserScreen {
-        align: center middle;
-    }
-    #ask-box {
-        width: 64;
-        max-height: 24;
-        background: $surface;
-        border: thick $accent;
-        padding: 1 2;
-    }
-    #ask-title {
-        text-style: bold;
-        margin-bottom: 1;
-    }
-    #ask-question {
-        height: auto;
-        margin-bottom: 1;
-    }
-    #ask-options {
-        height: auto;
-        max-height: 8;
-        margin-bottom: 1;
-    }
-    #ask-input {
-        margin-top: 1;
-    }
-    """
-
-    BINDINGS = [Binding("escape", "cancel", show=False)]
-
-    def __init__(
-        self,
-        question: str,
-        options: list[str] | None = None,
-        *,
-        allow_free_text: bool = True,
-        default_answer: str = "",
-    ):
-        super().__init__()
-        self.question = question
-        self.options = options or []
-        self.allow_free_text = allow_free_text or not self.options
-        self.default_answer = default_answer
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="ask-box"):
-            yield Static("需要你确认/补充", id="ask-title")
-            yield Static(self.question, id="ask-question")
-            if self.options:
-                yield OptionList(
-                    *[Option(opt, id=f"opt_{i}") for i, opt in enumerate(self.options)],
-                    id="ask-options",
-                )
-            if self.allow_free_text:
-                yield Input(value=self.default_answer, placeholder=self._input_placeholder(), id="ask-input")
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        selected_option = event.option.prompt
-        self.dismiss(str(selected_option))
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value or self.default_answer)
-
-    def action_cancel(self) -> None:
-        self.dismiss("已取消回答")
-
-    def _input_placeholder(self) -> str:
-        if self.options:
-            return "也可以在此输入自定义回答..."
-        if self.default_answer:
-            return "直接回车使用默认回答"
-        return "在此输入回答并按 Enter..."
-
-
 # ---------------------------------------------------------------------------
 # 错误友好化
 # ---------------------------------------------------------------------------
@@ -1716,21 +1652,14 @@ class WyckoffTUI(App):
         result: list[str] = [""]
         pending = _PendingUserQuestion(question, options or [], allow_free_text, default_answer, event, result)
 
-        def _on_dismiss(answer: str) -> None:
-            if event.is_set():
-                return
-            result[0] = answer
-            event.set()
-
         def _show() -> None:
             self._pending_user_question = pending
-            screen = AskUserScreen(
-                question,
-                options,
-                allow_free_text=allow_free_text,
-                default_answer=default_answer,
-            )
-            self.push_screen(screen, _on_dismiss)
+            log = self.query_one("#chat-log", ChatLog)
+            for line in _pending_user_question_lines(pending):
+                log.write(Text.from_markup(line))
+            log.scroll_end(animate=False)
+            with contextlib.suppress(Exception):
+                self.query_one("#chat-input", ChatInput).focus()
 
         self.call_from_thread(_show)
         event.wait(timeout=300)  # 等待最长 5 分钟

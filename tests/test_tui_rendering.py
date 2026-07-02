@@ -20,6 +20,8 @@ from cli.tui import (
     _display_workflow_step_event,
     _is_system_notification_message,
     _make_sub_agent_progress_handler,
+    _pending_user_question_answer,
+    _pending_user_question_lines,
     _pending_workflow_reply_intent,
     _PendingUserQuestion,
     _pop_lines,
@@ -624,6 +626,39 @@ def test_busy_input_rejects_invalid_pending_question_option():
     assert result == [""]
     assert app._pending_user_question is pending
     assert "请从当前提问的选项中选择" in str(log.lines[-1])
+
+
+def test_pending_user_question_lines_render_inline_chat_prompt():
+    pending = _PendingUserQuestion(
+        "是否确认执行？",
+        ["确认", "取消"],
+        False,
+        "",
+        threading.Event(),
+        [""],
+    )
+
+    rendered = "\n".join(_pending_user_question_lines(pending))
+
+    assert "agent 需要你补充" in rendered
+    assert "直接在输入框回复" in rendered
+    assert "1. 确认" in rendered
+    assert "2. 取消" in rendered
+
+
+def test_pending_user_question_answer_accepts_displayed_option_number():
+    pending = _PendingUserQuestion(
+        "是否确认执行？",
+        ["确认", "取消"],
+        False,
+        "",
+        threading.Event(),
+        [""],
+    )
+
+    assert _pending_user_question_answer("1", pending) == "确认"
+    assert _pending_user_question_answer("2", pending) == "取消"
+    assert _pending_user_question_answer("0", pending) == "确认"
 
 
 def test_submit_workflow_background_auto_starts_model_plan():
