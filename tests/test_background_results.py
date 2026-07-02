@@ -187,6 +187,48 @@ def test_local_db_background_history_uses_dynamic_workflow_preview(tmp_path, mon
         _reset_local_db(local_db)
 
 
+def test_local_db_dynamic_workflow_preview_prioritizes_candidate_conclusions(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "background-workflow-candidates.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    try:
+        local_db.init_db()
+
+        local_db.save_background_task_result(
+            "wfbg_candidates",
+            "dynamic_workflow",
+            {
+                "workflow_run_id": "wf_candidates",
+                "workflow": "dynamic_task",
+                "final_text": (
+                    "长前言\n"
+                    + ("市场说明。" * 500)
+                    + "\n候选结论: 首选 000014 高质量候选\n"
+                    + "候选结论: 观察候选 000013 观察候选\n"
+                ),
+                "events": [
+                    {
+                        "type": "workflow_step_done",
+                        "step": {"title": "扫描候选", "status": "completed", "summary": "候选扫描完成"},
+                    }
+                ],
+                "huge": [{"blob": "x" * 200} for _ in range(80)],
+            },
+            session_id="s1",
+        )
+        row = local_db.load_background_task_results(limit=1)[0]
+
+        assert row["task_id"] == "wfbg_candidates"
+        assert "candidate_conclusions" in row["summary"]
+        assert "候选结论: 首选 000014 高质量候选" in row["summary"]
+        assert "候选结论: 观察候选 000013 观察候选" in row["summary"]
+        assert '"huge"' not in row["summary"]
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_local_db_background_history_uses_recommendation_event_eval_preview(tmp_path, monkeypatch):
     from integrations import local_db
 

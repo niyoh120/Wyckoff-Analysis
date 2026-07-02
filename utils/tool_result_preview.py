@@ -309,12 +309,32 @@ def _dynamic_workflow_preview(result: dict[str, Any]) -> str:
             "workflow": result.get("workflow"),
             "status": "failed" if result.get("error") else "completed",
             "error": _text_excerpt(result.get("error"), 500),
+            "candidate_conclusions": _dynamic_workflow_candidate_conclusions(result),
             "final_text": _text_excerpt(result.get("final_text"), 1400),
             "elapsed": result.get("elapsed"),
             "events": _dynamic_workflow_event_preview(result.get("events")),
         }
     )
     return serialize_tool_result(payload) if payload else ""
+
+
+def _dynamic_workflow_candidate_conclusions(result: dict[str, Any]) -> list[str]:
+    rows: list[str] = []
+    for item in _preview_list(result.get("candidate_conclusions"), 5):
+        line = item.get("line") if isinstance(item, dict) else item
+        _append_preview_line(rows, line, limit=5)
+    for line in str(result.get("final_text") or "").splitlines():
+        if "候选结论:" in line:
+            _append_preview_line(rows, line, limit=5)
+    return rows
+
+
+def _append_preview_line(rows: list[str], value: Any, *, limit: int) -> None:
+    if len(rows) >= limit:
+        return
+    text = _text_excerpt(str(value or "").strip(" \t-•"), 240)
+    if text and text not in rows:
+        rows.append(text)
 
 
 def _dynamic_workflow_event_preview(value: Any) -> list[dict[str, Any]]:
