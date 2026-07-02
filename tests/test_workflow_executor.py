@@ -566,6 +566,8 @@ def test_workflow_handoff_state_compacts_candidate_context():
                     "hot_concepts": ["机器人", "灵巧手", "滚柱丝杠", "电子皮肤", "控制系统", "减速器", "extra"],
                 },
                 "selection_brief": {"status": "ready_for_ai_review", "best_codes": ["300750"]},
+                "next_action": "首选候选已通过市场闸门，可进入 AI 研报复核",
+                "next_tool": {"tool": "generate_ai_report", "args": {"stock_codes": ["300750"]}},
                 "action_plan": {
                     "candidate_action": "generate_ai_report",
                     "new_buy_allowed": False,
@@ -712,6 +714,9 @@ def test_workflow_handoff_state_compacts_candidate_context():
 
     screen = handoff["last_screen_result"]
     assert screen["selection_brief"]["best_codes"] == ["300750"]
+    assert screen["next_action"] == "首选候选已通过市场闸门，可进入 AI 研报复核"
+    assert screen["next_tool"]["tool"] == "generate_ai_report"
+    assert screen["next_tool"]["args"]["stock_codes"] == ["300750"]
     assert screen["theme_context"]["event_mainlines"] == "机器人 0.82/爆发"
     assert screen["theme_context"]["hot_concepts"] == ["机器人", "灵巧手", "滚柱丝杠", "电子皮肤", "控制系统", "减速器"]
     assert screen["action_plan"]["new_buy_allowed"] is False

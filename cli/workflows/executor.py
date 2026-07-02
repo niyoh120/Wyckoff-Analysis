@@ -593,7 +593,10 @@ def _workflow_handoff_state(tools: Any) -> dict[str, Any]:
 def _compact_screen_handoff(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
-    payload = _pick_fields(value, ("scan_scope", "summary", "data_quality", "decision_brief", "selection_brief"))
+    payload = _pick_fields(
+        value,
+        ("scan_scope", "summary", "data_quality", "decision_brief", "selection_brief", "next_action", "next_tool"),
+    )
     payload["theme_context"] = _compact_theme_context(value.get("theme_context"))
     payload["action_plan"] = _pick_fields(
         value.get("action_plan"),

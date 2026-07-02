@@ -695,6 +695,8 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "theme_context": _screen_theme_context_preview(result.get("theme_context")),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "selection_brief": _screen_selection_preview(result.get("selection_brief")),
+            "next_action": result.get("next_action"),
+            "next_tool": result.get("next_tool"),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
             "candidate_conclusion": _candidate_conclusion_preview("last_screen_result", result),
             "top_candidates": _candidate_preview_list(result.get("top_candidates"), 10),

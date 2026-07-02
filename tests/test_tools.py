@@ -2862,6 +2862,9 @@ class TestSymbolPool:
         assert result["watch_candidates"][0]["code"] == "000013"
         assert result["quality_gate"]["status"] == "blocked_by_quality_gate"
         assert result["summary"]["report_candidates"] == 0
+        assert result["summary"]["watch_candidates"] == 1
+        assert result["next_tool"] == {}
+        assert result["next_action"].startswith("保留观察池，暂不生成 AI 研报")
         assert report["status"] == "blocked_by_quality_gate"
         assert "000013 低质量研报候选 风险调整质量分 65.00 低于AI复核门槛 70.00" in report["reason"]
         watch = result["action_plan"]["watch_candidates"][0]
@@ -2938,6 +2941,13 @@ class TestSymbolPool:
         assert result["watch_candidates"][0]["code"] == "000013"
         assert result["quality_gate"]["blocked_count"] == 1
         assert result["summary"]["report_candidates"] == 1
+        assert result["summary"]["watch_candidates"] == 1
+        assert result["next_tool"] == {
+            "tool": "generate_ai_report",
+            "args": {"stock_codes": ["000014"]},
+            "reason": "首选候选已通过市场闸门，可进入 AI 研报复核",
+        }
+        assert result["next_action"] == "首选候选已通过市场闸门，可进入 AI 研报复核"
         assert result["action_plan"]["quality_gate"]["blocked_count"] == 1
         assert result["action_plan"]["watch_candidates"][0]["code"] == "000013"
 
@@ -3109,8 +3119,12 @@ class TestSymbolPool:
             "args": {"stock_codes": ["000004", "000005"]},
             "reason": "首选候选已通过市场闸门，可进入 AI 研报复核",
         }
+        assert result["summary"]["watch_candidates"] == 0
+        assert result["next_tool"] == result["selection_brief"]["tool_handoff"]
+        assert result["next_action"] == "首选候选已通过市场闸门，可进入 AI 研报复核"
         assert ctx.state["last_screen_result"]["symbols_for_report"][0]["code"] == "000004"
         assert ctx.state["last_screen_result"]["selection_brief"]["best_codes"] == ["000004", "000005"]
+        assert ctx.state["last_screen_result"]["next_tool"] == result["next_tool"]
         assert "trigger_groups" not in ctx.state["last_screen_result"]
 
     def test_screen_stocks_blocks_ai_review_on_degraded_data_quality(self, monkeypatch):

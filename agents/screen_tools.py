@@ -64,7 +64,10 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
         selection_brief = _selection_brief(trade_mode, top_candidates, data_quality)
         action_plan = _action_plan(trade_mode, top_candidates, data_quality)
         symbols_for_report = list(action_plan.get("report_candidates") or [])
+        watch_candidates = list(action_plan.get("watch_candidates") or [])
         summary["report_candidates"] = len(_report_rows(symbols_for_report))
+        summary["watch_candidates"] = len(watch_candidates)
+        next_tool = _screen_next_tool(selection_brief, action_plan)
         result = {
             "ok": bool(ok),
             "board": board,
@@ -76,12 +79,14 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
             "selection_brief": selection_brief,
             "theme_context": theme_context,
             "action_plan": action_plan,
+            "next_action": _screen_next_action(selection_brief, action_plan, next_tool),
+            "next_tool": next_tool,
             "top_candidates": top_candidates,
             "trigger_groups": trigger_groups,
             "top_sectors": metrics.get("top_sectors", []),
             "symbols_for_report": symbols_for_report,
             "report_candidates": symbols_for_report,
-            "watch_candidates": list(action_plan.get("watch_candidates") or []),
+            "watch_candidates": watch_candidates,
             "quality_gate": action_plan.get("quality_gate", {}),
         }
         if guard_summary := _screen_candidate_guard_summary(selection_brief, action_plan):
@@ -127,6 +132,8 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "selection_brief": result.get("selection_brief", {}),
         "theme_context": result.get("theme_context", {}),
         "action_plan": result.get("action_plan", {}),
+        "next_action": result.get("next_action", ""),
+        "next_tool": result.get("next_tool", {}),
         "quality_gate": result.get("quality_gate", {}),
         "candidate_guard_summary": result.get("candidate_guard_summary", {}),
         "top_candidates": list(result.get("top_candidates") or [])[:20],
@@ -449,6 +456,45 @@ def _selection_tool_handoff(status: str, best_candidates: list[dict]) -> dict:
         "args": {"stock_codes": codes[:10]},
         "reason": "首选候选已通过市场闸门，可进入 AI 研报复核",
     }
+
+
+def _screen_next_tool(selection_brief: dict, action_plan: dict) -> dict:
+    selection_tool = selection_brief.get("tool_handoff") if isinstance(selection_brief, dict) else {}
+    if tool := _compact_next_tool(selection_tool):
+        return tool
+    review = action_plan.get("review_targets") if isinstance(action_plan, dict) else {}
+    return _compact_next_tool(review)
+
+
+def _compact_next_tool(payload: Any) -> dict:
+    if not isinstance(payload, dict) or not payload.get("tool"):
+        return {}
+    out = {"tool": str(payload.get("tool") or "")}
+    args = payload.get("args")
+    if isinstance(args, dict) and args:
+        out["args"] = args
+    if reason := str(payload.get("reason") or "").strip():
+        out["reason"] = reason
+    return out
+
+
+def _screen_next_action(selection_brief: dict, action_plan: dict, next_tool: dict) -> str:
+    if next_tool:
+        return str(next_tool.get("reason") or "调用下一步工具复核候选")
+    review = action_plan.get("review_targets") if isinstance(action_plan, dict) else {}
+    reason = str(review.get("reason") or "").strip() if isinstance(review, dict) else ""
+    status = (
+        str(review.get("status") or selection_brief.get("status") or "").strip() if isinstance(review, dict) else ""
+    )
+    if status == "blocked_by_data_quality":
+        return f"先处理数据质量阻断: {reason}" if reason else "先处理数据质量阻断"
+    if status == "blocked_by_quality_gate":
+        return f"保留观察池，暂不生成 AI 研报: {reason}" if reason else "保留观察池，暂不生成 AI 研报"
+    if status in {"blocked", "blocked_by_market_gate"}:
+        return f"市场闸门未打开，先观察候选: {reason}" if reason else "市场闸门未打开，先观察候选"
+    if status == "watch_only":
+        return "本轮只有观察候选，等待形成研报候选后再继续"
+    return str(selection_brief.get("headline") or action_plan.get("candidate_action") or "继续复核筛股结果")
 
 
 def _screen_candidate_guard_summary(selection_brief: dict, action_plan: dict) -> dict[str, Any]:
