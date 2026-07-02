@@ -96,6 +96,17 @@ _PLAN_SYSTEM_PROMPT = """\
 - 不要生成会写入持仓、交易或文件的任务。
 """
 
+_REPAIR_SYSTEM_PROMPT = """\
+你是 Wyckoff CLI workflow script 的结构修订器。
+
+只输出修订后的完整 JSON，不要 Markdown，不要代码块。
+你的任务不是执行工具，而是补齐 workflow script 的结构契约：
+- 需要真实数据、分析、筛选、研报或策略决策的 task，必须从工具摘要中选择精确工具名写入 tools。
+- 纯汇总、解释、最终整理的 task 可以继续省略 tools。
+- 保留原有 task id、title、prompt、depends_on 和阶段结构；只有工具契约明显缺失时才改 tools。
+- 不要新增写入、交易或文件修改类任务。
+"""
+
 
 def plan_workflow(
     user_text: str,
@@ -209,7 +220,74 @@ def _generate_script(
         return _fallback_script(user_text, context, reason=f"planner failed: {exc}")
     if not isinstance(script, dict):
         return _fallback_script(user_text, context, reason="planner returned non-object JSON")
-    return _mark_model_script(_limit_generated_script(script))
+    script = _mark_model_script(_limit_generated_script(script))
+    return _repair_model_tool_contract(user_text, context, provider, tools, script)
+
+
+def _repair_model_tool_contract(
+    user_text: str,
+    context: WorkflowContext,
+    provider: Any,
+    tools: Any | None,
+    script: dict[str, Any],
+) -> dict[str, Any]:
+    if not _repairable_tool_names(context):
+        return script
+    unscoped_count = _unscoped_step_count(script, user_text, context)
+    if unscoped_count <= 0:
+        return script
+    scoped_count = _scoped_step_count(script, user_text, context)
+    prompt = _tool_contract_repair_prompt(user_text, context, tools, script, unscoped_count)
+    try:
+        text = _collect_planner_text(provider, prompt, _REPAIR_SYSTEM_PROMPT)
+        repaired = _normalize_generated_script(_loads_repair_script(text))
+    except Exception:
+        return script
+    if not isinstance(repaired, dict) or not _workflow_script_like(repaired):
+        return script
+    payload = _mark_model_script(_limit_generated_script(repaired))
+    if _scoped_step_count(payload, user_text, context) < scoped_count:
+        return script
+    runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+    runtime.update(
+        {
+            "tool_contract_repair": "model",
+            "unscoped_step_count_before_repair": unscoped_count,
+            "scoped_step_count_before_repair": scoped_count,
+        }
+    )
+    payload["runtime"] = runtime
+    return payload
+
+
+def _repairable_tool_names(context: WorkflowContext) -> set[str]:
+    return {name for name in _context_tool_names(context) if name != ASK_USER_TOOL}
+
+
+def _unscoped_step_count(script: dict[str, Any], user_text: str, context: WorkflowContext) -> int:
+    return sum(1 for step in _script_steps(script, user_text, context) if not step.tool_scope)
+
+
+def _scoped_step_count(script: dict[str, Any], user_text: str, context: WorkflowContext) -> int:
+    return sum(1 for step in _script_steps(script, user_text, context) if step.tool_scope)
+
+
+def _tool_contract_repair_prompt(
+    user_text: str,
+    context: WorkflowContext,
+    tools: Any | None,
+    script: dict[str, Any],
+    unscoped_count: int,
+) -> str:
+    return (
+        f"用户请求:\n{user_text}\n\n"
+        f"运行上下文: {context.label} ({context.name})\n"
+        f"当前可用工具摘要:\n{_tool_catalog(tools, context)}\n\n"
+        f"检测到 {unscoped_count} 个 task 没有声明 tools。"
+        "请修订下面的 workflow JSON：需要真实数据/分析/筛选/研报/策略决策的 task 补齐 tools；"
+        "纯汇总或解释 task 可以继续不声明 tools。\n\n"
+        f"workflow JSON:\n{json.dumps(script, ensure_ascii=False)}"
+    )
 
 
 def _planner_user_prompt(user_text: str, context: WorkflowContext, tools: Any | None) -> str:
@@ -238,10 +316,10 @@ def _planner_visible_tools(names: tuple[str, ...]) -> set[str]:
     return {name for name in names if name and not name.startswith("delegate_to_")}
 
 
-def _collect_planner_text(provider: Any, prompt: str) -> str:
+def _collect_planner_text(provider: Any, prompt: str, system_prompt: str = _PLAN_SYSTEM_PROMPT) -> str:
     chunks: list[str] = []
     messages = [{"role": "user", "content": prompt}]
-    for chunk in provider.chat_stream(messages, [], _PLAN_SYSTEM_PROMPT):
+    for chunk in provider.chat_stream(messages, [], system_prompt):
         if chunk.get("type") == "text_delta":
             chunks.append(str(chunk.get("text", "")))
     return "".join(chunks).strip()
@@ -258,6 +336,17 @@ def _loads_script(text: str) -> Any:
         if script := _outline_script(raw):
             return script
         raise
+
+
+def _loads_repair_script(text: str) -> Any:
+    raw = _strip_json_fence(text)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+        if not match:
+            raise
+        return json.loads(match.group(0))
 
 
 def _normalize_generated_script(script: Any) -> Any:

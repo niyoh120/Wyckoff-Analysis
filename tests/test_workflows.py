@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
+
 from cli.__main__ import _workflow_step_cli_line
 from cli.runtime import AgentRuntime
 from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.model_router import _ROUTER_SYSTEM_PROMPT
-from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, plan_workflow
+from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, _REPAIR_SYSTEM_PROMPT, plan_workflow
 from cli.workflows.router import WORKFLOWS, build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
@@ -824,6 +826,101 @@ def test_planner_does_not_infer_tools_from_json_task_text_when_model_omits_tools
     )
 
     assert [step.tool_scope for step in run.steps] == [(), (), ()]
+
+
+def test_planner_lets_model_repair_missing_tool_contracts():
+    first_script = {
+        "title": "动态选股",
+        "phases": [
+            {
+                "id": "select",
+                "tasks": [
+                    {"id": "scan", "title": "扫描候选", "prompt": "筛选今日候选并保留理由。"},
+                    {
+                        "id": "decision",
+                        "title": "形成攻防",
+                        "depends_on": ["scan"],
+                        "prompt": "基于候选输出触发位、失效位和风险边界。",
+                    },
+                ],
+            }
+        ],
+    }
+    repaired_script = {
+        "title": "动态选股",
+        "phases": [
+            {
+                "id": "select",
+                "tasks": [
+                    {
+                        "id": "scan",
+                        "title": "扫描候选",
+                        "tools": ["screen_stocks"],
+                        "prompt": "筛选今日候选并保留理由。",
+                    },
+                    {
+                        "id": "decision",
+                        "title": "形成攻防",
+                        "tools": ["generate_strategy_decision"],
+                        "depends_on": ["scan"],
+                        "prompt": "基于候选输出触发位、失效位和风险边界。",
+                    },
+                ],
+            }
+        ],
+    }
+    provider = ScriptedProvider(
+        [
+            [{"type": "text_delta", "text": json.dumps(first_script, ensure_ascii=False)}],
+            [{"type": "text_delta", "text": json.dumps(repaired_script, ensure_ascii=False)}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "screen_stocks"},
+            {"name": "generate_strategy_decision"},
+        ]
+    )
+
+    run = plan_workflow(
+        "用 workflow 选出好股票并给出攻防计划",
+        context=route_workflow("用 workflow 选出好股票并给出攻防计划"),
+        provider=provider,
+        tools=tools,
+    )
+
+    assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
+    assert run.steps[1].depends_on == ("scan",)
+    assert run.script["runtime"]["tool_contract_repair"] == "model"
+    assert run.script["runtime"]["unscoped_step_count_before_repair"] == 2
+    assert provider.calls[1]["system_prompt"] == _REPAIR_SYSTEM_PROMPT
+    assert "- screen_stocks" in provider.calls[1]["messages"][0]["content"]
+
+
+def test_planner_keeps_original_script_when_model_tool_contract_repair_is_invalid():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": '{"title":"自然工具推断","tasks":[{"id":"scan","title":"扫描候选","prompt":"筛选候选。"}]}',
+                }
+            ],
+            [{"type": "text_delta", "text": "这不是 JSON"}],
+        ]
+    )
+    tools = StubToolRegistry(schemas=[{"name": "screen_stocks"}])
+
+    run = plan_workflow(
+        "用 workflow 找好票",
+        context=route_workflow("用 workflow 找好票"),
+        provider=provider,
+        tools=tools,
+    )
+
+    assert run.script["title"] == "自然工具推断"
+    assert run.steps[0].tool_scope == ()
+    assert "tool_contract_repair" not in run.script["runtime"]
 
 
 def test_planner_filters_model_task_tools_by_workflow_context():

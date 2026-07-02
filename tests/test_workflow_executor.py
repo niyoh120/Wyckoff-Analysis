@@ -20,7 +20,7 @@ from cli.workflows.executor import (
     _workflow_handoff_state,
 )
 from cli.workflows.models import WorkflowRun, WorkflowStep
-from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, MAX_WORKFLOW_STEPS, plan_workflow
+from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, _REPAIR_SYSTEM_PROMPT, MAX_WORKFLOW_STEPS, plan_workflow
 from cli.workflows.resume import (
     build_chat_resume_prompt,
     build_recent_workflow_context,
@@ -1854,6 +1854,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
     provider = ScriptedProvider(
         rounds=[
             [{"type": "text_delta", "text": _PLAN_JSON}],
+            [{"type": "text_delta", "text": _PLAN_JSON}],
             [
                 {
                     "type": "tool_calls",
@@ -1891,8 +1892,9 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert any(event["type"] == "workflow_done" for event in events)
         assert events[-1]["type"] == "done"
         assert events[-1]["text"] == "持仓复盘完成。"
-        assert "只看核心仓位" in provider.calls[1]["messages"][0]["content"]
-        assert "汇总持仓风险和下一步动作" in provider.calls[3]["messages"][0]["content"]
+        assert provider.calls[1]["system_prompt"] == _REPAIR_SYSTEM_PROMPT
+        assert "只看核心仓位" in provider.calls[2]["messages"][0]["content"]
+        assert "汇总持仓风险和下一步动作" in provider.calls[4]["messages"][0]["content"]
         assert run and run["status"] == "completed"
         assert run["workflow"] == "dynamic_task"
         assert run["label"] == "持仓复盘"
