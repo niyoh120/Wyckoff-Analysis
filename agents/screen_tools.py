@@ -21,6 +21,7 @@ from core.candidate_quality import (
 from core.candidate_ranker import TRIGGER_SHORT_LABELS
 from core.candidate_tracks import candidate_entry_track
 from core.funnel_taxonomy import lane_label, source_label
+from core.theme_radar import summarize_theme_radar
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
         metrics = details.get("metrics") or {}
         trigger_groups = _trigger_summary(details)
         trade_mode = _trade_mode_summary(details)
+        theme_context = _theme_context(metrics)
         top_candidates = _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details)
         summary = _screen_summary(metrics, symbols)
         data_quality = _data_quality_summary(metrics, summary)
@@ -72,6 +74,7 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
             "trade_mode": trade_mode,
             "decision_brief": decision_brief,
             "selection_brief": selection_brief,
+            "theme_context": theme_context,
             "action_plan": action_plan,
             "top_candidates": top_candidates,
             "trigger_groups": trigger_groups,
@@ -122,6 +125,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "trade_mode": result.get("trade_mode", {}),
         "decision_brief": result.get("decision_brief", {}),
         "selection_brief": result.get("selection_brief", {}),
+        "theme_context": result.get("theme_context", {}),
         "action_plan": result.get("action_plan", {}),
         "quality_gate": result.get("quality_gate", {}),
         "candidate_guard_summary": result.get("candidate_guard_summary", {}),
@@ -297,6 +301,25 @@ def _trade_mode_summary(details: dict) -> dict:
     return {field: mode[field] for field in fields if field in mode}
 
 
+def _theme_context(metrics: dict) -> dict[str, Any]:
+    radar = metrics.get("theme_radar") or metrics.get("theme_radar_current") or {}
+    return _drop_empty_candidate_fields(
+        {
+            "today_activity": str(metrics.get("theme_activity_summary") or "").strip(),
+            "event_mainlines": str(metrics.get("ths_hot_events_summary") or "").strip(),
+            "theme_radar": summarize_theme_radar(radar),
+            "theme_radar_source": str(metrics.get("theme_radar_source") or "").strip(),
+            "hot_concepts": _theme_context_list(metrics.get("theme_lines"), 6),
+        }
+    )
+
+
+def _theme_context_list(value: Any, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value[:limit] if str(item).strip()]
+
+
 def _action_plan(trade_mode: dict, top_candidates: list[dict], data_quality: dict) -> dict:
     report_candidates = _report_candidates(top_candidates)
     watch_candidates = _watch_candidates(top_candidates)
@@ -398,6 +421,7 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str, data_qua
             "stage": row.get("stage"),
             "candidate_lane": row.get("candidate_lane"),
             "entry_type": row.get("entry_type"),
+            **_candidate_theme_result_fields(row),
             **_candidate_quality_metrics(row),
         }
     )
@@ -603,6 +627,7 @@ def _candidate_ref(row: dict, trade_mode: dict, bucket: str, data_quality: dict)
         "tag": row.get("tag"),
         "candidate_lane": row.get("candidate_lane"),
         "entry_type": row.get("entry_type"),
+        **_candidate_theme_result_fields(row),
         "triggers": row.get("triggers"),
         **_candidate_quality_metrics(row),
     }
@@ -685,6 +710,7 @@ def _candidate_profile(row: dict) -> str:
         _track_label(row.get("track")),
         _stage_label(row.get("stage")),
         _lane_profile(row),
+        _candidate_theme_profile(row),
         source_label(str(row.get("selection_source") or "")),
         _trigger_profile(row.get("triggers")),
     ]
@@ -737,6 +763,14 @@ def _candidate_risk_factors(
             factors.extend(_data_quality_risk_factors(data_quality))
         factors.extend(_trade_mode_risk_factors(trade_mode, bucket))
     return list(dict.fromkeys(factor for factor in factors if factor))
+
+
+def _candidate_theme_profile(row: dict) -> str:
+    theme = str(row.get("strategic_theme") or row.get("theme") or "").strip()
+    if not theme:
+        return ""
+    source = str(row.get("theme_source") or "").strip()
+    return f"事件主线:{theme}" if source == "ths_hot_event" else f"主题:{theme}"
 
 
 def _trade_mode_risk_factors(trade_mode: dict, bucket: str) -> list[str]:
@@ -898,8 +932,40 @@ def _candidate_row(
         "tag": str(report_row.get("tag") or _metadata_tag(metadata)).strip(),
         "candidate_lane": str(report_row.get("candidate_lane") or metadata.get("candidate_lane") or "").strip(),
         "entry_type": str(report_row.get("entry_type") or metadata.get("entry_type") or "").strip(),
+        **_candidate_theme_fields(report_row, metadata),
         **_candidate_quality_metrics(report_row),
     }
+
+
+def _candidate_theme_fields(report_row: dict, metadata: dict[str, Any]) -> dict[str, Any]:
+    reasons = metadata.get("candidate_reasons") if isinstance(metadata.get("candidate_reasons"), dict) else {}
+    metrics = metadata.get("candidate_metrics") if isinstance(metadata.get("candidate_metrics"), dict) else {}
+    return _drop_empty_candidate_fields(
+        {
+            "strategic_theme": report_row.get("strategic_theme") or reasons.get("theme"),
+            "theme_score": report_row.get("theme_score") or metadata.get("theme_score"),
+            "theme_source": report_row.get("theme_source")
+            or reasons.get("theme_source")
+            or metrics.get("theme_source"),
+            "theme_event_id": report_row.get("theme_event_id") or reasons.get("theme_event_id"),
+            "theme_event_date": report_row.get("theme_event_date") or reasons.get("theme_event_date"),
+            "theme_event_title": report_row.get("theme_event_title") or reasons.get("theme_event_title"),
+            "theme_event_reason": report_row.get("theme_event_reason") or reasons.get("theme_event_reason"),
+        }
+    )
+
+
+def _candidate_theme_result_fields(row: dict) -> dict[str, Any]:
+    fields = (
+        "strategic_theme",
+        "theme_score",
+        "theme_source",
+        "theme_event_id",
+        "theme_event_date",
+        "theme_event_title",
+        "theme_event_reason",
+    )
+    return _drop_empty_candidate_fields({field: row.get(field) for field in fields})
 
 
 def _metadata_selection_source(metadata: dict[str, Any]) -> str:
@@ -949,6 +1015,7 @@ def _final_candidate_row(row: dict) -> dict:
         "candidate_lane": row["candidate_lane"],
         "entry_type": row["entry_type"],
         "rank_reason": rank_reason,
+        **_candidate_theme_result_fields(row),
     }
     if candidate_score_value(row.get("shadow_score")):
         payload["shadow_score"] = round(candidate_score_value(row.get("shadow_score")), 2)

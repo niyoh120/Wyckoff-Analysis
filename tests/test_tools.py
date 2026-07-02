@@ -2984,6 +2984,73 @@ class TestSymbolPool:
         assert primary_pick["candidate_lane"] == "launchpad"
         assert watch_candidate["candidate_lane"] == "launchpad"
 
+    def test_screen_stocks_surfaces_theme_context_and_event_attribution(self, monkeypatch):
+        from agents import screen_tools
+        from agents.tool_context import ToolContext
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [{"code": "000012", "name": "事件机器人", "priority_rank": 1, "priority_score": 13.2}],
+                {},
+                {
+                    "metrics": {
+                        "total_symbols": 100,
+                        "fetch_ok": 100,
+                        "fetch_fail": 0,
+                        "theme_activity_summary": "机器人 0.76/活跃",
+                        "ths_hot_events_summary": "机器人 0.82/爆发",
+                        "theme_radar": {"themes": [{"theme": "人形机器人", "score": 0.78, "state": "confirmed"}]},
+                        "theme_radar_source": "current",
+                        "theme_lines": ["机器人", "灵巧手"],
+                    },
+                    "triggers": {"event_reversal": [("000012", 8.8)]},
+                    "trade_mode": {
+                        "mode": "risk_on",
+                        "action": "允许新增买入",
+                        "allow_ai_review": True,
+                        "allow_recommendation_write": True,
+                    },
+                    "mainline_candidates": [
+                        {
+                            "code": "000012",
+                            "theme": "机器人",
+                            "theme_score": 0.72,
+                            "theme_source": "ths_hot_event",
+                            "theme_event_id": "evt-robot",
+                            "theme_event_reason": "灵巧手",
+                            "entry_type": "事件主题低位修复",
+                            "status": "事件主题修复候选",
+                        }
+                    ],
+                    "name_map": {"000012": "事件机器人"},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+        ctx = ToolContext()
+
+        result = screen_tools.screen_stocks(tool_context=ctx)
+        candidate = result["top_candidates"][0]
+        primary_pick = result["selection_brief"]["primary_pick"]
+
+        assert result["theme_context"] == {
+            "today_activity": "机器人 0.76/活跃",
+            "event_mainlines": "机器人 0.82/爆发",
+            "theme_radar": "人形机器人 0.78/confirmed",
+            "theme_radar_source": "current",
+            "hot_concepts": ["机器人", "灵巧手"],
+        }
+        assert candidate["strategic_theme"] == "机器人"
+        assert candidate["theme_source"] == "ths_hot_event"
+        assert candidate["theme_event_id"] == "evt-robot"
+        assert "事件主线:机器人" in primary_pick["quality_factors"]
+        assert ctx.state["last_screen_result"]["theme_context"]["event_mainlines"] == "机器人 0.82/爆发"
+
     def test_screen_stocks_exposes_ready_ai_review_targets(self, monkeypatch):
         from agents import screen_tools
         from agents.tool_context import ToolContext

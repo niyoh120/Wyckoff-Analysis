@@ -213,6 +213,46 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
     ]
 
 
+def test_screen_stocks_preview_surfaces_theme_context_and_event_candidate():
+    result = {
+        "theme_context": {
+            "event_mainlines": "机器人 0.82/爆发",
+            "today_activity": "机器人 0.76/活跃",
+            "theme_radar": "人形机器人 0.78/confirmed",
+            "theme_radar_source": "current",
+            "hot_concepts": ["机器人", "灵巧手"],
+        },
+        "selection_brief": {
+            "headline": "本轮首选可进入 AI 研报复核: 000012 事件机器人",
+            "primary_pick": {
+                "code": "000012",
+                "name": "事件机器人",
+                "priority_score": 13.2,
+                "strategic_theme": "机器人",
+                "theme_source": "ths_hot_event",
+                "theme_event_id": "evt-robot",
+                "theme_event_reason": "灵巧手",
+                "quality_factors": ["事件主线:机器人", "高优先级研报候选"],
+                "action_status": "ready_for_ai_review",
+                "next_step": "生成 AI 研报",
+            },
+        },
+    }
+
+    preview = tool_result_preview("screen_stocks", result)
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert '"theme_context": {"event_mainlines": "机器人 0.82/爆发"' in preview
+    assert '"strategic_theme": "机器人"' in preview
+    assert '"theme_event_id": "evt-robot"' in preview
+    assert "事件主线: 机器人(灵巧手)" in preview
+    assert lines == [
+        "本轮首选可进入 AI 研报复核: 000012 事件机器人",
+        "主题上下文: 事件主线: 机器人 0.82/爆发；异动主题: 机器人 0.76/活跃",
+        "候选结论: 首选 000012 事件机器人 · 可进入AI复核 · 证据: 优先分13.2 · 事件主线: 机器人(灵巧手) · 亮点: 事件主线:机器人；高优先级研报候选 · 下一步: 生成 AI 研报",
+    ]
+
+
 def test_screen_stocks_preview_surfaces_data_quality_gate():
     result = {
         "selection_brief": {

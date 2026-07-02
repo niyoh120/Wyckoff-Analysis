@@ -638,6 +638,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "summary": result.get("summary"),
             "data_quality": result.get("data_quality"),
             "trade_mode": result.get("trade_mode"),
+            "theme_context": _screen_theme_context_preview(result.get("theme_context")),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "selection_brief": _screen_selection_preview(result.get("selection_brief")),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
@@ -659,12 +660,18 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     lines: list[str] = []
     selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
     headline = _text_excerpt(selection.get("headline"), 120)
-    if headline:
-        lines.append(headline)
     conclusion = _candidate_conclusion_preview("last_screen_result", result)
-    if conclusion_line := _text_excerpt(conclusion.get("line"), 280):
+    conclusion_line = _text_excerpt(conclusion.get("line"), 280)
+    guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
+    reserved = int(bool(conclusion_line)) + int(bool(guard_line))
+    if headline and len(lines) < max(max_lines - reserved, 0):
+        lines.append(headline)
+    if theme_line := _screen_theme_context_line(result.get("theme_context")):
+        if len(lines) < max(max_lines - reserved, 0):
+            lines.append(theme_line)
+    if conclusion_line:
         lines.append(conclusion_line)
-    if guard_line := _candidate_guard_brief_line(result.get("candidate_guard_summary")):
+    if guard_line:
         lines.append(guard_line)
     for row in _screen_brief_candidates(result):
         if _candidate_matches_conclusion(row, conclusion):
@@ -721,6 +728,7 @@ def _candidate_brief_line(row: dict[str, Any]) -> str:
     parts = [
         _action_status_label(row.get("action_status")),
         _brief_evidence(row),
+        _brief_theme(row),
         _brief_quality(row),
         _brief_risk(row),
         _brief_next_step(row),
@@ -813,9 +821,50 @@ def _brief_quality(row: dict[str, Any]) -> str:
     return f"亮点: {text}" if text else ""
 
 
+def _brief_theme(row: dict[str, Any]) -> str:
+    theme = str(row.get("strategic_theme") or row.get("theme") or "").strip()
+    if not theme:
+        return ""
+    source = str(row.get("theme_source") or "").strip()
+    label = "事件主线" if source == "ths_hot_event" else "主题"
+    reason = _text_excerpt(row.get("theme_event_reason"), 40)
+    return f"{label}: {theme}({reason})" if reason else f"{label}: {theme}"
+
+
 def _brief_next_step(row: dict[str, Any]) -> str:
     next_step = _text_excerpt(row.get("next_step"), 80)
     return f"下一步: {next_step}" if next_step else ""
+
+
+def _screen_theme_context_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "event_mainlines": _text_excerpt(value.get("event_mainlines"), 240),
+            "today_activity": _text_excerpt(value.get("today_activity"), 240),
+            "theme_radar": _text_excerpt(value.get("theme_radar"), 240),
+            "theme_radar_source": value.get("theme_radar_source"),
+            "hot_concepts": _preview_list(value.get("hot_concepts"), 6),
+        }
+    )
+
+
+def _screen_theme_context_line(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    parts = [
+        _theme_context_part("事件主线", value.get("event_mainlines")),
+        _theme_context_part("异动主题", value.get("today_activity")),
+        _theme_context_part("中长线", value.get("theme_radar")),
+    ]
+    parts = [part for part in parts if part]
+    return f"主题上下文: {'；'.join(parts[:2])}" if parts else ""
+
+
+def _theme_context_part(label: str, value: Any) -> str:
+    text = _text_excerpt(value, 80)
+    return f"{label}: {text}" if text else ""
 
 
 def _screen_decision_preview(value: Any) -> dict[str, Any]:
@@ -874,6 +923,13 @@ _CANDIDATE_PREVIEW_FIELDS = (
     "stage",
     "candidate_lane",
     "entry_type",
+    "strategic_theme",
+    "theme_score",
+    "theme_source",
+    "theme_event_id",
+    "theme_event_date",
+    "theme_event_title",
+    "theme_event_reason",
     "selection_source",
     "source_type",
     "priority_rank",
@@ -922,7 +978,7 @@ def _candidate_preview_item(value: Any) -> dict[str, Any]:
 def _candidate_preview_value(field: str, value: Any) -> Any:
     if isinstance(value, list):
         return [_text_excerpt(item, 80) for item in value[:8] if str(item).strip()]
-    if field in {"summary", "rank_reason", "why", "evidence", "next_step"}:
+    if field in {"summary", "rank_reason", "why", "evidence", "next_step", "theme_event_title", "theme_event_reason"}:
         return _text_excerpt(value, 240)
     return value
 
