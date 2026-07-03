@@ -151,7 +151,8 @@ def _build_screen_result(
     )
     action_plan = _action_plan(trade_mode, top_candidates, data_quality)
     top_candidates = _annotate_top_candidate_actions(top_candidates, action_plan)
-    decision_state = _screen_decision_state(selection_brief, action_plan, trade_mode)
+    guard_summary = _screen_candidate_guard_summary(selection_brief, action_plan)
+    decision_state = _screen_decision_state(selection_brief, action_plan, trade_mode, guard_summary)
     symbols_for_report = list(action_plan.get("report_candidates") or [])
     watch_candidates = list(action_plan.get("watch_candidates") or [])
     diagnosis_targets = list(action_plan.get("diagnosis_targets") or [])
@@ -181,7 +182,7 @@ def _build_screen_result(
         watch_candidates=watch_candidates,
         diagnosis_targets=diagnosis_targets,
     )
-    if guard_summary := _screen_candidate_guard_summary(selection_brief, action_plan):
+    if guard_summary:
         result["candidate_guard_summary"] = guard_summary
     return result
 
@@ -687,11 +688,17 @@ def _screen_trade_readiness(
     return "review_ready"
 
 
-def _screen_decision_state(selection_brief: dict, action_plan: dict, trade_mode: dict) -> dict[str, Any]:
+def _screen_decision_state(
+    selection_brief: dict,
+    action_plan: dict,
+    trade_mode: dict,
+    candidate_guard: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     primary = selection_brief.get("primary_pick") if isinstance(selection_brief.get("primary_pick"), dict) else {}
     trade_readiness = str(action_plan.get("trade_readiness") or "").strip()
     new_buy_allowed = bool(action_plan.get("new_buy_allowed"))
     ai_review_allowed = bool(action_plan.get("ai_review_allowed"))
+    guard_reason = _primary_candidate_guard_reason(primary, candidate_guard or {})
     reason = _screen_decision_reason(action_plan, trade_mode)
     next_step = str(primary.get("next_step") or action_plan.get("candidate_action") or "").strip()
     payload = {
@@ -699,6 +706,8 @@ def _screen_decision_state(selection_brief: dict, action_plan: dict, trade_mode:
         "label": _screen_decision_label(primary, trade_readiness, new_buy_allowed, ai_review_allowed),
         "trade_readiness": trade_readiness,
         "new_buy_allowed": new_buy_allowed,
+        "candidate_direct_buy_allowed": bool(primary) and new_buy_allowed and not guard_reason,
+        "candidate_guard_reason": guard_reason,
         "ai_review_allowed": ai_review_allowed,
         "primary": _screen_decision_primary(primary),
         "reason": reason,
@@ -706,6 +715,18 @@ def _screen_decision_state(selection_brief: dict, action_plan: dict, trade_mode:
     }
     payload["summary"] = _screen_decision_summary(payload)
     return _drop_empty_candidate_fields(payload)
+
+
+def _primary_candidate_guard_reason(primary: dict, candidate_guard: dict[str, Any]) -> str:
+    code = str(primary.get("code") or "").strip()
+    candidates = candidate_guard.get("candidates") if isinstance(candidate_guard, dict) else []
+    if not code or not isinstance(candidates, list):
+        return ""
+    for row in candidates:
+        if not isinstance(row, dict) or str(row.get("code") or "").strip() != code:
+            continue
+        return str(row.get("reason") or "").strip()
+    return ""
 
 
 def _screen_decision_reason(action_plan: dict, trade_mode: dict) -> str:
@@ -751,12 +772,21 @@ def _screen_decision_summary(payload: dict[str, Any]) -> str:
     parts = [
         f"筛股决策: {payload.get('label')}",
         f"首选: {payload.get('primary')}" if payload.get("primary") else "",
-        f"新增买入: {'开' if payload.get('new_buy_allowed') else '关'}",
+        f"市场新增: {'开' if payload.get('new_buy_allowed') else '关'}",
+        _candidate_direct_buy_summary(payload),
         f"AI复核: {'可' if payload.get('ai_review_allowed') else '不可'}",
         f"原因: {payload.get('reason')}" if payload.get("reason") else "",
         f"下一步: {payload.get('next_step')}" if payload.get("next_step") else "",
     ]
     return " · ".join(part for part in parts if part)
+
+
+def _candidate_direct_buy_summary(payload: dict[str, Any]) -> str:
+    if not payload.get("primary"):
+        return ""
+    if payload.get("candidate_direct_buy_allowed"):
+        return "候选直买: 可"
+    return "候选直买: 禁" if payload.get("candidate_guard_reason") else "候选直买: 关"
 
 
 def _decision_brief(trade_mode: dict, top_candidates: list[dict], data_quality: dict) -> dict:

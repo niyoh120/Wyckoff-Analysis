@@ -2991,15 +2991,75 @@ class TestSymbolPool:
             "label": "观察候选",
             "trade_readiness": "watch_only",
             "new_buy_allowed": False,
+            "candidate_direct_buy_allowed": False,
+            "candidate_guard_reason": "候选状态 watch_only 不允许直接买入",
             "ai_review_allowed": False,
             "primary": "000001 观察候选",
             "reason": "市场闸门关闭",
             "next_step": "观察池跟踪，暂不进入本轮AI复核",
             "summary": (
-                "筛股决策: 观察候选 · 首选: 000001 观察候选 · 新增买入: 关 · "
+                "筛股决策: 观察候选 · 首选: 000001 观察候选 · 市场新增: 关 · 候选直买: 禁 · "
                 "AI复核: 不可 · 原因: 市场闸门关闭 · 下一步: 观察池跟踪，暂不进入本轮AI复核"
             ),
         }
+
+    def test_screen_stocks_decision_state_separates_market_gate_from_candidate_guard(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000001",
+                        "name": "待确认候选",
+                        "priority_rank": 1,
+                        "track": "Trend",
+                        "stage": "Markup",
+                    }
+                ],
+                {},
+                {
+                    "metrics": {"total_symbols": 1, "fetch_ok": 1, "fetch_fail": 0},
+                    "triggers": {"sos": [("000001", 8.0)]},
+                    "trade_mode": {
+                        "mode": "confirmation_only",
+                        "reason": "等待二次确认",
+                        "allow_ai_review": True,
+                        "allow_recommendation_write": True,
+                    },
+                    "name_map": {"000001": "待确认候选"},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        assert result["decision_state"] == {
+            "status": "ready_for_ai_review",
+            "label": "AI复核候选",
+            "trade_readiness": "confirmation_required",
+            "new_buy_allowed": True,
+            "candidate_direct_buy_allowed": False,
+            "candidate_guard_reason": "候选状态 confirmation_required 不允许直接买入",
+            "ai_review_allowed": True,
+            "primary": "000001 待确认候选",
+            "reason": "候选已可进入 AI 研报复核",
+            "next_step": "进入AI复核，等待二次确认后再行动",
+            "summary": (
+                "筛股决策: AI复核候选 · 首选: 000001 待确认候选 · 市场新增: 开 · 候选直买: 禁 · "
+                "AI复核: 可 · 原因: 候选已可进入 AI 研报复核 · 下一步: 进入AI复核，等待二次确认后再行动"
+            ),
+        }
+        assert (
+            result["candidate_guard_summary"]["candidates"][0]["reason"]
+            == "候选状态 confirmation_required 不允许直接买入"
+        )
 
     def test_screen_stocks_uses_report_row_metadata_for_top_candidates(self, monkeypatch):
         from agents import screen_tools
@@ -3207,12 +3267,14 @@ class TestSymbolPool:
             "label": "好股观察",
             "trade_readiness": "observe_only",
             "new_buy_allowed": False,
+            "candidate_direct_buy_allowed": False,
+            "candidate_guard_reason": "候选状态 blocked_by_market_gate 不允许直接买入",
             "ai_review_allowed": False,
             "primary": "000004 主线候选",
             "reason": "大盘风险闸门关闭",
             "next_step": "只观察，等待市场风险闸门重新打开",
             "summary": (
-                "筛股决策: 好股观察 · 首选: 000004 主线候选 · 新增买入: 关 · "
+                "筛股决策: 好股观察 · 首选: 000004 主线候选 · 市场新增: 关 · 候选直买: 禁 · "
                 "AI复核: 不可 · 原因: 大盘风险闸门关闭 · 下一步: 只观察，等待市场风险闸门重新打开"
             ),
         }

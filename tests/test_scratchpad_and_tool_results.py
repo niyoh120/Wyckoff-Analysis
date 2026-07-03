@@ -726,7 +726,8 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
 
 def test_screen_stocks_preview_surfaces_decision_state():
     summary = (
-        "筛股决策: 好股观察 · 首选: 002326 永太科技 · 新增买入: 关 · AI复核: 不可 · 原因: 市场闸门关闭 · 下一步: 只观察"
+        "筛股决策: 好股观察 · 首选: 002326 永太科技 · 市场新增: 关 · 候选直买: 关 · "
+        "AI复核: 不可 · 原因: 市场闸门关闭 · 下一步: 只观察"
     )
     result = {
         "selection_brief": {"headline": "本轮有强候选，但市场闸门未打开: 002326 永太科技"},

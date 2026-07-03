@@ -1424,6 +1424,8 @@ def _screen_decision_state_preview(value: Any) -> dict[str, Any]:
             "label": value.get("label"),
             "trade_readiness": value.get("trade_readiness"),
             "new_buy_allowed": value.get("new_buy_allowed"),
+            "candidate_direct_buy_allowed": value.get("candidate_direct_buy_allowed"),
+            "candidate_guard_reason": _text_excerpt(value.get("candidate_guard_reason"), 140),
             "ai_review_allowed": value.get("ai_review_allowed"),
             "primary": value.get("primary"),
             "reason": _text_excerpt(value.get("reason"), 140),
