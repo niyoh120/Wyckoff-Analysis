@@ -462,6 +462,8 @@ def test_planner_prompt_preserves_multi_candidate_delivery_contract():
     assert "找几个/几只/一些候选" in _PLAN_SYSTEM_PROMPT
     assert "保留候选名称、理由、风险边界和下一步动作" in _PLAN_SYSTEM_PROMPT
     assert "错别字" in _PLAN_SYSTEM_PROMPT
+    assert "task.args" in _PLAN_SYSTEM_PROMPT
+    assert "参数提示" in _PLAN_SYSTEM_PROMPT
 
 
 def test_planner_tool_catalog_exposes_schema_description_and_args():
@@ -925,6 +927,32 @@ def test_planner_accepts_tool_display_names_from_model_script():
 
     assert run.steps[0].agent == "task"
     assert run.steps[0].tool_scope == ("portfolio", "screen_stocks")
+
+
+def test_planner_preserves_model_tool_args_as_step_context_hint():
+    context = route_workflow("用 workflow 生成候选研报")
+    run = plan_workflow(
+        "给 300750 生成研报",
+        context=context,
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "report",
+                    "title": "生成研报",
+                    "tools": ["generate_ai_report"],
+                    "args": {"stock_codes": ["300750"]},
+                    "context": "只复核用户指定候选",
+                    "prompt": "生成 AI 研报。",
+                }
+            ]
+        },
+    )
+
+    assert run.steps[0].tool_scope == ("generate_ai_report",)
+    assert "只复核用户指定候选" in run.steps[0].context
+    assert "tool args hint" in run.steps[0].context
+    assert "stock_codes" in run.steps[0].context
+    assert "300750" in run.steps[0].context
 
 
 def test_planner_keeps_question_tool_for_clarification_only_task():

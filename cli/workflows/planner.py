@@ -38,6 +38,7 @@ TOOL_SCOPE_FIELDS = (
     "calls",
     "call",
 )
+TOOL_ARG_FIELDS = ("args", "arguments", "tool_args", "tool_arguments", "parameters", "input", "inputs")
 TOOL_SCOPE_NESTED_FIELDS = (
     "tool_scope",
     "allowed",
@@ -143,6 +144,7 @@ _PLAN_SYSTEM_PROMPT = """\
           "id": "task_id",
           "title": "任务标题",
           "tools": ["本 task 必须/允许使用的精确工具名；需要真实数据、分析或决策且工具摘要里有对应工具时必须填写"],
+          "args": {"可选": "按工具 schema 给执行 agent 的参数提示，例如 board/limit 或 stock_codes"},
           "depends_on": ["可选，必须先完成的 task id"],
           "prompt": "完整任务说明",
           "context": "可选上下文",
@@ -163,6 +165,7 @@ _PLAN_SYSTEM_PROMPT = """\
 - 如果用 depends_on/after/needs/dependencies 表达 task 依赖，runtime 会跨 phase 按依赖顺序切批执行。
 - 不需要选择内部执行角色；不要填写 agent/role。
 - 工具是脚本契约：能用工具验证或交付的 task，必须用工具摘要里的精确工具名填写 tools；只有纯汇总/解释且不需要工具时才省略。
+- 如果已能从用户请求或前序结果明确工具参数，可以在 task.args 写入；runtime 会作为参数提示交给执行 agent。
 - 不要生成“识别代码/读取事实/形成计划”这类无工具占位 task；如果工具能完成，直接把对应工具写进同一个 task。
 - 如果 task 需要候选、研报或持仓事实，填写 depends_on 指向提供这些事实的 task id，不要让它们无依赖并发。
 - 选股交付如果要求候选、理由、风险边界或攻防计划，脚本里必须出现 screen_stocks，并在需要攻防/买卖计划/风险边界时出现 generate_strategy_decision；需要研报时再使用 generate_ai_report。
@@ -885,6 +888,7 @@ def _task_step(
     prompt = _task_prompt(task, title, user_text)
     prompt = _render_runtime_args(prompt, args_text)
     context = _render_runtime_args(str(task.get("context") or "").strip(), args_text)
+    context = _append_task_args_context(context, _task_args_text(task))
     step_id = _slug(task.get("id") or title)
     return WorkflowStep(
         step_id=step_id,
@@ -1052,6 +1056,20 @@ def _task_meta_value(value: Any) -> str:
     if isinstance(value, dict):
         return "；".join(f"{key}: {item}" for key, item in value.items() if str(item).strip())
     return str(value).strip()
+
+
+def _task_args_text(task: dict[str, Any]) -> str:
+    for field in TOOL_ARG_FIELDS:
+        if value := _task_meta_value(task.get(field)):
+            return value
+    return ""
+
+
+def _append_task_args_context(context: str, args_text: str) -> str:
+    if not args_text:
+        return context
+    section = f"tool args hint:\n{args_text}"
+    return f"{context}\n\n{section}" if context else section
 
 
 def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
