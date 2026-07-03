@@ -8,7 +8,7 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from cli.tools import TOOL_SPECS
+from cli.tools import TOOL_SCHEMAS, TOOL_SPECS
 from cli.workflows.models import WorkflowContext, WorkflowRun, WorkflowStep
 from cli.workflows.router import route_workflow
 
@@ -704,13 +704,49 @@ def _planner_user_prompt(user_text: str, context: WorkflowContext, tools: Any | 
 
 def _tool_catalog(tools: Any | None, context: WorkflowContext) -> str:
     allowed = _planner_visible_tools(context.allowed_tools or tuple(TOOL_SPECS))
+    schemas = _planner_tool_schemas(tools, allowed)
+    if schemas:
+        return "\n".join(_tool_catalog_line(schema) for schema in schemas[:24])
+    names = sorted(allowed)[:24]
+    return "\n".join(f"- {name}: {_tool_display_name(name)}" for name in names)
+
+
+def _planner_tool_schemas(tools: Any | None, allowed: set[str]) -> list[dict[str, Any]]:
     try:
-        names = [schema["name"] for schema in tools.schemas(allowed)][:24] if tools else sorted(allowed)[:24]
+        schemas = (
+            tools.schemas(allowed) if tools else [schema for schema in TOOL_SCHEMAS if schema.get("name") in allowed]
+        )
     except Exception:
-        names = sorted(allowed)[:24]
-    return "\n".join(
-        f"- {name}: {TOOL_SPECS.get(name).display_name if TOOL_SPECS.get(name) else name}" for name in names
-    )
+        return []
+    return [schema for schema in schemas if isinstance(schema, dict) and schema.get("name")]
+
+
+def _tool_catalog_line(schema: dict[str, Any]) -> str:
+    name = str(schema.get("name") or "")
+    label = _tool_display_name(name)
+    desc = _clip_runtime_text(schema.get("description"), 120)
+    args = _tool_schema_args(schema)
+    parts = [f"- {name} ({label})"]
+    if desc:
+        parts.append(desc)
+    if args:
+        parts.append(f"args={args}")
+    return ": ".join(parts[:2]) + (f"；{parts[2]}" if len(parts) > 2 else "")
+
+
+def _tool_display_name(name: str) -> str:
+    spec = TOOL_SPECS.get(name)
+    return spec.display_name if spec else name
+
+
+def _tool_schema_args(schema: dict[str, Any], limit: int = 5) -> str:
+    params = schema.get("parameters") if isinstance(schema.get("parameters"), dict) else {}
+    props = params.get("properties") if isinstance(params.get("properties"), dict) else {}
+    required = set(params.get("required") or [])
+    names = [str(name) + ("*" if name in required else "?") for name in list(props)[:limit]]
+    if len(props) > limit:
+        names.append(f"+{len(props) - limit}")
+    return ",".join(names)
 
 
 def _planner_visible_tools(names: tuple[str, ...]) -> set[str]:

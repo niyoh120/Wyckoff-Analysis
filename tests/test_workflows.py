@@ -8,7 +8,13 @@ from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.model_router import _ROUTER_SYSTEM_PROMPT
-from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, _REPAIR_SYSTEM_PROMPT, adapt_workflow_script, plan_workflow
+from cli.workflows.planner import (
+    _PLAN_SYSTEM_PROMPT,
+    _REPAIR_SYSTEM_PROMPT,
+    _tool_catalog,
+    adapt_workflow_script,
+    plan_workflow,
+)
 from cli.workflows.router import WORKFLOWS, build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
@@ -456,6 +462,18 @@ def test_planner_prompt_preserves_multi_candidate_delivery_contract():
     assert "找几个/几只/一些候选" in _PLAN_SYSTEM_PROMPT
     assert "保留候选名称、理由、风险边界和下一步动作" in _PLAN_SYSTEM_PROMPT
     assert "错别字" in _PLAN_SYSTEM_PROMPT
+
+
+def test_planner_tool_catalog_exposes_schema_description_and_args():
+    catalog = _tool_catalog(None, WORKFLOWS["dynamic_task"])
+
+    assert "screen_stocks (全市场扫描)" in catalog
+    assert "运行 Wyckoff 五层漏斗筛选" in catalog
+    assert "args=board?,limit?" in catalog
+    assert "generate_ai_report (深度审讯)" in catalog
+    assert "args=stock_codes?" in catalog
+    assert "generate_strategy_decision (攻防决策)" in catalog
+    assert "reviewed_codes?" in catalog
 
 
 def test_dispatch_accepts_semantic_model_router_aliases():
