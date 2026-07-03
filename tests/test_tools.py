@@ -2788,6 +2788,8 @@ class TestSymbolPool:
         assert result["selection_brief"]["primary_pick"]["code"] == "000001"
         assert "主题偏好未命中: 机器人" in result["selection_brief"]["primary_pick"]["risk_factors"]
         assert "主题偏好未命中: 机器人" in result["action_plan"]["report_candidates"][0]["risk_factors"]
+        assert result["selection_brief"]["preference_alternatives"][0]["code"] == "000002"
+        assert result["selection_brief"]["preference_alternatives"][0]["action_status"] == "watch_only"
         matched_watch = next(row for row in result["top_candidates"] if row["code"] == "000002")
         assert matched_watch["theme_match"] is True
         assert "主题偏好未命中: 机器人" not in matched_watch.get("risk_factors", [])

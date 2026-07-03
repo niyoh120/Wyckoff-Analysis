@@ -3502,6 +3502,36 @@ def test_workflow_candidate_delivery_prepends_missing_preference_miss():
     assert "主题偏好未命中: 机器人" in text.split("\n\n", 1)[0]
 
 
+def test_workflow_handoff_lines_surface_preference_alternatives():
+    lines = _fallback_handoff_lines(
+        {
+            "last_screen_result": {
+                "theme_preference": {"raw": "机器人", "theme": "机器人"},
+                "preference_match": {"theme": "hit"},
+                "selection_brief": {
+                    "primary_pick": {
+                        "code": "000012",
+                        "name": "非主题候选",
+                        "action_status": "ready_for_ai_review",
+                        "quality_factors": ["高质量研报候选"],
+                    },
+                    "preference_alternatives": [
+                        {
+                            "code": "000099",
+                            "name": "机器人观察",
+                            "action_status": "watch_only",
+                            "theme_match": True,
+                            "theme_match_reasons": ["主题偏好: 机器人"],
+                        }
+                    ],
+                },
+            }
+        }
+    )
+
+    assert any("偏好命中观察: 000099 机器人观察" in line for line in lines)
+
+
 def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():
     handoff = {
         "last_screen_result": {

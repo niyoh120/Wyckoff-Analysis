@@ -762,6 +762,12 @@ def _selection_brief(trade_mode: dict, top_candidates: list[dict], data_quality:
         "best_codes": [row["code"] for row in best_candidates],
         "primary_pick": best_candidates[0] if best_candidates else {},
         "best_candidates": best_candidates,
+        "preference_alternatives": _selection_preference_alternatives(
+            top_candidates,
+            best_candidates,
+            trade_mode,
+            data_quality,
+        ),
         "tool_handoff": _selection_tool_handoff(status, best_candidates),
     }
     return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
@@ -790,6 +796,31 @@ def _selection_candidate_items(
     limit: int = 5,
 ) -> list[dict]:
     return [_selection_candidate_item(row, trade_mode, bucket, data_quality) for row in candidates[:limit]]
+
+
+def _selection_preference_alternatives(
+    top_candidates: list[dict],
+    best_candidates: list[dict],
+    trade_mode: dict,
+    data_quality: dict,
+    *,
+    limit: int = 3,
+) -> list[dict]:
+    best_codes = {str(row.get("code") or "").strip() for row in best_candidates}
+    alternatives: list[dict] = []
+    for row in top_candidates:
+        code = str(row.get("code") or "").strip()
+        if not code or code in best_codes or not _candidate_matches_any_preference(row):
+            continue
+        bucket = "report" if row.get("selected_for_report") else "watch"
+        alternatives.append(_selection_candidate_item(row, trade_mode, bucket, data_quality))
+        if len(alternatives) >= limit:
+            return alternatives
+    return alternatives
+
+
+def _candidate_matches_any_preference(row: dict) -> bool:
+    return _candidate_matches_preference(row, "style") or _candidate_matches_preference(row, "theme")
 
 
 def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str, data_quality: dict) -> dict:

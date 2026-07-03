@@ -1287,8 +1287,19 @@ def _screen_preference_brief_line(result: dict[str, Any]) -> str:
         _preference_part("风格", _style_preference_text(result.get("style_preference")), match.get("style")),
         _preference_part("主题", _theme_preference_text(result.get("theme_preference")), match.get("theme")),
     ]
+    if alternatives := _screen_preference_alternative_text(result.get("selection_brief")):
+        parts.append(alternatives)
     text = "；".join(part for part in parts if part)
     return f"筛选偏好: {text}" if text else ""
+
+
+def _screen_preference_alternative_text(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    names = [
+        _candidate_name(row) for row in _preview_list(value.get("preference_alternatives"), 3) if isinstance(row, dict)
+    ]
+    return f"偏好命中观察: {', '.join(name for name in names if name)}" if names else ""
 
 
 def _preference_part(label: str, text: str, match_status: str = "") -> str:
@@ -1606,6 +1617,7 @@ def _screen_selection_preview(value: Any) -> dict[str, Any]:
             "best_codes": _preview_list(value.get("best_codes"), 12),
             "primary_pick": _candidate_preview_item(value.get("primary_pick")),
             "best_candidates": _candidate_preview_list(value.get("best_candidates"), 6),
+            "preference_alternatives": _candidate_preview_list(value.get("preference_alternatives"), 6),
             "tool_handoff": value.get("tool_handoff"),
         }
     )
