@@ -1055,9 +1055,19 @@ def _workflow_step_detail_label(step: dict) -> str:
         f"goal={_clip_workflow_detail(step.get('rationale'))}",
         f"done={_clip_workflow_detail(step.get('success_criteria'))}",
         f"guard={_clip_workflow_detail(step.get('risk_guard'))}",
+        f"args={_clip_workflow_detail(_workflow_step_args_hint(step))}",
     ]
     visible = [part for part in parts if not part.endswith("=")]
     return f" {' '.join(visible)}" if visible else ""
+
+
+def _workflow_step_args_hint(step: dict) -> str:
+    text = str(step.get("context") or "")
+    marker = "tool args hint:"
+    if marker not in text:
+        return ""
+    value = text.split(marker, 1)[1].strip()
+    return value.split("\n\n", 1)[0].strip()
 
 
 def _clip_workflow_detail(value: object) -> str:

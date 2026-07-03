@@ -842,7 +842,18 @@ def _workflow_step_detail_meta(step: dict[str, Any], *, field_limit: int | None 
         for field, label in labels
         if _workflow_meta_text(step.get(field), field_limit)
     ]
+    if args_hint := _workflow_step_args_hint(step, field_limit):
+        parts.append(f"参数: {escape(args_hint)}")
     return "；".join(parts)
+
+
+def _workflow_step_args_hint(step: dict[str, Any], limit: int | None = None) -> str:
+    text = str(step.get("context") or "")
+    marker = "tool args hint:"
+    if marker not in text:
+        return ""
+    value = text.split(marker, 1)[1].strip().split("\n\n", 1)[0].strip()
+    return _workflow_meta_text(value, limit)
 
 
 def _workflow_plan_step_meta(step: dict[str, Any], *, field_limit: int | None = None) -> str:

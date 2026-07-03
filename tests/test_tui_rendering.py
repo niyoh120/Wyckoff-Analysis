@@ -1449,6 +1449,7 @@ def test_workflow_detail_step_line_includes_tool_scope():
             "rationale": "先确认真实仓位",
             "success_criteria": "输出持仓风险",
             "risk_guard": "不写入交易",
+            "context": "只读运行\n\ntool args hint:\nstock_codes: ['300750']",
             "summary": "analysis: completed 1.2s",
         }
     )
@@ -1461,6 +1462,7 @@ def test_workflow_detail_step_line_includes_tool_scope():
     assert "目标: 先确认真实仓位" in line
     assert "验收: 输出持仓风险" in line
     assert "边界: 不写入交易" in line
+    assert "参数: stock_codes: ['300750']" in line
 
 
 def test_workflow_detail_step_line_surfaces_handoff_evidence():

@@ -74,6 +74,22 @@ def test_workflow_step_cli_line_includes_effective_tool_scope():
     assert "optional_tools=portfolio,analyze_stock" in line
 
 
+def test_workflow_step_cli_line_includes_model_tool_args_hint():
+    line = _workflow_step_cli_line(
+        {
+            "status": "pending",
+            "title": "生成研报",
+            "agent": "task",
+            "tool_scope": ["generate_ai_report"],
+            "context": "只复核用户指定候选\n\ntool args hint:\nstock_codes: ['300750']",
+        }
+    )
+
+    assert "[pending] 生成研报" in line
+    assert "tools=generate_ai_report" in line
+    assert "args=stock_codes: ['300750']" in line
+
+
 def test_workflow_script_cli_line_surfaces_model_contract_repair():
     line = _workflow_script_cli_line(
         {
