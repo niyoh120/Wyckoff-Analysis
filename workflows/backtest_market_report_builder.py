@@ -457,9 +457,10 @@ def _build_conclusion_lines(
 ) -> list[str]:
     lines = [
         "",
-        "## 本次结论",
+        "## 回测摘要",
         "",
-        f"- {_robust_label(robust_best)}: **{_fmt_param(best)}**",
+        f"- 跨周期参考: {_robust_label(robust_best)}: **{_fmt_param(best)}**",
+        "- 实盘动作不要直接套全局最佳参数，先按上面的交易手册判断当前市场是否允许新仓。",
         f"- 代表单元: 夏普 **{_fmt_num(best.sharpe, 3)}**；胜率 **{_fmt_num(best.win_rate, 1, '%')}**；单笔均收 **{_fmt_signed(best.avg_ret, 2, '%')}**；最大回撤 **{_fmt_num(best.max_drawdown, 1, '%')}**；样本 **{best.trades or 0}** 笔",
         f"- 代表现金账户: 初始 **{_fmt_num(best.cash_initial, 2)}**；最终 **{_fmt_num(best.cash_final, 2)}**；盈亏 **{_fmt_signed(_cash_pnl(best), 2)}**；收益 **{_fmt_signed(best.cash_total_return, 2, '%')}**；现金回撤 **{_fmt_num(_cash_drawdown(best), 1, '%')}**；现金成交 **{best.cash_trades or 0}** 笔",
         f"- wbt 校验: 夏普 {_fmt_num(best.wbt_sharpe, 3)}，最大回撤 {_fmt_num(best.wbt_max_drawdown, 2, '%')}，日胜率 {_fmt_num(best.wbt_daily_win_rate, 2, '%')}；绩效引擎 `{best.metrics_engine or '-'}`",
@@ -499,6 +500,50 @@ def _build_period_guardrail_lines(cells: list[GridCell]) -> list[str]:
             f"- 周期风控: **{label}** 全部组合非正，最佳现金收益 {_fmt_signed(guard.best_value, 2, '%')}；建议默认空仓/影子观察。"
         )
     return lines
+
+
+def _period_best_cell(cells: list[GridCell], period_key: str, style: str | None = None) -> GridCell | None:
+    pool = [c for c in cells if c.period_key == period_key and (style is None or c.portfolio_style == style)]
+    return max(pool, key=_cash_sort_key) if pool else None
+
+
+def _playbook_ref(cell: GridCell | None) -> str:
+    if not cell:
+        return "样本不足"
+    ret = _fmt_signed(cell.cash_total_return, 2, "%")
+    mdd = _fmt_num(_cash_drawdown(cell), 1, "%")
+    return f"{_fmt_param(cell)}（收益 {ret}，回撤 {mdd}）"
+
+
+def _playbook_evidence(cell: GridCell | None, fallback: str) -> str:
+    if not cell or cell.cash_total_return is None:
+        return fallback
+    label = PERIOD_LABELS.get(cell.period_key, cell.period_key or "-")
+    return f"{label} 最佳现金收益 {_fmt_signed(cell.cash_total_return, 2, '%')}"
+
+
+def _build_trading_playbook_lines(cells: list[GridCell], robust_best: RobustParamScore | None) -> list[str]:
+    recent_best = _period_best_cell(cells, "recent_6m")
+    bear_best = _period_best_cell(cells, "bear_2022")
+    neutral_ref = _period_best_cell(cells, "recent_6m", "confirmation_only")
+    robust_ref = robust_best.best_cell if robust_best else None
+    bear_block = bear_best is not None and (bear_best.cash_total_return or 0) <= 0
+    defensive_action = "禁止新仓" if bear_block else "观察买入"
+    defensive_basis = _playbook_evidence(bear_best, "熊市样本不足，先按禁止新仓处理")
+    return [
+        "",
+        "## 交易手册（按市场状态）",
+        "",
+        "| 市场状态 | 实盘动作 | 参考参数 | 数据依据 |",
+        "|---|---|---|---|",
+        "| RISK_ON / 强主线修复 | 可执行买入 | "
+        + f"{_playbook_ref(recent_best)} | {_playbook_evidence(recent_best, '最近样本不足')} |",
+        "| NEUTRAL / CAUTION | 观察买入 | "
+        + f"{_playbook_ref(neutral_ref or robust_ref)} | 只做二次确认，降低仓位，不追无确认信号 |",
+        "| PANIC_REPAIR / BEAR_REBOUND | 观察买入 | "
+        + f"{_playbook_ref(robust_ref)} | 只允许复核候选，不自动写正式推荐 |",
+        f"| RISK_OFF / CRASH / BLACK_SWAN | {defensive_action} | 空仓或影子观察 | {defensive_basis} |",
+    ]
 
 
 def _build_followup_lines(regime_stats: list[dict[str, object]], trigger_stats: list[dict[str, object]]) -> list[str]:
@@ -662,6 +707,7 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
         neg_sharpe=neg_sharpe,
         run_url=run_url,
     )
+    lines.extend(_build_trading_playbook_lines(cells, robust_best))
     lines.extend(_build_conclusion_lines(cells=cells, best=best, robust_best=robust_best, diagnostics=diagnostics))
 
     lines.extend(period_best_table)

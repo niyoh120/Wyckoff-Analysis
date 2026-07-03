@@ -29,16 +29,16 @@ def _sample_tail_buy_report() -> str:
         "### HOLD（结构中性持有观察）",
         "- 300590 移为通信 | 持仓=2100股 | 现价=14.02 | 浮盈=-4.5%",
         "",
-        "## BUY（可执行候选）",
+        "## BUY（可执行买入）",
         "- 603060 国检集团 | priority=112.0 | rule=BUY(100.0)",
         "",
-        "## BUY（高位动能观察，默认不买）",
-        "- 600378 昊华科技 | priority=103.2 | rule=BUY(96.0) | 高位动能票，默认不买",
+        "## BUY（观察买入：高位动能默认不买）",
+        "- 600378 昊华科技 | priority=103.2 | rule=BUY(96.0) | 高位动能票，仅观察买入，默认不买",
         "",
-        "## WATCH（观察）",
+        "## WATCH（观察买入）",
         "- 600985 淮北矿业 | priority=84.6 | rule=BUY(81.6)",
         "",
-        "## SKIP（暂不买入）",
+        "## SKIP（禁止新仓/暂不买）",
     ]
     for i in range(15):
         lines.append(f"- 600{i:03d} 示例{i} | priority=1.{i} | rule=SKIP(2.{i})")
@@ -70,10 +70,10 @@ def test_send_tail_buy_card_uses_rich_card_and_keeps_full_items_by_default(monke
         str(el.get("text", {}).get("content", "")) for el in captured["elements"] if isinstance(el, dict)
     )
     assert "持仓动作建议（硬止损/结构减仓/洗盘观察）" in body_text
-    assert "BUY（可执行候选）" in body_text
-    assert "BUY（高位动能观察，默认不买）" in body_text
+    assert "BUY（可执行买入）" in body_text
+    assert "BUY（观察买入：高位动能默认不买）" in body_text
     assert "600378 昊华科技" in body_text
-    assert "WATCH（观察）" in body_text
-    assert "SKIP（暂不买入）" in body_text
+    assert "WATCH（观察买入）" in body_text
+    assert "SKIP（禁止新仓/暂不买）" in body_text
     assert "600014 示例14" in body_text
     assert "其余" not in body_text

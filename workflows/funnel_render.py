@@ -175,24 +175,24 @@ def _trade_mode_report_line(regime: str) -> str:
 def _execution_decision_line(regime: str, selected_count: int) -> str:
     mode = resolve_market_trade_mode(regime)
     if not mode.allow_ai_review:
-        return "不开新仓；候选仅影子观察，优先处理持仓风控；不从本报告选择买入标的。"
+        return "禁止新仓；候选仅影子观察，优先处理持仓风控；不从本报告选择买入标的。"
     if not mode.allow_recommendation_write:
-        return "修复复核；允许少量候选进入AI研报，但不写正式推荐，尾盘任务和人工二次确认后再决定。"
+        return "观察买入；允许少量候选进入AI研报，但不写正式推荐，尾盘任务和人工二次确认后再决定。"
     if selected_count <= 0:
-        return "暂无可送审标的；不从本报告选择新买入，等待下一次二次确认。"
-    return f"{selected_count}只进入AI复核；需等 Step3 起跳板与 OMS 风控同时确认后才可执行。"
+        return "观察买入；暂无可送审标的，不从本报告选择新买入，等待下一次二次确认。"
+    return f"可执行买入候选 {selected_count} 只；需等 Step3 起跳板与 OMS 风控同时确认后才可执行。"
 
 
 def _today_conclusion_line(ctx: Any, selected_count: int) -> str:
     mode = resolve_market_trade_mode(ctx.regime)
     if not mode.allow_ai_review:
-        conclusion = "不开仓"
+        conclusion = "禁止新仓"
     elif not mode.allow_recommendation_write:
-        conclusion = "修复观察"
+        conclusion = "观察买入"
     elif selected_count > 0:
-        conclusion = "可尾盘确认"
+        conclusion = "可执行买入候选"
     else:
-        conclusion = "只观察"
+        conclusion = "观察买入"
     return f"**今日结论**: {conclusion} | {mode.label}"
 
 
@@ -219,13 +219,13 @@ def _first_non_empty_reason_group(*groups: object) -> list[str]:
 def _tomorrow_action_line(ctx: Any, selected_count: int) -> str:
     mode = resolve_market_trade_mode(ctx.regime)
     if not mode.allow_ai_review:
-        action = "不用旧报告下单；只处理持仓风控，观察主线修复是否延续。"
+        action = "禁止新仓；不用旧报告下单，只处理持仓风控，观察主线修复是否延续。"
     elif not mode.allow_recommendation_write:
-        action = "看 Step3 与尾盘任务的二次确认；不自动写推荐，不自动开仓。"
+        action = "观察买入；看 Step3 与尾盘任务的二次确认，不自动写推荐，不自动开仓。"
     elif selected_count > 0:
-        action = "只在尾盘确认未破支撑、未冲高回落、量价健康后再考虑。"
+        action = "可执行买入候选；只在尾盘确认未破支撑、未冲高回落、量价健康后再考虑。"
     else:
-        action = "等待下一轮漏斗或尾盘二次确认，不提前追。"
+        action = "观察买入；等待下一轮漏斗或尾盘二次确认，不提前追。"
     return f"**明日动作**: {action}"
 
 

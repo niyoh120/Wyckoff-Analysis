@@ -1006,10 +1006,10 @@ def test_build_tail_buy_markdown_splits_high_risk_momentum_buy():
         elapsed_seconds=10.0,
     )
 
-    assert "BUY=2（可执行1 / 高位动能观察1）" in md
-    assert md.find("603713 密尔克卫") < md.find("BUY（高位动能观察，默认不买）")
+    assert "BUY=2（可执行买入1 / 观察买入1）" in md
+    assert md.find("603713 密尔克卫") < md.find("BUY（观察买入：高位动能默认不买）")
     assert "600378 昊华科技" in md
-    assert "高位动能票，默认不买" in md
+    assert "高位动能票，仅观察买入，默认不买" in md
 
 
 def test_build_tail_buy_markdown_post_close_review_labels_next_day_plan():
@@ -1038,8 +1038,8 @@ def test_build_tail_buy_markdown_post_close_review_labels_next_day_plan():
     )
 
     assert "盘后尾盘复核" in md
-    assert "明日重点执行观察" in md
-    assert "BUY=明日进入执行观察" in md
+    assert "明日观察买入" in md
+    assert "BUY=明日观察买入" in md
 
 
 def test_build_tail_buy_markdown_can_prepend_extra_sections():
@@ -1067,7 +1067,7 @@ def test_build_tail_buy_markdown_can_prepend_extra_sections():
         extra_sections=["## 持仓动作建议（硬止损/结构减仓/洗盘观察）\n- 持仓数量: 1"],
         extra_sections_first=True,
     )
-    assert md.find("持仓动作建议（硬止损/结构减仓/洗盘观察）") < md.find("## BUY（可执行候选）")
+    assert md.find("持仓动作建议（硬止损/结构减仓/洗盘观察）") < md.find("## BUY（可执行买入）")
 
 
 def test_normalize_signal_score_lps_inverted():

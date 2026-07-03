@@ -149,6 +149,7 @@ def test_market_report_prefers_cross_period_robust_params(tmp_path):
 
     report = build_report(load_grid_cells(tmp_path))
 
+    assert "交易手册（按市场状态）" in report
     assert "稳健参数（跨周期全正）: **等额四仓 / 15天 / SL-8% / 无TP / 无Trail**" in report
     assert "跨周期参数稳健性" in report
 
