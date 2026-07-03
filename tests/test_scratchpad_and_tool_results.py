@@ -516,6 +516,33 @@ def test_screen_stocks_preview_surfaces_data_quality_gate():
     ]
 
 
+def test_screen_stocks_preview_surfaces_decision_state():
+    summary = (
+        "筛股决策: 好股观察 · 首选: 002326 永太科技 · 新增买入: 关 · AI复核: 不可 · 原因: 市场闸门关闭 · 下一步: 只观察"
+    )
+    result = {
+        "selection_brief": {"headline": "本轮有强候选，但市场闸门未打开: 002326 永太科技"},
+        "decision_state": {
+            "status": "blocked_by_market_gate",
+            "label": "好股观察",
+            "trade_readiness": "observe_only",
+            "new_buy_allowed": False,
+            "ai_review_allowed": False,
+            "primary": "002326 永太科技",
+            "reason": "市场闸门关闭",
+            "next_step": "只观察",
+            "summary": summary,
+        },
+    }
+
+    preview = tool_result_preview("screen_stocks", result)
+    lines = tool_result_brief_lines("screen_stocks", result, max_lines=2)
+
+    assert '"decision_state": {"status": "blocked_by_market_gate"' in preview
+    assert '"trade_readiness": "observe_only"' in preview
+    assert lines == ["本轮有强候选，但市场闸门未打开: 002326 永太科技", summary]
+
+
 def test_screen_stocks_preview_surfaces_quality_gate():
     reason = "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
     result = {

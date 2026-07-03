@@ -79,6 +79,7 @@ def screen_stocks(
         decision_brief = _decision_brief(trade_mode, top_candidates, data_quality)
         selection_brief = _selection_brief(trade_mode, top_candidates, data_quality)
         action_plan = _action_plan(trade_mode, top_candidates, data_quality)
+        decision_state = _screen_decision_state(selection_brief, action_plan, trade_mode)
         symbols_for_report = list(action_plan.get("report_candidates") or [])
         watch_candidates = list(action_plan.get("watch_candidates") or [])
         summary["report_candidates"] = len(_report_rows(symbols_for_report))
@@ -93,6 +94,7 @@ def screen_stocks(
             "trade_mode": trade_mode,
             "decision_brief": decision_brief,
             "selection_brief": selection_brief,
+            "decision_state": decision_state,
             "theme_context": theme_context,
             "action_plan": action_plan,
             "next_action": _screen_next_action(selection_brief, action_plan, next_tool),
@@ -183,6 +185,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "trade_mode": result.get("trade_mode", {}),
         "decision_brief": result.get("decision_brief", {}),
         "selection_brief": result.get("selection_brief", {}),
+        "decision_state": result.get("decision_state", {}),
         "theme_context": result.get("theme_context", {}),
         "action_plan": result.get("action_plan", {}),
         "next_action": result.get("next_action", ""),
@@ -394,11 +397,13 @@ def _action_plan(trade_mode: dict, top_candidates: list[dict], data_quality: dic
     watch_candidates = _watch_candidates(top_candidates)
     gate = _data_quality_gate(trade_mode, data_quality)
     quality_gate = _quality_gate(top_candidates)
+    trade_readiness = _screen_trade_readiness(report_candidates, trade_mode, data_quality, quality_gate)
     payload = {
         "primary_action": str(trade_mode.get("action") or _candidate_action_label(trade_mode)),
         "candidate_action": _candidate_action_label(trade_mode),
         "new_buy_allowed": bool(report_candidates) and bool(trade_mode.get("allow_recommendation_write")) and not gate,
         "ai_review_allowed": bool(report_candidates) and bool(trade_mode.get("allow_ai_review")) and not gate,
+        "trade_readiness": trade_readiness,
         "review_targets": _review_targets(report_candidates, trade_mode, data_quality, quality_gate),
         "report_candidates": _candidate_refs(report_candidates, trade_mode, "report", data_quality),
         "watch_candidates": _candidate_refs(watch_candidates, trade_mode, "watch", data_quality),
@@ -408,6 +413,99 @@ def _action_plan(trade_mode: dict, top_candidates: list[dict], data_quality: dic
     if quality_gate:
         payload["quality_gate"] = quality_gate
     return payload
+
+
+def _screen_trade_readiness(
+    report_candidates: list[dict],
+    trade_mode: dict,
+    data_quality: dict,
+    quality_gate: dict[str, Any],
+) -> str:
+    if _data_quality_blocks_ready_flow(trade_mode, data_quality):
+        return "data_quality_blocked"
+    if quality_gate and not report_candidates:
+        return "quality_blocked"
+    if not report_candidates:
+        return "watch_only"
+    if not bool(trade_mode.get("allow_ai_review")):
+        return "observe_only"
+    if not bool(trade_mode.get("allow_recommendation_write")):
+        return "research_only"
+    if str(trade_mode.get("mode") or "").strip() == "confirmation_only":
+        return "confirmation_required"
+    return "review_ready"
+
+
+def _screen_decision_state(selection_brief: dict, action_plan: dict, trade_mode: dict) -> dict[str, Any]:
+    primary = selection_brief.get("primary_pick") if isinstance(selection_brief.get("primary_pick"), dict) else {}
+    trade_readiness = str(action_plan.get("trade_readiness") or "").strip()
+    new_buy_allowed = bool(action_plan.get("new_buy_allowed"))
+    ai_review_allowed = bool(action_plan.get("ai_review_allowed"))
+    reason = _screen_decision_reason(action_plan, trade_mode)
+    next_step = str(primary.get("next_step") or action_plan.get("candidate_action") or "").strip()
+    payload = {
+        "status": str(selection_brief.get("status") or "").strip(),
+        "label": _screen_decision_label(primary, trade_readiness, new_buy_allowed, ai_review_allowed),
+        "trade_readiness": trade_readiness,
+        "new_buy_allowed": new_buy_allowed,
+        "ai_review_allowed": ai_review_allowed,
+        "primary": _screen_decision_primary(primary),
+        "reason": reason,
+        "next_step": next_step,
+    }
+    payload["summary"] = _screen_decision_summary(payload)
+    return _drop_empty_candidate_fields(payload)
+
+
+def _screen_decision_reason(action_plan: dict, trade_mode: dict) -> str:
+    review = action_plan.get("review_targets") if isinstance(action_plan.get("review_targets"), dict) else {}
+    data_gate = action_plan.get("data_quality_gate") if isinstance(action_plan.get("data_quality_gate"), dict) else {}
+    quality_gate = action_plan.get("quality_gate") if isinstance(action_plan.get("quality_gate"), dict) else {}
+    trade_reason = str(trade_mode.get("reason") or "").strip()
+    if str(review.get("status") or "").strip() == "empty" and trade_reason:
+        return trade_reason
+    return str(
+        review.get("reason") or data_gate.get("reason") or quality_gate.get("reason") or trade_reason or ""
+    ).strip()
+
+
+def _screen_decision_label(
+    primary: dict,
+    trade_readiness: str,
+    new_buy_allowed: bool,
+    ai_review_allowed: bool,
+) -> str:
+    if not primary:
+        return "无候选"
+    if trade_readiness == "data_quality_blocked":
+        return "数据质量阻断"
+    if trade_readiness == "quality_blocked":
+        return "质量门槛阻断"
+    if new_buy_allowed:
+        return "AI复核候选"
+    if ai_review_allowed:
+        return "仅研究复核"
+    if trade_readiness == "observe_only":
+        return "好股观察"
+    return "观察候选"
+
+
+def _screen_decision_primary(primary: dict) -> str:
+    code = str(primary.get("code") or "").strip()
+    name = str(primary.get("name") or "").strip()
+    return " ".join(part for part in (code, name) if part)
+
+
+def _screen_decision_summary(payload: dict[str, Any]) -> str:
+    parts = [
+        f"筛股决策: {payload.get('label')}",
+        f"首选: {payload.get('primary')}" if payload.get("primary") else "",
+        f"新增买入: {'开' if payload.get('new_buy_allowed') else '关'}",
+        f"AI复核: {'可' if payload.get('ai_review_allowed') else '不可'}",
+        f"原因: {payload.get('reason')}" if payload.get("reason") else "",
+        f"下一步: {payload.get('next_step')}" if payload.get("next_step") else "",
+    ]
+    return " · ".join(part for part in parts if part)
 
 
 def _decision_brief(trade_mode: dict, top_candidates: list[dict], data_quality: dict) -> dict:

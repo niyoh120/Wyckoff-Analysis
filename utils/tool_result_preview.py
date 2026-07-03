@@ -1125,6 +1125,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "theme_context": _screen_theme_context_preview(result.get("theme_context")),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "selection_brief": _screen_selection_preview(result.get("selection_brief")),
+            "decision_state": _screen_decision_state_preview(result.get("decision_state")),
             "next_action": result.get("next_action"),
             "next_tool": result.get("next_tool"),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
@@ -1147,6 +1148,7 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
     headline = _text_excerpt(selection.get("headline"), 120)
     scope_line = _screen_scope_brief_line(result.get("scan_scope"))
+    decision_line = _screen_decision_state_line(result.get("decision_state"))
     conclusion = _candidate_conclusion_preview("last_screen_result", result)
     conclusion_line = _text_excerpt(conclusion.get("line"), 280)
     guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
@@ -1155,6 +1157,8 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
         lines.append(scope_line)
     if headline and len(lines) < max(max_lines - reserved, 0):
         lines.append(headline)
+    if decision_line and len(lines) < max(max_lines - reserved, 0):
+        lines.append(decision_line)
     if theme_line := _screen_theme_context_line(result.get("theme_context")):
         if len(lines) < max(max_lines - reserved, 0):
             lines.append(theme_line)
@@ -1195,6 +1199,30 @@ def _screen_financial_scope_suffix(value: dict[str, Any]) -> str:
     if mode == "requested_unavailable":
         return "，财务过滤: 未取得"
     return ""
+
+
+def _screen_decision_state_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "status": value.get("status"),
+            "label": value.get("label"),
+            "trade_readiness": value.get("trade_readiness"),
+            "new_buy_allowed": value.get("new_buy_allowed"),
+            "ai_review_allowed": value.get("ai_review_allowed"),
+            "primary": value.get("primary"),
+            "reason": _text_excerpt(value.get("reason"), 140),
+            "next_step": _text_excerpt(value.get("next_step"), 140),
+            "summary": _text_excerpt(value.get("summary"), 220),
+        }
+    )
+
+
+def _screen_decision_state_line(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return _text_excerpt(value.get("summary"), 220)
 
 
 def _safe_int_text(value: Any) -> str:
@@ -1434,6 +1462,7 @@ def _screen_action_plan_preview(value: Any) -> dict[str, Any]:
             "candidate_action": value.get("candidate_action"),
             "new_buy_allowed": value.get("new_buy_allowed"),
             "ai_review_allowed": value.get("ai_review_allowed"),
+            "trade_readiness": value.get("trade_readiness"),
             "data_quality_gate": value.get("data_quality_gate"),
             "quality_gate": value.get("quality_gate"),
             "review_targets": value.get("review_targets"),

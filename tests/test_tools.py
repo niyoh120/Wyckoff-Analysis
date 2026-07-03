@@ -2506,6 +2506,51 @@ class TestSymbolPool:
         assert result["selection_brief"]["primary_pick"]["shadow_score"] == 5.5
         assert result["action_plan"]["watch_candidates"][0]["shadow_score"] == 5.5
 
+    def test_screen_stocks_decision_state_prefers_market_reason_for_watch_pool(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [],
+                {},
+                {
+                    "metrics": {"total_symbols": 1, "fetch_ok": 1, "fetch_fail": 0},
+                    "triggers": {"sos": [("000001", 7.0)]},
+                    "trade_mode": {
+                        "mode": "observe_only",
+                        "reason": "市场闸门关闭",
+                        "allow_ai_review": False,
+                        "allow_recommendation_write": False,
+                    },
+                    "name_map": {"000001": "观察候选"},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks()
+
+        assert result["selection_brief"]["status"] == "watch_only"
+        assert result["decision_state"] == {
+            "status": "watch_only",
+            "label": "观察候选",
+            "trade_readiness": "watch_only",
+            "new_buy_allowed": False,
+            "ai_review_allowed": False,
+            "primary": "000001 观察候选",
+            "reason": "市场闸门关闭",
+            "next_step": "观察池跟踪，暂不进入本轮AI复核",
+            "summary": (
+                "筛股决策: 观察候选 · 首选: 000001 观察候选 · 新增买入: 关 · "
+                "AI复核: 不可 · 原因: 市场闸门关闭 · 下一步: 观察池跟踪，暂不进入本轮AI复核"
+            ),
+        }
+
     def test_screen_stocks_uses_report_row_metadata_for_top_candidates(self, monkeypatch):
         from agents import screen_tools
 
@@ -2659,6 +2704,7 @@ class TestSymbolPool:
             "candidate_action": "只观察，不新增买入",
             "new_buy_allowed": False,
             "ai_review_allowed": False,
+            "trade_readiness": "observe_only",
             "review_targets": {
                 "codes": ["000004"],
                 "status": "blocked",
@@ -2705,6 +2751,20 @@ class TestSymbolPool:
                     "triggers": ["sos"],
                 }
             ],
+        }
+        assert result["decision_state"] == {
+            "status": "blocked_by_market_gate",
+            "label": "好股观察",
+            "trade_readiness": "observe_only",
+            "new_buy_allowed": False,
+            "ai_review_allowed": False,
+            "primary": "000004 主线候选",
+            "reason": "大盘风险闸门关闭",
+            "next_step": "只观察，等待市场风险闸门重新打开",
+            "summary": (
+                "筛股决策: 好股观察 · 首选: 000004 主线候选 · 新增买入: 关 · "
+                "AI复核: 不可 · 原因: 大盘风险闸门关闭 · 下一步: 只观察，等待市场风险闸门重新打开"
+            ),
         }
         assert first["code"] == "000004"
         assert first["selected_for_report"] is True
