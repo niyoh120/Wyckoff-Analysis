@@ -1909,13 +1909,30 @@ def _stock_scan_task(user_text: str) -> dict[str, Any]:
         "success_criteria": "输出带角色和排序的候选列表、质量证据、风险因素和是否允许进入下一步复核。",
         "risk_guard": "只做研究候选，不写入交易或持仓。",
     }
-    if args := _stock_scan_args(user_text):
+    if args := _stock_scan_args(user_text, default_all_board=True):
         payload["args"] = args
     return payload
 
 
-def _stock_scan_args(user_text: str) -> dict[str, str]:
-    return stock_screen_suggested_args(user_text, include_default_board=False)
+def _stock_scan_args(user_text: str, *, default_all_board: bool = False) -> dict[str, str]:
+    args = stock_screen_suggested_args(user_text, include_default_board=False)
+    if default_all_board and "board" not in args and _stock_scan_defaults_to_all_board(user_text):
+        return {"board": "all", **args}
+    return args
+
+
+def _stock_scan_defaults_to_all_board(user_text: str) -> bool:
+    text = compact_text(user_text)
+    if any(marker in text for marker in ("etf", "基金", "行业基金")):
+        return False
+    return (
+        stock_screen_temporal_buy_hint(text)
+        or stock_screen_watch_hint(text)
+        or bool(stock_screen_theme_hint(text))
+        or _has_stock_tracking_target(text)
+        or any(marker in text for marker in _STOCK_FALLBACK_TARGETS)
+        or has_stock_style_target(text)
+    )
 
 
 def _stock_diagnosis_task() -> dict[str, Any]:

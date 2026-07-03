@@ -610,6 +610,8 @@ def test_workflow_planner_stock_fallback_handles_tracking_direction_wording():
             ("analyze_stock",),
             ("generate_strategy_decision",),
         ]
+        assert run.steps[0].args_hint == "board: all"
+        assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all"}
         assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
@@ -623,6 +625,8 @@ def test_workflow_planner_stock_fallback_handles_temporal_buy_wording():
             ("analyze_stock",),
             ("generate_strategy_decision",),
         ]
+        assert run.steps[0].args_hint == "board: all"
+        assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all"}
         assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
@@ -636,6 +640,8 @@ def test_workflow_planner_stock_fallback_handles_watch_direction_wording():
             ("analyze_stock",),
             ("generate_strategy_decision",),
         ]
+        assert run.steps[0].args_hint == "board: all"
+        assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all"}
         assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
@@ -646,8 +652,8 @@ def test_workflow_planner_stock_fallback_passes_style_args():
     )
 
     assert run.steps[0].tool_scope == ("screen_stocks",)
-    assert run.steps[0].args_hint == "style: trend,pullback"
-    assert run.script["phases"][0]["tasks"][0]["args"] == {"style": "trend,pullback"}
+    assert run.steps[0].args_hint == "board: all；style: trend,pullback"
+    assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all", "style": "trend,pullback"}
 
 
 def test_workflow_planner_stock_fallback_passes_board_and_style_args():
@@ -704,8 +710,8 @@ def test_workflow_planner_stock_fallback_passes_theme_args():
     )
 
     assert run.steps[0].tool_scope == ("screen_stocks",)
-    assert run.steps[0].args_hint == "theme: 机器人"
-    assert run.script["phases"][0]["tasks"][0]["args"] == {"theme": "机器人"}
+    assert run.steps[0].args_hint == "board: all；theme: 机器人"
+    assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all", "theme": "机器人"}
     assert run.script["runtime"]["fallback_kind"] == "stock_selection"
     assert "fallback_kind" not in concept.script["runtime"]
 
@@ -717,8 +723,9 @@ def test_workflow_planner_stock_fallback_passes_theme_strength_args():
     )
 
     assert run.steps[0].tool_scope == ("screen_stocks",)
-    assert run.steps[0].args_hint == "style: trend；theme: 机器人"
+    assert run.steps[0].args_hint == "board: all；style: trend；theme: 机器人"
     assert run.script["phases"][0]["tasks"][0]["args"] == {
+        "board": "all",
         "style": "trend",
         "theme": "机器人",
     }
