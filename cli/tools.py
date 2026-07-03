@@ -130,6 +130,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                         "pullback/accum/left（低吸吸筹）、quality/stable（稳健质量）。"
                     ),
                 },
+                "theme": {
+                    "type": "string",
+                    "description": "可选主题偏好，如 机器人、芯片半导体、光模块、AI算力；只用于候选排序和摘要，不硬过滤。",
+                },
                 "limit": {
                     "type": "integer",
                     "minimum": 0,

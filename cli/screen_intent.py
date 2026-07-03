@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.theme_radar import THEME_ALIASES
+
 _BOARD_HINTS = (
     (
         "main_chinext_star",
@@ -95,6 +97,8 @@ def stock_screen_suggested_args(text: str, *, include_default_board: bool = True
         payload["limit"] = limit
     if financial_metrics := stock_screen_financial_metrics_hint(text):
         payload["financial_metrics"] = financial_metrics
+    if theme := stock_screen_theme_hint(text):
+        payload["theme"] = theme
     return payload
 
 
@@ -123,6 +127,15 @@ def stock_screen_financial_metrics_hint(text: str) -> str:
         return "true"
     if any(hint in normalized for hint in _FINANCIAL_METRICS_OFF_HINTS):
         return "false"
+    return ""
+
+
+def stock_screen_theme_hint(text: str) -> str:
+    normalized = _normalize_text(text)
+    for theme, aliases in THEME_ALIASES.items():
+        terms = (theme, *aliases)
+        if any(term and term.lower() in normalized for term in terms):
+            return theme
     return ""
 
 

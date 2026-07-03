@@ -568,7 +568,7 @@ def test_planner_tool_catalog_exposes_schema_description_and_args():
 
     assert "screen_stocks (全市场扫描)" in catalog
     assert "运行 Wyckoff 五层漏斗筛选" in catalog
-    assert "args=board?,style?,limit?" in catalog
+    assert "args=board?,style?,theme?,limit?,financial_metrics?" in catalog
     assert "generate_ai_report (深度审讯)" in catalog
     assert "args=stock_codes?" in catalog
     assert "generate_strategy_decision (攻防决策)" in catalog

@@ -650,6 +650,23 @@ def test_workflow_planner_stock_fallback_passes_non_bse_a_share_phrases():
     }
 
 
+def test_workflow_planner_stock_fallback_passes_theme_args():
+    run = plan_workflow(
+        "今天机器人机会有哪些，给下一步",
+        context=WORKFLOWS["dynamic_task"],
+    )
+    concept = plan_workflow(
+        "机器人是什么",
+        context=WORKFLOWS["dynamic_task"],
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].args_hint == "theme: 机器人"
+    assert run.script["phases"][0]["tasks"][0]["args"] == {"theme": "机器人"}
+    assert run.script["runtime"]["fallback_kind"] == "stock_selection"
+    assert "fallback_kind" not in concept.script["runtime"]
+
+
 def test_workflow_planner_stock_fallback_handles_etf_screening_wording():
     run = plan_workflow(
         "今天帮我筛ETF机会，给下一步",

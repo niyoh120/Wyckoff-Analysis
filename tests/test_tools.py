@@ -2648,6 +2648,53 @@ class TestSymbolPool:
         assert "趋势偏好: 趋势线" in first["style_match_reasons"]
         assert "趋势偏好: 趋势线" in first["quality_factors"]
 
+    def test_screen_stocks_theme_preference_reorders_and_labels_candidates(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000001",
+                        "name": "普通候选",
+                        "priority_rank": 1,
+                        "priority_score": 20.0,
+                        "strategic_theme": "芯片半导体",
+                    },
+                    {
+                        "code": "000002",
+                        "name": "机器人股",
+                        "priority_rank": 2,
+                        "priority_score": 1.0,
+                        "strategic_theme": "机器人",
+                    },
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {},
+                    "trade_mode": {"allow_ai_review": True, "allow_recommendation_write": False},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(theme="机器人", limit=25)
+
+        assert result["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
+        assert result["scan_scope"]["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
+        assert [row["code"] for row in result["top_candidates"][:2]] == ["000002", "000001"]
+        first = result["selection_brief"]["primary_pick"]
+        assert first["code"] == "000002"
+        assert first["theme_match"] is True
+        assert first["theme_match_reasons"] == ["主题偏好: 机器人"]
+        assert "主题偏好: 机器人" in first["quality_factors"]
+
     def test_screen_stocks_surfaces_shadow_score_for_candidate_review(self, monkeypatch):
         from agents import screen_tools
 

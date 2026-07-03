@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from cli.screen_intent import stock_screen_suggested_args
+from cli.screen_intent import stock_screen_suggested_args, stock_screen_theme_hint
 
 MAX_TOOL_ROUNDS = 15
 MAX_INCOMPLETE_TOOL_RETRIES = 2
@@ -168,6 +168,20 @@ _ETF_SCREEN_INTENT_HINTS = (
     "强势",
     "低吸",
     "主线",
+)
+
+_THEME_SCREEN_INTENT_HINTS = (
+    "机会",
+    "机会池",
+    "候选",
+    "筛",
+    "筛选",
+    "扫描",
+    "推荐",
+    "强势",
+    "低吸",
+    "主线",
+    "标的",
 )
 
 _STOCK_SCREEN_INTENT_HINTS = (
@@ -495,6 +509,8 @@ def _stock_screen_expected(text: str) -> bool:
         return True
     if _etf_screen_expected(text):
         return True
+    if _theme_screen_expected(text):
+        return True
     if any(hint in text for hint in _STOCK_SCREEN_TARGET_HINTS) and any(
         hint in text for hint in _STOCK_SCREEN_TARGET_ACTIONS
     ):
@@ -512,6 +528,10 @@ def _etf_screen_expected(text: str) -> bool:
     )
 
 
+def _theme_screen_expected(text: str) -> bool:
+    return bool(stock_screen_theme_hint(text)) and any(hint in text for hint in _THEME_SCREEN_INTENT_HINTS)
+
+
 def _stock_screen_style_target_expected(text: str) -> bool:
     return any(hint in text for hint in _STOCK_SCREEN_STYLE_HINTS) and any(
         hint in text for hint in _STOCK_SCREEN_CONTEXT_HINTS
@@ -520,7 +540,7 @@ def _stock_screen_style_target_expected(text: str) -> bool:
 
 def _stock_screen_required_args(args: dict[str, str]) -> dict[str, str]:
     required: dict[str, str] = {}
-    for key in ("style", "limit", "financial_metrics"):
+    for key in ("style", "theme", "limit", "financial_metrics"):
         if value := args.get(key):
             required[key] = value
     if board := args.get("board"):

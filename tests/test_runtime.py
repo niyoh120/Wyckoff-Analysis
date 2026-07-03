@@ -664,6 +664,25 @@ def test_turn_expectation_forces_tool_for_etf_screening_wording():
     assert concept_question is None
 
 
+def test_turn_expectation_forces_tool_for_theme_screening_wording():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "今天机器人机会有哪些"}])
+    concept_question = resolve_turn_expectation([{"role": "user", "content": "机器人是什么"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "screen_stocks"
+    assert expectation.suggested_args == {"board": "all", "theme": "机器人"}
+    assert expectation.required_args == {"theme": "机器人"}
+    assert concept_question is None
+
+
+def test_stock_screen_args_infer_theme_preference():
+    assert stock_screen_suggested_args("今天半导体强势机会有哪些") == {
+        "board": "all",
+        "style": "trend",
+        "theme": "芯片半导体",
+    }
+
+
 def test_turn_expectation_does_not_screen_past_recommendation_review():
     expectation = resolve_turn_expectation([{"role": "user", "content": "过去推荐的表现怎么样"}])
 

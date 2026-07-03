@@ -511,6 +511,30 @@ def test_screen_stocks_preview_surfaces_theme_context_and_event_candidate():
     ]
 
 
+def test_screen_stocks_preview_surfaces_theme_preference_and_match():
+    result = {
+        "theme_preference": {"raw": "机器人", "theme": "机器人"},
+        "top_candidates": [
+            {
+                "code": "000002",
+                "name": "机器人股",
+                "theme_match": True,
+                "theme_match_score": 1,
+                "theme_match_reasons": ["主题偏好: 机器人"],
+                "quality_factors": ["主题偏好: 机器人"],
+            }
+        ],
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert preview["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
+    assert preview["top_candidates"][0]["theme_match"] is True
+    assert preview["top_candidates"][0]["theme_match_reasons"] == ["主题偏好: 机器人"]
+    assert lines == ["候选结论: 候选 000002 机器人股 · 亮点: 主题偏好: 机器人"]
+
+
 def test_screen_stocks_preview_surfaces_data_quality_gate():
     result = {
         "selection_brief": {

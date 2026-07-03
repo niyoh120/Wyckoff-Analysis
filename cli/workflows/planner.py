@@ -8,7 +8,7 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from cli.screen_intent import stock_screen_suggested_args
+from cli.screen_intent import stock_screen_suggested_args, stock_screen_theme_hint
 from cli.tools import TOOL_SCHEMAS, TOOL_SPECS
 from cli.workflows._shared import (
     PORTFOLIO_REVIEW_CONTEXT_MARKERS,
@@ -1794,7 +1794,11 @@ def _looks_like_stock_selection_delivery(user_text: str) -> bool:
     text = compact_text(user_text)
     if not text or any(marker in text for marker in _STOCK_FALLBACK_EXPLAINERS):
         return False
-    return any(marker in text for marker in _STOCK_FALLBACK_TARGETS) or has_stock_style_target(text)
+    return (
+        bool(stock_screen_theme_hint(text))
+        or any(marker in text for marker in _STOCK_FALLBACK_TARGETS)
+        or has_stock_style_target(text)
+    )
 
 
 def _stock_scan_task(user_text: str) -> dict[str, Any]:

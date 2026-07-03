@@ -96,10 +96,13 @@ def test_ai_report_schema_allows_screen_handoff_continuation():
 
 def test_screen_stocks_schema_exposes_non_bse_a_share_board():
     schema = next(item for item in TOOL_SCHEMAS if item["name"] == "screen_stocks")
-    description = schema["parameters"]["properties"]["board"]["description"]
+    properties = schema["parameters"]["properties"]
+    description = properties["board"]["description"]
 
     assert "main_chinext_star" in description
     assert "不含北交所" in description
+    assert "theme" in properties
+    assert "机器人" in properties["theme"]["description"]
 
 
 def test_background_status_includes_completed_result_summary(tmp_path, monkeypatch):
