@@ -723,6 +723,8 @@ def _ai_report_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[st
         lines.append(conclusion_line)
     if guard_line := _candidate_guard_brief_line(result.get("candidate_guard_summary")):
         lines.append(guard_line)
+    if handoff_line := _next_tool_brief_line(result.get("next_tool")):
+        lines.append(handoff_line)
     lines.extend(_reviewed_symbol_lines(result, max_lines=max_lines))
     return [line for line in lines if line][:max_lines]
 
@@ -1242,7 +1244,7 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     conclusion_line = _text_excerpt(conclusion.get("line"), 280)
     guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
     etf_line = _screen_etf_brief_line(result.get("etf_enhancement"), result.get("etf_candidates"))
-    handoff_line = _screen_next_tool_brief_line(result.get("next_tool"))
+    handoff_line = _next_tool_brief_line(result.get("next_tool"))
     reserved = int(bool(conclusion_line)) + int(bool(guard_line)) + int(bool(etf_line)) + int(bool(handoff_line))
     if scope_line and len(lines) < max_lines:
         lines.append(scope_line)
@@ -1303,7 +1305,7 @@ def _screen_etf_brief_line(metrics: Any, candidates: Any) -> str:
     return f"{head}；候选: {', '.join(name for name in names if name)}" if names else head
 
 
-def _screen_next_tool_brief_line(value: Any) -> str:
+def _next_tool_brief_line(value: Any) -> str:
     if not isinstance(value, dict):
         return ""
     tool = str(value.get("tool") or "").strip()

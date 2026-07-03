@@ -1111,6 +1111,7 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
 
     content = format_tool_result_for_context("generate_ai_report", "call_report", result, max_chars=1000)
     lines = tool_result_brief_lines("generate_ai_report", result, max_lines=3)
+    handoff_lines = tool_result_brief_lines("generate_ai_report", result, max_lines=4)
 
     assert "result_ref:" in content
     assert '"reviewed_codes": ["000001", "300750"]' in content
@@ -1127,6 +1128,10 @@ def test_generate_ai_report_large_result_preview_preserves_handoff(tmp_path, mon
         "AI研报: reviewed=2, model=gpt-test, next=研报已完成；候选存在禁止直接买入边界，下一步只进入组合攻防复核",
         "候选结论: 阻断候选 300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 护栏: 候选状态 blocked_by_market_gate 不允许直接买入 · 下一步: 研报已完成；候选存在禁止直接买入边界，下一步只进入组合攻防复核",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选状态 blocked_by_market_gate 不允许直接买入)",
+    ]
+    assert handoff_lines == [
+        *lines,
+        "下一工具: generate_strategy_decision() · 研报已完成，可继续生成组合攻防复核；候选护栏禁止把观察/未成熟候选直接写成买入",
     ]
     stored = list((tmp_path / "tool-results").glob("*.json"))
     assert len(stored) == 1
