@@ -111,7 +111,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "screen_stocks",
-        "description": "运行 Wyckoff 五层漏斗筛选，从全市场筛选出具有结构性机会的股票。整个过程可能需要几分钟。",
+        "description": "运行 Wyckoff 五层漏斗筛选，从市场中筛选结构性机会。聊天态默认快扫，明确要求全量时传 limit=0。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -124,9 +124,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "limit": {
                     "type": "integer",
-                    "minimum": 1,
+                    "minimum": 0,
                     "maximum": 3000,
-                    "description": "可选。仅扫描股票池前 N 只，用于快速试扫；全量扫描请不要传。",
+                    "description": "可选。默认由 agent 使用快扫预算；传正整数仅扫描前 N 只；传 0 表示全量扫描。",
                 },
             },
         },

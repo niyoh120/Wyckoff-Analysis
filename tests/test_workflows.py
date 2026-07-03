@@ -203,9 +203,10 @@ def test_screen_stocks_schema_exposes_optional_scan_limit():
     limit = schema["parameters"]["properties"]["limit"]
 
     assert limit["type"] == "integer"
+    assert limit["minimum"] == 0
     assert limit["maximum"] == 3000
-    assert "快速试扫" in limit["description"]
-    assert "全量扫描请不要传" in limit["description"]
+    assert "快扫预算" in limit["description"]
+    assert "传 0 表示全量扫描" in limit["description"]
 
 
 def test_route_workflow_explicit_dynamic_opt_in():

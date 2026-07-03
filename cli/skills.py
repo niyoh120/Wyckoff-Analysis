@@ -30,7 +30,7 @@ BUILTIN_SKILLS: dict[str, Skill] = {
         prompt=(
             "执行全市场威科夫五层漏斗筛选：\n"
             '1. 调用 screen_stocks(board="{user_input}") 执行筛选'
-            '（若用户未指定 board 则用 "all"）\n'
+            '（若用户未指定 board 则用 "all"；普通聊天默认快扫，用户明确要求全量时传 limit=0）\n'
             '2. 对筛选出的每只股票，调用 analyze_stock(code=..., mode="diagnose") 做深度诊断\n'
             "3. 按健康度排序，给出 Top 5 推荐及理由\n"
             "4. 用表格展示：代码 | 名称 | 阶段 | 触发信号 | 健康度 | 推荐理由"
