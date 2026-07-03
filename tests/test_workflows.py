@@ -836,6 +836,63 @@ def test_dispatch_falls_back_to_workflow_for_short_stock_selection_when_model_ro
     assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
 
 
+def test_stock_selection_fallback_script_always_forms_action_boundaries():
+    _runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我选出好股票",
+    )
+    run = plan_workflow(
+        "帮我选出好股票",
+        context=workflow,
+        provider=ScriptedProvider([]),
+        tools=StubToolRegistry(),
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert run.script["runtime"]["fallback_kind"] == "stock_selection"
+    assert [step.step_id for step in run.steps] == ["scan_candidates", "diagnose_candidates", "strategy_decision"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("screen_stocks",),
+        ("analyze_stock",),
+        ("generate_strategy_decision",),
+    ]
+    assert run.steps[1].depends_on == ("scan_candidates",)
+    assert run.steps[2].depends_on == ("diagnose_candidates", "scan_candidates")
+    assert "触发位、失效位" in run.steps[2].prompt
+
+
+def test_stock_selection_fallback_runs_report_before_action_boundaries_when_requested():
+    _runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="帮我选出好股票，给研报和攻防",
+    )
+    run = plan_workflow(
+        "帮我选出好股票，给研报和攻防",
+        context=workflow,
+        provider=ScriptedProvider([]),
+        tools=StubToolRegistry(),
+    )
+
+    assert [step.step_id for step in run.steps] == [
+        "scan_candidates",
+        "diagnose_candidates",
+        "ai_report",
+        "strategy_decision",
+    ]
+    assert [step.tool_scope for step in run.steps] == [
+        ("screen_stocks",),
+        ("analyze_stock",),
+        ("generate_ai_report",),
+        ("generate_strategy_decision",),
+    ]
+    assert run.steps[2].depends_on == ("diagnose_candidates", "scan_candidates")
+    assert run.steps[3].depends_on == ("ai_report",)
+
+
 def test_dispatch_falls_back_to_workflow_for_chatty_stock_selection_when_model_router_is_unavailable():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),

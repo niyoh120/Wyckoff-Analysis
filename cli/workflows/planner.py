@@ -68,17 +68,6 @@ _STOCK_FALLBACK_TARGETS = (
 )
 _STOCK_FALLBACK_EXPLAINERS = ("怎么", "如何", "方法", "是什么意思", "啥意思", "概念", "解释")
 _STOCK_FALLBACK_REPORT_MARKERS = ("研报", "深度", "报告")
-_STOCK_FALLBACK_DECISION_MARKERS = (
-    "攻防",
-    "买卖",
-    "计划",
-    "行动",
-    "风险",
-    "风险边界",
-    "触发位",
-    "失效位",
-    "下一步",
-)
 _SYNTHESIS_TASK_MARKERS = (
     "汇总",
     "总结",
@@ -1781,8 +1770,7 @@ def _stock_selection_fallback_script(user_text: str, context: WorkflowContext, r
     tasks = [_stock_scan_task(user_text), _stock_diagnosis_task()]
     if _wants_ai_report(user_text):
         tasks.append(_stock_report_task(depends_on=tasks[-1]["id"]))
-    if _wants_strategy_decision(user_text):
-        tasks.append(_stock_decision_task(depends_on=tasks[-1]["id"]))
+    tasks.append(_stock_decision_task(depends_on=tasks[-1]["id"]))
     return {
         "title": "选股候选复核",
         "rationale": reason,
@@ -1874,11 +1862,6 @@ def _stock_decision_task(depends_on: str) -> dict[str, Any]:
 def _wants_ai_report(user_text: str) -> bool:
     text = compact_text(user_text)
     return any(marker in text for marker in _STOCK_FALLBACK_REPORT_MARKERS)
-
-
-def _wants_strategy_decision(user_text: str) -> bool:
-    text = compact_text(user_text)
-    return any(marker in text for marker in _STOCK_FALLBACK_DECISION_MARKERS)
 
 
 def _portfolio_review_fallback_script(user_text: str, context: WorkflowContext, reason: str) -> dict[str, Any] | None:

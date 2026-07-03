@@ -579,16 +579,20 @@ def test_workflow_planner_stock_fallback_adds_report_when_requested():
     assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
-def test_workflow_planner_short_stock_fallback_scans_candidates():
+def test_workflow_planner_short_stock_fallback_forms_action_boundaries():
     run = plan_workflow(
         "帮我选出好股票",
         context=WORKFLOWS["dynamic_task"],
     )
 
-    assert [step.step_id for step in run.steps] == ["scan_candidates", "diagnose_candidates"]
-    assert run.steps[0].tool_scope == ("screen_stocks",)
-    assert run.steps[1].tool_scope == ("analyze_stock",)
+    assert [step.step_id for step in run.steps] == ["scan_candidates", "diagnose_candidates", "strategy_decision"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("screen_stocks",),
+        ("analyze_stock",),
+        ("generate_strategy_decision",),
+    ]
     assert run.steps[1].depends_on == ("scan_candidates",)
+    assert run.steps[2].depends_on == ("diagnose_candidates", "scan_candidates")
     assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
