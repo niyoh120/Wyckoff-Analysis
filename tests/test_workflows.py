@@ -1513,6 +1513,21 @@ def test_planner_filters_disallowed_model_declared_tool_scope_without_widening()
     assert run.script["tasks"][0]["tools"] == []
 
 
+def test_planner_does_not_fallback_when_only_step_id_is_missing():
+    context = route_workflow("用 workflow 做选股研报")
+    run = plan_workflow(
+        "重启不存在 step",
+        context=context,
+        workflow_script={"tasks": [{"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描"}]},
+        only_step_id="missing",
+    )
+
+    assert run.steps == []
+    assert run.script["runtime"]["only_step_id"] == "missing"
+    assert run.script["runtime"]["only_step_missing"] == "missing"
+    assert run.script["runtime"]["planner"] == "stored_script"
+
+
 def test_planner_flattens_nested_tool_scope_wrappers_from_model_script():
     context = route_workflow("用 workflow 做选股和攻防计划")
     run = plan_workflow(

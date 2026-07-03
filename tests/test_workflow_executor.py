@@ -4333,6 +4333,37 @@ def test_workflow_executor_restarts_only_selected_step(tmp_path, monkeypatch):
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_fails_missing_only_step_without_fallback(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-missing-step.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(rounds=[])
+    tools = StubToolRegistry()
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_missing_step",
+        user_text="重启 workflow wf_old 的 task missing",
+        workflow_context=route_workflow("用 workflow 做选股研报"),
+        workflow_script={"tasks": [{"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描"}]},
+        source_run_id="wf_old",
+        only_step_id="missing",
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "restart missing"}]))
+
+    try:
+        assert events[0]["plan"]["steps"] == []
+        assert events[0]["plan"]["script"]["runtime"]["only_step_missing"] == "missing"
+        assert events[-2]["status"] == "failed"
+        assert events[-1]["text"] == "未找到 workflow step: missing。请先用 /workflow show 查看可重启的 step id。"
+        assert tools.calls == []
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_build_resume_prompt_includes_step_state():
     prompt = build_resume_prompt(
         {

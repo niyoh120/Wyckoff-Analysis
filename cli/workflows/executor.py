@@ -178,6 +178,19 @@ class WorkflowExecutor:
             yield self._plan_event()
         else:
             yield self._mark_run_running()
+        if not self._require_run().steps:
+            final_text = _empty_workflow_text(self._require_run())
+            messages.append({"role": "assistant", "content": final_text})
+            yield self._mark_run_failed(final_text)
+            yield {
+                "type": "done",
+                "text": final_text,
+                "streamed": False,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+                "elapsed": time.monotonic() - started_at,
+                "rounds": 1,
+            }
+            return
 
         results = yield from self._run_steps()
         if self._stopped:
@@ -540,6 +553,16 @@ class WorkflowExecutor:
         append_workflow_event(run.run_id, "workflow_stopped", payload)
         return payload
 
+    def _mark_run_failed(self, final_text: str) -> RuntimeEvent:
+        run = self._require_run()
+        run.status = FAILED
+        run.result_summary = final_text[:500]
+        run.refresh_current_step()
+        save_workflow_run(run)
+        payload = {"type": "workflow_done", "run_id": run.run_id, "status": run.status}
+        append_workflow_event(run.run_id, "workflow_done", payload)
+        return payload
+
     def _require_run(self) -> WorkflowRun:
         if self.run is None:
             raise RuntimeError("workflow run has not been planned")
@@ -594,6 +617,13 @@ def _workflow_adaptation_count(run: WorkflowRun) -> int:
 
 def _workflow_runtime(run: WorkflowRun) -> dict[str, Any]:
     return run.script.get("runtime") if isinstance(run.script.get("runtime"), dict) else {}
+
+
+def _empty_workflow_text(run: WorkflowRun) -> str:
+    runtime = _workflow_runtime(run)
+    if missing := str(runtime.get("only_step_missing") or "").strip():
+        return f"未找到 workflow step: {missing}。请先用 /workflow show 查看可重启的 step id。"
+    return "workflow 没有可执行步骤。请检查脚本或重新生成 workflow。"
 
 
 def _workflow_step_ids(steps: list[WorkflowStep]) -> list[str]:

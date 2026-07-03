@@ -910,6 +910,9 @@ def _script_steps(
     steps = _filter_runtime_steps(steps, script)
     if steps:
         return steps[:MAX_WORKFLOW_STEPS]
+    if only_step_id := _runtime_only_step_id(script):
+        _mark_missing_only_step(script, only_step_id)
+        return []
     fallback = _fallback_script(user_text, context, reason="planner returned no valid tasks")
     return _script_steps(fallback, user_text, context, infer_tools=infer_tools)
 
@@ -1721,13 +1724,23 @@ def _render_runtime_args(prompt: str, args_text: str) -> str:
 
 
 def _filter_runtime_steps(steps: list[WorkflowStep], script: dict[str, Any]) -> list[WorkflowStep]:
-    runtime = script.get("runtime", {})
-    if not isinstance(runtime, dict):
-        return steps
-    only_step_id = str(runtime.get("only_step_id", "") or "")
+    only_step_id = _runtime_only_step_id(script)
     if not only_step_id:
         return steps
     return [step for step in steps if step.step_id == only_step_id]
+
+
+def _runtime_only_step_id(script: dict[str, Any]) -> str:
+    runtime = script.get("runtime", {})
+    if not isinstance(runtime, dict):
+        return ""
+    return str(runtime.get("only_step_id", "") or "")
+
+
+def _mark_missing_only_step(script: dict[str, Any], only_step_id: str) -> None:
+    runtime = script.setdefault("runtime", {})
+    if isinstance(runtime, dict):
+        runtime["only_step_missing"] = only_step_id
 
 
 def _slug(value: Any) -> str:
