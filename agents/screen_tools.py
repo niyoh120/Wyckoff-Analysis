@@ -49,6 +49,7 @@ _BOARD_ALIAS = {
 def screen_stocks(
     board: str = "all",
     limit: int | None = None,
+    style: str | list[str] | None = None,
     financial_metrics: bool | str | None = None,
     tool_context: ToolContext | None = None,
 ) -> dict:
@@ -73,7 +74,7 @@ def screen_stocks(
         trigger_groups = _trigger_summary(details)
         trade_mode = _trade_mode_summary(details)
         theme_context = _theme_context(metrics)
-        top_candidates = _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details)
+        style_preference, top_candidates = _styled_ranked_candidates(style, trigger_groups, symbols, details)
         summary = _screen_summary(metrics, symbols)
         data_quality = _data_quality_summary(metrics, summary)
         decision_brief = _decision_brief(trade_mode, top_candidates, data_quality)
@@ -90,6 +91,7 @@ def screen_stocks(
         result = _screen_result_payload(
             ok=ok,
             board=board,
+            style_preference=style_preference,
             include_financial_metrics=include_financial_metrics,
             metrics=metrics,
             trigger_groups=trigger_groups,
@@ -123,7 +125,14 @@ def _screen_result_payload(**payload: Any) -> dict[str, Any]:
     return {
         "ok": bool(payload["ok"]),
         "board": payload["board"],
-        "scan_scope": _scan_scope(payload["board"], summary, payload["metrics"], payload["include_financial_metrics"]),
+        "style_preference": payload["style_preference"],
+        "scan_scope": _scan_scope(
+            payload["board"],
+            summary,
+            payload["metrics"],
+            payload["include_financial_metrics"],
+            payload["style_preference"],
+        ),
         "summary": summary,
         "data_quality": payload["data_quality"],
         "trade_mode": payload["trade_mode"],
@@ -148,6 +157,33 @@ def _screen_result_payload(**payload: Any) -> dict[str, Any]:
 def _normalize_board(board: str) -> str:
     board = str(board or "all").strip().lower()
     return _BOARD_ALIAS.get(board, board)
+
+
+def _styled_ranked_candidates(
+    style: str | list[str] | None,
+    trigger_groups: dict,
+    symbols: list[Any],
+    details: dict,
+) -> tuple[dict[str, Any], list[dict]]:
+    style_preference = _normalize_style_preference(style)
+    candidates = _ranked_candidates(trigger_groups, symbols, details.get("name_map") or {}, details)
+    return style_preference, _apply_style_preference(candidates, style_preference)
+
+
+_STYLE_ALIASES = {
+    "trend": ("trend", "strong", "right", "趋势", "强势", "右侧", "突破", "主升"),
+    "pullback": ("pullback", "accum", "left", "低吸", "吸筹", "左侧", "回踩", "埋伏"),
+    "quality": ("quality", "stable", "balanced", "稳健", "高质量", "质量", "安全"),
+}
+
+
+def _normalize_style_preference(value: str | list[str] | None) -> dict[str, Any]:
+    raw_items = value if isinstance(value, list) else [value]
+    text = " ".join(str(item or "") for item in raw_items).strip().lower()
+    if not text:
+        return {}
+    styles = [name for name, aliases in _STYLE_ALIASES.items() if any(alias.lower() in text for alias in aliases)]
+    return _drop_empty_candidate_fields({"raw": text[:80], "styles": list(dict.fromkeys(styles))})
 
 
 def _normalize_scan_limit(limit: int | None, *, tool_context: ToolContext | None = None) -> int | None:
@@ -208,6 +244,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "ok": result.get("ok"),
         "job_kind": result.get("job_kind"),
         "board": result.get("board"),
+        "style_preference": result.get("style_preference", {}),
         "scan_scope": result.get("scan_scope", {}),
         "summary": result.get("summary", {}),
         "data_quality": result.get("data_quality", {}),
@@ -368,10 +405,16 @@ def _data_quality_risk_factors(data_quality: dict | None) -> list[str]:
     return list(dict.fromkeys(factor for factor in factors if factor))
 
 
-def _scan_scope(board: str, summary: dict, metrics: dict, include_financial_metrics: bool) -> dict:
+def _scan_scope(
+    board: str,
+    summary: dict,
+    metrics: dict,
+    include_financial_metrics: bool,
+    style_preference: dict[str, Any] | None = None,
+) -> dict:
     limit = int(metrics.get("pool_limit", 0) or 0)
     scope = "bounded" if limit > 0 else "full"
-    return {
+    payload = {
         "scope": scope,
         "board": board,
         "limit": limit,
@@ -379,6 +422,9 @@ def _scan_scope(board: str, summary: dict, metrics: dict, include_financial_metr
         "financial_metrics": _financial_metrics_scope(metrics, include_financial_metrics),
         "financial_metrics_count": int(metrics.get("financial_metrics_count", 0) or 0),
     }
+    if style_preference:
+        payload["style_preference"] = style_preference
+    return payload
 
 
 def _financial_metrics_scope(metrics: dict, include_financial_metrics: bool) -> str:
@@ -621,6 +667,7 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str, data_qua
             "stage": row.get("stage"),
             "candidate_lane": row.get("candidate_lane"),
             "entry_type": row.get("entry_type"),
+            **_candidate_style_fields(row),
             **_candidate_theme_result_fields(row),
             **_candidate_quality_metrics(row),
         }
@@ -934,6 +981,7 @@ def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str, data_quality
         "risk_factors": _candidate_risk_factors(row, trade_mode, bucket, data_quality),
         "action_status": _candidate_action_status(trade_mode, bucket, data_quality),
         "next_step": next_step,
+        **_candidate_style_fields(row),
         **_candidate_quality_metrics(row),
         "summary": f"{code} {name}: {evidence}；{next_step}",
     }
@@ -959,6 +1007,7 @@ def _candidate_ref(row: dict, trade_mode: dict, bucket: str, data_quality: dict)
         "tag": row.get("tag"),
         "candidate_lane": row.get("candidate_lane"),
         "entry_type": row.get("entry_type"),
+        **_candidate_style_fields(row),
         **_candidate_theme_result_fields(row),
         "triggers": row.get("triggers"),
         **_candidate_quality_metrics(row),
@@ -1053,6 +1102,7 @@ def _candidate_quality_factors(row: dict, *, next_step: str = "") -> list[str]:
     factors = [_candidate_quality_label(row)]
     factors.extend(_candidate_grade_quality_factors(row))
     factors.extend(_split_factor_text(_candidate_profile(row), " / "))
+    factors.extend(str(item) for item in row.get("style_match_reasons") or [] if str(item))
     factors.extend(_split_factor_text(str(row.get("rank_reason") or ""), "；"))
     if next_step:
         factors.append(next_step)
@@ -1300,6 +1350,11 @@ def _candidate_theme_result_fields(row: dict) -> dict[str, Any]:
     return _drop_empty_candidate_fields({field: row.get(field) for field in fields})
 
 
+def _candidate_style_fields(row: dict) -> dict[str, Any]:
+    fields = ("style_match", "style_match_score", "style_match_reasons")
+    return _drop_empty_candidate_fields({field: row.get(field) for field in fields})
+
+
 def _metadata_selection_source(metadata: dict[str, Any]) -> str:
     lane = str(metadata.get("candidate_lane") or "").strip()
     if lane == "mainline":
@@ -1328,6 +1383,71 @@ def _candidate_sort_key(row: dict) -> tuple:
         -candidate_score_value(row.get("shadow_score")),
         row["code"],
     )
+
+
+def _apply_style_preference(candidates: list[dict], preference: dict[str, Any]) -> list[dict]:
+    styles = [str(item) for item in preference.get("styles") or [] if str(item)]
+    if not styles:
+        return candidates
+    ranked = [(index, _annotate_candidate_style_match(row, styles)) for index, row in enumerate(candidates)]
+    ranked.sort(key=lambda item: (not bool(item[1].get("selected_for_report")), -_style_match_score(item[1]), item[0]))
+    return [row for _index, row in ranked]
+
+
+def _annotate_candidate_style_match(row: dict, styles: list[str]) -> dict:
+    reasons = _style_match_reasons(row, styles)
+    if not reasons:
+        return row
+    payload = dict(row)
+    payload["style_match"] = True
+    payload["style_match_score"] = len(reasons)
+    payload["style_match_reasons"] = reasons[:4]
+    payload["quality_factors"] = list(dict.fromkeys([*payload.get("quality_factors", []), *reasons[:3]]))
+    return payload
+
+
+def _style_match_reasons(row: dict, styles: list[str]) -> list[str]:
+    reasons: list[str] = []
+    for style in styles:
+        if style == "trend":
+            reasons.extend(_trend_style_reasons(row))
+        elif style == "pullback":
+            reasons.extend(_pullback_style_reasons(row))
+        elif style == "quality":
+            reasons.extend(_quality_style_reasons(row))
+    return list(dict.fromkeys(reason for reason in reasons if reason))
+
+
+def _trend_style_reasons(row: dict) -> list[str]:
+    triggers = {str(item).lower() for item in row.get("triggers") or []}
+    return [
+        "趋势偏好: 趋势线" if row.get("track") == "Trend" else "",
+        "趋势偏好: 主升阶段" if row.get("stage") == "Markup" else "",
+        "趋势偏好: SOS触发" if "sos" in triggers else "",
+    ]
+
+
+def _pullback_style_reasons(row: dict) -> list[str]:
+    text = " ".join(str(row.get(field) or "").lower() for field in ("candidate_lane", "entry_type", "tag"))
+    return [
+        "低吸偏好: 吸筹线" if row.get("track") == "Accum" else "",
+        "低吸偏好: 吸筹阶段" if str(row.get("stage") or "").startswith("Accum") else "",
+        "低吸偏好: 回踩/跳板" if any(token in text for token in ("lps", "springboard", "低吸", "回踩")) else "",
+    ]
+
+
+def _quality_style_reasons(row: dict) -> list[str]:
+    shadow_grade = str(row.get("candidate_shadow_grade") or "").upper()
+    entry_grade = str(row.get("entry_quality_grade") or "").upper()
+    return [
+        "稳健偏好: 候选影子S级" if shadow_grade == "S" else "",
+        "稳健偏好: 入场质量A档以上" if entry_grade in {"S", "A"} else "",
+        "稳健偏好: 风险调整质量较高" if risk_adjusted_quality_score(row) >= 80 else "",
+    ]
+
+
+def _style_match_score(row: dict) -> int:
+    return int(row.get("style_match_score") or 0)
 
 
 def _final_candidate_row(row: dict) -> dict:

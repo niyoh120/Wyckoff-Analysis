@@ -890,6 +890,7 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
     payload = _pick_fields(
         value,
         (
+            "style_preference",
             "scan_scope",
             "summary",
             "data_quality",
@@ -1066,6 +1067,9 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "latest_close",
         "latest_date",
         "candidate_score",
+        "style_match",
+        "style_match_score",
+        "style_match_reasons",
         "strategic_theme",
         "theme_score",
         "theme_source",

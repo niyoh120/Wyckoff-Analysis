@@ -591,6 +591,17 @@ def test_workflow_planner_short_stock_fallback_scans_candidates():
     assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
+def test_workflow_planner_stock_fallback_passes_style_args():
+    run = plan_workflow(
+        "今天帮我找几只强势低吸标的，给下一步",
+        context=WORKFLOWS["dynamic_task"],
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].args_hint == "style: trend,pullback"
+    assert run.script["phases"][0]["tasks"][0]["args"] == {"style": "trend,pullback"}
+
+
 def test_workflow_planner_stock_method_question_keeps_generic_fallback():
     run = plan_workflow(
         "用 workflow 解释怎么选出好股票",

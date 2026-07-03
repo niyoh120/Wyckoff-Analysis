@@ -122,6 +122,13 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                         "'chinext'（创业板）、'star'（科创板）、'bse'（北交所）"
                     ),
                 },
+                "style": {
+                    "anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
+                    "description": (
+                        "可选候选风格偏好。支持 trend/strong/right（趋势强势）、"
+                        "pullback/accum/left（低吸吸筹）、quality/stable（稳健质量）。"
+                    ),
+                },
                 "limit": {
                     "type": "integer",
                     "minimum": 0,

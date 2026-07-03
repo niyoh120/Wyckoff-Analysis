@@ -58,6 +58,8 @@ _STOCK_FALLBACK_TARGETS = (
     "值得复核",
     "值得跟踪",
 )
+_STOCK_FALLBACK_STYLE_MARKERS = ("强势", "趋势", "低吸", "右侧", "左侧", "稳健")
+_STOCK_FALLBACK_STYLE_TARGETS = ("票", "标的", "候选")
 _STOCK_FALLBACK_EXPLAINERS = ("怎么", "如何", "方法", "是什么意思", "啥意思", "概念", "解释")
 _STOCK_FALLBACK_REPORT_MARKERS = ("研报", "深度", "报告")
 _STOCK_FALLBACK_DECISION_MARKERS = (
@@ -1496,11 +1498,17 @@ def _looks_like_stock_selection_delivery(user_text: str) -> bool:
     text = _compact_task_text(user_text)
     if not text or any(marker in text for marker in _STOCK_FALLBACK_EXPLAINERS):
         return False
-    return any(marker in text for marker in _STOCK_FALLBACK_TARGETS)
+    return any(marker in text for marker in _STOCK_FALLBACK_TARGETS) or _stock_fallback_style_target(text)
+
+
+def _stock_fallback_style_target(text: str) -> bool:
+    return any(marker in text for marker in _STOCK_FALLBACK_STYLE_MARKERS) and any(
+        marker in text for marker in _STOCK_FALLBACK_STYLE_TARGETS
+    )
 
 
 def _stock_scan_task(user_text: str) -> dict[str, Any]:
-    return {
+    payload = {
         "id": "scan_candidates",
         "title": "扫描候选",
         "tools": ["screen_stocks"],
@@ -1513,6 +1521,28 @@ def _stock_scan_task(user_text: str) -> dict[str, Any]:
         "success_criteria": "输出候选列表、质量证据、风险因素和是否允许进入下一步复核。",
         "risk_guard": "只做研究候选，不写入交易或持仓。",
     }
+    if args := _stock_scan_args(user_text):
+        payload["args"] = args
+    return payload
+
+
+def _stock_scan_args(user_text: str) -> dict[str, str]:
+    text = _compact_task_text(user_text)
+    payload: dict[str, str] = {}
+    if style := _stock_scan_style_arg(text):
+        payload["style"] = style
+    return payload
+
+
+def _stock_scan_style_arg(text: str) -> str:
+    styles: list[str] = []
+    if any(marker in text for marker in ("强势", "趋势", "右侧", "突破", "主升")):
+        styles.append("trend")
+    if any(marker in text for marker in ("低吸", "吸筹", "左侧", "回踩", "埋伏")):
+        styles.append("pullback")
+    if any(marker in text for marker in ("稳健", "高质量", "质量", "安全")):
+        styles.append("quality")
+    return ",".join(dict.fromkeys(styles))
 
 
 def _stock_diagnosis_task() -> dict[str, Any]:

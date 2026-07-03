@@ -204,9 +204,12 @@ def test_ask_user_question_schema_makes_clarification_last_resort():
 
 def test_screen_stocks_schema_exposes_optional_scan_limit():
     schema = next(item for item in TOOL_SCHEMAS if item["name"] == "screen_stocks")
+    style = schema["parameters"]["properties"]["style"]
     limit = schema["parameters"]["properties"]["limit"]
     financial_metrics = schema["parameters"]["properties"]["financial_metrics"]
 
+    assert "trend/strong/right" in style["description"]
+    assert "pullback/accum/left" in style["description"]
     assert limit["type"] == "integer"
     assert limit["minimum"] == 0
     assert limit["maximum"] == 3000
@@ -532,7 +535,7 @@ def test_planner_tool_catalog_exposes_schema_description_and_args():
 
     assert "screen_stocks (全市场扫描)" in catalog
     assert "运行 Wyckoff 五层漏斗筛选" in catalog
-    assert "args=board?,limit?" in catalog
+    assert "args=board?,style?,limit?" in catalog
     assert "generate_ai_report (深度审讯)" in catalog
     assert "args=stock_codes?" in catalog
     assert "generate_strategy_decision (攻防决策)" in catalog

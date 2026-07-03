@@ -2474,6 +2474,54 @@ class TestSymbolPool:
         assert candidates[2]["selected_for_report"] is False
         assert candidates[2]["triggers"] == ["lps", "sos"]
 
+    def test_screen_stocks_style_preference_reorders_report_candidates(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000001",
+                        "name": "低吸候选",
+                        "priority_rank": 1,
+                        "track": "Accum",
+                        "stage": "Accum_B",
+                        "entry_type": "springboard",
+                    },
+                    {
+                        "code": "000002",
+                        "name": "趋势候选",
+                        "priority_rank": 2,
+                        "track": "Trend",
+                        "stage": "Markup",
+                    },
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {"sos": [("000002", 8.0)], "lps": [("000001", 8.5)]},
+                    "trade_mode": {"allow_ai_review": True, "allow_recommendation_write": False},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(style="trend")
+
+        assert result["style_preference"] == {"raw": "trend", "styles": ["trend"]}
+        assert result["scan_scope"]["style_preference"]["styles"] == ["trend"]
+        assert [row["code"] for row in result["top_candidates"][:2]] == ["000002", "000001"]
+        first = result["selection_brief"]["primary_pick"]
+        assert first["code"] == "000002"
+        assert first["style_match"] is True
+        assert "趋势偏好: 趋势线" in first["style_match_reasons"]
+        assert "趋势偏好: 趋势线" in first["quality_factors"]
+
     def test_screen_stocks_surfaces_shadow_score_for_candidate_review(self, monkeypatch):
         from agents import screen_tools
 
