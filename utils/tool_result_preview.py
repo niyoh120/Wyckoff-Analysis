@@ -51,10 +51,12 @@ def tool_result_preview(tool_name: str, result: Any, content: str = "") -> str:
 
 
 def tool_result_brief_lines(tool_name: str, result: Any, *, max_lines: int = 3) -> list[str]:
-    if not isinstance(result, dict) or result.get("error"):
+    if not isinstance(result, dict) or (result.get("error") and tool_name != "dynamic_workflow"):
         return []
     lines: list[str] = []
-    if _is_recommendation_event_eval_result(tool_name, result):
+    if tool_name == "dynamic_workflow":
+        lines = _dynamic_workflow_brief_lines(result, max_lines=max_lines)
+    elif _is_recommendation_event_eval_result(tool_name, result):
         lines = _recommendation_event_eval_brief_lines(result, max_lines=max_lines)
     elif _is_screen_stocks_result(tool_name, result):
         lines = _screen_stocks_brief_lines(result, max_lines=max_lines)
@@ -352,6 +354,87 @@ def _dynamic_workflow_candidate_conclusions(result: dict[str, Any]) -> list[str]
         if "候选结论:" in line:
             _append_preview_line(rows, line, limit=5)
     return rows
+
+
+def _dynamic_workflow_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    lines = [_dynamic_workflow_status_line(result)]
+    for line in _dynamic_workflow_handoff_lines(result, limit=max_lines):
+        lines.append(line)
+        if len(lines) >= max_lines:
+            return lines
+    if step_line := _dynamic_workflow_last_step_line(result.get("events")):
+        lines.append(step_line)
+    if final_line := _dynamic_workflow_final_line(result, existing=lines):
+        lines.append(final_line)
+    return lines[:max_lines]
+
+
+def _dynamic_workflow_status_line(result: dict[str, Any]) -> str:
+    status = "失败" if result.get("error") else "完成"
+    parts = [
+        f"动态 workflow: {status}",
+        _text_excerpt(result.get("workflow"), 60),
+        _text_excerpt(result.get("workflow_run_id"), 40),
+        _dynamic_workflow_elapsed_text(result.get("elapsed")),
+    ]
+    return " · ".join(part for part in parts if part)
+
+
+def _dynamic_workflow_elapsed_text(value: Any) -> str:
+    try:
+        elapsed = float(value)
+    except (TypeError, ValueError):
+        return ""
+    return f"{elapsed:.1f}s" if math.isfinite(elapsed) else ""
+
+
+def _dynamic_workflow_handoff_lines(result: dict[str, Any], *, limit: int) -> list[str]:
+    rows = list(_dynamic_workflow_candidate_conclusions(result))
+    for event in _preview_list(result.get("events"), 20):
+        step = event.get("step") if isinstance(event, dict) else {}
+        if not isinstance(step, dict):
+            continue
+        for evidence in _preview_list(step.get("evidence"), 6):
+            text = str(evidence or "")
+            if "候选结论:" in text or "候选护栏:" in text:
+                if _dynamic_workflow_handoff_seen(rows, text):
+                    continue
+                _append_preview_line(rows, text, limit=limit)
+    return rows[:limit]
+
+
+def _dynamic_workflow_handoff_seen(rows: list[str], value: str) -> bool:
+    key = _dynamic_workflow_handoff_key(value)
+    return bool(key and any(_dynamic_workflow_handoff_key(row) == key for row in rows))
+
+
+def _dynamic_workflow_handoff_key(value: str) -> str:
+    text = str(value or "").strip()
+    if text.startswith("候选结论:"):
+        return text.split(" · ", 1)[0].strip()
+    return text
+
+
+def _dynamic_workflow_last_step_line(value: Any) -> str:
+    for event in reversed(_preview_list(value, 20)):
+        step = event.get("step") if isinstance(event, dict) else {}
+        if not isinstance(step, dict):
+            continue
+        title = _text_excerpt(step.get("title"), 80)
+        summary = _text_excerpt(step.get("summary"), 120)
+        status = _text_excerpt(step.get("status"), 40)
+        detail = " · ".join(part for part in (title, status, summary) if part)
+        if detail:
+            return f"最近步骤: {detail}"
+    return ""
+
+
+def _dynamic_workflow_final_line(result: dict[str, Any], *, existing: list[str]) -> str:
+    for line in str(result.get("final_text") or "").splitlines():
+        text = _text_excerpt(line, 180)
+        if text and text not in existing:
+            return text
+    return ""
 
 
 def _append_preview_line(rows: list[str], value: Any, *, limit: int) -> None:

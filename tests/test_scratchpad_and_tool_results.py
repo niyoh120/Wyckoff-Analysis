@@ -189,6 +189,59 @@ def test_default_tool_result_budget_offloads_medium_json(tmp_path, monkeypatch):
     assert len(list((tmp_path / "tool-results").glob("*.json"))) == 1
 
 
+def test_dynamic_workflow_brief_lines_surface_candidate_result():
+    result = {
+        "workflow_run_id": "wf_screen",
+        "workflow": "dynamic_task",
+        "elapsed": 12.34,
+        "final_text": "候选结论: 首选 300750 宁德时代\n风险边界: 跌破 20 日线转观察",
+        "events": [
+            {
+                "type": "workflow_step_done",
+                "step": {
+                    "title": "扫描候选",
+                    "status": "completed",
+                    "summary": "候选扫描完成",
+                    "evidence": [
+                        "候选结论: 首选 300750 宁德时代 · 可进入AI复核",
+                        "候选护栏: 1只禁止直接买入",
+                    ],
+                },
+            }
+        ],
+    }
+
+    lines = tool_result_brief_lines("dynamic_workflow", result, max_lines=4)
+
+    assert lines == [
+        "动态 workflow: 完成 · dynamic_task · wf_screen · 12.3s",
+        "候选结论: 首选 300750 宁德时代",
+        "候选护栏: 1只禁止直接买入",
+        "最近步骤: 扫描候选 · completed · 候选扫描完成",
+    ]
+
+
+def test_dynamic_workflow_brief_lines_surface_failed_run():
+    result = {
+        "workflow_run_id": "wf_failed",
+        "workflow": "dynamic_task",
+        "error": "planner timeout",
+        "events": [
+            {
+                "type": "workflow_step_start",
+                "step": {"title": "生成研报", "status": "running", "summary": "等待模型返回"},
+            }
+        ],
+    }
+
+    lines = tool_result_brief_lines("dynamic_workflow", result, max_lines=2)
+
+    assert lines == [
+        "动态 workflow: 失败 · dynamic_task · wf_failed",
+        "最近步骤: 生成研报 · running · 等待模型返回",
+    ]
+
+
 def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path, monkeypatch):
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     result = {
