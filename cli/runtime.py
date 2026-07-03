@@ -380,6 +380,9 @@ class AgentRuntime:
         state: RunState,
     ) -> Iterator[RuntimeEvent | bool]:
         answered_call_ids: set[str] = set()
+        if order_error := self._required_tool_order_error(tool_calls, state):
+            yield from self._append_aborted_tool_results(messages, tool_calls, answered_call_ids, error=order_error)
+            return False
         for batch in partition_tool_calls(tool_calls, self.tools.concurrency_safe):
             if batch["concurrent"] and len(batch["calls"]) > 1:
                 if (
@@ -404,6 +407,34 @@ class AgentRuntime:
                 yield from self._append_aborted_tool_results(messages, tool_calls, answered_call_ids)
                 return False
         return True
+
+    def _required_tool_order_error(self, tool_calls: list[dict], state: RunState) -> str:
+        if len(self.required_tools) < 2:
+            return ""
+        seen_this_round: set[str] = set()
+        for call in tool_calls:
+            name = str(call.get("name") or "")
+            if name not in self.required_tools:
+                continue
+            missing = self._missing_required_predecessor(name, state, seen_this_round)
+            if missing:
+                return f"工具调用顺序错误：`{name}` 依赖 `{missing}` 的结果，必须先调用 `{missing}`。"
+            seen_this_round.add(name)
+        return ""
+
+    def _missing_required_predecessor(self, name: str, state: RunState, seen_this_round: set[str]) -> str:
+        index = self.required_tools.index(name)
+        for predecessor in self.required_tools[:index]:
+            if self._required_tool_satisfied(predecessor, state, seen_this_round):
+                continue
+            return predecessor
+        return ""
+
+    def _required_tool_satisfied(self, name: str, state: RunState, seen_this_round: set[str]) -> bool:
+        if name in seen_this_round:
+            return True
+        required_args = self.required_tool_args.get(name, {})
+        return not missing_required_tool(TurnExpectation(name, "", required_args=required_args), state.used_tools)
 
     def _maybe_retry_required_tool(
         self,
@@ -726,8 +757,10 @@ class AgentRuntime:
         messages: list[dict[str, Any]],
         tool_calls: list[dict],
         answered_call_ids: set[str],
+        *,
+        error: str = "工具调用已因 doom-loop 中止",
     ) -> Iterator[RuntimeEvent]:
-        result = {"error": "工具调用已因 doom-loop 中止"}
+        result = {"error": error}
         for call in tool_calls:
             call_id = call["id"]
             if call_id in answered_call_ids:

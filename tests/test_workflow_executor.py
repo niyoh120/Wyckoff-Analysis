@@ -1449,6 +1449,112 @@ def test_workflow_multitool_step_enforces_screen_args_before_strategy(tmp_path, 
         _reset_local_db(local_db)
 
 
+def test_workflow_multitool_step_retries_wrong_tool_order(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-multitool-order.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {"id": "tc_strategy_first", "name": "generate_strategy_decision", "args": {}},
+                        {
+                            "id": "tc_screen_late",
+                            "name": "screen_stocks",
+                            "args": {
+                                "board": "chinext",
+                                "style": ["trend", "pullback"],
+                                "limit": 0,
+                                "financial_metrics": True,
+                            },
+                        },
+                    ],
+                    "text": "",
+                }
+            ],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tc_screen",
+                            "name": "screen_stocks",
+                            "args": {
+                                "board": "chinext",
+                                "style": ["trend", "pullback"],
+                                "limit": 0,
+                                "financial_metrics": True,
+                            },
+                        }
+                    ],
+                    "text": "",
+                }
+            ],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_strategy", "name": "generate_strategy_decision", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "全量候选和攻防计划已生成。"}],
+            [{"type": "text_delta", "text": "已按正确顺序汇总全量筛选和攻防计划。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={
+            "screen_stocks": {"symbols_for_report": ["300750"], "selection_brief": {"best_codes": ["300750"]}},
+            "generate_strategy_decision": {"status": "ok", "reviewed_codes": ["300750"]},
+        },
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_multitool_order",
+        user_text="用 workflow 全量扫描创业板强势低吸标的，带财务过滤和风险边界",
+        workflow_context=route_workflow("用 workflow 全量扫描创业板强势低吸标的，带财务过滤和风险边界"),
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "scan_decide",
+                    "title": "候选与攻防",
+                    "tools": ["screen_stocks", "generate_strategy_decision"],
+                    "args": {
+                        "board": "chinext",
+                        "style": ["trend", "pullback"],
+                        "limit": 0,
+                        "financial_metrics": True,
+                    },
+                    "prompt": "按完整筛选条件找候选，并给出风险边界。",
+                }
+            ]
+        },
+    )
+
+    events = list(
+        executor.run_stream(
+            [{"role": "user", "content": "用 workflow 全量扫描创业板强势低吸标的，带财务过滤和风险边界"}]
+        )
+    )
+
+    try:
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert detail["tool_calls"] == ["screen_stocks", "generate_strategy_decision"]
+        assert [call["name"] for call in tools.calls] == ["screen_stocks", "generate_strategy_decision"]
+        retry_context = json.dumps(provider.calls[1]["messages"], ensure_ascii=False)
+        assert "工具调用顺序错误" in retry_context
+        assert "必须先调用 `screen_stocks" in retry_context
+        assert events[-1]["text"] == "已按正确顺序汇总全量筛选和攻防计划。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_natural_stock_selection_turn_runs_dynamic_workflow_end_to_end(tmp_path, monkeypatch):
     from integrations import local_db
 
