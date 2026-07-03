@@ -907,6 +907,8 @@ def test_workflow_handoff_state_compacts_candidate_context():
         state={
             "last_screen_result": {
                 "scan_scope": {"source": "screen_stocks"},
+                "style_preference": {"raw": "trend", "styles": ["trend"]},
+                "theme_preference": {"raw": "机器人", "theme": "机器人"},
                 "theme_context": {
                     "event_mainlines": "机器人 0.82/爆发",
                     "today_activity": "机器人 0.76/活跃",
@@ -957,6 +959,12 @@ def test_workflow_handoff_state_compacts_candidate_context():
                         "theme_event_id": "evt-robot",
                         "theme_event_title": "特斯拉量产临近，机器人板块还能回归市场主线吗？",
                         "theme_event_reason": "灵巧手",
+                        "style_match": True,
+                        "style_match_score": 2,
+                        "style_match_reasons": ["趋势偏好: 趋势线", "趋势偏好: 主升阶段"],
+                        "theme_match": True,
+                        "theme_match_score": 1,
+                        "theme_match_reasons": ["主题偏好: 机器人"],
                         "selection_source": "recommendation_event_eval",
                         "source_type": "policy_selection",
                         "priority_rank": 1,
@@ -1081,6 +1089,8 @@ def test_workflow_handoff_state_compacts_candidate_context():
     handoff = _workflow_handoff_state(tools)
 
     screen = handoff["last_screen_result"]
+    assert screen["style_preference"] == {"raw": "trend", "styles": ["trend"]}
+    assert screen["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
     assert screen["selection_brief"]["best_codes"] == ["300750"]
     assert screen["next_action"] == "首选候选已通过市场闸门，可进入 AI 研报复核"
     assert screen["next_tool"]["tool"] == "generate_ai_report"
@@ -1095,6 +1105,10 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert screen["quality_gate"]["status"] == "blocked_by_quality_gate"
     candidate = screen["symbols_for_report"][0]
     assert candidate["code"] == "300750"
+    assert candidate["style_match"] is True
+    assert candidate["style_match_reasons"] == ["趋势偏好: 趋势线", "趋势偏好: 主升阶段"]
+    assert candidate["theme_match"] is True
+    assert candidate["theme_match_reasons"] == ["主题偏好: 机器人"]
     assert candidate["candidate_shadow_score"] == 92.0
     assert candidate["entry_quality_score"] == 84.0
     assert candidate["funnel_score"] == 89.5
@@ -2733,6 +2747,28 @@ def test_workflow_candidate_conclusion_preserves_entry_risk_flags():
 
     assert conclusion["risk_factors"] == ["估值偏高", "短线涨幅偏快"]
     assert "风险=估值偏高,短线涨幅偏快" in conclusion["line"]
+
+
+def test_workflow_candidate_conclusion_preserves_theme_match_reasons():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "theme_preference": {"raw": "机器人", "theme": "机器人"},
+                "report_candidates": [
+                    {
+                        "code": "000012",
+                        "name": "机器人候选",
+                        "action_status": "ready_for_ai_review",
+                        "theme_match": True,
+                        "theme_match_reasons": ["主题偏好: 机器人"],
+                    }
+                ],
+            }
+        }
+    )
+
+    assert conclusion["quality_factors"] == ["主题偏好: 机器人"]
+    assert "亮点=主题偏好: 机器人" in conclusion["line"]
 
 
 def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():

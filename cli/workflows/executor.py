@@ -114,6 +114,9 @@ _CANDIDATE_HANDOFF_FIELDS = (
     "style_match",
     "style_match_score",
     "style_match_reasons",
+    "theme_match",
+    "theme_match_score",
+    "theme_match_reasons",
     "strategic_theme",
     "theme_score",
     "theme_source",
@@ -1062,6 +1065,7 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
         value,
         (
             "style_preference",
+            "theme_preference",
             "scan_scope",
             "summary",
             "data_quality",
@@ -1547,7 +1551,7 @@ def _fallback_candidate_conclusion_payload(
             "action_status": str(row.get("action_status") or "").strip(),
             "evidence": _fallback_evidence_items(row),
             "action": _fallback_action_payload(row),
-            "quality_factors": _fallback_text_items(row.get("quality_factors"), 4, 120),
+            "quality_factors": _fallback_quality_items(row, 4, 120),
             "risk_factors": _fallback_risk_items(row, 4, 120),
             "guard_reason": _fallback_guard_reason_from_handoff(row, stage, handoff),
             "next_step": _fallback_next_value(row, stage),
@@ -1707,8 +1711,19 @@ def _fallback_evidence_items(row: dict[str, Any]) -> list[str]:
 
 
 def _fallback_quality_part(row: dict[str, Any]) -> str:
-    factors = _fallback_text_items(row.get("quality_factors"), 3, 80)
+    factors = _fallback_quality_items(row, 3, 80)
     return f"亮点={','.join(factors)}" if factors else ""
+
+
+def _fallback_quality_items(row: dict[str, Any], limit: int, clip: int) -> list[str]:
+    factors: list[str] = []
+    for value in (row.get("quality_factors"), row.get("style_match_reasons"), row.get("theme_match_reasons")):
+        for item in _fallback_text_items(value, limit, clip):
+            if item not in factors:
+                factors.append(item)
+            if len(factors) >= limit:
+                return factors
+    return factors
 
 
 def _fallback_risk_part(row: dict[str, Any]) -> str:
