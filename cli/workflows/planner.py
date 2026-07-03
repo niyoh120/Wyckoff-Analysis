@@ -470,16 +470,30 @@ def _adaptation_candidate_rows(source: str, value: dict[str, Any], limit: int = 
     else:
         rows.extend(_plain_list(value.get("reviewed_symbols")))
     candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
     ready_rank = 0
     for row in rows:
         if not isinstance(row, dict):
             continue
+        identity = _adaptation_candidate_identity(row)
+        if identity and identity in seen:
+            continue
+        if identity:
+            seen.add(identity)
         if str(row.get("action_status") or "").strip() == "ready_for_ai_review":
             ready_rank += 1
         candidates.append(_compact_adaptation_candidate(row, ready_rank))
         if len(candidates) >= limit:
             break
     return candidates
+
+
+def _adaptation_candidate_identity(row: dict[str, Any]) -> str:
+    for field in ("code", "symbol", "name"):
+        value = str(row.get(field) or "").strip().lower()
+        if value:
+            return value
+    return ""
 
 
 def _compact_adaptation_candidate(row: dict[str, Any], ready_rank: int = 0) -> dict[str, Any]:

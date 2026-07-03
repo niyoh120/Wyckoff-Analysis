@@ -1568,6 +1568,55 @@ def test_adaptation_handoff_summary_derives_ready_candidate_roles():
     assert candidates[1]["candidate_role"] == "备选复核候选"
 
 
+def test_adaptation_handoff_summary_dedupes_candidate_sources():
+    summary = _adaptation_handoff_summary(
+        [
+            {
+                "step": {"step_id": "scan", "title": "扫描候选"},
+                "result": {
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "report_candidates": [
+                                {
+                                    "code": "000014",
+                                    "name": "高质量候选",
+                                    "action_status": "ready_for_ai_review",
+                                }
+                            ],
+                            "symbols_for_report": [
+                                {
+                                    "code": "000014",
+                                    "name": "高质量候选",
+                                    "action_status": "ready_for_ai_review",
+                                    "risk_factors": ["重复来源"],
+                                },
+                                {
+                                    "code": "000015",
+                                    "name": "次优候选",
+                                    "action_status": "ready_for_ai_review",
+                                },
+                            ],
+                            "selection_brief": {
+                                "primary_pick": {
+                                    "code": "000014",
+                                    "name": "高质量候选",
+                                    "action_status": "ready_for_ai_review",
+                                }
+                            },
+                        }
+                    }
+                },
+            }
+        ]
+    )
+
+    candidates = summary[0]["candidates"]
+    assert [candidate["code"] for candidate in candidates] == ["000014", "000015"]
+    assert candidates[0]["candidate_role"] == "首选"
+    assert candidates[1]["candidate_role"] == "备选复核候选"
+    assert "risk_factors" not in candidates[0]
+
+
 def test_planner_uses_semantic_tool_scope_when_model_tool_contract_repair_is_invalid():
     provider = ScriptedProvider(
         [
