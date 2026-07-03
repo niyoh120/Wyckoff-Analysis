@@ -1732,6 +1732,8 @@ def _fallback_evidence_items(row: dict[str, Any]) -> list[str]:
 
 def _trigger_evidence_part(row: dict[str, Any]) -> str:
     labels = [TRIGGER_SHORT_LABELS.get(str(item), str(item)) for item in _as_list(row.get("triggers"))[:4] if str(item)]
+    if not labels:
+        labels = _profile_trigger_labels(row)
     return f"触发={'+'.join(labels)}" if labels else ""
 
 
@@ -1742,13 +1744,35 @@ def _fallback_quality_part(row: dict[str, Any]) -> str:
 
 def _fallback_quality_items(row: dict[str, Any], limit: int, clip: int) -> list[str]:
     factors: list[str] = []
-    for value in (row.get("style_match_reasons"), row.get("theme_match_reasons"), row.get("quality_factors")):
+    for value in (
+        row.get("style_match_reasons"),
+        row.get("theme_match_reasons"),
+        _profile_quality_items(row, clip),
+        row.get("quality_factors"),
+    ):
         for item in _fallback_text_items(value, limit, clip):
             if item not in factors:
                 factors.append(item)
             if len(factors) >= limit:
                 return factors
     return factors
+
+
+def _profile_quality_items(row: dict[str, Any], clip: int) -> list[str]:
+    return [_clip_text(part, clip) for part in _profile_parts(row) if not part.startswith("触发:")]
+
+
+def _profile_trigger_labels(row: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    for part in _profile_parts(row):
+        if not part.startswith("触发:"):
+            continue
+        labels.extend(item.strip() for item in part.split(":", 1)[1].split("+") if item.strip())
+    return labels[:4]
+
+
+def _profile_parts(row: dict[str, Any]) -> list[str]:
+    return [part.strip() for part in str(row.get("profile") or "").split("/") if part.strip()]
 
 
 def _fallback_preference_part(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:

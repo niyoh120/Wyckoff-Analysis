@@ -2754,6 +2754,29 @@ def test_workflow_candidate_conclusion_preserves_trigger_evidence():
     assert "证据=候选影子91,触发=SOS+EVR+TrendPB" in conclusion["line"]
 
 
+def test_workflow_candidate_conclusion_uses_profile_as_quality_context():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "report_candidates": [
+                    {
+                        "code": "000012",
+                        "name": "画像候选",
+                        "action_status": "ready_for_ai_review",
+                        "candidate_shadow_score": 91.0,
+                        "profile": "趋势线 / 主升阶段 / 触发:SOS+EVR",
+                    }
+                ]
+            }
+        }
+    )
+
+    assert conclusion["evidence"] == ["候选影子91", "触发=SOS+EVR"]
+    assert conclusion["quality_factors"] == ["趋势线", "主升阶段"]
+    assert "证据=候选影子91,触发=SOS+EVR" in conclusion["line"]
+    assert "亮点=趋势线,主升阶段" in conclusion["line"]
+
+
 def test_workflow_candidate_conclusion_preserves_entry_risk_flags():
     conclusion = _candidate_conclusion_from_handoff(
         {
