@@ -1460,7 +1460,9 @@ def _text_covers_candidate_conclusions(text: str, conclusions: list[dict[str, An
         return False
     lowered = text.lower()
     return all(
-        _text_mentions_candidate_identity(lowered, item) and _text_covers_candidate_action(lowered, item)
+        _text_mentions_candidate_identity(lowered, item)
+        and _text_covers_candidate_action(lowered, item)
+        and _text_covers_candidate_support(lowered, item)
         for item in conclusions
     )
 
@@ -1476,6 +1478,20 @@ def _text_mentions_candidate_identity(lowered_text: str, item: dict[str, Any]) -
 def _text_covers_candidate_action(lowered_text: str, item: dict[str, Any]) -> bool:
     action = item.get("action") if isinstance(item.get("action"), dict) else {}
     return all(str(value).lower() in lowered_text for value in action.values() if str(value).strip())
+
+
+def _text_covers_candidate_support(lowered_text: str, item: dict[str, Any]) -> bool:
+    guard = str(item.get("guard_reason") or "").strip().lower()
+    if guard and guard not in lowered_text:
+        return False
+    support_items = [
+        *_as_list(item.get("evidence")),
+        *_as_list(item.get("quality_factors")),
+        *_as_list(item.get("risk_factors")),
+        item.get("next_step"),
+    ]
+    support_items = [str(value).strip().lower() for value in support_items if str(value or "").strip()]
+    return not support_items or any(value in lowered_text for value in support_items)
 
 
 def _candidate_conclusions_from_handoff(handoff: dict[str, Any], limit: int = 3) -> list[dict[str, Any]]:

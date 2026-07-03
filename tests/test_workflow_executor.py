@@ -2297,6 +2297,43 @@ def test_workflow_candidate_delivery_backfills_missing_action_boundaries():
     assert _ensure_candidate_delivery(complete_text, results) == complete_text
 
 
+def test_workflow_candidate_delivery_backfills_missing_evidence():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "symbols_for_report": [
+                            {
+                                "code": "300750",
+                                "name": "宁德时代",
+                                "action_status": "ready_for_ai_review",
+                                "strategic_theme": "机器人",
+                                "theme_source": "ths_hot_event",
+                                "theme_event_reason": "灵巧手",
+                                "risk_factors": ["未来窗口标签尚未成熟"],
+                                "next_step": "生成 AI 研报",
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+    ]
+    thin_text = "300750 宁德时代是今天的首选。"
+
+    final_text = _ensure_candidate_delivery(thin_text, results)
+
+    assert final_text.startswith("候选结论: 首选 300750 宁德时代")
+    assert "证据=事件主线机器人(灵巧手)" in final_text
+    assert "风险=未来窗口标签尚未成熟" in final_text
+    assert "下一步=生成 AI 研报" in final_text
+    assert final_text.endswith(thin_text)
+    complete_text = "300750 宁德时代，证据是事件主线机器人(灵巧手)。"
+    assert _ensure_candidate_delivery(complete_text, results) == complete_text
+
+
 def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, monkeypatch):
     from integrations import local_db
 
