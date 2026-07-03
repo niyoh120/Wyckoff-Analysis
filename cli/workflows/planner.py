@@ -8,6 +8,7 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
+from cli.screen_intent import stock_screen_suggested_args
 from cli.tools import TOOL_SCHEMAS, TOOL_SPECS
 from cli.workflows.models import WorkflowContext, WorkflowRun, WorkflowStep
 from cli.workflows.router import route_workflow
@@ -949,7 +950,7 @@ def _task_step(
     prompt = _render_runtime_args(prompt, args_text)
     context = _render_runtime_args(str(task.get("context") or "").strip(), args_text)
     tool_scope, tool_scope_source = _task_tool_scope_with_source(task, allowed_tool_names, infer_tools=infer_tools)
-    args_hint = _task_args_text(task) or _inferred_task_args_text(user_text, tool_scope, infer_tools=infer_tools)
+    args_hint = _task_args_text(task, user_text, tool_scope, infer_tools=infer_tools)
     step_id = _slug(task.get("id") or title)
     return WorkflowStep(
         step_id=step_id,
@@ -1222,17 +1223,32 @@ def _task_meta_value(value: Any) -> str:
     return str(value).strip()
 
 
-def _task_args_text(task: dict[str, Any]) -> str:
+def _task_args_text(
+    task: dict[str, Any],
+    user_text: str = "",
+    tool_scope: tuple[str, ...] = (),
+    *,
+    infer_tools: bool = False,
+) -> str:
+    inferred = _inferred_task_args(user_text, tool_scope, infer_tools=infer_tools)
     for field in TOOL_ARG_FIELDS:
-        if value := _task_meta_value(task.get(field)):
+        raw = task.get(field)
+        if isinstance(raw, dict):
+            if value := _task_meta_value({**inferred, **_clean_args_mapping(raw)}):
+                return value
+        elif value := _task_meta_value(raw):
             return value
-    return ""
+    return _task_meta_value(inferred)
 
 
-def _inferred_task_args_text(user_text: str, tool_scope: tuple[str, ...], *, infer_tools: bool) -> str:
+def _clean_args_mapping(value: dict[str, Any]) -> dict[str, Any]:
+    return {str(key): item for key, item in value.items() if str(key).strip() and str(item).strip()}
+
+
+def _inferred_task_args(user_text: str, tool_scope: tuple[str, ...], *, infer_tools: bool) -> dict[str, str]:
     if not infer_tools or "screen_stocks" not in tool_scope:
-        return ""
-    return _task_meta_value(_stock_scan_args(user_text))
+        return {}
+    return _stock_scan_args(user_text)
 
 
 def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
@@ -1672,22 +1688,7 @@ def _stock_scan_task(user_text: str) -> dict[str, Any]:
 
 
 def _stock_scan_args(user_text: str) -> dict[str, str]:
-    text = _compact_task_text(user_text)
-    payload: dict[str, str] = {}
-    if style := _stock_scan_style_arg(text):
-        payload["style"] = style
-    return payload
-
-
-def _stock_scan_style_arg(text: str) -> str:
-    styles: list[str] = []
-    if any(marker in text for marker in ("强势", "趋势", "右侧", "突破", "主升")):
-        styles.append("trend")
-    if any(marker in text for marker in ("低吸", "吸筹", "左侧", "回踩", "埋伏")):
-        styles.append("pullback")
-    if any(marker in text for marker in ("稳健", "高质量", "质量", "安全")):
-        styles.append("quality")
-    return ",".join(dict.fromkeys(styles))
+    return stock_screen_suggested_args(user_text, include_default_board=False)
 
 
 def _stock_diagnosis_task() -> dict[str, Any]:

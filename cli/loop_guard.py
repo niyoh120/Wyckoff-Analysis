@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from cli.screen_intent import stock_screen_suggested_args
+
 MAX_TOOL_ROUNDS = 15
 MAX_INCOMPLETE_TOOL_RETRIES = 2
 DOOM_LOOP_WINDOW = 6
@@ -364,7 +366,7 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
         return TurnExpectation(
             required_tool="screen_stocks",
             reason="真实选股/候选请求需要先运行筛选工具。",
-            suggested_args=_screen_suggested_args(last_user),
+            suggested_args=stock_screen_suggested_args(last_user),
         )
 
     if _ai_report_direct_expected(last_user):
@@ -520,34 +522,6 @@ def _explanation_only_question(text: str) -> bool:
     return any(hint in text for hint in _EXPLANATION_ONLY_HINTS) and not any(
         hint in text for hint in _CONCRETE_DATA_HINTS
     )
-
-
-def _screen_board_hint(text: str) -> str:
-    if "创业板" in text:
-        return "chinext"
-    if "科创" in text:
-        return "star"
-    if "主板" in text:
-        return "main"
-    return "all"
-
-
-def _screen_suggested_args(text: str) -> dict[str, str]:
-    payload = {"board": _screen_board_hint(text)}
-    if style := _screen_style_hint(text):
-        payload["style"] = style
-    return payload
-
-
-def _screen_style_hint(text: str) -> str:
-    styles: list[str] = []
-    if any(hint in text for hint in ("强势", "趋势", "右侧", "突破", "主升")):
-        styles.append("trend")
-    if any(hint in text for hint in ("低吸", "吸筹", "左侧", "回踩", "埋伏")):
-        styles.append("pullback")
-    if any(hint in text for hint in ("稳健", "高质量", "质量", "安全")):
-        styles.append("quality")
-    return ",".join(dict.fromkeys(styles))
 
 
 def missing_required_tool(

@@ -602,6 +602,20 @@ def test_workflow_planner_stock_fallback_passes_style_args():
     assert run.script["phases"][0]["tasks"][0]["args"] == {"style": "trend,pullback"}
 
 
+def test_workflow_planner_stock_fallback_passes_board_and_style_args():
+    run = plan_workflow(
+        "今天帮我筛创业板强势低吸标的，给下一步",
+        context=WORKFLOWS["dynamic_task"],
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].args_hint == "board: chinext；style: trend,pullback"
+    assert run.script["phases"][0]["tasks"][0]["args"] == {
+        "board": "chinext",
+        "style": "trend,pullback",
+    }
+
+
 def test_workflow_planner_stock_method_question_keeps_generic_fallback():
     run = plan_workflow(
         "用 workflow 解释怎么选出好股票",
@@ -1468,11 +1482,11 @@ def test_workflow_executor_retries_until_step_args_hint_is_used(tmp_path, monkey
         _reset_local_db(local_db)
 
 
-def test_workflow_executor_enforces_inferred_stock_style_args(tmp_path, monkeypatch):
+def test_workflow_executor_enforces_inferred_stock_screen_args(tmp_path, monkeypatch):
     from integrations import local_db
 
     _reset_local_db(local_db)
-    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-inferred-style-args.db")
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-inferred-screen-args.db")
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     provider = ScriptedProvider(
         rounds=[
@@ -1486,7 +1500,9 @@ def test_workflow_executor_enforces_inferred_stock_style_args(tmp_path, monkeypa
             [
                 {
                     "type": "tool_calls",
-                    "tool_calls": [{"id": "tc_plain", "name": "screen_stocks", "args": {}}],
+                    "tool_calls": [
+                        {"id": "tc_plain", "name": "screen_stocks", "args": {"style": ["trend", "pullback"]}}
+                    ],
                     "text": "",
                 }
             ],
@@ -1494,7 +1510,11 @@ def test_workflow_executor_enforces_inferred_stock_style_args(tmp_path, monkeypa
                 {
                     "type": "tool_calls",
                     "tool_calls": [
-                        {"id": "tc_style", "name": "screen_stocks", "args": {"style": ["trend", "pullback"]}}
+                        {
+                            "id": "tc_scoped",
+                            "name": "screen_stocks",
+                            "args": {"board": "chinext", "style": ["trend", "pullback"]},
+                        }
                     ],
                     "text": "",
                 }
@@ -1510,12 +1530,12 @@ def test_workflow_executor_enforces_inferred_stock_style_args(tmp_path, monkeypa
     executor = WorkflowExecutor(
         provider,
         tools,
-        session_id="s_inferred_style_args",
-        user_text="今天帮我找几只强势低吸标的",
+        session_id="s_inferred_screen_args",
+        user_text="今天帮我筛创业板强势低吸标的",
         workflow_context=WORKFLOWS["dynamic_task"],
     )
 
-    events = list(executor.run_stream([{"role": "user", "content": "今天帮我找几只强势低吸标的"}]))
+    events = list(executor.run_stream([{"role": "user", "content": "今天帮我筛创业板强势低吸标的"}]))
 
     try:
         plan_event = next(event for event in events if event["type"] == "workflow_plan")
@@ -1523,9 +1543,12 @@ def test_workflow_executor_enforces_inferred_stock_style_args(tmp_path, monkeypa
         detail = done_event["source"]["agent_detail"]
         assert plan_event["plan"]["steps"][0]["tool_scope"] == ["screen_stocks"]
         assert plan_event["plan"]["steps"][0]["tool_scope_source"] == "semantic_inference"
-        assert plan_event["plan"]["steps"][0]["args_hint"] == "style: trend,pullback"
+        assert plan_event["plan"]["steps"][0]["args_hint"] == "board: chinext；style: trend,pullback"
         assert detail["tool_calls"] == ["screen_stocks", "screen_stocks"]
-        assert [call["args"] for call in tools.calls] == [{}, {"style": ["trend", "pullback"]}]
+        assert [call["args"] for call in tools.calls] == [
+            {"style": ["trend", "pullback"]},
+            {"board": "chinext", "style": ["trend", "pullback"]},
+        ]
         assert events[-1]["text"] == "已按强势低吸偏好汇总候选。"
     finally:
         _reset_local_db(local_db)

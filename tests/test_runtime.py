@@ -542,6 +542,14 @@ def test_turn_expectation_forces_tool_for_colloquial_style_stock_selection():
     assert expectation.suggested_args == {"board": "all", "style": "trend,pullback"}
 
 
+def test_turn_expectation_infers_combined_stock_screen_board():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "今天帮我筛主板和创业板强势标的"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "screen_stocks"
+    assert expectation.suggested_args == {"board": "main_chinext_star", "style": "trend"}
+
+
 def test_turn_expectation_does_not_screen_past_recommendation_review():
     expectation = resolve_turn_expectation([{"role": "user", "content": "过去推荐的表现怎么样"}])
 

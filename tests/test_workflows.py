@@ -2214,6 +2214,58 @@ def test_planner_recovers_stock_style_args_for_semantic_screen_step():
     assert run.steps[0].args_hint == "style: trend,pullback"
 
 
+def test_planner_recovers_stock_board_args_for_semantic_screen_step():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": '{"title":"自然选股","tasks":[{"id":"scan","title":"扫描候选","prompt":"扫描候选"}]}',
+                }
+            ],
+            [{"type": "text_delta", "text": "这不是 JSON"}],
+        ]
+    )
+
+    run = plan_workflow(
+        "今天帮我筛创业板强势低吸标的",
+        context=route_workflow("用 workflow 筛创业板强势低吸标的"),
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].tool_scope_source == "semantic_inference"
+    assert run.steps[0].args_hint == "board: chinext；style: trend,pullback"
+
+
+def test_planner_merges_inferred_board_with_model_declared_partial_args():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": (
+                        '{"title":"自然选股","tasks":[{"id":"scan","title":"扫描候选",'
+                        '"tools":["screen_stocks"],"args":{"style":"quality"},"prompt":"扫描候选"}]}'
+                    ),
+                }
+            ]
+        ]
+    )
+
+    run = plan_workflow(
+        "今天帮我筛创业板强势低吸标的",
+        context=route_workflow("用 workflow 筛创业板强势低吸标的"),
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].tool_scope_source == "model_declared"
+    assert run.steps[0].args_hint == "board: chinext；style: quality"
+
+
 def test_planner_recovers_tool_scope_from_colloquial_good_stock_outline():
     provider = ScriptedProvider(
         [
