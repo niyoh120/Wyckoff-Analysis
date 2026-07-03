@@ -229,7 +229,7 @@ class AgentRuntime:
                 self._append_assistant_tool_message(messages, round_state)
                 completed = yield from self._run_tool_batches(messages, round_state.tool_calls, state)
                 if completed:
-                    retry_event = self._maybe_retry_required_tool_args(messages, round_state, state)
+                    retry_event = self._maybe_retry_required_tool_args(messages, round_state, state, expectation)
                     if retry_event:
                         yield retry_event
                     continue
@@ -432,11 +432,13 @@ class AgentRuntime:
         messages: list[dict[str, Any]],
         round_state: RoundState,
         state: RunState,
+        expectation: Any,
     ) -> RuntimeEvent | None:
-        expectation = self._required_tools_expectation(state)
-        if not expectation or not expectation.required_args:
+        scoped_expectation = self._required_tools_expectation(state)
+        active_expectation = scoped_expectation or self._available_expectation(expectation)
+        if not active_expectation or not active_expectation.required_args:
             return None
-        return self._maybe_retry_required_tool(messages, round_state, state, expectation)
+        return self._maybe_retry_required_tool(messages, round_state, state, active_expectation)
 
     def _active_turn_expectation(
         self,

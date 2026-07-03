@@ -300,7 +300,7 @@ def test_runtime_retries_when_stock_screening_request_skips_tool():
     retries = [e for e in events if e["type"] == "retry"]
     assert len(retries) == 1
     assert retries[0]["required_tool"] == "screen_stocks"
-    assert '建议参数：board="chinext"' in retries[0]["message"]
+    assert 'screen_stocks(board="chinext")' in retries[0]["message"]
     assert events[-1]["text"] == "创业板候选已筛出。"
 
 
@@ -371,6 +371,55 @@ def test_runtime_retries_when_required_tool_args_are_missing():
     assert 'screen_stocks(style="trend,pullback")' in retries[0]["message"]
     assert [call["args"] for call in tools.calls] == [{}, {"style": ["trend", "pullback"]}]
     assert events[-1]["text"] == "风格候选已筛出。"
+
+
+def test_runtime_retries_when_natural_screen_args_are_missing():
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_plain", "name": "screen_stocks", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tc_screen",
+                            "name": "screen_stocks",
+                            "args": {
+                                "board": "chinext",
+                                "style": "trend,pullback",
+                                "limit": 0,
+                                "financial_metrics": True,
+                            },
+                        }
+                    ],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "全量财务筛选已完成。"}],
+        ]
+    )
+    tools = StubToolRegistry(tool_results={"screen_stocks": {"symbols_for_report": ["300750"]}})
+    messages = [{"role": "user", "content": "今天全量扫描创业板强势低吸标的，要带财务过滤"}]
+
+    events = list(AgentRuntime(provider, tools, enforce_turn_expectations=True).run_stream(messages))
+
+    retries = [event for event in events if event["type"] == "retry"]
+    assert len(retries) == 1
+    assert (
+        'screen_stocks(board="chinext", style="trend,pullback", limit="0", financial_metrics="true")'
+        in retries[0]["message"]
+    )
+    assert [call["args"] for call in tools.calls] == [
+        {},
+        {"board": "chinext", "style": "trend,pullback", "limit": 0, "financial_metrics": True},
+    ]
+    assert events[-1]["text"] == "全量财务筛选已完成。"
 
 
 def test_runtime_retries_strategy_when_attack_plan_stops_after_screen():
@@ -540,6 +589,7 @@ def test_turn_expectation_forces_tool_for_colloquial_style_stock_selection():
     assert expectation is not None
     assert expectation.required_tool == "screen_stocks"
     assert expectation.suggested_args == {"board": "all", "style": "trend,pullback"}
+    assert expectation.required_args == {"style": "trend,pullback"}
 
 
 def test_turn_expectation_infers_full_financial_stock_screen_args():
@@ -555,6 +605,12 @@ def test_turn_expectation_infers_full_financial_stock_screen_args():
         "limit": "0",
         "financial_metrics": "true",
     }
+    assert expectation.required_args == {
+        "style": "trend,pullback",
+        "limit": "0",
+        "financial_metrics": "true",
+        "board": "chinext",
+    }
 
 
 def test_turn_expectation_infers_quick_scan_financial_skip():
@@ -563,6 +619,7 @@ def test_turn_expectation_infers_quick_scan_financial_skip():
     assert expectation is not None
     assert expectation.required_tool == "screen_stocks"
     assert expectation.suggested_args == {"board": "all", "style": "trend", "financial_metrics": "false"}
+    assert expectation.required_args == {"style": "trend", "financial_metrics": "false"}
 
 
 def test_turn_expectation_infers_combined_stock_screen_board():

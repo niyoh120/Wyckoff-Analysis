@@ -363,10 +363,12 @@ def resolve_turn_expectation(messages: list[dict[str, Any]]) -> TurnExpectation 
         )
 
     if _stock_screen_expected(last_user):
+        screen_args = stock_screen_suggested_args(last_user)
         return TurnExpectation(
             required_tool="screen_stocks",
             reason="真实选股/候选请求需要先运行筛选工具。",
-            suggested_args=stock_screen_suggested_args(last_user),
+            suggested_args=screen_args,
+            required_args=_stock_screen_required_args(screen_args),
         )
 
     if _ai_report_direct_expected(last_user):
@@ -490,6 +492,17 @@ def _stock_screen_style_target_expected(text: str) -> bool:
     )
 
 
+def _stock_screen_required_args(args: dict[str, str]) -> dict[str, str]:
+    required: dict[str, str] = {}
+    for key in ("style", "limit", "financial_metrics"):
+        if value := args.get(key):
+            required[key] = value
+    if board := args.get("board"):
+        if board != "all":
+            required["board"] = board
+    return required
+
+
 def _ai_report_expected(text: str, previous_context: str) -> bool:
     if _explanation_only_question(text):
         return False
@@ -558,6 +571,8 @@ def _tool_arg_value_matches(actual: Any, expected: str) -> bool:
 
 
 def _normalized_tool_arg_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, (list, tuple, set)):
         return ",".join(str(item).strip() for item in value if str(item).strip())
     if isinstance(value, str):
@@ -567,7 +582,7 @@ def _normalized_tool_arg_value(value: Any) -> str:
             parsed = None
         if isinstance(parsed, (list, tuple, set)):
             return ",".join(str(item).strip() for item in parsed if str(item).strip())
-    return str(value or "").strip()
+    return str(value if value is not None else "").strip()
 
 
 def build_retry_user_message(expectation: TurnExpectation, assistant_text: str = "") -> str:
@@ -583,7 +598,8 @@ def build_retry_user_message(expectation: TurnExpectation, assistant_text: str =
     else:
         lead = "这一轮没有返回有效工具调用。"
     if expectation.required_args:
-        pairs = ", ".join(f'{k}="{v}"' for k, v in expectation.required_args.items())
+        display_args = {**expectation.suggested_args, **expectation.required_args}
+        pairs = ", ".join(f'{k}="{v}"' for k, v in display_args.items())
         call_hint = f"`{expectation.required_tool}({pairs})`"
     elif expectation.suggested_args:
         pairs = ", ".join(f'{k}="{v}"' for k, v in expectation.suggested_args.items())
