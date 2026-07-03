@@ -931,6 +931,41 @@ def test_empty_input_without_pending_default_is_ignored():
     assert log.lines == ["kept"]
 
 
+def test_send_message_does_not_insert_blank_log_line(monkeypatch):
+    app = object.__new__(WyckoffTUI)
+    log = _FakeLog()
+    app._messages = []
+    app.query_one = lambda *_args, **_kwargs: log
+    app._recent_workflow_context = lambda _text: ""
+    app._start_spinner = lambda _label: None
+    app._run_agent = lambda: None
+
+    import cli.memory as memory
+
+    monkeypatch.setattr(memory, "build_memory_context", lambda _text: "")
+
+    WyckoffTUI._send_message(app, "你看我持仓呀")
+
+    assert len(log.lines) == 2
+    assert str(log.lines[-1]) == "❯ 你看我持仓呀"
+    assert app._messages == [{"role": "user", "content": "你看我持仓呀"}]
+
+
+def test_send_system_notification_does_not_insert_blank_log_line():
+    app = object.__new__(WyckoffTUI)
+    log = _FakeLog()
+    app._messages = []
+    app.query_one = lambda *_args, **_kwargs: log
+    app._start_spinner = lambda _label: None
+    app._run_agent = lambda: None
+
+    WyckoffTUI._send_system_notification(app, "workflow done")
+
+    assert len(log.lines) == 2
+    assert "后台结果已回传给 agent" in str(log.lines[-1])
+    assert app._messages == [{"role": "user", "content": "workflow done", "_system_notification": True}]
+
+
 def test_pending_user_question_lines_render_inline_chat_prompt():
     pending = _PendingUserQuestion(
         "是否确认执行？",

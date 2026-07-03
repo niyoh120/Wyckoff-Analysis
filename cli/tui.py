@@ -2112,7 +2112,6 @@ class WyckoffTUI(App):
 
     def _send_message(self, text: str) -> None:
         log = self.query_one("#chat-log", ChatLog)
-        log.write(Text(""))
         lines = text.splitlines()
         if len(lines) > 3:
             preview = "\n".join(lines[:3]) + f"\n... ({len(lines)} lines total)"
@@ -2138,7 +2137,6 @@ class WyckoffTUI(App):
 
     def _send_system_notification(self, text: str) -> None:
         log = self.query_one("#chat-log", ChatLog)
-        log.write(Text(""))
         log.write(Text.from_markup("  [dim]↳ 后台结果已回传给 agent[/dim]"))
         self._messages.append({"role": "user", "content": text, "_system_notification": True})
         self._start_spinner("处理后台结果")
