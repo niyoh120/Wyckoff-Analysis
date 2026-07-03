@@ -94,6 +94,26 @@ _SYNTHESIS_TOOL_MARKERS = (
     ("generate_strategy_decision", ("攻防", "买卖", "计划", "触发", "失效", "动作", "边界", "风险")),
     ("analyze_stock", ("诊断", "结构", "个股", "股票")),
 )
+_PREVIOUS_DEPENDENCY_ALIASES = {
+    "previous",
+    "previous_step",
+    "previous_task",
+    "prior",
+    "prior_step",
+    "prior_task",
+    "last",
+    "last_step",
+    "last_task",
+    "上一步",
+    "前一步",
+    "上一个",
+    "前一个",
+    "上一任务",
+    "前一任务",
+    "上一阶段",
+    "前一阶段",
+    "前序任务",
+}
 
 _PLAN_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的动态 workflow 编排器。
@@ -752,10 +772,10 @@ def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
 
 def _normalize_step_dependencies(steps: list[WorkflowStep]) -> list[WorkflowStep]:
     aliases = _dependency_aliases(steps)
-    for step in steps:
+    for index, step in enumerate(steps):
         deps: list[str] = []
         for dep in step.depends_on:
-            resolved = aliases.get(dep, dep)
+            resolved = _resolve_step_dependency(dep, aliases, steps, index)
             if resolved and resolved != step.step_id and resolved not in deps:
                 deps.append(resolved)
         step.depends_on = tuple(deps)
@@ -769,6 +789,20 @@ def _dependency_aliases(steps: list[WorkflowStep]) -> dict[str, str]:
             if alias:
                 buckets.setdefault(alias, set()).add(step.step_id)
     return {alias: next(iter(ids)) for alias, ids in buckets.items() if len(ids) == 1}
+
+
+def _resolve_step_dependency(dep: str, aliases: dict[str, str], steps: list[WorkflowStep], index: int) -> str:
+    if dep in aliases:
+        return aliases[dep]
+    if dep in _PREVIOUS_DEPENDENCY_ALIASES:
+        return _previous_step_dependency(steps, index)
+    return dep
+
+
+def _previous_step_dependency(steps: list[WorkflowStep], index: int) -> str:
+    if index <= 0:
+        return ""
+    return steps[index - 1].step_id
 
 
 def _stabilize_tool_dependencies(steps: list[WorkflowStep]) -> list[WorkflowStep]:

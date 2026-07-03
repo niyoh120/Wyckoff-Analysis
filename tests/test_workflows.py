@@ -1272,6 +1272,57 @@ def test_planner_resolves_dependency_titles_to_step_ids():
     assert run.steps[2].depends_on == ("report",)
 
 
+def test_planner_resolves_previous_step_dependency_aliases():
+    context = route_workflow("用 workflow 做选股、研报和攻防计划")
+    run = plan_workflow(
+        "做选股、研报和攻防计划",
+        context=context,
+        workflow_script={
+            "tasks": [
+                {"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描今日候选。"},
+                {
+                    "id": "report",
+                    "title": "生成研报",
+                    "tools": ["generate_ai_report"],
+                    "after": "上一步",
+                    "prompt": "基于候选生成研报。",
+                },
+                {
+                    "id": "decision",
+                    "title": "形成攻防",
+                    "tools": ["generate_strategy_decision"],
+                    "after": "previous step",
+                    "prompt": "基于候选和研报输出攻防边界。",
+                },
+            ]
+        },
+    )
+
+    assert run.steps[0].depends_on == ()
+    assert run.steps[1].depends_on == ("scan",)
+    assert run.steps[2].depends_on == ("report",)
+
+
+def test_planner_drops_previous_step_alias_on_first_task():
+    run = plan_workflow(
+        "用 workflow 做持仓复盘",
+        context=WORKFLOWS["portfolio_review"],
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "positions",
+                    "title": "读取持仓",
+                    "tools": ["portfolio"],
+                    "after": "上一步",
+                    "prompt": "读取当前持仓。",
+                }
+            ]
+        },
+    )
+
+    assert run.steps[0].depends_on == ()
+
+
 def test_planner_stabilizes_out_of_order_stock_selection_dependencies():
     context = route_workflow("用 workflow 做选股、研报和攻防计划")
     run = plan_workflow(
