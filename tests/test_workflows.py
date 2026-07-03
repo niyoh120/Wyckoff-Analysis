@@ -201,12 +201,15 @@ def test_ask_user_question_schema_makes_clarification_last_resort():
 def test_screen_stocks_schema_exposes_optional_scan_limit():
     schema = next(item for item in TOOL_SCHEMAS if item["name"] == "screen_stocks")
     limit = schema["parameters"]["properties"]["limit"]
+    financial_metrics = schema["parameters"]["properties"]["financial_metrics"]
 
     assert limit["type"] == "integer"
     assert limit["minimum"] == 0
     assert limit["maximum"] == 3000
     assert "快扫预算" in limit["description"]
     assert "传 0 表示全量扫描" in limit["description"]
+    assert financial_metrics["type"] == "boolean"
+    assert "聊天快扫默认跳过" in financial_metrics["description"]
 
 
 def test_route_workflow_explicit_dynamic_opt_in():

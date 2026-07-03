@@ -88,6 +88,7 @@ class FunnelMetricsInputs:
     benchmark_context: dict
     all_df_map: dict[str, pd.DataFrame]
     financial_map: dict[str, dict]
+    financial_metrics_requested: bool = True
 
 
 @dataclass(frozen=True)
@@ -519,6 +520,9 @@ def _pool_fetch_metrics(inputs: FunnelMetricsInputs) -> dict:
         "fetch_fail": int(inputs.fetch_stats.get("fetch_fail", 0) or 0),
         "fetch_date_mismatch": int(inputs.fetch_stats.get("fetch_date_mismatch", 0) or 0),
         "fetch_spot_patched": int(inputs.fetch_stats.get("fetch_spot_patched", 0) or 0),
+        "financial_metrics_requested": bool(inputs.financial_metrics_requested),
+        "financial_metrics_enabled": bool(inputs.financial_map),
+        "financial_metrics_count": len(inputs.financial_map),
         "snapshot_dir": inputs.snapshot_dir,
     }
 
@@ -746,6 +750,7 @@ def run_funnel_job(
     pool_board: str | None = None,
     pool_limit_count: int | None = None,
     executor_mode: str | None = None,
+    include_financial_metrics: bool = True,
 ) -> tuple[dict[str, list[tuple[str, float]]], dict]:
     """执行 Wyckoff Funnel，返回 (triggers, metrics)。"""
     data = prepare_funnel_job_data(
@@ -754,6 +759,7 @@ def run_funnel_job(
         pool_board=pool_board,
         pool_limit_count=pool_limit_count,
         executor_mode=executor_mode,
+        include_financial_metrics=include_financial_metrics,
     )
     artifacts = _build_run_artifacts(data)
     metrics_inputs = FunnelMetricsInputs(
@@ -780,6 +786,7 @@ def run_funnel_job(
         benchmark_context=data.benchmark_context,
         all_df_map=data.all_df_map,
         financial_map=data.ref_data.financial_map,
+        financial_metrics_requested=include_financial_metrics,
     )
     metrics = _build_funnel_metrics(metrics_inputs)
     _attach_funnel_debug_context(metrics, metrics_inputs, include_debug_context)
@@ -795,6 +802,7 @@ def run(
     pool_board: str | None = None,
     pool_limit_count: int | None = None,
     executor_mode: str | None = None,
+    include_financial_metrics: bool = True,
 ) -> tuple[bool, list[dict], dict] | tuple[bool, list[dict], dict, dict]:
     """
     执行 Wyckoff Funnel，漏斗完成后立即发送飞书通知。
@@ -805,6 +813,7 @@ def run(
         pool_board=pool_board,
         pool_limit_count=pool_limit_count,
         executor_mode=executor_mode,
+        include_financial_metrics=include_financial_metrics,
     )
     render_ctx = build_render_context(triggers, metrics)
     full_formal, legacy_selection, legacy_card = _selection_mode_flags()

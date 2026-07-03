@@ -130,15 +130,17 @@ def get_market_overview() -> dict:
 def screen_stocks(
     board: Literal["all", "main_chinext", "main", "chinext", "star", "bse"] = "all",
     limit: int | None = None,
+    financial_metrics: bool | None = None,
 ) -> dict:
     """运行 Wyckoff 五层漏斗筛选，从全市场筛选结构性机会股票。
 
     **调用时机**：用户说"帮我选股"、"今天有什么机会"、"跑一下漏斗"时调用。
     **注意**：耗时 2-3 分钟，请提前告知用户需要等待。
-    **快速试扫**：limit 可限制扫描股票池前 N 只；全量扫描请留空。
+    **快速试扫**：limit 可限制扫描股票池前 N 只；聊天态留空默认快扫，全量扫描传 limit=0。
+    **财务过滤**：聊天快扫默认跳过 TickFlow 财务指标；明确需要完整财务过滤时传 financial_metrics=true。
     **结果处理**：返回候选股票列表和分数，请用专业但易懂的方式呈现。
     """
-    return _screen_stocks(board=board, limit=limit, tool_context=_ctx)
+    return _screen_stocks(board=board, limit=limit, financial_metrics=financial_metrics, tool_context=_ctx)
 
 
 @mcp.tool()

@@ -128,6 +128,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "maximum": 3000,
                     "description": "可选。默认由 agent 使用快扫预算；传正整数仅扫描前 N 只；传 0 表示全量扫描。",
                 },
+                "financial_metrics": {
+                    "type": "boolean",
+                    "description": "可选。聊天快扫默认跳过 TickFlow 财务指标以提升速度；明确需要财务过滤/完整复核时传 true。",
+                },
             },
         },
     },

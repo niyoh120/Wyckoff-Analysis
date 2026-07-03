@@ -46,7 +46,12 @@ _BOARD_ALIAS = {
 }
 
 
-def screen_stocks(board: str = "all", limit: int | None = None, tool_context: ToolContext | None = None) -> dict:
+def screen_stocks(
+    board: str = "all",
+    limit: int | None = None,
+    financial_metrics: bool | str | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict:
     """运行 Wyckoff 五层漏斗筛选。"""
     try:
         ensure_tushare_token(tool_context)
@@ -54,7 +59,16 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
         if board not in _VALID_BOARDS:
             return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star / bse"}
         pool_limit = _normalize_scan_limit(limit, tool_context=tool_context)
-        ok, symbols, _bench_ctx, details = _run_funnel_with_board(board, pool_limit=pool_limit)
+        include_financial_metrics = _resolve_financial_metrics_mode(
+            financial_metrics,
+            pool_limit=pool_limit,
+            tool_context=tool_context,
+        )
+        ok, symbols, _bench_ctx, details = _run_funnel_with_board(
+            board,
+            pool_limit=pool_limit,
+            include_financial_metrics=include_financial_metrics,
+        )
         metrics = details.get("metrics") or {}
         trigger_groups = _trigger_summary(details)
         trade_mode = _trade_mode_summary(details)
@@ -73,7 +87,7 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
         result = {
             "ok": bool(ok),
             "board": board,
-            "scan_scope": _scan_scope(board, summary, metrics),
+            "scan_scope": _scan_scope(board, summary, metrics, include_financial_metrics),
             "summary": summary,
             "data_quality": data_quality,
             "trade_mode": trade_mode,
@@ -128,6 +142,34 @@ def _agent_default_scan_limit() -> int:
     return max(min(value, _MAX_SCAN_LIMIT), 0)
 
 
+def _resolve_financial_metrics_mode(
+    value: bool | str | None,
+    *,
+    pool_limit: int | None,
+    tool_context: ToolContext | None,
+) -> bool:
+    explicit = _coerce_optional_bool(value)
+    if explicit is not None:
+        return explicit
+    env_value = _coerce_optional_bool(os.getenv("WYCKOFF_AGENT_SCREEN_FINANCIAL_METRICS"))
+    if env_value is not None and tool_context is not None:
+        return env_value
+    return not (tool_context is not None and pool_limit not in (None, 0))
+
+
+def _coerce_optional_bool(value: Any) -> bool | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on", "enabled", "include", "full"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "disabled", "skip", "quick"}:
+        return False
+    return None
+
+
 def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, Any]) -> None:
     if tool_context is None:
         return
@@ -154,7 +196,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
     }
 
 
-def _run_funnel_with_board(board: str, *, pool_limit: int | None):
+def _run_funnel_with_board(board: str, *, pool_limit: int | None, include_financial_metrics: bool):
     from workflows.wyckoff_funnel import run as run_funnel
 
     return run_funnel(
@@ -164,6 +206,7 @@ def _run_funnel_with_board(board: str, *, pool_limit: int | None):
         pool_board=board,
         pool_limit_count=pool_limit,
         executor_mode="thread",
+        include_financial_metrics=include_financial_metrics,
     )
 
 
@@ -292,7 +335,7 @@ def _data_quality_risk_factors(data_quality: dict | None) -> list[str]:
     return list(dict.fromkeys(factor for factor in factors if factor))
 
 
-def _scan_scope(board: str, summary: dict, metrics: dict) -> dict:
+def _scan_scope(board: str, summary: dict, metrics: dict, include_financial_metrics: bool) -> dict:
     limit = int(metrics.get("pool_limit", 0) or 0)
     scope = "bounded" if limit > 0 else "full"
     return {
@@ -300,7 +343,15 @@ def _scan_scope(board: str, summary: dict, metrics: dict) -> dict:
         "board": board,
         "limit": limit,
         "total_scanned": int(summary.get("total_scanned", 0) or 0),
+        "financial_metrics": _financial_metrics_scope(metrics, include_financial_metrics),
+        "financial_metrics_count": int(metrics.get("financial_metrics_count", 0) or 0),
     }
+
+
+def _financial_metrics_scope(metrics: dict, include_financial_metrics: bool) -> str:
+    if not include_financial_metrics:
+        return "skipped_quick_scan"
+    return "available" if int(metrics.get("financial_metrics_count", 0) or 0) > 0 else "requested_unavailable"
 
 
 def _trade_mode_summary(details: dict) -> dict:

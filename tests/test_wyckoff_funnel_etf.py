@@ -145,6 +145,33 @@ def test_load_financial_metrics_reports_missing_tickflow_key(monkeypatch):
     assert ("财务指标", "未配置 TickFlow，跳过", 0.20) in events
 
 
+def test_load_reference_data_can_skip_financial_metrics_for_quick_scan(monkeypatch):
+    from utils.progress import set_reporter
+
+    events: list[tuple[str, str, float]] = []
+    monkeypatch.setattr(funnel_data, "_load_market_metadata", lambda *_args: ({}, {}, [], {}, [], {}, [], {}))
+    monkeypatch.setattr(
+        funnel_data,
+        "_load_financial_metrics",
+        lambda _symbols: (_ for _ in ()).throw(AssertionError("financial metrics should be skipped")),
+    )
+    monkeypatch.setattr(funnel_data, "_load_stock_names", lambda: {"000001": "Alpha"})
+    set_reporter(lambda stage, detail, progress: events.append((stage, detail, progress)))
+    try:
+        ref_data = funnel_data._load_reference_data(
+            ["000001"],
+            SimpleNamespace(end_trade_date=date(2026, 7, 2)),
+            SimpleNamespace(),
+            include_financial_metrics=False,
+        )
+    finally:
+        set_reporter(None)
+
+    assert ref_data.financial_map == {}
+    assert ref_data.name_map == {"000001": "Alpha"}
+    assert ("财务指标", "聊天快扫已跳过", 0.20) in events
+
+
 def test_load_stock_names_reports_progress(monkeypatch):
     from utils.progress import set_reporter
 

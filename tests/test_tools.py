@@ -2199,6 +2199,8 @@ class TestSymbolPool:
             "board": "main_chinext_star",
             "limit": 25,
             "total_scanned": 0,
+            "financial_metrics": "requested_unavailable",
+            "financial_metrics_count": 0,
         }
         assert os.environ["FUNNEL_POOL_MODE"] == "manual"
         assert os.environ["FUNNEL_POOL_BOARD"] == "chinext"
@@ -2223,7 +2225,14 @@ class TestSymbolPool:
 
         result = screen_tools.screen_stocks(limit=25)
 
-        assert result["scan_scope"] == {"scope": "bounded", "board": "all", "limit": 25, "total_scanned": 10}
+        assert result["scan_scope"] == {
+            "scope": "bounded",
+            "board": "all",
+            "limit": 25,
+            "total_scanned": 10,
+            "financial_metrics": "requested_unavailable",
+            "financial_metrics_count": 0,
+        }
         assert result["summary"]["scan_limit"] == 25
 
     def test_screen_stocks_surfaces_data_quality_warnings(self, monkeypatch):
@@ -2297,7 +2306,13 @@ class TestSymbolPool:
                 True,
                 [],
                 {},
-                {"metrics": {"total_symbols": 1200, "pool_limit": kwargs.get("pool_limit_count", 0)}, "triggers": {}},
+                {
+                    "metrics": {
+                        "total_symbols": 1200,
+                        "pool_limit": kwargs.get("pool_limit_count", 0),
+                    },
+                    "triggers": {},
+                },
             )
 
         fake_pipeline.run = fake_run_funnel
@@ -2307,7 +2322,15 @@ class TestSymbolPool:
         result = screen_tools.screen_stocks(tool_context=ToolContext())
 
         assert captured_kwargs["pool_limit_count"] == 1200
-        assert result["scan_scope"] == {"scope": "bounded", "board": "all", "limit": 1200, "total_scanned": 1200}
+        assert captured_kwargs["include_financial_metrics"] is False
+        assert result["scan_scope"] == {
+            "scope": "bounded",
+            "board": "all",
+            "limit": 1200,
+            "total_scanned": 1200,
+            "financial_metrics": "skipped_quick_scan",
+            "financial_metrics_count": 0,
+        }
 
     def test_screen_stocks_allows_explicit_full_scan_in_chat_context(self, monkeypatch):
         from agents import screen_tools
@@ -2327,7 +2350,48 @@ class TestSymbolPool:
         result = screen_tools.screen_stocks(limit=0, tool_context=ToolContext())
 
         assert captured_kwargs["pool_limit_count"] == 0
-        assert result["scan_scope"] == {"scope": "full", "board": "all", "limit": 0, "total_scanned": 5000}
+        assert captured_kwargs["include_financial_metrics"] is True
+        assert result["scan_scope"] == {
+            "scope": "full",
+            "board": "all",
+            "limit": 0,
+            "total_scanned": 5000,
+            "financial_metrics": "requested_unavailable",
+            "financial_metrics_count": 0,
+        }
+
+    def test_screen_stocks_allows_explicit_financial_metrics_in_chat_context(self, monkeypatch):
+        from agents import screen_tools
+        from agents.tool_context import ToolContext
+
+        captured_kwargs = {}
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return (
+                True,
+                [],
+                {},
+                {
+                    "metrics": {
+                        "total_symbols": 1200,
+                        "pool_limit": kwargs.get("pool_limit_count", 0),
+                        "financial_metrics_count": 1180,
+                    },
+                    "triggers": {},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(financial_metrics=True, tool_context=ToolContext())
+
+        assert captured_kwargs["include_financial_metrics"] is True
+        assert result["scan_scope"]["financial_metrics"] == "available"
+        assert result["scan_scope"]["financial_metrics_count"] == 1180
 
     def test_screen_stocks_rejects_invalid_scan_limit(self, monkeypatch):
         from agents import screen_tools

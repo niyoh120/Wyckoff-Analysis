@@ -119,6 +119,7 @@ def prepare_funnel_job_data(
     pool_board: str | None = None,
     pool_limit_count: int | None = None,
     executor_mode: str | None = None,
+    include_financial_metrics: bool = True,
 ) -> FunnelJobData:
     cfg = FunnelConfig(trading_days=TRADING_DAYS)
     apply_funnel_cfg_overrides(cfg)
@@ -129,7 +130,7 @@ def prepare_funnel_job_data(
     start_s = window.start_trade_date.strftime("%Y%m%d")
     end_s = window.end_trade_date.strftime("%Y%m%d")
     pool = _resolve_funnel_symbol_pool(pool_board, pool_limit_count=pool_limit_count)
-    ref_data = _load_reference_data(pool.symbols, window, cfg)
+    ref_data = _load_reference_data(pool.symbols, window, cfg, include_financial_metrics=include_financial_metrics)
     bench_df, smallcap_df = _load_benchmark_indices(start_s, end_s)
     all_df_map, fetch_stats = fetch_all_ohlcv(
         symbols=pool.symbols,
@@ -366,6 +367,12 @@ def _load_financial_metrics(all_symbols: list[str]) -> dict[str, dict]:
         return {}
 
 
+def _skipped_financial_metrics(reason: str) -> dict[str, dict]:
+    print(f"[funnel] TickFlow 财务指标跳过: {reason}")
+    _report_progress("财务指标", reason, 0.20)
+    return {}
+
+
 def _load_stock_names() -> dict[str, str]:
     _report_progress("股票名称", "加载代码名称映射", 0.25)
     print("[funnel] 加载股票名称...")
@@ -379,7 +386,13 @@ def _load_stock_names() -> dict[str, str]:
         return {}
 
 
-def _load_reference_data(all_symbols: list[str], window, cfg: FunnelConfig) -> FunnelReferenceData:
+def _load_reference_data(
+    all_symbols: list[str],
+    window,
+    cfg: FunnelConfig,
+    *,
+    include_financial_metrics: bool = True,
+) -> FunnelReferenceData:
     (
         sector_map,
         concept_map,
@@ -399,7 +412,11 @@ def _load_reference_data(all_symbols: list[str], window, cfg: FunnelConfig) -> F
         concept_heat_history=concept_history,
         hot_concepts=hot_concepts,
         market_cap_map=market_cap_map,
-        financial_map=_load_financial_metrics(all_symbols),
+        financial_map=(
+            _load_financial_metrics(all_symbols)
+            if include_financial_metrics
+            else _skipped_financial_metrics("聊天快扫已跳过")
+        ),
         name_map=_load_stock_names(),
     )
 
