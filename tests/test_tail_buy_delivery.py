@@ -40,12 +40,15 @@ def test_resolve_market_reminder_prefers_trade_date_row(monkeypatch) -> None:
 
 def test_tail_buy_persist_row_serializes_reasons_and_features() -> None:
     started_at = datetime(2026, 6, 22, 14, 0, tzinfo=TZ)
+    candidate = _candidate()
+    candidate.features["daily_trap_reason"] = "日线放量上影(2.6x)"
 
-    row = delivery.tail_buy_persist_row(_candidate(), started_at)
+    row = delivery.tail_buy_persist_row(candidate, started_at)
 
     assert row["initial_price"] == 12.34
     assert json.loads(row["rule_reasons"]) == ["站稳VWAP", "尾盘放量"]
     assert json.loads(row["features_json"])["vwap"] == 12.1
+    assert json.loads(row["features_json"])["daily_trap_reason"] == "日线放量上影(2.6x)"
 
 
 def test_send_tail_buy_notifications_falls_back_from_rich_card(monkeypatch) -> None:

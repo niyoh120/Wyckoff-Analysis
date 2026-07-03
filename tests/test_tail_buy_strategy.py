@@ -907,6 +907,36 @@ def test_build_tail_buy_markdown_supports_custom_candidate_source():
     assert "signal_pending + recommendation_tracking (2026-04-22)" in md
 
 
+def test_build_tail_buy_markdown_keeps_daily_trap_reason_visible():
+    c = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=6.0,
+        rule_score=68.0,
+        rule_decision=DECISION_WATCH,
+        final_decision=DECISION_WATCH,
+        priority_score=71.0,
+        rule_reasons=["尾盘站上VWAP", "尾段量能结构健康", "日线放量上影(2.6x)"],
+        features={"daily_trap_reason": "日线放量上影(2.6x)"},
+    )
+
+    md = build_tail_buy_markdown(
+        now_text="2026-04-23 14:10:00",
+        target_signal_date="2026-04-22",
+        market_reminder="NORMAL/NORMAL",
+        candidates=[c],
+        llm_total=1,
+        llm_success=1,
+        elapsed_seconds=10.0,
+    )
+
+    assert "日线放量上影(2.6x)" in md
+    assert "尾盘站上VWAP；尾段量能结构健康；日线放量上影(2.6x)" in md
+
+
 def test_build_tail_buy_markdown_post_close_review_labels_next_day_plan():
     c = TailBuyCandidate(
         code="301090",

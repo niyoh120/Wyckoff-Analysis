@@ -51,7 +51,7 @@ def _header_lines(
 
 
 def _item_line(item: TailBuyCandidate) -> str:
-    reasons = "；".join(item.rule_reasons[:2]) if item.rule_reasons else "规则信号一般"
+    reasons = _item_reason_text(item)
     llm_tag = f" | AI:{item.llm_decision}" if item.llm_decision else ""
     llm_reason = f" | {item.llm_reason}" if item.llm_reason else ""
     add_tag = "[加仓] " if item.signal_type == "holding" else ""
@@ -59,6 +59,14 @@ def _item_line(item: TailBuyCandidate) -> str:
         f"- {add_tag}{item.code} {item.name} | priority={item.priority_score:.1f} | "
         f"rule={item.rule_decision}({item.rule_score:.1f}){llm_tag} | {reasons}{llm_reason}"
     )
+
+
+def _item_reason_text(item: TailBuyCandidate) -> str:
+    reasons = list(item.rule_reasons[:2]) if item.rule_reasons else []
+    trap_reason = str(item.features.get("daily_trap_reason") or "").strip()
+    if trap_reason and all(trap_reason not in reason for reason in reasons):
+        reasons.append(trap_reason)
+    return "；".join(reasons) if reasons else "规则信号一般"
 
 
 def _decision_block(
