@@ -950,8 +950,10 @@ def test_workflow_handoff_state_compacts_candidate_context():
                         "code": "300750",
                         "name": "宁德时代",
                         "tag": "推荐评估候选",
+                        "profile": "趋势线 / 主升阶段 / 触发:SOS+EVR",
                         "track": "Trend",
                         "stage": "Markup",
+                        "triggers": ["sos", "evr", "spring", "lps", "compression", "extra"],
                         "candidate_lane": "mainline",
                         "entry_type": "launchpad",
                         "strategic_theme": "机器人",
@@ -1107,6 +1109,8 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert screen["quality_gate"]["status"] == "blocked_by_quality_gate"
     candidate = screen["symbols_for_report"][0]
     assert candidate["code"] == "300750"
+    assert candidate["profile"] == "趋势线 / 主升阶段 / 触发:SOS+EVR"
+    assert candidate["triggers"] == ["sos", "evr", "spring", "lps", "compression"]
     assert candidate["style_match"] is True
     assert candidate["style_match_reasons"] == ["趋势偏好: 趋势线", "趋势偏好: 主升阶段"]
     assert candidate["theme_match"] is True
@@ -2727,6 +2731,27 @@ def test_workflow_candidate_conclusion_prefers_higher_quality_within_same_status
     assert conclusion["code"] == "000012"
     assert "候选结论: 首选 000012 高分候选" in conclusion["line"]
     assert conclusion["evidence"] == ["候选影子91"]
+
+
+def test_workflow_candidate_conclusion_preserves_trigger_evidence():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "report_candidates": [
+                    {
+                        "code": "000012",
+                        "name": "高分候选",
+                        "action_status": "ready_for_ai_review",
+                        "candidate_shadow_score": 91.0,
+                        "triggers": ["sos", "evr", "trend_pullback"],
+                    }
+                ]
+            }
+        }
+    )
+
+    assert conclusion["evidence"] == ["候选影子91", "触发=SOS+EVR+TrendPB"]
+    assert "证据=候选影子91,触发=SOS+EVR+TrendPB" in conclusion["line"]
 
 
 def test_workflow_candidate_conclusion_preserves_entry_risk_flags():

@@ -43,6 +43,7 @@ from cli.workflows.planner import (
 )
 from cli.workflows.store import append_workflow_event, persist_workflow_script, save_workflow_run
 from core.candidate_guards import candidate_guard_reason
+from core.candidate_ranker import TRIGGER_SHORT_LABELS
 from utils.tool_result_preview import tool_result_brief_lines
 
 _AGENTS: dict[str, SubAgent] = {
@@ -97,8 +98,10 @@ _CANDIDATE_HANDOFF_FIELDS = (
     "tag",
     "tier",
     "quality",
+    "profile",
     "why",
     "evidence",
+    "triggers",
     "selection_source",
     "source_type",
     "track",
@@ -1227,6 +1230,7 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
     if "code" not in payload and (code := _candidate_code(row)):
         payload["code"] = code
     for field in (
+        "profile",
         "theme_event_title",
         "theme_event_reason",
         "tape_condition",
@@ -1238,7 +1242,15 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
     ):
         if field in payload:
             payload[field] = _clip_text(payload[field], 240)
+    if "triggers" in payload:
+        payload["triggers"] = _compact_candidate_triggers(payload["triggers"])
     return _drop_empty(payload)
+
+
+def _compact_candidate_triggers(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [_clip_text(item, 80) for item in (str(item).strip() for item in value[:5]) if item]
 
 
 def _scalar_candidate(value: Any) -> dict[str, Any]:
@@ -1713,8 +1725,14 @@ def _fallback_evidence_items(row: dict[str, Any]) -> list[str]:
         _score_part("诊断分", row.get("candidate_score")),
         _score_part("优先分", row.get("priority_score")),
         _theme_evidence_part(row),
+        _trigger_evidence_part(row),
     ]
     return [part for part in evidence if part]
+
+
+def _trigger_evidence_part(row: dict[str, Any]) -> str:
+    labels = [TRIGGER_SHORT_LABELS.get(str(item), str(item)) for item in _as_list(row.get("triggers"))[:4] if str(item)]
+    return f"触发={'+'.join(labels)}" if labels else ""
 
 
 def _fallback_quality_part(row: dict[str, Any]) -> str:
