@@ -742,6 +742,7 @@ def test_workflow_step_context_derives_tool_args_from_handoff_next_tool():
     args_block = context.split("tool args hint:\n", 1)[1].split("\n\n", 1)[0]
     assert json.loads(args_block) == {
         "tool": "analyze_stock",
+        "call_each": True,
         "targets": [
             {"args": {"code": "002326", "mode": "diagnose"}},
             {"args": {"code": "000566", "mode": "diagnose"}},

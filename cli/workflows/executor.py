@@ -658,7 +658,7 @@ def _handoff_tool_args_hint_text(tool_name: str, targets: list[dict[str, Any]]) 
         return ""
     if len(targets) == 1:
         return json.dumps({"tool": tool_name, "args": targets[0]["args"]}, ensure_ascii=False)
-    return json.dumps({"tool": tool_name, "targets": targets[:6]}, ensure_ascii=False)
+    return json.dumps({"tool": tool_name, "call_each": True, "targets": targets[:6]}, ensure_ascii=False)
 
 
 def _handoff_tool_payloads(handoff: Any) -> list[dict[str, Any]]:
