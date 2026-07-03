@@ -814,10 +814,13 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     lines: list[str] = []
     selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
     headline = _text_excerpt(selection.get("headline"), 120)
+    scope_line = _screen_scope_brief_line(result.get("scan_scope"))
     conclusion = _candidate_conclusion_preview("last_screen_result", result)
     conclusion_line = _text_excerpt(conclusion.get("line"), 280)
     guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
     reserved = int(bool(conclusion_line)) + int(bool(guard_line))
+    if scope_line and len(lines) < max_lines:
+        lines.append(scope_line)
     if headline and len(lines) < max(max_lines - reserved, 0):
         lines.append(headline)
     if theme_line := _screen_theme_context_line(result.get("theme_context")):
@@ -835,6 +838,25 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
         if len(lines) >= max_lines:
             break
     return lines[:max_lines]
+
+
+def _screen_scope_brief_line(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    board = str(value.get("board") or "all").strip()
+    total = _safe_int_text(value.get("total_scanned"))
+    limit = _safe_int_text(value.get("limit"))
+    if str(value.get("scope") or "").strip() == "bounded" or (limit and limit != "0"):
+        suffix = f"前{limit}只" if limit else "有界扫描"
+        return f"快扫: {board} {suffix}，实际扫描{total or '-'}只"
+    return f"全量: {board} 扫描{total or '-'}只"
+
+
+def _safe_int_text(value: Any) -> str:
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        return ""
 
 
 def _candidate_matches_conclusion(row: dict[str, Any], conclusion: dict[str, Any]) -> bool:

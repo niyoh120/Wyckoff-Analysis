@@ -213,6 +213,28 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
     ]
 
 
+def test_screen_stocks_brief_lines_surface_bounded_scan_scope():
+    result = {
+        "scan_scope": {"scope": "bounded", "board": "all", "limit": 1200, "total_scanned": 1200},
+        "selection_brief": {"headline": "本轮只有观察候选: 002326 永太科技"},
+    }
+
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert lines[:2] == ["快扫: all 前1200只，实际扫描1200只", "本轮只有观察候选: 002326 永太科技"]
+
+
+def test_screen_stocks_brief_lines_surface_full_scan_scope():
+    result = {
+        "scan_scope": {"scope": "full", "board": "main_chinext_star", "limit": 0, "total_scanned": 5002},
+        "selection_brief": {"headline": "本轮只有观察候选: 002326 永太科技"},
+    }
+
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert lines[:2] == ["全量: main_chinext_star 扫描5002只", "本轮只有观察候选: 002326 永太科技"]
+
+
 def test_screen_stocks_preview_merges_entry_risk_flags_into_visible_risks():
     result = {
         "selection_brief": {
