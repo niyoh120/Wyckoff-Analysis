@@ -1465,7 +1465,12 @@ def _ensure_candidate_delivery(text: str, results: list[dict[str, Any]]) -> str:
     conclusions = _candidate_conclusions_from_results(results)
     if not conclusions or _text_covers_candidate_conclusions(text, conclusions):
         return text
-    lines = [str(item.get("line") or "") for item in conclusions if item.get("line")]
+    lowered = text.lower()
+    lines = [
+        str(item.get("line") or "")
+        for item in conclusions
+        if item.get("line") and not _text_covers_candidate_conclusion(lowered, item)
+    ]
     if not lines:
         return text
     candidate_text = "\n".join(lines)
@@ -1476,11 +1481,14 @@ def _text_covers_candidate_conclusions(text: str, conclusions: list[dict[str, An
     if not text.strip():
         return False
     lowered = text.lower()
-    return all(
-        _text_mentions_candidate_identity(lowered, item)
-        and _text_covers_candidate_action(lowered, item)
-        and _text_covers_candidate_support(lowered, item)
-        for item in conclusions
+    return all(_text_covers_candidate_conclusion(lowered, item) for item in conclusions)
+
+
+def _text_covers_candidate_conclusion(lowered_text: str, item: dict[str, Any]) -> bool:
+    return (
+        _text_mentions_candidate_identity(lowered_text, item)
+        and _text_covers_candidate_action(lowered_text, item)
+        and _text_covers_candidate_support(lowered_text, item)
     )
 
 

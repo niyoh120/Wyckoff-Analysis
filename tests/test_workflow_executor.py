@@ -2621,6 +2621,42 @@ def test_workflow_candidate_delivery_backfills_missing_evidence():
     assert _ensure_candidate_delivery(complete_text, results) == complete_text
 
 
+def test_workflow_candidate_delivery_backfills_only_missing_candidates():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "report_candidates": [
+                            {
+                                "code": "000014",
+                                "name": "高质量候选",
+                                "action_status": "ready_for_ai_review",
+                                "candidate_shadow_score": 92.0,
+                            },
+                            {
+                                "code": "000015",
+                                "name": "次优候选",
+                                "action_status": "ready_for_ai_review",
+                                "candidate_shadow_score": 88.0,
+                            },
+                        ]
+                    }
+                }
+            },
+        }
+    ]
+    text = "000014 高质量候选，证据是候选影子92。"
+
+    final_text = _ensure_candidate_delivery(text, results)
+    prepended = final_text.split("\n\n", 1)[0]
+
+    assert prepended.startswith("候选结论: 备选复核候选 000015 次优候选")
+    assert "候选结论: 首选 000014 高质量候选" not in prepended
+    assert final_text.endswith(text)
+
+
 def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, monkeypatch):
     from integrations import local_db
 
