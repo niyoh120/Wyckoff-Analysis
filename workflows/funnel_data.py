@@ -132,17 +132,12 @@ def prepare_funnel_job_data(
     pool = _resolve_funnel_symbol_pool(pool_board, pool_limit_count=pool_limit_count)
     ref_data = _load_reference_data(pool.symbols, window, cfg, include_financial_metrics=include_financial_metrics)
     bench_df, smallcap_df = _load_benchmark_indices(start_s, end_s)
-    all_df_map, fetch_stats = fetch_all_ohlcv(
-        symbols=pool.symbols,
-        window=window,
+    all_df_map, fetch_stats = _fetch_funnel_ohlcv(
+        pool,
+        window,
         enforce_target_trade_date=enforce_target_trade_date,
-        batch_size=BATCH_SIZE,
-        max_workers=MAX_WORKERS,
-        batch_timeout=BATCH_TIMEOUT,
-        batch_sleep=BATCH_SLEEP,
-        executor_mode=_resolve_executor_mode(executor_mode),
         direct_source=direct_source,
-        runtime_config=fetch_runtime_config_from_env(),
+        executor_mode=executor_mode,
     )
     snapshot_dir = dump_full_fetch_snapshot(
         enabled=FUNNEL_EXPORT_FULL_FETCH,
@@ -173,6 +168,41 @@ def prepare_funnel_job_data(
         etf_candidates=etf[4],
         benchmark_context=benchmark_context,
     )
+
+
+def _fetch_funnel_ohlcv(
+    pool: FunnelSymbolPool,
+    window,
+    *,
+    enforce_target_trade_date: bool,
+    direct_source: bool,
+    executor_mode: str | None,
+) -> tuple[dict[str, pd.DataFrame], dict]:
+    _report_progress("日线拉取", f"共{len(pool.symbols)}只/{pool.total_batches}批", 0.40)
+    all_df_map, fetch_stats = fetch_all_ohlcv(
+        symbols=pool.symbols,
+        window=window,
+        enforce_target_trade_date=enforce_target_trade_date,
+        batch_size=BATCH_SIZE,
+        max_workers=MAX_WORKERS,
+        batch_timeout=BATCH_TIMEOUT,
+        batch_sleep=BATCH_SLEEP,
+        executor_mode=_resolve_executor_mode(executor_mode),
+        direct_source=direct_source,
+        runtime_config=fetch_runtime_config_from_env(),
+    )
+    _report_progress("日线拉取", _fetch_progress_summary(fetch_stats, all_df_map), 0.75)
+    return all_df_map, fetch_stats
+
+
+def _fetch_progress_summary(fetch_stats: dict, all_df_map: dict[str, pd.DataFrame]) -> str:
+    ok = int(fetch_stats.get("fetch_ok", len(all_df_map)) or 0)
+    fail = int(fetch_stats.get("fetch_fail", 0) or 0)
+    mismatch = int(fetch_stats.get("fetch_date_mismatch", 0) or 0)
+    parts = [f"成功={ok}", f"失败={fail}"]
+    if mismatch:
+        parts.append(f"日期不匹配={mismatch}")
+    return "，".join(parts)
 
 
 def _resolve_funnel_end_calendar_day() -> date:

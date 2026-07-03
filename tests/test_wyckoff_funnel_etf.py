@@ -172,6 +172,56 @@ def test_load_reference_data_can_skip_financial_metrics_for_quick_scan(monkeypat
     assert ("财务指标", "聊天快扫已跳过", 0.20) in events
 
 
+def test_fetch_funnel_ohlcv_reports_overall_progress(monkeypatch):
+    from utils.progress import set_reporter
+
+    events: list[tuple[str, str, float]] = []
+    df_map = {"000001": _frame(0.1, 100.0)}
+    captured: dict[str, object] = {}
+    pool = funnel_data.FunnelSymbolPool(
+        symbols=["000001"],
+        pool_name_map={"000001": "Alpha"},
+        stats={},
+        external_seed_cfg=SimpleNamespace(enabled=False, source="", symbols=[]),
+        external_added_to_pool=0,
+        main_count=1,
+        chinext_count=0,
+        star_count=0,
+        bse_count=0,
+        merged_count=1,
+        st_excluded_count=0,
+        total_batches=1,
+    )
+
+    def fake_fetch_all_ohlcv(**kwargs):
+        captured.update(kwargs)
+        return df_map, {"fetch_ok": 1, "fetch_fail": 0}
+
+    monkeypatch.setattr(funnel_data, "fetch_all_ohlcv", fake_fetch_all_ohlcv)
+    set_reporter(lambda stage, detail, progress: events.append((stage, detail, progress)))
+    try:
+        out, stats = funnel_data._fetch_funnel_ohlcv(
+            pool,
+            SimpleNamespace(start_trade_date=date(2026, 4, 1), end_trade_date=date(2026, 5, 22)),
+            enforce_target_trade_date=True,
+            direct_source=True,
+            executor_mode="thread",
+        )
+    finally:
+        set_reporter(None)
+
+    assert out == df_map
+    assert stats == {"fetch_ok": 1, "fetch_fail": 0}
+    assert captured["symbols"] == ["000001"]
+    assert captured["enforce_target_trade_date"] is True
+    assert captured["direct_source"] is True
+    assert captured["executor_mode"] == "thread"
+    assert events == [
+        ("日线拉取", "共1只/1批", 0.40),
+        ("日线拉取", "成功=1，失败=0", 0.75),
+    ]
+
+
 def test_load_stock_names_reports_progress(monkeypatch):
     from utils.progress import set_reporter
 
