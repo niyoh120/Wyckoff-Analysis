@@ -796,6 +796,8 @@ def _resolve_step_dependency(dep: str, aliases: dict[str, str], steps: list[Work
         return aliases[dep]
     if dep in _PREVIOUS_DEPENDENCY_ALIASES:
         return _previous_step_dependency(steps, index)
+    if tool_name := _tool_name(dep):
+        return _tool_step_dependency(steps, index, tool_name)
     return dep
 
 
@@ -803,6 +805,11 @@ def _previous_step_dependency(steps: list[WorkflowStep], index: int) -> str:
     if index <= 0:
         return ""
     return steps[index - 1].step_id
+
+
+def _tool_step_dependency(steps: list[WorkflowStep], index: int, tool_name: str) -> str:
+    step = steps[index]
+    return _nearest_tool_step_id(step, steps, tool_name)
 
 
 def _stabilize_tool_dependencies(steps: list[WorkflowStep]) -> list[WorkflowStep]:
