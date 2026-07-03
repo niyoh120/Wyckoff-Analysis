@@ -667,6 +667,20 @@ def test_workflow_planner_stock_fallback_passes_theme_args():
     assert "fallback_kind" not in concept.script["runtime"]
 
 
+def test_workflow_planner_stock_fallback_passes_theme_strength_args():
+    run = plan_workflow(
+        "今天机器人龙头有哪些，给下一步",
+        context=WORKFLOWS["dynamic_task"],
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].args_hint == "style: trend；theme: 机器人"
+    assert run.script["phases"][0]["tasks"][0]["args"] == {
+        "style": "trend",
+        "theme": "机器人",
+    }
+
+
 def test_workflow_planner_stock_fallback_handles_etf_screening_wording():
     run = plan_workflow(
         "今天帮我筛ETF机会，给下一步",

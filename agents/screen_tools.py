@@ -233,7 +233,22 @@ def _preferred_ranked_candidates(
 
 
 _STYLE_ALIASES = {
-    "trend": ("trend", "strong", "right", "趋势", "强势", "右侧", "突破", "主升"),
+    "trend": (
+        "trend",
+        "strong",
+        "right",
+        "趋势",
+        "强势",
+        "右侧",
+        "突破",
+        "主升",
+        "最强",
+        "领涨",
+        "龙头",
+        "强度",
+        "短线",
+        "起爆",
+    ),
     "pullback": ("pullback", "accum", "left", "低吸", "吸筹", "左侧", "回踩", "埋伏"),
     "quality": ("quality", "stable", "balanced", "稳健", "高质量", "质量", "安全"),
 }

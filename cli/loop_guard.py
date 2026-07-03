@@ -182,6 +182,12 @@ _THEME_SCREEN_INTENT_HINTS = (
     "低吸",
     "主线",
     "标的",
+    "最强",
+    "领涨",
+    "龙头",
+    "强度",
+    "短线",
+    "起爆",
 )
 
 _STOCK_SCREEN_INTENT_HINTS = (

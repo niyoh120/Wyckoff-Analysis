@@ -940,6 +940,20 @@ def test_dispatch_falls_back_to_workflow_for_colloquial_style_stock_selection_wh
     assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
 
 
+def test_dispatch_falls_back_to_workflow_for_theme_strength_stock_selection_when_router_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="今天机器人龙头有哪些，给下一步",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），核心选股请求兜底进入动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
+
+
 def test_dispatch_falls_back_to_workflow_for_portfolio_review_when_model_router_is_unavailable():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
@@ -1067,6 +1081,20 @@ def test_dispatch_keeps_style_concept_question_direct_when_model_router_is_unava
         StubToolRegistry(),
         session_id="s1",
         user_text="强势票是什么意思？",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
+    assert workflow.route_matches == ("model_router_fallback",)
+
+
+def test_dispatch_keeps_theme_concept_question_direct_when_model_router_is_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="机器人龙头是什么？",
     )
 
     assert workflow.name == "general_chat"

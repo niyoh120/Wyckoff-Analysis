@@ -683,6 +683,25 @@ def test_stock_screen_args_infer_theme_preference():
     }
 
 
+def test_turn_expectation_infers_theme_strength_wording():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "今天机器人龙头有哪些"}])
+    concept_question = resolve_turn_expectation([{"role": "user", "content": "机器人龙头是什么"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "screen_stocks"
+    assert expectation.suggested_args == {"board": "all", "style": "trend", "theme": "机器人"}
+    assert expectation.required_args == {"style": "trend", "theme": "机器人"}
+    assert concept_question is None
+
+
+def test_stock_screen_args_infer_strength_wording_as_trend_preference():
+    assert stock_screen_suggested_args("今天机器人短线最强机会有哪些") == {
+        "board": "all",
+        "style": "trend",
+        "theme": "机器人",
+    }
+
+
 def test_turn_expectation_does_not_screen_past_recommendation_review():
     expectation = resolve_turn_expectation([{"role": "user", "content": "过去推荐的表现怎么样"}])
 

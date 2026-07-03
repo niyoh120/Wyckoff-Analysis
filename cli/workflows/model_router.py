@@ -8,6 +8,7 @@ import re
 from dataclasses import replace
 from typing import Any
 
+from cli.screen_intent import stock_screen_theme_hint
 from cli.workflows._shared import (
     PORTFOLIO_REVIEW_CONTEXT_MARKERS,
     PORTFOLIO_REVIEW_STRONG_MARKERS,
@@ -79,10 +80,18 @@ _STOCK_SELECTION_DELIVERY_MARKERS = (
     "失效位",
     "下一步",
 )
+_THEME_SELECTION_DELIVERY_MARKERS = (
+    *_STOCK_SELECTION_SCOPE_MARKERS,
+    *_STOCK_SELECTION_STYLE_MARKERS,
+    *_STOCK_SELECTION_DELIVERY_MARKERS,
+    "哪些",
+    "有哪些",
+    "有什么",
+)
 _SHORT_STOCK_SELECTION_RE = re.compile(
     r"(?:选出|挑出|筛出|找(?:几只|几个)?|给我找|帮我找).{0,10}(?:好股票|好票|好标的|值得复核的票|值得跟踪的票)"
 )
-_STOCK_SELECTION_METHOD_MARKERS = ("怎么", "如何", "方法", "是什么意思", "啥意思", "概念", "解释")
+_STOCK_SELECTION_METHOD_MARKERS = ("怎么", "如何", "方法", "是什么", "什么是", "是什么意思", "啥意思", "概念", "解释")
 _PORTFOLIO_REVIEW_SUBJECT_MARKERS = PORTFOLIO_REVIEW_SUBJECT_MARKERS
 _PORTFOLIO_REVIEW_STRONG_MARKERS = PORTFOLIO_REVIEW_STRONG_MARKERS
 _PORTFOLIO_REVIEW_CONTEXT_MARKERS = PORTFOLIO_REVIEW_CONTEXT_MARKERS
@@ -284,6 +293,8 @@ def _needs_stock_selection_workflow_fallback(user_text: str) -> bool:
     text = _compact_user_text(user_text)
     if not text or any(marker in text for marker in _STOCK_SELECTION_METHOD_MARKERS):
         return False
+    if _has_theme_stock_selection_target(text):
+        return True
     if _SHORT_STOCK_SELECTION_RE.search(text):
         return True
     has_scope = any(marker in text for marker in _STOCK_SELECTION_SCOPE_MARKERS) or _has_stock_style_target(text)
@@ -294,6 +305,10 @@ def _needs_stock_selection_workflow_fallback(user_text: str) -> bool:
 
 def _has_stock_style_target(text: str) -> bool:
     return has_stock_style_target(text)
+
+
+def _has_theme_stock_selection_target(text: str) -> bool:
+    return bool(stock_screen_theme_hint(text)) and any(marker in text for marker in _THEME_SELECTION_DELIVERY_MARKERS)
 
 
 def _portfolio_review_fallback_context(user_text: str, fallback_reason: str) -> WorkflowContext | None:

@@ -28,7 +28,7 @@ PORTFOLIO_REVIEW_ACTION_MARKERS = (
 PORTFOLIO_REVIEW_EXPLAIN_MARKERS = ("是什么意思", "啥意思", "概念", "解释")
 PORTFOLIO_REVIEW_PERSONAL_MARKERS = ("我", "当前", "今天", "明天")
 
-STOCK_STYLE_MARKERS = ("强势", "趋势", "低吸", "右侧", "左侧", "稳健")
+STOCK_STYLE_MARKERS = ("强势", "趋势", "低吸", "右侧", "左侧", "稳健", "最强", "领涨", "龙头", "短线", "起爆")
 STOCK_STYLE_TARGETS = ("票", "标的", "候选")
 
 # ── Text helpers ──
