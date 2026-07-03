@@ -3480,13 +3480,12 @@ class WyckoffTUI(App):
             # 恢复该会话历史
             self._resume_session(session_id)
             log = self.query_one("#chat-log", ChatLog)
-            log.write(Text(""))
             log.write(
                 Text.from_markup(
                     f"[yellow]⚠ 检测到会话 [bold]#{session_id}[/bold] 上次执行中途异常中断（可能由于网络超时或崩溃）。[/yellow]"
                 )
             )
-            log.write(Text.from_markup(f'[yellow]正在自动恢复会话并重新提交任务: [bold]"{query}"[/bold][/yellow]\n'))
+            log.write(Text.from_markup(f'[yellow]正在自动恢复会话并重新提交任务: [bold]"{query}"[/bold][/yellow]'))
             # 自动发送消息重新执行
             self._send_message(query)
         except Exception:
@@ -3511,7 +3510,7 @@ class WyckoffTUI(App):
 
     def _fire_schedule(self, sched) -> None:
         log = self.query_one("#chat-log", ChatLog)
-        log.write(Text.from_markup(f"\n[bold yellow]⏰ 定时触发：{sched.name}[/bold yellow]"))
+        log.write(Text.from_markup(f"[bold yellow]⏰ 定时触发：{sched.name}[/bold yellow]"))
         if sched.notify:
             self._desktop_notify(f"Wyckoff: {sched.name}")
         action = sched.action.strip()
@@ -4230,11 +4229,11 @@ class WyckoffTUI(App):
         self._update_status()
         log.clear()
 
-        log.write(Text.from_markup(f"[green]已恢复会话[/green] [dim]{session_id} · {len(rows)} 条记录[/dim]\n"))
+        log.write(Text.from_markup(f"[green]已恢复会话[/green] [dim]{session_id} · {len(rows)} 条记录[/dim]"))
         log.write(
             Text.from_markup(
                 f"[dim]模型上下文: {resumed.mode} · {resumed.model_messages} 条 · "
-                f"约 {resumed.estimated_tokens:,} tokens[/dim]\n"
+                f"约 {resumed.estimated_tokens:,} tokens[/dim]"
             )
         )
 
@@ -4262,7 +4261,7 @@ class WyckoffTUI(App):
                 if content:
                     log.write(Markdown(content))
 
-        log.write(Text.from_markup("\n[dim]───── 历史消息结束，继续对话 ─────[/dim]\n"))
+        log.write(Text.from_markup("[dim]───── 历史消息结束，继续对话 ─────[/dim]"))
         log.scroll_end(animate=False)
         self._update_status()
 
@@ -4275,7 +4274,7 @@ class WyckoffTUI(App):
         self._session_id = uuid.uuid4().hex[:12]
         log = self.query_one("#chat-log", ChatLog)
         log.clear()
-        log.write(Text.from_markup("[green]新对话已开始[/green]\n"))
+        log.write(Text.from_markup("[green]新对话已开始[/green]"))
         self._update_status()
 
 

@@ -57,6 +57,9 @@ class _FakeLog:
         else:
             self.lines.append(renderable)
 
+    def clear(self) -> None:
+        self.lines.clear()
+
     def refresh(self, *, layout: bool = False) -> None:
         self.refreshed = True
         self.layout_refreshed = self.layout_refreshed or layout
@@ -964,6 +967,63 @@ def test_send_system_notification_does_not_insert_blank_log_line():
     assert len(log.lines) == 2
     assert "后台结果已回传给 agent" in str(log.lines[-1])
     assert app._messages == [{"role": "user", "content": "workflow done", "_system_notification": True}]
+
+
+def test_auto_resume_notice_does_not_insert_blank_log_line():
+    app = object.__new__(WyckoffTUI)
+    log = _FakeLog()
+    resumed = []
+    sent = []
+    app._find_interrupted_scratchpad = lambda: ("sess123", "帮我找机器人机会")
+    app._resume_session = lambda session_id: resumed.append(session_id)
+    app.query_one = lambda *_args, **_kwargs: log
+    app._send_message = lambda text: sent.append(text)
+
+    WyckoffTUI._check_auto_resume(app)
+
+    rendered = [str(item) for item in log.lines[1:]]
+    assert resumed == ["sess123"]
+    assert sent == ["帮我找机器人机会"]
+    assert len(rendered) == 2
+    assert all(line.strip() for line in rendered)
+    assert all(not line.startswith("\n") and not line.endswith("\n") for line in rendered)
+
+
+def test_new_chat_notice_does_not_insert_blank_log_line():
+    app = object.__new__(WyckoffTUI)
+    log = _FakeLog()
+    app._save_memory_async = lambda: None
+    app._messages = [{"role": "user", "content": "旧会话"}]
+    app._queue = deque(["queued"])
+    app._session_tokens = {"input": 1, "output": 2, "rounds": 1}
+    app._update_status = lambda: None
+    app.query_one = lambda *_args, **_kwargs: log
+
+    WyckoffTUI.action_new_chat(app)
+
+    assert [str(item) for item in log.lines] == ["新对话已开始"]
+    assert app._messages == []
+    assert list(app._queue) == []
+
+
+def test_schedule_trigger_notice_does_not_insert_blank_log_line():
+    app = object.__new__(WyckoffTUI)
+    log = _FakeLog()
+    sent = []
+    app._busy = False
+    app._queue = deque()
+    app.query_one = lambda *_args, **_kwargs: log
+    app._send_message = lambda text: sent.append(text)
+    app._handle_command = lambda _action: None
+    app._desktop_notify = lambda _message: None
+    schedule = SimpleNamespace(name="盘前风控", notify=False, action="帮我看看大盘")
+
+    WyckoffTUI._fire_schedule(app, schedule)
+
+    rendered = str(log.lines[-1])
+    assert sent == ["帮我看看大盘"]
+    assert rendered == "⏰ 定时触发：盘前风控"
+    assert not rendered.startswith("\n") and not rendered.endswith("\n")
 
 
 def test_pending_user_question_lines_render_inline_chat_prompt():
