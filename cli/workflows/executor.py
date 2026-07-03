@@ -1598,6 +1598,10 @@ def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "") -> s
     status = str(row.get("action_status") or "").strip()
     if status == "ready_for_ai_review":
         return "受限复核候选" if guard_reason else "首选"
+    if status == "repair_review_only":
+        return "修复复核候选"
+    if status == "confirmation_required":
+        return "待确认候选"
     if status == "watch_only":
         return "观察候选"
     if status.startswith("blocked_"):

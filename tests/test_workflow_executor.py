@@ -2777,6 +2777,42 @@ def test_workflow_candidate_conclusion_uses_profile_as_quality_context():
     assert "亮点=趋势线,主升阶段" in conclusion["line"]
 
 
+def test_workflow_candidate_conclusion_labels_limited_review_statuses():
+    repair = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "report_candidates": [
+                    {
+                        "code": "000012",
+                        "name": "修复候选",
+                        "action_status": "repair_review_only",
+                        "candidate_shadow_score": 91.0,
+                    }
+                ]
+            }
+        }
+    )
+    confirmation = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "report_candidates": [
+                    {
+                        "code": "000013",
+                        "name": "确认候选",
+                        "action_status": "confirmation_required",
+                        "candidate_shadow_score": 90.0,
+                    }
+                ]
+            }
+        }
+    )
+
+    assert "候选结论: 修复复核候选 000012 修复候选" in repair["line"]
+    assert "护栏=候选状态 repair_review_only 不允许直接买入" in repair["line"]
+    assert "候选结论: 待确认候选 000013 确认候选" in confirmation["line"]
+    assert "护栏=候选状态 confirmation_required 不允许直接买入" in confirmation["line"]
+
+
 def test_workflow_candidate_conclusion_preserves_entry_risk_flags():
     conclusion = _candidate_conclusion_from_handoff(
         {
