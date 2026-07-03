@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from core.tail_buy.models import DECISION_BUY, DECISION_SKIP, DECISION_WATCH, TailBuyCandidate
 
+HIGH_RISK_MOMENTUM_SIGNALS = {"rec_momentum_continuation"}
+
 
 def summarize_decision_counts(candidates: list[TailBuyCandidate]) -> dict[str, int]:
     out = {DECISION_BUY: 0, DECISION_WATCH: 0, DECISION_SKIP: 0}
@@ -31,6 +33,9 @@ def _header_lines(
     report_mode: str,
 ) -> list[str]:
     layer_text = f"- 分层结果: BUY={counts[DECISION_BUY]}"
+    risky_buy_count = _high_risk_buy_count(candidates, report_mode)
+    if risky_buy_count:
+        layer_text += f"（可执行{counts[DECISION_BUY] - risky_buy_count} / 高位动能观察{risky_buy_count}）"
     if not buy_only:
         layer_text += f" / WATCH={counts[DECISION_WATCH]} / SKIP={counts[DECISION_SKIP]}"
     title, action_line, guard_line = _report_mode_text(report_mode)
@@ -63,10 +68,22 @@ def _item_line(item: TailBuyCandidate) -> str:
 
 def _item_reason_text(item: TailBuyCandidate) -> str:
     reasons = list(item.rule_reasons[:2]) if item.rule_reasons else []
+    if _is_high_risk_momentum_buy(item):
+        reasons.append("高位动能票，默认不买")
     trap_reason = str(item.features.get("daily_trap_reason") or "").strip()
     if trap_reason and all(trap_reason not in reason for reason in reasons):
         reasons.append(trap_reason)
     return "；".join(reasons) if reasons else "规则信号一般"
+
+
+def _is_high_risk_momentum_buy(item: TailBuyCandidate) -> bool:
+    return item.final_decision == DECISION_BUY and str(item.signal_type or "").strip() in HIGH_RISK_MOMENTUM_SIGNALS
+
+
+def _high_risk_buy_count(candidates: list[TailBuyCandidate], report_mode: str) -> int:
+    if report_mode == "post_close_review":
+        return 0
+    return sum(1 for item in candidates if _is_high_risk_momentum_buy(item))
 
 
 def _decision_block(
@@ -75,8 +92,14 @@ def _decision_block(
     title: str,
     decision: str,
     max_error_items_per_block: int,
+    exclude_high_risk_momentum: bool = False,
+    only_high_risk_momentum: bool = False,
 ) -> list[str]:
     block = [x for x in candidates if x.final_decision == decision]
+    if exclude_high_risk_momentum:
+        block = [x for x in block if not _is_high_risk_momentum_buy(x)]
+    if only_high_risk_momentum:
+        block = [x for x in block if _is_high_risk_momentum_buy(x)]
     lines = [f"## {title}"]
     if not block:
         return lines + ["- 无", ""]
@@ -110,16 +133,17 @@ def _append_decision_sections(
     buy_only: bool,
     report_mode: str,
 ) -> None:
-    sections = [_buy_section_title(report_mode)]
+    sections = _decision_sections(report_mode)
     if not buy_only:
         sections.extend(_watch_skip_section_titles(report_mode))
-    for title, decision in sections:
+    for title, decision, options in sections:
         lines.extend(
             _decision_block(
                 candidates,
                 title=title,
                 decision=decision,
                 max_error_items_per_block=max_error_items_per_block,
+                **options,
             )
         )
 
@@ -184,16 +208,19 @@ def _report_mode_text(report_mode: str) -> tuple[str, str, str]:
     )
 
 
-def _buy_section_title(report_mode: str) -> tuple[str, str]:
+def _decision_sections(report_mode: str) -> list[tuple[str, str, dict]]:
     if report_mode == "post_close_review":
-        return "BUY（明日重点执行观察）", DECISION_BUY
-    return "BUY（优先关注）", DECISION_BUY
+        return [("BUY（明日重点执行观察）", DECISION_BUY, {})]
+    return [
+        ("BUY（可执行候选）", DECISION_BUY, {"exclude_high_risk_momentum": True}),
+        ("BUY（高位动能观察，默认不买）", DECISION_BUY, {"only_high_risk_momentum": True}),
+    ]
 
 
-def _watch_skip_section_titles(report_mode: str) -> list[tuple[str, str]]:
+def _watch_skip_section_titles(report_mode: str) -> list[tuple[str, str, dict]]:
     if report_mode == "post_close_review":
-        return [("WATCH（明日观察）", DECISION_WATCH), ("SKIP（明日放弃）", DECISION_SKIP)]
-    return [("WATCH（观察）", DECISION_WATCH), ("SKIP（暂不买入）", DECISION_SKIP)]
+        return [("WATCH（明日观察）", DECISION_WATCH, {}), ("SKIP（明日放弃）", DECISION_SKIP, {})]
+    return [("WATCH（观察）", DECISION_WATCH, {}), ("SKIP（暂不买入）", DECISION_SKIP, {})]
 
 
 def _footer_text(report_mode: str) -> str:

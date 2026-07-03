@@ -968,6 +968,50 @@ def test_build_tail_buy_markdown_keeps_daily_trap_reason_visible():
     assert "尾盘站上VWAP；尾段量能结构健康；日线放量上影(2.6x)" in md
 
 
+def test_build_tail_buy_markdown_splits_high_risk_momentum_buy():
+    executable = TailBuyCandidate(
+        code="603713",
+        name="密尔克卫",
+        signal_date="2026-07-01",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=6.0,
+        rule_score=90.0,
+        rule_decision=DECISION_BUY,
+        final_decision=DECISION_BUY,
+        priority_score=100.0,
+        rule_reasons=["尾盘回踩再起"],
+    )
+    risky = TailBuyCandidate(
+        code="600378",
+        name="昊华科技",
+        signal_date="2026-07-01",
+        status="confirmed",
+        signal_type="rec_momentum_continuation",
+        signal_score=6.0,
+        rule_score=90.0,
+        rule_decision=DECISION_BUY,
+        final_decision=DECISION_BUY,
+        priority_score=100.0,
+        rule_reasons=["尾盘封板"],
+    )
+
+    md = build_tail_buy_markdown(
+        now_text="2026-07-01 14:57:00",
+        target_signal_date="2026-07-01",
+        market_reminder="NORMAL/NORMAL",
+        candidates=[executable, risky],
+        llm_total=2,
+        llm_success=2,
+        elapsed_seconds=10.0,
+    )
+
+    assert "BUY=2（可执行1 / 高位动能观察1）" in md
+    assert md.find("603713 密尔克卫") < md.find("BUY（高位动能观察，默认不买）")
+    assert "600378 昊华科技" in md
+    assert "高位动能票，默认不买" in md
+
+
 def test_build_tail_buy_markdown_post_close_review_labels_next_day_plan():
     c = TailBuyCandidate(
         code="301090",
@@ -1023,7 +1067,7 @@ def test_build_tail_buy_markdown_can_prepend_extra_sections():
         extra_sections=["## 持仓动作建议（硬止损/结构减仓/洗盘观察）\n- 持仓数量: 1"],
         extra_sections_first=True,
     )
-    assert md.find("持仓动作建议（硬止损/结构减仓/洗盘观察）") < md.find("## BUY（优先关注）")
+    assert md.find("持仓动作建议（硬止损/结构减仓/洗盘观察）") < md.find("## BUY（可执行候选）")
 
 
 def test_normalize_signal_score_lps_inverted():

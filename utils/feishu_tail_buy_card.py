@@ -45,6 +45,7 @@ class TailBuyReportSections:
     weak_items: list[str]
     hold_items: list[str]
     buy_items: list[str]
+    risk_buy_items: list[str]
     watch_items: list[str]
     skip_items: list[str]
 
@@ -178,7 +179,9 @@ def _report_sections(content: str) -> TailBuyReportSections:
             HOLDING_HEADINGS,
             ("HOLD（结构中性持有观察）", "HOLD（持有观察）"),
         ),
-        buy_items=_extract_section_items(lines, "BUY（优先关注）"),
+        buy_items=_extract_section_items(lines, "BUY（可执行候选）")
+        or _extract_section_items(lines, "BUY（优先关注）"),
+        risk_buy_items=_extract_section_items(lines, "BUY（高位动能观察，默认不买）"),
         watch_items=_extract_section_items(lines, "WATCH（观察）"),
         skip_items=_extract_section_items(lines, "SKIP（暂不买入）"),
     )
@@ -268,7 +271,10 @@ def _holding_meta_elements(sections: TailBuyReportSections) -> list[dict]:
 
 def _candidate_elements(sections: TailBuyReportSections, limits: TailBuyCardLimits) -> list[dict]:
     elements: list[dict] = [{"tag": "hr"}]
-    _add_bucket(elements, "BUY（优先关注）", sections.buy_items, limits.max_buy, limits.item_char_limit)
+    _add_bucket(elements, "BUY（可执行候选）", sections.buy_items, limits.max_buy, limits.item_char_limit)
+    _add_bucket(
+        elements, "BUY（高位动能观察，默认不买）", sections.risk_buy_items, limits.max_buy, limits.item_char_limit
+    )
     _add_bucket(elements, "WATCH（观察）", sections.watch_items, limits.max_watch, limits.item_char_limit)
     _add_bucket(elements, "SKIP（暂不买入）", sections.skip_items, limits.max_skip, limits.item_char_limit)
     return elements
