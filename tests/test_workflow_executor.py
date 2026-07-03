@@ -724,7 +724,11 @@ def test_workflow_step_context_derives_tool_args_from_handoff_next_tool():
                             {
                                 "tool": "analyze_stock",
                                 "args": {"code": "000566", "mode": "diagnose"},
-                            }
+                            },
+                            {
+                                "tool": "analyze_stock",
+                                "args": {"code": "002628", "mode": "diagnose"},
+                            },
                         ],
                     }
                 },
@@ -735,7 +739,15 @@ def test_workflow_step_context_derives_tool_args_from_handoff_next_tool():
     context = _step_context(step, prior_results)
 
     assert "tool args hint:" in context
-    assert '{"tool": "analyze_stock", "args": {"code": "002326", "mode": "diagnose"}}' in context
+    args_block = context.split("tool args hint:\n", 1)[1].split("\n\n", 1)[0]
+    assert json.loads(args_block) == {
+        "tool": "analyze_stock",
+        "targets": [
+            {"args": {"code": "002326", "mode": "diagnose"}},
+            {"args": {"code": "000566", "mode": "diagnose"}},
+            {"args": {"code": "002628", "mode": "diagnose"}},
+        ],
+    }
 
 
 def test_workflow_step_context_keeps_explicit_args_hint_over_handoff():

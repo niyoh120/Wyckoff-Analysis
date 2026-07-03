@@ -638,6 +638,8 @@ def _handoff_tool_args_hint(step: WorkflowStep, prior_results: list[dict[str, An
     scope = set(_concrete_tools(step.tool_scope))
     if not scope:
         return ""
+    targets: list[dict[str, Any]] = []
+    selected_tool = ""
     for item in reversed(prior_results):
         result = item.get("result") if isinstance(item, dict) else {}
         handoff = result.get("handoff_state") if isinstance(result, dict) else {}
@@ -645,8 +647,18 @@ def _handoff_tool_args_hint(step: WorkflowStep, prior_results: list[dict[str, An
             tool_name = str(payload.get("tool") or "").strip()
             args = payload.get("args")
             if tool_name in scope and isinstance(args, dict) and args:
-                return json.dumps({"tool": tool_name, "args": args}, ensure_ascii=False)
-    return ""
+                selected_tool = selected_tool or tool_name
+                if tool_name == selected_tool:
+                    targets.append({"args": args})
+    return _handoff_tool_args_hint_text(selected_tool, targets)
+
+
+def _handoff_tool_args_hint_text(tool_name: str, targets: list[dict[str, Any]]) -> str:
+    if not tool_name or not targets:
+        return ""
+    if len(targets) == 1:
+        return json.dumps({"tool": tool_name, "args": targets[0]["args"]}, ensure_ascii=False)
+    return json.dumps({"tool": tool_name, "targets": targets[:6]}, ensure_ascii=False)
 
 
 def _handoff_tool_payloads(handoff: Any) -> list[dict[str, Any]]:
