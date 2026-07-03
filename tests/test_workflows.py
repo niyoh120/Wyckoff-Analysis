@@ -891,6 +891,30 @@ def test_stock_selection_fallback_script_always_forms_action_boundaries():
     assert "触发位、失效位" in run.steps[2].prompt
 
 
+def test_stock_selection_fallback_handles_colloquial_buy_opportunity():
+    _runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="今天A股能买啥，给触发和失效",
+    )
+    run = plan_workflow(
+        "今天A股能买啥，给触发和失效",
+        context=workflow,
+        provider=ScriptedProvider([]),
+        tools=StubToolRegistry(),
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert run.script["runtime"]["fallback_kind"] == "stock_selection"
+    assert [step.step_id for step in run.steps] == ["scan_candidates", "diagnose_candidates", "strategy_decision"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("screen_stocks",),
+        ("analyze_stock",),
+        ("generate_strategy_decision",),
+    ]
+
+
 def test_stock_selection_fallback_runs_report_before_action_boundaries_when_requested():
     _runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),

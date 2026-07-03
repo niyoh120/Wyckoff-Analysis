@@ -69,6 +69,8 @@ _STOCK_FALLBACK_TARGETS = (
     "值得复核",
     "值得跟踪",
 )
+_STOCK_FALLBACK_CONTEXT_MARKERS = ("a股", "股票", "股", "票", "标的", "市场", "板块", "行业", "方向")
+_STOCK_FALLBACK_BUY_OPPORTUNITY_MARKERS = ("能买", "可买", "可以买", "买啥", "买什么", "值得买", "能不能买")
 _STOCK_FALLBACK_EXPLAINERS = ("怎么", "如何", "方法", "是什么", "什么意思", "啥意思", "概念", "介绍", "解释", "说明")
 _STOCK_FALLBACK_REPORT_MARKERS = ("研报", "深度", "报告")
 _SYNTHESIS_TASK_MARKERS = (
@@ -1867,7 +1869,14 @@ def _looks_like_stock_selection_delivery(user_text: str) -> bool:
     return (
         bool(stock_screen_theme_hint(text))
         or any(marker in text for marker in _STOCK_FALLBACK_TARGETS)
+        or _has_stock_buy_opportunity_target(text)
         or has_stock_style_target(text)
+    )
+
+
+def _has_stock_buy_opportunity_target(text: str) -> bool:
+    return any(marker in text for marker in _STOCK_FALLBACK_CONTEXT_MARKERS) and any(
+        marker in text for marker in _STOCK_FALLBACK_BUY_OPPORTUNITY_MARKERS
     )
 
 
