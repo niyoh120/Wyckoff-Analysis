@@ -924,7 +924,7 @@ def _step_required_tool_args(step: WorkflowStep) -> dict[str, dict[str, str]]:
 _SIMPLE_ARGS_HINT_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(.+?)\s*$")
 _NON_TOOL_ARG_HINT_KEYS = {"tool", "targets", "call_each", "instruction"}
 _TOOL_ARG_KEYS = {
-    "screen_stocks": frozenset({"board", "style", "limit", "financial_metrics"}),
+    "screen_stocks": frozenset({"board", "style", "theme", "limit", "financial_metrics"}),
     "generate_ai_report": frozenset({"stock_codes"}),
     "generate_strategy_decision": frozenset({"reviewed_codes", "reviewed_symbols", "report_text"}),
     "portfolio": frozenset({"mode", "action"}),

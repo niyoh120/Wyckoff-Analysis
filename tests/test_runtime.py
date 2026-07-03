@@ -661,6 +661,7 @@ def test_turn_expectation_infers_quality_and_financial_metrics_from_fundamental_
         "今天业绩好的股票有哪些",
         "今天盈利能力强的标的",
         "今天ROE高的票",
+        "今天找几只现金流好的票",
     ):
         expectation = resolve_turn_expectation([{"role": "user", "content": text}])
 
@@ -674,6 +675,29 @@ def test_turn_expectation_infers_quality_and_financial_metrics_from_fundamental_
         "style": "quality",
         "financial_metrics": "true",
     }
+
+
+def test_turn_expectation_infers_quality_theme_and_financial_metrics_from_dividend_value_wording():
+    cases = (
+        ("今天高股息红利票有哪些", "红利低波"),
+        ("今天价值蓝筹标的有哪些", "价值蓝筹"),
+    )
+    for text, theme in cases:
+        expectation = resolve_turn_expectation([{"role": "user", "content": text}])
+
+        assert expectation is not None
+        assert expectation.required_tool == "screen_stocks"
+        assert expectation.suggested_args == {
+            "board": "all",
+            "style": "quality",
+            "financial_metrics": "true",
+            "theme": theme,
+        }
+        assert expectation.required_args == {
+            "style": "quality",
+            "theme": theme,
+            "financial_metrics": "true",
+        }
 
 
 def test_turn_expectation_infers_full_financial_stock_screen_args():

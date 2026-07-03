@@ -676,6 +676,7 @@ def test_workflow_planner_stock_fallback_passes_fundamental_quality_args():
         "今天业绩好的股票有哪些",
         "今天盈利能力强的标的",
         "今天ROE高的票",
+        "今天找几只现金流好的票",
     ):
         run = plan_workflow(text, context=WORKFLOWS["dynamic_task"])
 
@@ -685,6 +686,24 @@ def test_workflow_planner_stock_fallback_passes_fundamental_quality_args():
             "board": "all",
             "style": "quality",
             "financial_metrics": "true",
+        }
+
+
+def test_workflow_planner_stock_fallback_passes_dividend_value_quality_args():
+    cases = (
+        ("今天高股息红利票有哪些", "红利低波"),
+        ("今天价值蓝筹标的有哪些", "价值蓝筹"),
+    )
+    for text, theme in cases:
+        run = plan_workflow(text, context=WORKFLOWS["dynamic_task"])
+
+        assert run.steps[0].tool_scope == ("screen_stocks",)
+        assert run.steps[0].args_hint == f"board: all；style: quality；financial_metrics: true；theme: {theme}"
+        assert run.script["phases"][0]["tasks"][0]["args"] == {
+            "board": "all",
+            "style": "quality",
+            "financial_metrics": "true",
+            "theme": theme,
         }
 
 
@@ -1954,6 +1973,76 @@ def test_workflow_executor_retries_until_step_args_hint_is_used(tmp_path, monkey
         assert detail["tool_calls"] == ["screen_stocks", "screen_stocks"]
         assert [call["args"] for call in tools.calls] == [{}, {"style": ["trend", "pullback"]}]
         assert events[-1]["text"] == "已按风格偏好汇总候选。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_executor_retries_until_theme_args_hint_is_used(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-required-theme-args.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_style", "name": "screen_stocks", "args": {"style": "quality"}}],
+                    "text": "",
+                }
+            ],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tc_theme",
+                            "name": "screen_stocks",
+                            "args": {"style": "quality", "theme": "红利低波"},
+                        }
+                    ],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "红利质量候选已筛出。"}],
+            [{"type": "text_delta", "text": "已按红利质量偏好汇总候选。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={"screen_stocks": {"symbols_for_report": ["000002"]}},
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_required_theme_args",
+        user_text="用 workflow 找高股息红利票",
+        workflow_context=WORKFLOWS["dynamic_task"],
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "scan",
+                    "title": "扫描红利质量候选",
+                    "tools": ["screen_stocks"],
+                    "args": {"style": "quality", "theme": "红利低波"},
+                    "prompt": "按用户红利质量偏好扫描候选。",
+                }
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 找高股息红利票"}]))
+
+    try:
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert detail["tool_calls"] == ["screen_stocks", "screen_stocks"]
+        assert [call["args"] for call in tools.calls] == [
+            {"style": "quality"},
+            {"style": "quality", "theme": "红利低波"},
+        ]
+        assert events[-1]["text"] == "已按红利质量偏好汇总候选。"
     finally:
         _reset_local_db(local_db)
 
