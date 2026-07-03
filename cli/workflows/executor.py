@@ -1444,7 +1444,7 @@ def _latest_results_handoff(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _ensure_candidate_delivery(text: str, results: list[dict[str, Any]]) -> str:
     conclusions = _candidate_conclusions_from_results(results)
-    if not conclusions or _text_mentions_candidate(text, conclusions):
+    if not conclusions or _text_covers_candidate_conclusions(text, conclusions):
         return text
     lines = [str(item.get("line") or "") for item in conclusions if item.get("line")]
     if not lines:
@@ -1453,14 +1453,27 @@ def _ensure_candidate_delivery(text: str, results: list[dict[str, Any]]) -> str:
     return f"{candidate_text}\n\n{text}" if text.strip() else candidate_text
 
 
-def _text_mentions_candidate(text: str, conclusions: list[dict[str, Any]]) -> bool:
+def _text_covers_candidate_conclusions(text: str, conclusions: list[dict[str, Any]]) -> bool:
+    if not text.strip():
+        return False
     lowered = text.lower()
-    for item in conclusions:
-        for field in ("code", "name"):
-            value = str(item.get(field) or "").strip()
-            if value and value.lower() in lowered:
-                return True
+    return all(
+        _text_mentions_candidate_identity(lowered, item) and _text_covers_candidate_action(lowered, item)
+        for item in conclusions
+    )
+
+
+def _text_mentions_candidate_identity(lowered_text: str, item: dict[str, Any]) -> bool:
+    for field in ("code", "name"):
+        value = str(item.get(field) or "").strip()
+        if value and value.lower() in lowered_text:
+            return True
     return False
+
+
+def _text_covers_candidate_action(lowered_text: str, item: dict[str, Any]) -> bool:
+    action = item.get("action") if isinstance(item.get("action"), dict) else {}
+    return all(str(value).lower() in lowered_text for value in action.values() if str(value).strip())
 
 
 def _candidate_conclusions_from_handoff(handoff: dict[str, Any], limit: int = 3) -> list[dict[str, Any]]:
@@ -1515,6 +1528,7 @@ def _fallback_candidate_conclusion_payload(
             "name": str(row.get("name") or "").strip(),
             "action_status": str(row.get("action_status") or "").strip(),
             "evidence": _fallback_evidence_items(row),
+            "action": _fallback_action_payload(row),
             "quality_factors": _fallback_text_items(row.get("quality_factors"), 4, 120),
             "risk_factors": _fallback_risk_items(row, 4, 120),
             "guard_reason": _fallback_guard_reason_from_handoff(row, stage, handoff),
@@ -1588,16 +1602,35 @@ def _fallback_status_part(row: dict[str, Any]) -> str:
 
 
 def _fallback_action_part(row: dict[str, Any]) -> str:
+    action = _fallback_action_payload(row)
     parts = [
-        f"入场区={zone}" if (zone := _fallback_entry_zone(row)) else "",
-        _fallback_action_value(row, ("tape_condition", "trigger_condition", "entry_trigger"), "触发"),
-        _fallback_action_value(row, ("trigger_price", "trigger_level", "entry_price"), "触发价"),
-        _fallback_action_value(row, ("stop_loss", "effective_stop_loss", "original_stop_loss"), "止损"),
-        _fallback_action_value(row, ("invalidate_condition", "invalid_condition"), "失效"),
-        _fallback_action_value(row, ("invalid_price", "invalid_level"), "失效价"),
-        _fallback_action_value(row, ("max_entry_price",), "防追高限价"),
+        _action_payload_part(action, "entry_zone", "入场区"),
+        _action_payload_part(action, "tape_condition", "触发"),
+        _action_payload_part(action, "trigger_price", "触发价"),
+        _action_payload_part(action, "stop_loss", "止损"),
+        _action_payload_part(action, "invalidate_condition", "失效"),
+        _action_payload_part(action, "invalid_price", "失效价"),
+        _action_payload_part(action, "max_entry_price", "防追高限价"),
     ]
     return "，".join(part for part in parts if part)
+
+
+def _fallback_action_payload(row: dict[str, Any]) -> dict[str, str]:
+    return _drop_empty(
+        {
+            "entry_zone": _fallback_entry_zone(row),
+            "tape_condition": _first_action_value(row, ("tape_condition", "trigger_condition", "entry_trigger")),
+            "trigger_price": _first_action_value(row, ("trigger_price", "trigger_level", "entry_price")),
+            "stop_loss": _first_action_value(row, ("stop_loss", "effective_stop_loss", "original_stop_loss")),
+            "invalidate_condition": _first_action_value(row, ("invalidate_condition", "invalid_condition")),
+            "invalid_price": _first_action_value(row, ("invalid_price", "invalid_level")),
+            "max_entry_price": _first_action_value(row, ("max_entry_price",)),
+        }
+    )
+
+
+def _action_payload_part(action: dict[str, str], field: str, label: str) -> str:
+    return f"{label}={value}" if (value := action.get(field)) else ""
 
 
 def _fallback_entry_zone(row: dict[str, Any]) -> str:
@@ -1610,10 +1643,6 @@ def _fallback_entry_zone(row: dict[str, Any]) -> str:
     if _has_action_value(low) and _has_action_value(high):
         return f"{_format_action_value(low)}-{_format_action_value(high)}"
     return _first_action_value(row, ("buy_zone",))
-
-
-def _fallback_action_value(row: dict[str, Any], fields: tuple[str, ...], label: str) -> str:
-    return f"{label}={value}" if (value := _first_action_value(row, fields)) else ""
 
 
 def _first_action_value(row: dict[str, Any], fields: tuple[str, ...]) -> str:

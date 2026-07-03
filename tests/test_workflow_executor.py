@@ -12,6 +12,7 @@ from cli.workflows.dispatch import build_turn_runtime
 from cli.workflows.executor import (
     WorkflowExecutor,
     _candidate_conclusion_from_handoff,
+    _ensure_candidate_delivery,
     _fallback_handoff_lines,
     _fallback_summary,
     _phase_batches,
@@ -2247,6 +2248,47 @@ def test_workflow_synthesis_handoff_summary_derives_guard_from_candidate_fields(
     assert "护栏=候选未开放新增买入，禁止直接买入" in conclusion["line"]
     assert "交易就绪=research_only" in conclusion["line"]
     assert "不允许新增买入" in conclusion["line"]
+
+
+def test_workflow_candidate_delivery_backfills_missing_action_boundaries():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "symbols_for_report": [
+                            {
+                                "code": "300750",
+                                "name": "宁德时代",
+                                "action_status": "ready_for_ai_review",
+                                "entry_zone": [196.0, 202.0],
+                                "stop_loss": 188.5,
+                                "max_entry_price": 204.0,
+                                "tape_condition": "放量站回5日线",
+                                "invalidate_condition": "跌破188.5取消交易",
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+    ]
+    thin_text = "300750 宁德时代是今天的首选，可进入研报复核。"
+
+    final_text = _ensure_candidate_delivery(thin_text, results)
+
+    assert final_text.startswith("候选结论: 首选 300750 宁德时代")
+    assert "入场区=196-202" in final_text
+    assert "触发=放量站回5日线" in final_text
+    assert "止损=188.5" in final_text
+    assert "失效=跌破188.5取消交易" in final_text
+    assert "防追高限价=204" in final_text
+    assert final_text.endswith(thin_text)
+    complete_text = (
+        "300750 宁德时代，入场区196-202，触发放量站回5日线，止损188.5，失效跌破188.5取消交易，防追高限价204。"
+    )
+    assert _ensure_candidate_delivery(complete_text, results) == complete_text
 
 
 def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, monkeypatch):
