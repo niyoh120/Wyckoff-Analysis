@@ -1632,7 +1632,6 @@ def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "", read
 
 
 def _fallback_merged_candidate(row: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
-    code = str(row.get("code") or "").strip()
     merged: dict[str, Any] = {}
     for stage in (
         "last_screen_result",
@@ -1645,7 +1644,7 @@ def _fallback_merged_candidate(row: dict[str, Any], handoff: dict[str, Any]) -> 
         if not isinstance(value, dict):
             continue
         for candidate in _fallback_stage_candidates(stage, value):
-            if _candidate_matches(candidate, code):
+            if _candidate_matches(candidate, row):
                 merged.update(_drop_empty(candidate))
     merged.update(_drop_empty(row))
     return merged
@@ -2035,8 +2034,14 @@ def _fallback_stage_candidates(stage: str, value: dict[str, Any]) -> list[dict[s
     return [row for row in rows if isinstance(row, dict)]
 
 
-def _candidate_matches(row: dict[str, Any], code: str) -> bool:
-    return bool(code and str(row.get("code") or "").strip() == code)
+def _candidate_matches(candidate: dict[str, Any], target: dict[str, Any]) -> bool:
+    code = str(target.get("code") or "").strip()
+    candidate_code = str(candidate.get("code") or "").strip()
+    if code and candidate_code:
+        return code == candidate_code
+    name = str(target.get("name") or "").strip()
+    candidate_name = str(candidate.get("name") or "").strip()
+    return bool(name and candidate_name and name == candidate_name)
 
 
 def _as_list(value: Any) -> list[Any]:

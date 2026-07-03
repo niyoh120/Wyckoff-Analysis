@@ -2275,6 +2275,51 @@ def test_workflow_synthesis_handoff_summary_merges_split_candidate_conclusion():
     assert conclusion["next_step"] == "等待通知配置后生成 OMS 工单"
 
 
+def test_workflow_synthesis_handoff_summary_merges_name_only_candidate_conclusion():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "symbols_for_report": [
+                            {
+                                "code": "300750",
+                                "name": "宁德时代",
+                                "candidate_shadow_score": 92.0,
+                                "candidate_shadow_grade": "S",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+        {
+            "step": {"step_id": "decision", "title": "攻防决策"},
+            "result": {
+                "handoff_state": {
+                    "last_strategy_decision": {
+                        "reviewed_symbols": [
+                            {
+                                "name": "宁德时代",
+                                "action_status": "ready_for_ai_review",
+                                "next_step": "等待通知配置后生成 OMS 工单",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+    ]
+
+    conclusion = _synthesis_handoff_summary(results)[0]["candidate_conclusion"]
+
+    assert conclusion["code"] == "300750"
+    assert conclusion["name"] == "宁德时代"
+    assert conclusion["evidence"] == ["候选影子S/92"]
+    assert "候选结论: 首选 300750 宁德时代" in conclusion["line"]
+
+
 def test_workflow_synthesis_handoff_summary_keeps_multiple_candidate_conclusions():
     results = [
         {
