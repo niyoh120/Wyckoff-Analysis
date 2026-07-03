@@ -104,6 +104,7 @@ def _diagnosis_result(code: str, cost: float, end_date: date) -> dict:
 
 
 def _diagnostic_payload(d, text: str, latest_date: str, metadata: dict) -> dict:
+    brief = diagnosis_brief_from_diagnostic(d)
     return {
         "code": d.code,
         "name": d.name,
@@ -127,7 +128,9 @@ def _diagnostic_payload(d, text: str, latest_date: str, metadata: dict) -> dict:
         "from_year_high_pct": _round_number(d.from_year_high_pct, 1),
         "from_year_low_pct": _round_number(d.from_year_low_pct, 1),
         "health_reasons": d.health_reasons,
-        "diagnosis_brief": diagnosis_brief_from_diagnostic(d),
+        "diagnosis_brief": brief,
+        "next_action": brief.get("next_step"),
+        "next_tool": _diagnosis_next_tool(d.code, brief),
         "formatted_text": text,
         "data_status": "ok",
         "latest_date": latest_date,
@@ -191,6 +194,14 @@ def diagnosis_brief_from_diagnostic(d) -> dict[str, Any]:
         "direct_buy_allowed": False,
         "next_step": _diagnosis_next_step(status, risks),
     }
+
+
+def _diagnosis_next_tool(code: str, brief: dict[str, Any]) -> dict[str, Any]:
+    status = str(brief.get("status") or "").strip()
+    if status not in {"priority_watch", "trigger_watch"}:
+        return {}
+    reason = "个股诊断进入重点/触发观察，可生成 AI 研报复核；不直接触发买入"
+    return {"tool": "generate_ai_report", "args": {"stock_codes": [code]}, "reason": reason}
 
 
 def _diagnosis_status(d) -> str:

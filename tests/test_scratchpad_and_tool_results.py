@@ -97,6 +97,40 @@ def test_analyze_stock_preview_surfaces_actionable_diagnosis_brief() -> None:
     ]
 
 
+def test_analyze_stock_brief_surfaces_ai_report_handoff() -> None:
+    result = {
+        "code": "002326",
+        "name": "永太科技",
+        "latest_date": "2026-07-03",
+        "latest_close": 25.62,
+        "health": "🟢健康",
+        "ma_pattern": "多头排列",
+        "l2_channel": "主升通道",
+        "candidate_score": 83.04,
+        "diagnosis_brief": {
+            "status": "priority_watch",
+            "headline": "重点观察: 002326 永太科技",
+            "strengths": ["多头排列"],
+            "risks": [],
+            "next_step": "加入重点观察，等待市场闸门打开和回踩/触发确认",
+        },
+        "next_tool": {
+            "tool": "generate_ai_report",
+            "args": {"stock_codes": ["002326"]},
+            "reason": "个股诊断进入重点/触发观察，可生成 AI 研报复核；不直接触发买入",
+        },
+    }
+
+    preview = json.loads(tool_result_preview("analyze_stock", result))
+    lines = tool_result_brief_lines("analyze_stock", result, max_lines=4)
+
+    assert preview["next_tool"]["tool"] == "generate_ai_report"
+    assert lines[-1] == (
+        "下一工具: generate_ai_report(stock_codes=002326) · "
+        "个股诊断进入重点/触发观察，可生成 AI 研报复核；不直接触发买入"
+    )
+
+
 def test_portfolio_view_brief_lines_guide_empty_holdings_in_chat() -> None:
     result = {
         "message": "未找到持仓记录，可通过 update_portfolio 添加",

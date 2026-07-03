@@ -138,6 +138,12 @@ def test_diagnostic_payload_marks_high_score_trend_as_priority_watch() -> None:
     assert "候选车道: SOS(83.0)" in brief["strengths"]
     assert brief["risks"] == []
     assert "市场闸门" in brief["next_step"]
+    assert result["next_action"] == brief["next_step"]
+    assert result["next_tool"] == {
+        "tool": "generate_ai_report",
+        "args": {"stock_codes": ["002326"]},
+        "reason": "个股诊断进入重点/触发观察，可生成 AI 研报复核；不直接触发买入",
+    }
 
 
 def test_diagnostic_payload_marks_stop_loss_as_avoid() -> None:
@@ -163,6 +169,7 @@ def test_diagnostic_payload_marks_stop_loss_as_avoid() -> None:
     assert "L4触发: EVR" in brief["strengths"]
     assert brief["risks"] == ["结构止损（从高点回撤>10%）", "退出信号: stop_loss"]
     assert brief["next_step"].startswith("回避新增")
+    assert result["next_tool"] == {}
 
 
 def test_remember_stock_diagnosis_stores_compact_handoff() -> None:

@@ -307,7 +307,11 @@ def print_tool_result(name: str, display_name: str, result) -> None:
         console.print(f"  [red]✗ {display_name}[/red]{time_str} [dim]{result['error']}[/dim]")
     else:
         console.print(f"  [green]✓ {display_name}[/green]{time_str}")
-        max_lines = 4 if name in {"screen_stocks", "generate_ai_report", "evaluate_recommendation_events"} else 3
+        max_lines = (
+            4
+            if name in {"screen_stocks", "analyze_stock", "generate_ai_report", "evaluate_recommendation_events"}
+            else 3
+        )
         for line in tool_result_brief_lines(name, result, max_lines=max_lines):
             console.print(Text(f"    {line}", style="dim"))
 

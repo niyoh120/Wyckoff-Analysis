@@ -702,6 +702,8 @@ def _analyze_stock_preview(result: dict[str, Any]) -> str:
             "candidate_score": result.get("candidate_score"),
             "exit_signal": result.get("exit_signal"),
             "health_reasons": _preview_list(result.get("health_reasons"), 6),
+            "next_action": result.get("next_action"),
+            "next_tool": result.get("next_tool"),
             "days": result.get("days"),
             "data": _preview_list(result.get("data"), 3),
         }
@@ -732,6 +734,8 @@ def _analyze_stock_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
         lines.append(_analyze_stock_action_line(brief))
     elif result.get("data"):
         lines.append(f"行情样本: {len(_preview_list(result.get('data'), 999))}条")
+    if handoff_line := _next_tool_brief_line(result.get("next_tool")):
+        lines.append(handoff_line)
     return [line for line in lines if line][:max_lines]
 
 
