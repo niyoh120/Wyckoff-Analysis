@@ -20,6 +20,8 @@ from utils.safe import has_value as _has_value
 
 logger = logging.getLogger(__name__)
 
+_MERGE_LIST_FIELDS = ("quality_factors", "risk_factors", "entry_quality_risk_flags", "evidence")
+
 
 def generate_strategy_decision(
     report_text: str = "",
@@ -119,11 +121,21 @@ def _strategy_candidate_meta(
     tool_context: ToolContext | None,
 ) -> list[dict]:
     rows = _screen_candidate_meta(screen_result)
+    rows.extend(_diagnosis_candidate_meta(tool_context))
     rows.extend(reviewed_symbols_from_info(_symbol_items(reviewed_symbols)))
     rows.extend(reviewed_symbols_from_info(_symbol_items(last_report.get("reviewed_symbols"))))
     codes = _code_items(reviewed_codes) or _code_items(last_report.get("reviewed_codes"))
     rows.extend(symbols_info_from_codes(codes, tool_context))
     return _dedupe_candidate_meta(rows)
+
+
+def _diagnosis_candidate_meta(tool_context: ToolContext | None) -> list[dict]:
+    value = _last_stock_diagnosis(tool_context)
+    rows = list(value.get("diagnosed_symbols") or [])
+    latest = value.get("latest")
+    if isinstance(latest, dict):
+        rows.insert(0, latest)
+    return [dict(row) for row in rows if isinstance(row, dict) and _row_code(row)]
 
 
 def _has_candidate_inputs(reviewed_symbols: Any, reviewed_codes: Any, last_report: dict[str, Any]) -> bool:
@@ -219,10 +231,33 @@ def _dedupe_candidate_meta(rows: list[dict]) -> list[dict]:
         if code not in deduped:
             deduped[code] = dict(row)
             continue
-        for key, value in row.items():
-            if _has_value(value) and not _has_value(deduped[code].get(key)):
-                deduped[code][key] = value
+        _merge_candidate_meta(deduped[code], row)
     return list(deduped.values())[:10]
+
+
+def _merge_candidate_meta(target: dict, row: dict) -> None:
+    for key, value in row.items():
+        if not _has_value(value):
+            continue
+        if key in _MERGE_LIST_FIELDS:
+            target[key] = _merge_list_values(target.get(key), value)
+        elif not _has_value(target.get(key)):
+            target[key] = value
+
+
+def _merge_list_values(current: Any, incoming: Any) -> list[str]:
+    values: list[str] = []
+    for source in (current, incoming):
+        if source in (None, ""):
+            continue
+        items = source if isinstance(source, (list, tuple, set)) else [source]
+        for item in items:
+            if item in (None, ""):
+                continue
+            text = str(item).strip()
+            if text and text not in values:
+                values.append(text)
+    return values
 
 
 def _strategy_without_telegram(
@@ -326,6 +361,11 @@ def remember_strategy_decision(tool_context: ToolContext | None, result: dict[st
 
 def _last_ai_report(tool_context: ToolContext | None) -> dict[str, Any]:
     value = tool_context.state.get("last_ai_report") if tool_context else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _last_stock_diagnosis(tool_context: ToolContext | None) -> dict[str, Any]:
+    value = tool_context.state.get("last_stock_diagnosis") if tool_context else {}
     return value if isinstance(value, dict) else {}
 
 

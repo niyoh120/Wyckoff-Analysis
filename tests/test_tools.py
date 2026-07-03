@@ -915,6 +915,74 @@ class TestStrategyDecisionTool:
         assert result["report_preview"] == "# 上一跳研报"
         assert ctx.state["last_strategy_decision"]["reviewed_codes"] == ["300750"]
 
+    def test_generate_strategy_decision_merges_stock_diagnosis_handoff(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_ai_report": {
+                    "report_text": "# 上一跳研报",
+                    "reviewed_symbols": [
+                        {
+                            "code": "000004",
+                            "name": "主线候选",
+                            "label_ready": False,
+                            "risk_factors": ["最新候选的未来窗口标签尚未成熟"],
+                        }
+                    ],
+                },
+                "last_screen_result": {
+                    "summary": {"report_candidates": 1},
+                    "symbols_for_report": [
+                        {
+                            "code": "000004",
+                            "name": "主线候选",
+                            "track": "Trend",
+                            "action_status": "ready_for_ai_review",
+                        }
+                    ],
+                },
+                "last_stock_diagnosis": {
+                    "latest": {
+                        "code": "000004",
+                        "name": "主线候选",
+                        "health": "健康",
+                        "stage": "Accum_C",
+                        "candidate_score": 83.04,
+                        "risk_factors": ["短线涨幅偏快"],
+                        "next_step": "等待放量突破触发位",
+                    }
+                },
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools, "run_ai_report", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
+        )
+
+        result = strategy_tools.generate_strategy_decision(tool_context=ctx)
+
+        reviewed = result["reviewed_symbols"][0]
+        assert result["report_source"] == "last_ai_report"
+        assert reviewed["code"] == "000004"
+        assert reviewed["track"] == "Trend"
+        assert reviewed["health"] == "健康"
+        assert reviewed["stage"] == "Accum_C"
+        assert reviewed["candidate_score"] == 83.04
+        assert reviewed["risk_factors"] == ["短线涨幅偏快", "最新候选的未来窗口标签尚未成熟"]
+        assert reviewed["label_ready"] is False
+        assert result["candidate_guard_summary"]["candidates"][0]["risk_factors"] == [
+            "短线涨幅偏快",
+            "最新候选的未来窗口标签尚未成熟",
+        ]
+        assert ctx.state["last_strategy_decision"]["reviewed_symbols"][0]["health"] == "健康"
+
     def test_generate_strategy_decision_passes_provided_report_to_step4(self, monkeypatch):
         from agents import strategy_tools
         from agents.tool_context import ToolContext
