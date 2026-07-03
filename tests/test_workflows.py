@@ -8,6 +8,7 @@ from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.model_router import _ROUTER_SYSTEM_PROMPT
+from cli.workflows.pending_reply import _PENDING_REPLY_SYSTEM_PROMPT, route_pending_workflow_reply
 from cli.workflows.planner import (
     _PLAN_SYSTEM_PROMPT,
     _REPAIR_SYSTEM_PROMPT,
@@ -473,6 +474,41 @@ def test_model_router_prompt_is_minimal_runtime_contract():
     assert "谐音" not in _ROUTER_SYSTEM_PROMPT
     assert "查看持仓" not in _ROUTER_SYSTEM_PROMPT
     assert "单只股票诊断" not in _ROUTER_SYSTEM_PROMPT
+
+
+def test_pending_workflow_reply_router_accepts_colloquial_approval():
+    provider = RouterDecisionProvider('{"intent":"approve","confidence":0.86,"reason":"用户同意运行"}')
+
+    intent = route_pending_workflow_reply(
+        "这版没毛病，直接走",
+        provider,
+        {
+            "run_id": "wf_pending",
+            "label": "动态任务",
+            "plan": {"steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}]},
+        },
+    )
+
+    assert intent == "approve"
+    assert "pending workflow 回复路由器" in provider.chat_calls[0]["system_prompt"]
+    prompt = provider.chat_calls[0]["messages"][0]["content"]
+    assert "这版没毛病，直接走" in prompt
+    assert "扫描候选" in prompt
+
+
+def test_pending_workflow_reply_router_keeps_chat_separate_from_control():
+    provider = RouterDecisionProvider('{"intent":"chat","confidence":0.91,"reason":"用户只是提问"}')
+
+    intent = route_pending_workflow_reply("解释一下 workflow 是什么", provider, {"run_id": "wf_pending"})
+
+    assert intent == "chat"
+    assert "approve|deny|revise|chat" in _PENDING_REPLY_SYSTEM_PROMPT
+
+
+def test_pending_workflow_reply_router_ignores_low_confidence_commit():
+    provider = RouterDecisionProvider('{"intent":"approve","confidence":0.22,"reason":"不确定"}')
+
+    assert route_pending_workflow_reply("好像也行吧", provider, {"run_id": "wf_pending"}) == ""
 
 
 def test_planner_prompt_preserves_multi_candidate_delivery_contract():

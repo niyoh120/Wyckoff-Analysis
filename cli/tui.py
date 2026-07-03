@@ -2461,11 +2461,19 @@ class WyckoffTUI(App):
     def _handle_workflow_control_text(self, text: str, log) -> bool:
         intent = _workflow_control_intent(text)
         if not intent and len(self._pending_workflows) == 1:
-            if _pending_workflow_revision_intent(text):
+            if model_intent := self._pending_workflow_model_reply_intent(text):
+                if model_intent == "revise":
+                    self._revise_pending_workflow("", text, log)
+                    return True
+                if model_intent == "chat":
+                    return False
+                intent = (model_intent, "")
+            elif _pending_workflow_revision_intent(text):
                 self._revise_pending_workflow("", text, log)
                 return True
-            pending_intent = _pending_workflow_reply_intent(text)
-            intent = (pending_intent, "") if pending_intent else None
+            else:
+                pending_intent = _pending_workflow_reply_intent(text)
+                intent = (pending_intent, "") if pending_intent else None
         if not intent:
             return False
         action, run_id = intent
@@ -2502,6 +2510,18 @@ class WyckoffTUI(App):
             return True
         self._show_workflow_detail(run_id, log)
         return True
+
+    def _pending_workflow_model_reply_intent(self, text: str) -> str:
+        try:
+            from cli.workflows.pending_reply import route_pending_workflow_reply
+
+            pending = next(iter(self._pending_workflows.values()))
+            return route_pending_workflow_reply(
+                text, getattr(self, "_provider", None), getattr(pending.runtime, "run", None)
+            )
+        except Exception:
+            logger.debug("pending workflow model reply intent failed", exc_info=True)
+            return ""
 
     def _expand_recent_workflow_followup(self, text: str) -> str:
         from cli.workflows.resume import build_chat_resume_prompt, is_recent_workflow_followup

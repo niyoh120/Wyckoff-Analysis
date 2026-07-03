@@ -77,6 +77,16 @@ class _FakeInput:
         self.cleared = True
 
 
+class _ReplyProvider:
+    def __init__(self, decision: str):
+        self.decision = decision
+        self.chat_calls: list[dict] = []
+
+    def chat(self, messages, tools, system_prompt=""):
+        self.chat_calls.append({"messages": messages, "tools": tools, "system_prompt": system_prompt})
+        return {"type": "text", "text": self.decision}
+
+
 def test_write_counted_returns_actual_added_strips_for_wrapped_renderable():
     log = _FakeLog()
 
@@ -1626,6 +1636,73 @@ def test_pending_workflow_feedback_prefers_revision_over_approval_phrase():
     assert feedbacks == ["好，但是不用研报，先给攻防"]
     assert approved == []
     assert "已根据反馈更新 workflow" in str(log.lines[-1])
+
+
+def test_pending_workflow_model_reply_approves_single_pending_workflow():
+    app = object.__new__(WyckoffTUI)
+    app._provider = _ReplyProvider('{"intent":"approve","confidence":0.92,"reason":"同意运行"}')
+    approved = []
+
+    class Runtime:
+        run = SimpleNamespace(
+            plan_payload=lambda: {
+                "run_id": "wf_pending",
+                "label": "动态任务",
+                "steps": [{"step_id": "scan", "title": "扫描候选", "tool_scope": ["screen_stocks"]}],
+            }
+        )
+
+    app._pending_workflows = {"wf_pending": SimpleNamespace(runtime=Runtime())}
+    app._approve_workflow = lambda run_id, log: approved.append(run_id)
+    log = _FakeLog()
+
+    handled = WyckoffTUI._handle_workflow_control_text(app, "这版没毛病，直接走", log)
+
+    assert handled is True
+    assert approved == [""]
+    assert app._provider.chat_calls
+
+
+def test_pending_workflow_model_reply_revises_single_pending_workflow():
+    app = object.__new__(WyckoffTUI)
+    app._provider = _ReplyProvider('{"intent":"revise","confidence":0.88,"reason":"用户要缩小范围"}')
+    feedbacks = []
+
+    class Runtime:
+        run = SimpleNamespace(plan_payload=lambda: {"run_id": "wf_pending", "label": "动态任务", "steps": []})
+
+        def revise_prepared_script(self, feedback):
+            feedbacks.append(feedback)
+            return {
+                "run_id": "wf_pending",
+                "workflow": "dynamic_task",
+                "label": "动态任务",
+                "plan": {"steps": [{"title": "只扫候选", "tool_scope": ["screen_stocks"]}]},
+            }
+
+    app._pending_workflows = {"wf_pending": SimpleNamespace(runtime=Runtime())}
+    log = _FakeLog()
+
+    handled = WyckoffTUI._handle_workflow_control_text(app, "这版太重了，聚焦候选池就好", log)
+
+    assert handled is True
+    assert feedbacks == ["这版太重了，聚焦候选池就好"]
+    assert "已根据反馈更新 workflow" in str(log.lines[-1])
+
+
+def test_pending_workflow_model_reply_leaves_chat_to_agent():
+    app = object.__new__(WyckoffTUI)
+    app._provider = _ReplyProvider('{"intent":"chat","confidence":0.9,"reason":"只是提问"}')
+
+    class Runtime:
+        run = SimpleNamespace(plan_payload=lambda: {"run_id": "wf_pending", "label": "动态任务", "steps": []})
+
+    app._pending_workflows = {"wf_pending": SimpleNamespace(runtime=Runtime())}
+    log = _FakeLog()
+
+    handled = WyckoffTUI._handle_workflow_control_text(app, "解释一下 workflow 是什么", log)
+
+    assert handled is False
 
 
 def test_background_task_summary_uses_tool_result_preview_for_large_screen_result(tmp_path, monkeypatch):
