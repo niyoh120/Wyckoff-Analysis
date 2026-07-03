@@ -141,7 +141,13 @@ def _build_screen_result(
     summary = _screen_summary(metrics, symbols)
     data_quality = _data_quality_summary(metrics, summary)
     decision_brief = _decision_brief(trade_mode, top_candidates, data_quality)
-    selection_brief = _selection_brief(trade_mode, top_candidates, data_quality)
+    selection_brief = _selection_brief(
+        trade_mode,
+        top_candidates,
+        data_quality,
+        style_preference,
+        theme_preference,
+    )
     action_plan = _action_plan(trade_mode, top_candidates, data_quality)
     top_candidates = _annotate_top_candidate_actions(top_candidates, action_plan)
     decision_state = _screen_decision_state(selection_brief, action_plan, trade_mode)
@@ -748,7 +754,13 @@ def _decision_brief(trade_mode: dict, top_candidates: list[dict], data_quality: 
     }
 
 
-def _selection_brief(trade_mode: dict, top_candidates: list[dict], data_quality: dict) -> dict:
+def _selection_brief(
+    trade_mode: dict,
+    top_candidates: list[dict],
+    data_quality: dict,
+    style_preference: dict[str, Any] | None = None,
+    theme_preference: dict[str, Any] | None = None,
+) -> dict:
     report_candidates = _report_candidates(top_candidates)
     candidates = report_candidates or top_candidates[:3]
     status = _selection_status(report_candidates, candidates, trade_mode, data_quality)
@@ -769,6 +781,8 @@ def _selection_brief(trade_mode: dict, top_candidates: list[dict], data_quality:
             best_candidates,
             trade_mode,
             data_quality,
+            style_preference or {},
+            theme_preference or {},
         ),
         "tool_handoff": _selection_tool_handoff(status, best_candidates),
     }
@@ -805,14 +819,22 @@ def _selection_preference_alternatives(
     best_candidates: list[dict],
     trade_mode: dict,
     data_quality: dict,
+    style_preference: dict[str, Any],
+    theme_preference: dict[str, Any],
     *,
     limit: int = 3,
 ) -> list[dict]:
+    if not _has_style_preference(style_preference) and not _has_theme_preference(theme_preference):
+        return []
     best_codes = {str(row.get("code") or "").strip() for row in best_candidates}
     alternatives: list[dict] = []
     for row in top_candidates:
         code = str(row.get("code") or "").strip()
-        if not code or code in best_codes or not _candidate_matches_any_preference(row):
+        if (
+            not code
+            or code in best_codes
+            or not _candidate_satisfies_preferences(row, style_preference, theme_preference)
+        ):
             continue
         bucket = "report" if row.get("selected_for_report") else "watch"
         alternatives.append(_selection_candidate_item(row, trade_mode, bucket, data_quality))
@@ -821,8 +843,16 @@ def _selection_preference_alternatives(
     return alternatives
 
 
-def _candidate_matches_any_preference(row: dict) -> bool:
-    return _candidate_matches_preference(row, "style") or _candidate_matches_preference(row, "theme")
+def _candidate_satisfies_preferences(
+    row: dict,
+    style_preference: dict[str, Any],
+    theme_preference: dict[str, Any],
+) -> bool:
+    if _candidate_missing_style_preference_labels(row, style_preference):
+        return False
+    if _has_theme_preference(theme_preference) and not _candidate_matches_preference(row, "theme"):
+        return False
+    return _has_style_preference(style_preference) or _has_theme_preference(theme_preference)
 
 
 def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str, data_quality: dict) -> dict:

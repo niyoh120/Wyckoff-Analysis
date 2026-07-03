@@ -2703,6 +2703,49 @@ class TestSymbolPool:
         assert trend_only["style_match_styles"] == ["trend"]
         assert "风格偏好未命中: 低吸" in trend_only["risk_factors"]
 
+    def test_screen_stocks_preference_alternatives_require_all_styles(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000001",
+                        "name": "纯趋势研报",
+                        "priority_rank": 1,
+                        "track": "Trend",
+                        "stage": "Markup",
+                    }
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {"sos": [("000002", 9.0), ("000003", 8.0)]},
+                    "name_map": {"000002": "纯趋势观察", "000003": "趋势低吸观察"},
+                    "candidate_entries": [
+                        {"code": "000003", "entry_type": "springboard", "lane": "springboard", "score": 8.0}
+                    ],
+                    "trade_mode": {"allow_ai_review": True, "allow_recommendation_write": False},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(style="trend,pullback")
+
+        alternatives = result["selection_brief"]["preference_alternatives"]
+        assert [row["code"] for row in alternatives] == ["000003"]
+        partial_watch = next(row for row in result["top_candidates"] if row["code"] == "000002")
+        assert partial_watch["style_match_styles"] == ["trend"]
+        assert "风格偏好未命中: 低吸" in partial_watch["risk_factors"]
+        full_watch = next(row for row in result["top_candidates"] if row["code"] == "000003")
+        assert full_watch["style_match_styles"] == ["trend", "pullback"]
+
     def test_screen_stocks_theme_preference_reorders_and_labels_candidates(self, monkeypatch):
         from agents import screen_tools
 
