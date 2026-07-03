@@ -1550,6 +1550,8 @@ def test_planner_flattens_nested_tool_scope_wrappers_from_model_script():
     assert run.script["tasks"][0]["tools"] == ["screen_stocks", "get_market_overview"]
     assert run.script["tasks"][1]["tools"] == ["generate_ai_report"]
     assert run.script["tasks"][2]["tools"] == ["generate_strategy_decision"]
+    assert run.script["tasks"][1]["depends_on"] == ["scan"]
+    assert "after" not in run.script["tasks"][1]
     assert "tool_scope" not in run.script["tasks"][0]
     assert "tool_uses" not in run.script["tasks"][1]
     assert "function_calls" not in run.script["tasks"][2]
@@ -2278,6 +2280,8 @@ def test_planner_recovers_tool_scope_from_outline_text_when_model_skips_json():
         ["generate_ai_report"],
         ["generate_strategy_decision"],
     ]
+    assert run.script["phases"][0]["tasks"][1]["depends_on"] == ["1"]
+    assert run.script["phases"][0]["tasks"][2]["depends_on"] == ["2"]
     stored = plan_workflow(
         "选出好股票，给出研报和攻防计划",
         context=context,

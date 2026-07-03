@@ -46,6 +46,7 @@ TOOL_SCOPE_FIELDS = (
     "call",
 )
 TOOL_ARG_FIELDS = ("args", "arguments", "tool_args", "tool_arguments", "parameters", "input", "inputs")
+DEPENDENCY_FIELDS = ("depends_on", "dependsOn", "dependencies", "after", "needs", "requires")
 TOOL_SCOPE_NESTED_FIELDS = (
     "tool_scope",
     "allowed",
@@ -920,9 +921,11 @@ def _script_with_step_tool_scopes(script: dict[str, Any], steps: list[WorkflowSt
     steps_by_id = {step.step_id: step for step in steps}
     for step_id, task in _script_task_refs(payload):
         step = steps_by_id.get(step_id)
-        if not step or step.tool_scope_source not in {"model_declared", "semantic_inference"}:
+        if not step:
             continue
-        _set_script_task_tool_scope(task, step.tool_scope, args_hint=step.args_hint)
+        if step.tool_scope_source in {"model_declared", "semantic_inference"}:
+            _set_script_task_tool_scope(task, step.tool_scope, args_hint=step.args_hint)
+        _set_script_task_dependencies(task, step.depends_on)
     return payload
 
 
@@ -941,6 +944,16 @@ def _simple_args_hint_mapping(text: str) -> dict[str, str]:
         if match := re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(.+?)\s*$", part):
             args[match.group(1)] = str(match.group(2)).strip().strip("\"'")
     return {key: value for key, value in args.items() if value}
+
+
+def _set_script_task_dependencies(task: dict[str, Any], dependencies: tuple[str, ...]) -> None:
+    for field in DEPENDENCY_FIELDS:
+        if field != "depends_on":
+            task.pop(field, None)
+    if dependencies:
+        task["depends_on"] = list(dependencies)
+    else:
+        task.pop("depends_on", None)
 
 
 def _script_task_refs(script: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -1371,7 +1384,7 @@ def _inferred_task_args(user_text: str, tool_scope: tuple[str, ...], *, infer_to
 
 def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
     deps: list[str] = []
-    for field in ("depends_on", "dependsOn", "dependencies", "after", "needs", "requires"):
+    for field in DEPENDENCY_FIELDS:
         deps.extend(dep for item in _field_items(task.get(field)) if (dep := _dependency_id(item)))
     return tuple(dict.fromkeys(dep for dep in deps if dep))
 
