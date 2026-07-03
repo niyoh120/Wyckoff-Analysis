@@ -596,6 +596,23 @@ def test_workflow_planner_short_stock_fallback_forms_action_boundaries():
     assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
+def test_workflow_planner_stock_fallback_handles_tracking_direction_wording():
+    for text in (
+        "研究一下今天哪些方向值得重点跟踪",
+        "今天哪些方向值得关注",
+        "今天有什么值得看的方向",
+    ):
+        run = plan_workflow(text, context=WORKFLOWS["dynamic_task"])
+
+        assert [step.step_id for step in run.steps] == ["scan_candidates", "diagnose_candidates", "strategy_decision"]
+        assert [step.tool_scope for step in run.steps] == [
+            ("screen_stocks",),
+            ("analyze_stock",),
+            ("generate_strategy_decision",),
+        ]
+        assert run.script["runtime"]["fallback_kind"] == "stock_selection"
+
+
 def test_workflow_planner_stock_fallback_passes_style_args():
     run = plan_workflow(
         "今天帮我找几只强势低吸标的，给下一步",
