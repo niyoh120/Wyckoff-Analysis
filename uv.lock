@@ -3871,7 +3871,7 @@ wheels = [
 
 [[package]]
 name = "youngcan-wyckoff-analysis"
-version = "0.9.147"
+version = "0.9.148"
 source = { editable = "." }
 dependencies = [
     { name = "akshare" },
