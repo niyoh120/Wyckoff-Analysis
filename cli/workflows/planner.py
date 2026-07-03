@@ -920,10 +920,17 @@ def _script_with_step_tool_scopes(script: dict[str, Any], steps: list[WorkflowSt
     steps_by_id = {step.step_id: step for step in steps}
     for step_id, task in _script_task_refs(payload):
         step = steps_by_id.get(step_id)
-        if not step or step.tool_scope_source != "model_declared" or not step.tool_scope:
+        if not step or step.tool_scope_source != "model_declared":
             continue
-        task["tools"] = list(step.tool_scope)
+        _set_script_task_tool_scope(task, step.tool_scope)
     return payload
+
+
+def _set_script_task_tool_scope(task: dict[str, Any], scope: tuple[str, ...]) -> None:
+    for field in TOOL_SCOPE_FIELDS:
+        if field != "tools":
+            task.pop(field, None)
+    task["tools"] = list(scope)
 
 
 def _script_task_refs(script: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:

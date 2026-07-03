@@ -1510,6 +1510,7 @@ def test_planner_filters_disallowed_model_declared_tool_scope_without_widening()
     assert run.steps[0].tool_scope == ()
     assert run.steps[0].tool_scope_source == "model_declared"
     assert "effective_tool_scope" not in run.plan_payload()["steps"][0]
+    assert run.script["tasks"][0]["tools"] == []
 
 
 def test_planner_flattens_nested_tool_scope_wrappers_from_model_script():
@@ -1546,6 +1547,12 @@ def test_planner_flattens_nested_tool_scope_wrappers_from_model_script():
         ("generate_ai_report",),
         ("generate_strategy_decision",),
     ]
+    assert run.script["tasks"][0]["tools"] == ["screen_stocks", "get_market_overview"]
+    assert run.script["tasks"][1]["tools"] == ["generate_ai_report"]
+    assert run.script["tasks"][2]["tools"] == ["generate_strategy_decision"]
+    assert "tool_scope" not in run.script["tasks"][0]
+    assert "tool_uses" not in run.script["tasks"][1]
+    assert "function_calls" not in run.script["tasks"][2]
 
 
 def test_planner_stabilizes_missing_stock_selection_dependencies():
