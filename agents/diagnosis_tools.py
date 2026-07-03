@@ -124,11 +124,95 @@ def _diagnostic_payload(d, text: str, latest_date: str, metadata: dict) -> dict:
         "from_year_high_pct": _round_number(d.from_year_high_pct, 1),
         "from_year_low_pct": _round_number(d.from_year_low_pct, 1),
         "health_reasons": d.health_reasons,
+        "diagnosis_brief": _diagnosis_brief(d),
         "formatted_text": text,
         "data_status": "ok",
         "latest_date": latest_date,
         **metadata,
     }
+
+
+def _diagnosis_brief(d) -> dict[str, Any]:
+    status = _diagnosis_status(d)
+    risks = _diagnosis_risks(d)
+    strengths = _diagnosis_strengths(d)
+    return {
+        "status": status,
+        "label": _diagnosis_status_label(status),
+        "headline": _diagnosis_headline(d, status),
+        "strengths": strengths,
+        "risks": risks,
+        "direct_buy_allowed": False,
+        "next_step": _diagnosis_next_step(status, risks),
+    }
+
+
+def _diagnosis_status(d) -> str:
+    health = str(d.health or "")
+    if d.exit_signal == "stop_loss" or "危险" in health:
+        return "avoid"
+    if "警戒" in health:
+        return "caution_watch"
+    if d.track == "Trend" and float(d.candidate_score or 0.0) >= 80:
+        return "priority_watch"
+    if d.l4_triggers:
+        return "trigger_watch"
+    return "watch"
+
+
+def _diagnosis_status_label(status: str) -> str:
+    return {
+        "avoid": "回避",
+        "caution_watch": "警戒观察",
+        "priority_watch": "重点观察",
+        "trigger_watch": "触发观察",
+        "watch": "观察",
+    }.get(status, "观察")
+
+
+def _diagnosis_headline(d, status: str) -> str:
+    return f"{_diagnosis_status_label(status)}: {d.code} {d.name}"
+
+
+def _diagnosis_strengths(d) -> list[str]:
+    out: list[str] = []
+    if str(d.ma_pattern or "") in {"多头排列", "MA50>MA200(偏强)"}:
+        out.append(str(d.ma_pattern))
+    if d.l2_channel and d.l2_channel != "未入选":
+        out.append(f"L2通道: {d.l2_channel}")
+    if d.l4_triggers:
+        out.append(f"L4触发: {'+'.join(d.l4_triggers)}")
+    if d.candidate_lane:
+        out.append(f"候选车道: {d.candidate_entry_type or d.candidate_lane}({float(d.candidate_score or 0.0):.1f})")
+    return out
+
+
+def _diagnosis_risks(d) -> list[str]:
+    risks = [str(item) for item in (d.health_reasons or []) if str(item) and not _positive_health_reason(str(item))]
+    if d.exit_signal and not any("退出信号" in item for item in risks):
+        risks.append(f"退出信号: {d.exit_signal}")
+    if str(d.ma_pattern or "") == "MA50<MA200(偏弱)" and not risks:
+        risks.append("均线中长期仍偏弱")
+    return list(dict.fromkeys(risks))
+
+
+def _positive_health_reason(reason: str) -> bool:
+    text = reason.strip()
+    return text in {"多头排列", "MA50>MA200(偏强)"} or text.startswith(("L2通道:", "L4信号:"))
+
+
+def _diagnosis_next_step(status: str, risks: list[str]) -> str:
+    if status == "avoid":
+        return "回避新增，等待结构止损解除或重新站回强势结构"
+    if status == "caution_watch":
+        return "只观察，等待风险收敛后再复核"
+    if status == "priority_watch":
+        return "加入重点观察，等待市场闸门打开和回踩/触发确认"
+    if status == "trigger_watch":
+        return "观察触发是否延续，仍需结合大盘水温和攻防决策"
+    if risks:
+        return "观察，不直接买入，先处理风险项"
+    return "观察，不直接买入；如需交易计划，继续生成攻防决策"
 
 
 def _round_number(value: Any, digits: int = 2) -> float | None:

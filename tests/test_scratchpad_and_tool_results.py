@@ -58,6 +58,45 @@ def test_tool_result_serialization_replaces_nonfinite_numbers() -> None:
     }
 
 
+def test_analyze_stock_preview_surfaces_actionable_diagnosis_brief() -> None:
+    result = {
+        "code": "002326",
+        "name": "永太科技",
+        "latest_date": "2026-07-03",
+        "latest_close": 25.62,
+        "data_status": "ok",
+        "health": "🟢健康",
+        "ma_pattern": "多头排列",
+        "l2_channel": "主升通道",
+        "track": "Trend",
+        "candidate_lane": "wyckoff_structure",
+        "candidate_entry_type": "SOS",
+        "candidate_score": 83.04,
+        "formatted_text": "long diagnostic text should stay out of the compact preview",
+        "diagnosis_brief": {
+            "status": "priority_watch",
+            "label": "重点观察",
+            "headline": "重点观察: 002326 永太科技",
+            "strengths": ["多头排列", "L2通道: 主升通道", "候选车道: SOS(83.0)"],
+            "risks": ["大盘风险闸门关闭"],
+            "direct_buy_allowed": False,
+            "next_step": "加入重点观察，等待市场闸门打开和回踩/触发确认",
+        },
+    }
+
+    preview = json.loads(tool_result_preview("analyze_stock", result))
+    lines = tool_result_brief_lines("analyze_stock", result)
+
+    assert preview["diagnosis_brief"]["status"] == "priority_watch"
+    assert preview["diagnosis_brief"]["direct_buy_allowed"] is False
+    assert "formatted_text" not in preview
+    assert lines == [
+        "重点观察: 002326 永太科技",
+        "现价25.62 · 日期2026-07-03 · 健康🟢健康 · 均线多头排列 · 通道主升通道 · 得分83.04",
+        "亮点: 多头排列；L2通道: 主升通道；候选车道: SOS(83.0) · 风险: 大盘风险闸门关闭 · 下一步: 加入重点观察，等待市场闸门打开和回踩/触发确认",
+    ]
+
+
 def test_large_tool_result_is_persisted_with_preview(tmp_path, monkeypatch):
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     result = {"rows": ["x" * 1000 for _ in range(60)]}

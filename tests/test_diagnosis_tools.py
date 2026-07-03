@@ -1,10 +1,40 @@
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 
 import pandas as pd
 
 from agents import diagnosis_tools
+
+
+def _diagnostic(**overrides):
+    defaults = {
+        "code": "002326",
+        "name": "永太科技",
+        "health": "🟢健康",
+        "pnl_pct": 0.0,
+        "latest_close": 25.62,
+        "ma_pattern": "多头排列",
+        "l2_channel": "主升通道",
+        "track": "Trend",
+        "accum_stage": "",
+        "l4_triggers": [],
+        "candidate_lane": "wyckoff_structure",
+        "candidate_entry_type": "SOS",
+        "candidate_score": 83.04,
+        "exit_signal": "",
+        "stop_loss_status": "",
+        "vol_ratio_20_60": 1.26,
+        "range_60d_pct": 39.0,
+        "ret_10d_pct": 10.4,
+        "ret_20d_pct": 16.7,
+        "from_year_high_pct": -22.4,
+        "from_year_low_pct": 124.7,
+        "health_reasons": [],
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
 
 
 def test_analyze_stock_price_returns_price_records(monkeypatch) -> None:
@@ -77,3 +107,49 @@ def test_analyze_stock_rejects_unknown_mode(monkeypatch) -> None:
     result = diagnosis_tools.analyze_stock("000001", mode="x")
 
     assert "mode 参数无效" in result["error"]
+
+
+def test_diagnostic_payload_marks_high_score_trend_as_priority_watch() -> None:
+    result = diagnosis_tools._diagnostic_payload(
+        _diagnostic(health_reasons=["多头排列", "L2通道:主升通道"]),
+        "formatted",
+        "2026-07-03",
+        {},
+    )
+
+    brief = result["diagnosis_brief"]
+
+    assert brief["status"] == "priority_watch"
+    assert brief["label"] == "重点观察"
+    assert brief["headline"] == "重点观察: 002326 永太科技"
+    assert brief["direct_buy_allowed"] is False
+    assert "多头排列" in brief["strengths"]
+    assert "L2通道: 主升通道" in brief["strengths"]
+    assert "候选车道: SOS(83.0)" in brief["strengths"]
+    assert brief["risks"] == []
+    assert "市场闸门" in brief["next_step"]
+
+
+def test_diagnostic_payload_marks_stop_loss_as_avoid() -> None:
+    result = diagnosis_tools._diagnostic_payload(
+        _diagnostic(
+            code="002628",
+            name="成都路桥",
+            health="🔴危险",
+            l4_triggers=["EVR"],
+            exit_signal="stop_loss",
+            health_reasons=["结构止损（从高点回撤>10%）"],
+        ),
+        "formatted",
+        "2026-07-03",
+        {},
+    )
+
+    brief = result["diagnosis_brief"]
+
+    assert brief["status"] == "avoid"
+    assert brief["label"] == "回避"
+    assert brief["headline"] == "回避: 002628 成都路桥"
+    assert "L4触发: EVR" in brief["strengths"]
+    assert brief["risks"] == ["结构止损（从高点回撤>10%）", "退出信号: stop_loss"]
+    assert brief["next_step"].startswith("回避新增")

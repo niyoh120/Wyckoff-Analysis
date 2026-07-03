@@ -30,6 +30,10 @@ def tool_result_preview(tool_name: str, result: Any, content: str = "") -> str:
         preview = _screen_stocks_preview(result)
         if preview:
             return preview[:PREVIEW_CHARS]
+    if tool_name == "analyze_stock" and isinstance(result, dict):
+        preview = _analyze_stock_preview(result)
+        if preview:
+            return preview[:PREVIEW_CHARS]
     if tool_name == "generate_ai_report" and isinstance(result, dict):
         preview = _ai_report_preview(result)
         if preview:
@@ -48,6 +52,8 @@ def tool_result_brief_lines(tool_name: str, result: Any, *, max_lines: int = 3) 
         return _recommendation_event_eval_brief_lines(result, max_lines=max_lines)
     if _is_screen_stocks_result(tool_name, result):
         return _screen_stocks_brief_lines(result, max_lines=max_lines)
+    if tool_name == "analyze_stock":
+        return _analyze_stock_brief_lines(result, max_lines=max_lines)
     if tool_name == "generate_ai_report":
         return _ai_report_brief_lines(result, max_lines=max_lines)
     if tool_name == "generate_strategy_decision":
@@ -365,6 +371,105 @@ def _dynamic_workflow_step_preview(value: Any) -> dict[str, Any]:
             "evidence": [_text_excerpt(item, 240) for item in _preview_list(value.get("evidence"), 4)],
         }
     )
+
+
+def _analyze_stock_preview(result: dict[str, Any]) -> str:
+    payload = _drop_empty_preview_fields(
+        {
+            "code": result.get("code"),
+            "name": result.get("name"),
+            "latest_date": result.get("latest_date"),
+            "latest_close": result.get("latest_close"),
+            "data_status": result.get("data_status"),
+            "diagnosis_brief": _diagnosis_brief_preview(result.get("diagnosis_brief")),
+            "health": result.get("health"),
+            "ma_pattern": result.get("ma_pattern"),
+            "l2_channel": result.get("l2_channel"),
+            "track": result.get("track"),
+            "l4_triggers": _preview_list(result.get("l4_triggers"), 6),
+            "candidate_lane": result.get("candidate_lane"),
+            "candidate_entry_type": result.get("candidate_entry_type"),
+            "candidate_score": result.get("candidate_score"),
+            "exit_signal": result.get("exit_signal"),
+            "health_reasons": _preview_list(result.get("health_reasons"), 6),
+            "days": result.get("days"),
+            "data": _preview_list(result.get("data"), 3),
+        }
+    )
+    return serialize_tool_result(payload) if payload else ""
+
+
+def _diagnosis_brief_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "status": value.get("status"),
+            "label": value.get("label"),
+            "headline": value.get("headline"),
+            "strengths": [_text_excerpt(item, 80) for item in _preview_list(value.get("strengths"), 4)],
+            "risks": [_text_excerpt(item, 100) for item in _preview_list(value.get("risks"), 4)],
+            "direct_buy_allowed": value.get("direct_buy_allowed"),
+            "next_step": _text_excerpt(value.get("next_step"), 160),
+        }
+    )
+
+
+def _analyze_stock_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    brief = result.get("diagnosis_brief") if isinstance(result.get("diagnosis_brief"), dict) else {}
+    lines = [_analyze_stock_headline(result, brief), _analyze_stock_status_line(result)]
+    if brief:
+        lines.append(_analyze_stock_action_line(brief))
+    elif result.get("data"):
+        lines.append(f"行情样本: {len(_preview_list(result.get('data'), 999))}条")
+    return [line for line in lines if line][:max_lines]
+
+
+def _analyze_stock_headline(result: dict[str, Any], brief: dict[str, Any]) -> str:
+    headline = _text_excerpt(brief.get("headline"), 120)
+    if headline:
+        return headline
+    name = " ".join(
+        part for part in (str(result.get("code") or "").strip(), str(result.get("name") or "").strip()) if part
+    )
+    return f"个股诊断: {name}" if name else "个股诊断"
+
+
+def _analyze_stock_status_line(result: dict[str, Any]) -> str:
+    parts = [
+        _stock_value_part("现价", result.get("latest_close")),
+        _stock_value_part("日期", result.get("latest_date")),
+        _stock_value_part("健康", result.get("health")),
+        _stock_value_part("均线", result.get("ma_pattern")),
+        _stock_value_part("通道", result.get("l2_channel")),
+        _stock_value_part("得分", result.get("candidate_score")),
+    ]
+    return " · ".join(part for part in parts if part)
+
+
+def _stock_value_part(label: str, value: Any) -> str:
+    if value in (None, "", [], {}):
+        return ""
+    return f"{label}{_text_excerpt(value, 80)}"
+
+
+def _analyze_stock_action_line(brief: dict[str, Any]) -> str:
+    parts = [
+        _stock_list_part("亮点", brief.get("strengths"), 3),
+        _stock_list_part("风险", brief.get("risks"), 3),
+        _stock_next_step_part(brief.get("next_step")),
+    ]
+    return " · ".join(part for part in parts if part)
+
+
+def _stock_list_part(label: str, value: Any, limit: int) -> str:
+    items = [_text_excerpt(item, 80) for item in _preview_list(value, limit) if str(item).strip()]
+    return f"{label}: {'；'.join(items)}" if items else ""
+
+
+def _stock_next_step_part(value: Any) -> str:
+    text = _text_excerpt(value, 100)
+    return f"下一步: {text}" if text else ""
 
 
 def _strategy_decision_preview(result: dict[str, Any]) -> str:
