@@ -927,7 +927,32 @@ def _candidate_conclusion_row(source_stage: str, result: dict[str, Any]) -> dict
             continue
         merged.update(_drop_empty_preview_fields(row))
     merged.update(_drop_empty_preview_fields(first))
+    if source_stage == "last_screen_result":
+        return _merge_screen_preference_miss_risks(merged, result)
     return merged
+
+
+def _merge_screen_preference_miss_risks(row: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    risks = _screen_preference_miss_risk_texts(result)
+    if not risks:
+        return row
+    existing = [str(item) for item in _preview_list(row.get("risk_factors"), 8) if str(item).strip()]
+    merged = list(dict.fromkeys([*existing, *risks]))
+    return {**row, "risk_factors": merged}
+
+
+def _screen_preference_miss_risk_texts(result: dict[str, Any]) -> list[str]:
+    match = _screen_preference_match_preview(result)
+    risks: list[str] = []
+    if match.get("style") == "miss":
+        risks.append(_preference_miss_risk("风格偏好未命中", _style_preference_text(result.get("style_preference"))))
+    if match.get("theme") == "miss":
+        risks.append(_preference_miss_risk("主题偏好未命中", _theme_preference_text(result.get("theme_preference"))))
+    return [risk for risk in risks if risk]
+
+
+def _preference_miss_risk(label: str, value: str) -> str:
+    return f"{label}: {value}" if value else label
 
 
 def _candidate_conclusion_candidates(source_stage: str, result: dict[str, Any]) -> list[dict[str, Any]]:

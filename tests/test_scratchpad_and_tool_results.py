@@ -596,10 +596,14 @@ def test_screen_stocks_brief_surfaces_preference_miss():
     lines = tool_result_brief_lines("screen_stocks", result)
 
     assert preview["preference_match"] == {"style": "miss", "theme": "miss"}
+    assert preview["candidate_conclusion"]["risk_factors"] == [
+        "风格偏好未命中: 趋势",
+        "主题偏好未命中: 机器人",
+    ]
     assert lines == [
         "本轮首选可进入 AI 研报复核: 000012 非主题候选",
         "筛选偏好: 风格=趋势(未命中)；主题=机器人(未命中)",
-        "候选结论: 首选 000012 非主题候选 · 可进入AI复核 · 亮点: 高质量研报候选",
+        "候选结论: 首选 000012 非主题候选 · 可进入AI复核 · 亮点: 高质量研报候选 · 风险: 风格偏好未命中: 趋势；主题偏好未命中: 机器人",
     ]
 
 
