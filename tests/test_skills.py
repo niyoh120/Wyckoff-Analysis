@@ -126,6 +126,16 @@ class TestLoopGuardRequiredArgs:
         )
         assert missing_required_tool(exp, [("portfolio", {"mode": "diagnose"})]) is False
 
+    def test_list_like_string_args_match_list_values(self):
+        from cli.loop_guard import TurnExpectation, missing_required_tool
+
+        exp = TurnExpectation(
+            required_tool="generate_ai_report",
+            reason="test",
+            required_args={"stock_codes": "['300750']"},
+        )
+        assert missing_required_tool(exp, [("generate_ai_report", {"stock_codes": ["300750"]})]) is False
+
     def test_no_required_args_accepts_any(self):
         from cli.loop_guard import TurnExpectation, missing_required_tool
 

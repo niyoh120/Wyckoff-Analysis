@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
@@ -565,9 +566,34 @@ def missing_required_tool(
             continue
         if not req_args:
             return False
-        if all(args.get(k) == v for k, v in req_args.items()):
+        if _tool_args_match(args, req_args):
             return False
     return True
+
+
+def _tool_args_match(args: dict[str, Any], required_args: dict[str, str]) -> bool:
+    return all(_tool_arg_value_matches(args.get(key), expected) for key, expected in required_args.items())
+
+
+def _tool_arg_value_matches(actual: Any, expected: str) -> bool:
+    if actual == expected:
+        return True
+    actual_text = _normalized_tool_arg_value(actual)
+    expected_text = _normalized_tool_arg_value(expected)
+    return bool(expected_text and actual_text == expected_text)
+
+
+def _normalized_tool_arg_value(value: Any) -> str:
+    if isinstance(value, (list, tuple, set)):
+        return ",".join(str(item).strip() for item in value if str(item).strip())
+    if isinstance(value, str):
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            parsed = None
+        if isinstance(parsed, (list, tuple, set)):
+            return ",".join(str(item).strip() for item in parsed if str(item).strip())
+    return str(value or "").strip()
 
 
 def build_retry_user_message(expectation: TurnExpectation, assistant_text: str = "") -> str:

@@ -215,6 +215,7 @@ def run_sub_agent(
     tool_names: tuple[str, ...] | None = None,
     enforce_turn_expectations: bool = False,
     required_tool_names: tuple[str, ...] | None = None,
+    required_tool_args: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """启动一个 sub-agent mini loop，通过 on_progress 实时上报事件。"""
     from cli.runtime import AgentRuntime
@@ -243,6 +244,7 @@ def run_sub_agent(
         stream_chunk_timeout=min(60.0, float(sub.timeout_seconds)),
         allowed_tools=allowed_tools,
         required_tools=required_tool_names if enforce_turn_expectations else None,
+        required_tool_args=required_tool_args if enforce_turn_expectations else None,
         enforce_turn_expectations=_sub_agent_turn_expectations_enabled(
             sub,
             allowed_tools,

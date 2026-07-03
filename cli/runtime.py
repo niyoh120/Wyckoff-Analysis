@@ -169,6 +169,7 @@ class AgentRuntime:
         stream_chunk_timeout: float = STREAM_CHUNK_TIMEOUT,
         allowed_tools: set[str] | tuple[str, ...] | None = None,
         required_tools: tuple[str, ...] | None = None,
+        required_tool_args: dict[str, dict[str, str]] | None = None,
         workflow: Any | None = None,
         enforce_turn_expectations: bool | None = None,
     ) -> None:
@@ -188,6 +189,11 @@ class AgentRuntime:
             for name in dict.fromkeys(required_tools or ())
             if self.enforce_turn_expectations and (self.allowed_tools is None or name in self.allowed_tools)
         )
+        self.required_tool_args = {
+            name: dict(required_tool_args.get(name) or {})
+            for name in self.required_tools
+            if required_tool_args and isinstance(required_tool_args.get(name), dict)
+        }
 
     def run_stream(
         self,
@@ -223,6 +229,9 @@ class AgentRuntime:
                 self._append_assistant_tool_message(messages, round_state)
                 completed = yield from self._run_tool_batches(messages, round_state.tool_calls, state)
                 if completed:
+                    retry_event = self._maybe_retry_required_tool_args(messages, round_state, state)
+                    if retry_event:
+                        yield retry_event
                     continue
 
             active_expectation = self._active_turn_expectation(messages, state, expectation)
@@ -418,6 +427,17 @@ class AgentRuntime:
             "required_tool": expectation.required_tool if expectation else "",
         }
 
+    def _maybe_retry_required_tool_args(
+        self,
+        messages: list[dict[str, Any]],
+        round_state: RoundState,
+        state: RunState,
+    ) -> RuntimeEvent | None:
+        expectation = self._required_tools_expectation(state)
+        if not expectation or not expectation.required_args:
+            return None
+        return self._maybe_retry_required_tool(messages, round_state, state, expectation)
+
     def _active_turn_expectation(
         self,
         messages: list[dict[str, Any]],
@@ -440,12 +460,13 @@ class AgentRuntime:
     def _required_tools_expectation(self, state: RunState) -> TurnExpectation | None:
         if not self.required_tools:
             return None
-        used = {name for name, _args in state.used_tools}
         for name in self.required_tools:
-            if name not in used:
+            required_args = self.required_tool_args.get(name, {})
+            if missing_required_tool(TurnExpectation(name, "", required_args=required_args), state.used_tools):
                 return TurnExpectation(
                     required_tool=name,
                     reason="当前 workflow step 声明了必需工具，必须先运行对应工具获取真实数据。",
+                    required_args=required_args,
                 )
         return None
 

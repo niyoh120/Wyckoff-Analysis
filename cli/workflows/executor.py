@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -450,6 +451,7 @@ class WorkflowExecutor:
             tool_names=_step_tool_names(step, self._require_run().allowed_tools),
             enforce_turn_expectations=_step_turn_expectations_enabled(step),
             required_tool_names=_step_required_tool_names(step),
+            required_tool_args=_step_required_tool_args(step),
         )
         if wait_result := _wait_step_background_tasks(self.tools, result.get("background_task_ids") or []):
             result["background_tasks"] = wait_result
@@ -776,6 +778,35 @@ def _step_turn_expectations_enabled(step: WorkflowStep) -> bool:
 
 def _step_required_tool_names(step: WorkflowStep) -> tuple[str, ...]:
     return tuple(name for name in _concrete_tools(step.tool_scope) if name in _TURN_EXPECTATION_TOOL_SCOPES)
+
+
+def _step_required_tool_args(step: WorkflowStep) -> dict[str, dict[str, str]]:
+    tools = _step_required_tool_names(step)
+    if len(tools) != 1:
+        return {}
+    args = _simple_args_hint(step.args_hint)
+    return {tools[0]: args} if args else {}
+
+
+_SIMPLE_ARGS_HINT_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(.+?)\s*$")
+_NON_TOOL_ARG_HINT_KEYS = {"tool", "targets", "call_each", "instruction"}
+
+
+def _simple_args_hint(text: str) -> dict[str, str]:
+    args: dict[str, str] = {}
+    for part in re.split(r"[；;\n]+", str(text or "")):
+        match = _SIMPLE_ARGS_HINT_RE.match(part)
+        if not match:
+            continue
+        key, value = match.group(1), _clean_args_hint_value(match.group(2))
+        if key in _NON_TOOL_ARG_HINT_KEYS or not value:
+            continue
+        args[key] = value
+    return args
+
+
+def _clean_args_hint_value(value: str) -> str:
+    return str(value or "").strip().strip("\"'")
 
 
 def _concrete_tools(names: tuple[str, ...]) -> tuple[str, ...]:

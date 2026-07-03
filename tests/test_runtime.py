@@ -330,6 +330,49 @@ def test_runtime_retries_when_chatty_watchlist_request_skips_screen_tool():
     assert events[-1]["text"] == "候选和理由已生成。"
 
 
+def test_runtime_retries_when_required_tool_args_are_missing():
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_plain", "name": "screen_stocks", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {"id": "tc_style", "name": "screen_stocks", "args": {"style": ["trend", "pullback"]}}
+                    ],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "风格候选已筛出。"}],
+        ]
+    )
+    tools = StubToolRegistry(tool_results={"screen_stocks": {"symbols_for_report": ["300750"]}})
+    messages = [{"role": "user", "content": "扫描风格候选"}]
+
+    events = list(
+        AgentRuntime(
+            provider,
+            tools,
+            allowed_tools=("screen_stocks",),
+            required_tools=("screen_stocks",),
+            required_tool_args={"screen_stocks": {"style": "trend,pullback"}},
+            enforce_turn_expectations=True,
+        ).run_stream(messages)
+    )
+
+    retries = [event for event in events if event["type"] == "retry"]
+    assert len(retries) == 1
+    assert 'screen_stocks(style="trend,pullback")' in retries[0]["message"]
+    assert [call["args"] for call in tools.calls] == [{}, {"style": ["trend", "pullback"]}]
+    assert events[-1]["text"] == "风格候选已筛出。"
+
+
 def test_runtime_retries_strategy_when_attack_plan_stops_after_screen():
     provider = ScriptedProvider(
         rounds=[
