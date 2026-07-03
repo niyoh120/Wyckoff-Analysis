@@ -3471,6 +3471,29 @@ def test_workflow_candidate_conclusion_marks_row_miss_when_pool_has_preference_h
     assert "偏好=主题偏好未命中: 机器人" in conclusion["line"]
 
 
+def test_workflow_candidate_conclusion_marks_missing_style_in_combined_preference():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "style_preference": {"raw": "trend,pullback", "styles": ["trend", "pullback"]},
+                "report_candidates": [
+                    {
+                        "code": "000012",
+                        "name": "纯趋势候选",
+                        "action_status": "ready_for_ai_review",
+                        "style_match": True,
+                        "style_match_styles": ["trend"],
+                        "style_match_reasons": ["趋势偏好: 趋势线"],
+                    }
+                ],
+            }
+        }
+    )
+
+    assert conclusion["preference_misses"] == ["风格偏好未命中: 低吸"]
+    assert "偏好=风格偏好未命中: 低吸" in conclusion["line"]
+
+
 def test_workflow_candidate_delivery_prepends_missing_preference_miss():
     results = [
         {

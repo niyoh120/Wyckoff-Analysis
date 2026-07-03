@@ -2658,6 +2658,51 @@ class TestSymbolPool:
         quality_result = screen_tools.screen_stocks(style="流动性好")
         assert quality_result["style_preference"] == {"raw": "流动性好", "styles": ["quality"]}
 
+    def test_screen_stocks_combined_style_prefers_candidates_matching_all_styles(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000001",
+                        "name": "纯趋势",
+                        "priority_rank": 1,
+                        "track": "Trend",
+                        "stage": "Markup",
+                    },
+                    {
+                        "code": "000002",
+                        "name": "趋势低吸",
+                        "priority_rank": 2,
+                        "track": "Trend",
+                        "stage": "Setup",
+                        "entry_type": "springboard",
+                    },
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {"sos": [("000001", 9.0), ("000002", 8.0)]},
+                    "trade_mode": {"allow_ai_review": True, "allow_recommendation_write": False},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(style="trend,pullback")
+
+        assert [row["code"] for row in result["top_candidates"][:2]] == ["000002", "000001"]
+        assert result["selection_brief"]["primary_pick"]["style_match_styles"] == ["trend", "pullback"]
+        trend_only = next(row for row in result["top_candidates"] if row["code"] == "000001")
+        assert trend_only["style_match_styles"] == ["trend"]
+        assert "风格偏好未命中: 低吸" in trend_only["risk_factors"]
+
     def test_screen_stocks_theme_preference_reorders_and_labels_candidates(self, monkeypatch):
         from agents import screen_tools
 

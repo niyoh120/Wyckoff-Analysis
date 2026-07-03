@@ -116,6 +116,7 @@ _CANDIDATE_HANDOFF_FIELDS = (
     "latest_date",
     "candidate_score",
     "style_match",
+    "style_match_styles",
     "style_match_score",
     "style_match_reasons",
     "theme_match",
@@ -1871,6 +1872,11 @@ def _fallback_preference_miss_items(
     source = _fallback_screen_preference_source(stage, handoff)
     items: list[str] = []
     for key, label in (("style", "风格偏好未命中"), ("theme", "主题偏好未命中")):
+        if key == "style":
+            items.extend(_fallback_missing_style_preference_items(row, source, clip))
+            if len(items) >= limit:
+                return items[:limit]
+            continue
         if not _fallback_has_preference(source, key) or _candidate_preference_hit(row, key):
             continue
         if item := _fallback_preference_miss_item(label, source.get(f"{key}_preference"), clip):
@@ -1898,6 +1904,35 @@ def _fallback_has_preference(source: dict[str, Any], key: str) -> bool:
     if key == "style":
         return bool(_as_list(value.get("styles")) or str(value.get("raw") or "").strip())
     return bool(value.get("theme") or str(value.get("raw") or "").strip())
+
+
+def _fallback_missing_style_preference_items(row: dict[str, Any], source: dict[str, Any], clip: int) -> list[str]:
+    value = source.get("style_preference")
+    if not isinstance(value, dict):
+        return []
+    requested = [str(item) for item in _as_list(value.get("styles")) if str(item)]
+    if not requested:
+        if not _fallback_has_preference(source, "style") or _candidate_preference_hit(row, "style"):
+            return []
+        return [_fallback_preference_miss_item("风格偏好未命中", value, clip)]
+    matched = set(_fallback_candidate_style_match_styles(row, requested))
+    labels = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
+    missing = [labels.get(style, style) for style in requested if style not in matched]
+    return [_clip_text(f"风格偏好未命中: {'/'.join(missing)}", clip)] if missing else []
+
+
+def _fallback_candidate_style_match_styles(row: dict[str, Any], requested: list[str]) -> list[str]:
+    styles = [str(item) for item in _as_list(row.get("style_match_styles")) if str(item)]
+    if not styles:
+        reasons = [str(item) for item in _as_list(row.get("style_match_reasons"))]
+        styles = [
+            *("trend" for reason in reasons if reason.startswith("趋势偏好")),
+            *("pullback" for reason in reasons if reason.startswith("低吸偏好")),
+            *("quality" for reason in reasons if reason.startswith("稳健偏好")),
+        ]
+    if not styles and row.get("style_match") is True:
+        styles = requested
+    return list(dict.fromkeys(style for style in styles if style in requested))
 
 
 def _fallback_preference_miss_item(label: str, value: Any, clip: int) -> str:

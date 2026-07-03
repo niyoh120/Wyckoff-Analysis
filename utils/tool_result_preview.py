@@ -943,11 +943,41 @@ def _merge_screen_preference_miss_risks(row: dict[str, Any], result: dict[str, A
 
 def _screen_candidate_preference_miss_risk_texts(row: dict[str, Any], result: dict[str, Any]) -> list[str]:
     risks: list[str] = []
-    if _has_style_preference(result.get("style_preference")) and not _candidate_matches_preference(row, "style"):
-        risks.append(_preference_miss_risk("风格偏好未命中", _style_preference_text(result.get("style_preference"))))
+    if style_text := _screen_missing_style_preference_text(row, result.get("style_preference")):
+        risks.append(_preference_miss_risk("风格偏好未命中", style_text))
     if _has_theme_preference(result.get("theme_preference")) and not _candidate_matches_preference(row, "theme"):
         risks.append(_preference_miss_risk("主题偏好未命中", _theme_preference_text(result.get("theme_preference"))))
     return [risk for risk in risks if risk]
+
+
+def _screen_missing_style_preference_text(row: dict[str, Any], value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    requested = [str(item) for item in _preview_list(value.get("styles"), 4) if str(item)]
+    if not requested:
+        return (
+            ""
+            if not _has_style_preference(value) or _candidate_matches_preference(row, "style")
+            else _style_preference_text(value)
+        )
+    matched = set(_screen_candidate_style_match_styles(row, requested))
+    labels = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
+    missing = [labels.get(style, style) for style in requested if style not in matched]
+    return "/".join(missing)
+
+
+def _screen_candidate_style_match_styles(row: dict[str, Any], requested: list[str]) -> list[str]:
+    styles = [str(item) for item in _preview_list(row.get("style_match_styles"), 4) if str(item)]
+    if not styles:
+        reasons = [str(item) for item in _preview_list(row.get("style_match_reasons"), 8)]
+        styles = [
+            *("trend" for reason in reasons if reason.startswith("趋势偏好")),
+            *("pullback" for reason in reasons if reason.startswith("低吸偏好")),
+            *("quality" for reason in reasons if reason.startswith("稳健偏好")),
+        ]
+    if not styles and row.get("style_match") is True:
+        styles = requested
+    return list(dict.fromkeys(style for style in styles if style in requested))
 
 
 def _preference_miss_risk(label: str, value: str) -> str:
@@ -1660,6 +1690,10 @@ _CANDIDATE_PREVIEW_FIELDS = (
     "theme_event_date",
     "theme_event_title",
     "theme_event_reason",
+    "style_match",
+    "style_match_styles",
+    "style_match_score",
+    "style_match_reasons",
     "theme_match",
     "theme_match_score",
     "theme_match_reasons",

@@ -307,6 +307,8 @@ _STYLE_ALIASES = {
     ),
 }
 
+_STYLE_LABELS = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
+
 
 def _normalize_style_preference(value: str | list[str] | None) -> dict[str, Any]:
     raw_items = value if isinstance(value, list) else [value]
@@ -1529,6 +1531,7 @@ def _candidate_theme_result_fields(row: dict) -> dict[str, Any]:
 def _candidate_style_fields(row: dict) -> dict[str, Any]:
     fields = (
         "style_match",
+        "style_match_styles",
         "style_match_score",
         "style_match_reasons",
         "theme_match",
@@ -1573,7 +1576,14 @@ def _apply_style_preference(candidates: list[dict], preference: dict[str, Any]) 
     if not styles:
         return candidates
     ranked = [(index, _annotate_candidate_style_match(row, styles)) for index, row in enumerate(candidates)]
-    ranked.sort(key=lambda item: (not bool(item[1].get("selected_for_report")), -_style_match_score(item[1]), item[0]))
+    ranked.sort(
+        key=lambda item: (
+            not bool(item[1].get("selected_for_report")),
+            -_style_match_coverage_score(item[1], styles),
+            -_style_match_score(item[1]),
+            item[0],
+        )
+    )
     return [row for _index, row in ranked]
 
 
@@ -1629,8 +1639,7 @@ def _candidate_preference_miss_risk_factors(
     theme_preference: dict[str, Any],
 ) -> list[str]:
     risks: list[str] = []
-    if _has_style_preference(style_preference) and not _candidate_matches_preference(row, "style"):
-        labels = _style_preference_labels(style_preference)
+    if labels := _candidate_missing_style_preference_labels(row, style_preference):
         risks.append(f"风格偏好未命中: {'/'.join(labels)}" if labels else "风格偏好未命中")
     if _has_theme_preference(theme_preference) and not _candidate_matches_preference(row, "theme"):
         theme = str(theme_preference.get("theme") or theme_preference.get("raw") or "").strip()
@@ -1639,8 +1648,40 @@ def _candidate_preference_miss_risk_factors(
 
 
 def _style_preference_labels(style_preference: dict[str, Any]) -> list[str]:
-    labels = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
-    return [labels.get(str(item), str(item)) for item in style_preference.get("styles") or [] if str(item)]
+    return [_STYLE_LABELS.get(str(item), str(item)) for item in _style_preference_styles(style_preference)]
+
+
+def _style_preference_styles(style_preference: dict[str, Any]) -> list[str]:
+    return [str(item) for item in style_preference.get("styles") or [] if str(item)]
+
+
+def _candidate_missing_style_preference_labels(row: dict, style_preference: dict[str, Any]) -> list[str]:
+    requested = _style_preference_styles(style_preference)
+    if not requested:
+        return []
+    matched = set(_candidate_style_match_styles(row, requested))
+    return [_STYLE_LABELS.get(style, style) for style in requested if style not in matched]
+
+
+def _candidate_style_match_styles(row: dict, requested: list[str]) -> list[str]:
+    styles = [str(item) for item in row.get("style_match_styles") or [] if str(item)]
+    if not styles:
+        styles = _infer_style_match_styles(row)
+    if not styles and row.get("style_match") is True:
+        styles = requested
+    return list(dict.fromkeys(style for style in styles if style in requested))
+
+
+def _infer_style_match_styles(row: dict) -> list[str]:
+    reasons = [str(item) for item in row.get("style_match_reasons") or []]
+    styles: list[str] = []
+    if any(reason.startswith("趋势偏好") for reason in reasons):
+        styles.append("trend")
+    if any(reason.startswith("低吸偏好") for reason in reasons):
+        styles.append("pullback")
+    if any(reason.startswith("稳健偏好") for reason in reasons):
+        styles.append("quality")
+    return styles
 
 
 def _preference_match_status(candidates: list[dict], prefix: str) -> str:
@@ -1721,11 +1762,12 @@ def _candidate_theme_match_text(row: dict) -> str:
 
 
 def _annotate_candidate_style_match(row: dict, styles: list[str]) -> dict:
-    reasons = _style_match_reasons(row, styles)
+    matched_styles, reasons = _style_match_details(row, styles)
     if not reasons:
         return row
     payload = dict(row)
     payload["style_match"] = True
+    payload["style_match_styles"] = matched_styles
     payload["style_match_score"] = len(reasons)
     payload["style_match_reasons"] = reasons[:4]
     payload["quality_factors"] = list(dict.fromkeys([*payload.get("quality_factors", []), *reasons[:3]]))
@@ -1733,15 +1775,29 @@ def _annotate_candidate_style_match(row: dict, styles: list[str]) -> dict:
 
 
 def _style_match_reasons(row: dict, styles: list[str]) -> list[str]:
+    return _style_match_details(row, styles)[1]
+
+
+def _style_match_details(row: dict, styles: list[str]) -> tuple[list[str], list[str]]:
+    matched_styles: list[str] = []
     reasons: list[str] = []
     for style in styles:
-        if style == "trend":
-            reasons.extend(_trend_style_reasons(row))
-        elif style == "pullback":
-            reasons.extend(_pullback_style_reasons(row))
-        elif style == "quality":
-            reasons.extend(_quality_style_reasons(row))
-    return list(dict.fromkeys(reason for reason in reasons if reason))
+        style_reasons = _style_reasons(row, style)
+        if not any(style_reasons):
+            continue
+        matched_styles.append(style)
+        reasons.extend(style_reasons)
+    return list(dict.fromkeys(matched_styles)), list(dict.fromkeys(reason for reason in reasons if reason))
+
+
+def _style_reasons(row: dict, style: str) -> list[str]:
+    if style == "trend":
+        return _trend_style_reasons(row)
+    if style == "pullback":
+        return _pullback_style_reasons(row)
+    if style == "quality":
+        return _quality_style_reasons(row)
+    return []
 
 
 def _trend_style_reasons(row: dict) -> list[str]:
@@ -1774,6 +1830,10 @@ def _quality_style_reasons(row: dict) -> list[str]:
 
 def _style_match_score(row: dict) -> int:
     return int(row.get("style_match_score") or 0)
+
+
+def _style_match_coverage_score(row: dict, styles: list[str]) -> int:
+    return len(_candidate_style_match_styles(row, styles))
 
 
 def _final_candidate_row(row: dict) -> dict:

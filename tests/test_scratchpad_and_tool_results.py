@@ -651,6 +651,35 @@ def test_screen_stocks_brief_marks_primary_miss_even_when_pool_has_preference_hi
     ]
 
 
+def test_screen_stocks_brief_surfaces_missing_style_in_combined_preference():
+    result = {
+        "style_preference": {"raw": "trend,pullback", "styles": ["trend", "pullback"]},
+        "selection_brief": {
+            "primary_pick": {
+                "code": "000012",
+                "name": "纯趋势候选",
+                "action_status": "ready_for_ai_review",
+                "style_match": True,
+                "style_match_styles": ["trend"],
+                "style_match_reasons": ["趋势偏好: 趋势线", "趋势偏好: 主升阶段"],
+                "quality_factors": ["高质量研报候选"],
+            },
+        },
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result, max_lines=2)
+
+    assert preview["candidate_conclusion"]["risk_factors"] == ["风格偏好未命中: 低吸"]
+    assert lines == [
+        "筛选偏好: 风格=趋势,低吸",
+        (
+            "候选结论: 首选 000012 纯趋势候选 · 可进入AI复核 · "
+            "亮点: 趋势偏好: 趋势线；趋势偏好: 主升阶段 · 风险: 风格偏好未命中: 低吸"
+        ),
+    ]
+
+
 def test_screen_stocks_preview_surfaces_data_quality_gate():
     result = {
         "selection_brief": {
