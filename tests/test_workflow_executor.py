@@ -743,6 +743,7 @@ def test_workflow_step_context_derives_tool_args_from_handoff_next_tool():
     assert json.loads(args_block) == {
         "tool": "analyze_stock",
         "call_each": True,
+        "instruction": "按 targets 顺序逐个调用 tool，每个 targets[].args 调用一次；不要把 call_each/targets 包装成工具参数。",
         "targets": [
             {"args": {"code": "002326", "mode": "diagnose"}},
             {"args": {"code": "000566", "mode": "diagnose"}},

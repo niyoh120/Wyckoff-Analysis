@@ -16,6 +16,7 @@ WORKFLOW_TASK_AGENT_PROMPT = (
 
 # 任务
 执行当前 workflow script 分配的单个 task。不要预设研究员、分析师或交易员身份；根据 task 目标和可见工具选择最少必要动作。
+如果上下文里的 tool args hint 含有 call_each/targets，按 targets 顺序逐个调用同一个工具；不要把 call_each 或 targets 当成工具参数传入。
 
 # 输出要求
 - 只基于工具返回的事实和 task 上下文输出
