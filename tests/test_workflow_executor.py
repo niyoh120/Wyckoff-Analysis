@@ -2398,6 +2398,53 @@ def test_workflow_synthesis_handoff_guard_reason_matches_candidate_identity():
     assert conclusions[1]["guard_reason"] == "受限候选标签未成熟，禁止直接买入"
 
 
+def test_workflow_synthesis_handoff_gate_reason_matches_candidate_identity():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "report_candidates": [
+                            {
+                                "code": "000014",
+                                "name": "高质量候选",
+                                "action_status": "ready_for_ai_review",
+                                "candidate_shadow_score": 92.0,
+                            },
+                            {
+                                "code": "000015",
+                                "name": "低质量候选",
+                                "action_status": "ready_for_ai_review",
+                                "candidate_shadow_score": 91.0,
+                            },
+                        ],
+                        "quality_gate": {
+                            "status": "blocked_by_quality_gate",
+                            "reason": "000015 低质量候选 风险调整质量分低于AI复核门槛",
+                            "candidates": [
+                                {
+                                    "code": "000015",
+                                    "name": "低质量候选",
+                                    "reason": "000015 低质量候选 风险调整质量分低于AI复核门槛",
+                                }
+                            ],
+                        },
+                    }
+                }
+            },
+        }
+    ]
+
+    conclusions = _synthesis_handoff_summary(results)[0]["candidate_conclusions"]
+
+    assert "候选结论: 首选 000014 高质量候选" in conclusions[0]["line"]
+    assert "护栏=" not in conclusions[0]["line"]
+    assert conclusions[0].get("guard_reason") is None
+    assert "候选结论: 受限复核候选 000015 低质量候选" in conclusions[1]["line"]
+    assert conclusions[1]["guard_reason"] == "000015 低质量候选 风险调整质量分低于AI复核门槛"
+
+
 def test_workflow_candidate_delivery_backfills_missing_action_boundaries():
     results = [
         {

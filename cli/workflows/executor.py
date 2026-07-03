@@ -1951,10 +1951,12 @@ def _fallback_gate_sources(stage: dict[str, Any], action_plan: dict[str, Any]) -
 
 
 def _gate_reason_for_candidate(row: dict[str, Any], gate: dict[str, Any]) -> str:
-    code = str(row.get("code") or "").strip()
-    for item in _as_list(gate.get("candidates")):
-        if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
+    candidates = _as_list(gate.get("candidates"))
+    for item in candidates:
+        if isinstance(item, dict) and _guard_candidate_matches(row, item) and item.get("reason"):
             return str(item["reason"])
+    if candidates and _has_candidate_identity(row):
+        return ""
     return str(gate.get("reason") or "")
 
 
