@@ -1617,6 +1617,8 @@ def _fallback_candidate_line(
 def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "", ready_rank: int = 0) -> str:
     status = str(row.get("action_status") or "").strip()
     if status == "ready_for_ai_review":
+        if not str(row.get("code") or "").strip():
+            return "待确认候选"
         if ready_rank > 1:
             return "备选复核候选"
         return "受限复核候选" if guard_reason else "首选"
@@ -1941,6 +1943,8 @@ def _fallback_guard_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:
         return str(first["reason"])
     if reason := _fallback_gate_reason(row, stage):
         return reason
+    if reason := _missing_code_guard_reason(row):
+        return reason
     if reason := candidate_guard_reason(row):
         return reason
     return ""
@@ -1958,6 +1962,12 @@ def _guard_candidate_matches(row: dict[str, Any], item: dict[str, Any]) -> bool:
 
 def _has_candidate_identity(row: dict[str, Any]) -> bool:
     return bool(str(row.get("code") or row.get("name") or "").strip())
+
+
+def _missing_code_guard_reason(row: dict[str, Any]) -> str:
+    if str(row.get("code") or "").strip():
+        return ""
+    return "候选缺少股票代码，需先确认具体标的" if str(row.get("name") or "").strip() else ""
 
 
 def _fallback_gate_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:

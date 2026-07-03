@@ -2368,6 +2368,8 @@ def test_workflow_synthesis_handoff_summary_does_not_merge_ambiguous_name_only_c
     assert conclusions[0]["name"] == "同名科技"
     assert "code" not in conclusions[0]
     assert "evidence" not in conclusions[0]
+    assert "候选结论: 待确认候选 同名科技" in conclusions[0]["line"]
+    assert conclusions[0]["guard_reason"] == "候选缺少股票代码，需先确认具体标的"
     assert [item.get("code") for item in conclusions[1:]] == ["000001", "000002"]
 
 
