@@ -217,6 +217,13 @@ _STOCK_SCREEN_STYLE_HINTS = (
     "右侧",
     "左侧",
     "稳健",
+    "刚启动",
+    "初启动",
+    "低位",
+    "不追高",
+    "别追高",
+    "不追涨",
+    "性价比",
 )
 
 _STOCK_SCREEN_REVIEW_HINTS = (

@@ -2650,6 +2650,11 @@ class TestSymbolPool:
         assert "趋势偏好: 趋势线" in first["style_match_reasons"]
         assert "趋势偏好: 趋势线" in first["quality_factors"]
 
+        pullback_result = screen_tools.screen_stocks(style="不追高")
+        assert pullback_result["style_preference"] == {"raw": "不追高", "styles": ["pullback"]}
+        assert pullback_result["preference_match"] == {"style": "hit"}
+        assert [row["code"] for row in pullback_result["top_candidates"][:2]] == ["000001", "000002"]
+
     def test_screen_stocks_theme_preference_reorders_and_labels_candidates(self, monkeypatch):
         from agents import screen_tools
 

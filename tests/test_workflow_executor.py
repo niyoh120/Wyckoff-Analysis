@@ -718,6 +718,21 @@ def test_workflow_planner_stock_fallback_passes_style_args():
     assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all", "style": "trend,pullback"}
 
 
+def test_workflow_planner_stock_fallback_passes_anti_chase_style_args():
+    cases = (
+        ("今天别追高，找几只票", "pullback"),
+        ("今天不要高位票，找低位机会", "pullback"),
+        ("今天找几只低位刚启动的标的", "trend,pullback"),
+        ("今天找几只性价比高的票", "quality"),
+    )
+    for text, style in cases:
+        run = plan_workflow(text, context=WORKFLOWS["dynamic_task"])
+
+        assert run.steps[0].tool_scope == ("screen_stocks",)
+        assert run.steps[0].args_hint == f"board: all；style: {style}"
+        assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all", "style": style}
+
+
 def test_workflow_planner_stock_fallback_passes_board_and_style_args():
     run = plan_workflow(
         "今天帮我筛创业板强势低吸标的，给下一步",

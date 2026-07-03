@@ -654,6 +654,26 @@ def test_turn_expectation_infers_quality_style_from_defensive_wording():
     }
 
 
+def test_turn_expectation_infers_anti_chase_and_low_position_styles():
+    cases = (
+        ("今天别追高，找几只票", "pullback"),
+        ("今天不要高位票，找低位机会", "pullback"),
+        ("今天找几只低位刚启动的标的", "trend,pullback"),
+        ("今天找几只性价比高的票", "quality"),
+    )
+    for text, style in cases:
+        expectation = resolve_turn_expectation([{"role": "user", "content": text}])
+
+        assert expectation is not None
+        assert expectation.required_tool == "screen_stocks"
+        assert expectation.suggested_args == {"board": "all", "style": style}
+        assert expectation.required_args == {"style": style}
+
+    assert stock_screen_suggested_args("今天别追涨，找没涨太多的标的", include_default_board=False) == {
+        "style": "pullback"
+    }
+
+
 def test_turn_expectation_infers_quality_and_financial_metrics_from_fundamental_wording():
     for text in (
         "今天找几只基本面好的票",
