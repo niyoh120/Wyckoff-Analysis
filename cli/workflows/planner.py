@@ -949,6 +949,7 @@ def _task_step(
     prompt = _render_runtime_args(prompt, args_text)
     context = _render_runtime_args(str(task.get("context") or "").strip(), args_text)
     args_hint = _task_args_text(task)
+    tool_scope, tool_scope_source = _task_tool_scope_with_source(task, allowed_tool_names, infer_tools=infer_tools)
     step_id = _slug(task.get("id") or title)
     return WorkflowStep(
         step_id=step_id,
@@ -963,7 +964,8 @@ def _task_step(
         risk_guard=_task_meta(task, ("risk_guard", "guard", "guardrail", "guardrails", "boundary", "constraints")),
         phase=phase_id,
         depends_on=_task_dependencies(task),
-        tool_scope=_task_tool_scope(task, allowed_tool_names, infer_tools=infer_tools),
+        tool_scope=tool_scope,
+        tool_scope_source=tool_scope_source,
         dynamic=True,
     )
 
@@ -1009,6 +1011,15 @@ def _task_tool_scope(
     *,
     infer_tools: bool = True,
 ) -> tuple[str, ...]:
+    return _task_tool_scope_with_source(task, allowed_tool_names, infer_tools=infer_tools)[0]
+
+
+def _task_tool_scope_with_source(
+    task: dict[str, Any],
+    allowed_tool_names: set[str] | None = None,
+    *,
+    infer_tools: bool = True,
+) -> tuple[tuple[str, ...], str]:
     names: list[str] = []
     for field in TOOL_SCOPE_FIELDS:
         for item in _tool_scope_items(task.get(field)):
@@ -1016,11 +1027,11 @@ def _task_tool_scope(
                 names.append(name)
     explicit = tuple(dict.fromkeys(names))
     if explicit:
-        return _filter_tool_scope(explicit, allowed_tool_names)
+        return _filter_tool_scope(explicit, allowed_tool_names), "model_declared"
     if not infer_tools:
-        return ()
+        return (), ""
     inferred = _inferred_task_tool_scope(task, allowed_tool_names)
-    return _filter_tool_scope(inferred, allowed_tool_names) if inferred else ()
+    return (_filter_tool_scope(inferred, allowed_tool_names), "semantic_inference") if inferred else ((), "")
 
 
 def _inferred_task_tool_scope(task: dict[str, Any], allowed_tool_names: set[str] | None) -> tuple[str, ...]:

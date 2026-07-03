@@ -686,6 +686,32 @@ def test_display_workflow_plan_event_surfaces_model_step_boundaries():
     assert "/workflow show wf_dynamic" in rendered
 
 
+def test_display_workflow_plan_event_marks_semantic_tool_boundaries():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_dynamic",
+            "workflow": "dynamic_task",
+            "label": "今日选股",
+            "plan": {
+                "steps": [
+                    {
+                        "title": "扫描候选",
+                        "tool_scope": ["screen_stocks"],
+                        "tool_scope_source": "semantic_inference",
+                    }
+                ],
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "工具边界（含语义恢复）：全市场扫描" in rendered
+
+
 def test_display_workflow_plan_event_surfaces_effective_tool_scope():
     writes = []
 

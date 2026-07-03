@@ -1069,6 +1069,8 @@ def _workflow_step_tool_label(step: dict) -> str:
     if not tools:
         tools = [str(item) for item in step.get("effective_tool_scope", []) if str(item)]
         label = "optional_tools"
+    elif str(step.get("tool_scope_source") or "") == "semantic_inference":
+        label = "inferred_tools"
     if not tools:
         return ""
     visible = ",".join(tools[:4])

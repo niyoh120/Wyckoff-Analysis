@@ -748,8 +748,10 @@ def _workflow_plan_handoff_line(rows: list[dict[str, Any]], *, limit: int = 3) -
 def _workflow_plan_tool_boundary_line(rows: list[dict[str, Any]], *, limit: int = 6) -> str:
     labels: list[str] = []
     seen: set[str] = set()
+    has_inferred = False
     for step in rows:
         tools, _label = _workflow_step_tool_values(step)
+        has_inferred = has_inferred or _workflow_step_tool_scope_source(step) == "semantic_inference"
         for tool in tools:
             if tool in seen:
                 continue
@@ -759,7 +761,8 @@ def _workflow_plan_tool_boundary_line(rows: list[dict[str, Any]], *, limit: int 
         return ""
     visible = "、".join(labels[:limit])
     suffix = f"、+{len(labels) - limit}" if len(labels) > limit else ""
-    return f"    [dim]工具边界：{escape(visible + suffix)}[/dim]"
+    source = "（含语义恢复）" if has_inferred else ""
+    return f"    [dim]工具边界{source}：{escape(visible + suffix)}[/dim]"
 
 
 def _workflow_route_line(route: dict[str, Any]) -> Text | None:
@@ -960,11 +963,15 @@ def _workflow_step_tool_meta(step: dict[str, Any]) -> str:
 def _workflow_step_tool_values(step: dict[str, Any]) -> tuple[list[str], str]:
     scoped = [str(item) for item in step.get("tool_scope", []) if str(item)]
     if scoped:
-        return scoped, "工具"
+        return scoped, "恢复工具" if _workflow_step_tool_scope_source(step) == "semantic_inference" else "工具"
     effective = [str(item) for item in step.get("effective_tool_scope", []) if str(item)]
     if effective:
         return effective, "可选工具"
     return [], "工具"
+
+
+def _workflow_step_tool_scope_source(step: dict[str, Any]) -> str:
+    return str(step.get("tool_scope_source") or "").strip()
 
 
 def _workflow_tool_display_name(name: Any) -> str:

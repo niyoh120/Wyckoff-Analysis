@@ -60,6 +60,20 @@ def test_workflow_step_cli_line_includes_agent_and_tool_scope():
     assert "analysis: completed" in line
 
 
+def test_workflow_step_cli_line_marks_semantic_tool_scope():
+    line = _workflow_step_cli_line(
+        {
+            "status": "pending",
+            "title": "扫描候选",
+            "agent": "task",
+            "tool_scope": ["screen_stocks"],
+            "tool_scope_source": "semantic_inference",
+        }
+    )
+
+    assert "inferred_tools=screen_stocks" in line
+
+
 def test_workflow_step_cli_line_includes_effective_tool_scope():
     line = _workflow_step_cli_line(
         {
@@ -2164,6 +2178,12 @@ def test_planner_recovers_tool_scope_from_outline_text_when_model_skips_json():
         ("generate_ai_report",),
         ("generate_strategy_decision",),
     ]
+    assert [step.tool_scope_source for step in run.steps] == [
+        "semantic_inference",
+        "semantic_inference",
+        "semantic_inference",
+    ]
+    assert run.steps[0].to_dict()["tool_scope_source"] == "semantic_inference"
     assert run.steps[0].depends_on == ()
     assert run.steps[1].depends_on == ("1",)
     assert run.steps[2].depends_on == ("2",)
