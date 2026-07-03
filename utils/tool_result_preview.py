@@ -846,10 +846,23 @@ def _screen_scope_brief_line(value: Any) -> str:
     board = str(value.get("board") or "all").strip()
     total = _safe_int_text(value.get("total_scanned"))
     limit = _safe_int_text(value.get("limit"))
+    financial = _screen_financial_scope_suffix(value)
     if str(value.get("scope") or "").strip() == "bounded" or (limit and limit != "0"):
         suffix = f"前{limit}只" if limit else "有界扫描"
-        return f"快扫: {board} {suffix}，实际扫描{total or '-'}只"
-    return f"全量: {board} 扫描{total or '-'}只"
+        return f"快扫: {board} {suffix}，实际扫描{total or '-'}只{financial}"
+    return f"全量: {board} 扫描{total or '-'}只{financial}"
+
+
+def _screen_financial_scope_suffix(value: dict[str, Any]) -> str:
+    mode = str(value.get("financial_metrics") or "").strip()
+    count = _safe_int_text(value.get("financial_metrics_count"))
+    if mode == "skipped_quick_scan":
+        return "，财务过滤: 快扫跳过"
+    if mode == "available":
+        return f"，财务过滤: {count}只" if count else "，财务过滤: 已启用"
+    if mode == "requested_unavailable":
+        return "，财务过滤: 未取得"
+    return ""
 
 
 def _safe_int_text(value: Any) -> str:

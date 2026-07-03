@@ -1399,6 +1399,32 @@ def test_tool_result_view_surfaces_screen_candidate_risk():
     assert "大盘风险闸门关闭" in rendered
 
 
+def test_tool_result_view_surfaces_screen_quick_scan_financial_scope():
+    summary, renderable = _tool_result_view(
+        {
+            "type": "tool_result",
+            "name": "screen_stocks",
+            "elapsed_ms": 1200,
+            "result": {
+                "scan_scope": {
+                    "scope": "bounded",
+                    "board": "all",
+                    "limit": 1200,
+                    "total_scanned": 1200,
+                    "financial_metrics": "skipped_quick_scan",
+                    "financial_metrics_count": 0,
+                },
+                "selection_brief": {"headline": "本轮只有观察候选: 002326 永太科技"},
+            },
+        },
+        None,
+    )
+
+    rendered = str(renderable)
+    assert summary["brief"][0] == "快扫: all 前1200只，实际扫描1200只，财务过滤: 快扫跳过"
+    assert "财务过滤: 快扫跳过" in rendered
+
+
 def test_tool_result_view_surfaces_recommendation_eval_pick_action():
     summary, renderable = _tool_result_view(
         {
