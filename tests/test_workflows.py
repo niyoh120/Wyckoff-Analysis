@@ -31,6 +31,11 @@ class RouterDecisionProvider(ScriptedProvider):
         return {"type": "text", "text": self.decision}
 
 
+class BrokenReplyProvider:
+    def chat(self, _messages, _tools, _system_prompt=""):
+        raise RuntimeError("provider unavailable")
+
+
 def test_route_workflow_keeps_portfolio_turn_direct():
     workflow = route_workflow("我的持仓有没有要处理的？")
 
@@ -534,6 +539,18 @@ def test_pending_workflow_reply_router_ignores_low_confidence_commit():
     provider = RouterDecisionProvider('{"intent":"approve","confidence":0.22,"reason":"不确定"}')
 
     assert route_pending_workflow_reply("好像也行吧", provider, {"run_id": "wf_pending"}) == ""
+
+
+def test_pending_workflow_reply_router_falls_back_to_local_semantics_without_provider():
+    assert route_pending_workflow_reply("这版没毛病，直接走", None, {"run_id": "wf_pending"}) == "approve"
+    assert route_pending_workflow_reply("好，但是不用研报，先给攻防", None, {"run_id": "wf_pending"}) == "revise"
+    assert route_pending_workflow_reply("解释一下 workflow 是什么", None, {"run_id": "wf_pending"}) == "chat"
+
+
+def test_pending_workflow_reply_router_falls_back_when_provider_fails():
+    assert (
+        route_pending_workflow_reply("没问题，按这个执行", BrokenReplyProvider(), {"run_id": "wf_pending"}) == "approve"
+    )
 
 
 def test_planner_prompt_preserves_multi_candidate_delivery_contract():

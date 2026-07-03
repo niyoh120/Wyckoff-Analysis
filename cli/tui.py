@@ -30,6 +30,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
+from cli.workflows.pending_reply import classify_pending_workflow_reply, is_pending_workflow_revision
 from utils.tool_result_preview import tool_result_brief_lines
 
 logger = logging.getLogger(__name__)
@@ -44,110 +45,6 @@ _KITTY_ENABLE = "\x1b[>1u"
 _KITTY_DISABLE = "\x1b[<u"
 _CSI_U_IME_RE = re.compile(r"\x1b\[\d+(?::\d+)*;;([\d:]+)u")
 _WORKFLOW_ID_RE = re.compile(r"\bwf_[A-Za-z0-9_-]+\b")
-_PENDING_WORKFLOW_APPROVE_REPLIES = {
-    "go",
-    "ok",
-    "y",
-    "yes",
-    "可以",
-    "好",
-    "好的",
-    "开始",
-    "开始吧",
-    "继续",
-    "继续吧",
-    "跑",
-    "跑吧",
-    "运行",
-    "执行",
-    "执行吧",
-    "确认",
-    "没问题",
-    "可以跑",
-    "就这样",
-    "按这个来",
-}
-_PENDING_WORKFLOW_DENY_REPLIES = {
-    "n",
-    "no",
-    "不用",
-    "不用了",
-    "不要",
-    "先不要",
-    "不要了",
-    "不用workflow",
-    "不要workflow",
-    "先不用workflow",
-    "取消",
-    "取消吧",
-    "算了",
-}
-_PENDING_WORKFLOW_APPROVE_MARKERS = (
-    "开始",
-    "运行",
-    "执行",
-    "继续",
-    "跑一下",
-    "跑起来",
-    "可以跑",
-    "可以执行",
-    "可以运行",
-    "按这个",
-    "就这样",
-    "没问题",
-    "同意",
-    "确认",
-)
-_PENDING_WORKFLOW_DENY_MARKERS = (
-    "不可以",
-    "不能",
-    "先不要",
-    "不要跑",
-    "不要执行",
-    "不要运行",
-    "别跑",
-    "别执行",
-    "别运行",
-    "先别",
-    "拒绝",
-    "取消",
-)
-_PENDING_WORKFLOW_REPLY_QUESTION_MARKERS = ("要不要", "可不可以", "能不能", "是否")
-_PENDING_WORKFLOW_REVISION_MARKERS = (
-    "修改",
-    "改成",
-    "调整",
-    "换成",
-    "删掉",
-    "删除",
-    "去掉",
-    "加上",
-    "增加",
-    "补上",
-    "合并",
-    "拆开",
-    "重排",
-    "太死板",
-)
-_PENDING_WORKFLOW_REVISION_SOFT_MARKERS = ("不要", "不用", "别", "先", "直接", "只")
-_PENDING_WORKFLOW_REVISION_OBJECT_MARKERS = (
-    "扫",
-    "筛",
-    "候选",
-    "票",
-    "标的",
-    "持仓",
-    "研报",
-    "攻防",
-    "回测",
-    "步骤",
-    "任务",
-    "task",
-    "工具",
-    "计划",
-    "拆",
-)
-_PENDING_WORKFLOW_REVISION_QUESTION_MARKERS = ("解释", "说明", "为什么", "是什么", "啥意思", "怎么用")
 _BUSY_FORCE_EXIT_WINDOW = 1.5
 _HARD_EXIT_DELAY = 1.0
 _RECENT_WORKFLOW_FALLBACK_MAX_AGE_SECONDS = 24 * 60 * 60
@@ -1134,43 +1031,12 @@ def _workflow_control_intent(text: str) -> tuple[str, str] | None:
 
 
 def _pending_workflow_reply_intent(text: str) -> str:
-    normalized = _normalize_pending_workflow_text(text)
-    if not normalized or _pending_workflow_revision_intent(text):
-        return ""
-    if _pending_workflow_reply_question_like(normalized):
-        return ""
-    if normalized in _PENDING_WORKFLOW_APPROVE_REPLIES:
-        return "approve"
-    if normalized in _PENDING_WORKFLOW_DENY_REPLIES:
-        return "deny"
-    if any(marker in normalized for marker in _PENDING_WORKFLOW_DENY_MARKERS):
-        return "deny"
-    if any(marker in normalized for marker in _PENDING_WORKFLOW_APPROVE_MARKERS):
-        return "approve"
-    return ""
+    intent = classify_pending_workflow_reply(text)
+    return intent if intent in {"approve", "deny"} else ""
 
 
 def _pending_workflow_revision_intent(text: str) -> bool:
-    normalized = _normalize_pending_workflow_text(text)
-    if not normalized:
-        return False
-    if "workflow" in normalized and any(marker in normalized for marker in _PENDING_WORKFLOW_REVISION_QUESTION_MARKERS):
-        return False
-    if any(marker in normalized for marker in _PENDING_WORKFLOW_REVISION_MARKERS):
-        return True
-    return any(marker in normalized for marker in _PENDING_WORKFLOW_REVISION_SOFT_MARKERS) and any(
-        marker in normalized for marker in _PENDING_WORKFLOW_REVISION_OBJECT_MARKERS
-    )
-
-
-def _normalize_pending_workflow_text(text: str) -> str:
-    return re.sub(r"[\s。！!,.，、？?]+", "", text.lower())
-
-
-def _pending_workflow_reply_question_like(normalized: str) -> bool:
-    return normalized.endswith(("吗", "么", "嘛")) or any(
-        marker in normalized for marker in _PENDING_WORKFLOW_REPLY_QUESTION_MARKERS
-    )
+    return is_pending_workflow_revision(text)
 
 
 def _workflow_run_is_recent(
