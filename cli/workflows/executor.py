@@ -1908,18 +1908,31 @@ def _fallback_guard_reason_from_handoff(row: dict[str, Any], stage: dict[str, An
 def _fallback_guard_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:
     guard = stage.get("candidate_guard_summary") if isinstance(stage.get("candidate_guard_summary"), dict) else {}
     candidates = _as_list(guard.get("candidates")) if isinstance(guard, dict) else []
-    code = str(row.get("code") or "").strip()
     for item in candidates:
-        if isinstance(item, dict) and str(item.get("code") or "").strip() == code and item.get("reason"):
+        if isinstance(item, dict) and _guard_candidate_matches(row, item) and item.get("reason"):
             return str(item["reason"])
     first = next((item for item in candidates if isinstance(item, dict) and item.get("reason")), {})
-    if first:
+    if first and not _has_candidate_identity(row):
         return str(first["reason"])
     if reason := _fallback_gate_reason(row, stage):
         return reason
     if reason := candidate_guard_reason(row):
         return reason
     return ""
+
+
+def _guard_candidate_matches(row: dict[str, Any], item: dict[str, Any]) -> bool:
+    code = str(row.get("code") or "").strip()
+    item_code = str(item.get("code") or "").strip()
+    if code and item_code and code == item_code:
+        return True
+    name = str(row.get("name") or "").strip()
+    item_name = str(item.get("name") or "").strip()
+    return bool(name and item_name and name == item_name)
+
+
+def _has_candidate_identity(row: dict[str, Any]) -> bool:
+    return bool(str(row.get("code") or row.get("name") or "").strip())
 
 
 def _fallback_gate_reason(row: dict[str, Any], stage: dict[str, Any]) -> str:
