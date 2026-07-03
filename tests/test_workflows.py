@@ -2189,6 +2189,31 @@ def test_planner_recovers_tool_scope_from_outline_text_when_model_skips_json():
     assert run.steps[2].depends_on == ("2",)
 
 
+def test_planner_recovers_stock_style_args_for_semantic_screen_step():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": '{"title":"自然选股","tasks":[{"id":"scan","title":"扫描候选","prompt":"扫描候选"}]}',
+                }
+            ],
+            [{"type": "text_delta", "text": "这不是 JSON"}],
+        ]
+    )
+
+    run = plan_workflow(
+        "今天帮我找几只强势低吸标的",
+        context=route_workflow("用 workflow 找强势低吸标的"),
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].tool_scope_source == "semantic_inference"
+    assert run.steps[0].args_hint == "style: trend,pullback"
+
+
 def test_planner_recovers_tool_scope_from_colloquial_good_stock_outline():
     provider = ScriptedProvider(
         [

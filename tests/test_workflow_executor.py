@@ -1468,6 +1468,69 @@ def test_workflow_executor_retries_until_step_args_hint_is_used(tmp_path, monkey
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_enforces_inferred_stock_style_args(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-inferred-style-args.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "text_delta",
+                    "text": '{"title":"自然选股","tasks":[{"id":"scan","title":"扫描候选","prompt":"扫描候选"}]}',
+                }
+            ],
+            [{"type": "text_delta", "text": "这不是 JSON"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_plain", "name": "screen_stocks", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {"id": "tc_style", "name": "screen_stocks", "args": {"style": ["trend", "pullback"]}}
+                    ],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "风格候选已筛出。"}],
+            [{"type": "text_delta", "text": "已按强势低吸偏好汇总候选。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={"screen_stocks": {"symbols_for_report": ["000002"]}},
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_inferred_style_args",
+        user_text="今天帮我找几只强势低吸标的",
+        workflow_context=WORKFLOWS["dynamic_task"],
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "今天帮我找几只强势低吸标的"}]))
+
+    try:
+        plan_event = next(event for event in events if event["type"] == "workflow_plan")
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert plan_event["plan"]["steps"][0]["tool_scope"] == ["screen_stocks"]
+        assert plan_event["plan"]["steps"][0]["tool_scope_source"] == "semantic_inference"
+        assert plan_event["plan"]["steps"][0]["args_hint"] == "style: trend,pullback"
+        assert detail["tool_calls"] == ["screen_stocks", "screen_stocks"]
+        assert [call["args"] for call in tools.calls] == [{}, {"style": ["trend", "pullback"]}]
+        assert events[-1]["text"] == "已按强势低吸偏好汇总候选。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
     run = WorkflowRun(
         run_id="wf_contract",

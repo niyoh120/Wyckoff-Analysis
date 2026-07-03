@@ -948,8 +948,8 @@ def _task_step(
     prompt = _task_prompt(task, title, user_text)
     prompt = _render_runtime_args(prompt, args_text)
     context = _render_runtime_args(str(task.get("context") or "").strip(), args_text)
-    args_hint = _task_args_text(task)
     tool_scope, tool_scope_source = _task_tool_scope_with_source(task, allowed_tool_names, infer_tools=infer_tools)
+    args_hint = _task_args_text(task) or _inferred_task_args_text(user_text, tool_scope, infer_tools=infer_tools)
     step_id = _slug(task.get("id") or title)
     return WorkflowStep(
         step_id=step_id,
@@ -1227,6 +1227,12 @@ def _task_args_text(task: dict[str, Any]) -> str:
         if value := _task_meta_value(task.get(field)):
             return value
     return ""
+
+
+def _inferred_task_args_text(user_text: str, tool_scope: tuple[str, ...], *, infer_tools: bool) -> str:
+    if not infer_tools or "screen_stocks" not in tool_scope:
+        return ""
+    return _task_meta_value(_stock_scan_args(user_text))
 
 
 def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:
