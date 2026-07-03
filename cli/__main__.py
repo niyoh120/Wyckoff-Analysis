@@ -571,28 +571,35 @@ def _cmd_recommend(args):
 
 def _cmd_screen(args):
     from integrations.local_db import init_db
+    from utils.tool_result_preview import tool_result_brief_lines
 
     init_db()
     board = args.board or "all"
-    print(f"正在执行全市场漏斗筛选 (board={board}) ...")
-    from workflows.wyckoff_funnel import run_funnel_job
+    limit_note = "全量" if args.limit == 0 else f"前{args.limit}只" if args.limit is not None else "默认范围"
+    style_note = f", style={args.style}" if args.style else ""
+    print(f"正在执行全市场漏斗筛选 (board={board}, {limit_note}{style_note}) ...")
+    from agents.screen_tools import screen_stocks
 
-    try:
-        triggers, metrics = run_funnel_job()
-    except Exception as e:
-        print(f"✗ 筛选失败: {e}")
+    result = screen_stocks(
+        board=board,
+        limit=args.limit,
+        style=args.style or None,
+        financial_metrics=args.financial_metrics,
+    )
+    if result.get("error"):
+        print(f"✗ 筛选失败: {result['error']}")
         sys.exit(1)
-    total = sum(len(v) for v in triggers.values())
-    print(f"\n✓ 筛选完成  命中 {total} 只")
-    for signal_type, items in triggers.items():
-        if items:
-            print(f"\n  [{signal_type}] ({len(items)} 只)")
-            for code, score in items[:10]:
-                print(f"    {code}  score={score:.2f}")
-    if metrics:
-        from tools.funnel_public import public_funnel_metrics
-
-        print(f"\n  指标: {json.dumps(public_funnel_metrics(metrics), ensure_ascii=False, default=str)}")
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    total_scanned = int(summary.get("total_scanned", 0) or 0)
+    report_count = int(summary.get("report_candidates", 0) or 0)
+    watch_count = len(result.get("watch_candidates") or [])
+    print(f"\n✓ 筛选完成  扫描 {total_scanned} 只，研报候选 {report_count} 只，观察 {watch_count} 只")
+    lines = tool_result_brief_lines("screen_stocks", result, max_lines=8)
+    for line in lines:
+        print(f"  {line}")
+    if not lines:
+        payload = {"scan_scope": result.get("scan_scope"), "summary": summary}
+        print(f"  {json.dumps(payload, ensure_ascii=False, default=str)}")
 
 
 # ---------------------------------------------------------------------------
@@ -1657,7 +1664,23 @@ def _add_analysis_job_parsers(sub) -> None:
 
     # wyckoff screen
     p_screen = sub.add_parser("screen", help="全市场漏斗筛选")
-    p_screen.add_argument("--board", default="all", help="板块 (all/main/gem/star)")
+    p_screen.add_argument("--board", default="all", help="板块 (all/main/chinext/gem/star/bse)")
+    p_screen.add_argument("--limit", type=int, default=None, help="扫描数量上限；0 表示全量")
+    p_screen.add_argument("--style", default="", help="候选风格偏好 (trend/pullback/quality，或中文强势/低吸/稳健)")
+    financial_group = p_screen.add_mutually_exclusive_group()
+    financial_group.add_argument(
+        "--financial-metrics",
+        dest="financial_metrics",
+        action="store_true",
+        default=None,
+        help="启用财务指标过滤",
+    )
+    financial_group.add_argument(
+        "--no-financial-metrics",
+        dest="financial_metrics",
+        action="store_false",
+        help="跳过财务指标过滤以加快扫描",
+    )
 
     # wyckoff backtest
     p_bt = sub.add_parser("backtest", help="策略历史回测", aliases=["bt"])
