@@ -101,6 +101,26 @@ _SYNTHESIS_TOOL_MARKERS = (
     ("generate_strategy_decision", ("攻防", "买卖", "计划", "触发", "失效", "动作", "边界", "风险")),
     ("analyze_stock", ("诊断", "结构", "个股", "股票")),
 )
+_TASK_SCREEN_INTENT_MARKERS = (
+    "扫描",
+    "筛选",
+    "筛股",
+    "选股",
+    "股票池",
+    "候选池",
+    "机会池",
+    "找好票",
+    "找好标的",
+    "好股票",
+    "好票",
+    "好标的",
+)
+_TASK_REPORT_INTENT_MARKERS = ("研报", "报告", "深度复核", "深度审讯")
+_TASK_DECISION_INTENT_MARKERS = ("攻防", "触发", "失效", "买卖", "风险边界", "去留", "止损", "入场", "动作", "下一步")
+_TASK_MARKET_INTENT_MARKERS = ("大盘", "市场", "水温", "盘面", "市场环境")
+_TASK_PORTFOLIO_INTENT_MARKERS = ("持仓", "仓位", "资金", "账户", "组合")
+_TASK_BACKTEST_INTENT_MARKERS = ("回测", "历史验证", "测算")
+_TASK_ANALYZE_STOCK_TARGET_MARKERS = ("个股", "股票", "代码", "标的", "候选")
 _PREVIOUS_DEPENDENCY_ALIASES = {
     "previous",
     "previous_step",
@@ -693,11 +713,11 @@ def _repairable_tool_names(context: WorkflowContext) -> set[str]:
 
 
 def _unscoped_step_count(script: dict[str, Any], user_text: str, context: WorkflowContext) -> int:
-    return sum(1 for step in _script_steps(script, user_text, context) if not step.tool_scope)
+    return sum(1 for step in _script_steps(script, user_text, context, infer_tools=False) if not step.tool_scope)
 
 
 def _scoped_step_count(script: dict[str, Any], user_text: str, context: WorkflowContext) -> int:
-    return sum(1 for step in _script_steps(script, user_text, context) if step.tool_scope)
+    return sum(1 for step in _script_steps(script, user_text, context, infer_tools=False) if step.tool_scope)
 
 
 def _tool_contract_repair_prompt(
@@ -867,12 +887,19 @@ def _strip_json_fence(text: str) -> str:
     return raw.strip()
 
 
-def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowContext) -> list[WorkflowStep]:
+def _script_steps(
+    script: dict[str, Any],
+    user_text: str,
+    context: WorkflowContext,
+    *,
+    infer_tools: bool = True,
+) -> list[WorkflowStep]:
     steps: list[WorkflowStep] = []
     args_text = _runtime_args(script)
     allowed_tool_names = _context_tool_names(context) or None
+    infer_tools = infer_tools and _semantic_tool_inference_enabled(script)
     for phase in _script_phases(script):
-        steps.extend(_phase_steps(phase, user_text, args_text, allowed_tool_names))
+        steps.extend(_phase_steps(phase, user_text, args_text, allowed_tool_names, infer_tools=infer_tools))
         if len(steps) >= MAX_WORKFLOW_STEPS:
             break
     steps = _normalize_step_dependencies(steps)
@@ -881,7 +908,12 @@ def _script_steps(script: dict[str, Any], user_text: str, context: WorkflowConte
     if steps:
         return steps[:MAX_WORKFLOW_STEPS]
     fallback = _fallback_script(user_text, context, reason="planner returned no valid tasks")
-    return _script_steps(fallback, user_text, context)
+    return _script_steps(fallback, user_text, context, infer_tools=infer_tools)
+
+
+def _semantic_tool_inference_enabled(script: dict[str, Any]) -> bool:
+    runtime = script.get("runtime") if isinstance(script.get("runtime"), dict) else {}
+    return str(runtime.get("planner") or "") == "model_script"
 
 
 def _phase_steps(
@@ -889,11 +921,13 @@ def _phase_steps(
     user_text: str,
     args_text: str,
     allowed_tool_names: set[str] | None,
+    *,
+    infer_tools: bool,
 ) -> list[WorkflowStep]:
     phase_id = _slug(phase.get("id") or phase.get("title") or "phase")
     steps: list[WorkflowStep] = []
     for task in _phase_tasks(phase):
-        step = _task_step(task, phase_id, user_text, args_text, allowed_tool_names)
+        step = _task_step(task, phase_id, user_text, args_text, allowed_tool_names, infer_tools=infer_tools)
         if step:
             steps.append(step)
     return steps
@@ -905,6 +939,8 @@ def _task_step(
     user_text: str,
     args_text: str,
     allowed_tool_names: set[str] | None,
+    *,
+    infer_tools: bool,
 ) -> WorkflowStep | None:
     if not _generated_task_like(task):
         return None
@@ -927,7 +963,7 @@ def _task_step(
         risk_guard=_task_meta(task, ("risk_guard", "guard", "guardrail", "guardrails", "boundary", "constraints")),
         phase=phase_id,
         depends_on=_task_dependencies(task),
-        tool_scope=_task_tool_scope(task, allowed_tool_names),
+        tool_scope=_task_tool_scope(task, allowed_tool_names, infer_tools=infer_tools),
         dynamic=True,
     )
 
@@ -970,6 +1006,8 @@ def _first_task_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
 def _task_tool_scope(
     task: dict[str, Any],
     allowed_tool_names: set[str] | None = None,
+    *,
+    infer_tools: bool = True,
 ) -> tuple[str, ...]:
     names: list[str] = []
     for field in TOOL_SCOPE_FIELDS:
@@ -977,7 +1015,97 @@ def _task_tool_scope(
             if name := _tool_name(item):
                 names.append(name)
     explicit = tuple(dict.fromkeys(names))
-    return _filter_tool_scope(explicit, allowed_tool_names) if explicit else ()
+    if explicit:
+        return _filter_tool_scope(explicit, allowed_tool_names)
+    if not infer_tools:
+        return ()
+    inferred = _inferred_task_tool_scope(task, allowed_tool_names)
+    return _filter_tool_scope(inferred, allowed_tool_names) if inferred else ()
+
+
+def _inferred_task_tool_scope(task: dict[str, Any], allowed_tool_names: set[str] | None) -> tuple[str, ...]:
+    text = _task_intent_text(task)
+    if not text or _looks_like_tool_explainer(text):
+        return ()
+    names = [
+        name
+        for name in (
+            "portfolio",
+            "get_market_overview",
+            "screen_stocks",
+            "analyze_stock",
+            "generate_ai_report",
+            "generate_strategy_decision",
+            "run_backtest",
+        )
+        if _tool_allowed_for_inference(name, allowed_tool_names) and _task_text_matches_tool_intent(name, text)
+    ]
+    return tuple(dict.fromkeys(names))
+
+
+def _task_intent_text(task: dict[str, Any]) -> str:
+    parts = [
+        task.get("title"),
+        task.get("name"),
+        task.get("id"),
+        *(task.get(field) for field in PROMPT_FIELDS),
+        task.get("context"),
+        task.get("rationale"),
+        task.get("success_criteria"),
+    ]
+    return _compact_task_text(" ".join(str(part or "") for part in parts))
+
+
+def _looks_like_tool_explainer(text: str) -> bool:
+    return any(marker in text for marker in _STOCK_FALLBACK_EXPLAINERS)
+
+
+def _tool_allowed_for_inference(name: str, allowed_tool_names: set[str] | None) -> bool:
+    return allowed_tool_names is None or name in allowed_tool_names
+
+
+def _task_text_matches_tool_intent(name: str, text: str) -> bool:
+    if name == "portfolio":
+        return not _looks_like_synthesis_intent_text(text) and any(
+            marker in text for marker in _TASK_PORTFOLIO_INTENT_MARKERS
+        )
+    if name == "get_market_overview":
+        return not _looks_like_synthesis_intent_text(text) and any(
+            marker in text for marker in _TASK_MARKET_INTENT_MARKERS
+        )
+    if name == "screen_stocks":
+        return any(marker in text for marker in _TASK_SCREEN_INTENT_MARKERS)
+    if name == "analyze_stock":
+        return _task_text_matches_stock_analysis(text)
+    if name == "generate_ai_report":
+        return any(marker in text for marker in _TASK_REPORT_INTENT_MARKERS)
+    if name == "generate_strategy_decision":
+        return any(marker in text for marker in _TASK_DECISION_INTENT_MARKERS)
+    if name == "run_backtest":
+        return any(marker in text for marker in _TASK_BACKTEST_INTENT_MARKERS)
+    return False
+
+
+def _task_text_matches_stock_analysis(text: str) -> bool:
+    if _task_text_has_stock_identifier(text):
+        return True
+    if "结构诊断" in text or "个股诊断" in text:
+        return True
+    return "诊断" in text and any(marker in text for marker in _TASK_ANALYZE_STOCK_TARGET_MARKERS)
+
+
+def _looks_like_synthesis_intent_text(text: str) -> bool:
+    return any(marker in text for marker in _SYNTHESIS_TASK_MARKERS) and any(
+        marker in text for marker in _SYNTHESIS_CONTEXT_MARKERS
+    )
+
+
+def _task_text_has_stock_identifier(text: str) -> bool:
+    return bool(
+        re.search(r"\b\d{6}\b", text)
+        or re.search(r"\b[A-Z]{1,6}\.(?:US|HK)\b", text, re.IGNORECASE)
+        or re.search(r"\b\d{5}\.HK\b", text, re.IGNORECASE)
+    )
 
 
 def _context_tool_names(context: WorkflowContext) -> set[str]:

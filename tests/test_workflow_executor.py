@@ -2324,7 +2324,7 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert events[0]["plan"]["label"] == "持仓复盘"
         assert events[0]["plan"]["script"]["title"] == "持仓复盘"
         assert events[0]["plan"]["steps"][0]["agent"] == "task"
-        assert events[0]["plan"]["steps"][0]["tool_scope"] == []
+        assert events[0]["plan"]["steps"][0]["tool_scope"] == ["portfolio"]
         assert "portfolio" in events[0]["plan"]["steps"][0]["effective_tool_scope"]
         assert any(event["type"] == "workflow_step_start" for event in events)
         assert any(event["type"] == "workflow_done" for event in events)
@@ -2361,7 +2361,7 @@ def test_workflow_executor_adapts_remaining_steps_after_phase_results(tmp_path, 
         "phases": [
             {
                 "id": "scan",
-                "tasks": [{"id": "scan", "title": "扫描候选", "prompt": "扫描候选"}],
+                "tasks": [{"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描候选"}],
             },
             {
                 "id": "followup",
@@ -2369,6 +2369,7 @@ def test_workflow_executor_adapts_remaining_steps_after_phase_results(tmp_path, 
                     {
                         "id": "report",
                         "title": "生成候选研报",
+                        "tools": ["generate_ai_report"],
                         "depends_on": ["scan"],
                         "prompt": "基于候选生成研报",
                     }
@@ -2387,6 +2388,7 @@ def test_workflow_executor_adapts_remaining_steps_after_phase_results(tmp_path, 
                     {
                         "id": "decision",
                         "title": "形成攻防计划",
+                        "tools": ["generate_strategy_decision"],
                         "depends_on": ["scan"],
                         "prompt": "基于扫描结果给 300750 输出触发位、失效位和下一步动作。",
                     }
@@ -2398,8 +2400,20 @@ def test_workflow_executor_adapts_remaining_steps_after_phase_results(tmp_path, 
     provider = ScriptedProvider(
         rounds=[
             [{"type": "text_delta", "text": json.dumps(initial_plan, ensure_ascii=False)}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {}}],
+                }
+            ],
             [{"type": "text_delta", "text": "扫描完成：300750 候选明确，不需要研报。"}],
             [{"type": "text_delta", "text": json.dumps(adapted_plan, ensure_ascii=False)}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_decision", "name": "generate_strategy_decision", "args": {}}],
+                }
+            ],
             [{"type": "text_delta", "text": "攻防完成：等待回踩确认，跌破结构失效。"}],
             [{"type": "text_delta", "text": "300750 可复核，下一步等回踩确认。"}],
         ]
@@ -2445,9 +2459,9 @@ def test_workflow_executor_adapts_remaining_steps_after_phase_results(tmp_path, 
         assert "report" not in step_ids
         assert any(row["event_type"] == "workflow_plan_update" for row in stored_events)
         assert run and [step["step_id"] for step in run["plan"]["steps"]] == ["scan", "decision"]
-        assert "已完成结果" in provider.calls[2]["messages"][0]["content"]
-        assert "生成候选研报" in provider.calls[2]["messages"][0]["content"]
-        assert provider.calls[3]["messages"][0]["content"].startswith("基于扫描结果给 300750")
+        assert "已完成结果" in provider.calls[3]["messages"][0]["content"]
+        assert "生成候选研报" in provider.calls[3]["messages"][0]["content"]
+        assert provider.calls[4]["messages"][0]["content"].startswith("基于扫描结果给 300750")
         assert events[-1]["text"] == "300750 可复核，下一步等回踩确认。"
     finally:
         _reset_local_db(local_db)
@@ -2460,13 +2474,25 @@ def test_workflow_executor_can_stop_remaining_steps_after_adaptation(tmp_path, m
         "title": "自适应复核",
         "runtime": {"adaptive": True},
         "phases": [
-            {"id": "scan", "tasks": [{"id": "scan", "title": "扫描候选", "prompt": "扫描候选"}]},
-            {"id": "report", "tasks": [{"id": "report", "title": "生成研报", "prompt": "生成研报"}]},
+            {
+                "id": "scan",
+                "tasks": [{"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描候选"}],
+            },
+            {
+                "id": "report",
+                "tasks": [{"id": "report", "title": "生成研报", "tools": ["generate_ai_report"], "prompt": "生成研报"}],
+            },
         ],
     }
     provider = ScriptedProvider(
         rounds=[
             [{"type": "text_delta", "text": json.dumps(initial_plan, ensure_ascii=False)}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {}}],
+                }
+            ],
             [{"type": "text_delta", "text": "没有可靠候选，后续研报不应继续。"}],
             [
                 {
@@ -2503,7 +2529,7 @@ def test_workflow_executor_can_stop_remaining_steps_after_adaptation(tmp_path, m
         assert update["plan"]["script"]["runtime"]["adapted_skipped_step_count"] == 1
         assert update["plan"]["script"]["runtime"]["adapted_removed_step_ids"] == ["report"]
         assert update["plan"]["script"]["synthesis_prompt"] == "说明没有可靠候选和下一步修复动作。"
-        assert len(provider.calls) == 4
+        assert len(provider.calls) == 5
         assert events[-1]["text"] == "没有可靠候选，先修复数据质量。"
     finally:
         _reset_local_db(local_db)
