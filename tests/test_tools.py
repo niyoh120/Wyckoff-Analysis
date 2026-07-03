@@ -2745,8 +2745,12 @@ class TestSymbolPool:
         assert result["scan_scope"]["preference_match"] == {"theme": "miss"}
         assert result["selection_brief"]["primary_pick"]["code"] == "000001"
         assert "theme_match" not in result["selection_brief"]["primary_pick"]
+        assert "主题偏好未命中: 机器人" in result["selection_brief"]["primary_pick"]["risk_factors"]
+        assert "主题偏好未命中: 机器人" in result["action_plan"]["report_candidates"][0]["risk_factors"]
+        assert "主题偏好未命中: 机器人" in result["top_candidates"][0]["risk_factors"]
         assert ctx.state["last_screen_result"]["preference_match"] == {"theme": "miss"}
         assert ctx.state["last_screen_result"]["scan_scope"]["preference_match"] == {"theme": "miss"}
+        assert "主题偏好未命中: 机器人" in ctx.state["last_screen_result"]["report_candidates"][0]["risk_factors"]
 
     def test_screen_stocks_surfaces_shadow_score_for_candidate_review(self, monkeypatch):
         from agents import screen_tools

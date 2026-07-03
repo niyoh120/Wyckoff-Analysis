@@ -132,13 +132,19 @@ def _build_screen_result(
     style_preference, theme_preference, top_candidates = _preferred_ranked_candidates(
         style, theme, trigger_groups, symbols, details
     )
+    preference_match = _preference_match_summary(style_preference, theme_preference, top_candidates)
+    top_candidates = _annotate_preference_miss_risks(
+        top_candidates,
+        style_preference,
+        theme_preference,
+        preference_match,
+    )
     summary = _screen_summary(metrics, symbols)
     data_quality = _data_quality_summary(metrics, summary)
     decision_brief = _decision_brief(trade_mode, top_candidates, data_quality)
     selection_brief = _selection_brief(trade_mode, top_candidates, data_quality)
     action_plan = _action_plan(trade_mode, top_candidates, data_quality)
     top_candidates = _annotate_top_candidate_actions(top_candidates, action_plan)
-    preference_match = _preference_match_summary(style_preference, theme_preference, top_candidates)
     decision_state = _screen_decision_state(selection_brief, action_plan, trade_mode)
     symbols_for_report = list(action_plan.get("report_candidates") or [])
     watch_candidates = list(action_plan.get("watch_candidates") or [])
@@ -1272,6 +1278,7 @@ def _candidate_risk_factors(
     data_quality: dict | None = None,
 ) -> list[str]:
     factors: list[str] = []
+    factors.extend(str(item) for item in row.get("risk_factors") or [])
     if bucket == "watch" or not bool(row.get("selected_for_report")):
         factors.append("未进入本轮研报候选")
     if not row.get("triggers") and not row.get("selected_for_report"):
@@ -1565,6 +1572,43 @@ def _preference_match_summary(
             "theme": _preference_match_status(candidates, "theme") if _has_theme_preference(theme_preference) else "",
         }
     )
+
+
+def _annotate_preference_miss_risks(
+    candidates: list[dict],
+    style_preference: dict[str, Any],
+    theme_preference: dict[str, Any],
+    preference_match: dict[str, str],
+) -> list[dict]:
+    risks = _preference_miss_risk_factors(style_preference, theme_preference, preference_match)
+    if not risks:
+        return candidates
+    out: list[dict] = []
+    for row in candidates:
+        payload = dict(row)
+        payload["risk_factors"] = list(dict.fromkeys([*payload.get("risk_factors", []), *risks]))
+        out.append(payload)
+    return out
+
+
+def _preference_miss_risk_factors(
+    style_preference: dict[str, Any],
+    theme_preference: dict[str, Any],
+    preference_match: dict[str, str],
+) -> list[str]:
+    risks: list[str] = []
+    if preference_match.get("style") == "miss":
+        labels = _style_preference_labels(style_preference)
+        risks.append(f"风格偏好未命中: {'/'.join(labels)}" if labels else "风格偏好未命中")
+    if preference_match.get("theme") == "miss":
+        theme = str(theme_preference.get("theme") or theme_preference.get("raw") or "").strip()
+        risks.append(f"主题偏好未命中: {theme}" if theme else "主题偏好未命中")
+    return risks
+
+
+def _style_preference_labels(style_preference: dict[str, Any]) -> list[str]:
+    labels = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
+    return [labels.get(str(item), str(item)) for item in style_preference.get("styles") or [] if str(item)]
 
 
 def _preference_match_status(candidates: list[dict], prefix: str) -> str:
