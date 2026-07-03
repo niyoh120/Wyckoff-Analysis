@@ -2322,6 +2322,55 @@ def test_workflow_synthesis_handoff_summary_merges_name_only_candidate_conclusio
     assert "候选结论: 首选 300750 宁德时代" in conclusion["line"]
 
 
+def test_workflow_synthesis_handoff_summary_does_not_merge_ambiguous_name_only_candidate():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "symbols_for_report": [
+                            {
+                                "code": "000001",
+                                "name": "同名科技",
+                                "candidate_shadow_score": 92.0,
+                            },
+                            {
+                                "code": "000002",
+                                "name": "同名科技",
+                                "candidate_shadow_score": 91.0,
+                            },
+                        ]
+                    }
+                }
+            },
+        },
+        {
+            "step": {"step_id": "decision", "title": "攻防决策"},
+            "result": {
+                "handoff_state": {
+                    "last_strategy_decision": {
+                        "reviewed_symbols": [
+                            {
+                                "name": "同名科技",
+                                "action_status": "ready_for_ai_review",
+                                "next_step": "等待确认具体代码",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+    ]
+
+    conclusions = _synthesis_handoff_summary(results)[0]["candidate_conclusions"]
+
+    assert conclusions[0]["name"] == "同名科技"
+    assert "code" not in conclusions[0]
+    assert "evidence" not in conclusions[0]
+    assert [item.get("code") for item in conclusions[1:]] == ["000001", "000002"]
+
+
 def test_workflow_synthesis_handoff_summary_keeps_multiple_candidate_conclusions():
     results = [
         {

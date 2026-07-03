@@ -1633,6 +1633,7 @@ def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "", read
 
 def _fallback_merged_candidate(row: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
     merged: dict[str, Any] = {}
+    allow_name_match = not _ambiguous_name_match(row, handoff)
     for stage in (
         "last_screen_result",
         "last_recommendation_event_eval",
@@ -1644,10 +1645,35 @@ def _fallback_merged_candidate(row: dict[str, Any], handoff: dict[str, Any]) -> 
         if not isinstance(value, dict):
             continue
         for candidate in _fallback_stage_candidates(stage, value):
-            if _candidate_matches(candidate, row):
+            if _candidate_matches(candidate, row, allow_name_match=allow_name_match):
                 merged.update(_drop_empty(candidate))
     merged.update(_drop_empty(row))
     return merged
+
+
+def _ambiguous_name_match(row: dict[str, Any], handoff: dict[str, Any]) -> bool:
+    if str(row.get("code") or "").strip():
+        return False
+    name = str(row.get("name") or "").strip()
+    if not name:
+        return False
+    codes: set[str] = set()
+    for stage in (
+        "last_screen_result",
+        "last_recommendation_event_eval",
+        "last_stock_diagnosis",
+        "last_ai_report",
+        "last_strategy_decision",
+    ):
+        value = handoff.get(stage)
+        if not isinstance(value, dict):
+            continue
+        for candidate in _fallback_stage_candidates(stage, value):
+            if str(candidate.get("name") or "").strip() == name and (code := str(candidate.get("code") or "").strip()):
+                codes.add(code)
+            if len(codes) > 1:
+                return True
+    return False
 
 
 def _fallback_candidate_name(row: dict[str, Any]) -> str:
@@ -2034,11 +2060,13 @@ def _fallback_stage_candidates(stage: str, value: dict[str, Any]) -> list[dict[s
     return [row for row in rows if isinstance(row, dict)]
 
 
-def _candidate_matches(candidate: dict[str, Any], target: dict[str, Any]) -> bool:
+def _candidate_matches(candidate: dict[str, Any], target: dict[str, Any], *, allow_name_match: bool = True) -> bool:
     code = str(target.get("code") or "").strip()
     candidate_code = str(candidate.get("code") or "").strip()
     if code and candidate_code:
         return code == candidate_code
+    if not allow_name_match:
+        return False
     name = str(target.get("name") or "").strip()
     candidate_name = str(candidate.get("name") or "").strip()
     return bool(name and candidate_name and name == candidate_name)
