@@ -335,7 +335,7 @@ def test_screen_stocks_brief_lines_surface_bounded_scan_scope():
     lines = tool_result_brief_lines("screen_stocks", result)
 
     assert lines[:2] == [
-        "快扫: all 前1200只，实际扫描1200只，财务过滤: 快扫跳过；筛选偏好: 风格=低吸；主题=机器人",
+        "快扫: all 前1200只，实际扫描1200只，财务过滤: 快扫跳过；筛选偏好: 风格=低吸(未命中)；主题=机器人(未命中)",
         "本轮只有观察候选: 002326 永太科技",
     ]
 
@@ -532,6 +532,7 @@ def test_screen_stocks_preview_surfaces_theme_preference_and_match():
     lines = tool_result_brief_lines("screen_stocks", result)
 
     assert preview["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
+    assert preview["preference_match"] == {"theme": "hit"}
     assert preview["top_candidates"][0]["theme_match"] is True
     assert preview["top_candidates"][0]["theme_match_reasons"] == ["主题偏好: 机器人"]
     assert lines == [
@@ -562,6 +563,7 @@ def test_screen_stocks_brief_prioritizes_preference_reasons():
 
     assert preview["style_preference"] == {"raw": "trend", "styles": ["trend"]}
     assert preview["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
+    assert preview["preference_match"] == {"style": "hit", "theme": "hit"}
     assert preview["candidate_conclusion"]["quality_factors"][:4] == [
         "趋势偏好: 趋势线",
         "主题偏好: 机器人",
@@ -572,6 +574,32 @@ def test_screen_stocks_brief_prioritizes_preference_reasons():
         "本轮首选可进入 AI 研报复核: 000012 机器人候选",
         "筛选偏好: 风格=趋势；主题=机器人",
         "候选结论: 首选 000012 机器人候选 · 可进入AI复核 · 亮点: 趋势偏好: 趋势线；主题偏好: 机器人",
+    ]
+
+
+def test_screen_stocks_brief_surfaces_preference_miss():
+    result = {
+        "style_preference": {"raw": "trend", "styles": ["trend"]},
+        "theme_preference": {"raw": "机器人", "theme": "机器人"},
+        "selection_brief": {
+            "headline": "本轮首选可进入 AI 研报复核: 000012 非主题候选",
+            "primary_pick": {
+                "code": "000012",
+                "name": "非主题候选",
+                "action_status": "ready_for_ai_review",
+                "quality_factors": ["高质量研报候选"],
+            },
+        },
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert preview["preference_match"] == {"style": "miss", "theme": "miss"}
+    assert lines == [
+        "本轮首选可进入 AI 研报复核: 000012 非主题候选",
+        "筛选偏好: 风格=趋势(未命中)；主题=机器人(未命中)",
+        "候选结论: 首选 000012 非主题候选 · 可进入AI复核 · 亮点: 高质量研报候选",
     ]
 
 

@@ -1133,6 +1133,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "scan_scope": result.get("scan_scope"),
             "style_preference": result.get("style_preference"),
             "theme_preference": result.get("theme_preference"),
+            "preference_match": _screen_preference_match_preview(result),
             "summary": result.get("summary"),
             "data_quality": result.get("data_quality"),
             "trade_mode": result.get("trade_mode"),
@@ -1257,16 +1258,57 @@ def _screen_financial_scope_suffix(value: dict[str, Any]) -> str:
 
 
 def _screen_preference_brief_line(result: dict[str, Any]) -> str:
+    match = _screen_preference_match_preview(result)
     parts = [
-        _preference_part("风格", _style_preference_text(result.get("style_preference"))),
-        _preference_part("主题", _theme_preference_text(result.get("theme_preference"))),
+        _preference_part("风格", _style_preference_text(result.get("style_preference")), match.get("style")),
+        _preference_part("主题", _theme_preference_text(result.get("theme_preference")), match.get("theme")),
     ]
     text = "；".join(part for part in parts if part)
     return f"筛选偏好: {text}" if text else ""
 
 
-def _preference_part(label: str, text: str) -> str:
-    return f"{label}={text}" if text else ""
+def _preference_part(label: str, text: str, match_status: str = "") -> str:
+    suffix = "(未命中)" if match_status == "miss" else ""
+    return f"{label}={text}{suffix}" if text else ""
+
+
+def _screen_preference_match_preview(result: dict[str, Any]) -> dict[str, str]:
+    rows = _screen_candidate_rows(result)
+    return _drop_empty_preview_fields(
+        {
+            "style": _preference_match_status(rows, "style")
+            if _has_style_preference(result.get("style_preference"))
+            else "",
+            "theme": _preference_match_status(rows, "theme")
+            if _has_theme_preference(result.get("theme_preference"))
+            else "",
+        }
+    )
+
+
+def _preference_match_status(rows: list[dict[str, Any]], prefix: str) -> str:
+    if any(_candidate_matches_preference(row, prefix) for row in rows):
+        return "hit"
+    return "miss"
+
+
+def _candidate_matches_preference(row: dict[str, Any], prefix: str) -> bool:
+    if row.get(f"{prefix}_match") is True:
+        return True
+    try:
+        if int(row.get(f"{prefix}_match_score") or 0) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return bool(_preview_list(row.get(f"{prefix}_match_reasons"), 1))
+
+
+def _has_style_preference(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value.get("styles") or str(value.get("raw") or "").strip())
+
+
+def _has_theme_preference(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value.get("theme") or str(value.get("raw") or "").strip())
 
 
 def _style_preference_text(value: Any) -> str:
