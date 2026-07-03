@@ -1087,7 +1087,7 @@ def test_workflow_background_event_summary_keeps_handoff_evidence():
     )
 
     assert summary["step"]["title"] == "形成攻防"
-    assert summary["step"]["evidence"][0].startswith("攻防决策: status=skipped_notify_unconfigured")
+    assert summary["step"]["evidence"][0].startswith("攻防决策: 未发送工单")
     assert "候选结论: 阻断候选 300750 宁德时代" in summary["step"]["evidence"][1]
 
 
@@ -1357,9 +1357,9 @@ def test_display_workflow_step_event_prioritizes_current_tool_handoff():
     rendered = "\n".join(str(item) for item in writes)
     assert "形成攻防" in rendered
     assert "工具: 攻防决策" in rendered
-    assert "证据: 攻防决策: status=skipped_notify_unconfigured" in str(writes[1])
+    assert "证据: 攻防决策: 未发送工单" in str(writes[1])
     assert "本轮首选可进入 AI 研报复核" not in str(writes[1])
-    assert rendered.index("攻防决策: status=skipped_notify_unconfigured") < rendered.index("本轮首选可进入 AI 研报复核")
+    assert rendered.index("攻防决策: 未发送工单") < rendered.index("本轮首选可进入 AI 研报复核")
 
 
 def test_tool_result_view_surfaces_screen_candidate_risk():
@@ -1549,8 +1549,8 @@ def test_workflow_detail_step_line_surfaces_handoff_evidence():
 
     assert "decision" in line
     assert "形成攻防" in line
-    assert "证据: 攻防决策: status=skipped_notify_unconfigured" in line
-    assert line.index("攻防决策: status=skipped_notify_unconfigured") < line.index("本轮首选可进入 AI 研报复核")
+    assert "证据: 攻防决策: 未发送工单" in line
+    assert line.index("攻防决策: 未发送工单") < line.index("本轮首选可进入 AI 研报复核")
 
 
 def test_workflow_detail_step_line_includes_effective_tool_scope():

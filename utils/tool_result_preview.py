@@ -726,15 +726,51 @@ def _strategy_decision_brief_lines(result: dict[str, Any], *, max_lines: int) ->
 
 def _strategy_stage_line(result: dict[str, Any]) -> str:
     parts = [
-        _key_value("status", result.get("status") or result.get("reason")),
-        _key_value("blocker", _strategy_blocker_label(result.get("status"))),
-        _key_value("source", result.get("report_source")),
-        _key_value("reviewed", _reviewed_count(result)),
-        _key_value("reason", _strategy_blocker_reason(result)),
-        _key_value("next", result.get("next_action") or result.get("message")),
+        _strategy_status_label(result),
+        _strategy_label_part("来源", _strategy_source_label(result.get("report_source"))),
+        _strategy_label_part("已复核", _strategy_reviewed_label(_reviewed_count(result))),
+        _strategy_label_part("原因", _strategy_blocker_reason(result)),
+        _strategy_label_part("下一步", result.get("next_action") or result.get("message")),
     ]
-    detail = ", ".join(part for part in parts if part)
+    detail = " · ".join(part for part in parts if part)
     return f"攻防决策: {detail}" if detail else ""
+
+
+def _strategy_status_label(result: dict[str, Any]) -> str:
+    status = str(result.get("status") or result.get("reason") or "").strip()
+    if label := _strategy_blocker_label(status):
+        return label
+    if status == "skipped_notify_unconfigured":
+        return "未发送工单"
+    if result.get("ok") is True:
+        return "已完成"
+    if result.get("ok") is False:
+        return "未完成"
+    return status
+
+
+def _strategy_label_part(label: str, value: Any) -> str:
+    if value in (None, "", [], {}):
+        return ""
+    return f"{label}: {_text_excerpt(value, 120)}"
+
+
+def _strategy_source_label(value: Any) -> str:
+    source = str(value or "").strip()
+    return {
+        "last_ai_report": "上一轮AI研报",
+        "generated_from_candidates": "候选自动研报",
+        "provided": "外部研报",
+        "blocked_by_screen_data_quality": "筛选数据质量阻断",
+        "blocked_by_screen_quality_gate": "筛选质量门槛阻断",
+        "blocked_by_screen_policy_guard": "筛选策略护栏阻断",
+        "blocked_by_screen_watch_only": "观察候选阻断",
+        "empty": "未提供研报",
+    }.get(source, source)
+
+
+def _strategy_reviewed_label(count: int) -> str:
+    return f"{count}只"
 
 
 def _strategy_blocker_label(status: Any) -> str:

@@ -898,7 +898,7 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
     assert "补充 Telegram 配置后可生成并发送 OMS 工单" in content
     assert result["report_preview"] not in content
     assert lines == [
-        "攻防决策: status=skipped_notify_unconfigured, source=last_ai_report, reviewed=1, next=补充 Telegram 配置后可生成并发送 OMS 工单",
+        "攻防决策: 未发送工单 · 来源: 上一轮AI研报 · 已复核: 1只 · 下一步: 补充 Telegram 配置后可生成并发送 OMS 工单",
         "候选结论: 阻断候选 300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 护栏: 候选状态 blocked_by_market_gate 不允许直接买入 · 下一步: 补充 Telegram 配置后可生成并发送 OMS 工单",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选状态 blocked_by_market_gate 不允许直接买入)",
     ]
@@ -920,9 +920,8 @@ def test_generate_strategy_decision_brief_labels_quality_gate_blocker():
 
     assert lines == [
         (
-            "攻防决策: status=blocked_by_quality_gate, blocker=候选质量门槛未过, "
-            "source=blocked_by_screen_quality_gate, reviewed=0, "
-            "reason=000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00, "
-            "next=先保留观察候选，等待风险调整质量分达标后再生成策略决策"
+            "攻防决策: 候选质量门槛未过 · 来源: 筛选质量门槛阻断 · 已复核: 0只 · "
+            "原因: 000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00 · "
+            "下一步: 先保留观察候选，等待风险调整质量分达标后再生成策略决策"
         )
     ]

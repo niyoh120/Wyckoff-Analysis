@@ -1620,7 +1620,7 @@ def test_workflow_executor_empty_synthesis_uses_candidate_fallback(tmp_path, mon
         assert "候选影子S/92" in final_text
         assert "下一步: 生成 AI 研报" in final_text
         assert "AI研报: reviewed=1, model=gpt-test, next=研报已完成，可进入组合攻防决策" in final_text
-        assert "攻防决策: status=skipped_notify_unconfigured, source=last_ai_report" in final_text
+        assert "攻防决策: 未发送工单 · 来源: 上一轮AI研报" in final_text
         assert "候选护栏: 1只禁止直接买入" in final_text
         assert "候选标签未成熟，禁止直接买入" in final_text
         assert "等待通知配置后生成 OMS 工单" in final_text
