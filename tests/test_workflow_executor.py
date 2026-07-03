@@ -536,9 +536,14 @@ def test_workflow_planner_fallback_builds_stock_selection_tool_chain():
         context=route_workflow("用 workflow 完整做一遍今天的 A 股选股，给出候选、理由和买卖计划"),
     )
 
-    assert [step.step_id for step in run.steps] == ["scan_candidates", "strategy_decision"]
-    assert [step.tool_scope for step in run.steps] == [("screen_stocks",), ("generate_strategy_decision",)]
+    assert [step.step_id for step in run.steps] == ["scan_candidates", "diagnose_candidates", "strategy_decision"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("screen_stocks",),
+        ("analyze_stock",),
+        ("generate_strategy_decision",),
+    ]
     assert run.steps[1].depends_on == ("scan_candidates",)
+    assert run.steps[2].depends_on == ("diagnose_candidates", "scan_candidates")
     assert "用户原文" in run.steps[0].prompt
     assert "A 股选股" in run.steps[0].prompt
     assert run.script["runtime"] == {
@@ -554,14 +559,21 @@ def test_workflow_planner_stock_fallback_adds_report_when_requested():
         context=WORKFLOWS["dynamic_task"],
     )
 
-    assert [step.step_id for step in run.steps] == ["scan_candidates", "ai_report", "strategy_decision"]
+    assert [step.step_id for step in run.steps] == [
+        "scan_candidates",
+        "diagnose_candidates",
+        "ai_report",
+        "strategy_decision",
+    ]
     assert [step.tool_scope for step in run.steps] == [
         ("screen_stocks",),
+        ("analyze_stock",),
         ("generate_ai_report",),
         ("generate_strategy_decision",),
     ]
     assert run.steps[1].depends_on == ("scan_candidates",)
-    assert run.steps[2].depends_on == ("ai_report",)
+    assert run.steps[2].depends_on == ("diagnose_candidates", "scan_candidates")
+    assert run.steps[3].depends_on == ("ai_report",)
     assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
@@ -571,8 +583,10 @@ def test_workflow_planner_short_stock_fallback_scans_candidates():
         context=WORKFLOWS["dynamic_task"],
     )
 
-    assert [step.step_id for step in run.steps] == ["scan_candidates"]
+    assert [step.step_id for step in run.steps] == ["scan_candidates", "diagnose_candidates"]
     assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[1].tool_scope == ("analyze_stock",)
+    assert run.steps[1].depends_on == ("scan_candidates",)
     assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
@@ -2462,6 +2476,64 @@ def test_workflow_executor_retries_scoped_report_task_until_tool_runs(tmp_path, 
         assert detail["tool_calls"] == ["generate_ai_report"]
         assert [call["name"] for call in tools.calls] == ["generate_ai_report"]
         assert events[-1]["text"] == "已汇总研报结果。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_executor_retries_stock_diagnosis_until_analyze_stock_runs(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-diagnosis-expectation.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "我先口头判断结构。"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {"id": "tc_analyze", "name": "analyze_stock", "args": {"code": "300750", "mode": "diagnose"}}
+                    ],
+                }
+            ],
+            [{"type": "text_delta", "text": "个股诊断工具已完成。"}],
+            [{"type": "text_delta", "text": "已汇总诊断结果。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=[
+            {"name": "analyze_stock", "description": "Mock analyze", "parameters": {"type": "object"}},
+        ],
+        tool_results={"analyze_stock": {"code": "300750", "stage": "Markup"}},
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_analyze_expectation",
+        user_text="用 workflow 诊断 300750",
+        workflow_context=route_workflow("用 workflow 诊断 300750"),
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "diagnose",
+                    "title": "诊断 300750",
+                    "tools": ["analyze_stock"],
+                    "args": {"code": "300750", "mode": "diagnose"},
+                    "prompt": "诊断 300750",
+                }
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 诊断 300750"}]))
+
+    try:
+        detail = next(event for event in events if event["type"] == "workflow_step_done")["source"]["agent_detail"]
+        assert detail["tool_scope"] == ["analyze_stock"]
+        assert detail["tool_calls"] == ["analyze_stock"]
+        assert [call["name"] for call in tools.calls] == ["analyze_stock"]
+        assert events[-1]["text"] == "已汇总诊断结果。"
     finally:
         _reset_local_db(local_db)
 

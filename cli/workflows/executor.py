@@ -52,6 +52,7 @@ _AGENTS: dict[str, SubAgent] = {
 }
 _TURN_EXPECTATION_TOOL_SCOPES = frozenset(
     {
+        "analyze_stock",
         "portfolio",
         "get_market_overview",
         "screen_stocks",

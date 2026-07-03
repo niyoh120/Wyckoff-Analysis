@@ -126,6 +126,7 @@ _FALLBACK_TOOLS_BY_AGENT = {
 }
 _WORKFLOW_EXPECTATION_TOOLS = frozenset(
     {
+        "analyze_stock",
         "portfolio",
         "get_market_overview",
         "screen_stocks",

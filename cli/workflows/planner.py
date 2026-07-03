@@ -1456,9 +1456,9 @@ def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -
 def _stock_selection_fallback_script(user_text: str, context: WorkflowContext, reason: str) -> dict[str, Any] | None:
     if context.name != "dynamic_task" or not _looks_like_stock_selection_delivery(user_text):
         return None
-    tasks = [_stock_scan_task(user_text)]
+    tasks = [_stock_scan_task(user_text), _stock_diagnosis_task()]
     if _wants_ai_report(user_text):
-        tasks.append(_stock_report_task())
+        tasks.append(_stock_report_task(depends_on=tasks[-1]["id"]))
     if _wants_strategy_decision(user_text):
         tasks.append(_stock_decision_task(depends_on=tasks[-1]["id"]))
     return {
@@ -1500,12 +1500,28 @@ def _stock_scan_task(user_text: str) -> dict[str, Any]:
     }
 
 
-def _stock_report_task() -> dict[str, Any]:
+def _stock_diagnosis_task() -> dict[str, Any]:
+    return {
+        "id": "diagnose_candidates",
+        "title": "诊断重点候选结构",
+        "tools": ["analyze_stock"],
+        "depends_on": ["scan_candidates"],
+        "prompt": (
+            "基于上一阶段 screen_stocks 的 handoff，对重点候选逐个做个股结构诊断。"
+            "优先使用 tool args hint 里的 targets，不要让缺少手写代码阻塞执行。"
+        ),
+        "rationale": "筛股结果需要经过个股结构诊断，才能更接近可复核的好股票。",
+        "success_criteria": "输出重点候选的阶段、供需、触发位、失效位和主要风险。",
+        "risk_guard": "只做结构诊断，不输出直接买入或交易执行指令。",
+    }
+
+
+def _stock_report_task(depends_on: str = "scan_candidates") -> dict[str, Any]:
     return {
         "id": "ai_report",
         "title": "生成候选研报",
         "tools": ["generate_ai_report"],
-        "depends_on": ["scan_candidates"],
+        "depends_on": [depends_on],
         "prompt": "基于上一阶段候选生成 AI 研报，保留结构、逻辑破产条件、储备营地和起跳板证据。",
         "rationale": "用户要求研报或深度复核时，需要在候选之后补充结构化研究。",
         "success_criteria": "候选研报包含结构判断、失效条件和可继续复核的对象。",
