@@ -67,8 +67,11 @@ def generate_strategy_decision(
             report_source = "generated_from_candidates" if report_text else "empty"
         token = get_credential(tool_context, "tg_bot_token", "TG_BOT_TOKEN")
         chat_id = get_credential(tool_context, "tg_chat_id", "TG_CHAT_ID")
-        if not token or not chat_id:
-            result = _strategy_without_telegram(screen_payload or {}, report_text, candidate_meta, report_source)
+        missing_credentials = _missing_telegram_credentials(token, chat_id)
+        if missing_credentials:
+            result = _strategy_without_telegram(
+                screen_payload or {}, report_text, candidate_meta, report_source, missing_credentials
+            )
             remember_strategy_decision(tool_context, result)
             return result
         ok, reason = _run_strategy_step4(
@@ -265,6 +268,7 @@ def _strategy_without_telegram(
     report_text: str,
     candidate_meta: list[dict],
     report_source: str,
+    missing_credentials: list[str],
 ) -> dict:
     payload = _strategy_payload(
         True,
@@ -276,10 +280,20 @@ def _strategy_without_telegram(
     payload.update(
         {
             "message": "已完成候选和研报交接，但未配置 Telegram，OMS 交易工单不会生成或发送。",
+            "missing_credentials": missing_credentials,
             "report_preview": (report_text[:2000] + "...") if len(report_text) > 2000 else report_text,
         }
     )
     return payload
+
+
+def _missing_telegram_credentials(token: str, chat_id: str) -> list[str]:
+    missing: list[str] = []
+    if not str(token or "").strip():
+        missing.append("TG_BOT_TOKEN")
+    if not str(chat_id or "").strip():
+        missing.append("TG_CHAT_ID")
+    return missing
 
 
 def _strategy_blocked_by_screen_handoff(screen_result: dict, reason: str) -> dict:

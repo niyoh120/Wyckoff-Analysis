@@ -797,6 +797,7 @@ def _strategy_decision_preview(result: dict[str, Any]) -> str:
             "screen_summary": result.get("screen_summary"),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "next_action": result.get("next_action"),
+            "missing_credentials": _preview_list(result.get("missing_credentials"), 4),
             "message": result.get("message"),
             "report_preview": _text_excerpt(result.get("report_preview"), 1000),
         }
@@ -851,6 +852,7 @@ def _strategy_stage_line(result: dict[str, Any]) -> str:
         _strategy_label_part("来源", _strategy_source_label(result.get("report_source"))),
         _strategy_label_part("已复核", _strategy_reviewed_label(_reviewed_count(result))),
         _strategy_label_part("原因", _strategy_blocker_reason(result)),
+        _strategy_missing_credentials_part(result.get("missing_credentials")),
         _strategy_label_part("下一步", result.get("next_action") or result.get("message")),
     ]
     detail = " · ".join(part for part in parts if part)
@@ -874,6 +876,11 @@ def _strategy_label_part(label: str, value: Any) -> str:
     if value in (None, "", [], {}):
         return ""
     return f"{label}: {_text_excerpt(value, 120)}"
+
+
+def _strategy_missing_credentials_part(value: Any) -> str:
+    items = [str(item).strip() for item in _preview_list(value, 4) if str(item).strip()]
+    return f"缺配置: {','.join(items)}" if items else ""
 
 
 def _strategy_source_label(value: Any) -> str:

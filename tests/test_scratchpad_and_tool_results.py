@@ -1267,6 +1267,7 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
             "report_focus": [{"code": "300750", "risk_factors": ["大盘风险闸门关闭"]}],
         },
         "next_action": "补充 Telegram 配置后可生成并发送 OMS 工单",
+        "missing_credentials": ["TG_BOT_TOKEN", "TG_CHAT_ID"],
         "message": "已完成候选和研报交接，但未配置 Telegram。",
         "report_preview": "研报摘要" * 500,
     }
@@ -1283,11 +1284,12 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
     assert '"candidate_conclusion": {"line": "候选结论: 阻断候选 300750 宁德时代' in content
     assert "护栏: 候选状态 blocked_by_market_gate 不允许直接买入" in content
     assert '"direct_buy_blocked_count": 1' in content
+    assert '"missing_credentials": ["TG_BOT_TOKEN", "TG_CHAT_ID"]' in content
     assert "候选状态 blocked_by_market_gate 不允许直接买入" in content
     assert "补充 Telegram 配置后可生成并发送 OMS 工单" in content
     assert result["report_preview"] not in content
     assert lines == [
-        "攻防决策: 未发送工单 · 来源: 上一轮AI研报 · 已复核: 1只 · 下一步: 补充 Telegram 配置后可生成并发送 OMS 工单",
+        "攻防决策: 未发送工单 · 来源: 上一轮AI研报 · 已复核: 1只 · 缺配置: TG_BOT_TOKEN,TG_CHAT_ID · 下一步: 补充 Telegram 配置后可生成并发送 OMS 工单",
         "候选结论: 阻断候选 300750 宁德时代 · 风险闸门关闭 · 风险: 大盘风险闸门关闭 · 护栏: 候选状态 blocked_by_market_gate 不允许直接买入 · 下一步: 补充 Telegram 配置后可生成并发送 OMS 工单",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选状态 blocked_by_market_gate 不允许直接买入)",
     ]

@@ -907,6 +907,7 @@ class TestStrategyDecisionTool:
         assert result["status"] == "skipped_notify_unconfigured"
         assert result["report_source"] == "last_ai_report"
         assert result["reviewed_codes"] == ["300750"]
+        assert result["missing_credentials"] == ["TG_BOT_TOKEN", "TG_CHAT_ID"]
         assert result["screen_summary"] == {"report_candidates": 1}
         assert result["candidate_guard_summary"] == {
             "direct_buy_blocked_count": 1,
