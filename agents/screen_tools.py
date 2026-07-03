@@ -138,6 +138,7 @@ def _build_screen_result(
     selection_brief = _selection_brief(trade_mode, top_candidates, data_quality)
     action_plan = _action_plan(trade_mode, top_candidates, data_quality)
     top_candidates = _annotate_top_candidate_actions(top_candidates, action_plan)
+    preference_match = _preference_match_summary(style_preference, theme_preference, top_candidates)
     decision_state = _screen_decision_state(selection_brief, action_plan, trade_mode)
     symbols_for_report = list(action_plan.get("report_candidates") or [])
     watch_candidates = list(action_plan.get("watch_candidates") or [])
@@ -150,6 +151,7 @@ def _build_screen_result(
         board=board,
         style_preference=style_preference,
         theme_preference=theme_preference,
+        preference_match=preference_match,
         include_financial_metrics=include_financial_metrics,
         metrics=metrics,
         trigger_groups=trigger_groups,
@@ -181,6 +183,7 @@ def _screen_result_payload(**payload: Any) -> dict[str, Any]:
         "board": payload["board"],
         "style_preference": payload["style_preference"],
         "theme_preference": payload["theme_preference"],
+        "preference_match": payload["preference_match"],
         "scan_scope": _scan_scope(
             payload["board"],
             summary,
@@ -188,6 +191,7 @@ def _screen_result_payload(**payload: Any) -> dict[str, Any]:
             payload["include_financial_metrics"],
             payload["style_preference"],
             payload["theme_preference"],
+            payload["preference_match"],
         ),
         "summary": summary,
         "data_quality": payload["data_quality"],
@@ -331,6 +335,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "board": result.get("board"),
         "style_preference": result.get("style_preference", {}),
         "theme_preference": result.get("theme_preference", {}),
+        "preference_match": result.get("preference_match", {}),
         "scan_scope": result.get("scan_scope", {}),
         "summary": result.get("summary", {}),
         "data_quality": result.get("data_quality", {}),
@@ -498,6 +503,7 @@ def _scan_scope(
     include_financial_metrics: bool,
     style_preference: dict[str, Any] | None = None,
     theme_preference: dict[str, Any] | None = None,
+    preference_match: dict[str, Any] | None = None,
 ) -> dict:
     limit = int(metrics.get("pool_limit", 0) or 0)
     scope = "bounded" if limit > 0 else "full"
@@ -513,6 +519,8 @@ def _scan_scope(
         payload["style_preference"] = style_preference
     if theme_preference:
         payload["theme_preference"] = theme_preference
+    if preference_match:
+        payload["preference_match"] = preference_match
     return payload
 
 
@@ -1501,6 +1509,42 @@ def _apply_theme_preference(candidates: list[dict], preference: dict[str, Any]) 
         )
     )
     return [row for _index, row in ranked]
+
+
+def _preference_match_summary(
+    style_preference: dict[str, Any], theme_preference: dict[str, Any], candidates: list[dict]
+) -> dict[str, str]:
+    return _drop_empty_candidate_fields(
+        {
+            "style": _preference_match_status(candidates, "style") if _has_style_preference(style_preference) else "",
+            "theme": _preference_match_status(candidates, "theme") if _has_theme_preference(theme_preference) else "",
+        }
+    )
+
+
+def _preference_match_status(candidates: list[dict], prefix: str) -> str:
+    if any(_candidate_matches_preference(row, prefix) for row in candidates):
+        return "hit"
+    return "miss"
+
+
+def _candidate_matches_preference(row: dict, prefix: str) -> bool:
+    if row.get(f"{prefix}_match") is True:
+        return True
+    try:
+        if int(row.get(f"{prefix}_match_score") or 0) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return bool(row.get(f"{prefix}_match_reasons"))
+
+
+def _has_style_preference(value: dict[str, Any]) -> bool:
+    return bool(value.get("styles") or str(value.get("raw") or "").strip())
+
+
+def _has_theme_preference(value: dict[str, Any]) -> bool:
+    return bool(value.get("theme") or str(value.get("raw") or "").strip())
 
 
 def _annotate_candidate_theme_match(row: dict, preference: dict[str, Any]) -> dict:

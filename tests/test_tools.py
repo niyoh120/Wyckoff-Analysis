@@ -2640,7 +2640,9 @@ class TestSymbolPool:
         result = screen_tools.screen_stocks(style="trend")
 
         assert result["style_preference"] == {"raw": "trend", "styles": ["trend"]}
+        assert result["preference_match"] == {"style": "hit"}
         assert result["scan_scope"]["style_preference"]["styles"] == ["trend"]
+        assert result["scan_scope"]["preference_match"] == {"style": "hit"}
         assert [row["code"] for row in result["top_candidates"][:2]] == ["000002", "000001"]
         first = result["selection_brief"]["primary_pick"]
         assert first["code"] == "000002"
@@ -2687,13 +2689,56 @@ class TestSymbolPool:
         result = screen_tools.screen_stocks(theme="机器人", limit=25)
 
         assert result["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
+        assert result["preference_match"] == {"theme": "hit"}
         assert result["scan_scope"]["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
+        assert result["scan_scope"]["preference_match"] == {"theme": "hit"}
         assert [row["code"] for row in result["top_candidates"][:2]] == ["000002", "000001"]
         first = result["selection_brief"]["primary_pick"]
         assert first["code"] == "000002"
         assert first["theme_match"] is True
         assert first["theme_match_reasons"] == ["主题偏好: 机器人"]
         assert "主题偏好: 机器人" in first["quality_factors"]
+
+    def test_screen_stocks_surfaces_theme_preference_miss_in_result_and_handoff(self, monkeypatch):
+        from agents import screen_tools
+        from agents.tool_context import ToolContext
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000001",
+                        "name": "芯片候选",
+                        "priority_rank": 1,
+                        "priority_score": 20.0,
+                        "strategic_theme": "芯片半导体",
+                    }
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {},
+                    "trade_mode": {"allow_ai_review": True, "allow_recommendation_write": False},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+        ctx = ToolContext()
+
+        result = screen_tools.screen_stocks(theme="机器人", limit=25, tool_context=ctx)
+
+        assert result["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
+        assert result["preference_match"] == {"theme": "miss"}
+        assert result["scan_scope"]["preference_match"] == {"theme": "miss"}
+        assert result["selection_brief"]["primary_pick"]["code"] == "000001"
+        assert "theme_match" not in result["selection_brief"]["primary_pick"]
+        assert ctx.state["last_screen_result"]["preference_match"] == {"theme": "miss"}
+        assert ctx.state["last_screen_result"]["scan_scope"]["preference_match"] == {"theme": "miss"}
 
     def test_screen_stocks_surfaces_shadow_score_for_candidate_review(self, monkeypatch):
         from agents import screen_tools

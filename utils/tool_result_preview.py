@@ -1273,6 +1273,14 @@ def _preference_part(label: str, text: str, match_status: str = "") -> str:
 
 
 def _screen_preference_match_preview(result: dict[str, Any]) -> dict[str, str]:
+    existing = result.get("preference_match")
+    if isinstance(existing, dict) and existing:
+        return _drop_empty_preview_fields(
+            {
+                "style": existing.get("style"),
+                "theme": existing.get("theme"),
+            }
+        )
     rows = _screen_candidate_rows(result)
     return _drop_empty_preview_fields(
         {
