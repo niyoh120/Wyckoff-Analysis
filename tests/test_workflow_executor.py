@@ -650,6 +650,22 @@ def test_workflow_planner_stock_fallback_passes_non_bse_a_share_phrases():
     }
 
 
+def test_workflow_planner_stock_fallback_handles_etf_screening_wording():
+    run = plan_workflow(
+        "今天帮我筛ETF机会，给下一步",
+        context=WORKFLOWS["dynamic_task"],
+    )
+    concept = plan_workflow(
+        "ETF是什么",
+        context=WORKFLOWS["dynamic_task"],
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.script["runtime"]["fallback_kind"] == "stock_selection"
+    assert "fallback_kind" not in concept.script["runtime"]
+    assert concept.steps[0].tool_scope == ()
+
+
 def test_workflow_planner_stock_method_question_keeps_generic_fallback():
     run = plan_workflow(
         "用 workflow 解释怎么选出好股票",

@@ -359,6 +359,44 @@ def test_screen_stocks_brief_lines_surface_full_scan_scope():
     ]
 
 
+def test_screen_stocks_preview_and_brief_lines_surface_etf_candidates():
+    result = {
+        "scan_scope": {
+            "scope": "bounded",
+            "board": "all",
+            "limit": 1200,
+            "total_scanned": 1200,
+            "financial_metrics": "skipped_quick_scan",
+            "financial_metrics_count": 0,
+        },
+        "selection_brief": {"headline": "本轮股票候选偏观察"},
+        "etf_enhancement": {"pool": 2, "fetched": 2, "l2_passed": 1, "strong_candidates": 1},
+        "etf_candidates": [
+            {
+                "code": "512480",
+                "name": "半导体ETF",
+                "sector": "半导体",
+                "score": 12.3,
+                "ret3": 2.1,
+                "ret20": 10.5,
+                "vol_ratio": 1.8,
+                "channel": "主升通道",
+            }
+        ],
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result, max_lines=3)
+
+    assert preview["etf_enhancement"]["l2_passed"] == 1
+    assert preview["etf_candidates"][0]["code"] == "512480"
+    assert lines == [
+        "快扫: all 前1200只，实际扫描1200只，财务过滤: 快扫跳过",
+        "本轮股票候选偏观察",
+        "ETF强势池: 池2 → 拉取2 → L2强势1；候选: 512480 半导体ETF",
+    ]
+
+
 def test_screen_stocks_preview_merges_entry_risk_flags_into_visible_risks():
     result = {
         "selection_brief": {

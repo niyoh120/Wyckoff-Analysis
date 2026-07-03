@@ -2280,7 +2280,15 @@ class TestSymbolPool:
                 True,
                 [],
                 {},
-                {"metrics": {"pool_limit": kwargs.get("pool_limit_count", 0)}, "triggers": {}, "name_map": {}},
+                {
+                    "metrics": {
+                        "pool_limit": kwargs.get("pool_limit_count", 0),
+                        "etf_enhancement": {"pool": 2, "fetched": 2, "l2_passed": 1},
+                        "etf_candidates": [{"code": "512480", "name": "半导体ETF", "sector": "半导体"}],
+                    },
+                    "triggers": {},
+                    "name_map": {},
+                },
             )
 
         fake_pipeline.run = fake_run_funnel
@@ -2296,6 +2304,8 @@ class TestSymbolPool:
         assert captured_kwargs["pool_board"] == "main_chinext_star"
         assert captured_kwargs["pool_limit_count"] == 25
         assert captured_kwargs["executor_mode"] == "thread"
+        assert result["etf_enhancement"] == {"pool": 2, "fetched": 2, "l2_passed": 1}
+        assert result["etf_candidates"] == [{"code": "512480", "name": "半导体ETF", "sector": "半导体"}]
         assert result["scan_scope"] == {
             "scope": "bounded",
             "board": "main_chinext_star",

@@ -654,6 +654,16 @@ def test_stock_screen_args_infer_more_combined_a_share_board_phrases():
     }
 
 
+def test_turn_expectation_forces_tool_for_etf_screening_wording():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "帮我筛ETF"}])
+    concept_question = resolve_turn_expectation([{"role": "user", "content": "ETF是什么"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "screen_stocks"
+    assert expectation.suggested_args == {"board": "all"}
+    assert concept_question is None
+
+
 def test_turn_expectation_does_not_screen_past_recommendation_review():
     expectation = resolve_turn_expectation([{"role": "user", "content": "过去推荐的表现怎么样"}])
 

@@ -63,10 +63,13 @@ _STOCK_FALLBACK_TARGETS = (
     "好标的",
     "股票池",
     "机会",
+    "etf",
+    "基金",
+    "行业基金",
     "值得复核",
     "值得跟踪",
 )
-_STOCK_FALLBACK_EXPLAINERS = ("怎么", "如何", "方法", "是什么意思", "啥意思", "概念", "解释")
+_STOCK_FALLBACK_EXPLAINERS = ("怎么", "如何", "方法", "是什么", "什么意思", "啥意思", "概念", "介绍", "解释", "说明")
 _STOCK_FALLBACK_REPORT_MARKERS = ("研报", "深度", "报告")
 _SYNTHESIS_TASK_MARKERS = (
     "汇总",

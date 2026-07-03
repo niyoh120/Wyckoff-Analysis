@@ -152,6 +152,24 @@ _STOCK_SCREEN_CONTEXT_HINTS = (
     "a 股",
 )
 
+_ETF_SCREEN_CONTEXT_HINTS = (
+    "etf",
+    "基金",
+    "行业基金",
+)
+
+_ETF_SCREEN_INTENT_HINTS = (
+    "机会",
+    "候选",
+    "筛",
+    "筛选",
+    "扫描",
+    "推荐",
+    "强势",
+    "低吸",
+    "主线",
+)
+
 _STOCK_SCREEN_INTENT_HINTS = (
     "推荐",
     "机会",
@@ -475,6 +493,8 @@ def _stock_screen_expected(text: str) -> bool:
         return False
     if any(hint in text for hint in _STOCK_SCREEN_HINTS):
         return True
+    if _etf_screen_expected(text):
+        return True
     if any(hint in text for hint in _STOCK_SCREEN_TARGET_HINTS) and any(
         hint in text for hint in _STOCK_SCREEN_TARGET_ACTIONS
     ):
@@ -483,6 +503,12 @@ def _stock_screen_expected(text: str) -> bool:
         return True
     return any(hint in text for hint in _STOCK_SCREEN_CONTEXT_HINTS) and any(
         hint in text for hint in (*_STOCK_SCREEN_INTENT_HINTS, *_STOCK_SCREEN_STYLE_HINTS)
+    )
+
+
+def _etf_screen_expected(text: str) -> bool:
+    return any(hint in text for hint in _ETF_SCREEN_CONTEXT_HINTS) and any(
+        hint in text for hint in _ETF_SCREEN_INTENT_HINTS
     )
 
 
