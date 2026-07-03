@@ -936,7 +936,14 @@ def _append_dependency(deps: list[str], dep: str) -> None:
 
 def _dependency_id(value: Any) -> str:
     if isinstance(value, dict):
-        value = value.get("id") or value.get("task_id") or value.get("step_id") or value.get("title")
+        value = (
+            value.get("id")
+            or value.get("task_id")
+            or value.get("step_id")
+            or value.get("title")
+            or value.get("name")
+            or _tool_name(value)
+        )
     text = str(value or "").strip()
     return _slug(text) if text else ""
 
