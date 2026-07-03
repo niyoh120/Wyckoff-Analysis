@@ -8,7 +8,7 @@ from cli.tools import TOOL_SCHEMAS
 from cli.workflows.dispatch import build_turn_runtime, infer_direct_allowed_tools
 from cli.workflows.executor import WorkflowExecutor
 from cli.workflows.model_router import _ROUTER_SYSTEM_PROMPT
-from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, _REPAIR_SYSTEM_PROMPT, plan_workflow
+from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, _REPAIR_SYSTEM_PROMPT, adapt_workflow_script, plan_workflow
 from cli.workflows.router import WORKFLOWS, build_workflow_system_prompt, route_workflow
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
@@ -1025,6 +1025,62 @@ def test_planner_lets_model_repair_missing_tool_contracts():
     assert run.script["runtime"]["unscoped_step_count_before_repair"] == 2
     assert provider.calls[1]["system_prompt"] == _REPAIR_SYSTEM_PROMPT
     assert "- screen_stocks" in provider.calls[1]["messages"][0]["content"]
+
+
+def test_adaptation_prompt_surfaces_priority_candidate_handoff():
+    provider = ScriptedProvider(
+        [[{"type": "text_delta", "text": '{"complete": true, "synthesis_prompt": "说明候选仍需研报复核。"}'}]]
+    )
+    completed_results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "status": "completed",
+                "handoff_state": {
+                    "last_screen_result": {
+                        "next_action": "先生成 AI 研报",
+                        "action_plan": {
+                            "new_buy_allowed": False,
+                            "trade_readiness": "research_only",
+                            "next_step": "生成 AI 研报",
+                        },
+                        "report_candidates": [
+                            {
+                                "code": "300750",
+                                "name": "宁德时代",
+                                "risk_adjusted_quality_score": 87.0,
+                                "risk_factors": ["候选标签未成熟"],
+                                "next_step": "生成 AI 研报",
+                            }
+                        ],
+                        "candidate_guard_summary": {
+                            "direct_buy_blocked_count": 1,
+                            "message": "候选标签未成熟，禁止直接买入",
+                        },
+                    }
+                },
+            },
+        }
+    ]
+
+    script = adapt_workflow_script(
+        "帮我找几个好票，按结果决定后续",
+        {"title": "动态选股", "runtime": {"adaptive": True}, "tasks": [{"id": "report", "title": "生成研报"}]},
+        completed_results,
+        [{"step_id": "report", "title": "生成研报"}],
+        context=WORKFLOWS["dynamic_task"],
+        provider=provider,
+        tools=StubToolRegistry(schemas=[{"name": "screen_stocks"}]),
+    )
+
+    prompt = provider.calls[0]["messages"][0]["content"]
+    assert "优先 handoff 摘要" in prompt
+    assert '"source": "last_screen_result"' in prompt
+    assert '"code": "300750"' in prompt
+    assert '"risk_adjusted_quality_score": 87.0' in prompt
+    assert "候选标签未成熟，禁止直接买入" in prompt
+    assert "生成 AI 研报" in prompt
+    assert script["runtime"]["adaptation_complete"] is True
 
 
 def test_planner_keeps_original_script_when_model_tool_contract_repair_is_invalid():

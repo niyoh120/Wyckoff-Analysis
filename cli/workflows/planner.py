@@ -114,6 +114,12 @@ _PREVIOUS_DEPENDENCY_ALIASES = {
     "前一阶段",
     "前序任务",
 }
+ADAPTATION_HANDOFF_KEYS = (
+    "last_strategy_decision",
+    "last_ai_report",
+    "last_recommendation_event_eval",
+    "last_screen_result",
+)
 
 _PLAN_SYSTEM_PROMPT = """\
 你是 Wyckoff CLI 的动态 workflow 编排器。
@@ -339,11 +345,129 @@ def _adaptation_prompt(
         f"用户原始请求:\n{user_text}\n\n"
         f"运行上下文: {context.label} ({context.name})\n"
         f"当前可用工具摘要:\n{_tool_catalog(tools, context)}\n\n"
+        f"优先 handoff 摘要（用于决定后续是否保留、删除、改写或停止）:\n"
+        f"{json.dumps(_adaptation_handoff_summary(completed_results), ensure_ascii=False, default=str)[:6000]}\n\n"
         f"已完成结果:\n{json.dumps(completed_results, ensure_ascii=False, default=str)[:10000]}\n\n"
         f"原计划中尚未执行的 task:\n{json.dumps(remaining_steps, ensure_ascii=False, default=str)[:6000]}\n\n"
         f"当前完整 workflow JSON:\n{json.dumps(current_script, ensure_ascii=False, default=str)[:8000]}\n\n"
         "请只输出后续 continuation workflow JSON。"
     )
+
+
+def _adaptation_handoff_summary(completed_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in reversed(completed_results):
+        if len(seen) >= len(ADAPTATION_HANDOFF_KEYS):
+            break
+        result = item.get("result") if isinstance(item, dict) else {}
+        handoff = result.get("handoff_state") if isinstance(result, dict) else {}
+        if not isinstance(handoff, dict):
+            continue
+        step = item.get("step") if isinstance(item.get("step"), dict) else {}
+        for key in ADAPTATION_HANDOFF_KEYS:
+            value = handoff.get(key)
+            if key in seen or not isinstance(value, dict):
+                continue
+            compact = _compact_adaptation_handoff_stage(key, value)
+            if compact:
+                seen.add(key)
+                summary.append(
+                    _compact_dict(
+                        {
+                            "step_id": step.get("step_id"),
+                            "title": step.get("title"),
+                            "source": key,
+                            **compact,
+                        }
+                    )
+                )
+    return summary
+
+
+def _compact_adaptation_handoff_stage(source: str, value: dict[str, Any]) -> dict[str, Any]:
+    payload = _pick_compact_fields(
+        value,
+        (
+            "status",
+            "ok",
+            "reason",
+            "summary",
+            "decision_brief",
+            "selection_brief",
+            "next_action",
+            "message",
+            "data_quality",
+            "quality_gate",
+        ),
+    )
+    payload["action_plan"] = _pick_compact_fields(
+        value.get("action_plan"),
+        ("candidate_action", "new_buy_allowed", "trade_readiness", "reason", "next_step"),
+    )
+    payload["candidate_guard_summary"] = _pick_compact_fields(
+        value.get("candidate_guard_summary"), ("direct_buy_blocked_count", "message")
+    )
+    payload["candidates"] = _adaptation_candidate_rows(source, value)
+    return _compact_dict(payload)
+
+
+def _adaptation_candidate_rows(source: str, value: dict[str, Any], limit: int = 4) -> list[dict[str, Any]]:
+    rows: list[Any] = []
+    if source == "last_screen_result":
+        selection = value.get("selection_brief") if isinstance(value.get("selection_brief"), dict) else {}
+        rows.extend(_plain_list(value.get("report_candidates")))
+        rows.extend(_plain_list(value.get("symbols_for_report")))
+        rows.append(selection.get("primary_pick"))
+        rows.extend(_plain_list(selection.get("best_candidates")))
+        rows.extend(_plain_list(value.get("watch_candidates")))
+        rows.extend(_plain_list(value.get("top_candidates")))
+    elif source == "last_recommendation_event_eval":
+        selection = value.get("policy_selection") if isinstance(value.get("policy_selection"), dict) else {}
+        rows.extend(_plain_list(selection.get("picks")))
+    else:
+        rows.extend(_plain_list(value.get("reviewed_symbols")))
+    return [_compact_adaptation_candidate(row) for row in rows if isinstance(row, dict)][:limit]
+
+
+def _compact_adaptation_candidate(row: dict[str, Any]) -> dict[str, Any]:
+    return _pick_compact_fields(
+        row,
+        (
+            "code",
+            "name",
+            "action_status",
+            "status",
+            "trade_readiness",
+            "new_buy_allowed",
+            "candidate_shadow_score",
+            "candidate_quality_score",
+            "risk_adjusted_quality_score",
+            "rank_reason",
+            "risk_factors",
+            "next_step",
+        ),
+    )
+
+
+def _pick_compact_fields(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _compact_dict({field: _compact_prompt_value(value.get(field)) for field in fields})
+
+
+def _compact_prompt_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value[:240]
+    if isinstance(value, list):
+        return [_compact_prompt_value(item) for item in value[:4]]
+    if isinstance(value, dict):
+        return _compact_dict({str(key): _compact_prompt_value(item) for key, item in list(value.items())[:8]})
+    return value
+
+
+def _compact_dict(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
 def _adaptation_complete(script: dict[str, Any]) -> bool:
@@ -1099,6 +1223,10 @@ def _field_items(value: Any) -> list[Any]:
     if isinstance(value, str):
         return [part for part in re.split(r"[,，、\n]+", value) if part.strip()]
     return [value]
+
+
+def _plain_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
 
 
 def _tool_scope_items(value: Any) -> list[Any]:
