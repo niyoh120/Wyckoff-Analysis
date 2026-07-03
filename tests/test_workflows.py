@@ -1991,6 +1991,34 @@ def test_planner_orders_model_declared_tools_by_dependency():
     assert run.script["tasks"][0]["tools"] == ["screen_stocks", "generate_strategy_decision"]
 
 
+def test_planner_syncs_keyed_model_declared_tool_order_to_script():
+    context = route_workflow("用 workflow 做选股和攻防计划")
+    run = plan_workflow(
+        "做选股和攻防计划",
+        context=context,
+        workflow_script={
+            "phases": {
+                "screening": {
+                    "tasks": {
+                        "scan_decide": {
+                            "title": "扫描并形成攻防",
+                            "tools": ["generate_strategy_decision", "screen_stocks"],
+                            "prompt": "先筛候选，再形成攻防计划。",
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    assert run.steps[0].step_id == "scan_decide"
+    assert run.steps[0].tool_scope == ("screen_stocks", "generate_strategy_decision")
+    assert run.script["phases"]["screening"]["tasks"]["scan_decide"]["tools"] == [
+        "screen_stocks",
+        "generate_strategy_decision",
+    ]
+
+
 def test_planner_accepts_string_task_lists_from_model_script():
     context = route_workflow("用 workflow 做持仓复盘")
     run = plan_workflow(
