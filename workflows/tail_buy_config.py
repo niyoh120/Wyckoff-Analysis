@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import os
-
-from core.tail_buy.models import safe_float
 from core.tail_buy.strategy import TailBuyStrategyConfig
-
-_TRUE_TEXTS = {"1", "true", "yes", "on"}
+from utils.env import env_bool as _env_bool
+from utils.env import env_float as _env_float
 
 
 def tail_buy_strategy_config_from_env() -> TailBuyStrategyConfig:
@@ -28,14 +25,3 @@ def tail_buy_strategy_config_from_env() -> TailBuyStrategyConfig:
         daily_trap_upper_shadow_pct=_env_float("TAIL_BUY_DAILY_TRAP_UPPER_SHADOW_PCT", 4.0),
         daily_trap_volume_ratio=_env_float("TAIL_BUY_DAILY_TRAP_VOLUME_RATIO", 1.8),
     )
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in _TRUE_TEXTS
-
-
-def _env_float(name: str, default: float) -> float:
-    return safe_float(os.getenv(name), default)

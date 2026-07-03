@@ -6,6 +6,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from core._price_math import clamp as _clamp
+from core._price_math import dist_pct as _dist_pct
+
 
 @dataclass(frozen=True)
 class MainForceSignal:
@@ -135,15 +138,7 @@ def _ratio(value: float, base: float) -> float:
     return 0.0 if base <= 0 else float(value) / float(base)
 
 
-def _dist_pct(value: float, base: float) -> float:
-    return 0.0 if base <= 0 else (float(value) / float(base) - 1.0) * 100.0
-
-
 def _num(df: pd.DataFrame, column: str) -> pd.Series:
     if column not in df.columns:
         return pd.Series(dtype=float)
     return pd.to_numeric(df[column], errors="coerce")
-
-
-def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
-    return max(low, min(high, float(value)))

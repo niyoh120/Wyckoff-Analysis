@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -32,6 +31,7 @@ from integrations.tickflow_notice import (
     is_tickflow_rate_limited_error,
     record_tickflow_limit_event,
 )
+from utils.env import env_flag as _env_flag
 
 logger = logging.getLogger(__name__)
 StockFetcher = Callable[["StockHistFetchContext"], pd.DataFrame | None]
@@ -97,7 +97,7 @@ def _try_tushare(ctx: StockHistFetchContext) -> pd.DataFrame | None:
         df = integrations.data_source_tushare.fetch_stock_tushare(ctx.symbol, ctx.start_s, ctx.end_s)
         return _fallback_output(ctx, df, "tushare")
     except Exception as exc:
-        detail = "token_missing" if str(exc) == "token_missing" else _compact_error(exc)
+        detail = "token_missing" if str(exc) == "token_missing" else integrations.data_source_format.compact_error(exc)
         ctx.failed_details.append(f"tushare={detail}")
         _debug_source_fail("tushare", exc)
         return None
@@ -111,7 +111,7 @@ def _try_akshare(ctx: StockHistFetchContext) -> pd.DataFrame | None:
         df = integrations.data_source_akshare.fetch_stock_akshare(ctx.symbol, ctx.start_s, ctx.end_s, ctx.adjust)
         return _fallback_output(ctx, df, "akshare")
     except Exception as exc:
-        ctx.failed_details.append(f"akshare={_compact_error(exc)}")
+        ctx.failed_details.append(f"akshare={integrations.data_source_format.compact_error(exc)}")
         _debug_source_fail("akshare", exc)
         return None
 
@@ -129,7 +129,7 @@ def _try_baostock(ctx: StockHistFetchContext) -> pd.DataFrame | None:
         integrations.data_source_baostock.baostock_mark_success()
         return _fallback_output(ctx, df, "baostock")
     except Exception as exc:
-        detail = _compact_error(exc)
+        detail = integrations.data_source_format.compact_error(exc)
         integrations.data_source_baostock.baostock_mark_failure(detail, debug_enabled=_debug_enabled())
         ctx.failed_details.append(f"baostock={detail}")
         _debug_source_fail("baostock", exc)
@@ -144,14 +144,14 @@ def _try_efinance(ctx: StockHistFetchContext) -> pd.DataFrame | None:
         df = integrations.data_source_efinance.fetch_stock_efinance(ctx.symbol, ctx.start_s, ctx.end_s)
         return _fallback_output(ctx, df, "efinance")
     except Exception as exc:
-        ctx.failed_details.append(f"efinance={_compact_error(exc)}")
+        ctx.failed_details.append(f"efinance={integrations.data_source_format.compact_error(exc)}")
         _debug_source_fail("efinance", exc)
         return None
 
 
 def _record_tickflow_failure(ctx: StockHistFetchContext, exc: Exception) -> None:
     ctx.tickflow_failed = True
-    detail = _compact_error(exc)
+    detail = integrations.data_source_format.compact_error(exc)
     ctx.failed_details.append(f"tickflow={detail}")
     _debug_source_fail("tickflow", exc)
     if not is_tickflow_rate_limited_error(exc):
@@ -215,18 +215,6 @@ def _network_hint_from_details(details: list[str]) -> str:
     if "permission denied" in blob and "efinance" in blob:
         return "部署环境对 site-packages 为只读，efinance 本地缓存写入失败。"
     return ""
-
-
-def _compact_error(exc: Exception, max_len: int = 120) -> str:
-    msg = str(exc or "").strip().replace("\n", " ")
-    msg = re.sub(r"\s+", " ", msg)
-    if len(msg) > max_len:
-        msg = msg[: max_len - 3] + "..."
-    return f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
-
-
-def _env_flag(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _debug_enabled() -> bool:

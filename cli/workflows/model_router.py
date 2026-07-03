@@ -8,6 +8,19 @@ import re
 from dataclasses import replace
 from typing import Any
 
+from cli.workflows._shared import (
+    PORTFOLIO_REVIEW_CONTEXT_MARKERS,
+    PORTFOLIO_REVIEW_STRONG_MARKERS,
+    PORTFOLIO_REVIEW_SUBJECT_MARKERS,
+    STOCK_STYLE_MARKERS,
+    STOCK_STYLE_TARGETS,
+    collect_stream_text,
+    compact_text,
+    decision_confidence,
+    has_stock_style_target,
+    loads_json,
+    looks_like_portfolio_review,
+)
 from cli.workflows.models import WorkflowContext
 from cli.workflows.router import WORKFLOWS, route_resume_workflow, route_workflow
 
@@ -44,8 +57,8 @@ _STOCK_SELECTION_SCOPE_MARKERS = (
     "值得复核",
     "值得跟踪",
 )
-_STOCK_SELECTION_STYLE_MARKERS = ("强势", "趋势", "低吸", "右侧", "左侧", "稳健")
-_STOCK_SELECTION_STYLE_TARGETS = ("票", "标的", "候选")
+_STOCK_SELECTION_STYLE_MARKERS = STOCK_STYLE_MARKERS
+_STOCK_SELECTION_STYLE_TARGETS = STOCK_STYLE_TARGETS
 _STOCK_CONTEXT_MARKERS = ("a股", "股票", "股", "票", "标的", "市场", "板块", "行业", "方向")
 _STOCK_SELECTION_DELIVERY_MARKERS = (
     "找",
@@ -70,9 +83,9 @@ _SHORT_STOCK_SELECTION_RE = re.compile(
     r"(?:选出|挑出|筛出|找(?:几只|几个)?|给我找|帮我找).{0,10}(?:好股票|好票|好标的|值得复核的票|值得跟踪的票)"
 )
 _STOCK_SELECTION_METHOD_MARKERS = ("怎么", "如何", "方法", "是什么意思", "啥意思", "概念", "解释")
-_PORTFOLIO_REVIEW_SUBJECT_MARKERS = ("持仓", "仓位", "组合")
-_PORTFOLIO_REVIEW_STRONG_MARKERS = ("复盘", "体检", "诊断", "总结", "去留", "攻防", "策略")
-_PORTFOLIO_REVIEW_CONTEXT_MARKERS = ("大盘", "市场", "水温", "盘面", "环境", "今天", "明天", "风险", "建议")
+_PORTFOLIO_REVIEW_SUBJECT_MARKERS = PORTFOLIO_REVIEW_SUBJECT_MARKERS
+_PORTFOLIO_REVIEW_STRONG_MARKERS = PORTFOLIO_REVIEW_STRONG_MARKERS
+_PORTFOLIO_REVIEW_CONTEXT_MARKERS = PORTFOLIO_REVIEW_CONTEXT_MARKERS
 _MODE_ALIASES = {
     "direct": {
         "answer",
@@ -258,9 +271,7 @@ def _needs_stock_selection_workflow_fallback(user_text: str) -> bool:
 
 
 def _has_stock_style_target(text: str) -> bool:
-    return any(style in text for style in _STOCK_SELECTION_STYLE_MARKERS) and any(
-        target in text for target in _STOCK_SELECTION_STYLE_TARGETS
-    )
+    return has_stock_style_target(text)
 
 
 def _portfolio_review_fallback_context(user_text: str, fallback_reason: str) -> WorkflowContext | None:
@@ -276,17 +287,11 @@ def _portfolio_review_fallback_context(user_text: str, fallback_reason: str) -> 
 
 
 def _needs_portfolio_review_workflow_fallback(user_text: str) -> bool:
-    text = _compact_user_text(user_text)
-    if not text:
-        return False
-    has_subject = any(marker in text for marker in _PORTFOLIO_REVIEW_SUBJECT_MARKERS)
-    has_strong_action = any(marker in text for marker in _PORTFOLIO_REVIEW_STRONG_MARKERS)
-    context_count = sum(1 for marker in _PORTFOLIO_REVIEW_CONTEXT_MARKERS if marker in text)
-    return has_subject and has_strong_action and context_count >= 1
+    return looks_like_portfolio_review(user_text)
 
 
 def _compact_user_text(value: Any) -> str:
-    return re.sub(r"[\s。！!,.，、？?]+", "", str(value or "").lower())
+    return compact_text(value)
 
 
 def _fallback_route_reason(context: WorkflowContext, fallback_reason: str) -> str:
@@ -314,34 +319,22 @@ def _router_response(provider: Any, messages: list[dict[str, Any]]) -> dict[str,
                 return None
     if not hasattr(provider, "chat_stream"):
         return None
-    text = _collect_stream_text(provider.chat_stream(messages, [], _ROUTER_SYSTEM_PROMPT))
+    text = collect_stream_text(provider.chat_stream(messages, [], _ROUTER_SYSTEM_PROMPT))
     return {"type": "text", "text": text} if text else None
-
-
-def _collect_stream_text(chunks: Any) -> str:
-    parts: list[str] = []
-    for chunk in chunks:
-        if not isinstance(chunk, dict):
-            continue
-        if chunk.get("type") == "tool_calls":
-            return ""
-        if chunk.get("type") == "text_delta":
-            parts.append(str(chunk.get("text", "")))
-    return "".join(parts).strip()
 
 
 def _parse_decision(response: Any) -> dict[str, Any] | None:
     if not isinstance(response, dict) or response.get("type") == "tool_calls":
         return None
     try:
-        payload = _loads_json(str(response.get("text") or ""))
+        payload = loads_json(str(response.get("text") or ""), error_label="router decision")
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
     payload = _router_decision_payload(payload)
     mode = _decision_mode(payload)
     if not mode:
         return None
-    confidence = _decision_confidence(payload)
+    confidence = decision_confidence(payload)
     return {
         "mode": mode,
         "confidence": confidence,
@@ -379,23 +372,6 @@ def _payload_has_decision_value(payload: dict[str, Any]) -> bool:
     if any(_mode_value(payload.get(field)) for field in _MODE_FIELDS):
         return True
     return _workflow_flag(payload) is not None
-
-
-def _loads_json(text: str) -> dict[str, Any]:
-    raw = text.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-        if not match:
-            raise
-        payload = json.loads(match.group(0))
-    if not isinstance(payload, dict):
-        raise ValueError("router decision must be an object")
-    return payload
 
 
 def _clean_reason(value: Any) -> str:
@@ -449,32 +425,6 @@ def _coerce_bool(value: Any) -> bool | None:
     if text in {"0", "false", "no", "n", "不需要", "否"}:
         return False
     return None
-
-
-def _decision_confidence(payload: dict[str, Any]) -> float:
-    for key in ("confidence", "score", "probability", "prob"):
-        confidence = _parse_confidence(payload.get(key))
-        if confidence is not None:
-            return confidence
-    return 0.0
-
-
-def _parse_confidence(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, str):
-        text = value.strip()
-        multiplier = 0.01 if text.endswith("%") else 1.0
-        value = text.rstrip("%").strip()
-    else:
-        multiplier = 1.0
-    try:
-        confidence = float(value) * multiplier
-    except (TypeError, ValueError):
-        return None
-    if confidence > 1.0:
-        confidence /= 100.0
-    return round(max(0.0, min(confidence, 1.0)), 4)
 
 
 def _should_use_workflow(decision: dict[str, Any] | None) -> bool:

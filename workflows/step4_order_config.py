@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 
+from utils.env import env_bool as _env_bool
+from utils.env import env_float as _env_float
 from workflows.step4_models import Step4OrderConfig
-
-_TRUE_TEXTS = {"1", "true", "yes", "on"}
 
 
 def step4_order_config_from_env() -> Step4OrderConfig:
@@ -31,20 +31,6 @@ def step4_order_config_from_env() -> Step4OrderConfig:
         max_gap_up_pct=_env_float("STEP4_MAX_GAP_UP_PCT", 3.0),
         max_gap_up_atr_mult=_env_float("STEP4_MAX_GAP_UP_ATR_MULT", 1.5),
     )
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in _TRUE_TEXTS
-
-
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
 
 
 def _env_stop_mode(name: str, default: str) -> str:

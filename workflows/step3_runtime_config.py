@@ -5,7 +5,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-_TRUE_TEXTS = {"1", "true", "yes", "on"}
+from utils.env import env_bool as _env_bool
+from utils.env import env_float as _env_float
+from utils.env import env_int as _env_int
+
 _LEGACY_REPORT_STYLES = {
     "legacy",
     "legacy_dual_pool",
@@ -67,27 +70,6 @@ def step3_runtime_config_from_env() -> Step3RuntimeConfig:
         llm_fallback_providers=_env_csv("STEP3_LLM_FALLBACK_PROVIDERS"),
         history_max_workers=max(_env_int("STEP3_HISTORY_MAX_WORKERS", 6), 1),
     )
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in _TRUE_TEXTS
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(float(os.getenv(name, str(default))))
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
 
 
 def _env_csv(name: str) -> tuple[str, ...]:

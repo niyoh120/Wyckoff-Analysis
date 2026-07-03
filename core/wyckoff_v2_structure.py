@@ -7,6 +7,7 @@ from typing import NamedTuple
 
 import pandas as pd
 
+from core._price_math import to_numeric as _to_numeric
 from core.wyckoff_engine import FunnelConfig, sort_by_date_if_needed
 
 
@@ -51,10 +52,6 @@ class _RangeCandidate(NamedTuple):
     max_drift: float
     support_tests: int
     resistance_tests: int
-
-
-def _to_numeric(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series, errors="coerce")
 
 
 def _ensure_pct_chg(df: pd.DataFrame) -> pd.Series:

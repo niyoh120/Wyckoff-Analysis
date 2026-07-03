@@ -119,6 +119,25 @@ def load_symbol_name_map(markets: tuple[str, ...] = ()) -> dict[str, str]:
     return out
 
 
+def _etf_name_map_from_txt() -> dict[str, str]:
+    path = UNIVERSE_DIR / "etf_cn.txt"
+    if not path.is_file():
+        return {}
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        parts = line.split("#", 1)[0].strip().split(None, 1)
+        if len(parts) == 2 and len(parts[0]) == 6 and parts[0].isdigit():
+            result[parts[0]] = f"{parts[1]}ETF"
+    return result
+
+
+def load_etf_name_map() -> dict[str, str]:
+    """Return ETF code to display-name map, preferring structured meta over the plain-text fallback."""
+    meta_map = load_symbol_name_map(("etf_cn",))
+    out = {code: name for code, name in meta_map.items() if len(code) == 6 and code.isdigit()}
+    return out or _etf_name_map_from_txt()
+
+
 def search_market_meta(query: str, *, limit: int = 10) -> list[dict[str, Any]]:
     """Search generated market metadata by symbol, code, or name."""
     q = str(query or "").strip().upper()

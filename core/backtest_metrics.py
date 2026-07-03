@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core._price_math import numeric_column as _numeric_series
+
 DEFAULT_METRIC_HOLD_DAYS = 10
 
 
@@ -125,12 +127,6 @@ def stats_for_trade_slice(df_slice: pd.DataFrame, hold_days: int = DEFAULT_METRI
         "avg_mfe_pct": float(mfe.mean()) if len(mfe) else None,
         "avg_mae_pct": float(mae.mean()) if len(mae) else None,
     }
-
-
-def _numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
-    if column not in df.columns:
-        return pd.Series(dtype=float)
-    return pd.to_numeric(df[column], errors="coerce").dropna()
 
 
 def group_trade_stats(trades_df: pd.DataFrame, column: str, hold_days: int) -> dict[str, dict]:

@@ -47,7 +47,7 @@ class CandidatePolicyConfig:
     pure_evr_min_score_default: float = 3.0
     pure_evr_min_score_hot: float = 5.0
     weak_confirmation_min_abc: int = 2
-    risk_on_pre5_ret: float = 25.0
+    risk_on_pre5_ret: float = 35.0
     risk_on_range_pos: float = 85.0
     risk_on_vol_ratio: float = 1.8
     defensive_high_range_pos: float = 78.0
@@ -302,7 +302,7 @@ def _naked_right_side_reason(
     df: pd.DataFrame | None,
     config: CandidatePolicyConfig,
 ) -> str:
-    if regime_norm in {"RISK_ON", "BEAR_REBOUND"} and _is_pure_momentum_channel(channel):
+    if regime_norm == "BEAR_REBOUND" and _is_pure_momentum_channel(channel):
         return f"{regime_norm}纯趋势追涨"
     if keys == {"evr"} and config.pure_evr_observe_only:
         return "单EVR仅观察"

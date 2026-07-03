@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from math import log1p
 from typing import Any
 
+from core._price_math import clamp as _clamp
 from core.concept_filters import is_actionable_theme_name
 from core.theme_radar import normalize_theme_name
 
@@ -288,10 +289,6 @@ def _amount_yi(raw: Any) -> float:
     if abs(amount) < 10_000:
         return amount
     return amount / 100_000_000.0
-
-
-def _clamp(value: float) -> float:
-    return max(0.0, min(float(value), 1.0))
 
 
 def _fmt_pct(value: Any) -> str:

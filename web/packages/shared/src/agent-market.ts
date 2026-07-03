@@ -153,7 +153,7 @@ function normalizeFinancialRecord(record: Record<string, unknown>, fallbackSymbo
   return hasNumericMetric(metrics) ? metrics : null
 }
 
-function pickMetricValue(row: Record<string, unknown>, aliases: string[]): unknown {
+export function pickMetricValue(row: Record<string, unknown>, aliases: string[]): unknown {
   for (const alias of aliases) {
     if (Object.prototype.hasOwnProperty.call(row, alias)) return row[alias]
     const upper = alias.toUpperCase()
@@ -164,7 +164,7 @@ function pickMetricValue(row: Record<string, unknown>, aliases: string[]): unkno
   return undefined
 }
 
-function normalizeReportDate(value: unknown): string | undefined {
+export function normalizeReportDate(value: unknown): string | undefined {
   const raw = String(value || '').trim()
   if (!raw) return undefined
   if (/^\d{8}$/.test(raw)) return raw.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')
@@ -173,7 +173,7 @@ function normalizeReportDate(value: unknown): string | undefined {
   return raw.slice(0, 10)
 }
 
-function finiteNumber(value: unknown): number | undefined {
+export function finiteNumber(value: unknown): number | undefined {
   if (value == null || value === '') return undefined
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : undefined
@@ -184,14 +184,14 @@ function hasNumericMetric(metrics: FundamentalMetric): boolean {
     key !== 'symbol' && key !== 'period_end' && key !== 'announce_date' && typeof value === 'number')
 }
 
-function firstFinancialObject(value: unknown): Record<string, unknown> | null {
+export function firstFinancialObject(value: unknown): Record<string, unknown> | null {
   if (!value) return null
   if (Array.isArray(value)) return value.find((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object' && !Array.isArray(row)) ?? null
   if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
   return null
 }
 
-function looksLikeFinancialRecord(row: Record<string, unknown>): boolean {
+export function looksLikeFinancialRecord(row: Record<string, unknown>): boolean {
   return [
     'roe', 'ROE', 'roe_weighted', 'ROE_WEIGHTED',
     'net_income_yoy', 'NET_INCOME_YOY', 'netprofit_yoy',
@@ -200,7 +200,7 @@ function looksLikeFinancialRecord(row: Record<string, unknown>): boolean {
   ].some((field) => Object.prototype.hasOwnProperty.call(row, field))
 }
 
-function findFinancialRecord(payload: unknown, symbol: string): Record<string, unknown> | null {
+export function findFinancialRecord(payload: unknown, symbol: string): Record<string, unknown> | null {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
   const root = payload as Record<string, unknown>
   const data = root.data ?? root

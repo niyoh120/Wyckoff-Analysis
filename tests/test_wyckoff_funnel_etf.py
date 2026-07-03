@@ -556,7 +556,7 @@ def test_defensive_regime_forces_quota_selection():
     assert should_force_quota_selection("RISK_ON", True, defensive_force_quota=True) is False
 
 
-def test_loss_guard_drops_low_lps_and_risk_on_pure_momentum():
+def test_loss_guard_keeps_risk_on_pure_momentum_after_confirmation_gate():
     selected = ["000001", "000002", "000003"]
     trend = ["000002", "000003"]
     accum = ["000001"]
@@ -567,15 +567,33 @@ def test_loss_guard_drops_low_lps_and_risk_on_pure_momentum():
         accum,
         regime="RISK_ON",
         code_to_trigger_keys={"000001": ["lps"], "000002": ["sos"], "000003": ["sos"]},
-        code_to_total_score={"000001": 0.4, "000002": 4.0, "000003": 6.0},
+        code_to_total_score={"000001": 0.4, "000002": 6.0, "000003": 6.0},
         channel_map={"000002": "主升通道", "000003": "点火破局"},
         df_map={},
     )
 
-    assert kept == ["000003"]
-    assert trend_kept == ["000003"]
+    assert kept == ["000002", "000003"]
+    assert trend_kept == ["000002", "000003"]
     assert accum_kept == []
-    assert dropped == {"单LPS仅观察": 1, "RISK_ON纯趋势追涨": 1}
+    assert dropped == {"单LPS仅观察": 1}
+
+
+def test_loss_guard_still_blocks_bear_rebound_pure_momentum():
+    kept, trend_kept, accum_kept, dropped = apply_loss_guard(
+        ["000001"],
+        ["000001"],
+        [],
+        regime="BEAR_REBOUND",
+        code_to_trigger_keys={"000001": ["sos"]},
+        code_to_total_score={"000001": 8.0},
+        channel_map={"000001": "主升通道"},
+        df_map={},
+    )
+
+    assert kept == []
+    assert trend_kept == []
+    assert accum_kept == []
+    assert dropped == {"BEAR_REBOUND纯趋势追涨": 1}
 
 
 def test_loss_guard_keeps_neutral_point_ignition():

@@ -9,6 +9,9 @@ from typing import Any
 
 import pandas as pd
 
+from core._price_math import clamp as _clamp
+from core._price_math import drawdown_pct as _drawdown_pct
+from core._price_math import ret_pct as _ret_pct
 from core.concept_filters import is_actionable_theme_name
 
 THEME_ALIASES: dict[str, tuple[str, ...]] = {
@@ -525,27 +528,11 @@ def _candidate_from_row(row: dict[str, Any], theme: ThemeScore, score: float) ->
     )
 
 
-def _ret_pct(close: pd.Series, lookback: int) -> float:
-    if len(close) <= lookback:
-        return 0.0
-    start = float(close.iloc[-lookback - 1])
-    end = float(close.iloc[-1])
-    return 0.0 if start <= 0 else (end - start) / start * 100.0
-
-
 def _above_ma(close: pd.Series, window: int) -> float:
     if close.empty:
         return 0.0
     ma = close.rolling(window, min_periods=max(3, min(window, len(close)))).mean().iloc[-1]
     return 1.0 if pd.notna(ma) and float(close.iloc[-1]) >= float(ma) else 0.0
-
-
-def _drawdown_pct(close: pd.Series, lookback: int) -> float:
-    recent = close.tail(max(lookback, 1))
-    if recent.empty:
-        return 0.0
-    high = float(recent.max())
-    return 0.0 if high <= 0 else (float(recent.iloc[-1]) / high - 1.0) * -100.0
 
 
 def _near_high(close: pd.Series, lookback: int, tolerance_pct: float = 12.0) -> float:
@@ -569,7 +556,3 @@ def _as_float(value: Any) -> float | None:
     if pd.isna(result):
         return None
     return result
-
-
-def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
-    return max(low, min(high, float(value)))

@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from agents.report_tools import (
+    last_screen_result,
     reviewed_symbols_from_info,
     run_ai_report,
     screen_auto_handoff_block_reason,
@@ -15,6 +16,7 @@ from agents.report_tools import (
 from agents.screen_tools import screen_stocks
 from agents.tool_context import ToolContext, ensure_tushare_token, get_credential, get_user_id, resolve_llm_config
 from core.candidate_guards import candidate_guard_summary
+from utils.safe import has_value as _has_value
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ def generate_strategy_decision(
             return {"error": "未配置 LLM API Key，无法生成策略决策。请通过 /model 或设置页面配置。"}
 
         last_report = _last_ai_report(tool_context)
-        screen_payload = screen_result or _last_screen_result(tool_context)
+        screen_payload = screen_result or last_screen_result(tool_context)
         report_text, report_source = _strategy_report_text(report_text, last_report)
         candidate_input_provided = _has_candidate_inputs(reviewed_symbols, reviewed_codes, last_report)
         if not report_text and not candidate_input_provided:
@@ -223,10 +225,6 @@ def _dedupe_candidate_meta(rows: list[dict]) -> list[dict]:
     return list(deduped.values())[:10]
 
 
-def _has_value(value: Any) -> bool:
-    return value is not None and value != "" and value != [] and value != {}
-
-
 def _strategy_without_telegram(
     screen_result: dict,
     report_text: str,
@@ -328,11 +326,6 @@ def remember_strategy_decision(tool_context: ToolContext | None, result: dict[st
 
 def _last_ai_report(tool_context: ToolContext | None) -> dict[str, Any]:
     value = tool_context.state.get("last_ai_report") if tool_context else {}
-    return value if isinstance(value, dict) else {}
-
-
-def _last_screen_result(tool_context: ToolContext | None) -> dict[str, Any]:
-    value = tool_context.state.get("last_screen_result") if tool_context else {}
     return value if isinstance(value, dict) else {}
 
 

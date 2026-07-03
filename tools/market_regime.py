@@ -14,6 +14,7 @@ import pandas as pd
 from core.market_breadth import calc_market_breadth as calc_core_market_breadth
 from core.wyckoff_engine import FunnelConfig
 from tools.market_liquidity import calc_amount_distribution_health, calc_market_money_flow
+from utils.safe import safe_float as _safe_float_or_default
 
 _PV_OUTLOOK_FALLBACK: dict[str, str] = {
     "RISK_ON": "次日推演：若量能维持在20日均量0.95x上方且不破MA50，偏强震荡延续；若放量跌破MA50，需转入防守。",
@@ -519,12 +520,7 @@ def _money_flow_panic_reason(money_flow: dict | None) -> str:
 
 
 def _safe_float(value: object) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+    return _safe_float_or_default(value, None)
 
 
 def _confirmed_panic_reasons(raw_reasons: list[str], money_flow: dict | None) -> list[str]:

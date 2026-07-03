@@ -254,12 +254,8 @@ def _candidate_entry_maps(entries: list[dict[str, object]]) -> tuple[dict[str, f
         score = candidate_score_value(item.get("score"))
         if code not in score_map or score > score_map[code]:
             score_map[code] = score
-            track_map[code] = _candidate_entry_track(item)
+            track_map[code] = candidate_entry_track(item)
     return score_map, track_map
-
-
-def _candidate_entry_track(item: dict[str, object]) -> str:
-    return candidate_entry_track(item)
 
 
 def candidate_entry_loss_guard(

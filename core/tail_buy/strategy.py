@@ -14,6 +14,7 @@ from typing import Any
 
 import pandas as pd
 
+from core._price_math import ret_pct as _ret_pct
 from core.intraday_analysis import (
     compute_effort_vs_result,
     compute_smart_money_score,
@@ -284,14 +285,6 @@ def _parse_date(raw: Any) -> date | None:
         return datetime.strptime(text, "%Y-%m-%d").date()
     except ValueError:
         return None
-
-
-def _ret_pct(series: pd.Series, lookback: int) -> float:
-    if len(series) <= lookback:
-        return 0.0
-    base = safe_float(series.iloc[-(lookback + 1)], 0.0)
-    now = safe_float(series.iloc[-1], 0.0)
-    return 0.0 if base <= 0 else (now / base - 1.0) * 100.0
 
 
 def _tail_volume_share(volume: pd.Series, total_volume: float, lookback: int) -> float:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date, datetime, timedelta
 
 from core.constants import TABLE_RECOMMENDATION_TRACKING, TABLE_SIGNAL_PENDING
@@ -10,6 +9,8 @@ from core.tail_buy.strategy import TailBuyCandidate, pick_tail_candidates
 from integrations.fetch_a_share_csv import resolve_trading_window
 from integrations.supabase_base import create_admin_client, is_admin_configured
 from integrations.supabase_portfolio import load_portfolio_state
+from utils.env import env_float as _env_float
+from utils.env import env_int as _env_int
 from workflows.tail_buy_utils import current_time, log_line, normalize_code6
 
 
@@ -274,20 +275,6 @@ def _recommendation_signal_score(change_pct: float, signal_type: str) -> float:
     if signal_type == "rec_deep_pullback":
         return min(95.0, 60.0 + max(abs(change_pct) - 30.0, 0.0) * 1.5)
     return min(95.0, 60.0 + max(change_pct - 40.0, 0.0) * 0.8)
-
-
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
 
 
 def _float(value: object, default: float = 0.0) -> float:

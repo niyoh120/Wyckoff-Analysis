@@ -50,7 +50,7 @@ def build_candidate_metadata_map(
         if not code:
             continue
         current = best_entries.get(code)
-        if current is None or _stronger_candidate_entry(item, current):
+        if current is None or stronger_candidate_entry(item, current):
             best_entries[code] = item
     for code, item in best_entries.items():
         result[code] = candidate_entry_metadata(item, mainline_by_code.get(code))
@@ -66,7 +66,7 @@ def candidate_entry_metadata(item: dict[str, Any], mainline: dict[str, Any] | No
         "candidate_lane": lane,
         "entry_type": _text(item.get("entry_type")) or lane,
         "signal_key": candidate_entry_key(item, fields=("signal_key", "lane", "entry_type"))
-        or normalize_signal_key(lane),
+        or normalize_candidate_entry_key(lane),
         "candidate_status": _text(item.get("state")) or _text((mainline or {}).get("status")),
         "candidate_timing": _text(item.get("timing")) or _text((mainline or {}).get("entry_type")),
         "candidate_risk": _text(item.get("risk")) or _join_texts((mainline or {}).get("risk_flags")),
@@ -150,7 +150,7 @@ def merge_trigger_maps(*maps: dict[str, list[tuple[str, float]]] | None) -> dict
     seen: set[tuple[str, str]] = set()
     for trigger_map in maps:
         for signal_type, hits in (trigger_map or {}).items():
-            signal_key = normalize_signal_key(signal_type)
+            signal_key = normalize_candidate_entry_key(signal_type)
             if not signal_key:
                 continue
             for code, score in hits or []:
@@ -158,16 +158,8 @@ def merge_trigger_maps(*maps: dict[str, list[tuple[str, float]]] | None) -> dict
                 if not code_s or (code_s, signal_key) in seen:
                     continue
                 seen.add((code_s, signal_key))
-                merged.setdefault(signal_key, []).append((code_s, _float(score)))
+                merged.setdefault(signal_key, []).append((code_s, candidate_score_value(score)))
     return merged
-
-
-def normalize_signal_key(raw: Any) -> str:
-    return normalize_candidate_entry_key(raw)
-
-
-def _stronger_candidate_entry(new_item: dict[str, Any], current: dict[str, Any]) -> bool:
-    return stronger_candidate_entry(new_item, current)
 
 
 def _mainline_score_fields(item: dict[str, Any]) -> dict[str, Any]:
@@ -184,10 +176,6 @@ def _score(item: dict[str, Any]) -> float:
     raw = item.get("score")
     if raw is None and item.get("mainline_score") is not None:
         raw = float(item.get("mainline_score") or 0.0) * 100.0
-    return _float(raw)
-
-
-def _float(raw: Any) -> float:
     return candidate_score_value(raw)
 
 

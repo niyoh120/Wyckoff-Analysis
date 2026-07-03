@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core._price_math import to_numeric as _to_numeric
 from core.candidate_policy import candidate_score_value
 from core.sector_rotation import SECTOR_STATE_SCORE_BONUS
 
@@ -68,7 +69,7 @@ TRIGGER_GROUP_TITLES = {
 
 def calc_close_return_pct(close_series: pd.Series, lookback: int) -> float | None:
     """计算 close 序列的 N 日收益率（%）。"""
-    s = pd.to_numeric(close_series, errors="coerce").dropna()
+    s = _to_numeric(close_series).dropna()
     lb = max(int(lookback), 1)
     if len(s) <= lb:
         return None

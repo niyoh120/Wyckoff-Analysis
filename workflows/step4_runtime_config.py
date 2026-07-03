@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import os
-
+from utils.env import env_bool as _env_bool
+from utils.env import env_int as _env_int
 from workflows.step4_models import NewBuyLimits, Step4RuntimeConfig
-
-_TRUE_TEXTS = {"1", "true", "yes", "on"}
 
 
 def step4_runtime_config_from_env() -> Step4RuntimeConfig:
@@ -24,17 +22,3 @@ def step4_runtime_config_from_env() -> Step4RuntimeConfig:
             risk_off=max(_env_int("STEP4_MAX_NEW_BUYS_RISK_OFF", 0), 0),
         ),
     )
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in _TRUE_TEXTS
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(float(os.getenv(name, str(default))))
-    except (TypeError, ValueError):
-        return default

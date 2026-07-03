@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 
 from core.candidate_policy import DEFAULT_POSITION_RATIO_BY_REGIME, CandidatePolicyConfig
+from utils.env import env_bool as _env_bool
+from utils.env import env_float as _env_float
 
 
 def candidate_policy_config_from_env() -> CandidatePolicyConfig:
@@ -31,23 +33,6 @@ def candidate_policy_config_from_env() -> CandidatePolicyConfig:
         neutral_high_20d_ret=_env_float("FUNNEL_LOSS_GUARD_NEUTRAL_HIGH_20D_RET", 35.0),
         position_ratio_by_regime=_position_ratio_by_regime_from_env(),
     )
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
 
 
 def _env_optional_float(name: str) -> float | None:

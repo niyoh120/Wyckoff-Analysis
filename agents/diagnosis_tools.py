@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from datetime import date, timedelta
 from typing import Any
 
@@ -14,6 +13,8 @@ from agents.stock_data_helpers import (
     latest_hist_date,
 )
 from agents.tool_context import ToolContext, ensure_tushare_token
+from utils.safe import drop_empty as _drop_empty
+from utils.safe import safe_float as _safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -261,17 +262,10 @@ def _diagnosis_next_step(status: str, risks: list[str]) -> str:
 
 
 def _round_number(value: Any, digits: int = 2) -> float | None:
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return None
-    return round(out, digits) if math.isfinite(out) else None
+    out = _safe_float(value, None)
+    return round(out, digits) if out is not None else None
 
 
 def _safe_int(value: Any) -> int:
     rounded = _round_number(value, 0)
     return int(rounded) if rounded is not None else 0
-
-
-def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}

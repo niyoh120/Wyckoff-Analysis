@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-import math
 from datetime import date, timedelta
 from typing import Any
 
 from agents.tool_context import ToolContext, ensure_tushare_token, get_credential
+from utils.safe import safe_float as _safe_float_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -159,13 +159,6 @@ def _akshare_latest_row(ts_code: str, row, columns: dict[str, str]) -> dict:
     }
 
 
-def _safe_float(value: Any) -> float:
-    try:
-        return float(value or 0)
-    except Exception:
-        return 0.0
-
-
 def resolve_market_history_index(index: str) -> tuple[str, str, str]:
     raw = str(index or "sse").strip()
     key = MARKET_HISTORY_ALIASES.get(raw, MARKET_HISTORY_ALIASES.get(raw.lower(), raw.lower()))
@@ -180,14 +173,13 @@ def resolve_market_history_index(index: str) -> tuple[str, str, str]:
     return "sse", symbol, name
 
 
+def _safe_float(value: Any) -> float:
+    return _safe_float_or_none(value, 0.0) or 0.0
+
+
 def json_float(value: Any, digits: int = 2) -> float | None:
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(out):
-        return None
-    return round(out, digits)
+    out = _safe_float_or_none(value, None)
+    return None if out is None else round(out, digits)
 
 
 def prepare_market_history_frame(df: Any, days: int) -> Any:

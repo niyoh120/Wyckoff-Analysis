@@ -8,6 +8,9 @@ from typing import Any
 
 from core.candidate_metadata import build_candidate_metadata_map, candidate_signal_triggers, merge_trigger_maps
 from core.candidate_policy import candidate_score_value
+from utils.env import env_flag as _env_flag
+from utils.env import env_float as _env_float
+from utils.env import env_int as _env_int
 
 LogFn = Callable[[str, str | None], None]
 
@@ -566,24 +569,6 @@ def _safe_float(value: object) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _env_flag(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_int(name: str, default: int, *, minimum: int) -> int:
-    try:
-        return max(int(os.getenv(name, str(default))), minimum)
-    except ValueError:
-        return default
-
-
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.getenv(name, str(default)))
-    except ValueError:
-        return default
 
 
 def _log(log_fn: LogFn | None, message: str, logs_path: str | None) -> None:

@@ -7,6 +7,12 @@ import logging
 import re
 from typing import Any
 
+from cli.workflows._shared import (
+    collect_stream_text,
+    decision_confidence,
+    loads_json,
+)
+
 logger = logging.getLogger(__name__)
 
 _VALID_INTENTS = {"approve", "deny", "revise", "chat"}
@@ -101,27 +107,15 @@ def _provider_response(provider: Any, messages: list[dict[str, Any]]) -> dict[st
                 return None
     if not hasattr(provider, "chat_stream"):
         return None
-    text = _collect_stream_text(provider.chat_stream(messages, [], _PENDING_REPLY_SYSTEM_PROMPT))
+    text = collect_stream_text(provider.chat_stream(messages, [], _PENDING_REPLY_SYSTEM_PROMPT))
     return {"type": "text", "text": text} if text else None
-
-
-def _collect_stream_text(chunks: Any) -> str:
-    parts: list[str] = []
-    for chunk in chunks:
-        if not isinstance(chunk, dict):
-            continue
-        if chunk.get("type") == "tool_calls":
-            return ""
-        if chunk.get("type") == "text_delta":
-            parts.append(str(chunk.get("text", "")))
-    return "".join(parts).strip()
 
 
 def _parse_decision(response: Any) -> dict[str, Any] | None:
     if not isinstance(response, dict) or response.get("type") == "tool_calls":
         return None
     try:
-        payload = _loads_json(str(response.get("text") or ""))
+        payload = loads_json(str(response.get("text") or ""), error_label="pending workflow reply decision")
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
     intent = _decision_intent(payload)
@@ -129,26 +123,9 @@ def _parse_decision(response: Any) -> dict[str, Any] | None:
         return None
     return {
         "intent": intent,
-        "confidence": _decision_confidence(payload),
+        "confidence": decision_confidence(payload),
         "reason": str(payload.get("reason") or "").strip()[:120],
     }
-
-
-def _loads_json(text: str) -> dict[str, Any]:
-    raw = text.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-        if not match:
-            raise
-        payload = json.loads(match.group(0))
-    if not isinstance(payload, dict):
-        raise ValueError("pending workflow reply decision must be an object")
-    return payload
 
 
 def _decision_intent(payload: dict[str, Any]) -> str:
@@ -176,14 +153,3 @@ def _intent_value(value: Any) -> str:
         "question": "chat",
         "ask": "chat",
     }.get(text, text)
-
-
-def _decision_confidence(payload: dict[str, Any]) -> float:
-    raw = payload.get("confidence", payload.get("score", payload.get("probability", 0.0)))
-    try:
-        value = float(str(raw).strip().rstrip("%"))
-    except (TypeError, ValueError):
-        return 0.0
-    if value > 1.0:
-        value /= 100.0
-    return round(max(0.0, min(value, 1.0)), 4)

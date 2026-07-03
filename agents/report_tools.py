@@ -9,6 +9,7 @@ from typing import Any
 from agents.stock_data_helpers import code_to_name
 from agents.tool_context import ToolContext, ensure_tushare_token, resolve_llm_config
 from core.candidate_guards import candidate_guard_summary
+from utils.safe import has_value as _has_value
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
     try:
         ensure_tushare_token(tool_context)
         stock_items = _stock_code_items(stock_codes)
-        screen_result = _last_screen_result(tool_context)
+        screen_result = last_screen_result(tool_context)
         if not stock_items and (reason := screen_auto_handoff_block_reason(screen_result)):
             status = screen_auto_handoff_block_status(screen_result)
             return {
@@ -223,7 +224,7 @@ def _has_explicit_watch_only_handoff(
 
 
 def _screen_handoff_stock_items(tool_context: ToolContext | None) -> list[Any]:
-    screen_result = _last_screen_result(tool_context)
+    screen_result = last_screen_result(tool_context)
     if not screen_result:
         return []
     for value in _screen_handoff_sources(screen_result):
@@ -289,7 +290,7 @@ def _stock_codes_from_text(text: str) -> list[str]:
     return list(dict.fromkeys(codes))
 
 
-def _last_screen_result(tool_context: ToolContext | None) -> dict[str, Any]:
+def last_screen_result(tool_context: ToolContext | None) -> dict[str, Any]:
     value = tool_context.state.get("last_screen_result") if tool_context else {}
     return value if isinstance(value, dict) else {}
 
@@ -341,10 +342,6 @@ def _screen_symbol_rows(screen_result: dict[str, Any]) -> list[Any]:
     if isinstance(selection_brief, dict) and isinstance(selection_brief.get("best_candidates"), list):
         rows.extend(selection_brief["best_candidates"])
     return rows
-
-
-def _has_value(value: Any) -> bool:
-    return value is not None and value != "" and value != [] and value != {}
 
 
 def remember_ai_report(tool_context: ToolContext | None, result: dict[str, Any]) -> None:

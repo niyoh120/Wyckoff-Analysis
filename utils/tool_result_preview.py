@@ -7,6 +7,7 @@ import math
 from typing import Any
 
 from core.candidate_guards import candidate_guard_reason
+from utils.safe import drop_empty as _drop_empty_preview_fields
 
 PREVIEW_CHARS = 2_000
 
@@ -1556,11 +1557,3 @@ def _text_excerpt(value: Any, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "..."
-
-
-def _drop_empty_preview_fields(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in payload.items()
-        if value is not None and value != "" and value != [] and value != {}
-    }

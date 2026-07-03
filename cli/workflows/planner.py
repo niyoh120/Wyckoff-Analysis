@@ -10,6 +10,12 @@ from typing import Any
 
 from cli.screen_intent import stock_screen_suggested_args
 from cli.tools import TOOL_SCHEMAS, TOOL_SPECS
+from cli.workflows._shared import (
+    PORTFOLIO_REVIEW_CONTEXT_MARKERS,
+    compact_text,
+    has_stock_style_target,
+    looks_like_portfolio_review,
+)
 from cli.workflows.models import WorkflowContext, WorkflowRun, WorkflowStep
 from cli.workflows.router import route_workflow
 
@@ -59,8 +65,6 @@ _STOCK_FALLBACK_TARGETS = (
     "值得复核",
     "值得跟踪",
 )
-_STOCK_FALLBACK_STYLE_MARKERS = ("强势", "趋势", "低吸", "右侧", "左侧", "稳健")
-_STOCK_FALLBACK_STYLE_TARGETS = ("票", "标的", "候选")
 _STOCK_FALLBACK_EXPLAINERS = ("怎么", "如何", "方法", "是什么意思", "啥意思", "概念", "解释")
 _STOCK_FALLBACK_REPORT_MARKERS = ("研报", "深度", "报告")
 _STOCK_FALLBACK_DECISION_MARKERS = (
@@ -74,10 +78,6 @@ _STOCK_FALLBACK_DECISION_MARKERS = (
     "失效位",
     "下一步",
 )
-_PORTFOLIO_REVIEW_SUBJECT_MARKERS = ("持仓", "仓位", "组合")
-_PORTFOLIO_REVIEW_STRONG_MARKERS = ("复盘", "体检", "诊断", "总结", "去留", "攻防", "策略")
-_PORTFOLIO_REVIEW_CONTEXT_MARKERS = ("大盘", "市场", "水温", "盘面", "环境", "今天", "明天", "风险", "建议")
-_PORTFOLIO_REVIEW_MARKET_MARKERS = ("大盘", "市场", "水温", "盘面", "环境")
 _SYNTHESIS_TASK_MARKERS = (
     "汇总",
     "总结",
@@ -1065,7 +1065,7 @@ def _task_intent_text(task: dict[str, Any]) -> str:
         task.get("rationale"),
         task.get("success_criteria"),
     ]
-    return _compact_task_text(" ".join(str(part or "") for part in parts))
+    return compact_text(" ".join(str(part or "") for part in parts))
 
 
 def _looks_like_tool_explainer(text: str) -> bool:
@@ -1376,7 +1376,7 @@ def _looks_like_synthesis_step(step: WorkflowStep) -> bool:
 
 
 def _synthesis_step_text(step: WorkflowStep) -> str:
-    return _compact_task_text(
+    return compact_text(
         " ".join(
             [
                 step.title,
@@ -1656,16 +1656,10 @@ def _stock_selection_fallback_script(user_text: str, context: WorkflowContext, r
 
 
 def _looks_like_stock_selection_delivery(user_text: str) -> bool:
-    text = _compact_task_text(user_text)
+    text = compact_text(user_text)
     if not text or any(marker in text for marker in _STOCK_FALLBACK_EXPLAINERS):
         return False
-    return any(marker in text for marker in _STOCK_FALLBACK_TARGETS) or _stock_fallback_style_target(text)
-
-
-def _stock_fallback_style_target(text: str) -> bool:
-    return any(marker in text for marker in _STOCK_FALLBACK_STYLE_MARKERS) and any(
-        marker in text for marker in _STOCK_FALLBACK_STYLE_TARGETS
-    )
+    return any(marker in text for marker in _STOCK_FALLBACK_TARGETS) or has_stock_style_target(text)
 
 
 def _stock_scan_task(user_text: str) -> dict[str, Any]:
@@ -1734,12 +1728,12 @@ def _stock_decision_task(depends_on: str) -> dict[str, Any]:
 
 
 def _wants_ai_report(user_text: str) -> bool:
-    text = _compact_task_text(user_text)
+    text = compact_text(user_text)
     return any(marker in text for marker in _STOCK_FALLBACK_REPORT_MARKERS)
 
 
 def _wants_strategy_decision(user_text: str) -> bool:
-    text = _compact_task_text(user_text)
+    text = compact_text(user_text)
     return any(marker in text for marker in _STOCK_FALLBACK_DECISION_MARKERS)
 
 
@@ -1773,18 +1767,12 @@ def _portfolio_review_tasks(user_text: str) -> list[dict[str, Any]]:
 
 
 def _looks_like_portfolio_review_delivery(user_text: str) -> bool:
-    text = _compact_task_text(user_text)
-    if not text:
-        return False
-    has_subject = any(marker in text for marker in _PORTFOLIO_REVIEW_SUBJECT_MARKERS)
-    has_strong_action = any(marker in text for marker in _PORTFOLIO_REVIEW_STRONG_MARKERS)
-    context_count = sum(1 for marker in _PORTFOLIO_REVIEW_CONTEXT_MARKERS if marker in text)
-    return has_subject and has_strong_action and context_count >= 1
+    return looks_like_portfolio_review(user_text)
 
 
 def _wants_portfolio_market_context(user_text: str) -> bool:
-    text = _compact_task_text(user_text)
-    return any(marker in text for marker in _PORTFOLIO_REVIEW_MARKET_MARKERS)
+    text = compact_text(user_text)
+    return any(marker in text for marker in PORTFOLIO_REVIEW_CONTEXT_MARKERS[:5])
 
 
 def _portfolio_market_task(user_text: str) -> dict[str, Any]:
@@ -1823,10 +1811,6 @@ def _portfolio_decision_task(depends_on: list[str]) -> dict[str, Any]:
         "success_criteria": "输出持仓去留、风险动作、今天/明天观察条件和禁止执行边界。",
         "risk_guard": "不直接执行交易，不声称已完成买卖或持仓更新。",
     }
-
-
-def _compact_task_text(value: Any) -> str:
-    return re.sub(r"[\s。！!,.，、？?]+", "", str(value or "").lower())
 
 
 def _fallback_task_prompt(user_text: str) -> str:

@@ -1,4 +1,7 @@
-import type { FundamentalMetric, ValueSnapshot } from './kline'
+import type { FundamentalMetric, ValueSnapshot } from '@wyckoff/shared'
+import { buildValuePrompt as _sharedBuildValuePrompt, formatPromptPercent, sourceLabel } from '@wyckoff/shared'
+
+export { sourceLabel }
 import type { TranslationKey } from './preferences'
 
 export type ValueTone = 'good' | 'bad' | 'neutral'
@@ -61,11 +64,6 @@ export function buildValueScore(metrics: FundamentalMetric | null, t?: Translate
   return { label, tone, score, strengths, risks }
 }
 
-export function sourceLabel(snapshot: ValueSnapshot): string {
-  if (snapshot.source === 'tickflow') return 'TickFlow'
-  if (snapshot.source === 'tushare') return 'Tushare'
-  return '--'
-}
 
 export function valueUnavailableText(reason: ValueSnapshot['reason'], t: Translate): string {
   if (reason === 'unsupported-market') return t('analysis.valueUnsupported')
@@ -115,15 +113,7 @@ export function signalClass(tone: ValueTone): string {
 }
 
 export function buildValuePrompt(snapshot: ValueSnapshot): string {
-  const metrics = snapshot.metrics
-  if (!metrics) return '价值面摘要：暂无可用基本面指标，本次只基于量价结构分析。'
-  const rows = [
-    `价值面摘要（来源：${sourceLabel(snapshot)}${metrics.period_end ? `，报告期：${metrics.period_end}` : ''}）：`,
-    `ROE=${formatPromptPercent(metrics.roe)}，净利润同比=${formatPromptPercent(metrics.net_income_yoy)}，营收同比=${formatPromptPercent(metrics.revenue_yoy)}`,
-    `毛利率=${formatPromptPercent(metrics.gross_margin)}，净利率=${formatPromptPercent(metrics.net_margin)}，资产负债率=${formatPromptPercent(metrics.debt_to_asset_ratio)}`,
-    `经营现金流/营收=${formatPromptPercent(metrics.operating_cash_to_revenue)}，EPS=${formatPromptNumber(metrics.eps_basic)}，每股净资产=${formatPromptNumber(metrics.bps)}`,
-  ]
-  return rows.join('\n')
+  return _sharedBuildValuePrompt(snapshot)
 }
 
 export function buildValueDigest(snapshot: ValueSnapshot): string {
@@ -133,12 +123,4 @@ export function buildValueDigest(snapshot: ValueSnapshot): string {
     `valueSource=${sourceLabel(snapshot)} period=${metrics.period_end || metrics.announce_date || 'unknown'}`,
     `valueMetrics roe=${formatPromptPercent(metrics.roe)} netProfitYoY=${formatPromptPercent(metrics.net_income_yoy)} revenueYoY=${formatPromptPercent(metrics.revenue_yoy)} grossMargin=${formatPromptPercent(metrics.gross_margin)} netMargin=${formatPromptPercent(metrics.net_margin)} debtRatio=${formatPromptPercent(metrics.debt_to_asset_ratio)} cashToRevenue=${formatPromptPercent(metrics.operating_cash_to_revenue)}`,
   ].join('\n')
-}
-
-export function formatPromptPercent(value: number | undefined): string {
-  return Number.isFinite(value) ? `${(value as number).toFixed(2)}%` : '暂无'
-}
-
-export function formatPromptNumber(value: number | undefined): string {
-  return Number.isFinite(value) ? (value as number).toFixed(2) : '暂无'
 }

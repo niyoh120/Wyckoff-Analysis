@@ -6,6 +6,12 @@ from typing import Any
 
 import pandas as pd
 
+from core._price_math import clamp as _clamp
+from core._price_math import dist_pct as _dist_pct
+from core._price_math import numeric_column as _num
+from core._price_math import ret_pct as _ret_pct
+from core._price_math import upper_shadow_pct as _upper_shadow_pct
+from core._price_math import vol_ratio as _vol_ratio
 from core.candidate_tracks import candidate_entry_key, candidate_entry_score, sanitized_candidate_entry
 from core.main_force_signal import analyze_main_force_signal
 
@@ -274,23 +280,6 @@ def _rank_key(item: dict[str, Any], priority: dict[str, int]) -> str:
     return candidate_entry_key(item, priority.keys(), fields=("signal_key", "lane", "entry_type"))
 
 
-def _num(df: pd.DataFrame, column: str) -> pd.Series:
-    if column not in df.columns:
-        return pd.Series(dtype=float)
-    return pd.to_numeric(df[column], errors="coerce").dropna()
-
-
-def _ret_pct(close: pd.Series, lookback: int) -> float:
-    if len(close) <= lookback:
-        return 0.0
-    start = float(close.iloc[-lookback - 1])
-    return 0.0 if start <= 0 else (float(close.iloc[-1]) / start - 1.0) * 100.0
-
-
-def _dist_pct(value: float, base: float) -> float:
-    return 0.0 if base <= 0 else (value / base - 1.0) * 100.0
-
-
 def _range_pos(value: float, lows: pd.Series, highs: pd.Series, fallback: pd.Series) -> float:
     low = float(lows.min()) if not lows.empty else float(fallback.min())
     high = float(highs.max()) if not highs.empty else float(fallback.max())
@@ -301,22 +290,3 @@ def _day_close_pos(df: pd.DataFrame, high: pd.Series, low: pd.Series) -> float:
     if high.empty or low.empty:
         return 0.5
     return _range_pos(float(df["close"].iloc[-1]), low.tail(1), high.tail(1), df["close"].tail(1))
-
-
-def _upper_shadow_pct(df: pd.DataFrame, open_: pd.Series, high: pd.Series, close: pd.Series) -> float:
-    if high.empty or close.empty:
-        return 0.0
-    base = float(close.iloc[-1])
-    body_top = max(base, float(open_.iloc[-1]) if not open_.empty else base)
-    return 0.0 if base <= 0 else max(float(high.iloc[-1]) - body_top, 0.0) / base * 100.0
-
-
-def _vol_ratio(volume: pd.Series) -> float:
-    if len(volume) < 20:
-        return 1.0
-    base = float(volume.tail(20).mean())
-    return 1.0 if base <= 0 else float(volume.tail(5).mean()) / base
-
-
-def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
-    return max(low, min(high, float(value)))

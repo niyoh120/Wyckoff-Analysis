@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 
 from core.compliance_report import DEFAULT_MAX_OUTPUT_TOKENS, EFFICIENCY_PROVIDER, ComplianceLLMConfig
-
-_TRUE_TEXTS = {"1", "true", "yes", "on"}
+from utils.env import env_bool as _env_bool
+from utils.env import env_int as _env_int
 
 
 def compliance_llm_config_from_env() -> ComplianceLLMConfig | None:
@@ -26,17 +26,3 @@ def compliance_llm_config_from_env() -> ComplianceLLMConfig | None:
         retries=max(_env_int("STEP3_COMPLIANCE_MAX_RETRIES", 1), 0),
         max_output_tokens=max(_env_int("STEP3_COMPLIANCE_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS), 512),
     )
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name, "")
-    if not raw:
-        return default
-    return raw.strip().lower() in _TRUE_TEXTS
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, "").strip() or default)
-    except Exception:
-        return default

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
-import re
 import time
 from http.client import RemoteDisconnected
 
 import pandas as pd
+
+from integrations.data_source_format import compact_error as _compact_error
 
 _RETRY_TIMES = max(int(os.getenv("AKSHARE_RETRY_TIMES", "2")), 1)
 _RETRY_SLEEP_SECONDS = float(os.getenv("AKSHARE_RETRY_SLEEP_SECONDS", "0.8"))
@@ -57,11 +58,3 @@ def _is_retryable_akshare_error(err: Exception) -> bool:
         "proxyerror",
     ]
     return any(m in text for m in markers) or isinstance(err, RemoteDisconnected)
-
-
-def _compact_error(err: Exception, max_len: int = 120) -> str:
-    msg = str(err or "").strip().replace("\n", " ")
-    msg = re.sub(r"\s+", " ", msg)
-    if len(msg) > max_len:
-        msg = msg[: max_len - 3] + "..."
-    return f"{type(err).__name__}: {msg}" if msg else type(err).__name__

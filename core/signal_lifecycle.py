@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from core._price_math import to_numeric as _to_numeric
+
 
 @dataclass(frozen=True)
 class HorizonOutcome:
@@ -22,10 +24,6 @@ class SignalLifecycle:
     signal_date: str
     entry_price: float | None
     outcomes: tuple[HorizonOutcome, ...]
-
-
-def _to_numeric(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series, errors="coerce")
 
 
 def _empty_lifecycle(code: str, signal_date: str | None) -> SignalLifecycle:

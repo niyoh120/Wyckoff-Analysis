@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
+
+
+def compact_error(exc: Exception, max_len: int = 120) -> str:
+    msg = str(exc or "").strip().replace("\n", " ")
+    msg = re.sub(r"\s+", " ", msg)
+    if len(msg) > max_len:
+        msg = msg[: max_len - 3] + "..."
+    return f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
+
 
 STOCK_HIST_COLUMNS = (
     "日期",

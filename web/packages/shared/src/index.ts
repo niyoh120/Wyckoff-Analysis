@@ -17,6 +17,12 @@ export {
   normalizeCode,
   normalizeTickFlowSymbol,
   normalizeTushareCode,
+  normalizeReportDate,
+  finiteNumber,
+  pickMetricValue,
+  firstFinancialObject,
+  looksLikeFinancialRecord,
+  findFinancialRecord,
 } from './agent-market'
 export type { FundamentalMetric, ValueSnapshot, ValueSnapshotReason } from './agent-market'
 export {

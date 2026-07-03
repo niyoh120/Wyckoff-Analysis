@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from contextlib import suppress
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -65,27 +64,12 @@ def _load_name_map() -> dict[str, str]:
 
 def _load_etf_name_map() -> dict[str, str]:
     try:
-        from tools.market_universe_meta import load_symbol_name_map
+        from tools.market_universe_meta import load_etf_name_map
 
-        meta_map = load_symbol_name_map(("etf_cn",))
-        out = {code: name for code, name in meta_map.items() if len(code) == 6 and code.isdigit()}
-        if out:
-            return out
+        return load_etf_name_map()
     except Exception:
-        logger.debug("failed to load ETF name map from symbol metadata", exc_info=True)
-    return _load_etf_name_map_from_file()
-
-
-def _load_etf_name_map_from_file() -> dict[str, str]:
-    path = Path(__file__).resolve().parent.parent / "data" / "market_universes" / "etf_cn.txt"
-    if not path.is_file():
+        logger.debug("failed to load ETF name map", exc_info=True)
         return {}
-    result: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        parts = line.split("#", 1)[0].strip().split(None, 1)
-        if len(parts) == 2 and len(parts[0]) == 6 and parts[0].isdigit():
-            result[parts[0]] = f"{parts[1]}ETF"
-    return result
 
 
 def _dedupe_texts(items: list[Any]) -> list[str]:

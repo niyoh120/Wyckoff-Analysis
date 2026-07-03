@@ -8,6 +8,13 @@ from __future__ import annotations
 
 import pandas as pd
 
+from utils.safe import safe_float as _safe_float_or_default
+
+
+def _safe_float(value: object) -> float | None:
+    return _safe_float_or_default(value, None)
+
+
 # ── 环境变量配置 ──
 
 RECENT_DAYS = 15
@@ -82,14 +89,6 @@ def _build_supply_demand_summary(df: pd.DataFrame) -> str:
     if extra_tags:
         summary += "，" + "，".join(extra_tags)
     return summary + "\n"
-
-
-def _safe_float(value: object) -> float | None:
-    try:
-        value_float = float(value)
-    except (TypeError, ValueError):
-        return None
-    return None if pd.isna(value_float) else value_float
 
 
 def _springboard_codes(grade: str | None) -> list[str]:

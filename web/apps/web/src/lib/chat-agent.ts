@@ -231,53 +231,30 @@ export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
   return config
 }
 
+const BUILTIN_PROVIDER_OVERRIDES: Record<string, Partial<LLMConfig>> = {
+  gemini: { base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', protocol: 'openai' },
+  anthropic: { base_url: 'https://api.anthropic.com', protocol: 'anthropic' },
+}
+
 function buildProviderConfig(provider: string, data: UserSettingsRow): LLMConfig {
-  if (provider === 'gemini') {
+  const apiKey = data[`${provider}_api_key` as keyof UserSettingsRow]
+  if (typeof apiKey === 'string' && apiKey) {
+    const model = data[`${provider}_model` as keyof UserSettingsRow] as string | null | undefined
+    const baseUrl = data[`${provider}_base_url` as keyof UserSettingsRow] as string | null | undefined
+    const override = BUILTIN_PROVIDER_OVERRIDES[provider]
     return {
-      api_key: data.gemini_api_key || '',
-      model: data.gemini_model || PROVIDER_DEFAULT_MODELS.gemini,
-      base_url: data.gemini_base_url || 'https://generativelanguage.googleapis.com/v1beta/openai',
-      protocol: 'openai',
-    }
-  }
-  if (provider === 'openai') {
-    return {
-      api_key: data.openai_api_key || '',
-      model: data.openai_model || PROVIDER_DEFAULT_MODELS.openai,
-      base_url: data.openai_base_url || PROVIDER_BASE_URLS.openai,
-      protocol: 'openai',
-    }
-  }
-  if (provider === 'deepseek') {
-    return {
-      api_key: data.deepseek_api_key || '',
-      model: data.deepseek_model || PROVIDER_DEFAULT_MODELS.deepseek,
-      base_url: data.deepseek_base_url || PROVIDER_BASE_URLS.deepseek,
-      protocol: 'openai',
-    }
-  }
-  if (provider === 'anthropic') {
-    return {
-      api_key: data.anthropic_api_key || '',
-      model: data.anthropic_model || PROVIDER_DEFAULT_MODELS.anthropic,
-      base_url: data.anthropic_base_url || 'https://api.anthropic.com',
-      protocol: 'anthropic',
+      api_key: apiKey,
+      model: model || PROVIDER_DEFAULT_MODELS[provider as Provider] || '',
+      base_url: baseUrl || override?.base_url || PROVIDER_BASE_URLS[provider as Provider] || '',
+      protocol: override?.protocol || 'openai',
     }
   }
   const custom = parseCustomProviders(data.custom_providers)
   const info = custom[provider] || {}
   return {
     api_key: info.apikey || info.api_key || '',
-    model: info.model || defaultModelForProvider(provider),
-    base_url: info.baseurl || info.base_url || defaultBaseUrlForProvider(provider),
+    model: info.model || PROVIDER_DEFAULT_MODELS[provider as Provider] || '',
+    base_url: info.baseurl || info.base_url || PROVIDER_BASE_URLS[provider as Provider] || '',
     protocol: 'openai',
   }
-}
-
-function defaultModelForProvider(provider: string): string {
-  return PROVIDER_DEFAULT_MODELS[provider as Provider] || ''
-}
-
-function defaultBaseUrlForProvider(provider: string): string {
-  return PROVIDER_BASE_URLS[provider as Provider] || ''
 }

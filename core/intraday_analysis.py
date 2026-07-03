@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from core._price_math import ret_pct as _ret_pct
+
 CN_TZ = ZoneInfo("Asia/Shanghai")
 
 
@@ -298,16 +300,6 @@ def _compute_strength_score(
     )
     score += _score_vol_price_quality(vol_price_corr, effort_vs_result, smart_money_score)
     return max(0.0, min(100.0, score))
-
-
-def _ret_pct(close: pd.Series, lookback: int) -> float:
-    if len(close) <= lookback:
-        return 0.0
-    base = _safe_float(close.iloc[-(lookback + 1)])
-    now = _safe_float(close.iloc[-1])
-    if base <= 0:
-        return 0.0
-    return (now / base - 1.0) * 100.0
 
 
 def _build_profile(bars: int, feat: dict[str, Any], **kwargs: Any) -> IntradayProfile:

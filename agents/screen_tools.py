@@ -23,6 +23,7 @@ from core.candidate_ranker import TRIGGER_SHORT_LABELS
 from core.candidate_tracks import candidate_entry_track
 from core.funnel_taxonomy import lane_label, source_label
 from core.theme_radar import summarize_theme_radar
+from utils.safe import drop_empty as _drop_empty_candidate_fields
 
 logger = logging.getLogger(__name__)
 
@@ -852,10 +853,6 @@ def _dedupe_guard_rows(rows: list[dict]) -> list[dict]:
             continue
         out.setdefault(code, row)
     return list(out.values())
-
-
-def _drop_empty_candidate_fields(payload: dict) -> dict:
-    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
 def _report_candidates(top_candidates: list[dict]) -> list[dict]:

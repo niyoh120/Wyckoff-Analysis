@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from integrations.fetch_a_share_csv import resolve_trading_window
 from integrations.supabase_portfolio import load_portfolio_state
+from utils.env import env_bool
 from utils.trading_clock import resolve_end_calendar_day
 from workflows.step4_rebalancer import run as run_step4
 
@@ -71,18 +72,11 @@ def is_confirmed_step4_candidate(item: dict) -> bool:
     return "confirmed" in text or "确认" in text
 
 
-def _env_flag_default(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None or not raw.strip():
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _step4_candidate_meta(symbols_info: list, step3_springboard_codes: list[str]) -> tuple[list[dict], int]:
     if not step3_springboard_codes:
         return [], 0
     allowed_set = set(step3_springboard_codes)
-    require_confirmed = _env_flag_default("STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE", True)
+    require_confirmed = env_bool("STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE", True)
     selected: list[dict] = []
     blocked = 0
     for item in symbols_info:

@@ -6,6 +6,7 @@ import os
 
 from core.premarket_public_brief import PublicBriefLlmConfig
 from integrations.llm_client import provider_fallbacks, provider_route_chain, resolve_provider_name
+from utils.env import env_int as _env_int
 
 _DISABLED_TEXTS = {"0", "false", "no", "off"}
 
@@ -17,12 +18,5 @@ def public_brief_llm_config_from_env() -> PublicBriefLlmConfig:
     fallbacks = provider_fallbacks("PREMARKET_LLM_FALLBACK_PROVIDERS")
     return PublicBriefLlmConfig(
         routes=tuple(provider_route_chain(provider, fallbacks)),
-        timeout_seconds=_env_int("PREMARKET_LLM_TIMEOUT", 45),
+        timeout_seconds=_env_int("PREMARKET_LLM_TIMEOUT", 45, minimum=1),
     )
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return max(int(float(os.getenv(name, str(default)))), 1)
-    except Exception:
-        return default

@@ -16,31 +16,19 @@ from core.hist_dates import latest_trade_date_from_hist as latest_trade_date_fro
 
 logger = logging.getLogger(__name__)
 
-FetchRuntimeConfig = ohlcv_fallback_fetcher.FetchRuntimeConfig
-DEFAULT_FETCH_RUNTIME_CONFIG = ohlcv_fallback_fetcher.DEFAULT_FETCH_RUNTIME_CONFIG
-MAX_RETRIES = ohlcv_fallback_fetcher.MAX_RETRIES
-RETRY_BASE_DELAY = ohlcv_fallback_fetcher.RETRY_BASE_DELAY
-SOCKET_TIMEOUT = ohlcv_fallback_fetcher.SOCKET_TIMEOUT
-FETCH_TIMEOUT = ohlcv_fallback_fetcher.FETCH_TIMEOUT
-BATCH_TIMEOUT = ohlcv_fallback_fetcher.BATCH_TIMEOUT
-BATCH_SIZE = ohlcv_fallback_fetcher.BATCH_SIZE
-BATCH_SLEEP = ohlcv_fallback_fetcher.BATCH_SLEEP
-MAX_WORKERS = ohlcv_fallback_fetcher.MAX_WORKERS
-EXECUTOR_MODE = ohlcv_fallback_fetcher.EXECUTOR_MODE
-
 
 def fetch_all_ohlcv(
     symbols: list[str],
     window,
     *,
     enforce_target_trade_date: bool = False,
-    batch_size: int = BATCH_SIZE,
-    max_workers: int = MAX_WORKERS,
-    batch_timeout: int = BATCH_TIMEOUT,
-    batch_sleep: float = BATCH_SLEEP,
-    executor_mode: str = EXECUTOR_MODE,
+    batch_size: int = ohlcv_fallback_fetcher.BATCH_SIZE,
+    max_workers: int = ohlcv_fallback_fetcher.MAX_WORKERS,
+    batch_timeout: int = ohlcv_fallback_fetcher.BATCH_TIMEOUT,
+    batch_sleep: float = ohlcv_fallback_fetcher.BATCH_SLEEP,
+    executor_mode: str = ohlcv_fallback_fetcher.EXECUTOR_MODE,
     direct_source: bool = False,
-    runtime_config: FetchRuntimeConfig | None = None,
+    runtime_config: ohlcv_fallback_fetcher.FetchRuntimeConfig | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, int | float]]:
     """Fetch daily OHLCV using the fastest available strategy."""
     batch_result = tickflow_batch_fetcher.fetch_tickflow_daily_batch(

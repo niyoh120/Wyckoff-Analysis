@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 
+from core._price_math import clamp as _clamp
 from core.concept_filters import is_actionable_theme_name
 from core.theme_radar import normalize_theme_name
 
@@ -199,7 +200,3 @@ def _as_float(raw: Any) -> float:
         return float(raw or 0.0)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _clamp(value: float) -> float:
-    return max(0.0, min(float(value), 1.0))
