@@ -816,6 +816,59 @@ def test_dispatch_falls_back_to_workflow_for_chatty_stock_selection_when_model_r
     assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
 
 
+def test_dispatch_falls_back_to_workflow_for_portfolio_review_when_model_router_is_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="大盘水温怎么样？持仓做个体检，给我今天总结和明天策略建议",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），组合复盘请求兜底进入动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "portfolio_review_guard")
+
+
+def test_dispatch_keeps_simple_portfolio_view_direct_when_model_router_is_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="你看我持仓呀",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
+
+
+def test_portfolio_review_fallback_script_reads_market_and_holdings_before_decision():
+    _runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="大盘水温怎么样？持仓做个体检，给我今天总结和明天策略建议",
+    )
+    run = plan_workflow(
+        "大盘水温怎么样？持仓做个体检，给我今天总结和明天策略建议",
+        context=workflow,
+        provider=ScriptedProvider([]),
+        tools=StubToolRegistry(),
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert run.script["runtime"]["fallback_kind"] == "portfolio_review"
+    assert [step.title for step in run.steps] == ["读取市场环境", "读取并诊断持仓", "形成去留和风险动作"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("get_market_overview",),
+        ("portfolio",),
+        ("generate_strategy_decision",),
+    ]
+    assert run.steps[1].args_hint == "mode: diagnose"
+    assert run.steps[2].depends_on == ("market_context", "portfolio_diagnosis")
+
+
 def test_dispatch_surfaces_invalid_model_router_json():
     provider = RouterDecisionProvider("这不是 JSON")
 

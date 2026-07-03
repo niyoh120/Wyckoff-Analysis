@@ -71,6 +71,10 @@ _STOCK_FALLBACK_DECISION_MARKERS = (
     "失效位",
     "下一步",
 )
+_PORTFOLIO_REVIEW_SUBJECT_MARKERS = ("持仓", "仓位", "组合")
+_PORTFOLIO_REVIEW_STRONG_MARKERS = ("复盘", "体检", "诊断", "总结", "去留", "攻防", "策略")
+_PORTFOLIO_REVIEW_CONTEXT_MARKERS = ("大盘", "市场", "水温", "盘面", "环境", "今天", "明天", "风险", "建议")
+_PORTFOLIO_REVIEW_MARKET_MARKERS = ("大盘", "市场", "水温", "盘面", "环境")
 _SYNTHESIS_TASK_MARKERS = (
     "汇总",
     "总结",
@@ -1425,6 +1429,8 @@ def _slug(value: Any) -> str:
 def _fallback_script(user_text: str, context: WorkflowContext, *, reason: str) -> dict[str, Any]:
     if stock_script := _stock_selection_fallback_script(user_text, context, reason):
         return stock_script
+    if portfolio_script := _portfolio_review_fallback_script(user_text, context, reason):
+        return portfolio_script
     title = _fallback_task_title(user_text, context)
     return {
         "title": title,
@@ -1528,6 +1534,88 @@ def _wants_ai_report(user_text: str) -> bool:
 def _wants_strategy_decision(user_text: str) -> bool:
     text = _compact_task_text(user_text)
     return any(marker in text for marker in _STOCK_FALLBACK_DECISION_MARKERS)
+
+
+def _portfolio_review_fallback_script(user_text: str, context: WorkflowContext, reason: str) -> dict[str, Any] | None:
+    if context.name != "dynamic_task" or not _looks_like_portfolio_review_delivery(user_text):
+        return None
+    tasks = _portfolio_review_tasks(user_text)
+    return {
+        "title": "组合复盘",
+        "rationale": reason,
+        "runtime": {
+            "planner": "fallback_script",
+            "fallback_reason": reason,
+            "fallback_kind": "portfolio_review",
+        },
+        "phases": [{"id": "portfolio_review", "title": "组合复盘", "tasks": tasks}],
+        "synthesis_prompt": (
+            "基于真实工具结果给出中文答复：先给组合结论，再分持仓去留、市场风险、今天/明天动作。"
+            "不得声称已经执行交易或改仓。"
+        ),
+    }
+
+
+def _portfolio_review_tasks(user_text: str) -> list[dict[str, Any]]:
+    tasks: list[dict[str, Any]] = []
+    if _wants_portfolio_market_context(user_text):
+        tasks.append(_portfolio_market_task(user_text))
+    tasks.append(_portfolio_diagnose_task(user_text))
+    tasks.append(_portfolio_decision_task(depends_on=[task["id"] for task in tasks]))
+    return tasks
+
+
+def _looks_like_portfolio_review_delivery(user_text: str) -> bool:
+    text = _compact_task_text(user_text)
+    if not text:
+        return False
+    has_subject = any(marker in text for marker in _PORTFOLIO_REVIEW_SUBJECT_MARKERS)
+    has_strong_action = any(marker in text for marker in _PORTFOLIO_REVIEW_STRONG_MARKERS)
+    context_count = sum(1 for marker in _PORTFOLIO_REVIEW_CONTEXT_MARKERS if marker in text)
+    return has_subject and has_strong_action and context_count >= 1
+
+
+def _wants_portfolio_market_context(user_text: str) -> bool:
+    text = _compact_task_text(user_text)
+    return any(marker in text for marker in _PORTFOLIO_REVIEW_MARKET_MARKERS)
+
+
+def _portfolio_market_task(user_text: str) -> dict[str, Any]:
+    return {
+        "id": "market_context",
+        "title": "读取市场环境",
+        "tools": ["get_market_overview"],
+        "prompt": f"读取当前大盘水温、风险状态和市场环境，供持仓复盘使用。\n\n用户原文：{user_text}",
+        "rationale": "组合复盘需要先确认当前市场风险背景。",
+        "success_criteria": "输出市场状态、风险闸门和对持仓动作的影响。",
+        "risk_guard": "只读取市场事实，不生成交易执行指令。",
+    }
+
+
+def _portfolio_diagnose_task(user_text: str) -> dict[str, Any]:
+    return {
+        "id": "portfolio_diagnosis",
+        "title": "读取并诊断持仓",
+        "tools": ["portfolio"],
+        "args": {"mode": "diagnose"},
+        "prompt": f"读取用户真实持仓并做结构诊断，保留每只持仓的风险、阶段和去留证据。\n\n用户原文：{user_text}",
+        "rationale": "持仓复盘必须先读取真实持仓数据。",
+        "success_criteria": "输出每只持仓的结构诊断、风险因素和候选动作。",
+        "risk_guard": "只读持仓，不写入、不调仓。",
+    }
+
+
+def _portfolio_decision_task(depends_on: list[str]) -> dict[str, Any]:
+    return {
+        "id": "portfolio_action_plan",
+        "title": "形成去留和风险动作",
+        "tools": ["generate_strategy_decision"],
+        "depends_on": depends_on,
+        "prompt": "基于市场环境和持仓诊断形成组合攻防计划，输出 EXIT/TRIM/HOLD/观察、触发条件和失效边界。",
+        "rationale": "用户要求复盘、总结或策略建议时，需要把事实转成可执行边界。",
+        "success_criteria": "输出持仓去留、风险动作、今天/明天观察条件和禁止执行边界。",
+        "risk_guard": "不直接执行交易，不声称已完成买卖或持仓更新。",
+    }
 
 
 def _compact_task_text(value: Any) -> str:

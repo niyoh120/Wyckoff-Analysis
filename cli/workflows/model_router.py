@@ -62,6 +62,9 @@ _SHORT_STOCK_SELECTION_RE = re.compile(
     r"(?:选出|挑出|筛出|找(?:几只|几个)?|给我找|帮我找).{0,10}(?:好股票|好票|好标的|值得复核的票|值得跟踪的票)"
 )
 _STOCK_SELECTION_METHOD_MARKERS = ("怎么", "如何", "方法", "是什么意思", "啥意思", "概念", "解释")
+_PORTFOLIO_REVIEW_SUBJECT_MARKERS = ("持仓", "仓位", "组合")
+_PORTFOLIO_REVIEW_STRONG_MARKERS = ("复盘", "体检", "诊断", "总结", "去留", "攻防", "策略")
+_PORTFOLIO_REVIEW_CONTEXT_MARKERS = ("大盘", "市场", "水温", "盘面", "环境", "今天", "明天", "风险", "建议")
 _MODE_ALIASES = {
     "direct": {
         "answer",
@@ -129,7 +132,11 @@ def route_workflow_with_model(
     decision, fallback_reason = _model_decision(user_text, provider, messages)
     if decision:
         return _context_from_model_decision(decision)
+    if not fallback_context.is_general:
+        return _context_with_router_fallback(fallback_context, fallback_reason)
     if guarded := _stock_selection_fallback_context(user_text, fallback_reason):
+        return guarded
+    if guarded := _portfolio_review_fallback_context(user_text, fallback_reason):
         return guarded
     return _context_with_router_fallback(fallback_context, fallback_reason)
 
@@ -240,6 +247,28 @@ def _needs_stock_selection_workflow_fallback(user_text: str) -> bool:
     has_delivery = any(marker in text for marker in _STOCK_SELECTION_DELIVERY_MARKERS)
     has_context = any(marker in text for marker in _STOCK_CONTEXT_MARKERS)
     return has_scope and has_delivery and has_context
+
+
+def _portfolio_review_fallback_context(user_text: str, fallback_reason: str) -> WorkflowContext | None:
+    if not fallback_reason or not _needs_portfolio_review_workflow_fallback(user_text):
+        return None
+    label = _fallback_reason_label(fallback_reason)
+    return replace(
+        WORKFLOWS["dynamic_task"],
+        route_reason=f"模型路由不可用（{label}），组合复盘请求兜底进入动态 workflow",
+        route_confidence=0.58,
+        route_matches=("model_router_fallback", "portfolio_review_guard"),
+    )
+
+
+def _needs_portfolio_review_workflow_fallback(user_text: str) -> bool:
+    text = _compact_user_text(user_text)
+    if not text:
+        return False
+    has_subject = any(marker in text for marker in _PORTFOLIO_REVIEW_SUBJECT_MARKERS)
+    has_strong_action = any(marker in text for marker in _PORTFOLIO_REVIEW_STRONG_MARKERS)
+    context_count = sum(1 for marker in _PORTFOLIO_REVIEW_CONTEXT_MARKERS if marker in text)
+    return has_subject and has_strong_action and context_count >= 1
 
 
 def _compact_user_text(value: Any) -> str:
