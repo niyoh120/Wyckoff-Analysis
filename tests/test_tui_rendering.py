@@ -365,8 +365,9 @@ def test_display_workflow_plan_event_keeps_pending_plan_compact():
     assert "置信度：90%" in rendered
     assert "/workflow show wf_1" in rendered
     assert "待执行" not in rendered
-    assert "1. 执行回测任务" in rendered
-    assert "工具: 回测" in rendered
+    assert "执行接力：执行回测任务" in rendered
+    assert "工具边界：回测" in rendered
+    assert "1. 执行回测任务" not in rendered
     assert "research" not in rendered
     assert scrolled == [True]
 
@@ -514,7 +515,8 @@ def test_display_workflow_plan_event_surfaces_planner_provenance():
     rendered = "\n".join(str(item) for item in writes)
     assert "脚本来源：模型生成" in rendered
     assert "模型拆分：模型决定先缩小候选池再做攻防复核" in rendered
-    assert "1. 扫描候选" in rendered
+    assert "执行接力：扫描候选" in rendered
+    assert "1. 扫描候选" not in rendered
 
 
 def test_display_workflow_plan_update_surfaces_model_adaptation():
@@ -609,7 +611,8 @@ def test_display_workflow_plan_event_surfaces_fallback_reason():
 
     rendered = "\n".join(str(item) for item in writes)
     assert "脚本来源：回退单步 · provider unavailable" in rendered
-    assert "1. 单步处理" in rendered
+    assert "执行接力：单步处理" in rendered
+    assert "1. 单步处理" not in rendered
 
 
 def test_display_workflow_plan_event_labels_stock_selection_fallback():
@@ -675,15 +678,11 @@ def test_display_workflow_plan_event_surfaces_model_step_boundaries():
     )
 
     rendered = "\n".join(str(item) for item in writes)
-    assert "1. 扫描候选" in rendered
-    assert "工具: 全市场扫描、大盘水温" in rendered
-    assert "目标: 先缩小候选池" in rendered
-    assert "验收: 输出候选代码和风险状态" in rendered
-    assert "边界: 不写入推荐或持仓" in rendered
-    assert "2. 攻防计划" in rendered
-    assert "工具: 攻防决策" in rendered
-    assert "依赖: scan" in rendered
-    assert "禁止直接买入" in rendered
+    assert "执行接力：扫描候选 → 攻防计划" in rendered
+    assert "工具边界：全市场扫描、大盘水温、攻防决策" in rendered
+    assert "1. 扫描候选" not in rendered
+    assert "目标: 先缩小候选池" not in rendered
+    assert "依赖: scan" not in rendered
     assert "/workflow show wf_dynamic" in rendered
 
 
@@ -712,10 +711,10 @@ def test_display_workflow_plan_event_surfaces_effective_tool_scope():
     )
 
     rendered = "\n".join(str(item) for item in writes)
-    assert "1. 复盘持仓" in rendered
+    assert "执行接力：复盘持仓" in rendered
     assert "脚本边界：1 个任务未声明必用工具" in rendered
-    assert "可选工具: 持仓、个股分析" in rendered
-    assert "目标: 让模型按上下文决定最小工具调用" in rendered
+    assert "工具边界：持仓、个股分析" in rendered
+    assert "1. 复盘持仓" not in rendered
 
 
 def test_display_workflow_plan_event_does_not_warn_for_explicit_tool_scope():
@@ -743,7 +742,7 @@ def test_display_workflow_plan_event_does_not_warn_for_explicit_tool_scope():
 
     rendered = "\n".join(str(item) for item in writes)
     assert "脚本边界" not in rendered
-    assert "工具: 全市场扫描" in rendered
+    assert "工具边界：全市场扫描" in rendered
 
 
 def test_display_workflow_plan_event_previews_tool_only_model_steps():
@@ -767,12 +766,9 @@ def test_display_workflow_plan_event_previews_tool_only_model_steps():
     )
 
     rendered = "\n".join(str(item) for item in writes)
-    assert "1. 读取持仓与资金" in rendered
-    assert "工具: 持仓" in rendered
-    assert "2. 诊断持仓与市场环境" in rendered
-    assert "工具: 持仓、大盘水温" in rendered
-    assert "3. 形成去留和风险动作" in rendered
-    assert "工具: 攻防决策" in rendered
+    assert "执行接力：读取持仓与资金 → 诊断持仓与市场环境 → 形成去留和风险动作" in rendered
+    assert "工具边界：持仓、大盘水温、攻防决策" in rendered
+    assert "1. 读取持仓与资金" not in rendered
 
 
 def test_sub_agent_progress_handler_uses_reader_facing_tool_labels():

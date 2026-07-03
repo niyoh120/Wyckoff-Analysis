@@ -527,8 +527,12 @@ def _display_workflow_plan_event(
     if contract_line := _workflow_plan_contract_line(event.get("plan")):
         write(Text.from_markup(contract_line))
     if step_count:
-        for line in _workflow_plan_step_preview_lines(steps):
-            write(Text.from_markup(line))
+        if launch_state == "pending_approval":
+            for line in _workflow_plan_step_preview_lines(steps):
+                write(Text.from_markup(line))
+        else:
+            for line in _workflow_plan_execution_lines(steps):
+                write(Text.from_markup(line))
         write(Text.from_markup(_workflow_plan_footer_line(run_id, launch_state)))
     scroll()
     return run_id, workflow_name
@@ -720,6 +724,42 @@ def _workflow_plan_step_preview_line(index: int, step: dict[str, Any]) -> str:
     detail = _workflow_plan_step_meta(step, field_limit=72)
     suffix = f" · {detail}" if detail else ""
     return f"    [dim]{index}. {title}{suffix}[/dim]"
+
+
+def _workflow_plan_execution_lines(steps: Any) -> list[str]:
+    if not isinstance(steps, list):
+        return []
+    rows = [step for step in steps if isinstance(step, dict)]
+    return [line for line in (_workflow_plan_handoff_line(rows), _workflow_plan_tool_boundary_line(rows)) if line]
+
+
+def _workflow_plan_handoff_line(rows: list[dict[str, Any]], *, limit: int = 3) -> str:
+    titles = [
+        escape(str(step.get("title") or step.get("step_id") or step.get("id") or "").strip()[:48])
+        for step in rows[:limit]
+        if str(step.get("title") or step.get("step_id") or step.get("id") or "").strip()
+    ]
+    if not titles:
+        return ""
+    suffix = f" → +{len(rows) - limit}" if len(rows) > limit else ""
+    return f"    [dim]执行接力：{' → '.join(titles)}{suffix}[/dim]"
+
+
+def _workflow_plan_tool_boundary_line(rows: list[dict[str, Any]], *, limit: int = 6) -> str:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for step in rows:
+        tools, _label = _workflow_step_tool_values(step)
+        for tool in tools:
+            if tool in seen:
+                continue
+            seen.add(tool)
+            labels.append(_workflow_tool_display_name(tool))
+    if not labels:
+        return ""
+    visible = "、".join(labels[:limit])
+    suffix = f"、+{len(labels) - limit}" if len(labels) > limit else ""
+    return f"    [dim]工具边界：{escape(visible + suffix)}[/dim]"
 
 
 def _workflow_route_line(route: dict[str, Any]) -> Text | None:
