@@ -319,6 +319,8 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
 
 def test_screen_stocks_brief_lines_surface_bounded_scan_scope():
     result = {
+        "style_preference": {"raw": "pullback", "styles": ["pullback"]},
+        "theme_preference": {"raw": "机器人", "theme": "机器人"},
         "scan_scope": {
             "scope": "bounded",
             "board": "all",
@@ -333,7 +335,7 @@ def test_screen_stocks_brief_lines_surface_bounded_scan_scope():
     lines = tool_result_brief_lines("screen_stocks", result)
 
     assert lines[:2] == [
-        "快扫: all 前1200只，实际扫描1200只，财务过滤: 快扫跳过",
+        "快扫: all 前1200只，实际扫描1200只，财务过滤: 快扫跳过；筛选偏好: 风格=低吸；主题=机器人",
         "本轮只有观察候选: 002326 永太科技",
     ]
 
@@ -532,11 +534,15 @@ def test_screen_stocks_preview_surfaces_theme_preference_and_match():
     assert preview["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
     assert preview["top_candidates"][0]["theme_match"] is True
     assert preview["top_candidates"][0]["theme_match_reasons"] == ["主题偏好: 机器人"]
-    assert lines == ["候选结论: 候选 000002 机器人股 · 亮点: 主题偏好: 机器人"]
+    assert lines == [
+        "筛选偏好: 主题=机器人",
+        "候选结论: 候选 000002 机器人股 · 亮点: 主题偏好: 机器人",
+    ]
 
 
 def test_screen_stocks_brief_prioritizes_preference_reasons():
     result = {
+        "style_preference": {"raw": "trend", "styles": ["trend"]},
         "theme_preference": {"raw": "机器人", "theme": "机器人"},
         "selection_brief": {
             "headline": "本轮首选可进入 AI 研报复核: 000012 机器人候选",
@@ -554,6 +560,8 @@ def test_screen_stocks_brief_prioritizes_preference_reasons():
     preview = json.loads(tool_result_preview("screen_stocks", result))
     lines = tool_result_brief_lines("screen_stocks", result)
 
+    assert preview["style_preference"] == {"raw": "trend", "styles": ["trend"]}
+    assert preview["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
     assert preview["candidate_conclusion"]["quality_factors"][:4] == [
         "趋势偏好: 趋势线",
         "主题偏好: 机器人",
@@ -562,6 +570,7 @@ def test_screen_stocks_brief_prioritizes_preference_reasons():
     ]
     assert lines == [
         "本轮首选可进入 AI 研报复核: 000012 机器人候选",
+        "筛选偏好: 风格=趋势；主题=机器人",
         "候选结论: 首选 000012 机器人候选 · 可进入AI复核 · 亮点: 趋势偏好: 趋势线；主题偏好: 机器人",
     ]
 

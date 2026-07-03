@@ -1131,6 +1131,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "job_kind": result.get("job_kind"),
             "board": result.get("board"),
             "scan_scope": result.get("scan_scope"),
+            "style_preference": result.get("style_preference"),
             "theme_preference": result.get("theme_preference"),
             "summary": result.get("summary"),
             "data_quality": result.get("data_quality"),
@@ -1164,6 +1165,9 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
     headline = _text_excerpt(selection.get("headline"), 120)
     scope_line = _screen_scope_brief_line(result.get("scan_scope"))
+    preference_line = _screen_preference_brief_line(result)
+    if scope_line and preference_line:
+        scope_line = f"{scope_line}；{preference_line}"
     decision_line = _screen_decision_state_line(result.get("decision_state"))
     conclusion = _candidate_conclusion_preview("last_screen_result", result)
     conclusion_line = _text_excerpt(conclusion.get("line"), 280)
@@ -1174,6 +1178,8 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
         lines.append(scope_line)
     if headline and len(lines) < max(max_lines - reserved, 0):
         lines.append(headline)
+    if preference_line and not scope_line and len(lines) < max(max_lines - reserved, 0):
+        lines.append(preference_line)
     if decision_line and len(lines) < max(max_lines - reserved, 0):
         lines.append(decision_line)
     if theme_line := _screen_theme_context_line(result.get("theme_context")):
@@ -1248,6 +1254,35 @@ def _screen_financial_scope_suffix(value: dict[str, Any]) -> str:
     if mode == "requested_unavailable":
         return "，财务过滤: 未取得"
     return ""
+
+
+def _screen_preference_brief_line(result: dict[str, Any]) -> str:
+    parts = [
+        _preference_part("风格", _style_preference_text(result.get("style_preference"))),
+        _preference_part("主题", _theme_preference_text(result.get("theme_preference"))),
+    ]
+    text = "；".join(part for part in parts if part)
+    return f"筛选偏好: {text}" if text else ""
+
+
+def _preference_part(label: str, text: str) -> str:
+    return f"{label}={text}" if text else ""
+
+
+def _style_preference_text(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    labels = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
+    styles = [labels.get(str(item), str(item)) for item in _preview_list(value.get("styles"), 3)]
+    if styles:
+        return ",".join(dict.fromkeys(style for style in styles if style))
+    return _text_excerpt(value.get("raw"), 40)
+
+
+def _theme_preference_text(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return _text_excerpt(value.get("theme") or value.get("raw"), 40)
 
 
 def _screen_decision_state_preview(value: Any) -> dict[str, Any]:
