@@ -137,7 +137,6 @@ def _build_screen_result(
         top_candidates,
         style_preference,
         theme_preference,
-        preference_match,
     )
     summary = _screen_summary(metrics, symbols)
     data_quality = _data_quality_summary(metrics, summary)
@@ -1578,29 +1577,31 @@ def _annotate_preference_miss_risks(
     candidates: list[dict],
     style_preference: dict[str, Any],
     theme_preference: dict[str, Any],
-    preference_match: dict[str, str],
 ) -> list[dict]:
-    risks = _preference_miss_risk_factors(style_preference, theme_preference, preference_match)
-    if not risks:
+    if not _has_style_preference(style_preference) and not _has_theme_preference(theme_preference):
         return candidates
     out: list[dict] = []
     for row in candidates:
+        risks = _candidate_preference_miss_risk_factors(row, style_preference, theme_preference)
+        if not risks:
+            out.append(row)
+            continue
         payload = dict(row)
         payload["risk_factors"] = list(dict.fromkeys([*payload.get("risk_factors", []), *risks]))
         out.append(payload)
     return out
 
 
-def _preference_miss_risk_factors(
+def _candidate_preference_miss_risk_factors(
+    row: dict,
     style_preference: dict[str, Any],
     theme_preference: dict[str, Any],
-    preference_match: dict[str, str],
 ) -> list[str]:
     risks: list[str] = []
-    if preference_match.get("style") == "miss":
+    if _has_style_preference(style_preference) and not _candidate_matches_preference(row, "style"):
         labels = _style_preference_labels(style_preference)
         risks.append(f"风格偏好未命中: {'/'.join(labels)}" if labels else "风格偏好未命中")
-    if preference_match.get("theme") == "miss":
+    if _has_theme_preference(theme_preference) and not _candidate_matches_preference(row, "theme"):
         theme = str(theme_preference.get("theme") or theme_preference.get("raw") or "").strip()
         risks.append(f"主题偏好未命中: {theme}" if theme else "主题偏好未命中")
     return risks

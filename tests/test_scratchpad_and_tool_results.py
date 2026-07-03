@@ -607,6 +607,40 @@ def test_screen_stocks_brief_surfaces_preference_miss():
     ]
 
 
+def test_screen_stocks_brief_marks_primary_miss_even_when_pool_has_preference_hit():
+    result = {
+        "theme_preference": {"raw": "机器人", "theme": "机器人"},
+        "preference_match": {"theme": "hit"},
+        "selection_brief": {
+            "primary_pick": {
+                "code": "000012",
+                "name": "非主题候选",
+                "action_status": "ready_for_ai_review",
+                "quality_factors": ["高质量研报候选"],
+            },
+        },
+        "top_candidates": [
+            {
+                "code": "000099",
+                "name": "机器人观察",
+                "action_status": "watch_only",
+                "theme_match": True,
+                "theme_match_reasons": ["主题偏好: 机器人"],
+            }
+        ],
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result, max_lines=2)
+
+    assert preview["preference_match"] == {"theme": "hit"}
+    assert preview["candidate_conclusion"]["risk_factors"] == ["主题偏好未命中: 机器人"]
+    assert lines == [
+        "筛选偏好: 主题=机器人",
+        "候选结论: 首选 000012 非主题候选 · 可进入AI复核 · 亮点: 高质量研报候选 · 风险: 主题偏好未命中: 机器人",
+    ]
+
+
 def test_screen_stocks_preview_surfaces_data_quality_gate():
     result = {
         "selection_brief": {

@@ -3439,6 +3439,38 @@ def test_workflow_candidate_conclusion_preserves_preference_misses():
     assert "偏好=风格偏好未命中: 趋势,主题偏好未命中: 机器人" in conclusion["line"]
 
 
+def test_workflow_candidate_conclusion_marks_row_miss_when_pool_has_preference_hit():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "theme_preference": {"raw": "机器人", "theme": "机器人"},
+                "preference_match": {"theme": "hit"},
+                "report_candidates": [
+                    {
+                        "code": "000012",
+                        "name": "非主题候选",
+                        "action_status": "ready_for_ai_review",
+                        "quality_factors": ["高质量研报候选"],
+                    }
+                ],
+                "top_candidates": [
+                    {
+                        "code": "000099",
+                        "name": "机器人观察",
+                        "action_status": "watch_only",
+                        "theme_match": True,
+                        "theme_match_reasons": ["主题偏好: 机器人"],
+                    }
+                ],
+            }
+        }
+    )
+
+    assert conclusion["code"] == "000012"
+    assert conclusion["preference_misses"] == ["主题偏好未命中: 机器人"]
+    assert "偏好=主题偏好未命中: 机器人" in conclusion["line"]
+
+
 def test_workflow_candidate_delivery_prepends_missing_preference_miss():
     results = [
         {

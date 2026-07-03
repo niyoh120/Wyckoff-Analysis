@@ -933,7 +933,7 @@ def _candidate_conclusion_row(source_stage: str, result: dict[str, Any]) -> dict
 
 
 def _merge_screen_preference_miss_risks(row: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    risks = _screen_preference_miss_risk_texts(result)
+    risks = _screen_candidate_preference_miss_risk_texts(row, result)
     if not risks:
         return row
     existing = [str(item) for item in _preview_list(row.get("risk_factors"), 8) if str(item).strip()]
@@ -941,12 +941,11 @@ def _merge_screen_preference_miss_risks(row: dict[str, Any], result: dict[str, A
     return {**row, "risk_factors": merged}
 
 
-def _screen_preference_miss_risk_texts(result: dict[str, Any]) -> list[str]:
-    match = _screen_preference_match_preview(result)
+def _screen_candidate_preference_miss_risk_texts(row: dict[str, Any], result: dict[str, Any]) -> list[str]:
     risks: list[str] = []
-    if match.get("style") == "miss":
+    if _has_style_preference(result.get("style_preference")) and not _candidate_matches_preference(row, "style"):
         risks.append(_preference_miss_risk("风格偏好未命中", _style_preference_text(result.get("style_preference"))))
-    if match.get("theme") == "miss":
+    if _has_theme_preference(result.get("theme_preference")) and not _candidate_matches_preference(row, "theme"):
         risks.append(_preference_miss_risk("主题偏好未命中", _theme_preference_text(result.get("theme_preference"))))
     return [risk for risk in risks if risk]
 

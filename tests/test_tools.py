@@ -2752,6 +2752,46 @@ class TestSymbolPool:
         assert ctx.state["last_screen_result"]["scan_scope"]["preference_match"] == {"theme": "miss"}
         assert "主题偏好未命中: 机器人" in ctx.state["last_screen_result"]["report_candidates"][0]["risk_factors"]
 
+    def test_screen_stocks_marks_report_candidate_miss_when_watch_candidate_matches_preference(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000001",
+                        "name": "芯片候选",
+                        "priority_rank": 1,
+                        "priority_score": 20.0,
+                        "strategic_theme": "芯片半导体",
+                    }
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {"sos": [("000002", 8.0)]},
+                    "name_map": {"000002": "机器人观察"},
+                    "trade_mode": {"allow_ai_review": True, "allow_recommendation_write": False},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(theme="机器人", limit=25)
+
+        assert result["preference_match"] == {"theme": "hit"}
+        assert result["selection_brief"]["primary_pick"]["code"] == "000001"
+        assert "主题偏好未命中: 机器人" in result["selection_brief"]["primary_pick"]["risk_factors"]
+        assert "主题偏好未命中: 机器人" in result["action_plan"]["report_candidates"][0]["risk_factors"]
+        matched_watch = next(row for row in result["top_candidates"] if row["code"] == "000002")
+        assert matched_watch["theme_match"] is True
+        assert "主题偏好未命中: 机器人" not in matched_watch.get("risk_factors", [])
+
     def test_screen_stocks_surfaces_shadow_score_for_candidate_review(self, monkeypatch):
         from agents import screen_tools
 

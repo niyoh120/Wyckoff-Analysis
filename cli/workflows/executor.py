@@ -1869,10 +1869,9 @@ def _fallback_preference_miss_items(
     row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any], limit: int, clip: int
 ) -> list[str]:
     source = _fallback_screen_preference_source(stage, handoff)
-    match = source.get("preference_match") if isinstance(source.get("preference_match"), dict) else {}
     items: list[str] = []
     for key, label in (("style", "风格偏好未命中"), ("theme", "主题偏好未命中")):
-        if match.get(key) != "miss" or _candidate_preference_hit(row, key):
+        if not _fallback_has_preference(source, key) or _candidate_preference_hit(row, key):
             continue
         if item := _fallback_preference_miss_item(label, source.get(f"{key}_preference"), clip):
             items.append(item)
@@ -1882,10 +1881,23 @@ def _fallback_preference_miss_items(
 
 
 def _fallback_screen_preference_source(stage: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
-    if isinstance(stage.get("preference_match"), dict):
+    if _fallback_has_any_preference(stage) or isinstance(stage.get("preference_match"), dict):
         return stage
     screen = handoff.get("last_screen_result") if isinstance(handoff.get("last_screen_result"), dict) else {}
-    return screen if isinstance(screen.get("preference_match"), dict) else stage
+    return screen if _fallback_has_any_preference(screen) or isinstance(screen.get("preference_match"), dict) else stage
+
+
+def _fallback_has_any_preference(source: dict[str, Any]) -> bool:
+    return _fallback_has_preference(source, "style") or _fallback_has_preference(source, "theme")
+
+
+def _fallback_has_preference(source: dict[str, Any], key: str) -> bool:
+    value = source.get(f"{key}_preference")
+    if not isinstance(value, dict):
+        return False
+    if key == "style":
+        return bool(_as_list(value.get("styles")) or str(value.get("raw") or "").strip())
+    return bool(value.get("theme") or str(value.get("raw") or "").strip())
 
 
 def _fallback_preference_miss_item(label: str, value: Any, clip: int) -> str:
