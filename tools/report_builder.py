@@ -281,8 +281,9 @@ def _prepare_payload_frame(df: pd.DataFrame) -> pd.DataFrame:
     prev_close = close.shift(1)
     amplitude_base = prev_close.where(prev_close > 0, close.where(close > 0, pd.NA))
     frame["amplitude_pct"] = ((high - low) / amplitude_base.replace(0, pd.NA) * 100).astype(float)
-    span = (high - low).replace(0, pd.NA)
-    frame["close_pos_pct"] = ((close - low) / span * 100).clip(lower=0, upper=100).fillna(50.0)
+    span = (high - low).replace(0, float("nan"))
+    close_pos = ((close - low) / span * 100).clip(lower=0, upper=100)
+    frame["close_pos_pct"] = pd.to_numeric(close_pos, errors="coerce").fillna(50.0).astype(float)
     return frame
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import pandas as pd
 
 
@@ -47,3 +49,28 @@ def test_generate_stock_payload_includes_structure_and_conflict_context():
     assert "B+C（B=放量高收突破 + C=支撑多次测试）" in payload
     assert "宽幅高收放量" in payload
     assert "放量突破" in payload
+
+
+def test_generate_stock_payload_flat_range_does_not_warn():
+    from tools.report_builder import generate_stock_payload
+
+    rows = []
+    for idx, date in enumerate(pd.date_range("2026-04-01", periods=25, freq="D")):
+        close = 10.0 + idx * 0.03
+        rows.append(
+            {
+                "date": date.strftime("%Y-%m-%d"),
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": 1000,
+                "amount": close * 1000,
+            }
+        )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        payload = generate_stock_payload("300001", "测试股份", "sos", pd.DataFrame(rows))
+
+    assert "[结构支撑/阻力]" in payload
