@@ -877,6 +877,7 @@ def _workflow_handoff_state(tools: Any) -> dict[str, Any]:
             "last_recommendation_event_eval": _compact_recommendation_handoff(
                 state.get("last_recommendation_event_eval")
             ),
+            "last_stock_diagnosis": _compact_stock_diagnosis_handoff(state.get("last_stock_diagnosis")),
             "last_ai_report": _compact_ai_report_handoff(state.get("last_ai_report")),
             "last_strategy_decision": _compact_strategy_handoff(state.get("last_strategy_decision")),
         }
@@ -936,6 +937,14 @@ def _compact_theme_context(value: Any) -> dict[str, Any]:
             "hot_concepts": _as_list(value.get("hot_concepts"))[:6],
         }
     )
+
+
+def _compact_stock_diagnosis_handoff(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = _pick_fields(value, ("latest", "next_action"))
+    payload["diagnosed_symbols"] = _candidate_rows(value.get("diagnosed_symbols"), 6)
+    return _drop_empty(payload)
 
 
 def _compact_recommendation_handoff(value: Any) -> dict[str, Any]:
@@ -1051,6 +1060,12 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
         "stage",
         "candidate_lane",
         "entry_type",
+        "health",
+        "status_label",
+        "headline",
+        "latest_close",
+        "latest_date",
+        "candidate_score",
         "strategic_theme",
         "theme_score",
         "theme_source",
@@ -1332,6 +1347,7 @@ def _candidate_conclusions_from_handoff(handoff: dict[str, Any], limit: int = 3)
     for stage in (
         "last_strategy_decision",
         "last_ai_report",
+        "last_stock_diagnosis",
         "last_recommendation_event_eval",
         "last_screen_result",
     ):
@@ -1414,7 +1430,13 @@ def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "") -> s
 def _fallback_merged_candidate(row: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
     code = str(row.get("code") or "").strip()
     merged: dict[str, Any] = {}
-    for stage in ("last_screen_result", "last_recommendation_event_eval", "last_ai_report", "last_strategy_decision"):
+    for stage in (
+        "last_screen_result",
+        "last_recommendation_event_eval",
+        "last_stock_diagnosis",
+        "last_ai_report",
+        "last_strategy_decision",
+    ):
         value = handoff.get(stage)
         if not isinstance(value, dict):
             continue
@@ -1454,6 +1476,7 @@ def _fallback_evidence_items(row: dict[str, Any]) -> list[str]:
         _score_part("漏斗分", row.get("funnel_score")),
         _score_part("风险调整分", row.get("risk_adjusted_quality_score")),
         _score_part("候选质量分", row.get("candidate_quality_score")),
+        _score_part("诊断分", row.get("candidate_score")),
         _score_part("优先分", row.get("priority_score")),
         _theme_evidence_part(row),
     ]
@@ -1585,6 +1608,7 @@ def _candidate_best_score(row: dict[str, Any]) -> float:
         row.get("candidate_shadow_score"),
         row.get("risk_adjusted_quality_score"),
         row.get("candidate_quality_score"),
+        row.get("candidate_score"),
         row.get("entry_quality_score"),
         row.get("funnel_score"),
         row.get("priority_score"),
@@ -1615,6 +1639,8 @@ def _fallback_stage_candidates(stage: str, value: dict[str, Any]) -> list[dict[s
     elif stage == "last_recommendation_event_eval":
         selection = value.get("policy_selection") if isinstance(value.get("policy_selection"), dict) else {}
         rows = _as_list(selection.get("picks"))
+    elif stage == "last_stock_diagnosis":
+        rows = _as_list(value.get("diagnosed_symbols"))
     else:
         rows = _as_list(value.get("reviewed_symbols"))
     return [row for row in rows if isinstance(row, dict)]
@@ -1657,6 +1683,9 @@ def _fallback_handoff_lines(handoff: Any) -> list[str]:
     recommendation = handoff.get("last_recommendation_event_eval")
     if isinstance(recommendation, dict):
         groups.append(tool_result_brief_lines("evaluate_recommendation_events", recommendation, max_lines=3))
+    diagnosis = handoff.get("last_stock_diagnosis")
+    if isinstance(diagnosis, dict):
+        groups.append(tool_result_brief_lines("analyze_stock", diagnosis, max_lines=3))
     report = handoff.get("last_ai_report")
     if isinstance(report, dict):
         groups.append(tool_result_brief_lines("generate_ai_report", report, max_lines=3))

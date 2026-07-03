@@ -728,6 +728,10 @@ class ToolRegistry:
             from agents.screen_tools import remember_screen_handoff
 
             remember_screen_handoff(self._tool_context, result)
+        elif tool_name == "analyze_stock":
+            from agents.diagnosis_tools import remember_stock_diagnosis
+
+            remember_stock_diagnosis(self._tool_context, result)
         elif tool_name == "generate_ai_report":
             from agents.report_tools import remember_ai_report
 

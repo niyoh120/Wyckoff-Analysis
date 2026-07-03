@@ -30,7 +30,9 @@ def analyze_stock(
         end_date = date.today()
         if mode == "price":
             return _price_result(code, days, end_date)
-        return _diagnosis_result(code, cost, end_date)
+        result = _diagnosis_result(code, cost, end_date)
+        remember_stock_diagnosis(tool_context, result)
+        return result
     except Exception as e:
         logger.exception("analyze_stock error")
         return {"error": str(e)}
@@ -132,6 +134,49 @@ def _diagnostic_payload(d, text: str, latest_date: str, metadata: dict) -> dict:
     }
 
 
+def remember_stock_diagnosis(tool_context: ToolContext | None, result: dict[str, Any]) -> None:
+    if tool_context is None or not isinstance(result, dict) or result.get("error"):
+        return
+    row = _compact_diagnosis_handoff_row(result)
+    if not row:
+        return
+    previous = tool_context.state.get("last_stock_diagnosis")
+    rows = []
+    if isinstance(previous, dict):
+        rows.extend(item for item in previous.get("diagnosed_symbols", []) if isinstance(item, dict))
+    rows = [row, *[item for item in rows if item.get("code") != row.get("code")]][:6]
+    tool_context.state["last_stock_diagnosis"] = {
+        "latest": row,
+        "diagnosed_symbols": rows,
+        "next_action": "诊断已完成，可结合筛股结果、市场水温和攻防决策形成候选排序",
+    }
+
+
+def _compact_diagnosis_handoff_row(result: dict[str, Any]) -> dict[str, Any]:
+    brief = result.get("diagnosis_brief") if isinstance(result.get("diagnosis_brief"), dict) else {}
+    return _drop_empty(
+        {
+            "code": result.get("code"),
+            "name": result.get("name"),
+            "health": result.get("health"),
+            "track": result.get("track"),
+            "stage": result.get("accum_stage"),
+            "candidate_lane": result.get("candidate_lane"),
+            "candidate_score": result.get("candidate_score"),
+            "latest_close": result.get("latest_close"),
+            "latest_date": result.get("latest_date"),
+            "action_status": brief.get("status"),
+            "status_label": brief.get("label"),
+            "headline": brief.get("headline"),
+            "quality_factors": brief.get("strengths"),
+            "risk_factors": brief.get("risks") or result.get("health_reasons"),
+            "new_buy_allowed": brief.get("direct_buy_allowed"),
+            "next_step": brief.get("next_step"),
+            "data_status": result.get("data_status"),
+        }
+    )
+
+
 def diagnosis_brief_from_diagnostic(d) -> dict[str, Any]:
     status = _diagnosis_status(d)
     risks = _diagnosis_risks(d)
@@ -226,3 +271,7 @@ def _round_number(value: Any, digits: int = 2) -> float | None:
 def _safe_int(value: Any) -> int:
     rounded = _round_number(value, 0)
     return int(rounded) if rounded is not None else 0
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}

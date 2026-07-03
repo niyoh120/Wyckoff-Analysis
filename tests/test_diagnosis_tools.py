@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 from agents import diagnosis_tools, portfolio_tools
+from agents.tool_context import ToolContext
 
 
 def _diagnostic(**overrides):
@@ -162,6 +163,28 @@ def test_diagnostic_payload_marks_stop_loss_as_avoid() -> None:
     assert "L4触发: EVR" in brief["strengths"]
     assert brief["risks"] == ["结构止损（从高点回撤>10%）", "退出信号: stop_loss"]
     assert brief["next_step"].startswith("回避新增")
+
+
+def test_remember_stock_diagnosis_stores_compact_handoff() -> None:
+    context = ToolContext()
+    result = diagnosis_tools._diagnostic_payload(
+        _diagnostic(health_reasons=["多头排列"], candidate_score=83.04),
+        "formatted",
+        "2026-07-03",
+        {},
+    )
+
+    diagnosis_tools.remember_stock_diagnosis(context, result)
+
+    handoff = context.state["last_stock_diagnosis"]
+    latest = handoff["latest"]
+    assert latest["code"] == "002326"
+    assert latest["name"] == "永太科技"
+    assert latest["action_status"] == "priority_watch"
+    assert latest["status_label"] == "重点观察"
+    assert latest["candidate_score"] == 83.04
+    assert latest["new_buy_allowed"] is False
+    assert handoff["diagnosed_symbols"][0]["next_step"].startswith("加入重点观察")
 
 
 def test_portfolio_diagnostic_payload_reuses_action_brief() -> None:

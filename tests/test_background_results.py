@@ -115,6 +115,24 @@ def _recommendation_event_eval_result() -> dict:
     }
 
 
+def _diagnosis_result() -> dict:
+    return {
+        "code": "002326",
+        "name": "永太科技",
+        "health": "🟢健康",
+        "candidate_score": 83.04,
+        "diagnosis_brief": {
+            "status": "priority_watch",
+            "label": "重点观察",
+            "headline": "重点观察: 002326 永太科技",
+            "risks": ["短线涨幅偏快"],
+            "direct_buy_allowed": False,
+            "next_step": "加入重点观察，等待市场闸门打开",
+        },
+        "data_status": "ok",
+    }
+
+
 def _wait_completed(manager, task_id: str) -> dict:
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
@@ -418,6 +436,20 @@ def test_tool_registry_remembers_recommendation_eval_handoff_without_status_poll
     assert handoff["selection_brief"]["best_codes"] == ["300750"]
     assert handoff["symbols_for_report"][0]["selection_source"] == "recommendation_event_eval"
     assert handoff["candidate_guard_summary"]["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
+
+
+def test_tool_registry_remembers_stock_diagnosis_handoff_without_status_poll():
+    from cli.tools import ToolRegistry
+
+    registry = ToolRegistry()
+
+    registry.remember_tool_handoff("analyze_stock", _diagnosis_result())
+
+    handoff = registry.state["last_stock_diagnosis"]
+    assert handoff["latest"]["code"] == "002326"
+    assert handoff["latest"]["action_status"] == "priority_watch"
+    assert handoff["latest"]["new_buy_allowed"] is False
+    assert handoff["diagnosed_symbols"][0]["risk_factors"] == ["短线涨幅偏快"]
 
 
 def test_local_db_chat_background_history_uses_shared_preview(tmp_path, monkeypatch):

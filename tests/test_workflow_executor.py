@@ -1048,6 +1048,50 @@ def test_workflow_handoff_candidate_rows_rank_before_limit():
     assert rows[0]["status"] == "candidate"
 
 
+def test_workflow_handoff_state_compacts_stock_diagnosis_and_candidate_conclusion():
+    tools = StubToolRegistry()
+    tools._tool_context = SimpleNamespace(
+        state={
+            "last_screen_result": {
+                "watch_candidates": [
+                    {
+                        "code": "002326",
+                        "name": "永太科技",
+                        "action_status": "watch_only",
+                        "candidate_shadow_score": 82.0,
+                        "risk_factors": ["市场闸门关闭"],
+                    }
+                ]
+            },
+            "last_stock_diagnosis": {
+                "latest": {"code": "002326", "name": "永太科技"},
+                "diagnosed_symbols": [
+                    {
+                        "code": "002326",
+                        "name": "永太科技",
+                        "action_status": "priority_watch",
+                        "status_label": "重点观察",
+                        "candidate_score": 83.04,
+                        "risk_factors": ["短线涨幅偏快"],
+                        "next_step": "加入重点观察，等待市场闸门打开",
+                    }
+                ],
+            },
+        }
+    )
+
+    handoff = _workflow_handoff_state(tools)
+    conclusion = _candidate_conclusion_from_handoff(handoff)
+
+    diagnosis = handoff["last_stock_diagnosis"]["diagnosed_symbols"][0]
+    assert diagnosis["code"] == "002326"
+    assert diagnosis["candidate_score"] == 83.04
+    assert conclusion["code"] == "002326"
+    assert "诊断分83" in conclusion["line"]
+    assert "短线涨幅偏快" in conclusion["line"]
+    assert conclusion["next_step"] == "加入重点观察，等待市场闸门打开"
+
+
 def test_workflow_handoff_state_preserves_recommendation_candidate_guard():
     tools = StubToolRegistry()
     tools._tool_context = SimpleNamespace(
