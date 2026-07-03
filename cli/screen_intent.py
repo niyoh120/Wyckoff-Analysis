@@ -114,6 +114,42 @@ _TEMPORAL_BUY_ACTION_HINTS = (
     "可以买什么",
 )
 
+_WATCH_OBJECT_CONTEXT_HINTS = (
+    "a股",
+    "a 股",
+    "股票",
+    "股",
+    "票",
+    "标的",
+    "市场",
+    "大盘",
+    "盘面",
+    "板块",
+    "行业",
+    "方向",
+    "机会",
+    "机会池",
+)
+
+_WATCH_TRADING_CONTEXT_HINTS = (
+    "盘中",
+    "尾盘",
+    "早盘",
+    "午后",
+)
+
+_WATCH_ACTION_HINTS = (
+    "看啥",
+    "看什么",
+    "看哪些",
+    "关注啥",
+    "关注什么",
+    "关注哪些",
+    "跟踪啥",
+    "跟踪什么",
+    "跟踪哪些",
+)
+
 
 def stock_screen_suggested_args(text: str, *, include_default_board: bool = True) -> dict[str, str]:
     """Infer simple screen_stocks arguments from user wording."""
@@ -174,6 +210,15 @@ def stock_screen_temporal_buy_hint(text: str) -> bool:
     normalized = _normalize_text(text)
     return any(hint in normalized for hint in _TEMPORAL_BUY_CONTEXT_HINTS) and any(
         hint in normalized for hint in _TEMPORAL_BUY_ACTION_HINTS
+    )
+
+
+def stock_screen_watch_hint(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if not any(hint in normalized for hint in _WATCH_ACTION_HINTS):
+        return False
+    return any(hint in normalized for hint in _WATCH_OBJECT_CONTEXT_HINTS) or any(
+        hint in normalized for hint in _WATCH_TRADING_CONTEXT_HINTS
     )
 
 

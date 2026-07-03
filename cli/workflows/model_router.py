@@ -8,7 +8,7 @@ import re
 from dataclasses import replace
 from typing import Any
 
-from cli.screen_intent import stock_screen_temporal_buy_hint, stock_screen_theme_hint
+from cli.screen_intent import stock_screen_temporal_buy_hint, stock_screen_theme_hint, stock_screen_watch_hint
 from cli.workflows._shared import (
     PORTFOLIO_REVIEW_CONTEXT_MARKERS,
     PORTFOLIO_REVIEW_STRONG_MARKERS,
@@ -299,6 +299,8 @@ def _needs_stock_selection_workflow_fallback(user_text: str) -> bool:
     if _SHORT_STOCK_SELECTION_RE.search(text):
         return True
     if _has_stock_buy_opportunity_target(text):
+        return True
+    if stock_screen_watch_hint(text):
         return True
     has_scope = any(marker in text for marker in _STOCK_SELECTION_SCOPE_MARKERS) or _has_stock_style_target(text)
     has_delivery = any(marker in text for marker in _STOCK_SELECTION_DELIVERY_MARKERS)
