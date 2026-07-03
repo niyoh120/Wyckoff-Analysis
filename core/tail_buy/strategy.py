@@ -269,6 +269,13 @@ def _last_intraday_date(df: pd.DataFrame) -> date | None:
     return ts.iloc[-1].date()
 
 
+def _latest_intraday_session(df: pd.DataFrame) -> pd.DataFrame:
+    trade_date = _last_intraday_date(df)
+    if trade_date is None:
+        return df
+    return df[df["datetime"].dt.date == trade_date].reset_index(drop=True)
+
+
 def _parse_date(raw: Any) -> date | None:
     text = str(raw or "").strip()[:10]
     if not text:
@@ -392,6 +399,7 @@ def compute_tail_features(
     config: TailBuyStrategyConfig | None = None,
 ) -> dict[str, Any]:
     df = ensure_intraday_df(df_1m)
+    df = _latest_intraday_session(df)
     if df.empty:
         return {"bars": 0}
 
@@ -776,7 +784,7 @@ def evaluate_rule_decision(
     policy = _strategy_config(config)
     features = compute_tail_features(df_1m, daily_context, config=policy)
     features.update(_daily_trap_features(daily_history, policy))
-    features.update(_candidate_context_features(candidate, ensure_intraday_df(df_1m)))
+    features.update(_candidate_context_features(candidate, _latest_intraday_session(ensure_intraday_df(df_1m))))
     if candidate.market_regime:
         features["market_regime"] = candidate.market_regime
     score, decision, reasons = score_tail_features(
@@ -801,6 +809,7 @@ def evaluate_rule_decision(
 
 def build_5m_summary(df_1m: pd.DataFrame, *, max_bars: int = 12) -> str:
     df = ensure_intraday_df(df_1m)
+    df = _latest_intraday_session(df)
     if df.empty:
         return "NO_DATA"
     x = df.set_index("datetime")[["open", "high", "low", "close", "volume"]]

@@ -12,6 +12,7 @@ from core.tail_buy.strategy import (
     TailBuyCandidate,
     TailBuyStrategyConfig,
     _normalize_signal_score,
+    build_5m_summary,
     build_llm_prompt,
     compute_tail_features,
     evaluate_rule_decision,
@@ -200,6 +201,36 @@ def test_evaluate_rule_decision_buy_and_skip_split():
     assert strong_out.rule_decision in {DECISION_BUY, DECISION_WATCH}
     assert strong_out.rule_score > weak_out.rule_score
     assert weak_out.rule_decision == DECISION_SKIP
+
+
+def test_tail_buy_scores_latest_intraday_session_only():
+    old_day = _make_intraday_df(start=5.0, end=5.2, bars=80)
+    old_day["datetime"] = pd.date_range(datetime(2026, 4, 20, 9, 30), periods=len(old_day), freq="1min", tz=TZ)
+    new_day = _make_intraday_df(start=10.0, end=10.8, bars=120, tail_boost=0.6, tail_volume_mult=1.8)
+    new_day["datetime"] = pd.date_range(datetime(2026, 4, 21, 9, 30), periods=len(new_day), freq="1min", tz=TZ)
+    df = pd.concat([old_day, new_day], ignore_index=True)
+
+    features = compute_tail_features(df)
+
+    assert features["bars"] == len(new_day)
+    assert abs(features["first_open"] - new_day["open"].iloc[0]) < 0.01
+    assert features["day_low"] >= 9.9
+
+
+def test_tail_buy_5m_summary_uses_latest_intraday_session_only():
+    old_day = _make_intraday_df(start=5.0, end=5.2, bars=80)
+    old_day["datetime"] = pd.date_range(datetime(2026, 4, 20, 9, 30), periods=len(old_day), freq="1min", tz=TZ)
+    new_day = _make_intraday_df(start=10.0, end=10.8, bars=120, tail_boost=0.6, tail_volume_mult=1.8)
+    new_day["datetime"] = pd.date_range(datetime(2026, 4, 21, 9, 30), periods=len(new_day), freq="1min", tz=TZ)
+    df = pd.concat([old_day, new_day], ignore_index=True)
+
+    summary = build_5m_summary(df)
+
+    assert "2026-04-20" not in summary
+    assert "O10." in summary
+    assert "C11." in summary
+    assert "O5." not in summary
+    assert "C5." not in summary
 
 
 def test_old_confirmed_signal_can_buy_when_current_tail_confirms():
