@@ -887,7 +887,7 @@ def _candidate_conclusion_preview(source_stage: str, result: dict[str, Any]) -> 
             if row.get("new_buy_allowed") is not None
             else action_plan.get("new_buy_allowed"),
             "evidence": _candidate_conclusion_evidence_items(row),
-            "quality_factors": _candidate_conclusion_text_items(row.get("quality_factors"), 5, 100),
+            "quality_factors": _candidate_quality_text_items(row, 5, 100),
             "risk_factors": _candidate_risk_text_items(row, 5, 100),
             "guard_reason": _candidate_conclusion_guard_reason(row, result),
             "next_step": _candidate_conclusion_next_step(row, result),
@@ -1042,6 +1042,17 @@ def _candidate_conclusion_evidence_items(row: dict[str, Any]) -> list[str]:
 
 def _candidate_conclusion_text_items(value: Any, limit: int, clip: int) -> list[str]:
     return [_text_excerpt(item, clip) for item in _preview_list(value, limit) if str(item or "").strip()]
+
+
+def _candidate_quality_text_items(row: dict[str, Any], limit: int, clip: int) -> list[str]:
+    factors: list[str] = []
+    for value in (row.get("style_match_reasons"), row.get("theme_match_reasons"), row.get("quality_factors")):
+        for item in _candidate_conclusion_text_items(value, limit, clip):
+            if item not in factors:
+                factors.append(item)
+            if len(factors) >= limit:
+                return factors
+    return factors
 
 
 def _candidate_risk_text_items(row: dict[str, Any], limit: int, clip: int) -> list[str]:
@@ -1410,7 +1421,7 @@ def _format_score(value: Any) -> str:
 
 
 def _brief_quality(row: dict[str, Any]) -> str:
-    factors = [str(item).strip() for item in _preview_list(row.get("quality_factors"), 2) if str(item).strip()]
+    factors = _candidate_quality_text_items(row, 2, 80)
     if factors:
         return f"亮点: {'；'.join(factors)}"
     text = _text_excerpt(row.get("why") or row.get("evidence") or row.get("rank_reason"), 80)

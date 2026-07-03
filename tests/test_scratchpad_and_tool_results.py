@@ -535,6 +535,37 @@ def test_screen_stocks_preview_surfaces_theme_preference_and_match():
     assert lines == ["候选结论: 候选 000002 机器人股 · 亮点: 主题偏好: 机器人"]
 
 
+def test_screen_stocks_brief_prioritizes_preference_reasons():
+    result = {
+        "theme_preference": {"raw": "机器人", "theme": "机器人"},
+        "selection_brief": {
+            "headline": "本轮首选可进入 AI 研报复核: 000012 机器人候选",
+            "primary_pick": {
+                "code": "000012",
+                "name": "机器人候选",
+                "action_status": "ready_for_ai_review",
+                "style_match_reasons": ["趋势偏好: 趋势线"],
+                "theme_match_reasons": ["主题偏好: 机器人"],
+                "quality_factors": ["高质量研报候选", "候选影子评级 S", "入场质量评级 A", "主升阶段"],
+            },
+        },
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert preview["candidate_conclusion"]["quality_factors"][:4] == [
+        "趋势偏好: 趋势线",
+        "主题偏好: 机器人",
+        "高质量研报候选",
+        "候选影子评级 S",
+    ]
+    assert lines == [
+        "本轮首选可进入 AI 研报复核: 000012 机器人候选",
+        "候选结论: 首选 000012 机器人候选 · 可进入AI复核 · 亮点: 趋势偏好: 趋势线；主题偏好: 机器人",
+    ]
+
+
 def test_screen_stocks_preview_surfaces_data_quality_gate():
     result = {
         "selection_brief": {
