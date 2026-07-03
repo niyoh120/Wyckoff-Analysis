@@ -342,6 +342,37 @@ def test_screen_stocks_brief_lines_surface_candidate_risk_status():
     ]
 
 
+def test_screen_stocks_brief_lines_surface_next_tool_handoff():
+    result = {
+        "scan_scope": {"scope": "bounded", "board": "main_chinext_star", "limit": 300, "total_scanned": 300},
+        "selection_brief": {
+            "headline": "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+            "primary_pick": {
+                "code": "300750",
+                "name": "宁德时代",
+                "candidate_shadow_score": 92.0,
+                "candidate_shadow_grade": "S",
+                "action_status": "ready_for_ai_review",
+            },
+        },
+        "next_tool": {
+            "tool": "generate_ai_report",
+            "args": {"stock_codes": ["300750", "000001"]},
+            "reason": "首选候选已通过市场闸门，可进入 AI 研报复核",
+        },
+    }
+
+    lines = tool_result_brief_lines("screen_stocks", result, max_lines=4)
+
+    assert "" not in lines
+    assert lines == [
+        "快扫: main_chinext_star 前300只，实际扫描300只",
+        "本轮首选可进入 AI 研报复核: 300750 宁德时代",
+        "下一工具: generate_ai_report(stock_codes=300750,000001) · 首选候选已通过市场闸门，可进入 AI 研报复核",
+        "候选结论: 首选 300750 宁德时代 · 可进入AI复核 · 证据: 候选影子S/92",
+    ]
+
+
 def test_screen_stocks_brief_lines_surface_bounded_scan_scope():
     result = {
         "style_preference": {"raw": "pullback", "styles": ["pullback"]},

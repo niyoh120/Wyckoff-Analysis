@@ -53,19 +53,31 @@ def tool_result_preview(tool_name: str, result: Any, content: str = "") -> str:
 def tool_result_brief_lines(tool_name: str, result: Any, *, max_lines: int = 3) -> list[str]:
     if not isinstance(result, dict) or result.get("error"):
         return []
+    lines: list[str] = []
     if _is_recommendation_event_eval_result(tool_name, result):
-        return _recommendation_event_eval_brief_lines(result, max_lines=max_lines)
-    if _is_screen_stocks_result(tool_name, result):
-        return _screen_stocks_brief_lines(result, max_lines=max_lines)
-    if tool_name == "portfolio":
-        return _portfolio_brief_lines(result, max_lines=max_lines)
-    if tool_name == "analyze_stock":
-        return _analyze_stock_brief_lines(result, max_lines=max_lines)
-    if tool_name == "generate_ai_report":
-        return _ai_report_brief_lines(result, max_lines=max_lines)
-    if tool_name == "generate_strategy_decision":
-        return _strategy_decision_brief_lines(result, max_lines=max_lines)
-    return []
+        lines = _recommendation_event_eval_brief_lines(result, max_lines=max_lines)
+    elif _is_screen_stocks_result(tool_name, result):
+        lines = _screen_stocks_brief_lines(result, max_lines=max_lines)
+    elif tool_name == "portfolio":
+        lines = _portfolio_brief_lines(result, max_lines=max_lines)
+    elif tool_name == "analyze_stock":
+        lines = _analyze_stock_brief_lines(result, max_lines=max_lines)
+    elif tool_name == "generate_ai_report":
+        lines = _ai_report_brief_lines(result, max_lines=max_lines)
+    elif tool_name == "generate_strategy_decision":
+        lines = _strategy_decision_brief_lines(result, max_lines=max_lines)
+    return _compact_brief_lines(lines, max_lines)
+
+
+def _compact_brief_lines(lines: list[str], max_lines: int) -> list[str]:
+    out: list[str] = []
+    for line in lines:
+        text = str(line or "").strip()
+        if text:
+            out.append(text)
+        if len(out) >= max_lines:
+            break
+    return out
 
 
 def _json_safe(value: Any) -> Any:
@@ -1230,7 +1242,8 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     conclusion_line = _text_excerpt(conclusion.get("line"), 280)
     guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
     etf_line = _screen_etf_brief_line(result.get("etf_enhancement"), result.get("etf_candidates"))
-    reserved = int(bool(conclusion_line)) + int(bool(guard_line)) + int(bool(etf_line))
+    handoff_line = _screen_next_tool_brief_line(result.get("next_tool"))
+    reserved = int(bool(conclusion_line)) + int(bool(guard_line)) + int(bool(etf_line)) + int(bool(handoff_line))
     if scope_line and len(lines) < max_lines:
         lines.append(scope_line)
     if headline and len(lines) < max(max_lines - reserved, 0):
@@ -1244,6 +1257,8 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
             lines.append(theme_line)
     if etf_line:
         lines.append(etf_line)
+    if handoff_line:
+        lines.append(handoff_line)
     if conclusion_line:
         lines.append(conclusion_line)
     if guard_line:
@@ -1286,6 +1301,42 @@ def _screen_etf_brief_line(metrics: Any, candidates: Any) -> str:
     l2_passed = _safe_int_text((metrics or {}).get("l2_passed") if isinstance(metrics, dict) else None)
     head = f"ETF强势池: 池{pool or '-'} → 拉取{fetched or '-'} → L2强势{l2_passed or '-'}"
     return f"{head}；候选: {', '.join(name for name in names if name)}" if names else head
+
+
+def _screen_next_tool_brief_line(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    tool = str(value.get("tool") or "").strip()
+    if not tool:
+        return ""
+    args = _next_tool_args_text(value.get("args"))
+    call = f"{tool}({args})" if args else f"{tool}()"
+    reason = _text_excerpt(value.get("reason"), 80)
+    return f"下一工具: {call} · {reason}" if reason else f"下一工具: {call}"
+
+
+def _next_tool_args_text(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    parts: list[str] = []
+    for key, raw in value.items():
+        text = _next_tool_arg_value_text(raw)
+        if text:
+            parts.append(f"{key}={text}")
+        if len(parts) >= 3:
+            break
+    return ", ".join(parts)
+
+
+def _next_tool_arg_value_text(value: Any) -> str:
+    if isinstance(value, list):
+        items = [str(item) for item in _preview_list(value, 5) if str(item).strip()]
+        return ",".join(items)
+    if value in (None, "", [], {}):
+        return ""
+    if isinstance(value, dict):
+        return _text_excerpt(json.dumps(value, ensure_ascii=False, default=str), 80)
+    return _text_excerpt(value, 80)
 
 
 def _screen_scope_brief_line(value: Any) -> str:
