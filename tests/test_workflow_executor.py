@@ -2778,6 +2778,27 @@ def test_workflow_candidate_conclusion_uses_profile_as_quality_context():
     assert "亮点=趋势线,主升阶段" in conclusion["line"]
 
 
+def test_workflow_candidate_conclusion_uses_rank_reason_as_quality_context():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "report_candidates": [
+                    {
+                        "code": "000012",
+                        "name": "排序候选",
+                        "action_status": "ready_for_ai_review",
+                        "candidate_shadow_score": 91.0,
+                        "rank_reason": "推荐评估候选#1；候选影子评级 S",
+                    }
+                ]
+            }
+        }
+    )
+
+    assert conclusion["quality_factors"] == ["推荐评估候选#1", "候选影子评级 S"]
+    assert "亮点=推荐评估候选#1,候选影子评级 S" in conclusion["line"]
+
+
 def test_workflow_candidate_conclusion_labels_limited_review_statuses():
     repair = _candidate_conclusion_from_handoff(
         {

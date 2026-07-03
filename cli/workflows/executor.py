@@ -1774,6 +1774,7 @@ def _fallback_quality_items(row: dict[str, Any], limit: int, clip: int) -> list[
         row.get("style_match_reasons"),
         row.get("theme_match_reasons"),
         _profile_quality_items(row, clip),
+        _rank_reason_items(row, clip),
         row.get("quality_factors"),
     ):
         for item in _fallback_text_items(value, limit, clip):
@@ -1782,6 +1783,13 @@ def _fallback_quality_items(row: dict[str, Any], limit: int, clip: int) -> list[
             if len(factors) >= limit:
                 return factors
     return factors
+
+
+def _rank_reason_items(row: dict[str, Any], clip: int) -> list[str]:
+    text = str(row.get("rank_reason") or "").strip()
+    if not text:
+        return []
+    return [_clip_text(part, clip) for part in re.split(r"[；;]", text) if part.strip()]
 
 
 def _profile_quality_items(row: dict[str, Any], clip: int) -> list[str]:
