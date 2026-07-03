@@ -1613,6 +1613,7 @@ def test_workflow_multitool_step_orders_reversed_model_declared_tools(tmp_path, 
         done_event = next(event for event in events if event["type"] == "workflow_step_done")
         detail = done_event["source"]["agent_detail"]
         assert plan_event["plan"]["steps"][0]["tool_scope"] == ["screen_stocks", "generate_strategy_decision"]
+        assert plan_event["plan"]["script"]["tasks"][0]["tools"] == ["screen_stocks", "generate_strategy_decision"]
         assert detail["tool_scope"] == ["screen_stocks", "generate_strategy_decision"]
         assert detail["tool_calls"] == ["screen_stocks", "generate_strategy_decision"]
         assert [call["name"] for call in tools.calls] == ["screen_stocks", "generate_strategy_decision"]

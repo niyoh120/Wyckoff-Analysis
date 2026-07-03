@@ -1988,6 +1988,7 @@ def test_planner_orders_model_declared_tools_by_dependency():
     assert run.steps[0].tool_scope == ("screen_stocks", "generate_strategy_decision")
     assert run.steps[0].tool_scope_source == "model_declared"
     assert run.steps[0].depends_on == ()
+    assert run.script["tasks"][0]["tools"] == ["screen_stocks", "generate_strategy_decision"]
 
 
 def test_planner_accepts_string_task_lists_from_model_script():

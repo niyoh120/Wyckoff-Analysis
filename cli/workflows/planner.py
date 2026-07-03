@@ -294,13 +294,14 @@ def plan_workflow(
         else _generate_script(user_text, context, provider, tools)
     )
     steps = _script_steps(raw_script, user_text, context)
+    script = _script_with_step_tool_scopes(raw_script, steps)
     return WorkflowRun(
         run_id=f"wf_{uuid.uuid4().hex[:12]}",
         session_id=session_id,
         user_text=user_text,
         context=context,
         steps=steps,
-        script=raw_script,
+        script=script,
     )
 
 
@@ -910,6 +911,42 @@ def _script_steps(
         return steps[:MAX_WORKFLOW_STEPS]
     fallback = _fallback_script(user_text, context, reason="planner returned no valid tasks")
     return _script_steps(fallback, user_text, context, infer_tools=infer_tools)
+
+
+def _script_with_step_tool_scopes(script: dict[str, Any], steps: list[WorkflowStep]) -> dict[str, Any]:
+    if not steps:
+        return script
+    payload = deepcopy(script)
+    steps_by_id = {step.step_id: step for step in steps}
+    for task in _script_task_refs(payload):
+        step = steps_by_id.get(_slug(task.get("id") or task.get("title") or task.get("name")))
+        if not step or step.tool_scope_source != "model_declared" or not step.tool_scope:
+            continue
+        task["tools"] = list(step.tool_scope)
+    return payload
+
+
+def _script_task_refs(script: dict[str, Any]) -> list[dict[str, Any]]:
+    phases = _list_dict_refs(script, PHASE_LIST_FIELDS)
+    if phases:
+        refs: list[dict[str, Any]] = []
+        for phase in phases:
+            refs.extend(_list_dict_refs(phase, TASK_LIST_FIELDS) or ([phase] if _generated_task_like(phase) else []))
+        return refs
+    tasks = _list_dict_refs(script, TASK_LIST_FIELDS)
+    if tasks:
+        return tasks
+    return [script] if _generated_task_like(script) else []
+
+
+def _list_dict_refs(payload: dict[str, Any], fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    for field in fields:
+        value = payload.get(field)
+        if isinstance(value, list):
+            refs = [item for item in value if isinstance(item, dict)]
+            if refs:
+                return refs
+    return []
 
 
 def _semantic_tool_inference_enabled(script: dict[str, Any]) -> bool:
