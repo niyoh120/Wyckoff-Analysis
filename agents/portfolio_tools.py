@@ -198,6 +198,7 @@ def _append_unique_hints(target: list[str], hints: list[str]) -> None:
 
 
 def _diagnostic_payload(diagnostic, latest_date: str, metadata: dict) -> dict:
+    from agents.diagnosis_tools import diagnosis_brief_from_diagnostic
     from core.holding_diagnostic import format_diagnostic_text
 
     return {
@@ -206,12 +207,16 @@ def _diagnostic_payload(diagnostic, latest_date: str, metadata: dict) -> dict:
         "health": diagnostic.health,
         "pnl_pct": round(diagnostic.pnl_pct, 2),
         "latest_close": diagnostic.latest_close,
+        "ma_pattern": diagnostic.ma_pattern,
         "l2_channel": diagnostic.l2_channel,
+        "track": diagnostic.track,
         "l4_triggers": diagnostic.l4_triggers,
         "candidate_lane": diagnostic.candidate_lane,
         "candidate_entry_type": diagnostic.candidate_entry_type,
         "candidate_score": diagnostic.candidate_score,
+        "exit_signal": diagnostic.exit_signal,
         "health_reasons": diagnostic.health_reasons,
+        "diagnosis_brief": diagnosis_brief_from_diagnostic(diagnostic),
         "formatted_text": format_diagnostic_text(diagnostic),
         "data_status": "ok",
         "latest_date": latest_date,

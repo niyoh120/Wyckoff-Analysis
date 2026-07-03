@@ -124,7 +124,7 @@ def _diagnostic_payload(d, text: str, latest_date: str, metadata: dict) -> dict:
         "from_year_high_pct": _round_number(d.from_year_high_pct, 1),
         "from_year_low_pct": _round_number(d.from_year_low_pct, 1),
         "health_reasons": d.health_reasons,
-        "diagnosis_brief": _diagnosis_brief(d),
+        "diagnosis_brief": diagnosis_brief_from_diagnostic(d),
         "formatted_text": text,
         "data_status": "ok",
         "latest_date": latest_date,
@@ -132,7 +132,7 @@ def _diagnostic_payload(d, text: str, latest_date: str, metadata: dict) -> dict:
     }
 
 
-def _diagnosis_brief(d) -> dict[str, Any]:
+def diagnosis_brief_from_diagnostic(d) -> dict[str, Any]:
     status = _diagnosis_status(d)
     risks = _diagnosis_risks(d)
     strengths = _diagnosis_strengths(d)

@@ -5,16 +5,22 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from agents import diagnosis_tools
+from agents import diagnosis_tools, portfolio_tools
 
 
 def _diagnostic(**overrides):
     defaults = {
         "code": "002326",
         "name": "永太科技",
+        "cost": 20.0,
         "health": "🟢健康",
         "pnl_pct": 0.0,
         "latest_close": 25.62,
+        "ma5": 24.0,
+        "ma20": 23.0,
+        "ma50": 21.0,
+        "ma200": 18.0,
+        "ma200_bias_pct": 42.3,
         "ma_pattern": "多头排列",
         "l2_channel": "主升通道",
         "track": "Trend",
@@ -24,6 +30,9 @@ def _diagnostic(**overrides):
         "candidate_entry_type": "SOS",
         "candidate_score": 83.04,
         "exit_signal": "",
+        "exit_price": None,
+        "exit_reason": "",
+        "stop_loss_7pct": 18.6,
         "stop_loss_status": "",
         "vol_ratio_20_60": 1.26,
         "range_60d_pct": 39.0,
@@ -153,3 +162,28 @@ def test_diagnostic_payload_marks_stop_loss_as_avoid() -> None:
     assert "L4触发: EVR" in brief["strengths"]
     assert brief["risks"] == ["结构止损（从高点回撤>10%）", "退出信号: stop_loss"]
     assert brief["next_step"].startswith("回避新增")
+
+
+def test_portfolio_diagnostic_payload_reuses_action_brief() -> None:
+    result = portfolio_tools._diagnostic_payload(
+        _diagnostic(
+            code="002081",
+            name="金螳螂",
+            health="🔴危险",
+            exit_signal="stop_loss",
+            health_reasons=["结构止损（从高点回撤>10%）"],
+        ),
+        "2026-07-03",
+        {"hist_rows": 250},
+    )
+
+    brief = result["diagnosis_brief"]
+
+    assert result["ma_pattern"] == "多头排列"
+    assert result["track"] == "Trend"
+    assert result["exit_signal"] == "stop_loss"
+    assert result["hist_rows"] == 250
+    assert brief["status"] == "avoid"
+    assert brief["headline"] == "回避: 002081 金螳螂"
+    assert brief["direct_buy_allowed"] is False
+    assert brief["risks"] == ["结构止损（从高点回撤>10%）", "退出信号: stop_loss"]
