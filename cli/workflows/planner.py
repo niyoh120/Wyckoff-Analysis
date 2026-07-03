@@ -785,20 +785,42 @@ def _normalize_step_dependencies(steps: list[WorkflowStep]) -> list[WorkflowStep
 def _dependency_aliases(steps: list[WorkflowStep]) -> dict[str, str]:
     buckets: dict[str, set[str]] = {}
     for step in steps:
-        for alias in (step.step_id, _slug(step.title)):
+        for alias in _dependency_alias_keys(step):
             if alias:
                 buckets.setdefault(alias, set()).add(step.step_id)
     return {alias: next(iter(ids)) for alias, ids in buckets.items() if len(ids) == 1}
 
 
+def _dependency_alias_keys(step: WorkflowStep) -> tuple[str, ...]:
+    aliases: list[str] = []
+    for value in (step.step_id, _slug(step.title)):
+        if value:
+            aliases.extend([value, value.lower()])
+    return tuple(dict.fromkeys(aliases))
+
+
 def _resolve_step_dependency(dep: str, aliases: dict[str, str], steps: list[WorkflowStep], index: int) -> str:
     if dep in aliases:
         return aliases[dep]
+    if (lower_dep := dep.lower()) in aliases:
+        return aliases[lower_dep]
     if dep in _PREVIOUS_DEPENDENCY_ALIASES:
         return _previous_step_dependency(steps, index)
+    if ordinal := _ordinal_step_dependency(dep, steps):
+        return ordinal
     if tool_name := _tool_name(dep):
         return _tool_step_dependency(steps, index, tool_name)
     return dep
+
+
+def _ordinal_step_dependency(dep: str, steps: list[WorkflowStep]) -> str:
+    match = re.fullmatch(r"(?:step_|task_|step|task)?(\d+)", dep.lower())
+    if not match:
+        return ""
+    index = int(match.group(1)) - 1
+    if index < 0 or index >= len(steps):
+        return ""
+    return steps[index].step_id
 
 
 def _previous_step_dependency(steps: list[WorkflowStep], index: int) -> str:

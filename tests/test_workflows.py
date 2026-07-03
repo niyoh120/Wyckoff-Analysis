@@ -1385,6 +1385,56 @@ def test_planner_resolves_dependency_object_name_to_title():
     assert run.steps[1].depends_on == ("scan",)
 
 
+def test_planner_resolves_case_insensitive_dependency_aliases():
+    run = plan_workflow(
+        "做选股研报",
+        context=route_workflow("用 workflow 做选股研报"),
+        workflow_script={
+            "tasks": [
+                {"id": "scan_candidates", "title": "Scan Candidates", "tools": ["screen_stocks"]},
+                {
+                    "id": "report",
+                    "title": "生成研报",
+                    "tools": ["generate_ai_report"],
+                    "after": "scan candidates",
+                    "prompt": "基于候选生成研报。",
+                },
+            ]
+        },
+    )
+
+    assert run.steps[1].depends_on == ("scan_candidates",)
+
+
+def test_planner_resolves_ordinal_dependency_aliases():
+    run = plan_workflow(
+        "做选股、研报和攻防计划",
+        context=route_workflow("用 workflow 做选股、研报和攻防计划"),
+        workflow_script={
+            "tasks": [
+                {"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描今日候选。"},
+                {
+                    "id": "report",
+                    "title": "生成研报",
+                    "tools": ["generate_ai_report"],
+                    "after": 1,
+                    "prompt": "基于候选生成研报。",
+                },
+                {
+                    "id": "decision",
+                    "title": "形成攻防",
+                    "tools": ["generate_strategy_decision"],
+                    "after": "step 2",
+                    "prompt": "基于候选和研报输出攻防边界。",
+                },
+            ]
+        },
+    )
+
+    assert run.steps[1].depends_on == ("scan",)
+    assert run.steps[2].depends_on == ("report",)
+
+
 def test_planner_resolves_chinese_tool_dependency_alias():
     run = plan_workflow(
         "复盘我的持仓并给出风险动作",

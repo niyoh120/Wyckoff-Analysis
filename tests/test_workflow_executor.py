@@ -2985,6 +2985,38 @@ def test_phase_batches_respects_dependency_object_tool_fields():
     ]
 
 
+def test_phase_batches_respects_ordinal_dependency_aliases():
+    run = plan_workflow(
+        "做选股、研报和攻防计划",
+        context=route_workflow("用 workflow 做选股、研报和攻防计划"),
+        workflow_script={
+            "tasks": [
+                {"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描今日候选。"},
+                {
+                    "id": "report",
+                    "title": "生成研报",
+                    "tools": ["generate_ai_report"],
+                    "after": 1,
+                    "prompt": "基于候选生成研报。",
+                },
+                {
+                    "id": "decision",
+                    "title": "形成攻防",
+                    "tools": ["generate_strategy_decision"],
+                    "after": "step 2",
+                    "prompt": "基于候选和研报输出攻防边界。",
+                },
+            ]
+        },
+    )
+
+    assert [[step.step_id for step in batch] for batch in _phase_batches(run.steps)] == [
+        ["scan"],
+        ["report"],
+        ["decision"],
+    ]
+
+
 def test_workflow_executor_topologically_runs_out_of_order_stock_selection_tools(tmp_path, monkeypatch):
     from integrations import local_db
 
