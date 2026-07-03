@@ -713,13 +713,20 @@ def _candidate_conclusion_text_items(value: Any, limit: int, clip: int) -> list[
 
 def _candidate_risk_text_items(row: dict[str, Any], limit: int, clip: int) -> list[str]:
     risks: list[str] = []
-    for value in (row.get("risk_factors"), row.get("entry_quality_risk_flags")):
-        for item in _candidate_conclusion_text_items(value, limit, clip):
+    for value in (row.get("risk_factors"), row.get("entry_quality_risk_flags"), row.get("daily_trap_reason")):
+        for item in _candidate_risk_value_items(value, limit, clip):
             if item not in risks:
                 risks.append(item)
             if len(risks) >= limit:
                 return risks
     return risks
+
+
+def _candidate_risk_value_items(value: Any, limit: int, clip: int) -> list[str]:
+    if isinstance(value, list):
+        return _candidate_conclusion_text_items(value, limit, clip)
+    text = _text_excerpt(value, clip)
+    return [text] if text.strip() else []
 
 
 def _candidate_conclusion_guard_reason(row: dict[str, Any], result: dict[str, Any]) -> str:
@@ -1110,6 +1117,7 @@ _CANDIDATE_PREVIEW_FIELDS = (
     "rank_reason",
     "quality_factors",
     "risk_factors",
+    "daily_trap_reason",
     "action_status",
     "why",
     "evidence",

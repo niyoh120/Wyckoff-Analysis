@@ -1252,6 +1252,45 @@ def test_display_workflow_step_event_surfaces_handoff_candidate_brief():
     assert "候选影子S/92" in rendered
 
 
+def test_display_workflow_step_event_surfaces_daily_trap_reason():
+    writes = []
+
+    _display_workflow_step_event(
+        {
+            "step": {
+                "title": "扫描候选",
+                "status": "completed",
+                "tool_scope": ["screen_stocks"],
+                "summary": "completed 1.0s",
+            },
+            "source": {
+                "agent_detail": {
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "selection_brief": {
+                                "primary_pick": {
+                                    "code": "002217",
+                                    "name": "合力泰",
+                                    "action_status": "watch_only",
+                                    "daily_trap_reason": "日线放量上影(2.6x)",
+                                    "next_step": "等待回踩确认",
+                                },
+                            }
+                        }
+                    }
+                }
+            },
+        },
+        writes.append,
+        lambda: None,
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "候选结论: 观察候选 002217 合力泰" in rendered
+    assert "风险: 日线放量上影(2.6x)" in rendered
+    assert "下一步: 等待回踩确认" in rendered
+
+
 def test_display_workflow_step_event_prioritizes_current_tool_handoff():
     writes = []
 

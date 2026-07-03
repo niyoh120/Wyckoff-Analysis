@@ -236,6 +236,29 @@ def test_screen_stocks_preview_merges_entry_risk_flags_into_visible_risks():
     assert "风险: 短线涨幅偏快；量能未确认" in lines[1]
 
 
+def test_screen_stocks_preview_surfaces_daily_trap_reason_as_risk():
+    result = {
+        "selection_brief": {
+            "primary_pick": {
+                "code": "002217",
+                "name": "合力泰",
+                "candidate_shadow_score": 84.0,
+                "candidate_shadow_grade": "A",
+                "daily_trap_reason": "日线放量上影(2.6x)",
+                "action_status": "watch_only",
+                "next_step": "等待回踩确认",
+            },
+        },
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result)
+
+    assert preview["selection_brief"]["primary_pick"]["daily_trap_reason"] == "日线放量上影(2.6x)"
+    assert preview["candidate_conclusion"]["risk_factors"] == ["日线放量上影(2.6x)"]
+    assert "风险: 日线放量上影(2.6x)" in lines[0]
+
+
 def test_screen_stocks_preview_prioritizes_ready_candidate_over_first_watch():
     result = {
         "report_candidates": [
