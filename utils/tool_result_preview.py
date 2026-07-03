@@ -30,6 +30,10 @@ def tool_result_preview(tool_name: str, result: Any, content: str = "") -> str:
         preview = _screen_stocks_preview(result)
         if preview:
             return preview[:PREVIEW_CHARS]
+    if tool_name == "portfolio" and isinstance(result, dict):
+        preview = _portfolio_preview(result)
+        if preview:
+            return preview[:PREVIEW_CHARS]
     if tool_name == "analyze_stock" and isinstance(result, dict):
         preview = _analyze_stock_preview(result)
         if preview:
@@ -52,6 +56,8 @@ def tool_result_brief_lines(tool_name: str, result: Any, *, max_lines: int = 3) 
         return _recommendation_event_eval_brief_lines(result, max_lines=max_lines)
     if _is_screen_stocks_result(tool_name, result):
         return _screen_stocks_brief_lines(result, max_lines=max_lines)
+    if tool_name == "portfolio":
+        return _portfolio_brief_lines(result, max_lines=max_lines)
     if tool_name == "analyze_stock":
         return _analyze_stock_brief_lines(result, max_lines=max_lines)
     if tool_name == "generate_ai_report":
@@ -371,6 +377,191 @@ def _dynamic_workflow_step_preview(value: Any) -> dict[str, Any]:
             "evidence": [_text_excerpt(item, 240) for item in _preview_list(value.get("evidence"), 4)],
         }
     )
+
+
+def _portfolio_preview(result: dict[str, Any]) -> str:
+    payload = _drop_empty_preview_fields(
+        {
+            "portfolio_id": result.get("portfolio_id"),
+            "message": result.get("message"),
+            "free_cash": result.get("free_cash"),
+            "position_count": result.get("position_count"),
+            "successful_count": result.get("successful_count"),
+            "failed_count": result.get("failed_count"),
+            "positions": _portfolio_position_preview(result.get("positions"), 8),
+            "diagnostics": _portfolio_diagnostic_preview(result.get("diagnostics"), 8),
+            "tickflow_limit_hint": result.get("tickflow_limit_hint"),
+        }
+    )
+    return serialize_tool_result(payload) if payload else ""
+
+
+def _portfolio_position_preview(value: Any, limit: int) -> list[dict[str, Any]]:
+    return [
+        _drop_empty_preview_fields(
+            {
+                "code": row.get("code"),
+                "name": row.get("name"),
+                "shares": row.get("shares"),
+                "cost_price": row.get("cost_price") or row.get("cost"),
+                "buy_dt": row.get("buy_dt"),
+            }
+        )
+        for row in _preview_list(value, limit)
+        if isinstance(row, dict)
+    ]
+
+
+def _portfolio_diagnostic_preview(value: Any, limit: int) -> list[dict[str, Any]]:
+    return [
+        _drop_empty_preview_fields(
+            {
+                "code": row.get("code"),
+                "name": row.get("name"),
+                "health": row.get("health"),
+                "pnl_pct": row.get("pnl_pct"),
+                "latest_close": row.get("latest_close"),
+                "latest_date": row.get("latest_date"),
+                "l2_channel": row.get("l2_channel"),
+                "l4_triggers": _preview_list(row.get("l4_triggers"), 4),
+                "candidate_score": row.get("candidate_score"),
+                "health_reasons": _preview_list(row.get("health_reasons"), 4),
+                "diagnosis_brief": _diagnosis_brief_preview(row.get("diagnosis_brief")),
+                "error": row.get("error"),
+            }
+        )
+        for row in _preview_list(value, limit)
+        if isinstance(row, dict)
+    ]
+
+
+def _portfolio_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    if isinstance(result.get("diagnostics"), list):
+        return _portfolio_diagnosis_brief_lines(result, max_lines=max_lines)
+    return _portfolio_view_brief_lines(result, max_lines=max_lines)
+
+
+def _portfolio_view_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    positions = _portfolio_position_preview(result.get("positions"), 5)
+    count = _portfolio_position_count(result, positions)
+    lines = [_portfolio_view_headline(result, count)]
+    if positions:
+        lines.append(f"持仓明细: {'；'.join(_portfolio_position_line(row) for row in positions[:3])}")
+    elif result.get("message"):
+        lines.append(_text_excerpt(result.get("message"), 120))
+    lines.append(_portfolio_empty_next_step(count))
+    return [line for line in lines if line][:max_lines]
+
+
+def _portfolio_diagnosis_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
+    diagnostics = [row for row in _portfolio_diagnostic_preview(result.get("diagnostics"), 8) if row]
+    count = _portfolio_position_count(result, diagnostics)
+    lines = [_portfolio_diagnosis_headline(result, count)]
+    for row in _rank_portfolio_diagnostics(diagnostics):
+        if line := _portfolio_diagnostic_line(row):
+            lines.append(line)
+        if len(lines) >= max_lines:
+            break
+    if count == 0:
+        lines.append(_portfolio_empty_next_step(count))
+    return [line for line in lines if line][:max_lines]
+
+
+def _portfolio_position_count(result: dict[str, Any], rows: list[dict[str, Any]]) -> int:
+    try:
+        return int(result.get("position_count") or len(rows))
+    except (TypeError, ValueError):
+        return len(rows)
+
+
+def _portfolio_view_headline(result: dict[str, Any], count: int) -> str:
+    cash = _format_money(result.get("free_cash"))
+    if count <= 0:
+        return f"持仓: 暂无头寸 · 现金{cash}"
+    return f"持仓: {count}只 · 现金{cash}"
+
+
+def _portfolio_diagnosis_headline(result: dict[str, Any], count: int) -> str:
+    cash = _format_money(result.get("free_cash"))
+    success = _safe_int_text(result.get("successful_count"))
+    failed = _safe_int_text(result.get("failed_count"))
+    status = f"成功{success or '-'}，失败{failed or '0'}"
+    return f"持仓诊断: {count}只 · {status} · 现金{cash}"
+
+
+def _portfolio_position_line(row: dict[str, Any]) -> str:
+    name = _candidate_name(row)
+    shares = _safe_int_text(row.get("shares"))
+    cost = _format_score(row.get("cost_price"))
+    parts = [f"{shares}股" if shares else "", f"成本{cost}" if cost else ""]
+    detail = " ".join(part for part in parts if part)
+    return f"{name} {detail}".strip()
+
+
+def _portfolio_empty_next_step(count: int) -> str:
+    if count > 0:
+        return ""
+    return "下一步: 直接在聊天里发持仓代码 / 成本 / 仓位，我会继续做诊断"
+
+
+def _rank_portfolio_diagnostics(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(rows, key=_portfolio_diagnostic_rank)
+
+
+def _portfolio_diagnostic_rank(row: dict[str, Any]) -> tuple[int, str]:
+    health = str(row.get("health") or "")
+    if row.get("error"):
+        return (0, _candidate_name(row))
+    if "危险" in health:
+        return (1, _candidate_name(row))
+    if "警戒" in health:
+        return (2, _candidate_name(row))
+    return (3, _candidate_name(row))
+
+
+def _portfolio_diagnostic_line(row: dict[str, Any]) -> str:
+    brief = row.get("diagnosis_brief") if isinstance(row.get("diagnosis_brief"), dict) else {}
+    parts = [
+        _stock_value_part("", row.get("health")),
+        _stock_value_part("现价", row.get("latest_close")),
+        _stock_value_part("盈亏", _format_pct_signed(row.get("pnl_pct"))),
+        _stock_value_part("通道", row.get("l2_channel")),
+        _stock_list_part("风险", _portfolio_risk_items(row, brief), 2),
+        _stock_next_step_part(brief.get("next_step")),
+        _stock_value_part("错误", row.get("error")),
+    ]
+    detail = " · ".join(part for part in parts if part)
+    return f"{_candidate_name(row)} · {detail}" if detail else _candidate_name(row)
+
+
+def _portfolio_risk_items(row: dict[str, Any], brief: dict[str, Any]) -> list[Any]:
+    risks = brief.get("risks")
+    if isinstance(risks, list):
+        return risks
+    return [item for item in _preview_list(row.get("health_reasons"), 4) if not _positive_diagnostic_reason(item)]
+
+
+def _positive_diagnostic_reason(value: Any) -> bool:
+    text = str(value or "").strip()
+    return text in {"多头排列", "MA50>MA200(偏强)"} or text.startswith(("L2通道:", "L4信号:"))
+
+
+def _format_money(value: Any) -> str:
+    try:
+        amount = float(value or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    return f"{amount:,.2f}"
+
+
+def _format_pct_signed(value: Any) -> str:
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if not math.isfinite(pct):
+        return ""
+    return f"{pct:+.2f}%"
 
 
 def _analyze_stock_preview(result: dict[str, Any]) -> str:

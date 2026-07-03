@@ -97,6 +97,71 @@ def test_analyze_stock_preview_surfaces_actionable_diagnosis_brief() -> None:
     ]
 
 
+def test_portfolio_view_brief_lines_guide_empty_holdings_in_chat() -> None:
+    result = {
+        "message": "未找到持仓记录，可通过 update_portfolio 添加",
+        "positions": [],
+        "free_cash": 0,
+    }
+
+    preview = json.loads(tool_result_preview("portfolio", result))
+    lines = tool_result_brief_lines("portfolio", result)
+
+    assert preview["message"] == "未找到持仓记录，可通过 update_portfolio 添加"
+    assert lines == [
+        "持仓: 暂无头寸 · 现金0.00",
+        "未找到持仓记录，可通过 update_portfolio 添加",
+        "下一步: 直接在聊天里发持仓代码 / 成本 / 仓位，我会继续做诊断",
+    ]
+
+
+def test_portfolio_diagnosis_brief_lines_prioritize_risky_positions() -> None:
+    result = {
+        "portfolio_id": "USER_LIVE:test",
+        "free_cash": 11600,
+        "position_count": 2,
+        "successful_count": 2,
+        "failed_count": 0,
+        "diagnostics": [
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "health": "🟢健康",
+                "latest_close": 10.2,
+                "pnl_pct": 2.0,
+                "l2_channel": "主升通道",
+                "health_reasons": ["多头排列"],
+            },
+            {
+                "code": "002081",
+                "name": "金螳螂",
+                "health": "🔴危险",
+                "latest_close": 3.15,
+                "pnl_pct": -12.5,
+                "l2_channel": "未入选",
+                "health_reasons": ["结构止损（从高点回撤>10%）"],
+                "diagnosis_brief": {
+                    "status": "avoid",
+                    "headline": "回避: 002081 金螳螂",
+                    "risks": ["结构止损（从高点回撤>10%）"],
+                    "next_step": "回避新增，等待结构止损解除或重新站回强势结构",
+                    "direct_buy_allowed": False,
+                },
+            },
+        ],
+    }
+
+    preview = json.loads(tool_result_preview("portfolio", result))
+    lines = tool_result_brief_lines("portfolio", result)
+
+    assert preview["diagnostics"][1]["diagnosis_brief"]["status"] == "avoid"
+    assert lines == [
+        "持仓诊断: 2只 · 成功2，失败0 · 现金11,600.00",
+        "002081 金螳螂 · 🔴危险 · 现价3.15 · 盈亏-12.50% · 通道未入选 · 风险: 结构止损（从高点回撤>10%） · 下一步: 回避新增，等待结构止损解除或重新站回强势结构",
+        "000001 平安银行 · 🟢健康 · 现价10.2 · 盈亏+2.00% · 通道主升通道",
+    ]
+
+
 def test_large_tool_result_is_persisted_with_preview(tmp_path, monkeypatch):
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     result = {"rows": ["x" * 1000 for _ in range(60)]}
