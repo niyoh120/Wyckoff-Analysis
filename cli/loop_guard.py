@@ -162,6 +162,15 @@ _STOCK_SCREEN_INTENT_HINTS = (
     "挑",
 )
 
+_STOCK_SCREEN_STYLE_HINTS = (
+    "强势",
+    "趋势",
+    "低吸",
+    "右侧",
+    "左侧",
+    "稳健",
+)
+
 _STOCK_SCREEN_REVIEW_HINTS = (
     "过去",
     "之前",
@@ -465,8 +474,16 @@ def _stock_screen_expected(text: str) -> bool:
         hint in text for hint in _STOCK_SCREEN_TARGET_ACTIONS
     ):
         return True
+    if _stock_screen_style_target_expected(text) and any(hint in text for hint in _STOCK_SCREEN_TARGET_ACTIONS):
+        return True
     return any(hint in text for hint in _STOCK_SCREEN_CONTEXT_HINTS) and any(
-        hint in text for hint in _STOCK_SCREEN_INTENT_HINTS
+        hint in text for hint in (*_STOCK_SCREEN_INTENT_HINTS, *_STOCK_SCREEN_STYLE_HINTS)
+    )
+
+
+def _stock_screen_style_target_expected(text: str) -> bool:
+    return any(hint in text for hint in _STOCK_SCREEN_STYLE_HINTS) and any(
+        hint in text for hint in _STOCK_SCREEN_CONTEXT_HINTS
     )
 
 

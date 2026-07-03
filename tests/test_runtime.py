@@ -423,6 +423,7 @@ def test_turn_expectation_does_not_force_tool_for_concept_questions():
     assert resolve_turn_expectation([{"role": "user", "content": "选股规则是什么"}]) is None
     assert resolve_turn_expectation([{"role": "user", "content": "持仓管理是什么"}]) is None
     assert resolve_turn_expectation([{"role": "user", "content": "机会是什么意思"}]) is None
+    assert resolve_turn_expectation([{"role": "user", "content": "强势票是什么意思"}]) is None
 
 
 def test_turn_expectation_requires_ai_report_after_screen_handoff():
@@ -488,6 +489,14 @@ def test_turn_expectation_still_forces_tool_for_concrete_concept_wording():
     assert portfolio is not None
     assert portfolio.required_tool == "portfolio"
     assert portfolio.suggested_args == {"mode": "diagnose"}
+
+
+def test_turn_expectation_forces_tool_for_colloquial_style_stock_selection():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "今天帮我找几只强势低吸标的，给下一步"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "screen_stocks"
+    assert expectation.suggested_args == {"board": "all"}
 
 
 def test_turn_expectation_does_not_screen_past_recommendation_review():

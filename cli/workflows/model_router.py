@@ -44,8 +44,16 @@ _STOCK_SELECTION_SCOPE_MARKERS = (
     "值得复核",
     "值得跟踪",
 )
+_STOCK_SELECTION_STYLE_MARKERS = ("强势", "趋势", "低吸", "右侧", "左侧", "稳健")
+_STOCK_SELECTION_STYLE_TARGETS = ("票", "标的", "候选")
 _STOCK_CONTEXT_MARKERS = ("a股", "股票", "股", "票", "标的", "市场", "板块", "行业", "方向")
 _STOCK_SELECTION_DELIVERY_MARKERS = (
+    "找",
+    "挑",
+    "筛",
+    "选",
+    "几只",
+    "几个",
     "理由",
     "风险",
     "风险边界",
@@ -243,10 +251,16 @@ def _needs_stock_selection_workflow_fallback(user_text: str) -> bool:
         return False
     if _SHORT_STOCK_SELECTION_RE.search(text):
         return True
-    has_scope = any(marker in text for marker in _STOCK_SELECTION_SCOPE_MARKERS)
+    has_scope = any(marker in text for marker in _STOCK_SELECTION_SCOPE_MARKERS) or _has_stock_style_target(text)
     has_delivery = any(marker in text for marker in _STOCK_SELECTION_DELIVERY_MARKERS)
     has_context = any(marker in text for marker in _STOCK_CONTEXT_MARKERS)
     return has_scope and has_delivery and has_context
+
+
+def _has_stock_style_target(text: str) -> bool:
+    return any(style in text for style in _STOCK_SELECTION_STYLE_MARKERS) and any(
+        target in text for target in _STOCK_SELECTION_STYLE_TARGETS
+    )
 
 
 def _portfolio_review_fallback_context(user_text: str, fallback_reason: str) -> WorkflowContext | None:
