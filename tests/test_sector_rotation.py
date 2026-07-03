@@ -34,3 +34,25 @@ def test_analyze_sector_rotation_marks_healthy_mainline() -> None:
     assert info["above_ma50_pct"] == 100.0
     assert result["headline"] == "分歧0 | 健康1 | 高潮0 | 退潮0 | 中性0"
     assert result["overview_lines"]
+
+
+def test_analyze_sector_rotation_ignores_old_history_prefix() -> None:
+    prefix_dates = pd.bdate_range("2025-01-01", periods=80)
+    noisy_prefix = pd.DataFrame(
+        {
+            "date": prefix_dates,
+            "open": [40.0] * 80,
+            "high": [42.0] * 80,
+            "low": [35.0] * 80,
+            "close": [40.0 - i * 0.2 for i in range(80)],
+            "volume": [3_000_000.0] * 80,
+            "amount": [120_000_000.0] * 80,
+        }
+    )
+    current = _healthy_member_frame()
+    df_map = {code: pd.concat([noisy_prefix, current], ignore_index=True) for code in ("000001", "000002", "000003")}
+    sector_map = {code: "银行" for code in df_map}
+
+    result = analyze_sector_rotation(df_map, sector_map)
+
+    assert result["state_map"]["银行"]["state"] == "HEALTHY_MAINLINE"

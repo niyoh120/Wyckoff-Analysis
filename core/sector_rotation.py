@@ -50,6 +50,7 @@ _OVERVIEW_STATE_ORDER = [
     "CONSENSUS_CLIMAX",
     "DISTRIBUTION_RISK",
 ]
+_MEMBER_HISTORY_ROWS = 60
 
 
 def _safe_return(series: pd.Series, lookback: int) -> float | None:
@@ -117,7 +118,12 @@ def _member_snapshot(df: pd.DataFrame) -> dict | None:
 
 
 def _sorted_member_frame(df: pd.DataFrame) -> pd.DataFrame:
-    return df.sort_values("date").reset_index(drop=True).copy()
+    if "date" not in df.columns:
+        return df.tail(_MEMBER_HISTORY_ROWS)
+    dates = df["date"]
+    if dates.is_monotonic_increasing:
+        return df.tail(_MEMBER_HISTORY_ROWS)
+    return df.sort_values("date").tail(_MEMBER_HISTORY_ROWS)
 
 
 def _member_series(df: pd.DataFrame) -> dict[str, pd.Series]:
