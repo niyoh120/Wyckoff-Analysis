@@ -358,6 +358,8 @@ def _dynamic_workflow_candidate_conclusions(result: dict[str, Any]) -> list[str]
 
 def _dynamic_workflow_brief_lines(result: dict[str, Any], *, max_lines: int) -> list[str]:
     lines = [_dynamic_workflow_status_line(result)]
+    if error_line := _dynamic_workflow_error_line(result.get("error")):
+        lines.append(error_line)
     for line in _dynamic_workflow_handoff_lines(result, limit=max_lines):
         lines.append(line)
         if len(lines) >= max_lines:
@@ -378,6 +380,11 @@ def _dynamic_workflow_status_line(result: dict[str, Any]) -> str:
         _dynamic_workflow_elapsed_text(result.get("elapsed")),
     ]
     return " · ".join(part for part in parts if part)
+
+
+def _dynamic_workflow_error_line(value: Any) -> str:
+    text = _text_excerpt(value, 180)
+    return f"错误: {text}" if text else ""
 
 
 def _dynamic_workflow_elapsed_text(value: Any) -> str:

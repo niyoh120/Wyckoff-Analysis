@@ -234,10 +234,11 @@ def test_dynamic_workflow_brief_lines_surface_failed_run():
         ],
     }
 
-    lines = tool_result_brief_lines("dynamic_workflow", result, max_lines=2)
+    lines = tool_result_brief_lines("dynamic_workflow", result, max_lines=3)
 
     assert lines == [
         "动态 workflow: 失败 · dynamic_task · wf_failed",
+        "错误: planner timeout",
         "最近步骤: 生成研报 · running · 等待模型返回",
     ]
 
