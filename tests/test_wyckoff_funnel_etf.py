@@ -130,6 +130,36 @@ def test_load_financial_metrics_can_be_disabled_for_backfill(monkeypatch):
     assert funnel_data._load_financial_metrics(["000001"]) == {}
 
 
+def test_load_financial_metrics_reports_missing_tickflow_key(monkeypatch):
+    from utils.progress import set_reporter
+
+    events: list[tuple[str, str, float]] = []
+    monkeypatch.delenv("FUNNEL_SKIP_FINANCIAL_METRICS", raising=False)
+    monkeypatch.delenv("TICKFLOW_API_KEY", raising=False)
+    set_reporter(lambda stage, detail, progress: events.append((stage, detail, progress)))
+    try:
+        assert funnel_data._load_financial_metrics(["000001"]) == {}
+    finally:
+        set_reporter(None)
+
+    assert ("财务指标", "未配置 TickFlow，跳过", 0.20) in events
+
+
+def test_load_stock_names_reports_progress(monkeypatch):
+    from utils.progress import set_reporter
+
+    events: list[tuple[str, str, float]] = []
+    monkeypatch.setattr(funnel_data, "load_stock_name_map", lambda: {"000001": "Alpha"})
+    set_reporter(lambda stage, detail, progress: events.append((stage, detail, progress)))
+    try:
+        assert funnel_data._load_stock_names() == {"000001": "Alpha"}
+    finally:
+        set_reporter(None)
+
+    assert ("股票名称", "加载代码名称映射", 0.25) in events
+    assert ("股票名称", "加载1条", 0.28) in events
+
+
 def test_rank_etf_candidates_orders_by_strength():
     rows = rank_etf_candidates(
         ["512880", "512480"],

@@ -185,6 +185,7 @@ def _resolve_funnel_end_calendar_day() -> date:
 
 
 def _load_benchmark_indices(start_s: str, end_s: str) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    _report_progress("指数加载", "加载大盘/小盘基准", 0.30)
     bench_df = smallcap_df = None
     try:
         bench_df = fetch_index_hist("000001", start_s, end_s)
@@ -196,6 +197,7 @@ def _load_benchmark_indices(start_s: str, end_s: str) -> tuple[pd.DataFrame | No
         print(f"[funnel] 小盘基准加载成功: {SMALLCAP_BENCH_CODE}")
     except Exception as e:
         logger.error("小盘基准加载失败 %s: %s", SMALLCAP_BENCH_CODE, e, exc_info=True)
+    _report_progress("指数加载", "基准加载完成", 0.35)
     return bench_df, smallcap_df
 
 
@@ -277,6 +279,7 @@ def _resolve_executor_mode(raw: str | None) -> str:
 def _load_market_metadata(
     window, cfg: FunnelConfig
 ) -> tuple[dict, dict, list[dict], dict[str, Any], list[dict], dict[str, dict], list, dict[str, float]]:
+    _report_progress("元数据加载", "行业/概念/热度", 0.08)
     print("[funnel] 加载行业映射...")
     try:
         sector_map = fetch_sector_map()
@@ -303,6 +306,7 @@ def _load_market_metadata(
     if not isinstance(concept_history, dict):
         concept_history = {}
     hot_concepts = detect_theme_lines(min_days=cfg.theme_line_min_days)
+    _report_progress("元数据加载", "市值数据", 0.14)
     print("[funnel] 加载市值数据...")
     try:
         market_cap_map = fetch_market_cap_map()
@@ -311,10 +315,12 @@ def _load_market_metadata(
         market_cap_map = {}
     if not market_cap_map:
         print("[funnel] ⚠️ 市值数据为空（TUSHARE_TOKEN 可能缺失/失效），Layer1 将跳过市值过滤")
+    _report_progress("元数据加载", "元数据加载完成", 0.18)
     return sector_map, concept_map, concept_heat, ths_events, event_heat, concept_history, hot_concepts, market_cap_map
 
 
 def _load_ths_hot_events() -> tuple[dict[str, Any], list[dict]]:
+    _report_progress("元数据加载", "同花顺事件主线", 0.11)
     print("[funnel] 加载同花顺事件主线...")
     try:
         snapshot = fetch_ths_hot_events()
@@ -332,15 +338,18 @@ def _load_ths_hot_events() -> tuple[dict[str, Any], list[dict]]:
 def _load_financial_metrics(all_symbols: list[str]) -> dict[str, dict]:
     if os.getenv("FUNNEL_SKIP_FINANCIAL_METRICS", "").strip().lower() in {"1", "true", "yes", "on"}:
         print("[funnel] TickFlow 财务指标已按环境开关跳过")
+        _report_progress("财务指标", "已按环境开关跳过", 0.20)
         return {}
     api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
     if not api_key:
+        _report_progress("财务指标", "未配置 TickFlow，跳过", 0.20)
         return {}
     try:
         from integrations.tickflow_client import TickFlowClient
 
         client = TickFlowClient(api_key=api_key)
         print(f"[funnel] TickFlow 财务指标请求: symbols={len(all_symbols)}")
+        _report_progress("财务指标", f"请求{len(all_symbols)}只", 0.20)
         raw_fin = client.get_financial_metrics(all_symbols, latest=True)
         financial_map = {sym: records[0] for sym, records in raw_fin.items() if records}
         missing = max(len(all_symbols) - len(financial_map), 0)
@@ -349,18 +358,24 @@ def _load_financial_metrics(all_symbols: list[str]) -> dict[str, dict]:
             f"[funnel] TickFlow 财务指标加载成功: {len(financial_map)}/{len(all_symbols)}, "
             f"missing={missing}, sample_missing={sample_missing or '-'}"
         )
+        _report_progress("财务指标", f"成功{len(financial_map)}/{len(all_symbols)}", 0.24)
         return financial_map
     except Exception as e:
         logger.warning("TickFlow 财务指标加载失败，跳过财务过滤: %s", e)
+        _report_progress("财务指标", "加载失败，跳过", 0.24)
         return {}
 
 
 def _load_stock_names() -> dict[str, str]:
+    _report_progress("股票名称", "加载代码名称映射", 0.25)
     print("[funnel] 加载股票名称...")
     try:
-        return load_stock_name_map()
+        out = load_stock_name_map()
+        _report_progress("股票名称", f"加载{len(out)}条", 0.28)
+        return out
     except Exception as e:
         logger.warning("股票名称加载失败，降级为代码展示: %s", e)
+        _report_progress("股票名称", "加载失败，降级为代码", 0.28)
         return {}
 
 
@@ -395,6 +410,7 @@ def _build_benchmark_context(
     smallcap_df: pd.DataFrame | None,
     cfg: FunnelConfig,
 ) -> dict:
+    _report_progress("大盘水温", "计算广度/资金/总闸", 0.78)
     breadth_context = calc_market_breadth(all_df_map, BREADTH_MA_WINDOW)
     money_flow_context = calc_market_money_flow(
         all_df_map,
@@ -417,6 +433,7 @@ def _build_benchmark_context(
         regime_config=market_regime_config_from_env(),
     )
     _print_benchmark_gate(benchmark_context)
+    _report_progress("大盘水温", f"regime={benchmark_context.get('regime')}", 0.82)
     return benchmark_context
 
 
