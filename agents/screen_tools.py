@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from agents.tool_context import ToolContext, ensure_tushare_token
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 _VALID_BOARDS = {"all", "main", "chinext", "star", "bse", "main_chinext_star"}
 _MAX_SCAN_LIMIT = 3000
+_AGENT_DEFAULT_SCAN_LIMIT = 1200
 _BOARD_ALIAS = {
     "gem": "chinext",
     "创业板": "chinext",
@@ -51,7 +53,7 @@ def screen_stocks(board: str = "all", limit: int | None = None, tool_context: To
         board = _normalize_board(board)
         if board not in _VALID_BOARDS:
             return {"error": f"不支持的 board 值 '{board}'，可选: all / main / chinext / star / bse"}
-        pool_limit = _normalize_scan_limit(limit)
+        pool_limit = _normalize_scan_limit(limit, tool_context=tool_context)
         ok, symbols, _bench_ctx, details = _run_funnel_with_board(board, pool_limit=pool_limit)
         metrics = details.get("metrics") or {}
         trigger_groups = _trigger_summary(details)
@@ -103,18 +105,27 @@ def _normalize_board(board: str) -> str:
     return _BOARD_ALIAS.get(board, board)
 
 
-def _normalize_scan_limit(limit: int | None) -> int | None:
+def _normalize_scan_limit(limit: int | None, *, tool_context: ToolContext | None = None) -> int | None:
     if limit in (None, ""):
-        return None
+        return _agent_default_scan_limit() if tool_context is not None else None
     try:
         value = int(limit)
     except (TypeError, ValueError):
-        raise ValueError("limit 必须是正整数，或留空表示全量扫描") from None
+        raise ValueError("limit 必须是非负整数；limit=0 表示全量扫描") from None
     if value < 0:
-        raise ValueError("limit 必须是正整数，或留空表示全量扫描")
+        raise ValueError("limit 必须是非负整数；limit=0 表示全量扫描")
     if value > _MAX_SCAN_LIMIT:
-        raise ValueError(f"limit 最大支持 {_MAX_SCAN_LIMIT}；全量扫描请不要传 limit")
+        raise ValueError(f"limit 最大支持 {_MAX_SCAN_LIMIT}；全量扫描请传 limit=0")
     return value
+
+
+def _agent_default_scan_limit() -> int:
+    raw = str(os.getenv("WYCKOFF_AGENT_SCREEN_DEFAULT_LIMIT", _AGENT_DEFAULT_SCAN_LIMIT) or "").strip()
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        return _AGENT_DEFAULT_SCAN_LIMIT
+    return max(min(value, _MAX_SCAN_LIMIT), 0)
 
 
 def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, Any]) -> None:

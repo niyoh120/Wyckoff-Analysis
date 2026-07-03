@@ -2284,6 +2284,51 @@ class TestSymbolPool:
         assert result["scan_scope"]["limit"] == 99
         assert os.environ["FUNNEL_POOL_LIMIT_COUNT"] == "99"
 
+    def test_screen_stocks_uses_agent_default_limit_for_chat_context(self, monkeypatch):
+        from agents import screen_tools
+        from agents.tool_context import ToolContext
+
+        captured_kwargs = {}
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return (
+                True,
+                [],
+                {},
+                {"metrics": {"total_symbols": 1200, "pool_limit": kwargs.get("pool_limit_count", 0)}, "triggers": {}},
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(tool_context=ToolContext())
+
+        assert captured_kwargs["pool_limit_count"] == 1200
+        assert result["scan_scope"] == {"scope": "bounded", "board": "all", "limit": 1200, "total_scanned": 1200}
+
+    def test_screen_stocks_allows_explicit_full_scan_in_chat_context(self, monkeypatch):
+        from agents import screen_tools
+        from agents.tool_context import ToolContext
+
+        captured_kwargs = {}
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return True, [], {}, {"metrics": {"total_symbols": 5000, "pool_limit": 0}, "triggers": {}}
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(limit=0, tool_context=ToolContext())
+
+        assert captured_kwargs["pool_limit_count"] == 0
+        assert result["scan_scope"] == {"scope": "full", "board": "all", "limit": 0, "total_scanned": 5000}
+
     def test_screen_stocks_rejects_invalid_scan_limit(self, monkeypatch):
         from agents import screen_tools
 
