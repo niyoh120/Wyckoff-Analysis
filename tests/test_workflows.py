@@ -557,7 +557,7 @@ def test_pending_workflow_reply_router_falls_back_when_provider_fails():
 
 def test_planner_prompt_preserves_multi_candidate_delivery_contract():
     assert "找几个/几只/一些候选" in _PLAN_SYSTEM_PROMPT
-    assert "保留候选名称、理由、风险边界和下一步动作" in _PLAN_SYSTEM_PROMPT
+    assert "保留候选角色、排序、名称、理由、风险边界和下一步动作" in _PLAN_SYSTEM_PROMPT
     assert "错别字" in _PLAN_SYSTEM_PROMPT
     assert "task.args" in _PLAN_SYSTEM_PROMPT
     assert "参数提示" in _PLAN_SYSTEM_PROMPT

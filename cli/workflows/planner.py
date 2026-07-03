@@ -190,7 +190,7 @@ _PLAN_SYSTEM_PROMPT = """\
 - 不要生成“识别代码/读取事实/形成计划”这类无工具占位 task；如果工具能完成，直接把对应工具写进同一个 task。
 - 如果 task 需要候选、研报或持仓事实，填写 depends_on 指向提供这些事实的 task id，不要让它们无依赖并发。
 - 选股交付如果要求候选、理由、风险边界或攻防计划，脚本里必须出现 screen_stocks，并在需要攻防/买卖计划/风险边界时出现 generate_strategy_decision；需要研报时再使用 generate_ai_report。
-- 用户说“找几个/几只/一些候选”时，按多候选交付设计 task 和 synthesis_prompt，保留候选名称、理由、风险边界和下一步动作，不要只汇总成单一结论。
+- 用户说“找几个/几只/一些候选”时，按多候选交付设计 task 和 synthesis_prompt，保留候选角色、排序、名称、理由、风险边界和下一步动作，不要只汇总成单一结论。
 - 任务拆分围绕用户当前目标；能单步完成就生成 1 个 task，需要事实收集/分析/决策链路时再拆分。
 - 如果后续任务是否执行、用什么工具、处理哪些候选明显依赖前序真实结果，在 runtime.adaptive 设为 true；runtime 会在 phase 之间让你基于真实结果重写剩余任务。
 - 每个 task 尽量写清 rationale / success_criteria / risk_guard，让执行 agent 知道目标、验收和边界。

@@ -2063,7 +2063,7 @@ def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
     assert "主要风险" in prompt
     assert "下一步动作" in prompt
     assert "多候选场景不要压成一个泛泛结论" in prompt
-    assert "首选/可复核、观察、被阻断" in prompt
+    assert "首选、备选复核候选、观察候选、被阻断候选" in prompt
     assert "候选护栏、市场闸门、数据质量、交易就绪或新增买入限制" in prompt
     assert "不能把受限候选写成买入建议" in prompt
     assert "入场区、触发条件、止损、失效条件、防追高限价" in prompt
