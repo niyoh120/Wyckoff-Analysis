@@ -652,6 +652,7 @@ def test_stock_screen_args_infer_more_combined_a_share_board_phrases():
         "board": "main_chinext_star",
         "limit": "0",
     }
+    assert stock_screen_suggested_args("今天A股能买啥", include_default_board=False) == {"board": "all"}
 
 
 def test_turn_expectation_forces_tool_for_etf_screening_wording():

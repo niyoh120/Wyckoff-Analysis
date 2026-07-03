@@ -913,6 +913,7 @@ def test_stock_selection_fallback_handles_colloquial_buy_opportunity():
         ("analyze_stock",),
         ("generate_strategy_decision",),
     ]
+    assert run.steps[0].args_hint == "board: all"
 
 
 def test_stock_selection_fallback_runs_report_before_action_boundaries_when_requested():
