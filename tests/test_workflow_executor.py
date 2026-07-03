@@ -715,6 +715,13 @@ def test_workflow_handoff_state_compacts_candidate_context():
                 "selection_brief": {"status": "ready_for_ai_review", "best_codes": ["300750"]},
                 "next_action": "首选候选已通过市场闸门，可进入 AI 研报复核",
                 "next_tool": {"tool": "generate_ai_report", "args": {"stock_codes": ["300750"]}},
+                "diagnosis_targets": [
+                    {
+                        "tool": "analyze_stock",
+                        "args": {"code": "000013", "mode": "diagnose"},
+                        "reason": "观察候选先做个股结构诊断",
+                    }
+                ],
                 "action_plan": {
                     "candidate_action": "generate_ai_report",
                     "new_buy_allowed": False,
@@ -725,6 +732,13 @@ def test_workflow_handoff_state_compacts_candidate_context():
                         "reason": "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00",
                     },
                     "review_targets": {"codes": ["300750"], "tool": "generate_ai_report"},
+                    "diagnosis_targets": [
+                        {
+                            "tool": "analyze_stock",
+                            "args": {"code": "000013", "mode": "diagnose"},
+                            "reason": "观察候选先做个股结构诊断",
+                        }
+                    ],
                 },
                 "symbols_for_report": [
                     {
@@ -868,6 +882,9 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert screen["theme_context"]["hot_concepts"] == ["机器人", "灵巧手", "滚柱丝杠", "电子皮肤", "控制系统", "减速器"]
     assert screen["action_plan"]["new_buy_allowed"] is False
     assert screen["action_plan"]["quality_gate"]["status"] == "blocked_by_quality_gate"
+    assert screen["diagnosis_targets"][0]["tool"] == "analyze_stock"
+    assert screen["diagnosis_targets"][0]["args"] == {"code": "000013", "mode": "diagnose"}
+    assert screen["action_plan"]["diagnosis_targets"][0]["args"]["code"] == "000013"
     assert screen["quality_gate"]["status"] == "blocked_by_quality_gate"
     candidate = screen["symbols_for_report"][0]
     assert candidate["code"] == "300750"

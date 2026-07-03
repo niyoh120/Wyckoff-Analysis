@@ -83,31 +83,30 @@ def screen_stocks(
         decision_state = _screen_decision_state(selection_brief, action_plan, trade_mode)
         symbols_for_report = list(action_plan.get("report_candidates") or [])
         watch_candidates = list(action_plan.get("watch_candidates") or [])
+        diagnosis_targets = list(action_plan.get("diagnosis_targets") or [])
         summary["report_candidates"] = len(_report_rows(symbols_for_report))
         summary["watch_candidates"] = len(watch_candidates)
         next_tool = _screen_next_tool(selection_brief, action_plan)
-        result = {
-            "ok": bool(ok),
-            "board": board,
-            "scan_scope": _scan_scope(board, summary, metrics, include_financial_metrics),
-            "summary": summary,
-            "data_quality": data_quality,
-            "trade_mode": trade_mode,
-            "decision_brief": decision_brief,
-            "selection_brief": selection_brief,
-            "decision_state": decision_state,
-            "theme_context": theme_context,
-            "action_plan": action_plan,
-            "next_action": _screen_next_action(selection_brief, action_plan, next_tool),
-            "next_tool": next_tool,
-            "top_candidates": top_candidates,
-            "trigger_groups": trigger_groups,
-            "top_sectors": metrics.get("top_sectors", []),
-            "symbols_for_report": symbols_for_report,
-            "report_candidates": symbols_for_report,
-            "watch_candidates": watch_candidates,
-            "quality_gate": action_plan.get("quality_gate", {}),
-        }
+        result = _screen_result_payload(
+            ok=ok,
+            board=board,
+            include_financial_metrics=include_financial_metrics,
+            metrics=metrics,
+            trigger_groups=trigger_groups,
+            summary=summary,
+            data_quality=data_quality,
+            trade_mode=trade_mode,
+            decision_brief=decision_brief,
+            selection_brief=selection_brief,
+            decision_state=decision_state,
+            theme_context=theme_context,
+            action_plan=action_plan,
+            next_tool=next_tool,
+            top_candidates=top_candidates,
+            symbols_for_report=symbols_for_report,
+            watch_candidates=watch_candidates,
+            diagnosis_targets=diagnosis_targets,
+        )
         if guard_summary := _screen_candidate_guard_summary(selection_brief, action_plan):
             result["candidate_guard_summary"] = guard_summary
         remember_screen_handoff(tool_context, result)
@@ -115,6 +114,35 @@ def screen_stocks(
     except Exception as e:
         logger.exception("screen_stocks error")
         return {"error": str(e)}
+
+
+def _screen_result_payload(**payload: Any) -> dict[str, Any]:
+    summary = payload["summary"]
+    action_plan = payload["action_plan"]
+    symbols_for_report = payload["symbols_for_report"]
+    return {
+        "ok": bool(payload["ok"]),
+        "board": payload["board"],
+        "scan_scope": _scan_scope(payload["board"], summary, payload["metrics"], payload["include_financial_metrics"]),
+        "summary": summary,
+        "data_quality": payload["data_quality"],
+        "trade_mode": payload["trade_mode"],
+        "decision_brief": payload["decision_brief"],
+        "selection_brief": payload["selection_brief"],
+        "decision_state": payload["decision_state"],
+        "theme_context": payload["theme_context"],
+        "action_plan": action_plan,
+        "next_action": _screen_next_action(payload["selection_brief"], action_plan, payload["next_tool"]),
+        "next_tool": payload["next_tool"],
+        "top_candidates": payload["top_candidates"],
+        "trigger_groups": payload["trigger_groups"],
+        "top_sectors": payload["metrics"].get("top_sectors", []),
+        "symbols_for_report": symbols_for_report,
+        "report_candidates": symbols_for_report,
+        "watch_candidates": payload["watch_candidates"],
+        "diagnosis_targets": payload["diagnosis_targets"],
+        "quality_gate": action_plan.get("quality_gate", {}),
+    }
 
 
 def _normalize_board(board: str) -> str:
@@ -197,6 +225,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "symbols_for_report": list(result.get("symbols_for_report") or [])[:10],
         "report_candidates": list(result.get("report_candidates") or [])[:10],
         "watch_candidates": list(result.get("watch_candidates") or [])[:10],
+        "diagnosis_targets": list(result.get("diagnosis_targets") or [])[:5],
     }
 
 
@@ -399,6 +428,7 @@ def _action_plan(trade_mode: dict, top_candidates: list[dict], data_quality: dic
     gate = _data_quality_gate(trade_mode, data_quality)
     quality_gate = _quality_gate(top_candidates)
     trade_readiness = _screen_trade_readiness(report_candidates, trade_mode, data_quality, quality_gate)
+    diagnosis_targets = _diagnosis_targets(report_candidates, watch_candidates, trade_mode, data_quality)
     payload = {
         "primary_action": str(trade_mode.get("action") or _candidate_action_label(trade_mode)),
         "candidate_action": _candidate_action_label(trade_mode),
@@ -409,6 +439,8 @@ def _action_plan(trade_mode: dict, top_candidates: list[dict], data_quality: dic
         "report_candidates": _candidate_refs(report_candidates, trade_mode, "report", data_quality),
         "watch_candidates": _candidate_refs(watch_candidates, trade_mode, "watch", data_quality),
     }
+    if diagnosis_targets:
+        payload["diagnosis_targets"] = diagnosis_targets
     if gate:
         payload["data_quality_gate"] = gate
     if quality_gate:
@@ -624,7 +656,12 @@ def _screen_next_tool(selection_brief: dict, action_plan: dict) -> dict:
     if tool := _compact_next_tool(selection_tool):
         return tool
     review = action_plan.get("review_targets") if isinstance(action_plan, dict) else {}
-    return _compact_next_tool(review)
+    if tool := _compact_next_tool(review):
+        return tool
+    targets = action_plan.get("diagnosis_targets") if isinstance(action_plan, dict) else []
+    if isinstance(targets, list) and targets:
+        return _compact_next_tool(targets[0])
+    return {}
 
 
 def _compact_next_tool(payload: Any) -> dict:
@@ -637,6 +674,43 @@ def _compact_next_tool(payload: Any) -> dict:
     if reason := str(payload.get("reason") or "").strip():
         out["reason"] = reason
     return out
+
+
+def _diagnosis_targets(
+    report_candidates: list[dict],
+    watch_candidates: list[dict],
+    trade_mode: dict,
+    data_quality: dict,
+    *,
+    limit: int = 3,
+) -> list[dict]:
+    if _data_quality_blocks_review(data_quality):
+        return []
+    bucket = "report" if report_candidates else "watch"
+    candidates = report_candidates or watch_candidates
+    return [
+        _diagnosis_target_from_ref(_candidate_ref(row, trade_mode, bucket, data_quality), bucket)
+        for row in candidates[:limit]
+        if str(row.get("code") or "").strip()
+    ]
+
+
+def _diagnosis_target_from_ref(ref: dict, bucket: str) -> dict:
+    code = str(ref.get("code") or "").strip()
+    next_step = "诊断个股结构，确认触发位和失效位"
+    reason = "研报候选先做个股结构复核" if bucket == "report" else "观察候选先做个股结构诊断"
+    return _drop_empty_candidate_fields(
+        {
+            "tool": "analyze_stock",
+            "args": {"code": code, "mode": "diagnose"},
+            "code": code,
+            "name": ref.get("name"),
+            "reason": reason,
+            "action_status": ref.get("action_status"),
+            "next_step": next_step,
+            "risk_factors": list(ref.get("risk_factors") or [])[:3],
+        }
+    )
 
 
 def _screen_next_action(selection_brief: dict, action_plan: dict, next_tool: dict) -> str:

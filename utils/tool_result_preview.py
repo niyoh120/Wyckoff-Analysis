@@ -1134,6 +1134,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "symbols_for_report": _candidate_preview_list(result.get("symbols_for_report"), 12),
             "report_candidates": _candidate_preview_list(result.get("report_candidates"), 12),
             "watch_candidates": _candidate_preview_list(result.get("watch_candidates"), 6),
+            "diagnosis_targets": _preview_list(result.get("diagnosis_targets"), 6),
             "quality_gate": result.get("quality_gate"),
             "action_plan": _screen_action_plan_preview(result.get("action_plan")),
             "top_sectors": _preview_list(result.get("top_sectors"), 6),
@@ -1466,6 +1467,7 @@ def _screen_action_plan_preview(value: Any) -> dict[str, Any]:
             "data_quality_gate": value.get("data_quality_gate"),
             "quality_gate": value.get("quality_gate"),
             "review_targets": value.get("review_targets"),
+            "diagnosis_targets": _preview_list(value.get("diagnosis_targets"), 6),
             "report_candidates": _candidate_preview_list(value.get("report_candidates"), 6),
             "watch_candidates": _candidate_preview_list(value.get("watch_candidates"), 6),
         }

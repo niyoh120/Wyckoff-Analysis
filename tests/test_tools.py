@@ -3036,8 +3036,14 @@ class TestSymbolPool:
         assert result["quality_gate"]["status"] == "blocked_by_quality_gate"
         assert result["summary"]["report_candidates"] == 0
         assert result["summary"]["watch_candidates"] == 1
-        assert result["next_tool"] == {}
-        assert result["next_action"].startswith("保留观察池，暂不生成 AI 研报")
+        assert result["diagnosis_targets"][0]["tool"] == "analyze_stock"
+        assert result["diagnosis_targets"][0]["args"] == {"code": "000013", "mode": "diagnose"}
+        assert result["next_tool"] == {
+            "tool": "analyze_stock",
+            "args": {"code": "000013", "mode": "diagnose"},
+            "reason": "观察候选先做个股结构诊断",
+        }
+        assert result["next_action"] == "观察候选先做个股结构诊断"
         top = result["top_candidates"][0]
         assert top["selected_for_report"] is False
         assert top["raw_selected_for_report"] is True
@@ -3052,6 +3058,7 @@ class TestSymbolPool:
         assert result["candidate_guard_summary"]["candidates"][0]["reason"] == "候选状态 watch_only 不允许直接买入"
         assert ctx.state["last_screen_result"]["symbols_for_report"] == []
         assert ctx.state["last_screen_result"]["watch_candidates"][0]["code"] == "000013"
+        assert ctx.state["last_screen_result"]["diagnosis_targets"][0]["args"]["code"] == "000013"
         assert ctx.state["last_screen_result"]["quality_gate"]["status"] == "blocked_by_quality_gate"
 
         monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda _tool_context: None)
@@ -3302,6 +3309,8 @@ class TestSymbolPool:
         assert result["summary"]["watch_candidates"] == 0
         assert result["next_tool"] == result["selection_brief"]["tool_handoff"]
         assert result["next_action"] == "首选候选已通过市场闸门，可进入 AI 研报复核"
+        assert result["diagnosis_targets"][0]["tool"] == "analyze_stock"
+        assert result["diagnosis_targets"][0]["args"] == {"code": "000004", "mode": "diagnose"}
         assert ctx.state["last_screen_result"]["symbols_for_report"][0]["code"] == "000004"
         assert ctx.state["last_screen_result"]["selection_brief"]["best_codes"] == ["000004", "000005"]
         assert ctx.state["last_screen_result"]["next_tool"] == result["next_tool"]

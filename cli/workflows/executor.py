@@ -831,7 +831,16 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
         return {}
     payload = _pick_fields(
         value,
-        ("scan_scope", "summary", "data_quality", "decision_brief", "selection_brief", "next_action", "next_tool"),
+        (
+            "scan_scope",
+            "summary",
+            "data_quality",
+            "decision_brief",
+            "selection_brief",
+            "diagnosis_targets",
+            "next_action",
+            "next_tool",
+        ),
     )
     payload["theme_context"] = _compact_theme_context(value.get("theme_context"))
     payload["action_plan"] = _pick_fields(
@@ -846,6 +855,7 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
             "data_quality_gate",
             "quality_gate",
             "review_targets",
+            "diagnosis_targets",
         ),
     )
     payload["quality_gate"] = value.get("quality_gate") if isinstance(value.get("quality_gate"), dict) else {}

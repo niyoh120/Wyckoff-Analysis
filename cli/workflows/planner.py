@@ -398,6 +398,7 @@ def _compact_adaptation_handoff_stage(source: str, value: dict[str, Any]) -> dic
             "summary",
             "decision_brief",
             "selection_brief",
+            "diagnosis_targets",
             "next_action",
             "next_tool",
             "message",
@@ -416,6 +417,7 @@ def _compact_adaptation_handoff_stage(source: str, value: dict[str, Any]) -> dic
             "next_step",
             "next_tool",
             "review_targets",
+            "diagnosis_targets",
         ),
     )
     payload["candidate_guard_summary"] = _pick_compact_fields(
