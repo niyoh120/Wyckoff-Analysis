@@ -699,6 +699,73 @@ def test_workflow_step_context_surfaces_prior_candidate_handoff_summary():
     assert '"handoff_state"' in context
 
 
+def test_workflow_step_context_derives_tool_args_from_handoff_next_tool():
+    step = WorkflowStep(
+        step_id="diagnose",
+        title="诊断首选候选",
+        phase="diagnose",
+        depends_on=("scan",),
+        tool_scope=("analyze_stock",),
+    )
+    prior_results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "status": "completed",
+                "result": "扫描完成。",
+                "handoff_state": {
+                    "last_screen_result": {
+                        "next_tool": {
+                            "tool": "analyze_stock",
+                            "args": {"code": "002326", "mode": "diagnose"},
+                            "reason": "观察候选先做个股结构诊断",
+                        },
+                        "diagnosis_targets": [
+                            {
+                                "tool": "analyze_stock",
+                                "args": {"code": "000566", "mode": "diagnose"},
+                            }
+                        ],
+                    }
+                },
+            },
+        }
+    ]
+
+    context = _step_context(step, prior_results)
+
+    assert "tool args hint:" in context
+    assert '{"tool": "analyze_stock", "args": {"code": "002326", "mode": "diagnose"}}' in context
+
+
+def test_workflow_step_context_keeps_explicit_args_hint_over_handoff():
+    step = WorkflowStep(
+        step_id="diagnose",
+        title="诊断指定候选",
+        phase="diagnose",
+        args_hint="code: 300750；mode: diagnose",
+        tool_scope=("analyze_stock",),
+    )
+    prior_results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "next_tool": {"tool": "analyze_stock", "args": {"code": "002326", "mode": "diagnose"}}
+                    }
+                }
+            },
+        }
+    ]
+
+    context = _step_context(step, prior_results)
+
+    assert "code: 300750；mode: diagnose" in context
+    args_block = context.split("tool args hint:\n", 1)[1].split("\n\n", 1)[0]
+    assert args_block == "code: 300750；mode: diagnose"
+
+
 def test_workflow_handoff_state_compacts_candidate_context():
     tools = StubToolRegistry()
     tools._tool_context = SimpleNamespace(

@@ -622,8 +622,9 @@ def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> st
         lines.extend(["", "risk guard:", step.risk_guard])
     if step.context:
         lines.extend(["", "task context:", step.context])
-    if step.args_hint:
-        lines.extend(["", "tool args hint:", step.args_hint])
+    args_hint = step.args_hint or _handoff_tool_args_hint(step, prior_results)
+    if args_hint:
+        lines.extend(["", "tool args hint:", args_hint])
     if not prior_results:
         return "\n".join(lines)
     if handoff_lines := _prior_handoff_context_lines(prior_results):
@@ -631,6 +632,41 @@ def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> st
     preview = json.dumps(prior_results[-3:], ensure_ascii=False, default=str)[:6000]
     lines.extend(["", "前序 agent 结果:", preview])
     return "\n".join(lines)
+
+
+def _handoff_tool_args_hint(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> str:
+    scope = set(_concrete_tools(step.tool_scope))
+    if not scope:
+        return ""
+    for item in reversed(prior_results):
+        result = item.get("result") if isinstance(item, dict) else {}
+        handoff = result.get("handoff_state") if isinstance(result, dict) else {}
+        for payload in _handoff_tool_payloads(handoff):
+            tool_name = str(payload.get("tool") or "").strip()
+            args = payload.get("args")
+            if tool_name in scope and isinstance(args, dict) and args:
+                return json.dumps({"tool": tool_name, "args": args}, ensure_ascii=False)
+    return ""
+
+
+def _handoff_tool_payloads(handoff: Any) -> list[dict[str, Any]]:
+    if not isinstance(handoff, dict):
+        return []
+    payloads: list[dict[str, Any]] = []
+    for stage in handoff.values():
+        if isinstance(stage, dict):
+            payloads.extend(_handoff_stage_tool_payloads(stage))
+    return payloads
+
+
+def _handoff_stage_tool_payloads(stage: dict[str, Any]) -> list[dict[str, Any]]:
+    payloads: list[Any] = [stage.get("next_tool")]
+    selection = stage.get("selection_brief") if isinstance(stage.get("selection_brief"), dict) else {}
+    action_plan = stage.get("action_plan") if isinstance(stage.get("action_plan"), dict) else {}
+    payloads.extend([selection.get("tool_handoff"), action_plan.get("next_tool"), action_plan.get("review_targets")])
+    payloads.extend(_as_list(stage.get("diagnosis_targets")))
+    payloads.extend(_as_list(action_plan.get("diagnosis_targets")))
+    return [payload for payload in payloads if isinstance(payload, dict) and payload.get("tool")]
 
 
 def _prior_handoff_context_lines(prior_results: list[dict[str, Any]], limit: int = 8) -> list[str]:
