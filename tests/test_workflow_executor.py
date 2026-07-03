@@ -902,6 +902,11 @@ def test_workflow_handoff_state_compacts_candidate_context():
                         "risk_factors": ["不直接买入"],
                         "action_status": "ready_for_ai_review",
                         "next_step": "生成 AI 研报",
+                        "entry_zone": [196.0, 202.0],
+                        "stop_loss": 188.5,
+                        "max_entry_price": 204.0,
+                        "tape_condition": "放量站回5日线",
+                        "invalidate_condition": "跌破188.5取消交易",
                     }
                 ],
                 "watch_candidates": [
@@ -1022,6 +1027,11 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert candidate["theme_source"] == "ths_hot_event"
     assert candidate["theme_event_id"] == "evt-robot"
     assert candidate["theme_event_reason"] == "灵巧手"
+    assert candidate["entry_zone"] == [196.0, 202.0]
+    assert candidate["stop_loss"] == 188.5
+    assert candidate["max_entry_price"] == 204.0
+    assert candidate["tape_condition"] == "放量站回5日线"
+    assert candidate["invalidate_condition"] == "跌破188.5取消交易"
     assert screen["watch_candidates"][0]["code"] == "000013"
     screen_guard = screen["candidate_guard_summary"]
     assert screen_guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
@@ -2019,6 +2029,11 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
                     "quality_factors": ["事件主线:机器人", "候选影子评级 S"],
                     "risk_factors": ["未来窗口标签尚未成熟"],
                     "next_step": "生成 AI 研报",
+                    "entry_zone": [196.0, 202.0],
+                    "stop_loss": 188.5,
+                    "max_entry_price": 204.0,
+                    "tape_condition": "放量站回5日线",
+                    "invalidate_condition": "跌破188.5取消交易",
                 }
             ],
         }
@@ -2043,6 +2058,11 @@ def test_workflow_synthesis_prioritizes_handoff_before_long_agent_results():
     assert "风险调整分87" in handoff_section
     assert "亮点=事件主线:机器人,候选影子评级 S" in handoff_section
     assert "风险=未来窗口标签尚未成熟" in handoff_section
+    assert "入场区=196-202" in handoff_section
+    assert "触发=放量站回5日线" in handoff_section
+    assert "止损=188.5" in handoff_section
+    assert "失效=跌破188.5取消交易" in handoff_section
+    assert "防追高限价=204" in handoff_section
     assert '"300750"' in handoff_section
     assert '"candidate_shadow_score": 92.0' not in agent_results_section
     assert "候选扫描完成" in agent_results_section

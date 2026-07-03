@@ -89,6 +89,96 @@ _SYNTHESIS_REQUIREMENTS = (
     "但回答要用自然语言，不要照抄内部字段名。\n"
     "- 如果没有可靠候选或数据质量不足，说明不能选出股票的原因和修复动作。\n"
 )
+_CANDIDATE_HANDOFF_FIELDS = (
+    "code",
+    "name",
+    "tag",
+    "tier",
+    "quality",
+    "why",
+    "evidence",
+    "selection_source",
+    "source_type",
+    "track",
+    "stage",
+    "candidate_lane",
+    "entry_type",
+    "health",
+    "status_label",
+    "headline",
+    "latest_close",
+    "latest_date",
+    "candidate_score",
+    "style_match",
+    "style_match_score",
+    "style_match_reasons",
+    "strategic_theme",
+    "theme_score",
+    "theme_source",
+    "theme_event_id",
+    "theme_event_date",
+    "theme_event_title",
+    "theme_event_reason",
+    "priority_rank",
+    "priority_score",
+    "shadow_score",
+    "score",
+    "selection_strategy",
+    "recommend_date",
+    "is_ai_recommended",
+    "selected_for_report",
+    "funnel_score",
+    "recommend_count",
+    "candidate_shadow_score",
+    "candidate_quality_score",
+    "risk_adjusted_quality_score",
+    "entry_risk_penalty",
+    "rank_reason",
+    "quality_factors",
+    "risk_factors",
+    "action_status",
+    "status",
+    "trade_readiness",
+    "new_buy_allowed",
+    "ai_review_allowed",
+    "next_step",
+    "candidate_shadow_grade",
+    "entry_quality_score",
+    "entry_quality_grade",
+    "entry_quality_risk_flags",
+    "label_ready",
+    "label_status",
+    "entry_zone",
+    "entry_zone_min",
+    "entry_zone_max",
+    "entry_trigger",
+    "buy_zone",
+    "entry_price",
+    "stop_loss",
+    "effective_stop_loss",
+    "original_stop_loss",
+    "max_entry_price",
+    "tape_condition",
+    "invalidate_condition",
+    "trigger_condition",
+    "trigger_price",
+    "trigger_level",
+    "trigger_reason",
+    "invalid_condition",
+    "invalid_price",
+    "invalid_level",
+    "invalid_reason",
+    "support",
+    "support_price",
+    "resistance",
+    "resistance_price",
+    "target_price",
+    "take_profit",
+    "risk_reward",
+    "rr_ratio",
+    "position_plan",
+    "position_size",
+)
 
 
 class WorkflowExecutor:
@@ -1126,70 +1216,19 @@ def _candidate_rows(value: Any, limit: int) -> list[dict[str, Any]]:
 
 
 def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
-    fields = (
-        "code",
-        "name",
-        "tag",
-        "tier",
-        "quality",
-        "why",
-        "evidence",
-        "selection_source",
-        "source_type",
-        "track",
-        "stage",
-        "candidate_lane",
-        "entry_type",
-        "health",
-        "status_label",
-        "headline",
-        "latest_close",
-        "latest_date",
-        "candidate_score",
-        "style_match",
-        "style_match_score",
-        "style_match_reasons",
-        "strategic_theme",
-        "theme_score",
-        "theme_source",
-        "theme_event_id",
-        "theme_event_date",
-        "theme_event_title",
-        "theme_event_reason",
-        "priority_rank",
-        "priority_score",
-        "shadow_score",
-        "score",
-        "selection_strategy",
-        "recommend_date",
-        "is_ai_recommended",
-        "selected_for_report",
-        "funnel_score",
-        "recommend_count",
-        "candidate_shadow_score",
-        "candidate_quality_score",
-        "risk_adjusted_quality_score",
-        "entry_risk_penalty",
-        "rank_reason",
-        "quality_factors",
-        "risk_factors",
-        "action_status",
-        "status",
-        "trade_readiness",
-        "new_buy_allowed",
-        "ai_review_allowed",
-        "next_step",
-        "candidate_shadow_grade",
-        "entry_quality_score",
-        "entry_quality_grade",
-        "entry_quality_risk_flags",
-        "label_ready",
-        "label_status",
-    )
-    payload = _pick_fields(row, fields)
+    payload = _pick_fields(row, _CANDIDATE_HANDOFF_FIELDS)
     if "code" not in payload and (code := _candidate_code(row)):
         payload["code"] = code
-    for field in ("theme_event_title", "theme_event_reason"):
+    for field in (
+        "theme_event_title",
+        "theme_event_reason",
+        "tape_condition",
+        "invalidate_condition",
+        "trigger_condition",
+        "trigger_reason",
+        "invalid_condition",
+        "invalid_reason",
+    ):
         if field in payload:
             payload[field] = _clip_text(payload[field], 240)
     return _drop_empty(payload)
@@ -1490,6 +1529,7 @@ def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any], handoff
     parts = [
         f"{_fallback_candidate_prefix(row, guard_reason)} {_fallback_candidate_name(row)}",
         _fallback_status_part(row),
+        _fallback_action_part(row),
         _fallback_evidence_part(row),
         _fallback_quality_part(row),
         _fallback_risk_part(row),
@@ -1545,6 +1585,59 @@ def _fallback_status_part(row: dict[str, Any]) -> str:
     if row.get("new_buy_allowed") is False:
         parts.append("不允许新增买入")
     return "，".join(parts)
+
+
+def _fallback_action_part(row: dict[str, Any]) -> str:
+    parts = [
+        f"入场区={zone}" if (zone := _fallback_entry_zone(row)) else "",
+        _fallback_action_value(row, ("tape_condition", "trigger_condition", "entry_trigger"), "触发"),
+        _fallback_action_value(row, ("trigger_price", "trigger_level", "entry_price"), "触发价"),
+        _fallback_action_value(row, ("stop_loss", "effective_stop_loss", "original_stop_loss"), "止损"),
+        _fallback_action_value(row, ("invalidate_condition", "invalid_condition"), "失效"),
+        _fallback_action_value(row, ("invalid_price", "invalid_level"), "失效价"),
+        _fallback_action_value(row, ("max_entry_price",), "防追高限价"),
+    ]
+    return "，".join(part for part in parts if part)
+
+
+def _fallback_entry_zone(row: dict[str, Any]) -> str:
+    zone = row.get("entry_zone")
+    if isinstance(zone, (list, tuple)) and len(zone) >= 2:
+        return f"{_format_action_value(zone[0])}-{_format_action_value(zone[1])}"
+    if isinstance(zone, str) and zone.strip():
+        return _clip_text(zone, 90)
+    low, high = row.get("entry_zone_min"), row.get("entry_zone_max")
+    if _has_action_value(low) and _has_action_value(high):
+        return f"{_format_action_value(low)}-{_format_action_value(high)}"
+    return _first_action_value(row, ("buy_zone",))
+
+
+def _fallback_action_value(row: dict[str, Any], fields: tuple[str, ...], label: str) -> str:
+    return f"{label}={value}" if (value := _first_action_value(row, fields)) else ""
+
+
+def _first_action_value(row: dict[str, Any], fields: tuple[str, ...]) -> str:
+    for field in fields:
+        value = row.get(field)
+        if _has_action_value(value):
+            return _format_action_value(value)
+    return ""
+
+
+def _has_action_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, dict, set)):
+        return bool(value)
+    return True
+
+
+def _format_action_value(value: Any) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{value:g}"
+    return _clip_text(value, 90)
 
 
 def _fallback_evidence_part(row: dict[str, Any]) -> str:
