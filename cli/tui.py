@@ -538,6 +538,8 @@ def _workflow_plan_footer_line(run_id: str, launch_state: str) -> str:
     detail = f"；详情用 /workflow show {escape(run_id)}" if run_id else ""
     if launch_state == "pending_approval":
         return f"    [dim]计划已准备好，等待批准{detail}[/dim]"
+    if launch_state == "adapted":
+        return f"    [dim]已根据阶段结果更新后续计划{detail}[/dim]"
     return f"    [dim]已交给 agent 动态执行，进度会按实际工具结果展开{detail}[/dim]"
 
 
@@ -595,6 +597,8 @@ def _workflow_planner_reason(runtime: dict[str, Any], planner: str) -> str:
     reasons: list[str] = []
     if runtime.get("tool_contract_repair") == "model":
         reasons.append(_workflow_tool_contract_repair_reason(runtime))
+    if runtime.get("adaptation") == "model_phase":
+        reasons.append(_workflow_phase_adaptation_reason(runtime))
     if _runtime_int(runtime, "truncated_step_count") > 0:
         reasons.append("任务过长已自动收敛")
     return " · ".join(reason for reason in reasons if reason)
@@ -609,6 +613,15 @@ def _workflow_tool_contract_repair_reason(runtime: dict[str, Any]) -> str:
     if unscoped > 0:
         return f"模型已修订工具契约（修订前 {unscoped} 个任务未声明必用工具）"
     return "模型已修订工具契约"
+
+
+def _workflow_phase_adaptation_reason(runtime: dict[str, Any]) -> str:
+    count = _runtime_int(runtime, "adaptation_count")
+    title = str(runtime.get("last_adaptation_title") or "").strip()
+    suffix = f"：{escape(title[:48])}" if title else ""
+    if count > 0:
+        return f"阶段结果已触发第 {count} 次模型改稿{suffix}"
+    return f"阶段结果已触发模型改稿{suffix}"
 
 
 def _workflow_script_rationale_line(plan: Any) -> str:
@@ -1106,7 +1119,7 @@ def _run_workflow_background(
         for event in runtime.run_stream(messages, system_prompt):
             event_type = str(event.get("type", ""))
             events.append(_workflow_bg_event_summary(event))
-            if event_type in {"workflow_plan", "workflow_start"}:
+            if event_type in {"workflow_plan", "workflow_plan_update", "workflow_start"}:
                 run_id = str(event.get("run_id", "")) or run_id
                 workflow_name = str(event.get("workflow", "")) or workflow_name
                 report_progress("workflow running", run_id, -1.0)
@@ -3887,6 +3900,13 @@ class WyckoffTUI(App):
 
         if event_type == "workflow_plan":
             state.workflow_run_id, state.workflow_name = _display_workflow_plan_event(event, ui.write, ui.scroll)
+        elif event_type == "workflow_plan_update":
+            state.workflow_run_id, state.workflow_name = _display_workflow_plan_event(
+                event,
+                ui.write,
+                ui.scroll,
+                launch_state="adapted",
+            )
         elif event_type in {"workflow_phase_start", "workflow_phase_done"}:
             _display_workflow_phase_event(event, ui.write, ui.scroll)
         elif event_type in {"workflow_step_start", "workflow_step_done"}:

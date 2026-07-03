@@ -507,6 +507,40 @@ def test_display_workflow_plan_event_surfaces_planner_provenance():
     assert "1. 扫描候选" in rendered
 
 
+def test_display_workflow_plan_update_surfaces_model_adaptation():
+    writes = []
+
+    _display_workflow_plan_event(
+        {
+            "run_id": "wf_adapted",
+            "workflow": "dynamic_task",
+            "label": "今日选股",
+            "plan": {
+                "script": {
+                    "runtime": {
+                        "planner": "model_script",
+                        "adaptation": "model_phase",
+                        "adaptation_count": 1,
+                        "last_adaptation_title": "改为攻防计划",
+                    }
+                },
+                "steps": [
+                    {"title": "扫描候选", "status": "completed"},
+                    {"title": "形成攻防计划", "status": "pending"},
+                ],
+            },
+        },
+        writes.append,
+        lambda: None,
+        launch_state="adapted",
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "阶段结果已触发第 1 次模型改稿：改为攻防计划" in rendered
+    assert "已根据阶段结果更新后续计划" in rendered
+    assert "/workflow show wf_adapted" in rendered
+
+
 def test_display_workflow_plan_event_surfaces_model_contract_repair():
     writes = []
 

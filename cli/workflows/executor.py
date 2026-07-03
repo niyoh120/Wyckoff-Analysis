@@ -7,6 +7,7 @@ import os
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 from typing import Any
 
 from cli.runtime import RuntimeEvent
@@ -25,13 +26,20 @@ from cli.workflows.models import (
     FAILED,
     PENDING,
     RUNNING,
+    SKIPPED,
     STOPPED,
+    TERMINAL_STATUSES,
     WorkflowContext,
     WorkflowRun,
     WorkflowStep,
     effective_tool_scope,
 )
-from cli.workflows.planner import plan_workflow, revise_workflow_script
+from cli.workflows.planner import (
+    adapt_workflow_script,
+    plan_workflow,
+    revise_workflow_script,
+    workflow_steps_from_script,
+)
 from cli.workflows.store import append_workflow_event, persist_workflow_script, save_workflow_run
 from core.candidate_guards import candidate_guard_reason
 from utils.tool_result_preview import tool_result_brief_lines
@@ -54,6 +62,7 @@ _TURN_EXPECTATION_TOOL_SCOPES = frozenset(
 )
 MAX_CONCURRENT_AGENTS = 16
 WORKFLOW_BACKGROUND_WAIT_SECONDS = 45.0
+MAX_WORKFLOW_ADAPTATIONS = 4
 SYNTHESIS_PROMPT_FIELDS = (
     "synthesis_prompt",
     "synthesis",
@@ -236,7 +245,7 @@ class WorkflowExecutor:
 
     def _run_steps(self) -> Iterator[RuntimeEvent | list[dict[str, Any]]]:
         results: list[dict[str, Any]] = []
-        for phase_steps in _phase_batches(self._require_run().steps):
+        while phase_steps := _next_phase_steps(self._require_run().steps):
             if not self._wait_if_paused():
                 self._stopped = True
                 break
@@ -247,7 +256,95 @@ class WorkflowExecutor:
             if self._cancel_requested():
                 self._stopped = True
                 break
+            if event := self._adapt_after_phase(results):
+                yield event
         return results
+
+    def _adapt_after_phase(self, results: list[dict[str, Any]]) -> RuntimeEvent | None:
+        run = self._require_run()
+        if not _should_adapt_workflow(run):
+            return None
+        remaining = _pending_steps(run.steps)
+        if not remaining:
+            return None
+        script = adapt_workflow_script(
+            self.user_text,
+            run.script,
+            results,
+            [run.step_payload(step) for step in remaining],
+            context=run.context,
+            provider=self.provider,
+            tools=self.tools,
+        )
+        return self._apply_adapted_script(script, remaining)
+
+    def _apply_adapted_script(
+        self,
+        script: dict[str, Any],
+        previous_remaining: list[WorkflowStep],
+    ) -> RuntimeEvent | None:
+        runtime = script.get("runtime") if isinstance(script.get("runtime"), dict) else {}
+        if runtime.get("adaptation") != "model_phase":
+            return None
+        self._merge_adapted_script(script)
+        if runtime.get("adaptation_complete"):
+            self._skip_remaining_steps(previous_remaining)
+        else:
+            self._replace_remaining_steps(script)
+        persist_workflow_script(self._require_run())
+        save_workflow_run(self._require_run())
+        return self._plan_update_event()
+
+    def _merge_adapted_script(self, script: dict[str, Any]) -> None:
+        run = self._require_run()
+        payload = deepcopy(run.script)
+        runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+        runtime["adaptive"] = True
+        runtime["adaptation"] = "model_phase"
+        runtime["adaptation_count"] = _workflow_adaptation_count(run) + 1
+        runtime["last_adaptation_title"] = _clip(str(script.get("title") or ""), 120)
+        runtime["last_adaptation_rationale"] = _clip(str(script.get("rationale") or ""), 240)
+        script_runtime = script.get("runtime") if isinstance(script.get("runtime"), dict) else {}
+        if script_runtime.get("adaptation_complete"):
+            runtime["adaptation_complete"] = True
+        payload["runtime"] = runtime
+        payload["adapted_continuation"] = script
+        if synthesis := script.get("synthesis_prompt"):
+            payload["synthesis_prompt"] = synthesis
+        run.script = payload
+
+    def _replace_remaining_steps(self, script: dict[str, Any]) -> None:
+        run = self._require_run()
+        completed = _terminal_steps(run.steps)
+        completed_ids = {step.step_id for step in completed}
+        continuation = [
+            step
+            for step in workflow_steps_from_script(script, run.user_text, run.context)
+            if step.step_id not in completed_ids
+        ]
+        if continuation:
+            run.steps = completed + continuation
+            run.refresh_current_step()
+
+    def _skip_remaining_steps(self, previous_remaining: list[WorkflowStep]) -> None:
+        run = self._require_run()
+        for step in previous_remaining:
+            step.status = SKIPPED
+            step.summary = "model_adapted_complete"
+        run.refresh_current_step()
+
+    def _plan_update_event(self) -> RuntimeEvent:
+        run = self._require_run()
+        payload = {
+            "type": "workflow_plan_update",
+            "run_id": run.run_id,
+            "workflow": run.workflow,
+            "label": run.label,
+            "route": run.context.route_payload(),
+            "plan": run.plan_payload(),
+        }
+        append_workflow_event(run.run_id, "workflow_plan_update", payload)
+        return payload
 
     def _run_phase(
         self,
@@ -413,6 +510,46 @@ class WorkflowExecutor:
         if self.workflow_control is None:
             return not self._cancel_requested()
         return self.workflow_control.wait_if_paused() and not self._cancel_requested()
+
+
+def _next_phase_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
+    pending = _pending_steps(steps)
+    return (_phase_batches(pending) or [[]])[0]
+
+
+def _pending_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
+    return [step for step in steps if step.status not in TERMINAL_STATUSES]
+
+
+def _terminal_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
+    return [step for step in steps if step.status in TERMINAL_STATUSES]
+
+
+def _should_adapt_workflow(run: WorkflowRun) -> bool:
+    runtime = _workflow_runtime(run)
+    if runtime.get("planner") != "model_script":
+        return False
+    if not _workflow_adaptive_enabled(runtime.get("adaptive")):
+        return False
+    return _workflow_adaptation_count(run) < MAX_WORKFLOW_ADAPTATIONS
+
+
+def _workflow_adaptive_enabled(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "y", "on", "enabled", "adaptive", "是", "需要", "启用"}
+
+
+def _workflow_adaptation_count(run: WorkflowRun) -> int:
+    try:
+        return int(_workflow_runtime(run).get("adaptation_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _workflow_runtime(run: WorkflowRun) -> dict[str, Any]:
+    return run.script.get("runtime") if isinstance(run.script.get("runtime"), dict) else {}
 
 
 def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> str:

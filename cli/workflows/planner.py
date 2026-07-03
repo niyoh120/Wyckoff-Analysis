@@ -125,6 +125,9 @@ _PLAN_SYSTEM_PROMPT = """\
 {
   "title": "简短中文标题",
   "rationale": "为什么这样拆分",
+  "runtime": {
+    "adaptive": true
+  },
   "phases": [
     {
       "id": "phase_id",
@@ -159,6 +162,7 @@ _PLAN_SYSTEM_PROMPT = """\
 - 选股交付如果要求候选、理由、风险边界或攻防计划，脚本里必须出现 screen_stocks，并在需要攻防/买卖计划/风险边界时出现 generate_strategy_decision；需要研报时再使用 generate_ai_report。
 - 用户说“找几个/几只/一些候选”时，按多候选交付设计 task 和 synthesis_prompt，保留候选名称、理由、风险边界和下一步动作，不要只汇总成单一结论。
 - 任务拆分围绕用户当前目标；能单步完成就生成 1 个 task，需要事实收集/分析/决策链路时再拆分。
+- 如果后续任务是否执行、用什么工具、处理哪些候选明显依赖前序真实结果，在 runtime.adaptive 设为 true；runtime 会在 phase 之间让你基于真实结果重写剩余任务。
 - 每个 task 尽量写清 rationale / success_criteria / risk_guard，让执行 agent 知道目标、验收和边界。
 - 能用工具验证的事实交给 task 验证；只有执行对象仍不明确，或会产生写入、交易、高风险动作时才澄清。
 - 能合理推断的表述偏差、口语省略、错别字或术语混用，按最高置信假设生成可执行 task，并让最终回答说明假设。
@@ -188,6 +192,46 @@ _REVISION_SYSTEM_PROMPT = """\
 - 需要真实数据、分析、筛选、研报或策略决策的 task，必须从工具摘要中选择精确工具名写入 tools。
 - 不要新增写入、交易或文件修改类任务。
 - 每个 task 尽量写清 rationale / success_criteria / risk_guard。
+"""
+
+_ADAPTATION_SYSTEM_PROMPT = """\
+你是 Wyckoff CLI workflow script 的运行中续写器。
+
+workflow 已经完成一部分 task。你的任务是根据真实执行结果，重写“尚未执行的后续任务”，不是解释结果。
+
+输出 JSON schema 与初始 workflow 相同，但只包含后续仍需要执行的 task：
+{
+  "title": "后续任务标题",
+  "rationale": "为什么保留/新增/删除这些后续任务",
+  "phases": [
+    {
+      "id": "phase_id",
+      "title": "阶段标题",
+      "tasks": [
+        {
+          "id": "task_id",
+          "title": "任务标题",
+          "tools": ["精确工具名"],
+          "depends_on": ["可引用已完成 task id 或后续 task id"],
+          "prompt": "完整任务说明",
+          "rationale": "为什么需要这一步",
+          "success_criteria": "完成判定",
+          "risk_guard": "边界"
+        }
+      ]
+    }
+  ],
+  "synthesis_prompt": "最终汇总应如何整合"
+}
+
+改稿边界:
+- 只输出 JSON，不要 Markdown，不要代码块。
+- 只写尚未执行的后续 task；不要重复已经完成的 task，除非真实结果显示必须重跑。
+- 如果真实结果已经足够完成用户目标，输出 {"complete": true, "synthesis_prompt": "..."}。
+- 可以删除、合并、重排或新增后续 task；以真实结果和用户目标为准。
+- 需要真实数据、分析、筛选、研报或策略决策的 task，必须从工具摘要中选择精确工具名写入 tools。
+- 保留候选护栏、数据质量、失效条件和风险边界；不要把受限候选写成买入建议。
+- 不要新增写入、交易或文件修改类任务。
 """
 
 
@@ -222,6 +266,12 @@ def plan_workflow(
     )
 
 
+def workflow_steps_from_script(script: dict[str, Any], user_text: str, context: WorkflowContext) -> list[WorkflowStep]:
+    """Build normalized workflow steps from a script without creating a new run."""
+
+    return _script_steps(script, user_text, context)
+
+
 def revise_workflow_script(
     user_text: str,
     feedback: str,
@@ -245,6 +295,77 @@ def revise_workflow_script(
         return _revision_failed_script(current_script, "revision returned non-workflow JSON")
     payload = _mark_revised_script(_limit_generated_script(script), feedback)
     return _repair_model_tool_contract(user_text, context, provider, tools, payload)
+
+
+def adapt_workflow_script(
+    user_text: str,
+    current_script: dict[str, Any],
+    completed_results: list[dict[str, Any]],
+    remaining_steps: list[dict[str, Any]],
+    *,
+    context: WorkflowContext,
+    provider: Any | None,
+    tools: Any | None,
+) -> dict[str, Any]:
+    """Ask the model to rewrite the remaining workflow after phase results."""
+
+    if provider is None:
+        return _adaptation_failed_script(current_script, "provider unavailable")
+    prompt = _adaptation_prompt(user_text, current_script, completed_results, remaining_steps, context, tools)
+    try:
+        text = _collect_planner_text(provider, prompt, _ADAPTATION_SYSTEM_PROMPT)
+        script = _normalize_generated_script(_loads_repair_script(text))
+    except Exception as exc:
+        return _adaptation_failed_script(current_script, f"adaptation failed: {exc}")
+    if not isinstance(script, dict):
+        return _adaptation_failed_script(current_script, "adaptation returned non-workflow JSON")
+    if _adaptation_complete(script):
+        return _mark_adapted_script(script, completed=True)
+    if not _workflow_script_like(script):
+        return _adaptation_failed_script(current_script, "adaptation returned no continuation tasks")
+    payload = _mark_adapted_script(_limit_generated_script(script))
+    return _repair_model_tool_contract(user_text, context, provider, tools, payload)
+
+
+def _adaptation_prompt(
+    user_text: str,
+    current_script: dict[str, Any],
+    completed_results: list[dict[str, Any]],
+    remaining_steps: list[dict[str, Any]],
+    context: WorkflowContext,
+    tools: Any | None,
+) -> str:
+    return (
+        f"用户原始请求:\n{user_text}\n\n"
+        f"运行上下文: {context.label} ({context.name})\n"
+        f"当前可用工具摘要:\n{_tool_catalog(tools, context)}\n\n"
+        f"已完成结果:\n{json.dumps(completed_results, ensure_ascii=False, default=str)[:10000]}\n\n"
+        f"原计划中尚未执行的 task:\n{json.dumps(remaining_steps, ensure_ascii=False, default=str)[:6000]}\n\n"
+        f"当前完整 workflow JSON:\n{json.dumps(current_script, ensure_ascii=False, default=str)[:8000]}\n\n"
+        "请只输出后续 continuation workflow JSON。"
+    )
+
+
+def _adaptation_complete(script: dict[str, Any]) -> bool:
+    return bool(script.get("complete") or script.get("done") or script.get("stop"))
+
+
+def _mark_adapted_script(script: dict[str, Any], *, completed: bool = False) -> dict[str, Any]:
+    payload = _mark_model_script(script)
+    runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+    runtime["adaptation"] = "model_phase"
+    if completed:
+        runtime["adaptation_complete"] = True
+    payload["runtime"] = runtime
+    return payload
+
+
+def _adaptation_failed_script(script: dict[str, Any], reason: str) -> dict[str, Any]:
+    payload = deepcopy(script)
+    runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+    runtime.update({"adaptation": "failed", "adaptation_error": _clip_runtime_text(reason)})
+    payload["runtime"] = runtime
+    return payload
 
 
 def _revision_prompt(

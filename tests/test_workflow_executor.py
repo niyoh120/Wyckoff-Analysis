@@ -20,8 +20,14 @@ from cli.workflows.executor import (
     _synthesis_prompt,
     _workflow_handoff_state,
 )
-from cli.workflows.models import WorkflowRun, WorkflowStep
-from cli.workflows.planner import _PLAN_SYSTEM_PROMPT, _REPAIR_SYSTEM_PROMPT, MAX_WORKFLOW_STEPS, plan_workflow
+from cli.workflows.models import WorkflowContext, WorkflowRun, WorkflowStep
+from cli.workflows.planner import (
+    _ADAPTATION_SYSTEM_PROMPT,
+    _PLAN_SYSTEM_PROMPT,
+    _REPAIR_SYSTEM_PROMPT,
+    MAX_WORKFLOW_STEPS,
+    plan_workflow,
+)
 from cli.workflows.resume import (
     build_chat_resume_prompt,
     build_recent_workflow_context,
@@ -244,6 +250,8 @@ def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
     assert "自然语言语义、上下文恢复和任务拆分由你完成" in _PLAN_SYSTEM_PROMPT
     assert "合理推断" in _PLAN_SYSTEM_PROMPT
     assert "按最高置信假设生成可执行 task" in _PLAN_SYSTEM_PROMPT
+    assert '"adaptive": true' in _PLAN_SYSTEM_PROMPT
+    assert "runtime.adaptive" in _PLAN_SYSTEM_PROMPT
     assert "措辞恢复" not in _PLAN_SYSTEM_PROMPT
     assert "不要单独生成元任务" not in _PLAN_SYSTEM_PROMPT
     assert "错字" not in _PLAN_SYSTEM_PROMPT
@@ -263,6 +271,14 @@ def test_workflow_planner_prompt_keeps_task_semantics_model_authored():
     assert "depends_on 指向前序 task" not in _PLAN_SYSTEM_PROMPT
     assert "必须出现 screen_stocks" in _PLAN_SYSTEM_PROMPT
     assert "generate_strategy_decision" in _PLAN_SYSTEM_PROMPT
+
+
+def test_workflow_adaptation_prompt_rewrites_remaining_tasks_only():
+    assert "运行中续写器" in _ADAPTATION_SYSTEM_PROMPT
+    assert "尚未执行的后续任务" in _ADAPTATION_SYSTEM_PROMPT
+    assert "不要重复已经完成的 task" in _ADAPTATION_SYSTEM_PROMPT
+    assert '{"complete": true' in _ADAPTATION_SYSTEM_PROMPT
+    assert "真实结果已经足够完成用户目标" in _ADAPTATION_SYSTEM_PROMPT
 
 
 def test_model_generated_workflow_ignores_legacy_agent_and_tool_aliases():
@@ -2058,6 +2074,150 @@ def test_workflow_executor_persists_plan_and_steps(tmp_path, monkeypatch):
         assert detail["step_id"] == "read_positions"
         assert detail["tool_calls"] == ["portfolio"]
         assert "持仓风险低" in detail["result"]
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_executor_adapts_remaining_steps_after_phase_results(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    initial_plan = {
+        "title": "自适应选股",
+        "rationale": "先收集候选，再按真实结果决定后续。",
+        "runtime": {"adaptive": True},
+        "phases": [
+            {
+                "id": "scan",
+                "tasks": [{"id": "scan", "title": "扫描候选", "prompt": "扫描候选"}],
+            },
+            {
+                "id": "followup",
+                "tasks": [
+                    {
+                        "id": "report",
+                        "title": "生成候选研报",
+                        "depends_on": ["scan"],
+                        "prompt": "基于候选生成研报",
+                    }
+                ],
+            },
+        ],
+        "synthesis_prompt": "汇总候选后续。",
+    }
+    adapted_plan = {
+        "title": "改为攻防计划",
+        "rationale": "扫描结果显示候选已经明确，下一步直接给攻防边界。",
+        "phases": [
+            {
+                "id": "decision",
+                "tasks": [
+                    {
+                        "id": "decision",
+                        "title": "形成攻防计划",
+                        "depends_on": ["scan"],
+                        "prompt": "基于扫描结果给 300750 输出触发位、失效位和下一步动作。",
+                    }
+                ],
+            }
+        ],
+        "synthesis_prompt": "输出候选、攻防边界和下一步。",
+    }
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": json.dumps(initial_plan, ensure_ascii=False)}],
+            [{"type": "text_delta", "text": "扫描完成：300750 候选明确，不需要研报。"}],
+            [{"type": "text_delta", "text": json.dumps(adapted_plan, ensure_ascii=False)}],
+            [{"type": "text_delta", "text": "攻防完成：等待回踩确认，跌破结构失效。"}],
+            [{"type": "text_delta", "text": "300750 可复核，下一步等回踩确认。"}],
+        ]
+    )
+    context = WorkflowContext(name="dynamic_task", label="动态任务")
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-adaptive.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(),
+        session_id="s_adaptive",
+        user_text="帮我找几个好票，后续按结果调整",
+        workflow_context=context,
+    )
+    events = list(executor.run_stream([{"role": "user", "content": "帮我找几个好票，后续按结果调整"}]))
+
+    try:
+        update = next(event for event in events if event["type"] == "workflow_plan_update")
+        step_ids = [step["step_id"] for step in update["plan"]["steps"]]
+        run = get_workflow_run(update["run_id"])
+        stored_events = load_workflow_events(update["run_id"], limit=30)
+
+        assert step_ids == ["scan", "decision"]
+        assert update["plan"]["steps"][0]["status"] == "completed"
+        assert update["plan"]["steps"][1]["status"] == "pending"
+        assert update["plan"]["script"]["runtime"]["adaptation"] == "model_phase"
+        assert update["plan"]["script"]["runtime"]["adaptation_count"] == 1
+        assert update["plan"]["script"]["runtime"]["last_adaptation_title"] == "改为攻防计划"
+        assert "report" not in step_ids
+        assert any(row["event_type"] == "workflow_plan_update" for row in stored_events)
+        assert run and [step["step_id"] for step in run["plan"]["steps"]] == ["scan", "decision"]
+        assert "已完成结果" in provider.calls[2]["messages"][0]["content"]
+        assert "生成候选研报" in provider.calls[2]["messages"][0]["content"]
+        assert provider.calls[3]["messages"][0]["content"].startswith("基于扫描结果给 300750")
+        assert events[-1]["text"] == "300750 可复核，下一步等回踩确认。"
+    finally:
+        _reset_local_db(local_db)
+
+
+def test_workflow_executor_can_stop_remaining_steps_after_adaptation(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    initial_plan = {
+        "title": "自适应复核",
+        "runtime": {"adaptive": True},
+        "phases": [
+            {"id": "scan", "tasks": [{"id": "scan", "title": "扫描候选", "prompt": "扫描候选"}]},
+            {"id": "report", "tasks": [{"id": "report", "title": "生成研报", "prompt": "生成研报"}]},
+        ],
+    }
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": json.dumps(initial_plan, ensure_ascii=False)}],
+            [{"type": "text_delta", "text": "没有可靠候选，后续研报不应继续。"}],
+            [
+                {
+                    "type": "text_delta",
+                    "text": json.dumps(
+                        {"complete": True, "synthesis_prompt": "说明没有可靠候选和下一步修复动作。"},
+                        ensure_ascii=False,
+                    ),
+                }
+            ],
+            [{"type": "text_delta", "text": "没有可靠候选，先修复数据质量。"}],
+        ]
+    )
+    context = WorkflowContext(name="dynamic_task", label="动态任务")
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-adaptive-complete.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    executor = WorkflowExecutor(
+        provider,
+        StubToolRegistry(),
+        session_id="s_adaptive_complete",
+        user_text="帮我筛候选，没有可靠候选就别继续",
+        workflow_context=context,
+    )
+    events = list(executor.run_stream([{"role": "user", "content": "帮我筛候选，没有可靠候选就别继续"}]))
+
+    try:
+        update = next(event for event in events if event["type"] == "workflow_plan_update")
+        statuses = {step["step_id"]: step["status"] for step in update["plan"]["steps"]}
+
+        assert statuses == {"scan": "completed", "report": "skipped"}
+        assert update["plan"]["script"]["runtime"]["adaptation_complete"] is True
+        assert update["plan"]["script"]["synthesis_prompt"] == "说明没有可靠候选和下一步修复动作。"
+        assert len(provider.calls) == 4
+        assert events[-1]["text"] == "没有可靠候选，先修复数据质量。"
     finally:
         _reset_local_db(local_db)
 
