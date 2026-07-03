@@ -85,9 +85,16 @@ def test_run_funnel_screen_filters_low_quality_report_handoff(monkeypatch) -> No
             ],
             {},
             {
-                "metrics": {},
+                "metrics": {"total_symbols": 2, "fetch_ok": 2},
                 "triggers": {"sos": [("000001", 10.0), ("000002", 9.0)]},
+                "name_map": {"000001": "强候选", "000002": "弱候选"},
                 "selected_for_ai": ["000001", "000002"],
+                "trade_mode": {
+                    "mode": "risk_on",
+                    "action": "允许候选进入AI复核",
+                    "allow_ai_review": True,
+                    "allow_recommendation_write": False,
+                },
             },
         )
 
@@ -102,6 +109,10 @@ def test_run_funnel_screen_filters_low_quality_report_handoff(monkeypatch) -> No
     assert result["selected_for_ai"] == ["000001", "000002"]
     assert result["quality_gate"]["blocked_count"] == 1
     assert result["quality_gate"]["reason"] == "000002 弱候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
+    assert result["selection_brief"]["status"] == "ready_for_ai_review"
+    assert result["selection_brief"]["primary_pick"]["code"] == "000001"
+    assert result["action_plan"]["review_targets"]["tool"] == "generate_ai_report"
+    assert result["next_tool"]["args"] == {"stock_codes": ["000001"]}
 
 
 def test_run_web_background_job_writes_error_for_unknown_kind(tmp_path) -> None:
