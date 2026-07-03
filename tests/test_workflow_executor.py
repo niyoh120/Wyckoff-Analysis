@@ -644,6 +644,7 @@ def test_workflow_step_context_includes_outcome_metadata():
         success_criteria="输出候选和风险边界",
         risk_guard="不写入推荐或持仓",
         context="只读运行",
+        args_hint="limit: 20",
     )
 
     context = _step_context(step, [])
@@ -652,6 +653,7 @@ def test_workflow_step_context_includes_outcome_metadata():
     assert "success criteria:\n输出候选和风险边界" in context
     assert "risk guard:\n不写入推荐或持仓" in context
     assert "task context:\n只读运行" in context
+    assert "tool args hint:\nlimit: 20" in context
 
 
 def test_workflow_step_context_surfaces_prior_candidate_handoff_summary():

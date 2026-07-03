@@ -50,6 +50,7 @@ class WorkflowStep:
     agent: str = ""
     prompt: str = ""
     context: str = ""
+    args_hint: str = ""
     rationale: str = ""
     success_criteria: str = ""
     risk_guard: str = ""
@@ -68,6 +69,7 @@ class WorkflowStep:
             "agent": self.agent,
             "prompt": self.prompt,
             "context": self.context,
+            "args_hint": self.args_hint,
             "rationale": self.rationale,
             "success_criteria": self.success_criteria,
             "risk_guard": self.risk_guard,
@@ -88,6 +90,7 @@ class WorkflowStep:
             agent=str(payload.get("agent", "")),
             prompt=str(payload.get("prompt", "")),
             context=str(payload.get("context", "")),
+            args_hint=str(payload.get("args_hint") or payload.get("tool_args_hint") or ""),
             rationale=str(payload.get("rationale", "")),
             success_criteria=str(payload.get("success_criteria", "")),
             risk_guard=str(payload.get("risk_guard", "")),

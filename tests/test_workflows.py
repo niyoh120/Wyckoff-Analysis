@@ -81,7 +81,8 @@ def test_workflow_step_cli_line_includes_model_tool_args_hint():
             "title": "生成研报",
             "agent": "task",
             "tool_scope": ["generate_ai_report"],
-            "context": "只复核用户指定候选\n\ntool args hint:\nstock_codes: ['300750']",
+            "context": "只复核用户指定候选",
+            "args_hint": "stock_codes: ['300750']",
         }
     )
 
@@ -945,7 +946,7 @@ def test_planner_accepts_tool_display_names_from_model_script():
     assert run.steps[0].tool_scope == ("portfolio", "screen_stocks")
 
 
-def test_planner_preserves_model_tool_args_as_step_context_hint():
+def test_planner_preserves_model_tool_args_as_step_metadata():
     context = route_workflow("用 workflow 生成候选研报")
     run = plan_workflow(
         "给 300750 生成研报",
@@ -966,9 +967,10 @@ def test_planner_preserves_model_tool_args_as_step_context_hint():
 
     assert run.steps[0].tool_scope == ("generate_ai_report",)
     assert "只复核用户指定候选" in run.steps[0].context
-    assert "tool args hint" in run.steps[0].context
-    assert "stock_codes" in run.steps[0].context
-    assert "300750" in run.steps[0].context
+    assert "tool args hint" not in run.steps[0].context
+    assert "stock_codes" in run.steps[0].args_hint
+    assert "300750" in run.steps[0].args_hint
+    assert run.steps[0].to_dict()["args_hint"] == run.steps[0].args_hint
 
 
 def test_planner_keeps_question_tool_for_clarification_only_task():

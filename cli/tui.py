@@ -848,6 +848,8 @@ def _workflow_step_detail_meta(step: dict[str, Any], *, field_limit: int | None 
 
 
 def _workflow_step_args_hint(step: dict[str, Any], limit: int | None = None) -> str:
+    if value := _workflow_meta_text(step.get("args_hint"), limit):
+        return value
     text = str(step.get("context") or "")
     marker = "tool args hint:"
     if marker not in text:

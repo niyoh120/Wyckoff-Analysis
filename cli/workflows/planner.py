@@ -888,7 +888,7 @@ def _task_step(
     prompt = _task_prompt(task, title, user_text)
     prompt = _render_runtime_args(prompt, args_text)
     context = _render_runtime_args(str(task.get("context") or "").strip(), args_text)
-    context = _append_task_args_context(context, _task_args_text(task))
+    args_hint = _task_args_text(task)
     step_id = _slug(task.get("id") or title)
     return WorkflowStep(
         step_id=step_id,
@@ -897,6 +897,7 @@ def _task_step(
         agent="task",
         prompt=prompt,
         context=context,
+        args_hint=args_hint,
         rationale=_task_meta(task, ("rationale", "reason", "why")),
         success_criteria=_task_meta(task, ("success_criteria", "done_when", "acceptance_criteria", "expected_output")),
         risk_guard=_task_meta(task, ("risk_guard", "guard", "guardrail", "guardrails", "boundary", "constraints")),
@@ -1063,13 +1064,6 @@ def _task_args_text(task: dict[str, Any]) -> str:
         if value := _task_meta_value(task.get(field)):
             return value
     return ""
-
-
-def _append_task_args_context(context: str, args_text: str) -> str:
-    if not args_text:
-        return context
-    section = f"tool args hint:\n{args_text}"
-    return f"{context}\n\n{section}" if context else section
 
 
 def _task_dependencies(task: dict[str, Any]) -> tuple[str, ...]:

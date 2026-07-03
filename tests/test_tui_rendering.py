@@ -1449,7 +1449,8 @@ def test_workflow_detail_step_line_includes_tool_scope():
             "rationale": "先确认真实仓位",
             "success_criteria": "输出持仓风险",
             "risk_guard": "不写入交易",
-            "context": "只读运行\n\ntool args hint:\nstock_codes: ['300750']",
+            "context": "只读运行",
+            "args_hint": "stock_codes: ['300750']",
             "summary": "analysis: completed 1.2s",
         }
     )

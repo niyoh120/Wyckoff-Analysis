@@ -604,6 +604,8 @@ def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> st
         lines.extend(["", "risk guard:", step.risk_guard])
     if step.context:
         lines.extend(["", "task context:", step.context])
+    if step.args_hint:
+        lines.extend(["", "tool args hint:", step.args_hint])
     if not prior_results:
         return "\n".join(lines)
     if handoff_lines := _prior_handoff_context_lines(prior_results):
@@ -752,6 +754,7 @@ def _agent_detail(step: WorkflowStep, result: dict[str, Any]) -> dict[str, Any]:
         "phase": step.phase,
         "prompt": _clip(step.prompt, 4000),
         "context": _clip(step.context, 4000),
+        "args_hint": _clip(step.args_hint, 1000),
         "rationale": _clip(step.rationale, 1000),
         "success_criteria": _clip(step.success_criteria, 1000),
         "risk_guard": _clip(step.risk_guard, 1000),

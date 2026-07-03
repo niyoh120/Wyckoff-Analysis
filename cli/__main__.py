@@ -1062,6 +1062,8 @@ def _workflow_step_detail_label(step: dict) -> str:
 
 
 def _workflow_step_args_hint(step: dict) -> str:
+    if value := str(step.get("args_hint") or "").strip():
+        return value
     text = str(step.get("context") or "")
     marker = "tool args hint:"
     if marker not in text:
