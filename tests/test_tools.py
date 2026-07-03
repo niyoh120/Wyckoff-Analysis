@@ -2658,6 +2658,10 @@ class TestSymbolPool:
         quality_result = screen_tools.screen_stocks(style="流动性好")
         assert quality_result["style_preference"] == {"raw": "流动性好", "styles": ["quality"]}
 
+        typo_result = screen_tools.screen_stocks(style="强事底吸")
+        assert typo_result["style_preference"] == {"raw": "强事底吸", "styles": ["trend", "pullback"]}
+        assert typo_result["preference_match"] == {"style": "partial"}
+
     def test_screen_stocks_combined_style_prefers_candidates_matching_all_styles(self, monkeypatch):
         from agents import screen_tools
 

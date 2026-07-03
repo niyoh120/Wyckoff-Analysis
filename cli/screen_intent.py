@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+import re
+
 from core.theme_radar import THEME_ALIASES
+
+_TEXT_COMPACT_RE = re.compile(r"[\s。！!,.，、？?；;：:（）()【】\[\]\"'`]+")
+_TEXT_REPLACEMENTS = (
+    ("强事", "强势"),
+    ("趋式", "趋势"),
+    ("底吸", "低吸"),
+    ("底位", "低位"),
+)
 
 _BOARD_HINTS = (
     (
@@ -76,6 +86,7 @@ _STYLE_HINTS = (
             "吸筹",
             "左侧",
             "回踩",
+            "回调",
             "埋伏",
             "低位",
             "别追高",
@@ -333,32 +344,32 @@ def stock_screen_suggested_args(text: str, *, include_default_board: bool = True
 def stock_screen_board_hint(text: str) -> str:
     normalized = _normalize_text(text)
     for board, hints in _BOARD_HINTS:
-        if any(hint in normalized for hint in hints):
+        if _contains_hint(normalized, hints):
             return board
     return ""
 
 
 def stock_screen_style_hint(text: str) -> str:
     normalized = _normalize_text(text)
-    styles = [style for style, hints in _STYLE_HINTS if any(hint in normalized for hint in hints)]
+    styles = [style for style, hints in _STYLE_HINTS if _contains_hint(normalized, hints)]
     return ",".join(dict.fromkeys(styles))
 
 
 def stock_screen_style_target_hint(text: str) -> bool:
     normalized = _normalize_text(text)
-    return bool(stock_screen_style_hint(normalized)) and any(hint in normalized for hint in _STYLE_TARGET_HINTS)
+    return bool(stock_screen_style_hint(normalized)) and _contains_hint(normalized, _STYLE_TARGET_HINTS)
 
 
 def stock_screen_limit_hint(text: str) -> str:
     normalized = _normalize_text(text)
-    return "0" if any(hint in normalized for hint in _FULL_SCAN_HINTS) else ""
+    return "0" if _contains_hint(normalized, _FULL_SCAN_HINTS) else ""
 
 
 def stock_screen_financial_metrics_hint(text: str) -> str:
     normalized = _normalize_text(text)
-    if any(hint in normalized for hint in _FINANCIAL_METRICS_ON_HINTS):
+    if _contains_hint(normalized, _FINANCIAL_METRICS_ON_HINTS):
         return "true"
-    if any(hint in normalized for hint in _FINANCIAL_METRICS_OFF_HINTS):
+    if _contains_hint(normalized, _FINANCIAL_METRICS_OFF_HINTS):
         return "false"
     return ""
 
@@ -367,35 +378,42 @@ def stock_screen_theme_hint(text: str) -> str:
     normalized = _normalize_text(text)
     for theme, aliases in THEME_ALIASES.items():
         terms = (theme, *aliases)
-        if any(term and term.lower() in normalized for term in terms):
+        if _contains_hint(normalized, terms):
             return theme
     return ""
 
 
 def stock_screen_temporal_buy_hint(text: str) -> bool:
     normalized = _normalize_text(text)
-    return any(hint in normalized for hint in _TEMPORAL_BUY_CONTEXT_HINTS) and any(
-        hint in normalized for hint in _TEMPORAL_BUY_ACTION_HINTS
+    return _contains_hint(normalized, _TEMPORAL_BUY_CONTEXT_HINTS) and _contains_hint(
+        normalized, _TEMPORAL_BUY_ACTION_HINTS
     )
 
 
 def stock_screen_watch_hint(text: str) -> bool:
     normalized = _normalize_text(text)
-    if not any(hint in normalized for hint in _WATCH_ACTION_HINTS):
+    if not _contains_hint(normalized, _WATCH_ACTION_HINTS):
         return False
-    return any(hint in normalized for hint in _WATCH_OBJECT_CONTEXT_HINTS) or any(
-        hint in normalized for hint in _WATCH_TRADING_CONTEXT_HINTS
+    return _contains_hint(normalized, _WATCH_OBJECT_CONTEXT_HINTS) or _contains_hint(
+        normalized, _WATCH_TRADING_CONTEXT_HINTS
     )
 
 
 def stock_screen_candidate_request_hint(text: str) -> bool:
     normalized = _normalize_text(text)
-    if any(hint in normalized for hint in _NON_STOCK_TICKET_HINTS):
+    if _contains_hint(normalized, _NON_STOCK_TICKET_HINTS):
         return False
-    return any(hint in normalized for hint in _CANDIDATE_REQUEST_TARGET_HINTS) and any(
-        hint in normalized for hint in _CANDIDATE_REQUEST_ACTION_HINTS
+    return _contains_hint(normalized, _CANDIDATE_REQUEST_TARGET_HINTS) and _contains_hint(
+        normalized, _CANDIDATE_REQUEST_ACTION_HINTS
     )
 
 
 def _normalize_text(text: str) -> str:
-    return str(text or "").strip().lower()
+    normalized = str(text or "").strip().lower()
+    for source, target in _TEXT_REPLACEMENTS:
+        normalized = normalized.replace(source, target)
+    return _TEXT_COMPACT_RE.sub("", normalized)
+
+
+def _contains_hint(normalized_text: str, hints: tuple[str, ...]) -> bool:
+    return any((hint_text := _normalize_text(hint)) and hint_text in normalized_text for hint in hints)

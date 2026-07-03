@@ -232,9 +232,7 @@ CREATE TABLE IF NOT EXISTS workflow_event (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rec_date ON recommendation_tracking(recommend_date);
-CREATE INDEX IF NOT EXISTS idx_rec_lane ON recommendation_tracking(candidate_lane);
 CREATE INDEX IF NOT EXISTS idx_sig_status ON signal_pending(status);
-CREATE INDEX IF NOT EXISTS idx_sig_lane ON signal_pending(candidate_lane);
 CREATE INDEX IF NOT EXISTS idx_mem_type ON agent_memory(memory_type);
 CREATE INDEX IF NOT EXISTS idx_mem_codes ON agent_memory(codes);
 CREATE INDEX IF NOT EXISTS idx_chatlog_session ON chat_log(session_id);

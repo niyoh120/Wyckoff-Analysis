@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from agents.tool_context import ToolContext, ensure_tushare_token
@@ -277,6 +278,7 @@ _STYLE_ALIASES = {
         "吸筹",
         "左侧",
         "回踩",
+        "回调",
         "埋伏",
         "低位",
         "别追高",
@@ -314,15 +316,30 @@ _STYLE_ALIASES = {
 }
 
 _STYLE_LABELS = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
+_STYLE_TEXT_COMPACT_RE = re.compile(r"[\s。！!,.，、？?；;：:（）()【】\[\]\"'`]+")
+_STYLE_TEXT_REPLACEMENTS = (
+    ("强事", "强势"),
+    ("趋式", "趋势"),
+    ("底吸", "低吸"),
+    ("底位", "低位"),
+)
 
 
 def _normalize_style_preference(value: str | list[str] | None) -> dict[str, Any]:
     raw_items = value if isinstance(value, list) else [value]
-    text = " ".join(str(item or "") for item in raw_items).strip().lower()
-    if not text:
+    raw_text = " ".join(str(item or "") for item in raw_items).strip().lower()
+    if not raw_text:
         return {}
-    styles = [name for name, aliases in _STYLE_ALIASES.items() if any(alias.lower() in text for alias in aliases)]
-    return _drop_empty_candidate_fields({"raw": text[:80], "styles": list(dict.fromkeys(styles))})
+    match_text = _normalize_style_match_text(raw_text)
+    styles = [name for name, aliases in _STYLE_ALIASES.items() if any(alias.lower() in match_text for alias in aliases)]
+    return _drop_empty_candidate_fields({"raw": raw_text[:80], "styles": list(dict.fromkeys(styles))})
+
+
+def _normalize_style_match_text(text: str) -> str:
+    normalized = text
+    for source, target in _STYLE_TEXT_REPLACEMENTS:
+        normalized = normalized.replace(source, target)
+    return _STYLE_TEXT_COMPACT_RE.sub("", normalized)
 
 
 def _normalize_theme_preference(value: str | None) -> dict[str, Any]:
