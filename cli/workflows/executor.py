@@ -1530,11 +1530,11 @@ def _candidate_conclusions_from_handoff(handoff: dict[str, Any], limit: int = 3)
         if not isinstance(value, dict):
             continue
         for row in _ranked_stage_candidates(stage, value):
-            key = _candidate_identity(row)
+            merged = _fallback_merged_candidate(row, handoff)
+            key = _candidate_identity(merged)
             if key in seen:
                 continue
             seen.add(key)
-            merged = _fallback_merged_candidate(row, handoff)
             guard_reason = _fallback_guard_reason_from_handoff(merged, value, handoff)
             ready_rank = _ready_candidate_rank(merged, guard_reason, primary_ready_count)
             primary_ready_count += 1 if ready_rank else 0

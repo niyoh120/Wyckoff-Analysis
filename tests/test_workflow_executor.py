@@ -2312,8 +2312,10 @@ def test_workflow_synthesis_handoff_summary_merges_name_only_candidate_conclusio
         },
     ]
 
-    conclusion = _synthesis_handoff_summary(results)[0]["candidate_conclusion"]
+    summary = _synthesis_handoff_summary(results)[0]
+    conclusion = summary["candidate_conclusion"]
 
+    assert [item["code"] for item in summary["candidate_conclusions"]] == ["300750"]
     assert conclusion["code"] == "300750"
     assert conclusion["name"] == "宁德时代"
     assert conclusion["evidence"] == ["候选影子S/92"]
