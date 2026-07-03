@@ -1966,6 +1966,8 @@ def test_workflow_synthesis_prompt_requires_candidate_answer_contract():
     assert "首选/可复核、观察、被阻断" in prompt
     assert "候选护栏、市场闸门、数据质量、交易就绪或新增买入限制" in prompt
     assert "不能把受限候选写成买入建议" in prompt
+    assert "入场区、触发条件、止损、失效条件、防追高限价" in prompt
+    assert "没有边界时明确说只能观察或复核" in prompt
     assert "自然语言，不要照抄内部字段名" in prompt
     assert "候选行要优先使用代码/名称、action_status" not in prompt
     assert '"candidate_shadow_score": 92.0' in prompt
