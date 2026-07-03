@@ -2165,6 +2165,12 @@ def test_workflow_executor_adapts_remaining_steps_after_phase_results(tmp_path, 
         assert update["plan"]["script"]["runtime"]["adapted_added_step_count"] == 1
         assert update["plan"]["script"]["runtime"]["adapted_removed_step_ids"] == ["report"]
         assert update["plan"]["script"]["runtime"]["adapted_added_step_ids"] == ["decision"]
+        assert update["plan"]["script"]["runtime"]["adapted_removed_steps"] == [
+            {"id": "report", "title": "生成候选研报"}
+        ]
+        assert update["plan"]["script"]["runtime"]["adapted_added_steps"] == [
+            {"id": "decision", "title": "形成攻防计划"}
+        ]
         assert "report" not in step_ids
         assert any(row["event_type"] == "workflow_plan_update" for row in stored_events)
         assert run and [step["step_id"] for step in run["plan"]["steps"]] == ["scan", "decision"]

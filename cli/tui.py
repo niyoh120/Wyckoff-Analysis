@@ -631,15 +631,42 @@ def _workflow_adaptation_delta_text(runtime: dict[str, Any]) -> str:
         skipped = _runtime_int(runtime, "adapted_skipped_step_count") or _runtime_int(
             runtime, "adapted_removed_step_count"
         )
+        if stopped := _workflow_adapted_step_titles(runtime.get("adapted_removed_steps")):
+            return f"后续变更：停止 {'、'.join(stopped)}"
         return f"后续变更：停止 {skipped} 个任务" if skipped else "后续变更：停止剩余任务"
     parts: list[str] = []
-    if kept := _runtime_int(runtime, "adapted_kept_step_count"):
-        parts.append(f"保留 {kept} 个")
-    if removed := _runtime_int(runtime, "adapted_removed_step_count"):
-        parts.append(f"移除 {removed} 个")
-    if added := _runtime_int(runtime, "adapted_added_step_count"):
-        parts.append(f"新增 {added} 个")
+    parts.extend(
+        part
+        for part in (
+            _workflow_named_adaptation_part("保留", runtime, "adapted_kept_steps", "adapted_kept_step_count"),
+            _workflow_named_adaptation_part("移除", runtime, "adapted_removed_steps", "adapted_removed_step_count"),
+            _workflow_named_adaptation_part("新增", runtime, "adapted_added_steps", "adapted_added_step_count"),
+        )
+        if part
+    )
     return f"后续变更：{'、'.join(parts)}" if parts else ""
+
+
+def _workflow_named_adaptation_part(label: str, runtime: dict[str, Any], steps_field: str, count_field: str) -> str:
+    titles = _workflow_adapted_step_titles(runtime.get(steps_field))
+    if titles:
+        return f"{label} {'、'.join(titles)}"
+    if count := _runtime_int(runtime, count_field):
+        return f"{label} {count} 个"
+    return ""
+
+
+def _workflow_adapted_step_titles(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    titles = []
+    for item in value[:3]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("id") or "").strip()
+        if title:
+            titles.append(escape(title[:32]))
+    return titles
 
 
 def _workflow_script_rationale_line(plan: Any) -> str:

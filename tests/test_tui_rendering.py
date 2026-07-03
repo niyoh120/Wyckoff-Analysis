@@ -534,6 +534,8 @@ def test_display_workflow_plan_update_surfaces_model_adaptation():
                         "last_adaptation_title": "改为攻防计划",
                         "adapted_removed_step_count": 1,
                         "adapted_added_step_count": 1,
+                        "adapted_removed_steps": [{"id": "report", "title": "生成候选研报"}],
+                        "adapted_added_steps": [{"id": "decision", "title": "形成攻防计划"}],
                     }
                 },
                 "steps": [
@@ -549,7 +551,7 @@ def test_display_workflow_plan_update_surfaces_model_adaptation():
 
     rendered = "\n".join(str(item) for item in writes)
     assert "阶段结果已触发第 1 次模型改稿：改为攻防计划" in rendered
-    assert "后续变更：移除 1 个、新增 1 个" in rendered
+    assert "后续变更：移除 生成候选研报、新增 形成攻防计划" in rendered
     assert "已根据阶段结果更新后续计划" in rendered
     assert "/workflow show wf_adapted" in rendered
 

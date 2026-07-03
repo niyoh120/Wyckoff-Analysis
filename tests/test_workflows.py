@@ -120,6 +120,8 @@ def test_workflow_script_cli_line_surfaces_adaptation_delta():
                     "adapted_kept_step_count": 1,
                     "adapted_removed_step_count": 2,
                     "adapted_added_step_count": 1,
+                    "adapted_removed_steps": [{"id": "report", "title": "生成候选研报"}],
+                    "adapted_added_steps": [{"id": "decision", "title": "形成攻防计划"}],
                 }
             }
         }
@@ -127,6 +129,8 @@ def test_workflow_script_cli_line_surfaces_adaptation_delta():
 
     assert "source=model_script" in line
     assert "adaptation=model:2,kept=1,removed=2,added=1" in line
+    assert "removed_titles=生成候选研报" in line
+    assert "added_titles=形成攻防计划" in line
 
 
 def test_workflow_script_cli_line_labels_stock_selection_fallback():

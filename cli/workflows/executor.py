@@ -352,6 +352,8 @@ class WorkflowExecutor:
         removed = [step_id for step_id in previous_ids if step_id not in continuation_set]
         added = [step_id for step_id in continuation_ids if step_id not in previous_set]
         kept = [step_id for step_id in continuation_ids if step_id in previous_set]
+        previous_by_id = _workflow_steps_by_id(previous_remaining)
+        continuation_by_id = _workflow_steps_by_id(continuation)
         runtime.update(
             {
                 "adapted_previous_step_count": len(previous_ids),
@@ -361,6 +363,9 @@ class WorkflowExecutor:
                 "adapted_added_step_count": len(added),
                 "adapted_removed_step_ids": removed[:12],
                 "adapted_added_step_ids": added[:12],
+                "adapted_kept_steps": _workflow_step_summaries(kept, continuation_by_id),
+                "adapted_removed_steps": _workflow_step_summaries(removed, previous_by_id),
+                "adapted_added_steps": _workflow_step_summaries(added, continuation_by_id),
             }
         )
         if completed:
@@ -590,6 +595,19 @@ def _workflow_runtime(run: WorkflowRun) -> dict[str, Any]:
 
 def _workflow_step_ids(steps: list[WorkflowStep]) -> list[str]:
     return [step.step_id for step in steps if step.step_id]
+
+
+def _workflow_steps_by_id(steps: list[WorkflowStep]) -> dict[str, WorkflowStep]:
+    return {step.step_id: step for step in steps if step.step_id}
+
+
+def _workflow_step_summaries(step_ids: list[str], steps_by_id: dict[str, WorkflowStep]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for step_id in step_ids[:12]:
+        step = steps_by_id.get(step_id)
+        title = step.title if step else step_id
+        rows.append({"id": step_id, "title": _clip(title, 80)})
+    return rows
 
 
 def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> str:

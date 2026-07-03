@@ -1017,7 +1017,33 @@ def _workflow_adaptation_label(runtime: dict[str, Any]) -> str:
         value = _workflow_runtime_int(runtime, field)
         if value > 0:
             parts.append(f"{label}={value}")
+    if detail := _workflow_adapted_step_detail(runtime):
+        parts.append(detail)
     return ",".join(parts)
+
+
+def _workflow_adapted_step_detail(runtime: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for field, label in (
+        ("adapted_removed_steps", "removed"),
+        ("adapted_added_steps", "added"),
+    ):
+        titles = _workflow_adapted_step_titles(runtime.get(field))
+        if titles:
+            parts.append(f"{label}_titles={'|'.join(titles)}")
+    return ",".join(parts)
+
+
+def _workflow_adapted_step_titles(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    titles: list[str] = []
+    for item in value[:3]:
+        if isinstance(item, dict):
+            title = str(item.get("title") or item.get("id") or "").strip()
+            if title:
+                titles.append(_clip_workflow_detail(title)[:32])
+    return titles
 
 
 def _workflow_runtime_int(runtime: dict[str, Any], field: str) -> int:
