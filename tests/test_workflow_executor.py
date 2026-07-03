@@ -1555,6 +1555,72 @@ def test_workflow_multitool_step_retries_wrong_tool_order(tmp_path, monkeypatch)
         _reset_local_db(local_db)
 
 
+def test_workflow_multitool_step_orders_reversed_model_declared_tools(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-multitool-declared-order.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {"board": "all"}}],
+                    "text": "",
+                }
+            ],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_strategy", "name": "generate_strategy_decision", "args": {}}],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "候选和攻防计划已生成。"}],
+            [{"type": "text_delta", "text": "已汇总候选与攻防计划。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={
+            "screen_stocks": {"symbols_for_report": ["300750"], "selection_brief": {"best_codes": ["300750"]}},
+            "generate_strategy_decision": {"status": "ok", "reviewed_codes": ["300750"]},
+        },
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_multitool_declared_order",
+        user_text="用 workflow 选出好股票，带风险边界",
+        workflow_context=route_workflow("用 workflow 选出好股票，带风险边界"),
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "scan_decide",
+                    "title": "候选与攻防",
+                    "tools": ["generate_strategy_decision", "screen_stocks"],
+                    "prompt": "先筛候选，再形成攻防计划。",
+                }
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 选出好股票，带风险边界"}]))
+
+    try:
+        plan_event = next(event for event in events if event["type"] == "workflow_plan")
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert plan_event["plan"]["steps"][0]["tool_scope"] == ["screen_stocks", "generate_strategy_decision"]
+        assert detail["tool_scope"] == ["screen_stocks", "generate_strategy_decision"]
+        assert detail["tool_calls"] == ["screen_stocks", "generate_strategy_decision"]
+        assert [call["name"] for call in tools.calls] == ["screen_stocks", "generate_strategy_decision"]
+        assert events[-1]["text"] == "已汇总候选与攻防计划。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_natural_stock_selection_turn_runs_dynamic_workflow_end_to_end(tmp_path, monkeypatch):
     from integrations import local_db
 

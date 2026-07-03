@@ -1127,9 +1127,39 @@ def _context_tool_names(context: WorkflowContext) -> set[str]:
 def _filter_tool_scope(scope: tuple[str, ...], allowed_tool_names: set[str] | None) -> tuple[str, ...]:
     scope = _drop_question_tool_when_fact_tool_present(scope)
     if allowed_tool_names is None:
-        return scope
+        return _ordered_tool_scope(scope)
     filtered = tuple(name for name in scope if name in allowed_tool_names)
-    return filtered or scope
+    return _ordered_tool_scope(filtered or scope)
+
+
+_TOOL_SCOPE_PREDECESSORS = {
+    "analyze_stock": ("screen_stocks",),
+    "generate_ai_report": ("screen_stocks",),
+    "generate_strategy_decision": ("screen_stocks", "generate_ai_report", "portfolio", "get_market_overview"),
+}
+
+
+def _ordered_tool_scope(scope: tuple[str, ...]) -> tuple[str, ...]:
+    names = tuple(dict.fromkeys(scope))
+    if len(names) < 2:
+        return names
+    remaining = list(names)
+    ordered: list[str] = []
+    while remaining:
+        progressed = False
+        for name in list(remaining):
+            blockers = [
+                item for item in _TOOL_SCOPE_PREDECESSORS.get(name, ()) if item in names and item not in ordered
+            ]
+            if blockers:
+                continue
+            ordered.append(name)
+            remaining.remove(name)
+            progressed = True
+        if not progressed:
+            ordered.extend(remaining)
+            break
+    return tuple(ordered)
 
 
 def _drop_question_tool_when_fact_tool_present(scope: tuple[str, ...]) -> tuple[str, ...]:

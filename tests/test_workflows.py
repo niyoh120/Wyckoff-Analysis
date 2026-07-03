@@ -1968,6 +1968,28 @@ def test_planner_does_not_self_depend_when_task_combines_screen_and_decision_too
     assert run.steps[0].depends_on == ()
 
 
+def test_planner_orders_model_declared_tools_by_dependency():
+    context = route_workflow("用 workflow 做选股和攻防计划")
+    run = plan_workflow(
+        "做选股和攻防计划",
+        context=context,
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "all_in_one",
+                    "title": "扫描并形成攻防",
+                    "tools": ["generate_strategy_decision", "screen_stocks"],
+                    "prompt": "先筛候选，再在同一 task 内形成攻防计划。",
+                }
+            ]
+        },
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks", "generate_strategy_decision")
+    assert run.steps[0].tool_scope_source == "model_declared"
+    assert run.steps[0].depends_on == ()
+
+
 def test_planner_accepts_string_task_lists_from_model_script():
     context = route_workflow("用 workflow 做持仓复盘")
     run = plan_workflow(
