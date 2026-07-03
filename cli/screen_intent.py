@@ -150,6 +150,47 @@ _WATCH_ACTION_HINTS = (
     "跟踪哪些",
 )
 
+_CANDIDATE_REQUEST_TARGET_HINTS = (
+    "候选股",
+    "股票",
+    "标的",
+    "候选",
+    "票",
+)
+
+_CANDIDATE_REQUEST_ACTION_HINTS = (
+    "给我几只",
+    "给我几个",
+    "给几只",
+    "给几个",
+    "来几只",
+    "来几个",
+    "找几只",
+    "找几个",
+    "挑几只",
+    "挑几个",
+    "推荐几只",
+    "推荐几个",
+    "筛几只",
+    "筛几个",
+    "有什么",
+    "有啥",
+    "有哪些",
+    "哪几个",
+    "哪几只",
+)
+
+_NON_STOCK_TICKET_HINTS = (
+    "电影票",
+    "门票",
+    "机票",
+    "车票",
+    "彩票",
+    "发票",
+    "票据",
+    "选票",
+)
+
 
 def stock_screen_suggested_args(text: str, *, include_default_board: bool = True) -> dict[str, str]:
     """Infer simple screen_stocks arguments from user wording."""
@@ -219,6 +260,15 @@ def stock_screen_watch_hint(text: str) -> bool:
         return False
     return any(hint in normalized for hint in _WATCH_OBJECT_CONTEXT_HINTS) or any(
         hint in normalized for hint in _WATCH_TRADING_CONTEXT_HINTS
+    )
+
+
+def stock_screen_candidate_request_hint(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if any(hint in normalized for hint in _NON_STOCK_TICKET_HINTS):
+        return False
+    return any(hint in normalized for hint in _CANDIDATE_REQUEST_TARGET_HINTS) and any(
+        hint in normalized for hint in _CANDIDATE_REQUEST_ACTION_HINTS
     )
 
 
