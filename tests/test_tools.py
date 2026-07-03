@@ -354,6 +354,12 @@ class TestAiReportTool:
                                 "why": "趋势线 / 主线买点",
                                 "track": "Trend",
                                 "candidate_lane": "mainline",
+                                "strategic_theme": "机器人",
+                                "theme_score": 0.72,
+                                "theme_source": "ths_hot_event",
+                                "theme_event_id": "evt-robot",
+                                "theme_event_title": "机器人主线回归",
+                                "theme_event_reason": "灵巧手订单催化",
                                 "priority_score": 11.0,
                                 "shadow_score": 4.2,
                             }
@@ -376,8 +382,13 @@ class TestAiReportTool:
         assert result["reviewed_codes"] == ["000004"]
         assert result["reviewed_symbols"][0]["tier"] == "高优先级研报候选"
         assert result["reviewed_symbols"][0]["candidate_lane"] == "mainline"
+        assert result["reviewed_symbols"][0]["strategic_theme"] == "机器人"
+        assert result["reviewed_symbols"][0]["theme_source"] == "ths_hot_event"
+        assert result["reviewed_symbols"][0]["theme_event_reason"] == "灵巧手订单催化"
         assert result["reviewed_symbols"][0]["shadow_score"] == 4.2
         assert captured["symbols_info"][0]["why"] == "趋势线 / 主线买点"
+        assert captured["symbols_info"][0]["strategic_theme"] == "机器人"
+        assert captured["symbols_info"][0]["theme_event_id"] == "evt-robot"
         assert captured["symbols_info"][0]["shadow_score"] == 4.2
 
     def test_generate_ai_report_uses_screen_handoff_when_codes_omitted(self, monkeypatch):
@@ -1167,6 +1178,11 @@ class TestStrategyDecisionTool:
                             "candidate_shadow_grade": "S",
                             "candidate_shadow_score": 92.0,
                             "action_status": "ready_for_ai_review",
+                            "strategic_theme": "机器人",
+                            "theme_score": 0.72,
+                            "theme_source": "ths_hot_event",
+                            "theme_event_id": "evt-robot",
+                            "theme_event_reason": "灵巧手订单催化",
                             "entry_zone": [12.3, 12.8],
                             "stop_loss": 11.9,
                             "max_entry_price": 13.0,
@@ -1202,6 +1218,9 @@ class TestStrategyDecisionTool:
         assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
         assert result["reviewed_symbols"][0]["candidate_shadow_score"] == 92.0
         assert result["reviewed_symbols"][0]["action_status"] == "ready_for_ai_review"
+        assert result["reviewed_symbols"][0]["strategic_theme"] == "机器人"
+        assert result["reviewed_symbols"][0]["theme_source"] == "ths_hot_event"
+        assert result["reviewed_symbols"][0]["theme_event_reason"] == "灵巧手订单催化"
         assert result["reviewed_symbols"][0]["entry_zone"] == [12.3, 12.8]
         assert result["reviewed_symbols"][0]["stop_loss"] == 11.9
         assert result["reviewed_symbols"][0]["max_entry_price"] == 13.0
@@ -1209,6 +1228,8 @@ class TestStrategyDecisionTool:
         assert result["reviewed_symbols"][0]["tape_condition"] == "放量站回5日线"
         assert result["reviewed_symbols"][0]["invalidate_condition"] == "跌破11.9取消交易"
         assert captured["symbols_info"][0]["track"] == "Trend"
+        assert captured["symbols_info"][0]["strategic_theme"] == "机器人"
+        assert captured["symbols_info"][0]["theme_event_id"] == "evt-robot"
         assert captured["symbols_info"][0]["entry_zone"] == [12.3, 12.8]
 
     def test_generate_strategy_decision_blocks_auto_report_on_degraded_screen_data(self, monkeypatch):
