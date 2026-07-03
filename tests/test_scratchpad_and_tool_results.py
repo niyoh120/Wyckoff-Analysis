@@ -1096,6 +1096,7 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
     content = format_tool_result_for_context("web_background_job", "call_eval", result, max_chars=1000)
     preview = tool_result_preview("web_background_job", result)
     lines = tool_result_brief_lines("web_background_job", result)
+    handoff_lines = tool_result_brief_lines("web_background_job", result, max_lines=4)
 
     assert "result_ref:" in content
     assert "ranking_decision=candidate" in content
@@ -1119,6 +1120,10 @@ def test_recommendation_event_eval_large_result_preview_preserves_policy_selecti
         "推荐事件评估: ready=12/20, hit=60%, ranking_decision=candidate",
         "候选结论: 受限复核候选 300750 宁德时代 · 可进入AI复核 · 证据: 漏斗分89.5；候选影子S/92；入场A/84；风险调整分87 · 亮点: 候选影子评级 S · 风险: 最新候选的未来窗口标签尚未成熟 · 护栏: 候选标签未成熟，禁止直接买入 · 下一步: 生成 AI 研报并结合持仓形成攻防决策",
         "候选护栏: 1只禁止直接买入 · 300750 宁德时代(候选标签未成熟，禁止直接买入)",
+    ]
+    assert handoff_lines == [
+        *lines,
+        "下一工具: generate_ai_report(stock_codes=300750) · 只读推荐事件评估已通过排序接入门槛，可进入 AI 研报；不直接触发买入",
     ]
 
 

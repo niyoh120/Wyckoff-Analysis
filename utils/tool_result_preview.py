@@ -134,13 +134,17 @@ def _recommendation_event_eval_brief_lines(result: dict[str, Any], *, max_lines:
         lines = _recommendation_fallback_brief_lines(result)
     conclusion_line = _candidate_conclusion_brief_line("last_recommendation_event_eval", result)
     guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
+    handoff_line = _recommendation_next_tool_brief_line(result.get("policy_selection"))
     pick_lines = [] if conclusion_line else _recommendation_policy_brief_lines(result.get("policy_selection"))
-    reserved = int(bool(conclusion_line)) + int(bool(guard_line)) + int(bool(pick_lines))
+    reserve_handoff = bool(handoff_line) and max_lines > 3
+    reserved = int(bool(conclusion_line)) + int(bool(guard_line)) + int(bool(pick_lines)) + int(reserve_handoff)
     lines = lines[: max(max_lines - reserved, 0)]
     if conclusion_line:
         lines.append(conclusion_line)
     if guard_line:
         lines.append(guard_line)
+    if handoff_line:
+        lines.append(handoff_line)
     if pick_lines:
         lines.extend(pick_lines[: max_lines - len(lines)])
     return lines[:max_lines]
@@ -255,6 +259,18 @@ def _recommendation_action_plan_preview(value: Any) -> dict[str, Any]:
             "next_tool": value.get("next_tool"),
         }
     )
+
+
+def _recommendation_next_tool_brief_line(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    action_plan = value.get("action_plan") if isinstance(value.get("action_plan"), dict) else {}
+    next_tool = action_plan.get("next_tool") if isinstance(action_plan.get("next_tool"), dict) else {}
+    if not next_tool:
+        return ""
+    payload = dict(next_tool)
+    payload.setdefault("reason", action_plan.get("reason") or action_plan.get("next_step"))
+    return _next_tool_brief_line(payload)
 
 
 def _recommendation_pick_preview_list(value: Any, limit: int) -> list[dict[str, Any]]:
