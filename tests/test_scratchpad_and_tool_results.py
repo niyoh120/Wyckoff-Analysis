@@ -281,6 +281,31 @@ def test_screen_stocks_large_result_preview_prioritizes_top_candidates(tmp_path,
     assert json.loads(stored[0].read_text(encoding="utf-8"))["trigger_groups"]["huge"][0]["blob"] == "x" * 200
 
 
+def test_screen_stocks_brief_surfaces_data_date_and_coverage():
+    ok_result = {
+        "scan_scope": {"scope": "bounded", "board": "main_chinext_star", "limit": 300, "total_scanned": 300},
+        "data_quality": {"status": "ok", "coverage_pct": 100.0, "end_trade_date": "2026-07-03"},
+        "style_preference": {"raw": "trend,pullback", "styles": ["trend", "pullback"]},
+        "preference_match": {"style": "partial"},
+    }
+    degraded_result = {
+        "scan_scope": {"scope": "full", "board": "all", "limit": 0, "total_scanned": 1000},
+        "data_quality": {
+            "status": "degraded",
+            "coverage_pct": 87.0,
+            "end_trade_date": "2026-07-03",
+            "warnings": ["13只股票拉取失败", "2只股票交易日不匹配", "数据覆盖率 87.0%"],
+        },
+    }
+
+    assert tool_result_brief_lines("screen_stocks", ok_result, max_lines=1) == [
+        "快扫: main_chinext_star 前300只，实际扫描300只；数据: 2026-07-03 覆盖100.0%(可靠)；筛选偏好: 风格=趋势,低吸(部分命中)"
+    ]
+    assert tool_result_brief_lines("screen_stocks", degraded_result, max_lines=1) == [
+        "全量: all 扫描1000只；数据: 2026-07-03 覆盖87.0%(降级)，13只股票拉取失败；2只股票交易日不匹配"
+    ]
+
+
 def test_screen_stocks_brief_lines_surface_candidate_risk_status():
     result = {
         "selection_brief": {

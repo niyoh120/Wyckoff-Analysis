@@ -1219,8 +1219,10 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     lines: list[str] = []
     selection = result.get("selection_brief") if isinstance(result.get("selection_brief"), dict) else {}
     headline = _text_excerpt(selection.get("headline"), 120)
-    scope_line = _screen_scope_brief_line(result.get("scan_scope"))
+    scope_part = _screen_scope_brief_line(result.get("scan_scope"))
+    data_line = _screen_data_quality_brief_part(result.get("data_quality"))
     preference_line = _screen_preference_brief_line(result)
+    scope_line = "；".join(part for part in (scope_part, data_line) if part)
     if scope_line and preference_line:
         scope_line = f"{scope_line}；{preference_line}"
     decision_line = _screen_decision_state_line(result.get("decision_state"))
@@ -1297,6 +1299,39 @@ def _screen_scope_brief_line(value: Any) -> str:
         suffix = f"前{limit}只" if limit else "有界扫描"
         return f"快扫: {board} {suffix}，实际扫描{total or '-'}只{financial}"
     return f"全量: {board} 扫描{total or '-'}只{financial}"
+
+
+def _screen_data_quality_brief_part(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    status = str(value.get("status") or "").strip()
+    date_text = str(value.get("end_trade_date") or "").strip()
+    coverage = _safe_percent_text(value.get("coverage_pct"))
+    status_label = _data_quality_status_label(status)
+    coverage_text = f"覆盖{coverage}{status_label}" if coverage else status_label
+    details = [date_text, coverage_text]
+    text = " ".join(part for part in details if part)
+    if not text:
+        return ""
+    warnings = [str(item).strip() for item in _preview_list(value.get("warnings"), 2) if str(item).strip()]
+    warning_text = f"，{'；'.join(warnings)}" if status in {"partial", "degraded", "empty"} and warnings else ""
+    return f"数据: {text}{warning_text}"
+
+
+def _safe_percent_text(value: Any) -> str:
+    try:
+        return f"{float(value):.1f}%"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _data_quality_status_label(status: str) -> str:
+    return {
+        "ok": "(可靠)",
+        "partial": "(部分)",
+        "degraded": "(降级)",
+        "empty": "(无数据)",
+    }.get(status, f"({status})" if status else "")
 
 
 def _screen_financial_scope_suffix(value: dict[str, Any]) -> str:
