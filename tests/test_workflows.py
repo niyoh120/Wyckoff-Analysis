@@ -2273,6 +2273,21 @@ def test_planner_recovers_tool_scope_from_outline_text_when_model_skips_json():
         "semantic_inference",
         "semantic_inference",
     ]
+    assert [task["tools"] for task in run.script["phases"][0]["tasks"]] == [
+        ["screen_stocks"],
+        ["generate_ai_report"],
+        ["generate_strategy_decision"],
+    ]
+    stored = plan_workflow(
+        "选出好股票，给出研报和攻防计划",
+        context=context,
+        workflow_script=run.script,
+    )
+    assert [step.tool_scope for step in stored.steps] == [
+        ("screen_stocks",),
+        ("generate_ai_report",),
+        ("generate_strategy_decision",),
+    ]
     assert run.steps[0].to_dict()["tool_scope_source"] == "semantic_inference"
     assert run.steps[0].depends_on == ()
     assert run.steps[1].depends_on == ("1",)
@@ -2327,6 +2342,16 @@ def test_planner_recovers_stock_board_args_for_semantic_screen_step():
     assert run.steps[0].tool_scope == ("screen_stocks",)
     assert run.steps[0].tool_scope_source == "semantic_inference"
     assert run.steps[0].args_hint == "board: chinext；style: trend,pullback"
+    assert run.script["tasks"][0]["tools"] == ["screen_stocks"]
+    assert run.script["tasks"][0]["args"] == {"board": "chinext", "style": "trend,pullback"}
+    stored = plan_workflow(
+        "今天帮我筛创业板强势低吸标的",
+        context=route_workflow("用 workflow 筛创业板强势低吸标的"),
+        workflow_script=run.script,
+    )
+    assert stored.steps[0].tool_scope == ("screen_stocks",)
+    assert stored.steps[0].tool_scope_source == "model_declared"
+    assert stored.steps[0].args_hint == "board: chinext；style: trend,pullback"
 
 
 def test_planner_recovers_full_financial_screen_args_for_semantic_step():

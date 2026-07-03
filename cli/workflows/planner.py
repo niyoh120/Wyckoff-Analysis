@@ -920,17 +920,27 @@ def _script_with_step_tool_scopes(script: dict[str, Any], steps: list[WorkflowSt
     steps_by_id = {step.step_id: step for step in steps}
     for step_id, task in _script_task_refs(payload):
         step = steps_by_id.get(step_id)
-        if not step or step.tool_scope_source != "model_declared":
+        if not step or step.tool_scope_source not in {"model_declared", "semantic_inference"}:
             continue
-        _set_script_task_tool_scope(task, step.tool_scope)
+        _set_script_task_tool_scope(task, step.tool_scope, args_hint=step.args_hint)
     return payload
 
 
-def _set_script_task_tool_scope(task: dict[str, Any], scope: tuple[str, ...]) -> None:
+def _set_script_task_tool_scope(task: dict[str, Any], scope: tuple[str, ...], *, args_hint: str = "") -> None:
     for field in TOOL_SCOPE_FIELDS:
         if field != "tools":
             task.pop(field, None)
     task["tools"] = list(scope)
+    if "args" not in task and (args := _simple_args_hint_mapping(args_hint)):
+        task["args"] = args
+
+
+def _simple_args_hint_mapping(text: str) -> dict[str, str]:
+    args: dict[str, str] = {}
+    for part in re.split(r"[；;\n]+", str(text or "")):
+        if match := re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(.+?)\s*$", part):
+            args[match.group(1)] = str(match.group(2)).strip().strip("\"'")
+    return {key: value for key, value in args.items() if value}
 
 
 def _script_task_refs(script: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
