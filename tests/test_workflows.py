@@ -1617,6 +1617,43 @@ def test_adaptation_handoff_summary_dedupes_candidate_sources():
     assert "risk_factors" not in candidates[0]
 
 
+def test_adaptation_handoff_summary_preserves_candidate_action_boundaries():
+    summary = _adaptation_handoff_summary(
+        [
+            {
+                "step": {"step_id": "scan", "title": "扫描候选"},
+                "result": {
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "report_candidates": [
+                                {
+                                    "code": "300750",
+                                    "name": "宁德时代",
+                                    "action_status": "ready_for_ai_review",
+                                    "entry_zone": [196.0, 202.0],
+                                    "entry_trigger": "放量站回5日线",
+                                    "trigger_price": 202.0,
+                                    "stop_loss": 188.5,
+                                    "invalidate_condition": "跌破188.5取消交易",
+                                    "max_entry_price": 204.0,
+                                }
+                            ]
+                        }
+                    }
+                },
+            }
+        ]
+    )
+
+    candidate = summary[0]["candidates"][0]
+    assert candidate["entry_zone"] == [196.0, 202.0]
+    assert candidate["entry_trigger"] == "放量站回5日线"
+    assert candidate["trigger_price"] == 202.0
+    assert candidate["stop_loss"] == 188.5
+    assert candidate["invalidate_condition"] == "跌破188.5取消交易"
+    assert candidate["max_entry_price"] == 204.0
+
+
 def test_planner_uses_semantic_tool_scope_when_model_tool_contract_repair_is_invalid():
     provider = ScriptedProvider(
         [
