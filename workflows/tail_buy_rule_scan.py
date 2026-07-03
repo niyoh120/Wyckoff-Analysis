@@ -134,8 +134,11 @@ def _scan_one_symbol(
         return _mark_scan_failure(candidate, with_tickflow_upgrade_hint(f"TickFlow分钟数据拉取失败: {exc}"))
     if df_1m is None or df_1m.empty:
         return _mark_scan_failure(candidate, "TickFlow返回空分时")
+    daily_history = _fetch_daily_history(client, symbol) if strategy_config.daily_trap_gate_enabled else None
     try:
-        return evaluate_rule_decision(candidate, df_1m, style=style, config=strategy_config)
+        return evaluate_rule_decision(
+            candidate, df_1m, style=style, config=strategy_config, daily_history=daily_history
+        )
     except Exception as exc:
         return _mark_scan_failure(candidate, f"规则评分失败: {exc}")
 
@@ -159,13 +162,17 @@ def _scan_batch_chunk(
         data_map = tickflow_client.get_intraday_batch(_batch_symbols(batch), period="1m", count=5000)
     except Exception as exc:
         return _mark_batch_fetch_failure(idx, chunks, batch, exc, stats, logs_path)
+    daily_map = (
+        _fetch_daily_history_batch(tickflow_client, batch, logs_path) if strategy_config.daily_trap_gate_enabled else {}
+    )
     log_line(f"规则扫描(batch): chunk={idx}/{len(chunks)} data_hit={len(data_map)}/{len(batch)}", logs_path)
-    return _evaluate_batch_rows(batch, data_map, style, strategy_config)
+    return _evaluate_batch_rows(batch, data_map, daily_map, style, strategy_config)
 
 
 def _evaluate_batch_rows(
     batch: list[TailBuyCandidate],
     data_map: dict,
+    daily_map: dict,
     style: str,
     strategy_config: TailBuyStrategyConfig,
 ) -> list[TailBuyCandidate]:
@@ -176,10 +183,33 @@ def _evaluate_batch_rows(
             scanned.append(_mark_scan_failure(item, "TickFlow返回空分时"))
             continue
         try:
-            scanned.append(evaluate_rule_decision(item, df_1m, style=style, config=strategy_config))
+            scanned.append(
+                evaluate_rule_decision(
+                    item,
+                    df_1m,
+                    style=style,
+                    config=strategy_config,
+                    daily_history=daily_map.get(normalize_cn_symbol(item.code)),
+                )
+            )
         except Exception as exc:
             scanned.append(_mark_scan_failure(item, f"规则评分失败: {exc}"))
     return scanned
+
+
+def _fetch_daily_history(client: TickFlowClient, symbol: str):
+    try:
+        return client.get_klines(symbol, period="1d", count=40, adjust="forward")
+    except Exception:
+        return None
+
+
+def _fetch_daily_history_batch(client: TickFlowClient, batch: list[TailBuyCandidate], logs_path: str | None) -> dict:
+    try:
+        return client.get_klines_batch(_batch_symbols(batch), period="1d", count=40, adjust="forward")
+    except Exception as exc:
+        log_line(f"规则扫描(batch): 日K诱多压力检查跳过 err={exc}", logs_path)
+        return {}
 
 
 def _mark_batch_fetch_failure(

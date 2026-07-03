@@ -19,6 +19,8 @@ from core.tail_buy.strategy import (
     select_llm_overlay_candidates,
 )
 from workflows.tail_buy_config import tail_buy_strategy_config_from_env
+from workflows.tail_buy_rule_scan import run_rule_scan_batch
+from workflows.tail_buy_utils import TZ
 
 
 def _make_intraday_df(
@@ -60,6 +62,30 @@ def _make_intraday_df(
             "close": close.values,
             "volume": volume.values,
             "amount": amount.values,
+        }
+    )
+
+
+def _make_daily_trap_df() -> pd.DataFrame:
+    dates = pd.date_range(start=datetime(2026, 3, 20), periods=25, freq="D")
+    close = pd.Series([8.0 + i * 0.04 for i in range(25)], dtype="float64")
+    open_ = close * 0.998
+    high = close * 1.006
+    low = close * 0.994
+    volume = pd.Series([1000.0] * 25)
+    open_.iloc[-1] = 11.8
+    high.iloc[-1] = 12.4
+    low.iloc[-1] = 10.7
+    close.iloc[-1] = 11.2
+    volume.iloc[-1] = 2600.0
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "open": open_.values,
+            "high": high.values,
+            "low": low.values,
+            "close": close.values,
+            "volume": volume.values,
         }
     )
 
@@ -421,6 +447,126 @@ def test_confirmed_tail_signal_skips_blowoff_reversal():
     assert out.rule_decision == DECISION_SKIP
     assert out.features["tail_blowoff_reversal"] is True
     assert "冲高回落" in "；".join(out.rule_reasons)
+
+
+def test_daily_trap_pressure_downgrades_tail_buy_to_watch():
+    base = dict(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=6.0,
+        snap={"snap_support": 9.8},
+    )
+    intraday = _make_intraday_df(start=10.3, end=11.2, tail_boost=0.8, tail_volume_mult=1.8)
+    config = TailBuyStrategyConfig(
+        daily_trap_gate_enabled=False,
+        naked_support_extension_pct=30.0,
+        chase_day_ret_pct=20.0,
+        chase_high_ret_pct=25.0,
+    )
+    no_gate = evaluate_rule_decision(
+        TailBuyCandidate(**base),
+        intraday,
+        style="trend",
+        config=config,
+    )
+    gated = evaluate_rule_decision(
+        TailBuyCandidate(**base),
+        intraday,
+        style="trend",
+        config=TailBuyStrategyConfig(
+            naked_support_extension_pct=30.0,
+            chase_day_ret_pct=20.0,
+            chase_high_ret_pct=25.0,
+        ),
+        daily_history=_make_daily_trap_df(),
+    )
+
+    assert no_gate.rule_decision == DECISION_BUY
+    assert gated.rule_decision == DECISION_WATCH
+    assert gated.features["daily_trap_pressure"] is True
+    assert "日线" in "；".join(gated.rule_reasons)
+
+
+def test_rule_scan_batch_applies_daily_trap_pressure_gate():
+    class FakeTickFlow:
+        def get_intraday_batch(self, symbols, *, period, count):
+            assert period == "1m"
+            assert count == 5000
+            df = _make_intraday_df(start=10.3, end=11.2, tail_boost=0.8, tail_volume_mult=1.8)
+            return {symbol: df for symbol in symbols}
+
+        def get_klines_batch(self, symbols, *, period, count, adjust):
+            assert period == "1d"
+            assert count == 40
+            assert adjust == "forward"
+            return {symbol: _make_daily_trap_df() for symbol in symbols}
+
+    candidate = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=6.0,
+        snap={"snap_support": 9.8},
+    )
+
+    scanned = run_rule_scan_batch(
+        [candidate],
+        tickflow_client=FakeTickFlow(),
+        style="trend",
+        strategy_config=TailBuyStrategyConfig(
+            naked_support_extension_pct=30.0,
+            chase_day_ret_pct=20.0,
+            chase_high_ret_pct=25.0,
+        ),
+        batch_size=20,
+        deadline_at=datetime.now(TZ) + timedelta(seconds=60),
+    )
+
+    assert scanned[0].rule_decision == DECISION_WATCH
+    assert scanned[0].features["daily_trap_pressure"] is True
+    assert "日线" in "；".join(scanned[0].rule_reasons)
+
+
+def test_rule_scan_batch_skips_daily_fetch_when_trap_gate_disabled():
+    class FakeTickFlow:
+        def get_intraday_batch(self, symbols, *, period, count):
+            df = _make_intraday_df(start=10.3, end=11.2, tail_boost=0.8, tail_volume_mult=1.8)
+            return {symbol: df for symbol in symbols}
+
+        def get_klines_batch(self, *_args, **_kwargs):
+            raise AssertionError("daily history should not be fetched when trap gate is disabled")
+
+    candidate = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=6.0,
+        snap={"snap_support": 9.8},
+    )
+
+    scanned = run_rule_scan_batch(
+        [candidate],
+        tickflow_client=FakeTickFlow(),
+        style="trend",
+        strategy_config=TailBuyStrategyConfig(
+            daily_trap_gate_enabled=False,
+            naked_support_extension_pct=30.0,
+            chase_day_ret_pct=20.0,
+            chase_high_ret_pct=25.0,
+        ),
+        batch_size=20,
+        deadline_at=datetime.now(TZ) + timedelta(seconds=60),
+    )
+
+    assert scanned[0].fetch_error == ""
+    assert "daily_trap_pressure" not in scanned[0].features
 
 
 def test_merge_rule_and_llm_keeps_pending_buy_as_watch():

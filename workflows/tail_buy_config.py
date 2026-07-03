@@ -23,6 +23,10 @@ def tail_buy_strategy_config_from_env() -> TailBuyStrategyConfig:
         weak_naked_day_ret_pct=_env_float("TAIL_BUY_WEAK_NAKED_DAY_RET_PCT", 0.8),
         weak_naked_tail30_ret_pct=_env_float("TAIL_BUY_WEAK_NAKED_TAIL30_RET_PCT", 0.3),
         naked_support_extension_pct=_env_float("TAIL_BUY_NAKED_SUPPORT_EXTENSION_PCT", 18.0),
+        daily_trap_gate_enabled=_env_bool("TAIL_BUY_DAILY_TRAP_GATE_ENABLED", True),
+        daily_trap_ma20_extension_pct=_env_float("TAIL_BUY_DAILY_TRAP_MA20_EXTENSION_PCT", 18.0),
+        daily_trap_upper_shadow_pct=_env_float("TAIL_BUY_DAILY_TRAP_UPPER_SHADOW_PCT", 4.0),
+        daily_trap_volume_ratio=_env_float("TAIL_BUY_DAILY_TRAP_VOLUME_RATIO", 1.8),
     )
 
 

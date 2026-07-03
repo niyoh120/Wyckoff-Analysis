@@ -51,6 +51,10 @@ class TailBuyStrategyConfig:
     weak_naked_day_ret_pct: float = 0.8
     weak_naked_tail30_ret_pct: float = 0.3
     naked_support_extension_pct: float = 18.0
+    daily_trap_gate_enabled: bool = True
+    daily_trap_ma20_extension_pct: float = 18.0
+    daily_trap_upper_shadow_pct: float = 4.0
+    daily_trap_volume_ratio: float = 1.8
 
 
 DEFAULT_TAIL_BUY_STRATEGY_CONFIG = TailBuyStrategyConfig()
@@ -183,6 +187,65 @@ def _is_tail_blowoff_reversal(features: dict[str, Any], config: TailBuyStrategyC
         and close_pos <= config.blowoff_close_pos_max
         and tail_share >= config.blowoff_tail_volume_share
     )
+
+
+def _daily_trap_features(daily_history: pd.DataFrame | None, config: TailBuyStrategyConfig) -> dict[str, Any]:
+    if not config.daily_trap_gate_enabled or daily_history is None or daily_history.empty:
+        return {}
+    work = _daily_ohlcv(daily_history)
+    if len(work) < 20:
+        return {}
+    close = work["close"]
+    last = work.iloc[-1]
+    ma20 = safe_float(close.tail(20).mean(), 0.0)
+    vol_ref = safe_float(work["volume"].iloc[:-1].tail(20).mean(), 0.0)
+    daily = _daily_candle_metrics(last, ma20, vol_ref)
+    reasons = _daily_trap_reasons(daily, config)
+    return {
+        "daily_close_vs_ma20_pct": daily["close_vs_ma20_pct"],
+        "daily_upper_shadow_pct": daily["upper_shadow_pct"],
+        "daily_volume_ratio": daily["volume_ratio"],
+        "daily_close_pos": daily["close_pos"],
+        "daily_trap_pressure": bool(reasons),
+        "daily_trap_reason": "；".join(reasons),
+    }
+
+
+def _daily_ohlcv(daily_history: pd.DataFrame) -> pd.DataFrame:
+    cols = ("open", "high", "low", "close", "volume")
+    if not set(cols).issubset(daily_history.columns):
+        return pd.DataFrame(columns=cols)
+    work = daily_history[list(cols)].copy()
+    for col in cols:
+        work[col] = pd.to_numeric(work[col], errors="coerce")
+    return work.dropna(subset=list(cols)).tail(40)
+
+
+def _daily_candle_metrics(last: pd.Series, ma20: float, vol_ref: float) -> dict[str, float]:
+    close = safe_float(last.get("close"), 0.0)
+    high = safe_float(last.get("high"), close)
+    low = safe_float(last.get("low"), close)
+    open_ = safe_float(last.get("open"), close)
+    day_range = max(high - low, 1e-8)
+    return {
+        "close_vs_ma20_pct": (close / ma20 - 1.0) * 100.0 if ma20 > 0 else 0.0,
+        "upper_shadow_pct": (high - max(open_, close)) / close * 100.0 if close > 0 else 0.0,
+        "volume_ratio": safe_float(last.get("volume"), 0.0) / vol_ref if vol_ref > 0 else 0.0,
+        "close_pos": max(0.0, min(1.0, (close - low) / day_range)),
+    }
+
+
+def _daily_trap_reasons(daily: dict[str, float], config: TailBuyStrategyConfig) -> list[str]:
+    reasons: list[str] = []
+    if daily["close_vs_ma20_pct"] >= config.daily_trap_ma20_extension_pct and daily["close_pos"] < 0.7:
+        reasons.append(f"日线远离MA20({daily['close_vs_ma20_pct']:.1f}%)且收位不强")
+    if (
+        daily["upper_shadow_pct"] >= config.daily_trap_upper_shadow_pct
+        and daily["volume_ratio"] >= config.daily_trap_volume_ratio
+        and daily["close_pos"] < 0.65
+    ):
+        reasons.append(f"日线放量上影({daily['volume_ratio']:.1f}x)")
+    return reasons
 
 
 def _candidate_context_features(candidate: TailBuyCandidate, df: pd.DataFrame) -> dict[str, Any]:
@@ -603,6 +666,8 @@ def _soft_buy_gate_reasons(features: dict[str, Any], signal_type: str, config: T
         reasons.append("裸SOS/EVR已远离确认支撑，等待回踩")
     if _is_weak_naked_momentum(features, signal_type, config):
         reasons.append("裸SOS/EVR尾盘动能不足，只观察")
+    if bool(features.get("daily_trap_pressure")):
+        reasons.append(str(features.get("daily_trap_reason") or "日线诱多压力，尾盘不追"))
     return reasons
 
 
@@ -705,9 +770,12 @@ def evaluate_rule_decision(
     *,
     style: str = "auto",
     config: TailBuyStrategyConfig | None = None,
+    daily_history: pd.DataFrame | None = None,
 ) -> TailBuyCandidate:
     daily_context = _build_daily_context(candidate.snap) if candidate.snap else None
-    features = compute_tail_features(df_1m, daily_context, config=config)
+    policy = _strategy_config(config)
+    features = compute_tail_features(df_1m, daily_context, config=policy)
+    features.update(_daily_trap_features(daily_history, policy))
     features.update(_candidate_context_features(candidate, ensure_intraday_df(df_1m)))
     if candidate.market_regime:
         features["market_regime"] = candidate.market_regime
@@ -719,7 +787,7 @@ def evaluate_rule_decision(
         style=style,
         market_regime=candidate.market_regime,
         entry_guard=True,
-        config=config,
+        config=policy,
     )
     candidate.features = features
     candidate.rule_score = score
