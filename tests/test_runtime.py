@@ -4,6 +4,7 @@ from cli.loop_guard import resolve_turn_expectation
 from cli.runtime import AgentRuntime, partition_tool_calls
 from cli.screen_intent import (
     stock_screen_candidate_request_hint,
+    stock_screen_style_target_hint,
     stock_screen_suggested_args,
     stock_screen_temporal_buy_hint,
     stock_screen_watch_hint,
@@ -650,6 +651,28 @@ def test_turn_expectation_infers_quality_style_from_defensive_wording():
 
     assert stock_screen_suggested_args("今天别太激进，给我几个标的", include_default_board=False) == {
         "style": "quality"
+    }
+
+
+def test_turn_expectation_infers_quality_and_financial_metrics_from_fundamental_wording():
+    for text in (
+        "今天找几只基本面好的票",
+        "今天给我几只财务好的股票",
+        "今天业绩好的股票有哪些",
+        "今天盈利能力强的标的",
+        "今天ROE高的票",
+    ):
+        expectation = resolve_turn_expectation([{"role": "user", "content": text}])
+
+        assert expectation is not None
+        assert expectation.required_tool == "screen_stocks"
+        assert expectation.suggested_args == {"board": "all", "style": "quality", "financial_metrics": "true"}
+        assert expectation.required_args == {"style": "quality", "financial_metrics": "true"}
+
+    assert stock_screen_style_target_hint("今天ROE高的票") is True
+    assert stock_screen_suggested_args("今天财务好的股票", include_default_board=False) == {
+        "style": "quality",
+        "financial_metrics": "true",
     }
 
 

@@ -10,6 +10,7 @@ from typing import Any
 
 from cli.screen_intent import (
     stock_screen_candidate_request_hint,
+    stock_screen_style_target_hint,
     stock_screen_suggested_args,
     stock_screen_temporal_buy_hint,
     stock_screen_theme_hint,
@@ -1880,6 +1881,7 @@ def _looks_like_stock_selection_delivery(user_text: str) -> bool:
         or _has_stock_tracking_target(text)
         or stock_screen_watch_hint(text)
         or stock_screen_candidate_request_hint(text)
+        or stock_screen_style_target_hint(text)
         or has_stock_style_target(text)
     )
 
@@ -1931,6 +1933,7 @@ def _stock_scan_defaults_to_all_board(user_text: str) -> bool:
         stock_screen_temporal_buy_hint(text)
         or stock_screen_watch_hint(text)
         or stock_screen_candidate_request_hint(text)
+        or stock_screen_style_target_hint(text)
         or bool(stock_screen_theme_hint(text))
         or _has_stock_tracking_target(text)
         or any(marker in text for marker in _STOCK_FALLBACK_TARGETS)

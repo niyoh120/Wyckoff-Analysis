@@ -669,6 +669,25 @@ def test_workflow_planner_stock_fallback_passes_defensive_quality_args():
         assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all", "style": "quality"}
 
 
+def test_workflow_planner_stock_fallback_passes_fundamental_quality_args():
+    for text in (
+        "今天找几只基本面好的票",
+        "今天给我几只财务好的股票",
+        "今天业绩好的股票有哪些",
+        "今天盈利能力强的标的",
+        "今天ROE高的票",
+    ):
+        run = plan_workflow(text, context=WORKFLOWS["dynamic_task"])
+
+        assert run.steps[0].tool_scope == ("screen_stocks",)
+        assert run.steps[0].args_hint == "board: all；style: quality；financial_metrics: true"
+        assert run.script["phases"][0]["tasks"][0]["args"] == {
+            "board": "all",
+            "style": "quality",
+            "financial_metrics": "true",
+        }
+
+
 def test_workflow_planner_stock_fallback_passes_style_args():
     run = plan_workflow(
         "今天帮我找几只强势低吸标的，给下一步",

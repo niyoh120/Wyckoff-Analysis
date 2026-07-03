@@ -9,6 +9,7 @@ from typing import Any
 
 from cli.screen_intent import (
     stock_screen_candidate_request_hint,
+    stock_screen_style_target_hint,
     stock_screen_suggested_args,
     stock_screen_temporal_buy_hint,
     stock_screen_theme_hint,
@@ -524,6 +525,8 @@ def _stock_screen_expected(text: str) -> bool:
     if stock_screen_watch_hint(text):
         return True
     if stock_screen_candidate_request_hint(text):
+        return True
+    if stock_screen_style_target_hint(text):
         return True
     if _etf_screen_expected(text):
         return True

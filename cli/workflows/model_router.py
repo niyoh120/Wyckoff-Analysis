@@ -10,6 +10,7 @@ from typing import Any
 
 from cli.screen_intent import (
     stock_screen_candidate_request_hint,
+    stock_screen_style_target_hint,
     stock_screen_temporal_buy_hint,
     stock_screen_theme_hint,
     stock_screen_watch_hint,
@@ -308,6 +309,8 @@ def _needs_stock_selection_workflow_fallback(user_text: str) -> bool:
     if stock_screen_watch_hint(text):
         return True
     if stock_screen_candidate_request_hint(text):
+        return True
+    if stock_screen_style_target_hint(text):
         return True
     has_scope = any(marker in text for marker in _STOCK_SELECTION_SCOPE_MARKERS) or _has_stock_style_target(text)
     has_delivery = any(marker in text for marker in _STOCK_SELECTION_DELIVERY_MARKERS)

@@ -68,6 +68,15 @@ _STYLE_HINTS = (
             "不激进",
             "保守",
             "防守",
+            "基本面好",
+            "财务好",
+            "业绩好",
+            "盈利好",
+            "盈利能力",
+            "roe高",
+            "roe 高",
+            "低估值",
+            "估值合理",
         ),
     ),
 )
@@ -89,8 +98,15 @@ _FINANCIAL_METRICS_ON_HINTS = (
     "财务数据",
     "基本面",
     "财报",
+    "财务好",
+    "业绩",
+    "盈利",
     "roe",
+    "低估值",
+    "估值合理",
     "估值",
+    "毛利",
+    "净利",
 )
 
 _FINANCIAL_METRICS_OFF_HINTS = (
@@ -199,6 +215,17 @@ _CANDIDATE_REQUEST_ACTION_HINTS = (
     "哪几只",
 )
 
+_STYLE_TARGET_HINTS = (
+    "股票",
+    "股",
+    "票",
+    "标的",
+    "候选",
+    "机会",
+    "板块",
+    "方向",
+)
+
 _NON_STOCK_TICKET_HINTS = (
     "电影票",
     "门票",
@@ -241,6 +268,11 @@ def stock_screen_style_hint(text: str) -> str:
     normalized = _normalize_text(text)
     styles = [style for style, hints in _STYLE_HINTS if any(hint in normalized for hint in hints)]
     return ",".join(dict.fromkeys(styles))
+
+
+def stock_screen_style_target_hint(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return bool(stock_screen_style_hint(normalized)) and any(hint in normalized for hint in _STYLE_TARGET_HINTS)
 
 
 def stock_screen_limit_hint(text: str) -> str:
