@@ -1041,8 +1041,19 @@ def test_adaptation_prompt_surfaces_priority_candidate_handoff():
                         "next_action": "先生成 AI 研报",
                         "action_plan": {
                             "new_buy_allowed": False,
+                            "ai_review_allowed": True,
                             "trade_readiness": "research_only",
                             "next_step": "生成 AI 研报",
+                            "review_targets": {
+                                "status": "ready",
+                                "tool": "generate_ai_report",
+                                "args": {"stock_codes": ["300750"]},
+                            },
+                        },
+                        "next_tool": {
+                            "tool": "generate_ai_report",
+                            "args": {"stock_codes": ["300750"]},
+                            "reason": "首选候选已通过市场闸门，可进入 AI 研报复核",
                         },
                         "report_candidates": [
                             {
@@ -1078,6 +1089,9 @@ def test_adaptation_prompt_surfaces_priority_candidate_handoff():
     assert '"source": "last_screen_result"' in prompt
     assert '"code": "300750"' in prompt
     assert '"risk_adjusted_quality_score": 87.0' in prompt
+    assert '"next_tool": {"tool": "generate_ai_report"' in prompt
+    assert '"review_targets": {"status": "ready", "tool": "generate_ai_report"' in prompt
+    assert '"stock_codes": ["300750"]' in prompt
     assert "候选标签未成熟，禁止直接买入" in prompt
     assert "生成 AI 研报" in prompt
     assert script["runtime"]["adaptation_complete"] is True

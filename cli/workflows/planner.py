@@ -396,6 +396,7 @@ def _compact_adaptation_handoff_stage(source: str, value: dict[str, Any]) -> dic
             "decision_brief",
             "selection_brief",
             "next_action",
+            "next_tool",
             "message",
             "data_quality",
             "quality_gate",
@@ -403,7 +404,16 @@ def _compact_adaptation_handoff_stage(source: str, value: dict[str, Any]) -> dic
     )
     payload["action_plan"] = _pick_compact_fields(
         value.get("action_plan"),
-        ("candidate_action", "new_buy_allowed", "trade_readiness", "reason", "next_step"),
+        (
+            "candidate_action",
+            "new_buy_allowed",
+            "ai_review_allowed",
+            "trade_readiness",
+            "reason",
+            "next_step",
+            "next_tool",
+            "review_targets",
+        ),
     )
     payload["candidate_guard_summary"] = _pick_compact_fields(
         value.get("candidate_guard_summary"), ("direct_buy_blocked_count", "message")
