@@ -2799,6 +2799,60 @@ def test_workflow_candidate_conclusion_prioritizes_preference_reasons():
     assert "亮点=趋势偏好: 趋势线,主题偏好: 机器人,高质量研报候选" in conclusion["line"]
 
 
+def test_workflow_candidate_conclusion_preserves_preference_misses():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "style_preference": {"raw": "trend", "styles": ["trend"]},
+                "theme_preference": {"raw": "机器人", "theme": "机器人"},
+                "preference_match": {"style": "miss", "theme": "miss"},
+                "report_candidates": [
+                    {
+                        "code": "000012",
+                        "name": "非主题候选",
+                        "action_status": "ready_for_ai_review",
+                        "quality_factors": ["高质量研报候选"],
+                    }
+                ],
+            }
+        }
+    )
+
+    assert conclusion["preference_misses"] == ["风格偏好未命中: 趋势", "主题偏好未命中: 机器人"]
+    assert "偏好=风格偏好未命中: 趋势,主题偏好未命中: 机器人" in conclusion["line"]
+
+
+def test_workflow_candidate_delivery_prepends_missing_preference_miss():
+    results = [
+        {
+            "step": {"title": "扫描候选"},
+            "result": {
+                "status": "completed",
+                "result": "扫描完成。",
+                "handoff_state": {
+                    "last_screen_result": {
+                        "theme_preference": {"raw": "机器人", "theme": "机器人"},
+                        "preference_match": {"theme": "miss"},
+                        "report_candidates": [
+                            {
+                                "code": "000012",
+                                "name": "非主题候选",
+                                "action_status": "ready_for_ai_review",
+                                "quality_factors": ["高质量研报候选"],
+                            }
+                        ],
+                    }
+                },
+            },
+        }
+    ]
+
+    text = _ensure_candidate_delivery("000012 非主题候选，高质量研报候选。", results)
+
+    assert text.startswith("候选结论: 首选 000012 非主题候选")
+    assert "主题偏好未命中: 机器人" in text.split("\n\n", 1)[0]
+
+
 def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():
     handoff = {
         "last_screen_result": {

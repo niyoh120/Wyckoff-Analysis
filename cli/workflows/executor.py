@@ -1488,10 +1488,14 @@ def _text_covers_candidate_support(lowered_text: str, item: dict[str, Any]) -> b
     guard = str(item.get("guard_reason") or "").strip().lower()
     if guard and guard not in lowered_text:
         return False
+    preference_misses = [str(value).strip().lower() for value in _as_list(item.get("preference_misses"))]
+    if preference_misses and not any(value in lowered_text for value in preference_misses):
+        return False
     support_items = [
         *_as_list(item.get("evidence")),
         *_as_list(item.get("quality_factors")),
         *_as_list(item.get("risk_factors")),
+        *_as_list(item.get("preference_misses")),
         item.get("next_step"),
     ]
     support_items = [str(value).strip().lower() for value in support_items if str(value or "").strip()]
@@ -1553,6 +1557,7 @@ def _fallback_candidate_conclusion_payload(
             "action": _fallback_action_payload(row),
             "quality_factors": _fallback_quality_items(row, 4, 120),
             "risk_factors": _fallback_risk_items(row, 4, 120),
+            "preference_misses": _fallback_preference_miss_items(row, stage, handoff, 4, 120),
             "guard_reason": _fallback_guard_reason_from_handoff(row, stage, handoff),
             "next_step": _fallback_next_value(row, stage),
             "source_stage": source_stage,
@@ -1568,6 +1573,7 @@ def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any], handoff
         _fallback_action_part(row),
         _fallback_evidence_part(row),
         _fallback_quality_part(row),
+        _fallback_preference_part(row, stage, handoff),
         _fallback_risk_part(row),
         _fallback_guard_part(guard_reason),
         _fallback_next_part(row, stage),
@@ -1724,6 +1730,59 @@ def _fallback_quality_items(row: dict[str, Any], limit: int, clip: int) -> list[
             if len(factors) >= limit:
                 return factors
     return factors
+
+
+def _fallback_preference_part(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
+    misses = _fallback_preference_miss_items(row, stage, handoff, 3, 80)
+    return f"偏好={','.join(misses)}" if misses else ""
+
+
+def _fallback_preference_miss_items(
+    row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any], limit: int, clip: int
+) -> list[str]:
+    source = _fallback_screen_preference_source(stage, handoff)
+    match = source.get("preference_match") if isinstance(source.get("preference_match"), dict) else {}
+    items: list[str] = []
+    for key, label in (("style", "风格偏好未命中"), ("theme", "主题偏好未命中")):
+        if match.get(key) != "miss" or _candidate_preference_hit(row, key):
+            continue
+        if item := _fallback_preference_miss_item(label, source.get(f"{key}_preference"), clip):
+            items.append(item)
+        if len(items) >= limit:
+            return items
+    return items
+
+
+def _fallback_screen_preference_source(stage: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(stage.get("preference_match"), dict):
+        return stage
+    screen = handoff.get("last_screen_result") if isinstance(handoff.get("last_screen_result"), dict) else {}
+    return screen if isinstance(screen.get("preference_match"), dict) else stage
+
+
+def _fallback_preference_miss_item(label: str, value: Any, clip: int) -> str:
+    text = _fallback_preference_text(value)
+    return _clip_text(f"{label}: {text}" if text else label, clip)
+
+
+def _fallback_preference_text(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    if styles := _as_list(value.get("styles")):
+        labels = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
+        return ",".join(dict.fromkeys(labels.get(str(item), str(item)) for item in styles if str(item)))
+    return str(value.get("theme") or value.get("raw") or "").strip()
+
+
+def _candidate_preference_hit(row: dict[str, Any], key: str) -> bool:
+    if row.get(f"{key}_match") is True:
+        return True
+    try:
+        if int(row.get(f"{key}_match_score") or 0) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return bool(_as_list(row.get(f"{key}_match_reasons")))
 
 
 def _fallback_risk_part(row: dict[str, Any]) -> str:
