@@ -1333,7 +1333,7 @@ def _screen_preference_alternative_text(value: Any) -> str:
 
 
 def _preference_part(label: str, text: str, match_status: str = "") -> str:
-    suffix = "(未命中)" if match_status == "miss" else ""
+    suffix = {"miss": "(未命中)", "partial": "(部分命中)"}.get(match_status, "")
     return f"{label}={text}{suffix}" if text else ""
 
 
@@ -1349,14 +1349,29 @@ def _screen_preference_match_preview(result: dict[str, Any]) -> dict[str, str]:
     rows = _screen_candidate_rows(result)
     return _drop_empty_preview_fields(
         {
-            "style": _preference_match_status(rows, "style")
-            if _has_style_preference(result.get("style_preference"))
-            else "",
+            "style": _screen_style_preference_match_status(rows, result.get("style_preference")),
             "theme": _preference_match_status(rows, "theme")
             if _has_theme_preference(result.get("theme_preference"))
             else "",
         }
     )
+
+
+def _screen_style_preference_match_status(rows: list[dict[str, Any]], preference: Any) -> str:
+    if not _has_style_preference(preference):
+        return ""
+    requested = _style_preference_styles(preference)
+    if not requested:
+        return _preference_match_status(rows, "style")
+    if any(not _screen_missing_style_preference_text(row, preference) for row in rows):
+        return "hit"
+    if any(_screen_candidate_style_match_styles(row, requested) for row in rows):
+        return "partial"
+    return "miss"
+
+
+def _style_preference_styles(value: Any) -> list[str]:
+    return [str(item) for item in _preview_list(value.get("styles"), 4) if str(item)] if isinstance(value, dict) else []
 
 
 def _preference_match_status(rows: list[dict[str, Any]], prefix: str) -> str:

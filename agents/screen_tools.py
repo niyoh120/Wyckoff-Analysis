@@ -1638,7 +1638,9 @@ def _preference_match_summary(
 ) -> dict[str, str]:
     return _drop_empty_candidate_fields(
         {
-            "style": _preference_match_status(candidates, "style") if _has_style_preference(style_preference) else "",
+            "style": _style_preference_match_status(candidates, style_preference)
+            if _has_style_preference(style_preference)
+            else "",
             "theme": _preference_match_status(candidates, "theme") if _has_theme_preference(theme_preference) else "",
         }
     )
@@ -1683,6 +1685,17 @@ def _style_preference_labels(style_preference: dict[str, Any]) -> list[str]:
 
 def _style_preference_styles(style_preference: dict[str, Any]) -> list[str]:
     return [str(item) for item in style_preference.get("styles") or [] if str(item)]
+
+
+def _style_preference_match_status(candidates: list[dict], style_preference: dict[str, Any]) -> str:
+    requested = _style_preference_styles(style_preference)
+    if not requested:
+        return _preference_match_status(candidates, "style")
+    if any(not _candidate_missing_style_preference_labels(row, style_preference) for row in candidates):
+        return "hit"
+    if any(_candidate_style_match_styles(row, requested) for row in candidates):
+        return "partial"
+    return "miss"
 
 
 def _candidate_missing_style_preference_labels(row: dict, style_preference: dict[str, Any]) -> list[str]:

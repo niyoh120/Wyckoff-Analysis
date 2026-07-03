@@ -670,9 +670,10 @@ def test_screen_stocks_brief_surfaces_missing_style_in_combined_preference():
     preview = json.loads(tool_result_preview("screen_stocks", result))
     lines = tool_result_brief_lines("screen_stocks", result, max_lines=2)
 
+    assert preview["preference_match"] == {"style": "partial"}
     assert preview["candidate_conclusion"]["risk_factors"] == ["风格偏好未命中: 低吸"]
     assert lines == [
-        "筛选偏好: 风格=趋势,低吸",
+        "筛选偏好: 风格=趋势,低吸(部分命中)",
         (
             "候选结论: 首选 000012 纯趋势候选 · 可进入AI复核 · "
             "亮点: 趋势偏好: 趋势线；趋势偏好: 主升阶段 · 风险: 风格偏好未命中: 低吸"

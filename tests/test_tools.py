@@ -2697,11 +2697,49 @@ class TestSymbolPool:
 
         result = screen_tools.screen_stocks(style="trend,pullback")
 
+        assert result["preference_match"] == {"style": "hit"}
         assert [row["code"] for row in result["top_candidates"][:2]] == ["000002", "000001"]
         assert result["selection_brief"]["primary_pick"]["style_match_styles"] == ["trend", "pullback"]
         trend_only = next(row for row in result["top_candidates"] if row["code"] == "000001")
         assert trend_only["style_match_styles"] == ["trend"]
         assert "风格偏好未命中: 低吸" in trend_only["risk_factors"]
+
+    def test_screen_stocks_combined_style_reports_partial_match(self, monkeypatch):
+        from agents import screen_tools
+
+        fake_pipeline = ModuleType("workflows.wyckoff_funnel")
+
+        def fake_run_funnel(*_args, **_kwargs):
+            return (
+                True,
+                [
+                    {
+                        "code": "000001",
+                        "name": "纯趋势研报",
+                        "priority_rank": 1,
+                        "track": "Trend",
+                        "stage": "Markup",
+                    }
+                ],
+                {},
+                {
+                    "metrics": {},
+                    "triggers": {"sos": [("000002", 8.0)]},
+                    "name_map": {"000002": "纯趋势观察"},
+                    "trade_mode": {"allow_ai_review": True, "allow_recommendation_write": False},
+                },
+            )
+
+        fake_pipeline.run = fake_run_funnel
+        monkeypatch.setitem(sys.modules, "workflows.wyckoff_funnel", fake_pipeline)
+        monkeypatch.setattr(screen_tools, "ensure_tushare_token", lambda tool_context: None)
+
+        result = screen_tools.screen_stocks(style="trend,pullback")
+
+        assert result["preference_match"] == {"style": "partial"}
+        assert result["scan_scope"]["preference_match"] == {"style": "partial"}
+        assert "preference_alternatives" not in result["selection_brief"]
+        assert "风格偏好未命中: 低吸" in result["selection_brief"]["primary_pick"]["risk_factors"]
 
     def test_screen_stocks_preference_alternatives_require_all_styles(self, monkeypatch):
         from agents import screen_tools
