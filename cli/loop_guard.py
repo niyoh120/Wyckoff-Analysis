@@ -576,12 +576,16 @@ def _normalized_tool_arg_value(value: Any) -> str:
     if isinstance(value, (list, tuple, set)):
         return ",".join(str(item).strip() for item in value if str(item).strip())
     if isinstance(value, str):
+        text = value.strip()
+        if text.lower() in {"true", "false"}:
+            return text.lower()
         try:
-            parsed = ast.literal_eval(value)
+            parsed = ast.literal_eval(text)
         except (SyntaxError, ValueError):
             parsed = None
         if isinstance(parsed, (list, tuple, set)):
             return ",".join(str(item).strip() for item in parsed if str(item).strip())
+        return text
     return str(value if value is not None else "").strip()
 
 

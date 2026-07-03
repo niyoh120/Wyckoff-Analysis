@@ -2291,6 +2291,35 @@ def test_planner_merges_inferred_board_with_model_declared_partial_args():
     assert run.steps[0].args_hint == "board: chinext；style: quality"
 
 
+def test_planner_formats_model_declared_bool_zero_and_list_args():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": (
+                        '{"title":"全量筛选","tasks":[{"id":"scan","title":"扫描候选",'
+                        '"tools":["screen_stocks"],'
+                        '"args":{"board":"chinext","style":["trend","pullback"],'
+                        '"limit":0,"financial_metrics":true},"prompt":"扫描候选"}]}'
+                    ),
+                }
+            ]
+        ]
+    )
+
+    run = plan_workflow(
+        "今天全量扫描创业板强势低吸标的，要带财务过滤",
+        context=route_workflow("用 workflow 全量扫描创业板强势低吸标的，要带财务过滤"),
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].tool_scope_source == "model_declared"
+    assert run.steps[0].args_hint == "board: chinext；style: trend,pullback；limit: 0；financial_metrics: true"
+
+
 def test_planner_recovers_tool_scope_from_colloquial_good_stock_outline():
     provider = ScriptedProvider(
         [

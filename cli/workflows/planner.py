@@ -1219,7 +1219,17 @@ def _task_meta_value(value: Any) -> str:
     if isinstance(value, (list, tuple, set)):
         return "；".join(str(item).strip() for item in value if str(item).strip())
     if isinstance(value, dict):
-        return "；".join(f"{key}: {item}" for key, item in value.items() if str(item).strip())
+        return "；".join(f"{key}: {text}" for key, item in value.items() if (text := _task_meta_item_value(item)))
+    return str(value).strip()
+
+
+def _task_meta_item_value(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple, set)):
+        return ",".join(str(item).strip() for item in value if str(item).strip())
     return str(value).strip()
 
 

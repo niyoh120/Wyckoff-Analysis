@@ -1482,6 +1482,90 @@ def test_workflow_executor_retries_until_step_args_hint_is_used(tmp_path, monkey
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_enforces_model_declared_bool_zero_args(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-required-full-args.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [{"id": "tc_partial", "name": "screen_stocks", "args": {"board": "chinext"}}],
+                    "text": "",
+                }
+            ],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": "tc_full",
+                            "name": "screen_stocks",
+                            "args": {
+                                "board": "chinext",
+                                "style": ["trend", "pullback"],
+                                "limit": 0,
+                                "financial_metrics": True,
+                            },
+                        }
+                    ],
+                    "text": "",
+                }
+            ],
+            [{"type": "text_delta", "text": "全量财务候选已筛出。"}],
+            [{"type": "text_delta", "text": "已按全量财务过滤汇总候选。"}],
+        ]
+    )
+    tools = StubToolRegistry(
+        schemas=deepcopy(TOOL_SCHEMAS),
+        tool_results={"screen_stocks": {"symbols_for_report": ["000002"]}},
+    )
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_required_full_args",
+        user_text="用 workflow 全量扫描创业板强势低吸标的，要带财务过滤",
+        workflow_context=WORKFLOWS["dynamic_task"],
+        workflow_script={
+            "tasks": [
+                {
+                    "id": "scan",
+                    "title": "扫描全量财务候选",
+                    "tools": ["screen_stocks"],
+                    "args": {
+                        "board": "chinext",
+                        "style": ["trend", "pullback"],
+                        "limit": 0,
+                        "financial_metrics": True,
+                    },
+                    "prompt": "按用户完整筛选条件扫描候选。",
+                }
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 全量扫描创业板强势低吸标的"}]))
+
+    try:
+        plan_event = next(event for event in events if event["type"] == "workflow_plan")
+        done_event = next(event for event in events if event["type"] == "workflow_step_done")
+        detail = done_event["source"]["agent_detail"]
+        assert plan_event["plan"]["steps"][0]["args_hint"] == (
+            "board: chinext；style: trend,pullback；limit: 0；financial_metrics: true"
+        )
+        assert detail["tool_calls"] == ["screen_stocks", "screen_stocks"]
+        assert [call["args"] for call in tools.calls] == [
+            {"board": "chinext"},
+            {"board": "chinext", "style": ["trend", "pullback"], "limit": 0, "financial_metrics": True},
+        ]
+        assert events[-1]["text"] == "已按全量财务过滤汇总候选。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_enforces_inferred_stock_screen_args(tmp_path, monkeypatch):
     from integrations import local_db
 
