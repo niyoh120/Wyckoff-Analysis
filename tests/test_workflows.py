@@ -85,6 +85,26 @@ def test_workflow_script_cli_line_surfaces_model_contract_repair():
     assert "tool_contract_repair=model:2" in line
 
 
+def test_workflow_script_cli_line_surfaces_adaptation_delta():
+    line = _workflow_script_cli_line(
+        {
+            "script": {
+                "runtime": {
+                    "planner": "model_script",
+                    "adaptation": "model_phase",
+                    "adaptation_count": 2,
+                    "adapted_kept_step_count": 1,
+                    "adapted_removed_step_count": 2,
+                    "adapted_added_step_count": 1,
+                }
+            }
+        }
+    )
+
+    assert "source=model_script" in line
+    assert "adaptation=model:2,kept=1,removed=2,added=1" in line
+
+
 def test_workflow_script_cli_line_labels_stock_selection_fallback():
     line = _workflow_script_cli_line(
         {

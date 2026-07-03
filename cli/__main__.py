@@ -977,6 +977,8 @@ def _workflow_script_cli_line(plan: dict[str, Any]) -> str:
         parts.append(f"source={_workflow_script_source_label(runtime, planner)}")
     if runtime.get("tool_contract_repair") == "model":
         parts.append(_workflow_tool_contract_repair_label(runtime))
+    if runtime.get("adaptation") == "model_phase":
+        parts.append(_workflow_adaptation_label(runtime))
     if truncated := _workflow_runtime_int(runtime, "truncated_step_count"):
         original = _workflow_runtime_int(runtime, "original_step_count")
         parts.append(f"trimmed={truncated}/{original}")
@@ -1001,6 +1003,21 @@ def _workflow_tool_contract_repair_label(runtime: dict[str, Any]) -> str:
     count = _workflow_runtime_int(runtime, "unscoped_step_count_before_repair")
     suffix = f":{count}" if count > 0 else ""
     return f"tool_contract_repair=model{suffix}"
+
+
+def _workflow_adaptation_label(runtime: dict[str, Any]) -> str:
+    count = _workflow_runtime_int(runtime, "adaptation_count")
+    parts = [f"adaptation=model:{count}" if count > 0 else "adaptation=model"]
+    for field, label in (
+        ("adapted_kept_step_count", "kept"),
+        ("adapted_removed_step_count", "removed"),
+        ("adapted_added_step_count", "added"),
+        ("adapted_skipped_step_count", "skipped"),
+    ):
+        value = _workflow_runtime_int(runtime, field)
+        if value > 0:
+            parts.append(f"{label}={value}")
+    return ",".join(parts)
 
 
 def _workflow_runtime_int(runtime: dict[str, Any], field: str) -> int:

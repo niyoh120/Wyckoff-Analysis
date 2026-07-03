@@ -619,9 +619,27 @@ def _workflow_phase_adaptation_reason(runtime: dict[str, Any]) -> str:
     count = _runtime_int(runtime, "adaptation_count")
     title = str(runtime.get("last_adaptation_title") or "").strip()
     suffix = f"：{escape(title[:48])}" if title else ""
+    delta = _workflow_adaptation_delta_text(runtime)
+    delta_suffix = f" · {escape(delta)}" if delta else ""
     if count > 0:
-        return f"阶段结果已触发第 {count} 次模型改稿{suffix}"
-    return f"阶段结果已触发模型改稿{suffix}"
+        return f"阶段结果已触发第 {count} 次模型改稿{suffix}{delta_suffix}"
+    return f"阶段结果已触发模型改稿{suffix}{delta_suffix}"
+
+
+def _workflow_adaptation_delta_text(runtime: dict[str, Any]) -> str:
+    if runtime.get("adaptation_complete"):
+        skipped = _runtime_int(runtime, "adapted_skipped_step_count") or _runtime_int(
+            runtime, "adapted_removed_step_count"
+        )
+        return f"后续变更：停止 {skipped} 个任务" if skipped else "后续变更：停止剩余任务"
+    parts: list[str] = []
+    if kept := _runtime_int(runtime, "adapted_kept_step_count"):
+        parts.append(f"保留 {kept} 个")
+    if removed := _runtime_int(runtime, "adapted_removed_step_count"):
+        parts.append(f"移除 {removed} 个")
+    if added := _runtime_int(runtime, "adapted_added_step_count"):
+        parts.append(f"新增 {added} 个")
+    return f"后续变更：{'、'.join(parts)}" if parts else ""
 
 
 def _workflow_script_rationale_line(plan: Any) -> str:

@@ -289,8 +289,10 @@ class WorkflowExecutor:
         self._merge_adapted_script(script)
         if runtime.get("adaptation_complete"):
             self._skip_remaining_steps(previous_remaining)
+            self._record_adaptation_step_delta([], previous_remaining, completed=True)
         else:
-            self._replace_remaining_steps(script)
+            continuation = self._replace_remaining_steps(script)
+            self._record_adaptation_step_delta(continuation, previous_remaining, completed=False)
         persist_workflow_script(self._require_run())
         save_workflow_run(self._require_run())
         return self._plan_update_event()
@@ -313,7 +315,7 @@ class WorkflowExecutor:
             payload["synthesis_prompt"] = synthesis
         run.script = payload
 
-    def _replace_remaining_steps(self, script: dict[str, Any]) -> None:
+    def _replace_remaining_steps(self, script: dict[str, Any]) -> list[WorkflowStep]:
         run = self._require_run()
         completed = _terminal_steps(run.steps)
         completed_ids = {step.step_id for step in completed}
@@ -325,6 +327,7 @@ class WorkflowExecutor:
         if continuation:
             run.steps = completed + continuation
             run.refresh_current_step()
+        return continuation
 
     def _skip_remaining_steps(self, previous_remaining: list[WorkflowStep]) -> None:
         run = self._require_run()
@@ -332,6 +335,39 @@ class WorkflowExecutor:
             step.status = SKIPPED
             step.summary = "model_adapted_complete"
         run.refresh_current_step()
+
+    def _record_adaptation_step_delta(
+        self,
+        continuation: list[WorkflowStep],
+        previous_remaining: list[WorkflowStep],
+        *,
+        completed: bool,
+    ) -> None:
+        run = self._require_run()
+        runtime = run.script.get("runtime") if isinstance(run.script.get("runtime"), dict) else {}
+        previous_ids = _workflow_step_ids(previous_remaining)
+        continuation_ids = _workflow_step_ids(continuation)
+        previous_set = set(previous_ids)
+        continuation_set = set(continuation_ids)
+        removed = [step_id for step_id in previous_ids if step_id not in continuation_set]
+        added = [step_id for step_id in continuation_ids if step_id not in previous_set]
+        kept = [step_id for step_id in continuation_ids if step_id in previous_set]
+        runtime.update(
+            {
+                "adapted_previous_step_count": len(previous_ids),
+                "adapted_continuation_step_count": len(continuation_ids),
+                "adapted_kept_step_count": len(kept),
+                "adapted_removed_step_count": len(removed),
+                "adapted_added_step_count": len(added),
+                "adapted_removed_step_ids": removed[:12],
+                "adapted_added_step_ids": added[:12],
+            }
+        )
+        if completed:
+            runtime["adapted_skipped_step_count"] = len(previous_ids)
+        else:
+            runtime.pop("adapted_skipped_step_count", None)
+        run.script["runtime"] = runtime
 
     def _plan_update_event(self) -> RuntimeEvent:
         run = self._require_run()
@@ -550,6 +586,10 @@ def _workflow_adaptation_count(run: WorkflowRun) -> int:
 
 def _workflow_runtime(run: WorkflowRun) -> dict[str, Any]:
     return run.script.get("runtime") if isinstance(run.script.get("runtime"), dict) else {}
+
+
+def _workflow_step_ids(steps: list[WorkflowStep]) -> list[str]:
+    return [step.step_id for step in steps if step.step_id]
 
 
 def _step_context(step: WorkflowStep, prior_results: list[dict[str, Any]]) -> str:

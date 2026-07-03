@@ -2157,6 +2157,12 @@ def test_workflow_executor_adapts_remaining_steps_after_phase_results(tmp_path, 
         assert update["plan"]["script"]["runtime"]["adaptation"] == "model_phase"
         assert update["plan"]["script"]["runtime"]["adaptation_count"] == 1
         assert update["plan"]["script"]["runtime"]["last_adaptation_title"] == "改为攻防计划"
+        assert update["plan"]["script"]["runtime"]["adapted_previous_step_count"] == 1
+        assert update["plan"]["script"]["runtime"]["adapted_continuation_step_count"] == 1
+        assert update["plan"]["script"]["runtime"]["adapted_removed_step_count"] == 1
+        assert update["plan"]["script"]["runtime"]["adapted_added_step_count"] == 1
+        assert update["plan"]["script"]["runtime"]["adapted_removed_step_ids"] == ["report"]
+        assert update["plan"]["script"]["runtime"]["adapted_added_step_ids"] == ["decision"]
         assert "report" not in step_ids
         assert any(row["event_type"] == "workflow_plan_update" for row in stored_events)
         assert run and [step["step_id"] for step in run["plan"]["steps"]] == ["scan", "decision"]
@@ -2215,6 +2221,8 @@ def test_workflow_executor_can_stop_remaining_steps_after_adaptation(tmp_path, m
 
         assert statuses == {"scan": "completed", "report": "skipped"}
         assert update["plan"]["script"]["runtime"]["adaptation_complete"] is True
+        assert update["plan"]["script"]["runtime"]["adapted_skipped_step_count"] == 1
+        assert update["plan"]["script"]["runtime"]["adapted_removed_step_ids"] == ["report"]
         assert update["plan"]["script"]["synthesis_prompt"] == "说明没有可靠候选和下一步修复动作。"
         assert len(provider.calls) == 4
         assert events[-1]["text"] == "没有可靠候选，先修复数据质量。"
