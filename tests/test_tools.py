@@ -2774,6 +2774,8 @@ class TestSymbolPool:
         assert first["stage"] == "Markup"
         assert first["tag"] == "主线买点确认 | 威科夫候选"
         assert first["rank_reason"] == "研报候选#1；优先分 12.50"
+        assert first["action_status"] == "blocked_by_market_gate"
+        assert first["next_step"] == "只观察，等待市场风险闸门重新打开"
         assert first["quality_factors"] == [
             "高优先级研报候选",
             "趋势线",
@@ -2782,9 +2784,11 @@ class TestSymbolPool:
             "研报候选#1",
             "优先分 12.50",
         ]
-        assert first["risk_factors"] == []
+        assert first["risk_factors"] == ["大盘风险闸门关闭"]
         assert result["top_candidates"][1]["code"] == "000001"
-        assert result["top_candidates"][1]["risk_factors"] == ["未进入本轮研报候选"]
+        assert result["top_candidates"][1]["action_status"] == "watch_only"
+        assert result["top_candidates"][1]["next_step"] == "观察池跟踪，暂不进入本轮AI复核"
+        assert result["top_candidates"][1]["risk_factors"] == ["未进入本轮研报候选", "观察池，不进入本轮AI复核"]
 
     def test_screen_stocks_surfaces_candidate_quality_metrics_in_briefs(self, monkeypatch):
         from agents import screen_tools
@@ -2959,7 +2963,7 @@ class TestSymbolPool:
                 ],
                 {},
                 {
-                    "metrics": {},
+                    "metrics": {"total_symbols": 2, "fetch_ok": 2, "fetch_fail": 0},
                     "triggers": {"sos": [("000011", 20.0), ("000012", 20.0)]},
                     "trade_mode": {
                         "mode": "risk_on",
@@ -3034,6 +3038,11 @@ class TestSymbolPool:
         assert result["summary"]["watch_candidates"] == 1
         assert result["next_tool"] == {}
         assert result["next_action"].startswith("保留观察池，暂不生成 AI 研报")
+        top = result["top_candidates"][0]
+        assert top["selected_for_report"] is False
+        assert top["raw_selected_for_report"] is True
+        assert top["action_status"] == "watch_only"
+        assert top["next_step"] == "观察池跟踪，暂不进入本轮AI复核"
         assert report["status"] == "blocked_by_quality_gate"
         assert "000013 低质量研报候选 风险调整质量分 65.00 低于AI复核门槛 70.00" in report["reason"]
         watch = result["action_plan"]["watch_candidates"][0]
@@ -3159,6 +3168,8 @@ class TestSymbolPool:
         assert candidate["selection_source"] == "alpha_candidate"
         assert candidate["candidate_lane"] == "launchpad"
         assert candidate["entry_type"] == "launchpad"
+        assert candidate["action_status"] == "watch_only"
+        assert candidate["next_step"] == "观察池跟踪，暂不进入本轮AI复核"
         assert "趋势线 / 主升阶段 / 启动平台 / 候选车道" in primary_pick["why"]
         assert primary_pick["candidate_lane"] == "launchpad"
         assert watch_candidate["candidate_lane"] == "launchpad"

@@ -79,6 +79,7 @@ def screen_stocks(
         decision_brief = _decision_brief(trade_mode, top_candidates, data_quality)
         selection_brief = _selection_brief(trade_mode, top_candidates, data_quality)
         action_plan = _action_plan(trade_mode, top_candidates, data_quality)
+        top_candidates = _annotate_top_candidate_actions(top_candidates, action_plan)
         decision_state = _screen_decision_state(selection_brief, action_plan, trade_mode)
         symbols_for_report = list(action_plan.get("report_candidates") or [])
         watch_candidates = list(action_plan.get("watch_candidates") or [])
@@ -669,6 +670,57 @@ def _screen_candidate_guard_summary(selection_brief: dict, action_plan: dict) ->
             if isinstance(value, list):
                 rows.extend(row for row in value if isinstance(row, dict))
     return candidate_guard_summary(_dedupe_guard_rows(rows))
+
+
+def _annotate_top_candidate_actions(candidates: list[dict], action_plan: dict) -> list[dict]:
+    action_rows = _candidate_action_rows(action_plan)
+    out: list[dict] = []
+    for row in candidates:
+        code = str(row.get("code") or "").strip()
+        action_row = action_rows.get(code, {})
+        out.append(_annotate_top_candidate_action(row, action_row))
+    return out
+
+
+def _candidate_action_rows(action_plan: dict) -> dict[str, dict]:
+    rows: dict[str, dict] = {}
+    for key in ("report_candidates", "watch_candidates"):
+        value = action_plan.get(key) if isinstance(action_plan, dict) else []
+        if not isinstance(value, list):
+            continue
+        for row in value:
+            if not isinstance(row, dict):
+                continue
+            code = str(row.get("code") or "").strip()
+            if code:
+                rows[code] = {**row, "_final_bucket": "report" if key == "report_candidates" else "watch"}
+    return rows
+
+
+def _annotate_top_candidate_action(row: dict, action_row: dict) -> dict:
+    if not action_row:
+        return dict(row)
+    payload = dict(row)
+    for field in ("action_status", "next_step"):
+        value = action_row.get(field)
+        if value not in (None, "", [], {}):
+            payload[field] = value
+    final_selected = action_row.get("_final_bucket") == "report"
+    if payload.get("selected_for_report") != final_selected:
+        payload["raw_selected_for_report"] = payload.get("selected_for_report")
+    payload["selected_for_report"] = final_selected
+    payload["risk_factors"] = _merge_candidate_factors(row.get("risk_factors"), action_row.get("risk_factors"))
+    return payload
+
+
+def _merge_candidate_factors(*values: Any) -> list[str]:
+    factors: list[str] = []
+    for value in values:
+        if isinstance(value, list):
+            factors.extend(str(item).strip() for item in value if str(item).strip())
+        elif str(value or "").strip():
+            factors.append(str(value).strip())
+    return list(dict.fromkeys(factors))
 
 
 def _dedupe_guard_rows(rows: list[dict]) -> list[dict]:

@@ -1498,6 +1498,8 @@ _CANDIDATE_PREVIEW_FIELDS = (
     "selection_strategy",
     "recommend_date",
     "is_ai_recommended",
+    "selected_for_report",
+    "raw_selected_for_report",
     "funnel_score",
     "recommend_count",
     "candidate_shadow_score",

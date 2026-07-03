@@ -571,6 +571,17 @@ def test_screen_stocks_preview_surfaces_quality_gate():
                 "reason": reason,
             },
         },
+        "top_candidates": [
+            {
+                "code": "000013",
+                "name": "低质量候选",
+                "selected_for_report": False,
+                "raw_selected_for_report": True,
+                "risk_adjusted_quality_score": 65.0,
+                "action_status": "watch_only",
+                "next_step": "观察池跟踪，暂不进入本轮AI复核",
+            }
+        ],
     }
 
     preview = tool_result_preview("screen_stocks", result)
@@ -578,6 +589,8 @@ def test_screen_stocks_preview_surfaces_quality_gate():
 
     assert '"quality_gate": {"status": "blocked_by_quality_gate"' in preview
     assert '"ai_review_allowed": false' in preview
+    assert '"selected_for_report": false' in preview
+    assert '"raw_selected_for_report": true' in preview
     assert "候选结论: 观察候选 000013 低质量候选" in preview
     assert "护栏: 000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00" in preview
     assert lines == [
