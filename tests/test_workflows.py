@@ -974,6 +974,20 @@ def test_dispatch_falls_back_to_workflow_for_colloquial_buy_opportunity_when_rou
     assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
 
 
+def test_dispatch_falls_back_to_workflow_for_temporal_buy_opportunity_when_router_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="今天买啥",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），核心选股请求兜底进入动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
+
+
 def test_dispatch_guards_colloquial_buy_opportunity_from_direct_model_route():
     provider = RouterDecisionProvider('{"mode":"direct","confidence":0.91,"reason":"用户只是问能买什么"}')
 

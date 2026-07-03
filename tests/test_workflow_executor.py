@@ -613,6 +613,19 @@ def test_workflow_planner_stock_fallback_handles_tracking_direction_wording():
         assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
+def test_workflow_planner_stock_fallback_handles_temporal_buy_wording():
+    for text in ("今天买啥", "明天买什么", "现在能买啥", "尾盘能买什么"):
+        run = plan_workflow(text, context=WORKFLOWS["dynamic_task"])
+
+        assert [step.step_id for step in run.steps] == ["scan_candidates", "diagnose_candidates", "strategy_decision"]
+        assert [step.tool_scope for step in run.steps] == [
+            ("screen_stocks",),
+            ("analyze_stock",),
+            ("generate_strategy_decision",),
+        ]
+        assert run.script["runtime"]["fallback_kind"] == "stock_selection"
+
+
 def test_workflow_planner_stock_fallback_passes_style_args():
     run = plan_workflow(
         "今天帮我找几只强势低吸标的，给下一步",

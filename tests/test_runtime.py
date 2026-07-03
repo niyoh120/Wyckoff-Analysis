@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from cli.loop_guard import resolve_turn_expectation
 from cli.runtime import AgentRuntime, partition_tool_calls
-from cli.screen_intent import stock_screen_suggested_args
+from cli.screen_intent import stock_screen_suggested_args, stock_screen_temporal_buy_hint
 from cli.workflows.router import WORKFLOWS
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
@@ -591,6 +591,19 @@ def test_turn_expectation_forces_tool_for_colloquial_style_stock_selection():
     assert expectation.required_tool == "screen_stocks"
     assert expectation.suggested_args == {"board": "all", "style": "trend,pullback"}
     assert expectation.required_args == {"style": "trend,pullback"}
+
+
+def test_turn_expectation_forces_tool_for_temporal_buy_opportunity_wording():
+    for text in ("今天买啥", "现在能买啥", "尾盘能买什么"):
+        expectation = resolve_turn_expectation([{"role": "user", "content": text}])
+
+        assert expectation is not None
+        assert expectation.required_tool == "screen_stocks"
+        assert expectation.suggested_args == {"board": "all"}
+
+    assert stock_screen_temporal_buy_hint("今天买啥") is True
+    assert stock_screen_temporal_buy_hint("买啥") is False
+    assert resolve_turn_expectation([{"role": "user", "content": "怎么买股票"}]) is None
 
 
 def test_turn_expectation_infers_full_financial_stock_screen_args():

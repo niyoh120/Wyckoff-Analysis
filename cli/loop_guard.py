@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from cli.screen_intent import stock_screen_suggested_args, stock_screen_theme_hint
+from cli.screen_intent import stock_screen_suggested_args, stock_screen_temporal_buy_hint, stock_screen_theme_hint
 
 MAX_TOOL_ROUNDS = 15
 MAX_INCOMPLETE_TOOL_RETRIES = 2
@@ -512,6 +512,8 @@ def _stock_screen_expected(text: str) -> bool:
     if any(hint in text for hint in _STOCK_SCREEN_REVIEW_HINTS):
         return False
     if any(hint in text for hint in _STOCK_SCREEN_HINTS):
+        return True
+    if stock_screen_temporal_buy_hint(text):
         return True
     if _etf_screen_expected(text):
         return True

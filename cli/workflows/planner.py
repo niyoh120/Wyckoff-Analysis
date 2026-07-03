@@ -8,7 +8,7 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from cli.screen_intent import stock_screen_suggested_args, stock_screen_theme_hint
+from cli.screen_intent import stock_screen_suggested_args, stock_screen_temporal_buy_hint, stock_screen_theme_hint
 from cli.tools import TOOL_SCHEMAS, TOOL_SPECS
 from cli.workflows._shared import (
     PORTFOLIO_REVIEW_CONTEXT_MARKERS,
@@ -1877,8 +1877,9 @@ def _looks_like_stock_selection_delivery(user_text: str) -> bool:
 
 
 def _has_stock_buy_opportunity_target(text: str) -> bool:
-    return any(marker in text for marker in _STOCK_FALLBACK_CONTEXT_MARKERS) and any(
-        marker in text for marker in _STOCK_FALLBACK_BUY_OPPORTUNITY_MARKERS
+    return stock_screen_temporal_buy_hint(text) or (
+        any(marker in text for marker in _STOCK_FALLBACK_CONTEXT_MARKERS)
+        and any(marker in text for marker in _STOCK_FALLBACK_BUY_OPPORTUNITY_MARKERS)
     )
 
 

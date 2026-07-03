@@ -83,6 +83,37 @@ _FINANCIAL_METRICS_OFF_HINTS = (
     "先筛",
 )
 
+_TEMPORAL_BUY_CONTEXT_HINTS = (
+    "今天",
+    "今日",
+    "明天",
+    "明日",
+    "现在",
+    "当前",
+    "盘中",
+    "尾盘",
+    "早盘",
+    "午后",
+    "下午",
+    "最近",
+    "近期",
+    "本周",
+    "这周",
+)
+
+_TEMPORAL_BUY_ACTION_HINTS = (
+    "买啥",
+    "买什么",
+    "买哪",
+    "买哪个",
+    "能买啥",
+    "能买什么",
+    "可买啥",
+    "可买什么",
+    "可以买啥",
+    "可以买什么",
+)
+
 
 def stock_screen_suggested_args(text: str, *, include_default_board: bool = True) -> dict[str, str]:
     """Infer simple screen_stocks arguments from user wording."""
@@ -137,6 +168,13 @@ def stock_screen_theme_hint(text: str) -> str:
         if any(term and term.lower() in normalized for term in terms):
             return theme
     return ""
+
+
+def stock_screen_temporal_buy_hint(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return any(hint in normalized for hint in _TEMPORAL_BUY_CONTEXT_HINTS) and any(
+        hint in normalized for hint in _TEMPORAL_BUY_ACTION_HINTS
+    )
 
 
 def _normalize_text(text: str) -> str:
