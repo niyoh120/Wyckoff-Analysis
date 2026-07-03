@@ -782,14 +782,23 @@ def _step_required_tool_names(step: WorkflowStep) -> tuple[str, ...]:
 
 def _step_required_tool_args(step: WorkflowStep) -> dict[str, dict[str, str]]:
     tools = _step_required_tool_names(step)
-    if len(tools) != 1:
-        return {}
     args = _simple_args_hint(step.args_hint)
-    return {tools[0]: args} if args else {}
+    if not tools or not args:
+        return {}
+    if len(tools) == 1:
+        return {tools[0]: args}
+    return {tool: tool_args for tool in tools if (tool_args := _tool_scoped_args(tool, args))}
 
 
 _SIMPLE_ARGS_HINT_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(.+?)\s*$")
 _NON_TOOL_ARG_HINT_KEYS = {"tool", "targets", "call_each", "instruction"}
+_TOOL_ARG_KEYS = {
+    "screen_stocks": frozenset({"board", "style", "limit", "financial_metrics"}),
+    "generate_ai_report": frozenset({"stock_codes"}),
+    "generate_strategy_decision": frozenset({"reviewed_codes", "reviewed_symbols", "report_text"}),
+    "portfolio": frozenset({"mode", "action"}),
+    "analyze_stock": frozenset({"code", "symbol", "mode"}),
+}
 
 
 def _simple_args_hint(text: str) -> dict[str, str]:
@@ -803,6 +812,13 @@ def _simple_args_hint(text: str) -> dict[str, str]:
             continue
         args[key] = value
     return args
+
+
+def _tool_scoped_args(tool_name: str, args: dict[str, str]) -> dict[str, str]:
+    keys = _TOOL_ARG_KEYS.get(tool_name)
+    if not keys:
+        return {}
+    return {key: value for key, value in args.items() if key in keys}
 
 
 def _clean_args_hint_value(value: str) -> str:
