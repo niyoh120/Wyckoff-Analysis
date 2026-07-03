@@ -639,6 +639,20 @@ def test_turn_expectation_forces_tool_for_candidate_ticket_wording():
     assert resolve_turn_expectation([{"role": "user", "content": "这几张票怎么样"}]) is None
 
 
+def test_turn_expectation_infers_quality_style_from_defensive_wording():
+    for text in ("今天给我几只稳一点的票", "今天低风险股票有哪些", "今天找几只波动小的票", "别太激进，给我几个标的"):
+        expectation = resolve_turn_expectation([{"role": "user", "content": text}])
+
+        assert expectation is not None
+        assert expectation.required_tool == "screen_stocks"
+        assert expectation.suggested_args == {"board": "all", "style": "quality"}
+        assert expectation.required_args == {"style": "quality"}
+
+    assert stock_screen_suggested_args("今天别太激进，给我几个标的", include_default_board=False) == {
+        "style": "quality"
+    }
+
+
 def test_turn_expectation_infers_full_financial_stock_screen_args():
     expectation = resolve_turn_expectation(
         [{"role": "user", "content": "今天全量扫描创业板强势低吸标的，要带财务过滤"}]

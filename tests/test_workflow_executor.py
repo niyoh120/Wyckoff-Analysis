@@ -660,6 +660,15 @@ def test_workflow_planner_stock_fallback_handles_candidate_ticket_wording():
         assert run.script["runtime"]["fallback_kind"] == "stock_selection"
 
 
+def test_workflow_planner_stock_fallback_passes_defensive_quality_args():
+    for text in ("今天给我几只稳一点的票", "今天低风险股票有哪些", "今天找几只波动小的票", "别太激进，给我几个标的"):
+        run = plan_workflow(text, context=WORKFLOWS["dynamic_task"])
+
+        assert run.steps[0].tool_scope == ("screen_stocks",)
+        assert run.steps[0].args_hint == "board: all；style: quality"
+        assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all", "style": "quality"}
+
+
 def test_workflow_planner_stock_fallback_passes_style_args():
     run = plan_workflow(
         "今天帮我找几只强势低吸标的，给下一步",
