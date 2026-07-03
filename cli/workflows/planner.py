@@ -122,6 +122,7 @@ _PREVIOUS_DEPENDENCY_ALIASES = {
 ADAPTATION_HANDOFF_KEYS = (
     "last_strategy_decision",
     "last_ai_report",
+    "last_stock_diagnosis",
     "last_recommendation_event_eval",
     "last_screen_result",
 )
@@ -403,6 +404,7 @@ def _compact_adaptation_handoff_stage(source: str, value: dict[str, Any]) -> dic
             "summary",
             "decision_brief",
             "selection_brief",
+            "latest",
             "diagnosis_targets",
             "next_action",
             "next_tool",
@@ -445,6 +447,9 @@ def _adaptation_candidate_rows(source: str, value: dict[str, Any], limit: int = 
     elif source == "last_recommendation_event_eval":
         selection = value.get("policy_selection") if isinstance(value.get("policy_selection"), dict) else {}
         rows.extend(_plain_list(selection.get("picks")))
+    elif source == "last_stock_diagnosis":
+        rows.extend(_plain_list(value.get("diagnosed_symbols")))
+        rows.append(value.get("latest"))
     else:
         rows.extend(_plain_list(value.get("reviewed_symbols")))
     return [_compact_adaptation_candidate(row) for row in rows if isinstance(row, dict)][:limit]
@@ -458,14 +463,24 @@ def _compact_adaptation_candidate(row: dict[str, Any]) -> dict[str, Any]:
             "name",
             "action_status",
             "status",
+            "health",
+            "status_label",
+            "headline",
+            "candidate_score",
+            "latest_close",
+            "latest_date",
             "trade_readiness",
             "new_buy_allowed",
+            "stage",
+            "candidate_lane",
             "candidate_shadow_score",
             "candidate_quality_score",
             "risk_adjusted_quality_score",
             "rank_reason",
+            "quality_factors",
             "risk_factors",
             "next_step",
+            "data_status",
         ),
     )
 

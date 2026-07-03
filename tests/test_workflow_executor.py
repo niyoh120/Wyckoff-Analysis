@@ -26,6 +26,7 @@ from cli.workflows.planner import (
     _PLAN_SYSTEM_PROMPT,
     _REPAIR_SYSTEM_PROMPT,
     MAX_WORKFLOW_STEPS,
+    _adaptation_handoff_summary,
     plan_workflow,
 )
 from cli.workflows.resume import (
@@ -1090,6 +1091,46 @@ def test_workflow_handoff_state_compacts_stock_diagnosis_and_candidate_conclusio
     assert "诊断分83" in conclusion["line"]
     assert "短线涨幅偏快" in conclusion["line"]
     assert conclusion["next_step"] == "加入重点观察，等待市场闸门打开"
+
+
+def test_workflow_adaptation_handoff_summary_includes_stock_diagnosis():
+    summary = _adaptation_handoff_summary(
+        [
+            {
+                "step": {"step_id": "diagnose_candidates", "title": "诊断重点候选结构"},
+                "result": {
+                    "handoff_state": {
+                        "last_stock_diagnosis": {
+                            "latest": {"code": "002326", "name": "永太科技"},
+                            "next_action": "诊断已完成，可继续形成攻防边界",
+                            "diagnosed_symbols": [
+                                {
+                                    "code": "002326",
+                                    "name": "永太科技",
+                                    "health": "健康",
+                                    "status_label": "重点观察",
+                                    "candidate_score": 83.04,
+                                    "risk_factors": ["短线涨幅偏快"],
+                                    "next_step": "等待市场闸门打开",
+                                    "data_status": "ok",
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+        ]
+    )
+
+    assert summary[0]["source"] == "last_stock_diagnosis"
+    assert summary[0]["latest"]["code"] == "002326"
+    assert summary[0]["next_action"] == "诊断已完成，可继续形成攻防边界"
+    candidate = summary[0]["candidates"][0]
+    assert candidate["code"] == "002326"
+    assert candidate["candidate_score"] == 83.04
+    assert candidate["status_label"] == "重点观察"
+    assert candidate["risk_factors"] == ["短线涨幅偏快"]
+    assert candidate["next_step"] == "等待市场闸门打开"
 
 
 def test_workflow_handoff_state_preserves_recommendation_candidate_guard():
