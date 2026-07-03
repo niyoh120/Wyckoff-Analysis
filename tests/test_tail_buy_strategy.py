@@ -12,6 +12,7 @@ from core.tail_buy.strategy import (
     TailBuyCandidate,
     TailBuyStrategyConfig,
     _normalize_signal_score,
+    build_llm_prompt,
     compute_tail_features,
     evaluate_rule_decision,
     merge_rule_and_llm,
@@ -490,6 +491,36 @@ def test_daily_trap_pressure_downgrades_tail_buy_to_watch():
     assert "日线" in "；".join(gated.rule_reasons)
 
 
+def test_llm_prompt_surfaces_daily_trap_pressure_gate():
+    candidate = evaluate_rule_decision(
+        TailBuyCandidate(
+            code="002217",
+            name="合力泰",
+            signal_date="2026-04-20",
+            status="confirmed",
+            signal_type="sos",
+            signal_score=6.0,
+            snap={"snap_support": 9.8},
+        ),
+        _make_intraday_df(start=10.3, end=11.2, tail_boost=0.8, tail_volume_mult=1.8),
+        style="trend",
+        config=TailBuyStrategyConfig(
+            naked_support_extension_pct=30.0,
+            chase_day_ret_pct=20.0,
+            chase_high_ret_pct=25.0,
+        ),
+        daily_history=_make_daily_trap_df(),
+    )
+
+    system_prompt, user_prompt = build_llm_prompt(candidate, style="trend")
+
+    assert "daily_trap_pressure=true" in system_prompt
+    assert "不能选择 BUY" in system_prompt
+    assert "daily_trap_pressure=True" in user_prompt
+    assert "daily_close_vs_ma20_pct" in user_prompt
+    assert "日线" in user_prompt
+
+
 def test_rule_scan_batch_applies_daily_trap_pressure_gate():
     class FakeTickFlow:
         def get_intraday_batch(self, symbols, *, period, count):
@@ -715,6 +746,45 @@ def test_merge_rule_and_llm_cannot_override_soft_buy_gate():
     assert merged[0].final_decision == DECISION_WATCH
     assert merged[0].priority_score <= 100.0
     assert "日内涨幅过大" in merged[0].llm_reason
+
+
+def test_merge_rule_and_llm_cannot_override_daily_trap_gate():
+    item = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=6.0,
+        rule_score=68.0,
+        rule_decision=DECISION_WATCH,
+        final_decision=DECISION_WATCH,
+        features={
+            "bars": 180,
+            "support_level": 9.8,
+            "day_low_breached_support": False,
+            "close_below_support": False,
+            "daily_trap_pressure": True,
+            "daily_trap_reason": "日线放量上影(2.6x)",
+        },
+    )
+
+    merged = merge_rule_and_llm(
+        [item],
+        {
+            "002217": {
+                "decision": DECISION_BUY,
+                "reason": "尾盘再加速",
+                "confidence": 0.8,
+                "model_used": "test-route",
+            }
+        },
+    )
+
+    assert merged[0].llm_decision == DECISION_BUY
+    assert merged[0].final_decision == DECISION_WATCH
+    assert merged[0].priority_score == 71.0
+    assert "日线放量上影" in merged[0].llm_reason
 
 
 def test_compute_tail_features_handles_volume_lot_unit_for_vwap():

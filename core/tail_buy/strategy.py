@@ -837,6 +837,7 @@ def build_llm_prompt(
         "你是A股尾盘买入策略二判助手。"
         "你只能在 BUY/WATCH/SKIP 中选择一个结论，且必须返回 JSON。"
         "若 day_low_breached_support=true、tail_blowoff_reversal=true、缺少支撑锚点或防守水温单EVR，必须选择 SKIP。"
+        "若 daily_trap_pressure=true，不能选择 BUY，只能 WATCH 或 SKIP。"
         "禁止输出投资建议免责声明，禁止输出 markdown。"
     )
     user_prompt = (
@@ -857,6 +858,11 @@ def build_llm_prompt(
         f"- day_low_breached_support={bool(f.get('day_low_breached_support'))}\n"
         f"- intraday_high_ret_pct={safe_float(f.get('intraday_high_ret_pct')):.3f}\n"
         f"- tail_blowoff_reversal={bool(f.get('tail_blowoff_reversal'))}\n"
+        f"- daily_trap_pressure={bool(f.get('daily_trap_pressure'))}\n"
+        f"- daily_close_vs_ma20_pct={safe_float(f.get('daily_close_vs_ma20_pct')):.3f}\n"
+        f"- daily_upper_shadow_pct={safe_float(f.get('daily_upper_shadow_pct')):.3f}\n"
+        f"- daily_volume_ratio={safe_float(f.get('daily_volume_ratio')):.3f}\n"
+        f"- daily_trap_reason={str(f.get('daily_trap_reason') or '-')[:80]}\n"
         f"- strong_hold_vwap={bool(f.get('strong_hold_vwap'))}, hold_vwap_ratio={safe_float(f.get('hold_vwap_ratio')):.3f}\n"
         f"- reclaim_vwap={bool(f.get('reclaim_vwap'))}\n"
         f"- breakout_tail={bool(f.get('breakout_tail'))}\n"
