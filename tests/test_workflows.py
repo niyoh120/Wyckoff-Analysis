@@ -935,6 +935,36 @@ def test_dispatch_falls_back_to_workflow_for_chatty_stock_selection_when_model_r
     assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
 
 
+def test_dispatch_falls_back_to_workflow_for_colloquial_buy_opportunity_when_router_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="今天A股能买啥，给触发和失效",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），核心选股请求兜底进入动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "stock_selection_guard")
+
+
+def test_dispatch_guards_colloquial_buy_opportunity_from_direct_model_route():
+    provider = RouterDecisionProvider('{"mode":"direct","confidence":0.91,"reason":"用户只是问能买什么"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="今天有什么票能买，带风险边界",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "核心选股请求需要动态 workflow；覆盖模型 direct 判断：用户只是问能买什么"
+    assert workflow.route_matches == ("model_router_guard", "stock_selection_guard")
+
+
 def test_dispatch_falls_back_to_workflow_for_colloquial_style_stock_selection_when_router_unavailable():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
@@ -1118,6 +1148,20 @@ def test_dispatch_keeps_non_stock_opportunity_question_direct_when_model_router_
         StubToolRegistry(),
         session_id="s1",
         user_text="这个项目有什么机会和风险",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
+    assert workflow.route_matches == ("model_router_fallback",)
+
+
+def test_dispatch_keeps_non_stock_buy_question_direct_when_model_router_is_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="这个项目能买吗",
     )
 
     assert workflow.name == "general_chat"

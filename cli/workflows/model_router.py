@@ -80,6 +80,7 @@ _STOCK_SELECTION_DELIVERY_MARKERS = (
     "失效位",
     "下一步",
 )
+_STOCK_BUY_OPPORTUNITY_MARKERS = ("能买", "可买", "可以买", "买啥", "买什么", "值得买", "能不能买")
 _THEME_SELECTION_DELIVERY_MARKERS = (
     *_STOCK_SELECTION_SCOPE_MARKERS,
     *_STOCK_SELECTION_STYLE_MARKERS,
@@ -297,10 +298,18 @@ def _needs_stock_selection_workflow_fallback(user_text: str) -> bool:
         return True
     if _SHORT_STOCK_SELECTION_RE.search(text):
         return True
+    if _has_stock_buy_opportunity_target(text):
+        return True
     has_scope = any(marker in text for marker in _STOCK_SELECTION_SCOPE_MARKERS) or _has_stock_style_target(text)
     has_delivery = any(marker in text for marker in _STOCK_SELECTION_DELIVERY_MARKERS)
     has_context = any(marker in text for marker in _STOCK_CONTEXT_MARKERS)
     return has_scope and has_delivery and has_context
+
+
+def _has_stock_buy_opportunity_target(text: str) -> bool:
+    return any(marker in text for marker in _STOCK_CONTEXT_MARKERS) and any(
+        marker in text for marker in _STOCK_BUY_OPPORTUNITY_MARKERS
+    )
 
 
 def _has_stock_style_target(text: str) -> bool:
