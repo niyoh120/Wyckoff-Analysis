@@ -407,32 +407,38 @@ def _display_workflow_plan_event(
     steps = event.get("plan", {}).get("steps", [])
     step_count = len(steps) if isinstance(steps, list) else 0
     count_text = _workflow_task_count_text(event.get("plan"), step_count)
-    write(
-        Text.from_markup(
-            f"  [bold cyan]workflow[/bold cyan] [bold]{escape(label)}[/bold] [dim]{escape(run_id)}{count_text}[/dim]"
-        )
-    )
-    if route_line := _workflow_event_route_line(event):
-        write(route_line)
-    script_title = str(event.get("plan", {}).get("script", {}).get("title", "") or "")
-    if script_title and script_title != label:
-        write(Text.from_markup(f"    [dim]动态脚本：{escape(script_title)}[/dim]"))
-    if planner_line := _workflow_planner_line(event.get("plan")):
-        write(Text.from_markup(planner_line))
-    if rationale_line := _workflow_script_rationale_line(event.get("plan")):
-        write(Text.from_markup(rationale_line))
-    if contract_line := _workflow_plan_contract_line(event.get("plan")):
-        write(Text.from_markup(contract_line))
-    if step_count:
-        if launch_state == "pending_approval":
-            for line in _workflow_plan_step_preview_lines(steps):
-                write(Text.from_markup(line))
-        else:
-            for line in _workflow_plan_execution_lines(steps):
-                write(Text.from_markup(line))
-        write(Text.from_markup(_workflow_plan_footer_line(run_id, launch_state)))
+    lines = [f"  [bold cyan]workflow[/bold cyan] [bold]{escape(label)}[/bold] [dim]{escape(run_id)}{count_text}[/dim]"]
+    lines.extend(_workflow_plan_detail_lines(event, label, steps, step_count, launch_state))
+    write(Text.from_markup("\n".join(line for line in lines if line)))
     scroll()
     return run_id, workflow_name
+
+
+def _workflow_plan_detail_lines(
+    event: dict[str, Any], label: str, steps: Any, step_count: int, launch_state: str
+) -> list[str]:
+    plan = event.get("plan", {})
+    lines: list[str] = []
+    if route_line := _workflow_event_route_line(event):
+        lines.append(route_line)
+    script = plan.get("script") if isinstance(plan, dict) else {}
+    script_title = str(script.get("title") or "") if isinstance(script, dict) else ""
+    if script_title and script_title != label:
+        lines.append(f"    [dim]动态脚本：{escape(script_title)}[/dim]")
+    if planner_line := _workflow_planner_line(plan):
+        lines.append(planner_line)
+    if rationale_line := _workflow_script_rationale_line(plan):
+        lines.append(rationale_line)
+    if contract_line := _workflow_plan_contract_line(plan):
+        lines.append(contract_line)
+    if not step_count:
+        return lines
+    if launch_state == "pending_approval":
+        lines.extend(_workflow_plan_step_preview_lines(steps))
+    else:
+        lines.extend(_workflow_plan_execution_lines(steps))
+    lines.append(_workflow_plan_footer_line(str(event.get("run_id", "")), launch_state))
+    return lines
 
 
 def _workflow_plan_footer_line(run_id: str, launch_state: str) -> str:
@@ -444,7 +450,7 @@ def _workflow_plan_footer_line(run_id: str, launch_state: str) -> str:
     return f"    [dim]已交给 agent 动态执行，进度会按实际工具结果展开{detail}[/dim]"
 
 
-def _workflow_event_route_line(event: dict[str, Any]) -> Text | None:
+def _workflow_event_route_line(event: dict[str, Any]) -> str:
     route = event.get("route")
     if not isinstance(route, dict):
         plan = event.get("plan") if isinstance(event.get("plan"), dict) else {}
@@ -662,10 +668,10 @@ def _workflow_plan_tool_boundary_line(rows: list[dict[str, Any]], *, limit: int 
     return f"    [dim]工具边界{source}：{escape(visible + suffix)}[/dim]"
 
 
-def _workflow_route_line(route: dict[str, Any]) -> Text | None:
+def _workflow_route_line(route: dict[str, Any]) -> str:
     reason = escape(str(route.get("reason", "") or ""))
     if not reason:
-        return None
+        return ""
     matches = [escape(item) for item in _workflow_visible_route_matches(route)]
     confidence = route.get("confidence")
     parts = [f"    [dim]识别原因：{reason}"]
@@ -674,7 +680,7 @@ def _workflow_route_line(route: dict[str, Any]) -> Text | None:
     if isinstance(confidence, (int, float)) and confidence > 0:
         parts.append(f" · 置信度：{confidence:.0%}")
     parts.append("[/dim]")
-    return Text.from_markup("".join(parts))
+    return "".join(parts)
 
 
 def _workflow_visible_route_matches(route: dict[str, Any]) -> list[str]:

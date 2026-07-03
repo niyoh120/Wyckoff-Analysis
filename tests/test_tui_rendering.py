@@ -372,6 +372,8 @@ def test_display_workflow_plan_event_keeps_pending_plan_compact():
     assert "工具边界：回测" in rendered
     assert "1. 执行回测任务" not in rendered
     assert "research" not in rendered
+    assert len(writes) == 1
+    assert all(line.strip() for line in rendered.splitlines())
     assert scrolled == [True]
 
 
