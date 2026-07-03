@@ -174,14 +174,23 @@ def _context_from_model_decision(decision: dict[str, Any]) -> WorkflowContext:
 
 
 def _guarded_context_for_model_decision(user_text: str, decision: dict[str, Any]) -> WorkflowContext | None:
-    if _should_use_workflow(decision) or not _needs_stock_selection_workflow_fallback(user_text):
+    if _should_use_workflow(decision):
         return None
-    return replace(
-        WORKFLOWS["dynamic_task"],
-        route_reason=f"核心选股请求需要动态 workflow；覆盖模型 direct 判断：{decision['reason']}",
-        route_confidence=0.68,
-        route_matches=("model_router_guard", "stock_selection_guard"),
-    )
+    if _needs_stock_selection_workflow_fallback(user_text):
+        return replace(
+            WORKFLOWS["dynamic_task"],
+            route_reason=f"核心选股请求需要动态 workflow；覆盖模型 direct 判断：{decision['reason']}",
+            route_confidence=0.68,
+            route_matches=("model_router_guard", "stock_selection_guard"),
+        )
+    if _needs_portfolio_review_workflow_fallback(user_text):
+        return replace(
+            WORKFLOWS["dynamic_task"],
+            route_reason=f"组合复盘请求需要动态 workflow；覆盖模型 direct 判断：{decision['reason']}",
+            route_confidence=0.64,
+            route_matches=("model_router_guard", "portfolio_review_guard"),
+        )
+    return None
 
 
 def _model_route_reason(decision: dict[str, Any]) -> str:

@@ -11,6 +11,22 @@ from typing import Any
 PORTFOLIO_REVIEW_SUBJECT_MARKERS = ("持仓", "仓位", "组合")
 PORTFOLIO_REVIEW_STRONG_MARKERS = ("复盘", "体检", "诊断", "总结", "去留", "攻防", "策略")
 PORTFOLIO_REVIEW_CONTEXT_MARKERS = ("大盘", "市场", "水温", "盘面", "环境", "今天", "明天", "风险", "建议")
+PORTFOLIO_REVIEW_ACTION_MARKERS = (
+    *PORTFOLIO_REVIEW_STRONG_MARKERS,
+    "风险",
+    "处理",
+    "要处理",
+    "怎么办",
+    "怎么看",
+    "怎么样",
+    "调整",
+    "减仓",
+    "止损",
+    "加仓",
+    "下一步",
+)
+PORTFOLIO_REVIEW_EXPLAIN_MARKERS = ("是什么意思", "啥意思", "概念", "解释")
+PORTFOLIO_REVIEW_PERSONAL_MARKERS = ("我", "当前", "今天", "明天")
 
 STOCK_STYLE_MARKERS = ("强势", "趋势", "低吸", "右侧", "左侧", "稳健")
 STOCK_STYLE_TARGETS = ("票", "标的", "候选")
@@ -102,6 +118,12 @@ def looks_like_portfolio_review(text: str) -> bool:
     if not compacted:
         return False
     has_subject = any(marker in compacted for marker in PORTFOLIO_REVIEW_SUBJECT_MARKERS)
-    has_strong_action = any(marker in compacted for marker in PORTFOLIO_REVIEW_STRONG_MARKERS)
-    context_count = sum(1 for marker in PORTFOLIO_REVIEW_CONTEXT_MARKERS if marker in compacted)
-    return has_subject and has_strong_action and context_count >= 1
+    if not has_subject or _looks_like_portfolio_term_question(compacted):
+        return False
+    return any(marker in compacted for marker in PORTFOLIO_REVIEW_ACTION_MARKERS)
+
+
+def _looks_like_portfolio_term_question(text: str) -> bool:
+    has_explain_marker = any(marker in text for marker in PORTFOLIO_REVIEW_EXPLAIN_MARKERS)
+    has_personal_marker = any(marker in text for marker in PORTFOLIO_REVIEW_PERSONAL_MARKERS)
+    return has_explain_marker and not has_personal_marker

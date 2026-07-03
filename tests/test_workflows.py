@@ -356,7 +356,7 @@ def test_dispatch_uses_direct_runtime_for_general_chat():
     assert isinstance(runtime, AgentRuntime)
 
 
-def test_dispatch_uses_direct_runtime_for_portfolio_turn():
+def test_dispatch_falls_back_to_workflow_for_portfolio_risk_turn():
     runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
         StubToolRegistry(),
@@ -364,8 +364,10 @@ def test_dispatch_uses_direct_runtime_for_portfolio_turn():
         user_text="我的持仓有什么风险？",
     )
 
-    assert workflow.name == "general_chat"
-    assert isinstance(runtime, AgentRuntime)
+    assert workflow.name == "dynamic_task"
+    assert isinstance(runtime, WorkflowExecutor)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），组合复盘请求兜底进入动态 workflow"
+    assert workflow.route_matches == ("model_router_fallback", "portfolio_review_guard")
 
 
 def test_dispatch_direct_runtime_enforces_tool_expectations_by_default():
@@ -728,6 +730,23 @@ def test_dispatch_guards_stock_selection_delivery_from_direct_model_route():
     assert isinstance(runtime, WorkflowExecutor)
 
 
+def test_dispatch_guards_portfolio_review_from_direct_model_route():
+    provider = RouterDecisionProvider('{"mode":"direct","confidence":0.89,"reason":"只是看看持仓"}')
+
+    runtime, workflow = build_turn_runtime(
+        provider,
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="我的持仓有没有要处理的？",
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert workflow.route_reason == "组合复盘请求需要动态 workflow；覆盖模型 direct 判断：只是看看持仓"
+    assert workflow.route_confidence == 0.64
+    assert workflow.route_matches == ("model_router_guard", "portfolio_review_guard")
+    assert isinstance(runtime, WorkflowExecutor)
+
+
 def test_dispatch_model_can_override_explicit_workflow_marker_to_direct():
     provider = RouterDecisionProvider('{"mode":"direct","confidence":0.93,"reason":"只是解释概念"}')
 
@@ -948,6 +967,19 @@ def test_dispatch_keeps_simple_portfolio_view_direct_when_model_router_is_unavai
     assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
 
 
+def test_dispatch_keeps_portfolio_term_question_direct_when_router_unavailable():
+    runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="持仓策略是什么意思？",
+    )
+
+    assert workflow.name == "general_chat"
+    assert isinstance(runtime, AgentRuntime)
+    assert workflow.route_reason == "模型路由不可用（无路由响应），直接 agent 处理"
+
+
 def test_portfolio_review_fallback_script_reads_market_and_holdings_before_decision():
     _runtime, workflow = build_turn_runtime(
         ScriptedProvider([]),
@@ -972,6 +1004,31 @@ def test_portfolio_review_fallback_script_reads_market_and_holdings_before_decis
     ]
     assert run.steps[1].args_hint == "mode: diagnose"
     assert run.steps[2].depends_on == ("market_context", "portfolio_diagnosis")
+
+
+def test_portfolio_review_fallback_script_handles_risk_without_market_context():
+    _runtime, workflow = build_turn_runtime(
+        ScriptedProvider([]),
+        StubToolRegistry(),
+        session_id="s1",
+        user_text="我的持仓有什么风险？",
+    )
+    run = plan_workflow(
+        "我的持仓有什么风险？",
+        context=workflow,
+        provider=ScriptedProvider([]),
+        tools=StubToolRegistry(),
+    )
+
+    assert workflow.name == "dynamic_task"
+    assert run.script["runtime"]["fallback_kind"] == "portfolio_review"
+    assert [step.title for step in run.steps] == ["读取并诊断持仓", "形成去留和风险动作"]
+    assert [step.tool_scope for step in run.steps] == [
+        ("portfolio",),
+        ("generate_strategy_decision",),
+    ]
+    assert run.steps[0].args_hint == "mode: diagnose"
+    assert run.steps[1].depends_on == ("portfolio_diagnosis",)
 
 
 def test_dispatch_surfaces_invalid_model_router_json():
