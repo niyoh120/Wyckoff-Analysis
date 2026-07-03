@@ -769,6 +769,8 @@ def _step_tool_names(step: WorkflowStep, allowed_tools: tuple[str, ...]) -> tupl
     allowed = _concrete_tools(allowed_tools)
     if not allowed:
         return step.tool_scope or None
+    if not step.tool_scope and step.tool_scope_source == "model_declared":
+        return ()
     return effective_tool_scope(step.tool_scope, allowed)
 
 

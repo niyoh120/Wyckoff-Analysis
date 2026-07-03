@@ -1190,7 +1190,7 @@ def _filter_tool_scope(scope: tuple[str, ...], allowed_tool_names: set[str] | No
     if allowed_tool_names is None:
         return _ordered_tool_scope(scope)
     filtered = tuple(name for name in scope if name in allowed_tool_names)
-    return _ordered_tool_scope(filtered or scope)
+    return _ordered_tool_scope(filtered)
 
 
 _TOOL_SCOPE_PREDECESSORS = {

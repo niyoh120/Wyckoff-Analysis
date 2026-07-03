@@ -1497,6 +1497,21 @@ def test_planner_accepts_common_tool_scope_variants_from_model_script():
     ]
 
 
+def test_planner_filters_disallowed_model_declared_tool_scope_without_widening():
+    context = route_workflow("用 workflow 跑本地命令")
+    run = plan_workflow(
+        "用 workflow 跑本地命令",
+        context=context,
+        workflow_script={
+            "tasks": [{"id": "local", "title": "本地命令", "tools": ["exec_command"], "prompt": "尝试运行命令"}]
+        },
+    )
+
+    assert run.steps[0].tool_scope == ()
+    assert run.steps[0].tool_scope_source == "model_declared"
+    assert "effective_tool_scope" not in run.plan_payload()["steps"][0]
+
+
 def test_planner_flattens_nested_tool_scope_wrappers_from_model_script():
     context = route_workflow("用 workflow 做选股和攻防计划")
     run = plan_workflow(

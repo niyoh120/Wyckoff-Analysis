@@ -3258,7 +3258,7 @@ def test_workflow_executor_retries_backtest_scope_until_tool_runs(tmp_path, monk
         _reset_local_db(local_db)
 
 
-def test_workflow_executor_does_not_widen_filtered_explicit_tool_scope(tmp_path, monkeypatch):
+def test_workflow_executor_filters_disallowed_explicit_tool_scope_without_widening(tmp_path, monkeypatch):
     from integrations import local_db
 
     def _blocked_round(messages, tools, _system_prompt):
@@ -3310,8 +3310,10 @@ def test_workflow_executor_does_not_widen_filtered_explicit_tool_scope(tmp_path,
 
     try:
         detail = next(event for event in events if event["type"] == "workflow_step_done")["source"]["agent_detail"]
-        assert events[0]["plan"]["steps"][0]["tool_scope"] == ["exec_command"]
-        assert detail["tool_scope"] == ["exec_command"]
+        plan_step = events[0]["plan"]["steps"][0]
+        assert plan_step["tool_scope"] == []
+        assert "effective_tool_scope" not in plan_step
+        assert detail["tool_scope"] == []
         assert detail["result"] == "已阻止越权工具。"
         assert tools.calls == []
         assert events[-1]["text"] == "越权工具已被 workflow 边界拦截。"
