@@ -2579,7 +2579,7 @@ def test_workflow_candidate_delivery_backfills_missing_action_boundaries():
     assert "防追高限价=204" in final_text
     assert final_text.endswith(thin_text)
     complete_text = (
-        "300750 宁德时代，入场区196-202，触发放量站回5日线，止损188.5，失效跌破188.5取消交易，防追高限价204。"
+        "首选 300750 宁德时代，入场区196-202，触发放量站回5日线，止损188.5，失效跌破188.5取消交易，防追高限价204。"
     )
     assert _ensure_candidate_delivery(complete_text, results) == complete_text
 
@@ -2617,7 +2617,7 @@ def test_workflow_candidate_delivery_backfills_missing_evidence():
     assert "风险=未来窗口标签尚未成熟" in final_text
     assert "下一步=生成 AI 研报" in final_text
     assert final_text.endswith(thin_text)
-    complete_text = "300750 宁德时代，证据是事件主线机器人(灵巧手)。"
+    complete_text = "首选 300750 宁德时代，证据是事件主线机器人(灵巧手)。"
     assert _ensure_candidate_delivery(complete_text, results) == complete_text
 
 
@@ -2647,13 +2647,49 @@ def test_workflow_candidate_delivery_backfills_only_missing_candidates():
             },
         }
     ]
-    text = "000014 高质量候选，证据是候选影子92。"
+    text = "首选 000014 高质量候选，证据是候选影子92。"
 
     final_text = _ensure_candidate_delivery(text, results)
     prepended = final_text.split("\n\n", 1)[0]
 
     assert prepended.startswith("候选结论: 备选复核候选 000015 次优候选")
     assert "候选结论: 首选 000014 高质量候选" not in prepended
+    assert final_text.endswith(text)
+
+
+def test_workflow_candidate_delivery_backfills_missing_candidate_roles():
+    results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "handoff_state": {
+                    "last_screen_result": {
+                        "report_candidates": [
+                            {
+                                "code": "000014",
+                                "name": "高质量候选",
+                                "action_status": "ready_for_ai_review",
+                                "candidate_shadow_score": 92.0,
+                            },
+                            {
+                                "code": "000015",
+                                "name": "次优候选",
+                                "action_status": "ready_for_ai_review",
+                                "candidate_shadow_score": 88.0,
+                            },
+                        ]
+                    }
+                }
+            },
+        }
+    ]
+    text = "000014 高质量候选，证据是候选影子92。000015 次优候选，证据是候选影子88。"
+
+    final_text = _ensure_candidate_delivery(text, results)
+    prepended = final_text.split("\n\n", 1)[0]
+
+    assert "候选结论: 首选 000014 高质量候选" in prepended
+    assert "候选结论: 备选复核候选 000015 次优候选" in prepended
     assert final_text.endswith(text)
 
 

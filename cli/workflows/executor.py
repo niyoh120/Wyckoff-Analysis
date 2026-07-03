@@ -1487,9 +1487,15 @@ def _text_covers_candidate_conclusions(text: str, conclusions: list[dict[str, An
 def _text_covers_candidate_conclusion(lowered_text: str, item: dict[str, Any]) -> bool:
     return (
         _text_mentions_candidate_identity(lowered_text, item)
+        and _text_covers_candidate_role(lowered_text, item)
         and _text_covers_candidate_action(lowered_text, item)
         and _text_covers_candidate_support(lowered_text, item)
     )
+
+
+def _text_covers_candidate_role(lowered_text: str, item: dict[str, Any]) -> bool:
+    role = str(item.get("role") or "").strip().lower()
+    return not role or role in lowered_text
 
 
 def _text_mentions_candidate_identity(lowered_text: str, item: dict[str, Any]) -> bool:
@@ -1578,10 +1584,12 @@ def _fallback_candidate_conclusion_payload(
     guard_reason: str = "",
     ready_rank: int = 0,
 ) -> dict[str, Any]:
-    line = _fallback_candidate_line(row, stage, handoff, guard_reason, ready_rank)
+    role = _fallback_candidate_prefix(row, guard_reason, ready_rank)
+    line = _fallback_candidate_line(row, stage, handoff, guard_reason, ready_rank, role)
     return _drop_empty(
         {
             "line": line,
+            "role": role,
             "code": str(row.get("code") or "").strip(),
             "name": str(row.get("name") or "").strip(),
             "action_status": str(row.get("action_status") or "").strip(),
@@ -1604,12 +1612,19 @@ def _ready_candidate_rank(row: dict[str, Any], guard_reason: str, ready_count: i
 
 
 def _fallback_candidate_line(
-    row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any], guard_reason: str = "", ready_rank: int = 0
+    row: dict[str, Any],
+    stage: dict[str, Any],
+    handoff: dict[str, Any],
+    guard_reason: str = "",
+    ready_rank: int = 0,
+    role: str = "",
 ) -> str:
     if not guard_reason:
         guard_reason = _fallback_guard_reason_from_handoff(row, stage, handoff)
+    if not role:
+        role = _fallback_candidate_prefix(row, guard_reason, ready_rank)
     parts = [
-        f"{_fallback_candidate_prefix(row, guard_reason, ready_rank)} {_fallback_candidate_name(row)}",
+        f"{role} {_fallback_candidate_name(row)}",
         _fallback_status_part(row),
         _fallback_action_part(row),
         _fallback_evidence_part(row),
