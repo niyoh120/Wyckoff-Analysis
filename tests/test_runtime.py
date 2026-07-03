@@ -626,6 +626,7 @@ def test_turn_expectation_infers_quick_scan_financial_skip():
 def test_turn_expectation_infers_combined_stock_screen_board():
     expectation = resolve_turn_expectation([{"role": "user", "content": "今天帮我筛主板和创业板强势标的"}])
     double_growth = resolve_turn_expectation([{"role": "user", "content": "今天双创低吸机会有哪些"}])
+    non_bse = resolve_turn_expectation([{"role": "user", "content": "今天沪深A强势机会有哪些"}])
 
     assert expectation is not None
     assert expectation.required_tool == "screen_stocks"
@@ -633,6 +634,9 @@ def test_turn_expectation_infers_combined_stock_screen_board():
     assert double_growth is not None
     assert double_growth.required_tool == "screen_stocks"
     assert double_growth.suggested_args == {"board": "main_chinext_star", "style": "pullback"}
+    assert non_bse is not None
+    assert non_bse.required_tool == "screen_stocks"
+    assert non_bse.suggested_args == {"board": "main_chinext_star", "style": "trend"}
 
 
 def test_stock_screen_args_infer_more_combined_a_share_board_phrases():
@@ -643,6 +647,10 @@ def test_stock_screen_args_infer_more_combined_a_share_board_phrases():
     assert stock_screen_suggested_args("双创低吸机会有哪些") == {
         "board": "main_chinext_star",
         "style": "pullback",
+    }
+    assert stock_screen_suggested_args("今天A股不含北交所，全量筛选") == {
+        "board": "main_chinext_star",
+        "limit": "0",
     }
 
 

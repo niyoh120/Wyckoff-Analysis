@@ -118,8 +118,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "board": {
                     "type": "string",
                     "description": (
-                        "股票池板块：'all'（全A股目标板块）、'main'（主板）、"
-                        "'chinext'（创业板）、'star'（科创板）、'bse'（北交所）"
+                        "股票池板块：'all'（全A股目标板块，含北交所）、"
+                        "'main_chinext_star'（沪深主板+创业板+科创板，不含北交所）、"
+                        "'main'（主板）、'chinext'（创业板）、'star'（科创板）、'bse'（北交所）"
                     ),
                 },
                 "style": {

@@ -2315,6 +2315,13 @@ class TestSymbolPool:
         assert captured_kwargs["pool_board"] == "main_chinext_star"
         assert result["scan_scope"]["board"] == "main_chinext_star"
 
+        captured_kwargs.clear()
+        result = screen_tools.screen_stocks(board="沪深A股", limit=25)
+
+        assert "error" not in result
+        assert captured_kwargs["pool_board"] == "main_chinext_star"
+        assert result["scan_scope"]["board"] == "main_chinext_star"
+
     def test_screen_stocks_surfaces_bounded_scan_scope(self, monkeypatch):
         from agents import screen_tools
 
