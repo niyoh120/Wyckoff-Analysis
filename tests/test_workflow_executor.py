@@ -909,6 +909,7 @@ def test_workflow_handoff_state_compacts_candidate_context():
                 "scan_scope": {"source": "screen_stocks"},
                 "style_preference": {"raw": "trend", "styles": ["trend"]},
                 "theme_preference": {"raw": "机器人", "theme": "机器人"},
+                "preference_match": {"style": "miss", "theme": "miss"},
                 "theme_context": {
                     "event_mainlines": "机器人 0.82/爆发",
                     "today_activity": "机器人 0.76/活跃",
@@ -1091,6 +1092,7 @@ def test_workflow_handoff_state_compacts_candidate_context():
     screen = handoff["last_screen_result"]
     assert screen["style_preference"] == {"raw": "trend", "styles": ["trend"]}
     assert screen["theme_preference"] == {"raw": "机器人", "theme": "机器人"}
+    assert screen["preference_match"] == {"style": "miss", "theme": "miss"}
     assert screen["selection_brief"]["best_codes"] == ["300750"]
     assert screen["next_action"] == "首选候选已通过市场闸门，可进入 AI 研报复核"
     assert screen["next_tool"]["tool"] == "generate_ai_report"

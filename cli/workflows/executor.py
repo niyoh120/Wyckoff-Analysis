@@ -1066,6 +1066,7 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
         (
             "style_preference",
             "theme_preference",
+            "preference_match",
             "scan_scope",
             "summary",
             "data_quality",
