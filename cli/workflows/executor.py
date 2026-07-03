@@ -1968,7 +1968,7 @@ def _candidate_status_rank(row: dict[str, Any]) -> int:
     status = str(row.get("action_status") or row.get("status") or "").strip()
     if status == "ready_for_ai_review":
         return 4
-    if status in {"candidate", "review_ready"}:
+    if status in {"candidate", "review_ready", "repair_review_only", "confirmation_required"}:
         return 3
     if status == "watch_only":
         return 2

@@ -2707,6 +2707,41 @@ def test_workflow_candidate_conclusion_prefers_ready_high_score_over_first_watch
     assert "观察候选 000013 观察候选" not in summary.splitlines()[1]
 
 
+def test_workflow_candidate_conclusion_prefers_limited_review_over_watch():
+    summary = _fallback_summary(
+        [
+            {
+                "step": {"title": "扫描候选"},
+                "result": {
+                    "status": "completed",
+                    "result": "扫描完成。",
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "report_candidates": [
+                                {
+                                    "code": "000013",
+                                    "name": "观察候选",
+                                    "action_status": "watch_only",
+                                    "candidate_shadow_score": 99.0,
+                                },
+                                {
+                                    "code": "000014",
+                                    "name": "修复候选",
+                                    "action_status": "repair_review_only",
+                                    "candidate_shadow_score": 88.0,
+                                },
+                            ]
+                        }
+                    },
+                },
+            }
+        ]
+    )
+
+    assert "候选结论: 修复复核候选 000014 修复候选" in summary.splitlines()[1]
+    assert "观察候选 000013 观察候选" not in summary.splitlines()[1]
+
+
 def test_workflow_candidate_conclusion_prefers_higher_quality_within_same_status():
     conclusion = _candidate_conclusion_from_handoff(
         {
