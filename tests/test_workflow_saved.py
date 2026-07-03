@@ -39,6 +39,36 @@ def test_save_and_load_workflow_script(monkeypatch, tmp_path):
     assert "deep-research" in names
 
 
+def test_save_workflow_script_strips_run_specific_runtime(monkeypatch, tmp_path):
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    run = {
+        "run_id": "wf_restart",
+        "workflow": "dynamic_task",
+        "label": "重跑任务",
+        "plan": {
+            "script": {
+                "title": "可复用脚本",
+                "runtime": {
+                    "planner": "stored_script",
+                    "adaptive": True,
+                    "script_path": "/tmp/wf_restart.json",
+                    "rerun_of": "wf_old",
+                    "only_step_id": "scan",
+                    "only_step_missing": "missing",
+                    "args": "旧参数",
+                },
+                "tasks": [{"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描 {args}"}],
+            }
+        },
+    }
+
+    save_workflow_script("Reusable", run)
+    loaded = load_saved_workflow("reusable")
+
+    assert loaded
+    assert loaded["script"]["runtime"] == {"adaptive": True}
+
+
 def test_load_workflow_script_payload_accepts_persisted_plan(tmp_path):
     path = tmp_path / "wf.json"
     path.write_text(

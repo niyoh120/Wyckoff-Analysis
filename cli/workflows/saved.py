@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from typing import Any
 from cli.scratchpad import wyckoff_home
 
 _NAME_RE = re.compile(r"[^a-zA-Z0-9_-]+")
+_REUSABLE_RUNTIME_FIELDS = ("adaptive",)
 _BUILTIN_WORKFLOWS: dict[str, dict[str, Any]] = {
     "deep-research": {
         "name": "deep-research",
@@ -87,7 +89,7 @@ def save_workflow_script(name: str, run: dict[str, Any]) -> Path:
         "allowed_tools": run.get("plan", {}).get("allowed_tools", []),
         "route": run.get("plan", {}).get("route", {}),
         "saved_at": datetime.now().isoformat(timespec="seconds"),
-        "script": script,
+        "script": _reusable_workflow_script(script),
     }
     directory = workflows_dir()
     directory.mkdir(parents=True, exist_ok=True)
@@ -121,6 +123,20 @@ def list_saved_workflows() -> list[dict[str, Any]]:
 
 def workflows_dir() -> Path:
     return wyckoff_home() / "workflows"
+
+
+def _reusable_workflow_script(script: dict[str, Any]) -> dict[str, Any]:
+    payload = deepcopy(script)
+    runtime = payload.get("runtime")
+    if not isinstance(runtime, dict):
+        payload.pop("runtime", None)
+        return payload
+    reusable = {field: deepcopy(runtime[field]) for field in _REUSABLE_RUNTIME_FIELDS if field in runtime}
+    if reusable:
+        payload["runtime"] = reusable
+    else:
+        payload.pop("runtime", None)
+    return payload
 
 
 def _safe_name(name: str) -> str:
