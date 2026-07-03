@@ -1784,7 +1784,8 @@ def _stock_selection_fallback_script(user_text: str, context: WorkflowContext, r
         },
         "phases": [{"id": "stock_selection", "title": "选股复核", "tasks": tasks}],
         "synthesis_prompt": (
-            "基于真实工具结果给出中文答复：列出候选、核心理由、质量评分/评级、风险因素和下一步。"
+            "基于真实工具结果给出中文答复：按工具给出的候选角色和排序列出首选、备选复核候选、观察候选或阻断候选，"
+            "保留代码、名称、核心理由、质量评分/评级、风险因素和下一步。"
             "如果工具结果显示禁止直接买入或仅适合观察，不得写成买入建议。"
         ),
     }
@@ -1808,11 +1809,11 @@ def _stock_scan_task(user_text: str) -> dict[str, Any]:
         "tools": ["screen_stocks"],
         "prompt": (
             "按用户当前目标筛选股票候选，保留候选代码、名称、入选理由、质量评分/评级、风险因素、"
-            "候选护栏和下一步。不要直接给买入指令。\n\n"
+            "候选角色、排序、候选护栏和下一步。不要直接给买入指令，也不要把多候选合并成单一结论。\n\n"
             f"用户原文：{user_text}"
         ),
         "rationale": "先用真实筛选工具收集候选和质量证据。",
-        "success_criteria": "输出候选列表、质量证据、风险因素和是否允许进入下一步复核。",
+        "success_criteria": "输出带角色和排序的候选列表、质量证据、风险因素和是否允许进入下一步复核。",
         "risk_guard": "只做研究候选，不写入交易或持仓。",
     }
     if args := _stock_scan_args(user_text):
@@ -1832,10 +1833,10 @@ def _stock_diagnosis_task() -> dict[str, Any]:
         "depends_on": ["scan_candidates"],
         "prompt": (
             "基于上一阶段 screen_stocks 的 handoff，对重点候选逐个做个股结构诊断。"
-            "优先使用 tool args hint 里的 targets，不要让缺少手写代码阻塞执行。"
+            "延续候选角色和排序，优先使用 tool args hint 里的 targets，不要让缺少手写代码阻塞执行。"
         ),
         "rationale": "筛股结果需要经过个股结构诊断，才能更接近可复核的好股票。",
-        "success_criteria": "输出重点候选的阶段、供需、触发位、失效位和主要风险。",
+        "success_criteria": "按候选角色输出重点候选的阶段、供需、触发位、失效位和主要风险。",
         "risk_guard": "只做结构诊断，不输出直接买入或交易执行指令。",
     }
 
@@ -1859,9 +1860,12 @@ def _stock_decision_task(depends_on: str) -> dict[str, Any]:
         "title": "形成攻防边界",
         "tools": ["generate_strategy_decision"],
         "depends_on": [depends_on],
-        "prompt": "基于候选和已有研报/筛选证据形成攻防边界，输出触发位、失效位、观察/复核/禁止直接买入状态。",
+        "prompt": (
+            "基于候选和已有研报/筛选证据形成攻防边界，沿用候选角色和排序，"
+            "输出触发位、失效位、观察/复核/禁止直接买入状态。"
+        ),
         "rationale": "用户要求风险、攻防、买卖计划或下一步时，需要把候选转成可复核的动作边界。",
-        "success_criteria": "输出每个重点候选的行动状态、触发条件、失效条件和风险护栏。",
+        "success_criteria": "按候选角色输出每个重点候选的行动状态、触发条件、失效条件和风险护栏。",
         "risk_guard": "遵守候选护栏；未成熟、观察池或市场阻断候选不得转成直接买入。",
     }
 

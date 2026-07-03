@@ -877,6 +877,11 @@ def test_stock_selection_fallback_script_always_forms_action_boundaries():
         ("analyze_stock",),
         ("generate_strategy_decision",),
     ]
+    assert "候选角色、排序" in run.steps[0].prompt
+    assert "不要把多候选合并成单一结论" in run.steps[0].prompt
+    assert "延续候选角色和排序" in run.steps[1].prompt
+    assert "沿用候选角色和排序" in run.steps[2].prompt
+    assert "首选、备选复核候选、观察候选或阻断候选" in run.script["synthesis_prompt"]
     assert run.steps[1].depends_on == ("scan_candidates",)
     assert run.steps[2].depends_on == ("diagnose_candidates", "scan_candidates")
     assert "触发位、失效位" in run.steps[2].prompt
