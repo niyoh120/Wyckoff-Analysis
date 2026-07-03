@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from cli.loop_guard import resolve_turn_expectation
 from cli.runtime import AgentRuntime, partition_tool_calls
+from cli.screen_intent import stock_screen_suggested_args
 from cli.workflows.router import WORKFLOWS
 from tests.helpers.agent_loop_harness import ScriptedProvider, StubToolRegistry
 
@@ -624,10 +625,25 @@ def test_turn_expectation_infers_quick_scan_financial_skip():
 
 def test_turn_expectation_infers_combined_stock_screen_board():
     expectation = resolve_turn_expectation([{"role": "user", "content": "今天帮我筛主板和创业板强势标的"}])
+    double_growth = resolve_turn_expectation([{"role": "user", "content": "今天双创低吸机会有哪些"}])
 
     assert expectation is not None
     assert expectation.required_tool == "screen_stocks"
     assert expectation.suggested_args == {"board": "main_chinext_star", "style": "trend"}
+    assert double_growth is not None
+    assert double_growth.required_tool == "screen_stocks"
+    assert double_growth.suggested_args == {"board": "main_chinext_star", "style": "pullback"}
+
+
+def test_stock_screen_args_infer_more_combined_a_share_board_phrases():
+    assert stock_screen_suggested_args("今天帮我筛主板和科创板强势标的") == {
+        "board": "main_chinext_star",
+        "style": "trend",
+    }
+    assert stock_screen_suggested_args("双创低吸机会有哪些") == {
+        "board": "main_chinext_star",
+        "style": "pullback",
+    }
 
 
 def test_turn_expectation_does_not_screen_past_recommendation_review():

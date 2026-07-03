@@ -3,7 +3,26 @@
 from __future__ import annotations
 
 _BOARD_HINTS = (
-    ("main_chinext_star", ("主板+创业板", "主板和创业板", "主创", "main_chinext", "main-chinext", "main+chinext")),
+    (
+        "main_chinext_star",
+        (
+            "主板+创业板",
+            "主板和创业板",
+            "主板+科创板",
+            "主板和科创板",
+            "主板+科创",
+            "主板和科创",
+            "创业板+科创板",
+            "创业板和科创板",
+            "创业板+科创",
+            "创业板和科创",
+            "双创",
+            "主创",
+            "main_chinext",
+            "main-chinext",
+            "main+chinext",
+        ),
+    ),
     ("chinext", ("创业板", "创板", "gem", "chinext")),
     ("star", ("科创板", "科创", "star")),
     ("bse", ("北交所", "北交", "bse")),
