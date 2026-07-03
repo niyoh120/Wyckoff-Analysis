@@ -1205,6 +1205,63 @@ def test_adaptation_prompt_surfaces_priority_candidate_handoff():
     assert script["runtime"]["adaptation_complete"] is True
 
 
+def test_adaptation_prompt_surfaces_diagnosis_handoff_target():
+    provider = ScriptedProvider(
+        [[{"type": "text_delta", "text": '{"complete": true, "synthesis_prompt": "说明观察候选需先诊断。"}'}]]
+    )
+    completed_results = [
+        {
+            "step": {"step_id": "scan", "title": "扫描候选"},
+            "result": {
+                "status": "completed",
+                "handoff_state": {
+                    "last_screen_result": {
+                        "next_tool": {
+                            "tool": "analyze_stock",
+                            "args": {"code": "002326", "mode": "diagnose"},
+                            "reason": "观察候选先做个股结构诊断",
+                        },
+                        "diagnosis_targets": [
+                            {
+                                "tool": "analyze_stock",
+                                "args": {"code": "002326", "mode": "diagnose"},
+                                "code": "002326",
+                                "name": "永太科技",
+                                "reason": "观察候选先做个股结构诊断",
+                            }
+                        ],
+                        "watch_candidates": [
+                            {
+                                "code": "002326",
+                                "name": "永太科技",
+                                "action_status": "watch_only",
+                                "risk_factors": ["观察池，不进入本轮AI复核"],
+                            }
+                        ],
+                    }
+                },
+            },
+        }
+    ]
+
+    adapt_workflow_script(
+        "帮我找几个好票，按结果决定后续",
+        {"title": "动态选股", "runtime": {"adaptive": True}, "tasks": [{"id": "diagnose", "title": "诊断候选"}]},
+        completed_results,
+        [{"step_id": "diagnose", "title": "诊断候选"}],
+        context=WORKFLOWS["dynamic_task"],
+        provider=provider,
+        tools=StubToolRegistry(schemas=[{"name": "screen_stocks"}, {"name": "analyze_stock"}]),
+    )
+
+    prompt = provider.calls[0]["messages"][0]["content"]
+    assert "如果 handoff 摘要里有 next_tool 或 diagnosis_targets" in provider.calls[0]["system_prompt"]
+    assert '"next_tool": {"tool": "analyze_stock"' in prompt
+    assert '"diagnosis_targets": [{"tool": "analyze_stock"' in prompt
+    assert '"code": "002326"' in prompt
+    assert "观察候选先做个股结构诊断" in prompt
+
+
 def test_planner_keeps_original_script_when_model_tool_contract_repair_is_invalid():
     provider = ScriptedProvider(
         [
@@ -1741,6 +1798,51 @@ def test_planner_stabilizes_cross_phase_stock_selection_dependencies():
     assert run.steps[0].depends_on == ("report",)
     assert run.steps[1].depends_on == ("scan",)
     assert run.steps[2].depends_on == ()
+
+
+def test_planner_stabilizes_candidate_diagnosis_dependency_after_screen():
+    context = route_workflow("先筛股再诊断候选结构")
+    run = plan_workflow(
+        "先筛股再诊断候选结构",
+        context=context,
+        workflow_script={
+            "tasks": [
+                {"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描今日候选。"},
+                {
+                    "id": "diagnose",
+                    "title": "诊断首选候选",
+                    "tools": ["analyze_stock"],
+                    "prompt": "基于上一轮候选做个股结构诊断。",
+                },
+            ]
+        },
+    )
+
+    assert run.steps[1].tool_scope == ("analyze_stock",)
+    assert run.steps[1].depends_on == ("scan",)
+
+
+def test_planner_keeps_explicit_stock_diagnosis_independent_from_screen():
+    context = route_workflow("筛股，同时诊断 300750")
+    run = plan_workflow(
+        "筛股，同时诊断 300750",
+        context=context,
+        workflow_script={
+            "tasks": [
+                {"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描今日候选。"},
+                {
+                    "id": "diagnose",
+                    "title": "诊断 300750",
+                    "tools": ["analyze_stock"],
+                    "args": {"code": "300750", "mode": "diagnose"},
+                    "prompt": "诊断 300750。",
+                },
+            ]
+        },
+    )
+
+    assert run.steps[1].tool_scope == ("analyze_stock",)
+    assert run.steps[1].depends_on == ()
 
 
 def test_planner_does_not_self_depend_when_task_combines_screen_and_decision_tools():

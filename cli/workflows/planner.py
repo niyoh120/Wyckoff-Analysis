@@ -239,6 +239,7 @@ workflow 已经完成一部分 task。你的任务是根据真实执行结果，
 - 如果真实结果已经足够完成用户目标，输出 {"complete": true, "synthesis_prompt": "..."}。
 - 可以删除、合并、重排或新增后续 task；以真实结果和用户目标为准。
 - 需要真实数据、分析、筛选、研报或策略决策的 task，必须从工具摘要中选择精确工具名写入 tools。
+- 如果 handoff 摘要里有 next_tool 或 diagnosis_targets，优先用对应工具和参数生成/保留下一步 task，例如 analyze_stock(code=..., mode=diagnose)。
 - 保留候选护栏、数据质量、失效条件和风险边界；不要把受限候选写成买入建议。
 - 不要新增写入、交易或文件修改类任务。
 """
@@ -1150,6 +1151,8 @@ def _stabilized_step_dependencies(step: WorkflowStep, steps: list[WorkflowStep])
     deps = list(step.depends_on)
     if "generate_ai_report" in scope and "screen_stocks" not in scope:
         _append_dependency(deps, _nearest_tool_step_id(step, steps, "screen_stocks"))
+    if "analyze_stock" in scope and "screen_stocks" not in scope and not _step_has_explicit_stock_target(step):
+        _append_dependency(deps, _nearest_tool_step_id(step, steps, "screen_stocks"))
     if "generate_strategy_decision" in scope and not scope.intersection({"screen_stocks", "generate_ai_report"}):
         _append_dependency(
             deps,
@@ -1165,6 +1168,22 @@ def _stabilized_step_dependencies(step: WorkflowStep, steps: list[WorkflowStep])
     if not scope and not deps and _looks_like_synthesis_step(step):
         deps.extend(_synthesis_fact_step_ids(step, steps))
     return tuple(deps)
+
+
+def _step_has_explicit_stock_target(step: WorkflowStep) -> bool:
+    text = " ".join(
+        [
+            step.args_hint,
+            step.prompt,
+            step.context,
+            step.title,
+        ]
+    )
+    return bool(
+        re.search(r"\b\d{6}\b", text)
+        or re.search(r"\b[A-Z]{1,6}\.(?:US|HK)\b", text, re.IGNORECASE)
+        or re.search(r"\b\d{5}\.HK\b", text, re.IGNORECASE)
+    )
 
 
 def _looks_like_synthesis_step(step: WorkflowStep) -> bool:
