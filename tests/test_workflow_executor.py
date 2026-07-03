@@ -2317,6 +2317,7 @@ def test_workflow_synthesis_handoff_summary_keeps_multiple_candidate_conclusions
     assert [item["code"] for item in conclusions] == ["000014", "000015", "000013"]
     assert summary[0]["candidate_conclusion"]["code"] == "000014"
     assert "首选 000014 高质量候选" in conclusions[0]["line"]
+    assert "备选复核候选 000015 次优候选" in conclusions[1]["line"]
     assert "观察候选 000013 观察候选" in conclusions[2]["line"]
 
 
@@ -2664,7 +2665,7 @@ def test_workflow_fallback_summary_keeps_multiple_candidate_conclusions():
     )
 
     assert "候选结论: 首选 000014 高质量候选" in summary
-    assert "候选结论: 首选 000015 次优候选" in summary
+    assert "候选结论: 备选复核候选 000015 次优候选" in summary
     assert "候选结论: 观察候选 000013 观察候选" in summary
     assert summary.index("000014") < summary.index("000015") < summary.index("000013")
 

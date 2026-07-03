@@ -1518,6 +1518,7 @@ def _text_covers_candidate_support(lowered_text: str, item: dict[str, Any]) -> b
 def _candidate_conclusions_from_handoff(handoff: dict[str, Any], limit: int = 3) -> list[dict[str, Any]]:
     conclusions: list[dict[str, Any]] = []
     seen: set[str] = set()
+    primary_ready_count = 0
     for stage in (
         "last_strategy_decision",
         "last_ai_report",
@@ -1534,7 +1535,12 @@ def _candidate_conclusions_from_handoff(handoff: dict[str, Any], limit: int = 3)
                 continue
             seen.add(key)
             merged = _fallback_merged_candidate(row, handoff)
-            conclusions.append(_fallback_candidate_conclusion_payload(merged, value, handoff, stage))
+            guard_reason = _fallback_guard_reason_from_handoff(merged, value, handoff)
+            ready_rank = _ready_candidate_rank(merged, guard_reason, primary_ready_count)
+            primary_ready_count += 1 if ready_rank else 0
+            conclusions.append(
+                _fallback_candidate_conclusion_payload(merged, value, handoff, stage, guard_reason, ready_rank)
+            )
             if len(conclusions) >= limit:
                 return conclusions
     return conclusions
@@ -1557,9 +1563,14 @@ def _candidate_identity(row: dict[str, Any]) -> str:
 
 
 def _fallback_candidate_conclusion_payload(
-    row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any], source_stage: str
+    row: dict[str, Any],
+    stage: dict[str, Any],
+    handoff: dict[str, Any],
+    source_stage: str,
+    guard_reason: str = "",
+    ready_rank: int = 0,
 ) -> dict[str, Any]:
-    line = _fallback_candidate_line(row, stage, handoff)
+    line = _fallback_candidate_line(row, stage, handoff, guard_reason, ready_rank)
     return _drop_empty(
         {
             "line": line,
@@ -1571,17 +1582,26 @@ def _fallback_candidate_conclusion_payload(
             "quality_factors": _fallback_quality_items(row, 4, 120),
             "risk_factors": _fallback_risk_items(row, 4, 120),
             "preference_misses": _fallback_preference_miss_items(row, stage, handoff, 4, 120),
-            "guard_reason": _fallback_guard_reason_from_handoff(row, stage, handoff),
+            "guard_reason": guard_reason,
             "next_step": _fallback_next_value(row, stage),
             "source_stage": source_stage,
         }
     )
 
 
-def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any]) -> str:
-    guard_reason = _fallback_guard_reason_from_handoff(row, stage, handoff)
+def _ready_candidate_rank(row: dict[str, Any], guard_reason: str, ready_count: int) -> int:
+    if guard_reason or str(row.get("action_status") or "").strip() != "ready_for_ai_review":
+        return 0
+    return ready_count + 1
+
+
+def _fallback_candidate_line(
+    row: dict[str, Any], stage: dict[str, Any], handoff: dict[str, Any], guard_reason: str = "", ready_rank: int = 0
+) -> str:
+    if not guard_reason:
+        guard_reason = _fallback_guard_reason_from_handoff(row, stage, handoff)
     parts = [
-        f"{_fallback_candidate_prefix(row, guard_reason)} {_fallback_candidate_name(row)}",
+        f"{_fallback_candidate_prefix(row, guard_reason, ready_rank)} {_fallback_candidate_name(row)}",
         _fallback_status_part(row),
         _fallback_action_part(row),
         _fallback_evidence_part(row),
@@ -1594,9 +1614,11 @@ def _fallback_candidate_line(row: dict[str, Any], stage: dict[str, Any], handoff
     return "候选结论: " + "；".join(part for part in parts if part)
 
 
-def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "") -> str:
+def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "", ready_rank: int = 0) -> str:
     status = str(row.get("action_status") or "").strip()
     if status == "ready_for_ai_review":
+        if ready_rank > 1:
+            return "备选复核候选"
         return "受限复核候选" if guard_reason else "首选"
     if status == "repair_review_only":
         return "修复复核候选"
