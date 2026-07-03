@@ -17,6 +17,36 @@ _STYLE_HINTS = (
     ("quality", ("稳健", "高质量", "质量", "安全")),
 )
 
+_FULL_SCAN_HINTS = (
+    "全量",
+    "完整扫描",
+    "完整筛选",
+    "完整复核",
+    "正式扫描",
+    "正式筛选",
+    "正式复核",
+    "跑完整",
+)
+
+_FINANCIAL_METRICS_ON_HINTS = (
+    "财务过滤",
+    "财务指标",
+    "财务数据",
+    "基本面",
+    "财报",
+    "roe",
+    "估值",
+)
+
+_FINANCIAL_METRICS_OFF_HINTS = (
+    "快扫",
+    "快速扫",
+    "快速筛",
+    "粗扫",
+    "先扫",
+    "先筛",
+)
+
 
 def stock_screen_suggested_args(text: str, *, include_default_board: bool = True) -> dict[str, str]:
     """Infer simple screen_stocks arguments from user wording."""
@@ -27,6 +57,10 @@ def stock_screen_suggested_args(text: str, *, include_default_board: bool = True
         payload["board"] = board or "all"
     if style := stock_screen_style_hint(text):
         payload["style"] = style
+    if limit := stock_screen_limit_hint(text):
+        payload["limit"] = limit
+    if financial_metrics := stock_screen_financial_metrics_hint(text):
+        payload["financial_metrics"] = financial_metrics
     return payload
 
 
@@ -42,6 +76,20 @@ def stock_screen_style_hint(text: str) -> str:
     normalized = _normalize_text(text)
     styles = [style for style, hints in _STYLE_HINTS if any(hint in normalized for hint in hints)]
     return ",".join(dict.fromkeys(styles))
+
+
+def stock_screen_limit_hint(text: str) -> str:
+    normalized = _normalize_text(text)
+    return "0" if any(hint in normalized for hint in _FULL_SCAN_HINTS) else ""
+
+
+def stock_screen_financial_metrics_hint(text: str) -> str:
+    normalized = _normalize_text(text)
+    if any(hint in normalized for hint in _FINANCIAL_METRICS_ON_HINTS):
+        return "true"
+    if any(hint in normalized for hint in _FINANCIAL_METRICS_OFF_HINTS):
+        return "false"
+    return ""
 
 
 def _normalize_text(text: str) -> str:

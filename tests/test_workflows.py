@@ -2239,6 +2239,31 @@ def test_planner_recovers_stock_board_args_for_semantic_screen_step():
     assert run.steps[0].args_hint == "board: chinext；style: trend,pullback"
 
 
+def test_planner_recovers_full_financial_screen_args_for_semantic_step():
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text_delta",
+                    "text": '{"title":"自然选股","tasks":[{"id":"scan","title":"扫描候选","prompt":"扫描候选"}]}',
+                }
+            ],
+            [{"type": "text_delta", "text": "这不是 JSON"}],
+        ]
+    )
+
+    run = plan_workflow(
+        "今天全量扫描创业板强势低吸标的，要带财务过滤",
+        context=route_workflow("用 workflow 全量扫描创业板强势低吸标的，要带财务过滤"),
+        provider=provider,
+        tools=StubToolRegistry(),
+    )
+
+    assert run.steps[0].tool_scope == ("screen_stocks",)
+    assert run.steps[0].tool_scope_source == "semantic_inference"
+    assert run.steps[0].args_hint == "board: chinext；style: trend,pullback；limit: 0；financial_metrics: true"
+
+
 def test_planner_merges_inferred_board_with_model_declared_partial_args():
     provider = ScriptedProvider(
         [

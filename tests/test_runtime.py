@@ -542,6 +542,29 @@ def test_turn_expectation_forces_tool_for_colloquial_style_stock_selection():
     assert expectation.suggested_args == {"board": "all", "style": "trend,pullback"}
 
 
+def test_turn_expectation_infers_full_financial_stock_screen_args():
+    expectation = resolve_turn_expectation(
+        [{"role": "user", "content": "今天全量扫描创业板强势低吸标的，要带财务过滤"}]
+    )
+
+    assert expectation is not None
+    assert expectation.required_tool == "screen_stocks"
+    assert expectation.suggested_args == {
+        "board": "chinext",
+        "style": "trend,pullback",
+        "limit": "0",
+        "financial_metrics": "true",
+    }
+
+
+def test_turn_expectation_infers_quick_scan_financial_skip():
+    expectation = resolve_turn_expectation([{"role": "user", "content": "今天先快扫几只强势票"}])
+
+    assert expectation is not None
+    assert expectation.required_tool == "screen_stocks"
+    assert expectation.suggested_args == {"board": "all", "style": "trend", "financial_metrics": "false"}
+
+
 def test_turn_expectation_infers_combined_stock_screen_board():
     expectation = resolve_turn_expectation([{"role": "user", "content": "今天帮我筛主板和创业板强势标的"}])
 
