@@ -1717,7 +1717,7 @@ def _fallback_quality_part(row: dict[str, Any]) -> str:
 
 def _fallback_quality_items(row: dict[str, Any], limit: int, clip: int) -> list[str]:
     factors: list[str] = []
-    for value in (row.get("quality_factors"), row.get("style_match_reasons"), row.get("theme_match_reasons")):
+    for value in (row.get("style_match_reasons"), row.get("theme_match_reasons"), row.get("quality_factors")):
         for item in _fallback_text_items(value, limit, clip):
             if item not in factors:
                 factors.append(item)

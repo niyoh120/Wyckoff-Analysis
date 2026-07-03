@@ -2771,6 +2771,34 @@ def test_workflow_candidate_conclusion_preserves_theme_match_reasons():
     assert "亮点=主题偏好: 机器人" in conclusion["line"]
 
 
+def test_workflow_candidate_conclusion_prioritizes_preference_reasons():
+    conclusion = _candidate_conclusion_from_handoff(
+        {
+            "last_screen_result": {
+                "theme_preference": {"raw": "机器人", "theme": "机器人"},
+                "report_candidates": [
+                    {
+                        "code": "000012",
+                        "name": "机器人候选",
+                        "action_status": "ready_for_ai_review",
+                        "style_match_reasons": ["趋势偏好: 趋势线"],
+                        "theme_match_reasons": ["主题偏好: 机器人"],
+                        "quality_factors": ["高质量研报候选", "候选影子评级 S", "入场质量评级 A", "主升阶段"],
+                    }
+                ],
+            }
+        }
+    )
+
+    assert conclusion["quality_factors"] == [
+        "趋势偏好: 趋势线",
+        "主题偏好: 机器人",
+        "高质量研报候选",
+        "候选影子评级 S",
+    ]
+    assert "亮点=趋势偏好: 趋势线,主题偏好: 机器人,高质量研报候选" in conclusion["line"]
+
+
 def test_workflow_fallback_handoff_lines_keep_each_stage_when_truncated():
     handoff = {
         "last_screen_result": {
