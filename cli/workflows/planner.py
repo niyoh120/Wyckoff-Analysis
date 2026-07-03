@@ -469,11 +469,21 @@ def _adaptation_candidate_rows(source: str, value: dict[str, Any], limit: int = 
         rows.append(value.get("latest"))
     else:
         rows.extend(_plain_list(value.get("reviewed_symbols")))
-    return [_compact_adaptation_candidate(row) for row in rows if isinstance(row, dict)][:limit]
+    candidates: list[dict[str, Any]] = []
+    ready_rank = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("action_status") or "").strip() == "ready_for_ai_review":
+            ready_rank += 1
+        candidates.append(_compact_adaptation_candidate(row, ready_rank))
+        if len(candidates) >= limit:
+            break
+    return candidates
 
 
-def _compact_adaptation_candidate(row: dict[str, Any]) -> dict[str, Any]:
-    return _pick_compact_fields(
+def _compact_adaptation_candidate(row: dict[str, Any], ready_rank: int = 0) -> dict[str, Any]:
+    payload = _pick_compact_fields(
         row,
         (
             "code",
@@ -500,6 +510,36 @@ def _compact_adaptation_candidate(row: dict[str, Any]) -> dict[str, Any]:
             "data_status",
         ),
     )
+    return _compact_dict({"candidate_role": _adaptation_candidate_role(row, ready_rank), **payload})
+
+
+def _adaptation_candidate_role(row: dict[str, Any], ready_rank: int = 0) -> str:
+    explicit = str(row.get("candidate_role") or row.get("role") or "").strip()
+    if explicit:
+        return explicit
+    status = str(row.get("action_status") or row.get("status") or "").strip()
+    if status == "ready_for_ai_review":
+        if not str(row.get("code") or "").strip():
+            return "待确认候选"
+        if _limited_review_candidate(row):
+            return "受限复核候选"
+        return "备选复核候选" if ready_rank > 1 else "首选"
+    if status == "repair_review_only":
+        return "修复复核候选"
+    if status == "confirmation_required":
+        return "待确认候选"
+    if status == "watch_only" or str(row.get("candidate_lane") or "").strip() == "watch":
+        return "观察候选"
+    if status.startswith("blocked_") or status in {"blocked", "rejected"}:
+        return "阻断候选"
+    return ""
+
+
+def _limited_review_candidate(row: dict[str, Any]) -> bool:
+    if row.get("new_buy_allowed") is False:
+        return True
+    readiness = str(row.get("trade_readiness") or "").strip()
+    return readiness in {"research_only", "review_only"}
 
 
 def _pick_compact_fields(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:
@@ -1784,8 +1824,9 @@ def _stock_selection_fallback_script(user_text: str, context: WorkflowContext, r
         },
         "phases": [{"id": "stock_selection", "title": "选股复核", "tasks": tasks}],
         "synthesis_prompt": (
-            "基于真实工具结果给出中文答复：按工具给出的候选角色和排序列出首选、备选复核候选、观察候选或阻断候选，"
-            "保留代码、名称、核心理由、质量评分/评级、风险因素和下一步。"
+            "基于真实工具结果给出中文答复：按工具给出的候选角色和排序列出首选、备选复核候选、"
+            "受限复核候选、修复复核候选、待确认候选、观察候选或阻断候选，保留代码、名称、核心理由、"
+            "质量评分/评级、风险因素和下一步。"
             "如果工具结果显示禁止直接买入或仅适合观察，不得写成买入建议。"
         ),
     }

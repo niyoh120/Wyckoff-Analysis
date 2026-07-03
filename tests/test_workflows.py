@@ -12,6 +12,7 @@ from cli.workflows.pending_reply import _PENDING_REPLY_SYSTEM_PROMPT, route_pend
 from cli.workflows.planner import (
     _PLAN_SYSTEM_PROMPT,
     _REPAIR_SYSTEM_PROMPT,
+    _adaptation_handoff_summary,
     _tool_catalog,
     adapt_workflow_script,
     plan_workflow,
@@ -881,7 +882,10 @@ def test_stock_selection_fallback_script_always_forms_action_boundaries():
     assert "不要把多候选合并成单一结论" in run.steps[0].prompt
     assert "延续候选角色和排序" in run.steps[1].prompt
     assert "沿用候选角色和排序" in run.steps[2].prompt
-    assert "首选、备选复核候选、观察候选或阻断候选" in run.script["synthesis_prompt"]
+    assert (
+        "首选、备选复核候选、受限复核候选、修复复核候选、待确认候选、观察候选或阻断候选"
+        in run.script["synthesis_prompt"]
+    )
     assert run.steps[1].depends_on == ("scan_candidates",)
     assert run.steps[2].depends_on == ("diagnose_candidates", "scan_candidates")
     assert "触发位、失效位" in run.steps[2].prompt
@@ -1433,6 +1437,8 @@ def test_adaptation_prompt_surfaces_priority_candidate_handoff():
                             {
                                 "code": "300750",
                                 "name": "宁德时代",
+                                "action_status": "ready_for_ai_review",
+                                "new_buy_allowed": False,
                                 "risk_adjusted_quality_score": 87.0,
                                 "risk_factors": ["候选标签未成熟"],
                                 "next_step": "生成 AI 研报",
@@ -1461,6 +1467,7 @@ def test_adaptation_prompt_surfaces_priority_candidate_handoff():
     prompt = provider.calls[0]["messages"][0]["content"]
     assert "优先 handoff 摘要" in prompt
     assert '"source": "last_screen_result"' in prompt
+    assert '"candidate_role": "受限复核候选"' in prompt
     assert '"code": "300750"' in prompt
     assert '"risk_adjusted_quality_score": 87.0' in prompt
     assert '"next_tool": {"tool": "generate_ai_report"' in prompt
@@ -1524,8 +1531,41 @@ def test_adaptation_prompt_surfaces_diagnosis_handoff_target():
     assert "如果 handoff 摘要里有 next_tool 或 diagnosis_targets" in provider.calls[0]["system_prompt"]
     assert '"next_tool": {"tool": "analyze_stock"' in prompt
     assert '"diagnosis_targets": [{"tool": "analyze_stock"' in prompt
+    assert '"candidate_role": "观察候选"' in prompt
     assert '"code": "002326"' in prompt
     assert "观察候选先做个股结构诊断" in prompt
+
+
+def test_adaptation_handoff_summary_derives_ready_candidate_roles():
+    summary = _adaptation_handoff_summary(
+        [
+            {
+                "step": {"step_id": "scan", "title": "扫描候选"},
+                "result": {
+                    "handoff_state": {
+                        "last_screen_result": {
+                            "report_candidates": [
+                                {
+                                    "code": "000014",
+                                    "name": "高质量候选",
+                                    "action_status": "ready_for_ai_review",
+                                },
+                                {
+                                    "code": "000015",
+                                    "name": "次优候选",
+                                    "action_status": "ready_for_ai_review",
+                                },
+                            ]
+                        }
+                    }
+                },
+            }
+        ]
+    )
+
+    candidates = summary[0]["candidates"]
+    assert candidates[0]["candidate_role"] == "首选"
+    assert candidates[1]["candidate_role"] == "备选复核候选"
 
 
 def test_planner_uses_semantic_tool_scope_when_model_tool_contract_repair_is_invalid():
