@@ -300,7 +300,7 @@ def reviewed_symbols_from_info(symbols_info: list[dict]) -> list[dict]:
 
 
 def _compact_symbol(row: dict[str, Any]) -> dict:
-    payload = {field: _compact_symbol_value(row.get(field)) for field in _COMPACT_SYMBOL_FIELDS}
+    payload = {field: _compact_symbol_value(row.get(field), field) for field in _COMPACT_SYMBOL_FIELDS}
     payload["code"] = normalize_stock_code(row.get("code") or row.get("symbol"))
     return {key: value for key, value in payload.items() if _has_value(value)}
 
@@ -349,12 +349,15 @@ def remember_ai_report(tool_context: ToolContext | None, result: dict[str, Any])
         tool_context.state["last_ai_report"] = result
 
 
-def _compact_symbol_value(value: Any) -> Any:
+def _compact_symbol_value(value: Any, field: str = "") -> Any:
     if value is None or value == "":
         return None
     if isinstance(value, (int, float, bool)):
         return value
     if isinstance(value, (list, tuple)):
+        if field in _NUMERIC_LIST_SYMBOL_FIELDS:
+            items = [item for item in value if isinstance(item, (int, float))]
+            return items or None
         items = [str(item).strip() for item in value if str(item).strip()]
         return items or None
     text = str(value).strip()
@@ -420,6 +423,12 @@ _COMPACT_SYMBOL_FIELDS = (
     "trade_readiness",
     "new_buy_allowed",
     "ai_review_allowed",
+    "entry_zone",
+    "stop_loss",
+    "max_entry_price",
+    "position_size_pct",
+    "tape_condition",
+    "invalidate_condition",
     "why",
     "evidence",
     "next_step",
@@ -427,6 +436,7 @@ _COMPACT_SYMBOL_FIELDS = (
     "industry",
     "sector",
 )
+_NUMERIC_LIST_SYMBOL_FIELDS = {"entry_zone"}
 
 
 def run_ai_report(

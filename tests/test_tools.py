@@ -1167,6 +1167,12 @@ class TestStrategyDecisionTool:
                             "candidate_shadow_grade": "S",
                             "candidate_shadow_score": 92.0,
                             "action_status": "ready_for_ai_review",
+                            "entry_zone": [12.3, 12.8],
+                            "stop_loss": 11.9,
+                            "max_entry_price": 13.0,
+                            "position_size_pct": 0.25,
+                            "tape_condition": "放量站回5日线",
+                            "invalidate_condition": "跌破11.9取消交易",
                         },
                     ],
                     "selection_brief": {
@@ -1196,7 +1202,14 @@ class TestStrategyDecisionTool:
         assert result["reviewed_symbols"][0]["candidate_shadow_grade"] == "S"
         assert result["reviewed_symbols"][0]["candidate_shadow_score"] == 92.0
         assert result["reviewed_symbols"][0]["action_status"] == "ready_for_ai_review"
+        assert result["reviewed_symbols"][0]["entry_zone"] == [12.3, 12.8]
+        assert result["reviewed_symbols"][0]["stop_loss"] == 11.9
+        assert result["reviewed_symbols"][0]["max_entry_price"] == 13.0
+        assert result["reviewed_symbols"][0]["position_size_pct"] == 0.25
+        assert result["reviewed_symbols"][0]["tape_condition"] == "放量站回5日线"
+        assert result["reviewed_symbols"][0]["invalidate_condition"] == "跌破11.9取消交易"
         assert captured["symbols_info"][0]["track"] == "Trend"
+        assert captured["symbols_info"][0]["entry_zone"] == [12.3, 12.8]
 
     def test_generate_strategy_decision_blocks_auto_report_on_degraded_screen_data(self, monkeypatch):
         from agents import strategy_tools
