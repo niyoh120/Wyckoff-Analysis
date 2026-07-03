@@ -674,6 +674,22 @@ def test_turn_expectation_infers_anti_chase_and_low_position_styles():
     }
 
 
+def test_turn_expectation_infers_liquidity_bluechip_and_elasticity_styles():
+    quality_cases = ("今天找几只成交活跃的票", "今天找几只流动性好的标的", "今天找几只白马股")
+    for text in quality_cases:
+        expectation = resolve_turn_expectation([{"role": "user", "content": text}])
+
+        assert expectation is not None
+        assert expectation.required_tool == "screen_stocks"
+        assert expectation.suggested_args == {"board": "all", "style": "quality"}
+        assert expectation.required_args == {"style": "quality"}
+
+    elasticity = resolve_turn_expectation([{"role": "user", "content": "今天找几只小盘弹性票"}])
+    assert elasticity is not None
+    assert elasticity.suggested_args == {"board": "all", "style": "trend"}
+    assert elasticity.required_args == {"style": "trend"}
+
+
 def test_turn_expectation_infers_quality_and_financial_metrics_from_fundamental_wording():
     for text in (
         "今天找几只基本面好的票",
@@ -701,6 +717,7 @@ def test_turn_expectation_infers_quality_theme_and_financial_metrics_from_divide
     cases = (
         ("今天高股息红利票有哪些", "红利低波"),
         ("今天价值蓝筹标的有哪些", "价值蓝筹"),
+        ("今天找几只大盘蓝筹", "价值蓝筹"),
     )
     for text, theme in cases:
         expectation = resolve_turn_expectation([{"role": "user", "content": text}])

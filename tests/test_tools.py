@@ -2655,6 +2655,9 @@ class TestSymbolPool:
         assert pullback_result["preference_match"] == {"style": "hit"}
         assert [row["code"] for row in pullback_result["top_candidates"][:2]] == ["000001", "000002"]
 
+        quality_result = screen_tools.screen_stocks(style="流动性好")
+        assert quality_result["style_preference"] == {"raw": "流动性好", "styles": ["quality"]}
+
     def test_screen_stocks_theme_preference_reorders_and_labels_candidates(self, monkeypatch):
         from agents import screen_tools
 

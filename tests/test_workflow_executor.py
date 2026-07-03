@@ -693,6 +693,7 @@ def test_workflow_planner_stock_fallback_passes_dividend_value_quality_args():
     cases = (
         ("今天高股息红利票有哪些", "红利低波"),
         ("今天价值蓝筹标的有哪些", "价值蓝筹"),
+        ("今天找几只大盘蓝筹", "价值蓝筹"),
     )
     for text, theme in cases:
         run = plan_workflow(text, context=WORKFLOWS["dynamic_task"])
@@ -731,6 +732,20 @@ def test_workflow_planner_stock_fallback_passes_anti_chase_style_args():
         assert run.steps[0].tool_scope == ("screen_stocks",)
         assert run.steps[0].args_hint == f"board: all；style: {style}"
         assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all", "style": style}
+
+
+def test_workflow_planner_stock_fallback_passes_liquidity_bluechip_elasticity_args():
+    quality_cases = ("今天找几只成交活跃的票", "今天找几只流动性好的标的", "今天找几只白马股")
+    for text in quality_cases:
+        run = plan_workflow(text, context=WORKFLOWS["dynamic_task"])
+
+        assert run.steps[0].tool_scope == ("screen_stocks",)
+        assert run.steps[0].args_hint == "board: all；style: quality"
+        assert run.script["phases"][0]["tasks"][0]["args"] == {"board": "all", "style": "quality"}
+
+    elasticity = plan_workflow("今天找几只小盘弹性票", context=WORKFLOWS["dynamic_task"])
+    assert elasticity.steps[0].args_hint == "board: all；style: trend"
+    assert elasticity.script["phases"][0]["tasks"][0]["args"] == {"board": "all", "style": "trend"}
 
 
 def test_workflow_planner_stock_fallback_passes_board_and_style_args():

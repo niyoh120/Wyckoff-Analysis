@@ -195,6 +195,12 @@ _THEME_SCREEN_INTENT_HINTS = (
     "强度",
     "短线",
     "起爆",
+    "弹性",
+    "蓝筹",
+    "白马",
+    "成交活跃",
+    "流动性好",
+    "高流动性",
 )
 
 _STOCK_SCREEN_INTENT_HINTS = (
@@ -224,6 +230,12 @@ _STOCK_SCREEN_STYLE_HINTS = (
     "别追高",
     "不追涨",
     "性价比",
+    "弹性",
+    "蓝筹",
+    "白马",
+    "成交活跃",
+    "流动性好",
+    "高流动性",
 )
 
 _STOCK_SCREEN_REVIEW_HINTS = (

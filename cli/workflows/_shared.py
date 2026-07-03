@@ -40,6 +40,7 @@ STOCK_STYLE_MARKERS = (
     "龙头",
     "短线",
     "起爆",
+    "弹性",
     "刚启动",
     "初启动",
     "低位",
@@ -47,8 +48,13 @@ STOCK_STYLE_MARKERS = (
     "别追高",
     "不追涨",
     "性价比",
+    "蓝筹",
+    "白马",
+    "成交活跃",
+    "流动性好",
+    "高流动性",
 )
-STOCK_STYLE_TARGETS = ("票", "标的", "候选")
+STOCK_STYLE_TARGETS = ("票", "标的", "候选", "蓝筹", "白马")
 
 # ── Text helpers ──
 
