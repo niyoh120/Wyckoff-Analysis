@@ -687,16 +687,42 @@ def _cmd_report(args):
             provider=cfg.get("provider_name", "gemini"),
             llm_base_url=cfg.get("base_url", ""),
         )
+        ok, reason, report_text = _report_command_result(result)
+        if not ok:
+            print(f"✗ 研报生成失败: {reason or 'unknown'}")
+            sys.exit(1)
         print("✓ 研报生成完成")
-        if isinstance(result, dict):
-            for camp, stocks in result.items():
-                if stocks:
-                    print(f"\n  [{camp}]")
-                    for s in stocks[:5]:
-                        print(f"    {s}")
+        if report_text:
+            print("\n--- 研报正文 ---")
+            print(_clip_report_output(report_text))
     except Exception as e:
         print(f"✗ 研报生成失败: {e}")
         sys.exit(1)
+
+
+def _report_command_result(result) -> tuple[bool, str, str]:
+    if isinstance(result, tuple) and len(result) >= 3:
+        return bool(result[0]), str(result[1] or ""), str(result[2] or "").strip()
+    if isinstance(result, dict):
+        return True, "", _legacy_report_dict_text(result)
+    return bool(result), "", ""
+
+
+def _legacy_report_dict_text(result: dict) -> str:
+    lines: list[str] = []
+    for camp, stocks in result.items():
+        if not stocks:
+            continue
+        lines.append(f"[{camp}]")
+        lines.extend(f"- {stock}" for stock in stocks[:5])
+    return "\n".join(lines).strip()
+
+
+def _clip_report_output(text: str, limit: int = 6000) -> str:
+    clean = str(text or "").strip()
+    if len(clean) <= limit:
+        return clean
+    return clean[:limit].rstrip() + "\n\n[研报正文已截断，可在 agent 对话里继续要求展开]"
 
 
 # ---------------------------------------------------------------------------
