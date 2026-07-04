@@ -128,7 +128,10 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 
 日常复盘不只看调权结论，还要看来源和运营摘要：`latest_source` 回答“读的是远端表还是本地
 no-write 报告”，`latest_execution_state` 回答“调权现在影响哪里”，`latest_operations`
-回答“最近一次 shadow 新增了什么、移除了什么、哪些 scoped 信号被升降权”。
+回答“最近一次 shadow 新增了什么、移除了什么、哪些 scoped 信号被升降权”。日常操作先看
+`latest_operator_summary` / `latest_operations.operator_summary`，它把下一步、作用范围、正式 dynamic
+晋级状态、shadow 新增/移除和调权摘要收敛成一句话；再按需下钻 `promotion_checklist` 和
+`latest_operations.action_details`。
 CLI Agent 通过 `query_history(source="attribution")` 读取；Web 读盘室通过 `query_attribution` 读取。
 
 外部观察复盘重点看 `external_seed_observations`：

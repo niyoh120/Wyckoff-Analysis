@@ -315,7 +315,8 @@ sequenceDiagram
 | `on` | 正式使用 `signal_health_daily` 权重、`signal_registry` 启停状态和归因调权 |
 
 归因报告的晋级判断不只看一句 `review_promote_dynamic_policy`。Agent、Web 和 CLI 都应读取
-`next_action`、`promotion_status` 与 `promotion_checklist`：`next_action` 给出下一步动作，`promotion_status`
+`latest_operator_summary` / `operator_summary`、`next_action`、`promotion_status` 与 `promotion_checklist`：
+`operator_summary` 先给一行运营结论，`next_action` 给出下一步动作，`promotion_status`
 说明当前是 `manual_review_required`、`do_not_promote` 还是继续收集样本；`promotion_checklist`
 固定检查 shadow 样本、shadow 新增表现、scoped 信号调权和回测确认。
 只有这些证据持续通过，才考虑把 `FUNNEL_DYNAMIC_POLICY` 从 `shadow` 切到 `on`。
