@@ -4,6 +4,9 @@ from core.strategy_policy_display import (
     format_policy_meta_text,
     format_policy_weight_text,
     parse_policy_weight_key,
+    policy_execution_display,
+    policy_formal_dynamic_label,
+    policy_governor_display,
     policy_weight_rows,
 )
 
@@ -63,3 +66,41 @@ def test_format_policy_meta_text_derives_active_scope_from_legacy_scope() -> Non
         )
         == "（远端, mode=shadow, active=尾盘+漏斗shadow）"
     )
+
+
+def test_policy_display_helpers_translate_governor_codes() -> None:
+    governor = {
+        "status": "candidate",
+        "mode_recommendation": "review_promote_dynamic_policy",
+        "next_action": "manual_review_dynamic_on",
+        "promotion_status": "manual_review_required",
+        "auto_apply": False,
+    }
+
+    assert policy_governor_display(governor) == {
+        "status": "可进入人工晋级评审",
+        "mode_recommendation": "评审是否切 on",
+        "next_action": "进入人工晋级评审（非正式生效）",
+        "promotion_status": "需人工复核",
+        "auto_apply": "否",
+    }
+
+
+def test_policy_execution_display_distinguishes_formal_gate() -> None:
+    execution = {
+        "active_scope": "尾盘+漏斗shadow",
+        "promotion_status": "manual_review_required",
+        "next_action": "manual_review_dynamic_on",
+        "formal_dynamic_allowed": False,
+        "formal_dynamic_block_reason": "auto_apply=false",
+        "summary": "只进入 shadow",
+    }
+
+    assert policy_formal_dynamic_label(execution) == "未进正式漏斗(auto_apply=false)"
+    assert policy_execution_display(execution) == {
+        "active_scope": "尾盘+漏斗shadow",
+        "promotion_status": "需人工复核",
+        "next_action": "进入人工晋级评审（非正式生效）",
+        "formal_dynamic": "未进正式漏斗(auto_apply=false)",
+        "summary": "只进入 shadow",
+    }

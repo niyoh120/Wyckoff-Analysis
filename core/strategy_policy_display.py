@@ -153,6 +153,72 @@ def policy_next_action_label(raw: Any) -> str:
     return labels.get(text, text or "保持观察")
 
 
+def policy_mode_recommendation_label(raw: Any) -> str:
+    text = str(raw or "").strip()
+    labels = {
+        "review_promote_dynamic_policy": "评审是否切 on",
+        "keep_shadow": "保持 shadow",
+        "keep_static_policy": "保持静态策略",
+    }
+    return labels.get(text, text or "保持 shadow")
+
+
+def policy_promotion_status_label(raw: Any) -> str:
+    text = str(raw or "").strip()
+    labels = {
+        "manual_review_required": "需人工复核",
+        "do_not_promote": "禁止晋级",
+        "collect_more_samples": "继续收集样本",
+        "keep_shadow": "保持 shadow",
+    }
+    return labels.get(text, text or "未知")
+
+
+def policy_governor_status_label(raw: Any) -> str:
+    text = str(raw or "").strip()
+    labels = {
+        "candidate": "可进入人工晋级评审",
+        "watch": "继续观察",
+        "reject": "不建议晋级",
+        "insufficient_sample": "样本不足",
+    }
+    return labels.get(text, text or "未知")
+
+
+def policy_formal_dynamic_label(execution: dict[str, Any] | None) -> str:
+    row = execution or {}
+    if row.get("formal_dynamic_allowed") is True:
+        return "允许正式生效"
+    if row.get("formal_dynamic_allowed") is False:
+        reason = str(row.get("formal_dynamic_block_reason") or "").strip()
+        return f"未进正式漏斗({reason})" if reason else "未进正式漏斗"
+    if str(row.get("next_action") or "").strip() == "manual_review_dynamic_on":
+        return "未进正式漏斗(manual_review_required)"
+    return "未知"
+
+
+def policy_governor_display(governor: dict[str, Any] | None) -> dict[str, str]:
+    row = governor or {}
+    return {
+        "status": policy_governor_status_label(row.get("status")),
+        "mode_recommendation": policy_mode_recommendation_label(row.get("mode_recommendation")),
+        "next_action": policy_next_action_label(row.get("next_action")),
+        "promotion_status": policy_promotion_status_label(row.get("promotion_status")),
+        "auto_apply": "是" if row.get("auto_apply") else "否",
+    }
+
+
+def policy_execution_display(execution: dict[str, Any] | None) -> dict[str, str]:
+    row = execution or {}
+    return {
+        "active_scope": str(row.get("active_scope") or "无"),
+        "promotion_status": policy_promotion_status_label(row.get("promotion_status")),
+        "next_action": policy_next_action_label(row.get("next_action")),
+        "formal_dynamic": policy_formal_dynamic_label(row),
+        "summary": str(row.get("summary") or ""),
+    }
+
+
 def _scope_key(raw: str) -> str:
     key = raw.strip().lower()
     return "entry_type" if key == "entry" else key

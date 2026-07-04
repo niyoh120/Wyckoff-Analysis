@@ -5,7 +5,11 @@ import logging
 
 from agents.tool_context import ToolContext, get_user_client, get_user_id
 from core.pattern_review.records import pattern_review_tool_records
-from core.strategy_policy_display import format_policy_signal_label
+from core.strategy_policy_display import (
+    format_policy_signal_label,
+    policy_execution_display,
+    policy_governor_display,
+)
 from core.tail_buy.decision_semantics import tail_buy_execution_semantics
 from workflows.strategy_attribution_execution import attribution_execution_state, attribution_operations_brief
 
@@ -181,7 +185,9 @@ def _query_attribution(limit: int, tool_context: ToolContext | None = None) -> d
             "latest_source": records[0].get("source", "remote"),
             "remote_error": records[0].get("remote_error", ""),
             "latest_policy": records[0].get("policy_governor", {}),
+            "latest_policy_display": records[0].get("policy_display", {}),
             "latest_execution_state": records[0].get("execution_state", {}),
+            "latest_execution_summary": records[0].get("execution_summary", {}),
             "latest_operations": records[0].get("operations", {}),
             "latest_operator_summary": records[0].get("operations", {}).get("operator_summary", ""),
             "records": records,
@@ -258,6 +264,8 @@ def _attribution_record(row: dict) -> dict:
     actions = _attribution_actions(row.get("recommendations_json"))
     governor_record = _policy_governor_record(governor)
     execution = _attribution_execution_state(governor_record, actions)
+    policy_display = policy_governor_display(governor_record)
+    execution_summary = policy_execution_display(execution)
     return {
         "source": str(row.get("_source") or "remote"),
         "remote_error": str(row.get("_remote_error") or ""),
@@ -265,7 +273,9 @@ def _attribution_record(row: dict) -> dict:
         "window_start": str(row.get("window_start", "")),
         "window_end": str(row.get("window_end", "")),
         "policy_governor": governor_record,
+        "policy_display": policy_display,
         "execution_state": execution,
+        "execution_summary": execution_summary,
         "operations": attribution_operations_brief(shadow, execution),
         "signal_actions": actions,
         "shadow": {

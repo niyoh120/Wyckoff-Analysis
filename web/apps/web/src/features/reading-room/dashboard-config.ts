@@ -63,7 +63,7 @@ export const SCENARIOS: DeskScenario[] = [
     title: '复盘',
     eyebrow: '信号归因',
     description: '看哪些信号有效，哪些要降权。',
-    prompt: '做一次收盘复盘：回看最近威科夫形态复盘、策略归因和尾盘记录，先说明归因数据来源，再优先读取 operator_summary / latest_operator_summary，然后读取 latest_execution_state、next_action、promotion_status、promotion_checklist 和 latest_operations，告诉我哪些信号有效、哪些是噪音、shadow 最新新增/移除样本是什么，调权当前影响尾盘、漏斗 shadow 还是正式漏斗，以及下一步动作是什么。',
+    prompt: '做一次收盘复盘：回看最近威科夫形态复盘、策略归因和尾盘记录，先说明归因数据来源，再优先读取 operator_summary / latest_operator_summary，然后读取 latest_policy_display、latest_execution_summary、promotion_checklist 和 latest_operations，告诉我哪些信号有效、哪些是噪音、shadow 最新新增/移除样本是什么，调权当前影响尾盘、漏斗 shadow 还是正式漏斗，以及下一步动作是什么；raw next_action/promotion_status 只用于追证据。',
     Icon: BookOpenCheck,
     toneClass: 'border-rose-200 bg-rose-50/75 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100',
   },
@@ -101,7 +101,7 @@ export const SHORTCUTS: DeskShortcut[] = [
   {
     title: '策略归因',
     description: '用近期结果校准信号权重。',
-    prompt: '读取策略归因报告、策略治理器，先说明归因数据来源，再优先读取 operator_summary / latest_operator_summary，然后读取 latest_execution_state、next_action、promotion_status、promotion_checklist 和 latest_operations，告诉我下一步动作是什么、dynamic policy 是否只适合继续 shadow、哪些信号需要降权或升权、最近 shadow 新增/移除了哪些样本，以及这些调权当前影响尾盘、漏斗 shadow 还是正式漏斗。',
+    prompt: '读取策略归因报告、策略治理器，先说明归因数据来源，再优先读取 operator_summary / latest_operator_summary，然后读取 latest_policy_display、latest_execution_summary、promotion_checklist 和 latest_operations，告诉我下一步动作是什么、dynamic policy 是否只适合继续 shadow、哪些信号需要降权或升权、最近 shadow 新增/移除了哪些样本，以及这些调权当前影响尾盘、漏斗 shadow 还是正式漏斗；raw next_action/promotion_status 只用于追证据。',
     Icon: ClipboardList,
     metric: '归因',
   },

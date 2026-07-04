@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
-from core.strategy_policy_display import format_policy_signal_label
+from core.strategy_policy_display import (
+    format_policy_signal_label,
+    policy_governor_display,
+    policy_mode_recommendation_label,
+    policy_next_action_label,
+    policy_promotion_status_label,
+)
 from integrations.supabase_base import (
     close_client,
     create_admin_client,
@@ -173,46 +179,22 @@ def build_report_markdown(report: dict[str, Any]) -> str:
 
 def _governor_status_text(governor: dict[str, Any]) -> str:
     raw = _governor_value(governor, "status", "unknown")
-    labels = {
-        "candidate": "可进入人工晋级评审",
-        "watch": "继续观察",
-        "reject": "不建议晋级",
-        "insufficient_sample": "样本不足",
-    }
-    return _label_with_raw(labels.get(raw, raw or "未知"), raw)
+    return _label_with_raw(policy_governor_display(governor).get("status", "未知"), raw)
 
 
 def _mode_recommendation_text(governor: dict[str, Any]) -> str:
     raw = _governor_value(governor, "mode_recommendation", "keep_shadow")
-    labels = {
-        "review_promote_dynamic_policy": "评审是否切 on",
-        "keep_shadow": "保持 shadow",
-        "keep_static_policy": "保持静态策略",
-    }
-    return _label_with_raw(labels.get(raw, raw or "保持 shadow"), raw)
+    return _label_with_raw(policy_mode_recommendation_label(raw), raw)
 
 
 def _next_action_text(governor: dict[str, Any]) -> str:
     raw = _governor_value(governor, "next_action", "keep_shadow_observe")
-    labels = {
-        "manual_review_dynamic_on": "进入人工晋级评审（非正式生效）",
-        "keep_static_policy": "保持静态策略",
-        "collect_more_shadow_samples": "继续收集样本",
-        "keep_shadow_apply_signal_weights": "保持 shadow 并应用信号级调权",
-        "keep_shadow_observe": "保持 shadow 观察",
-    }
-    return _label_with_raw(labels.get(raw, raw or "保持观察"), raw)
+    return _label_with_raw(policy_next_action_label(raw), raw)
 
 
 def _promotion_status_text(governor: dict[str, Any]) -> str:
     raw = _governor_value(governor, "promotion_status", "unknown")
-    labels = {
-        "manual_review_required": "需人工复核",
-        "do_not_promote": "禁止晋级",
-        "collect_more_samples": "继续收集样本",
-        "keep_shadow": "保持 shadow",
-    }
-    return _label_with_raw(labels.get(raw, raw or "未知"), raw)
+    return _label_with_raw(policy_promotion_status_label(raw), raw)
 
 
 def _governor_value(governor: dict[str, Any], key: str, default: str) -> str:

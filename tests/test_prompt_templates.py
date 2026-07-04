@@ -33,9 +33,9 @@ class TestBuiltinPromptTemplates:
         assert "latest_source" in prompt
         assert "remote_error" in prompt
         assert "latest_operator_summary" in prompt
-        assert "latest_execution_state" in prompt
-        assert "next_action" in prompt
-        assert "promotion_status" in prompt
+        assert "latest_policy_display" in prompt
+        assert "latest_execution_summary" in prompt
+        assert "raw next_action/promotion_status" in prompt
         assert "promotion_checklist" in prompt
         assert "latest_operations" in prompt
         assert "归因数据来源" in prompt

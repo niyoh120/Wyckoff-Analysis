@@ -157,6 +157,8 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     assert result["latest_source"] == "remote"
     assert result["latest_policy"]["next_action"] == "manual_review_dynamic_on"
     assert result["latest_policy"]["promotion_status"] == "manual_review_required"
+    assert result["latest_policy_display"]["next_action"] == "进入人工晋级评审（非正式生效）"
+    assert result["latest_policy_display"]["promotion_status"] == "需人工复核"
     assert result["latest_policy"]["promotion_checklist"][0]["key"] == "shadow_sample"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
     assert result["latest_execution_state"]["active_scope"] == "尾盘+漏斗shadow"
@@ -164,6 +166,8 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     assert result["latest_execution_state"]["funnel_shadow_weights_active"] is True
     assert result["latest_execution_state"]["funnel_formal_weights_active"] is False
     assert result["latest_execution_state"]["promotion_status"] == "manual_review_required"
+    assert result["latest_execution_summary"]["formal_dynamic"] == "未进正式漏斗(auto_apply=false)"
+    assert result["latest_execution_summary"]["next_action"] == "进入人工晋级评审（非正式生效）"
     assert result["latest_operations"]["latest_shadow"]["trade_date"] == "2026-07-03"
     assert result["latest_operations"]["latest_shadow"]["diff_added_sample"] == ["300502", "688008"]
     assert result["latest_operations"]["action_summary"].startswith("本期 1 个 scoped 调权")
@@ -171,6 +175,8 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     assert "Shadow=2026-07-03 RISK_ON 新增2 移除1" in result["latest_operator_summary"]
     assert "作用范围=尾盘+漏斗shadow" in result["latest_operator_summary"]
     assert result["records"][0]["shadow"]["runs"] == 12
+    assert result["records"][0]["policy_display"]["status"] == "可进入人工晋级评审"
+    assert result["records"][0]["execution_summary"]["promotion_status"] == "需人工复核"
     assert result["records"][0]["execution_state"]["signal_action_count"] == 1
     assert result["records"][0]["execution_state"]["action_details"][0]["weight_multiplier"] == 0.5
     assert result["records"][0]["execution_state"]["action_details"][0]["evidence"] == {"avg_return_pct": -3.0}
@@ -451,7 +457,7 @@ def test_query_history_schema_allows_attribution_source():
     assert "latest_source" in source["description"]
     assert "remote_error" in source["description"]
     assert "latest_operator_summary" in source["description"]
-    assert "next_action" in source["description"]
+    assert "latest_policy_display" in source["description"]
+    assert "latest_execution_summary" in source["description"]
     assert "promotion_checklist" in source["description"]
-    assert "latest_execution_state" in source["description"]
     assert "latest_operations" in source["description"]

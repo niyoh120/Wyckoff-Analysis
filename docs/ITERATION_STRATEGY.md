@@ -121,21 +121,22 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 信号的收益、胜率、大亏率和回撤转成 `downweight` / `upweight` / `hold`。治理器只输出晋级建议：
 `review_promote_dynamic_policy`、`keep_shadow` 或 `keep_static_policy`。其中信号级调权可以进入尾盘和
 动态策略输入；生产策略是否从 `shadow` 切到 `on`，仍需要人工确认多期报告和回测结果一致。
-报告同时输出 `next_action`、`promotion_status` 和 `promotion_checklist`：`next_action` 是 Agent/Web/CLI
-直接读取的下一步动作，`promotion_status` 给出是否进入人工晋级、是否拒绝晋级、是否继续收集样本；
+报告同时输出 raw `next_action`、`promotion_status` 和 `promotion_checklist`，也输出
+`latest_policy_display` / `latest_execution_summary` 给 Agent/Web/CLI 直接展示。日常运营判断优先看
+display 字段和 `latest_operator_summary`，raw `next_action` / `promotion_status` 只用于追证据；
 `promotion_checklist` 固定检查 shadow 样本量、shadow 新增组表现、scoped 信号调权和回测确认。
-日常运营判断以这些字段为准，不再只看一句 `review_promote_dynamic_policy`。`manual_review_dynamic_on`
+`manual_review_dynamic_on`
 只表示可以开始人工晋级评审；正式漏斗读取归因调权还需要显式 `formal_dynamic_allowed=true`，
 或未来 `auto_apply=true` 且晋级清单全部通过。
 回测也按同一条线处理：`shadow` 只展示归因 meta，不把 shadow 权重当成正式 replay 输入；
 只有 `on` 且 formal gate 通过时才使用归因权重重排候选。
 
 日常复盘不只看调权结论，还要看来源和运营摘要：`latest_source` 回答“读的是远端表还是本地
-no-write 报告”，`latest_execution_state` 回答“调权现在影响哪里”，`latest_operations`
+no-write 报告”，`latest_execution_summary` 回答“调权现在影响哪里”，`latest_operations`
 回答“最近一次 shadow 新增了什么、移除了什么、哪些 scoped 信号被升降权”。日常操作先看
 `latest_operator_summary` / `latest_operations.operator_summary`，它把下一步、作用范围、正式 dynamic
-晋级状态、shadow 新增/移除和调权摘要收敛成一句话；再按需下钻 `promotion_checklist` 和
-`latest_operations.action_details`。
+晋级状态、shadow 新增/移除和调权摘要收敛成一句话；再按需下钻 `promotion_checklist`、
+raw `latest_execution_state` 和 `latest_operations.action_details`。
 CLI Agent 通过 `query_history(source="attribution")` 读取；Web 读盘室通过 `query_attribution` 读取。
 
 外部观察复盘重点看 `external_seed_observations`：
