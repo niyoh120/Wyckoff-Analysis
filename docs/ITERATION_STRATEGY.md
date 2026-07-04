@@ -125,8 +125,9 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 是否继续收集样本；后者固定检查 shadow 样本量、shadow 新增组表现、scoped 信号调权和回测确认。
 日常运营判断以这两个字段为准，不再只看一句 `review_promote_dynamic_policy`。
 
-日常复盘不只看调权结论，还要看运营摘要：`latest_execution_state` 回答“调权现在影响哪里”，
-`latest_operations` 回答“最近一次 shadow 新增了什么、移除了什么、哪些 scoped 信号被升降权”。
+日常复盘不只看调权结论，还要看来源和运营摘要：`latest_source` 回答“读的是远端表还是本地
+no-write 报告”，`latest_execution_state` 回答“调权现在影响哪里”，`latest_operations`
+回答“最近一次 shadow 新增了什么、移除了什么、哪些 scoped 信号被升降权”。
 CLI Agent 通过 `query_history(source="attribution")` 读取；Web 读盘室通过 `query_attribution` 读取。
 
 外部观察复盘重点看 `external_seed_observations`：

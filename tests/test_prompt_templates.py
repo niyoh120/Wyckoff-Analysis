@@ -30,10 +30,13 @@ class TestBuiltinPromptTemplates:
     def test_daily_template_requests_attribution_execution_state(self):
         prompt = BUILTIN_PROMPT_TEMPLATES["daily"].prompt
 
+        assert "latest_source" in prompt
+        assert "remote_error" in prompt
         assert "latest_execution_state" in prompt
         assert "promotion_status" in prompt
         assert "promotion_checklist" in prompt
         assert "latest_operations" in prompt
+        assert "归因数据来源" in prompt
         assert "shadow 最新新增/移除样本" in prompt
         assert "归因调权当前影响范围" in prompt
         assert "dynamic 是否只适合继续 shadow" in prompt

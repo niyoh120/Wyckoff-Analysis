@@ -333,6 +333,8 @@ def test_query_history_schema_allows_attribution_source():
     source = query_schema["parameters"]["properties"]["source"]
 
     assert "attribution" in source["enum"]
+    assert "latest_source" in source["description"]
+    assert "remote_error" in source["description"]
     assert "promotion_checklist" in source["description"]
     assert "latest_execution_state" in source["description"]
     assert "latest_operations" in source["description"]
