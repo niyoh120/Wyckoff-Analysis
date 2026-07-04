@@ -613,8 +613,9 @@ function formatAttributionReport(row: Record<string, unknown>): string {
   return [
     `策略归因报告 ${String(row.report_date || '-')}`,
     `窗口：${String(row.window_start || '-')} 至 ${String(row.window_end || '-')}`,
-    `策略治理：${String(governor.status || 'unknown')} / ${String(governor.mode_recommendation || 'keep_shadow')} / auto_apply=${Boolean(governor.auto_apply)}`,
+    `策略治理：${String(governor.status || 'unknown')} / ${String(governor.mode_recommendation || 'keep_shadow')} / promotion=${String(governor.promotion_status || 'unknown')} / auto_apply=${Boolean(governor.auto_apply)}`,
     `治理摘要：${String(governor.summary || '-')}`,
+    promotionChecklistLine(governor.promotion_checklist),
     attributionExecutionLine(execution),
     latestShadowLine(latest),
     sampleLine('Shadow 新增样本', latest.diff_added_sample),
@@ -631,6 +632,8 @@ function attributionExecutionFallback(governor: Record<string, unknown>, rawActi
     horizon,
     scope: actionCount > 0 ? 'unknown' : 'none',
     signal_action_count: actionCount,
+    promotion_status: String(governor.promotion_status || 'unknown'),
+    promotion_checklist: Array.isArray(governor.promotion_checklist) ? governor.promotion_checklist : [],
     summary: actionCount > 0 ? `h=${horizon} 有 ${actionCount} 个信号级调权。` : '暂无可执行信号调权。',
   }
 }
@@ -640,9 +643,16 @@ function attributionExecutionLine(execution: Record<string, unknown>): string {
     `执行态：mode=${String(execution.funnel_dynamic_policy || 'unknown')}`,
     `h=${String(execution.horizon || '5')}`,
     `scope=${String(execution.scope || 'none')}`,
+    `promotion=${String(execution.promotion_status || 'unknown')}`,
     `actions=${Number(execution.signal_action_count || 0)}`,
     String(execution.summary || ''),
   ].filter(Boolean).join(' | ')
+}
+
+function promotionChecklistLine(raw: unknown): string {
+  const rows = arrayValues(raw).filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+  if (rows.length === 0) return '晋级检查：暂无'
+  return `晋级检查：${rows.map((row) => `${String(row.key || '-')}:${String(row.status || '-')}`).join('；')}`
 }
 
 function latestShadowLine(latest: Record<string, unknown>): string {

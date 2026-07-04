@@ -82,9 +82,17 @@ interface PolicyGovernor {
   horizon?: string
   auto_apply?: boolean
   mode_recommendation?: string
+  promotion_status?: string
+  promotion_checklist?: PromotionCheck[]
   summary?: string
   shadow_gate?: JsonMap
   signal_actions?: PolicySignalAction[]
+}
+
+interface PromotionCheck {
+  key?: string
+  status?: string
+  summary?: string
 }
 
 interface PolicySignalAction {
@@ -119,6 +127,8 @@ interface PolicyExecutionPayload {
   horizon?: string
   signal_action_count?: number
   action_details?: PolicyActionDetail[]
+  promotion_status?: string
+  promotion_checklist?: PromotionCheck[]
   scope?: string
   summary?: string
 }
@@ -373,6 +383,7 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
       <div className="grid gap-3 md:grid-cols-4">
         <MetricCard label="治理状态" value={formatGovernorStatus(governor.status)} />
         <MetricCard label="建议模式" value={formatModeRecommendation(governor.mode_recommendation)} />
+        <MetricCard label="晋级状态" value={formatPromotionStatus(governor.promotion_status)} />
         <MetricCard label="观察周期" value={`h=${governor.horizon || '-'}`} />
         <MetricCard label="自动切模式" value={governor.auto_apply ? '是' : '否'} />
       </div>
@@ -381,8 +392,28 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
         说明：`自动切模式=否` 只表示不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；信号级 downweight/upweight
         仍可被尾盘策略和动态策略 shadow/on 读取。
       </p>
+      <PromotionChecklist rows={governor.promotion_checklist} />
       <ShadowGateLine gate={governor.shadow_gate} />
     </Panel>
+  )
+}
+
+function PromotionChecklist({ rows }: { rows?: PromotionCheck[] }) {
+  if (!rows?.length) {
+    return <p className="mt-3 text-xs text-muted-foreground">晋级检查：暂无结构化检查项，等待下一次归因报告刷新。</p>
+  }
+  return (
+    <div className="mt-4 grid gap-2 md:grid-cols-2">
+      {rows.map((row) => (
+        <div key={`${row.key}-${row.status}`} className="rounded-md border border-border/70 px-3 py-2 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium">{formatPromotionCheckKey(row.key)}</span>
+            <span className={promotionStatusClass(row.status)}>{formatPromotionCheckStatus(row.status)}</span>
+          </div>
+          <p className="mt-1 text-muted-foreground">{row.summary || '-'}</p>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -404,6 +435,7 @@ function PolicyExecutionState({
     : '治理器不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on。'
   const policyMode = execution?.funnel_dynamic_policy || '未知'
   const horizon = execution?.horizon || '-'
+  const promotion = execution?.promotion_status || governor?.promotion_status
   return (
     <Panel title="调权执行状态">
       <div className="grid gap-3 md:grid-cols-4">
@@ -419,7 +451,7 @@ function PolicyExecutionState({
             : '本期没有可执行的信号级调权，归因结果只用于观察与人工复盘。')}
       </p>
       <p className="mt-2 text-xs text-muted-foreground">
-        漏斗动态策略 `{policyMode}`。{modeText} Web 读盘室可通过 `query_attribution` 查看执行态和运营摘要；
+        漏斗动态策略 `{policyMode}`，晋级状态 `{promotion || 'unknown'}`。{modeText} Web 读盘室可通过 `query_attribution` 查看执行态、晋级检查和运营摘要；
         CLI 可通过 `query_history(source="attribution")` 查看 latest_execution_state / latest_operations。
         {stats.otherCount > 0 ? ` 另有 ${stats.otherCount} 条非升降权建议保留为观察项。` : ''}
       </p>
@@ -980,6 +1012,44 @@ function formatModeRecommendation(raw: string | undefined) {
     keep_static_policy: '保持静态策略',
   }
   return labels[String(raw || '').trim()] || raw || '保持 shadow'
+}
+
+function formatPromotionStatus(raw: string | undefined) {
+  const labels: Record<string, string> = {
+    manual_review_required: '需人工复核',
+    do_not_promote: '禁止晋级',
+    collect_more_samples: '继续收集样本',
+    keep_shadow: '保持 shadow',
+  }
+  return labels[String(raw || '').trim()] || raw || '未知'
+}
+
+function formatPromotionCheckKey(raw: string | undefined) {
+  const labels: Record<string, string> = {
+    shadow_sample: 'Shadow 样本',
+    shadow_performance: 'Shadow 表现',
+    signal_actions: '信号调权',
+    backtest_confirmation: '回测确认',
+  }
+  return labels[String(raw || '').trim()] || raw || '-'
+}
+
+function formatPromotionCheckStatus(raw: string | undefined) {
+  const labels: Record<string, string> = {
+    pass: '通过',
+    fail: '未通过',
+    review: '待复核',
+    not_required: '无需',
+  }
+  return labels[String(raw || '').trim()] || raw || '-'
+}
+
+function promotionStatusClass(raw: string | undefined) {
+  const status = String(raw || '').trim()
+  if (status === 'pass') return 'text-green-600 dark:text-green-400'
+  if (status === 'fail') return 'text-red-600 dark:text-red-400'
+  if (status === 'review') return 'text-amber-600 dark:text-amber-400'
+  return 'text-muted-foreground'
 }
 
 function formatCoverageGrade(raw: string | null | undefined) {
