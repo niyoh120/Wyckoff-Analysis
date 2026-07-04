@@ -50,6 +50,7 @@ def test_query_recommendation_exposes_ai_recommendation_role(monkeypatch):
 def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     from agents import history_tools
 
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
     monkeypatch.setattr(
         history_tools,
         "_load_attribution_rows",
@@ -88,7 +89,10 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     result = query_history(source="attribution", limit=1)
 
     assert result["latest_policy"]["status"] == "candidate"
+    assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
     assert result["records"][0]["shadow"]["runs"] == 12
+    assert result["records"][0]["execution_state"]["signal_action_count"] == 1
+    assert "漏斗动态策略 shadow 对照" in result["records"][0]["execution_state"]["summary"]
     assert result["records"][0]["signal_actions"] == [
         {
             "action": "downweight",
@@ -102,6 +106,8 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
 
 def test_query_attribution_exposes_policy_governor(monkeypatch):
     from integrations import supabase_base
+
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
 
     class FakeQuery:
         def __init__(self, rows):
@@ -159,8 +165,10 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
     result = query_history(source="attribution", limit=1)
 
     assert result["latest_policy"]["status"] == "candidate"
+    assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel"
     assert result["records"][0]["policy_governor"]["mode_recommendation"] == "review_promote_dynamic_policy"
     assert result["records"][0]["signal_actions"][0]["target"] == "lps"
+    assert "漏斗正式候选" in result["records"][0]["execution_state"]["summary"]
     assert result["records"][0]["shadow"]["runs"] == 24
 
 

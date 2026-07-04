@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 from agents.tool_context import ToolContext, get_user_client, get_user_id
 from core.pattern_review.records import pattern_review_tool_records
@@ -173,7 +174,12 @@ def _query_attribution(limit: int, tool_context: ToolContext | None = None) -> d
         if not rows:
             return {"message": "暂无策略归因报告", "records": []}
         records = [_attribution_record(row) for row in rows]
-        return {"total": len(records), "latest_policy": records[0].get("policy_governor", {}), "records": records}
+        return {
+            "total": len(records),
+            "latest_policy": records[0].get("policy_governor", {}),
+            "latest_execution_state": records[0].get("execution_state", {}),
+            "records": records,
+        }
     except Exception as e:
         logger.exception("query_history(attribution) error")
         return {"error": str(e)}
@@ -199,12 +205,15 @@ def _load_attribution_rows(limit: int, tool_context: ToolContext | None) -> list
 def _attribution_record(row: dict) -> dict:
     shadow = _json_map(row.get("shadow_diff_stats_json"))
     governor = _json_map(shadow.get("policy_governor"))
+    actions = _attribution_actions(row.get("recommendations_json"))
+    governor_record = _policy_governor_record(governor)
     return {
         "report_date": str(row.get("report_date", "")),
         "window_start": str(row.get("window_start", "")),
         "window_end": str(row.get("window_end", "")),
-        "policy_governor": _policy_governor_record(governor),
-        "signal_actions": _attribution_actions(row.get("recommendations_json")),
+        "policy_governor": governor_record,
+        "execution_state": _attribution_execution_state(governor_record, actions),
+        "signal_actions": actions,
         "shadow": {
             "runs": shadow.get("count", 0),
             "avg_added": shadow.get("avg_added", 0),
@@ -221,6 +230,41 @@ def _policy_governor_record(governor: dict) -> dict:
         "summary": str(governor.get("summary", "-")),
         "horizon": str(governor.get("horizon", "")),
     }
+
+
+def _attribution_execution_state(governor: dict, actions: list[dict]) -> dict:
+    mode = _funnel_dynamic_policy_mode()
+    action_count = sum(1 for item in actions if item.get("action") in {"downweight", "upweight"})
+    if action_count <= 0:
+        scope = "none"
+        summary = "暂无可执行信号调权。"
+    elif mode == "on":
+        scope = "tail_buy_and_funnel"
+        summary = "信号级调权会影响尾盘策略和漏斗正式候选。"
+    elif mode == "shadow":
+        scope = "tail_buy_and_funnel_shadow"
+        summary = "信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。"
+    else:
+        scope = "tail_buy_only"
+        summary = "信号级调权会影响尾盘策略；漏斗动态策略当前关闭。"
+    return {
+        "funnel_dynamic_policy": mode,
+        "tail_buy_reads_attribution": action_count > 0,
+        "signal_action_count": action_count,
+        "scope": scope,
+        "summary": _auto_apply_note(summary, governor),
+    }
+
+
+def _funnel_dynamic_policy_mode() -> str:
+    mode = str(os.getenv("FUNNEL_DYNAMIC_POLICY", "off") or "off").strip().lower()
+    return mode if mode in {"off", "shadow", "on"} else "off"
+
+
+def _auto_apply_note(summary: str, governor: dict) -> str:
+    if governor.get("auto_apply"):
+        return summary
+    return summary + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on。"
 
 
 def _attribution_actions(raw: object) -> list[dict]:
