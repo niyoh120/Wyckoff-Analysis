@@ -259,6 +259,38 @@ def _market_mix_policy_line(policy: dict) -> str:
     return ""
 
 
+def _policy_governance_line(policy: dict) -> str:
+    attribution = policy.get("_attribution_signal_weights") or policy.get("attribution_signal_weights") or {}
+    merged = policy.get("_signal_weights") or policy.get("signal_weights") or {}
+    if not attribution and not merged:
+        return ""
+    parts = []
+    if attribution:
+        parts.append(f"归因 {_policy_weight_text(attribution)}")
+    if merged:
+        parts.append(f"最终 {_policy_weight_text(merged)}")
+    return "**策略治理调权**: " + "；".join(parts)
+
+
+def _policy_weight_text(weights: dict) -> str:
+    rows = []
+    for signal, raw_weight in sorted((weights or {}).items()):
+        weight = _weight_value(raw_weight)
+        marker = "↓" if weight < 1.0 else "↑" if weight > 1.0 else ""
+        rows.append(f"{signal}×{weight:.2f}{marker}")
+    if len(rows) > 8:
+        return "，".join(rows[:8]) + f" 等{len(rows)}项"
+    return "，".join(rows)
+
+
+def _weight_value(raw: Any) -> float:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    return value if value == value and value not in {float("inf"), float("-inf")} else 1.0
+
+
 def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[str]:
     return [
         _today_conclusion_line(ctx, selected_count),
@@ -478,6 +510,9 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     mix_line = _market_mix_policy_line(selection.ai_policy)
     if mix_line:
         lines.insert(-1, mix_line)
+    governance_line = _policy_governance_line(selection.ai_policy)
+    if governance_line:
+        lines.insert(-1, governance_line)
     append_etf_section(lines, ctx.etf_metrics, ctx.etf_candidates, display_limit=FUNNEL_ETF_DISPLAY_LIMIT)
     if ctx.etf_metrics or ctx.etf_candidates:
         lines.append("")
@@ -561,6 +596,9 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
     mix_line = _market_mix_policy_line(policy)
     if mix_line:
         lines.insert(-1, mix_line)
+    governance_line = _policy_governance_line(policy)
+    if governance_line:
+        lines.insert(-1, governance_line)
     if policy.get("shadow_table"):
         lines.insert(
             -1,

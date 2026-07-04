@@ -19,6 +19,31 @@ def test_execution_decision_line_waits_for_ai_and_oms_confirmation() -> None:
     assert "OMS 风控同时确认" in line
 
 
+def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> None:
+    from workflows.funnel_render import _policy_governance_line
+
+    line = _policy_governance_line(
+        {
+            "_attribution_signal_weights": {"lps": 0.5, "sos": 1.15},
+            "_signal_weights": {"evr": 0.75, "lps": 0.5, "sos": 1.15},
+        }
+    )
+
+    assert line.startswith("**策略治理调权**")
+    assert "归因 lps×0.50↓，sos×1.15↑" in line
+    assert "最终 evr×0.75↓，lps×0.50↓，sos×1.15↑" in line
+
+
+def test_policy_governance_line_sanitizes_invalid_weights() -> None:
+    from workflows.funnel_render import _policy_governance_line
+
+    line = _policy_governance_line({"_signal_weights": {"bad": "bad", "nan": float("nan"), "inf": float("inf")}})
+
+    assert "bad×1.00" in line
+    assert "nan×1.00" in line
+    assert "inf×1.00" in line
+
+
 def test_render_context_treats_event_reversal_mainline_as_tradeable(monkeypatch) -> None:
     import workflows.funnel_render_context as render_context
 
