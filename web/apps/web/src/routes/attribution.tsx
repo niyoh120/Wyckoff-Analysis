@@ -127,6 +127,8 @@ interface PolicyExecutionStats {
 interface PolicyExecutionPayload {
   funnel_dynamic_policy?: string
   horizon?: string
+  next_action?: string
+  next_action_summary?: string
   signal_action_count?: number
   action_details?: PolicyActionDetail[]
   formal_dynamic_allowed?: boolean
@@ -274,14 +276,12 @@ function OperationsBrief({
   const latest = shadowLatest(shadow)
   const selection = latestSelection(latest)
   const actions = execution?.action_details || []
-  const operatorSummary = operations?.operator_summary || ''
+  const operatorSummary = attributionOperatorSummary(operations, execution, latest, selection, actions)
   return (
     <Panel title="运营复盘">
-      {operatorSummary ? (
-        <div className="mb-3 rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm text-foreground">
-          {operatorSummary}
-        </div>
-      ) : null}
+      <div className="mb-3 rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm text-foreground">
+        {operatorSummary}
+      </div>
       <div className="grid gap-3 md:grid-cols-4">
         <MetricCard label="最新 Shadow" value={`${String(latest?.trade_date || '-')} · ${String(latest?.regime || '-')}`} />
         <MetricCard label="Base → Shadow" value={`${fmtCountNumber(selection?.base_count)} → ${fmtCountNumber(selection?.shadow_count)}`} />
@@ -314,6 +314,42 @@ function OperationsBrief({
       </div>
     </Panel>
   )
+}
+
+function attributionOperatorSummary(
+  operations: PolicyOperationsPayload | null,
+  execution: PolicyExecutionPayload | null,
+  latest: JsonMap | null,
+  selection: JsonMap | null,
+  actions: PolicyActionDetail[],
+) {
+  const summary = String(operations?.operator_summary || '').trim()
+  if (summary) return summary
+  return [
+    `下一步=${execution?.next_action_summary || formatNextAction(execution?.next_action)}`,
+    `作用范围=${formatExecutionScope(execution?.scope || (actions.length ? 'tail_buy_only' : 'none'))}`,
+    `正式dynamic=${formatFormalDynamicStatus(execution)}`,
+    fallbackShadowSummary(latest, selection),
+    operations?.action_summary || fallbackActionSummary(actions),
+  ].join('；')
+}
+
+function fallbackShadowSummary(latest: JsonMap | null, selection: JsonMap | null) {
+  if (!latest && !selection) return 'Shadow=暂无最新对照'
+  return (
+    `Shadow=${String(latest?.trade_date || '-')} ${String(latest?.regime || '-')} ` +
+    `新增${fmtCountNumber(selection?.diff_added_count)} 移除${fmtCountNumber(selection?.diff_removed_count)}`
+  )
+}
+
+function fallbackActionSummary(actions: PolicyActionDetail[]) {
+  if (!actions.length) return '本期暂无可执行调权'
+  const parts = actions.slice(0, 4).map((item) => {
+    const label = item.label || formatPolicySignalTarget(item.target, item.scope)
+    return `${label}×${fmtWeight(item.weight_multiplier)}`
+  })
+  const suffix = actions.length > parts.length ? `，另 ${actions.length - parts.length} 项` : ''
+  return `本期 ${actions.length} 个 scoped 调权：${parts.join('，')}${suffix}`
 }
 
 function ObservationCoverage({
