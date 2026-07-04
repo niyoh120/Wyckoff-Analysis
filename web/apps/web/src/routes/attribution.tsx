@@ -137,6 +137,10 @@ interface PolicyExecutionPayload {
   promotion_status?: string
   promotion_checklist?: PromotionCheck[]
   scope?: string
+  active_scope?: string
+  tail_buy_weights_active?: boolean
+  funnel_shadow_weights_active?: boolean
+  funnel_formal_weights_active?: boolean
   summary?: string
 }
 
@@ -470,6 +474,7 @@ function PolicyExecutionState({
   const actionCount = execution?.signal_action_count ?? stats.actionCount
   const hasActions = actionCount > 0
   const scope = formatExecutionScope(execution?.scope || (hasActions ? 'tail_buy_only' : 'none'))
+  const activeScope = formatExecutionActiveScope(execution, actionCount)
   const targetText = stats.targets.length ? stats.targets.join(' / ') : '-'
   const modeText = governor?.auto_apply
     ? '治理器允许自动晋级，但仍应通过运行时配置和人工复核确认。'
@@ -485,6 +490,7 @@ function PolicyExecutionState({
         <MetricCard label="建议降权" value={`${stats.downCount} 项`} />
         <MetricCard label="建议升权" value={`${stats.upCount} 项`} />
         <MetricCard label="当前范围" value={`${scope} · h=${horizon}`} />
+        <MetricCard label="实际生效" value={activeScope} />
         <MetricCard label="正式 dynamic" value={formalStatus} />
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
@@ -1111,6 +1117,17 @@ function formatFormalDynamicStatus(execution: PolicyExecutionPayload | null) {
   if (execution?.formal_dynamic_allowed === true) return '允许正式'
   if (execution?.formal_dynamic_allowed === false) return '仅 shadow/尾盘'
   return '未知'
+}
+
+function formatExecutionActiveScope(execution: PolicyExecutionPayload | null, actionCount: number) {
+  const explicit = String(execution?.active_scope || '').trim()
+  if (explicit) return explicit
+  const scope = String(execution?.scope || 'none').trim()
+  if (actionCount <= 0) return '无'
+  if (scope === 'tail_buy_and_funnel') return '尾盘+正式漏斗'
+  if (scope === 'tail_buy_and_funnel_shadow') return '尾盘+漏斗shadow'
+  if (scope === 'tail_buy_only') return '尾盘'
+  return '无'
 }
 
 function formatFormalDynamicReason(execution: PolicyExecutionPayload | null) {

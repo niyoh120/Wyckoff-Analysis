@@ -611,7 +611,9 @@ export async function execQueryAttribution(deps: ToolDeps, limit: number): Promi
 function formatAttributionReport(row: Record<string, unknown>): string {
   const shadow = jsonMapOrNull(row.shadow_diff_stats_json) || {}
   const governor = jsonMapOrNull(shadow.policy_governor) || {}
-  const execution = jsonMapOrNull(shadow.policy_execution_state) || attributionExecutionFallback(governor, row.recommendations_json)
+  const execution = withAttributionActiveScope(
+    jsonMapOrNull(shadow.policy_execution_state) || attributionExecutionFallback(governor, row.recommendations_json),
+  )
   const operations = jsonMapOrNull(shadow.policy_operations_brief) || {}
   const latest = jsonMapOrNull(shadow.latest) || {}
   const actions = jsonArray(row.recommendations_json).filter(isSignalAction).slice(0, 8)
@@ -635,7 +637,7 @@ function formatAttributionReport(row: Record<string, unknown>): string {
 function attributionExecutionFallback(governor: Record<string, unknown>, rawActions: unknown): Record<string, unknown> {
   const horizon = String(governor.horizon || '5')
   const actionCount = jsonArray(rawActions).filter(row => isSignalAction(row) && String(row.horizon || payloadOf(row).horizon || '') === horizon).length
-  return {
+  return withAttributionActiveScope({
     funnel_dynamic_policy: 'unknown',
     horizon,
     scope: actionCount > 0 ? 'unknown' : 'none',
@@ -646,7 +648,7 @@ function attributionExecutionFallback(governor: Record<string, unknown>, rawActi
     formal_dynamic_allowed: String(governor.next_action || '') === 'manual_review_dynamic_on',
     promotion_checklist: Array.isArray(governor.promotion_checklist) ? governor.promotion_checklist : [],
     summary: actionCount > 0 ? `h=${horizon} 有 ${actionCount} 个信号级调权。` : '暂无可执行信号调权。',
-  }
+  })
 }
 
 function attributionExecutionLine(execution: Record<string, unknown>): string {
@@ -654,12 +656,42 @@ function attributionExecutionLine(execution: Record<string, unknown>): string {
     `执行态：mode=${String(execution.funnel_dynamic_policy || 'unknown')}`,
     `h=${String(execution.horizon || '5')}`,
     `scope=${String(execution.scope || 'none')}`,
+    `active=${String(execution.active_scope || '无')}`,
     `promotion=${String(execution.promotion_status || 'unknown')}`,
     `next=${String(execution.next_action || 'keep_shadow_observe')}`,
     `formal=${formalDynamicText(execution)}`,
     `actions=${Number(execution.signal_action_count || 0)}`,
     String(execution.summary || ''),
   ].filter(Boolean).join(' | ')
+}
+
+function withAttributionActiveScope(execution: Record<string, unknown>): Record<string, unknown> {
+  const flags = attributionActiveFlags(execution)
+  return {
+    ...execution,
+    active_scope: String(execution.active_scope || flags.active_scope),
+    tail_buy_weights_active: execution.tail_buy_weights_active ?? flags.tail_buy_weights_active,
+    funnel_shadow_weights_active: execution.funnel_shadow_weights_active ?? flags.funnel_shadow_weights_active,
+    funnel_formal_weights_active: execution.funnel_formal_weights_active ?? flags.funnel_formal_weights_active,
+  }
+}
+
+function attributionActiveFlags(execution: Record<string, unknown>): Record<string, unknown> {
+  const actionCount = Number(execution.signal_action_count || 0)
+  const scope = String(execution.scope || 'none').trim()
+  const tailActive = actionCount > 0 && ['tail_buy_only', 'tail_buy_and_funnel_shadow', 'tail_buy_and_funnel'].includes(scope)
+  const shadowActive = actionCount > 0 && scope === 'tail_buy_and_funnel_shadow'
+  const formalActive = actionCount > 0 && scope === 'tail_buy_and_funnel'
+  const labels = []
+  if (tailActive) labels.push('尾盘')
+  if (formalActive) labels.push('正式漏斗')
+  else if (shadowActive) labels.push('漏斗shadow')
+  return {
+    active_scope: labels.join('+') || '无',
+    tail_buy_weights_active: tailActive,
+    funnel_shadow_weights_active: shadowActive,
+    funnel_formal_weights_active: formalActive,
+  }
 }
 
 function formalDynamicText(execution: Record<string, unknown>): string {
