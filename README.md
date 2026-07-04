@@ -180,7 +180,7 @@ wyckoff dashboard
 - **会话分叉与导出** — `wyckoff session export/fork` 或 TUI `/fork` 把历史对话变成可复盘、可继续的新分支
 - **标准事件流** — `wyckoff trace --events <scratchpad.jsonl>` / `wyckoff diag` 产出统一 JSONL，方便复盘工具调用时间线
 - **依赖卫生检查** — CI 运行 `scripts/check_dependency_hygiene.py`，提示 Python/Web 依赖锁定和 lockfile 风险
-- **MCP Server** — 10 个工具通过 MCP 协议对外暴露，Claude Code / Cursor 即插即用
+- **MCP Server** — 15 个工具通过 MCP 协议对外暴露，Claude Code / Cursor 即插即用
 - **多通道推送** — 飞书 / 企微 / 钉钉 / Telegram
 - **本地面板** — `wyckoff dashboard` 一条命令启动可视化
 

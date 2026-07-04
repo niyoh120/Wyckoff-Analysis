@@ -81,3 +81,20 @@ def test_run_funnel_simulation_rejects_invalid_limit_before_pipeline(monkeypatch
 
     assert "limit 最大支持 3000" in result["error"]
     assert called is False
+
+
+def test_query_history_supports_attribution_source(monkeypatch):
+    mcp_server = import_mcp_server(monkeypatch)
+    captured = {}
+
+    def fake_query_history(**kwargs):
+        captured.update(kwargs)
+        return {"latest_execution_state": {"scope": "tail_buy_and_funnel_shadow"}}
+
+    monkeypatch.setattr(mcp_server, "_query_history", fake_query_history)
+
+    result = mcp_server.query_history(source="attribution", limit=1)
+
+    assert captured["source"] == "attribution"
+    assert captured["limit"] == 1
+    assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
