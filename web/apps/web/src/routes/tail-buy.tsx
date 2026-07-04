@@ -6,6 +6,7 @@ import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
 import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
+import { tailBuyExecutionSemantics } from '@wyckoff/shared'
 
 interface TailBuyRecord {
   code: string
@@ -132,6 +133,12 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
   const currentPrice = resolveCurrentPrice(record)
   const changePct = resolveChangePct(entryPrice, currentPrice, record.change_pct)
   const changeClass = financialValueClass(changePct)
+  const features = parseFeatures(record.features_json)
+  const execution = tailBuyExecutionSemantics({
+    finalDecision: record.final_decision,
+    signalType: record.signal_type,
+    features,
+  })
   const policyText = policyWeightText(record)
 
   return (
@@ -144,7 +151,11 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
           {record.signal_type || '-'}
         </span>
       </td>
-      <td className="px-3 py-2 text-center">{record.final_decision || '-'}</td>
+      <td className="px-3 py-2 text-center">
+        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${executionToneClass(execution.tone)}`} title={execution.nextStep}>
+          {execution.display}
+        </span>
+      </td>
       <td className="px-3 py-2 text-right">{fmtNumber(entryPrice)}</td>
       <td className="px-3 py-2 text-right">{fmtNumber(currentPrice)}</td>
       <td className={`px-3 py-2 text-right ${changeClass}`}>{fmtPercent(changePct)}</td>
@@ -170,6 +181,13 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
       </td>
     </tr>
   )
+}
+
+function executionToneClass(tone: 'buy' | 'watch' | 'skip' | 'unknown'): string {
+  if (tone === 'buy') return 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200'
+  if (tone === 'watch') return 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-200'
+  if (tone === 'skip') return 'bg-muted text-muted-foreground'
+  return 'bg-muted text-muted-foreground'
 }
 
 export function TailBuyPage() {

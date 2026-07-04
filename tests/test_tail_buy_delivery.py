@@ -47,8 +47,12 @@ def test_tail_buy_persist_row_serializes_reasons_and_features() -> None:
 
     assert row["initial_price"] == 12.34
     assert json.loads(row["rule_reasons"]) == ["站稳VWAP", "尾盘放量"]
-    assert json.loads(row["features_json"])["vwap"] == 12.1
-    assert json.loads(row["features_json"])["daily_trap_reason"] == "日线放量上影(2.6x)"
+    features = json.loads(row["features_json"])
+    assert features["vwap"] == 12.1
+    assert features["daily_trap_reason"] == "日线放量上影(2.6x)"
+    assert features["execution_label"] == "可执行买入"
+    assert features["execution_status"] == "executable_buy"
+    assert features["orderable"] is True
 
 
 def test_send_tail_buy_notifications_falls_back_from_rich_card(monkeypatch) -> None:

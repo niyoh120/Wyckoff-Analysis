@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from core.strategy_policy_display import format_policy_weight_text
+from core.tail_buy.decision_semantics import HIGH_RISK_MOMENTUM_SIGNALS
 from core.tail_buy.models import DECISION_BUY, DECISION_SKIP, DECISION_WATCH, TailBuyCandidate
-
-HIGH_RISK_MOMENTUM_SIGNALS = {"rec_momentum_continuation"}
 
 
 def summarize_decision_counts(candidates: list[TailBuyCandidate]) -> dict[str, int]:

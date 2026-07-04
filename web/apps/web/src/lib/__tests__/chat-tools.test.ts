@@ -305,6 +305,20 @@ describe('execQueryTailBuy', () => {
             policy_weight_next_action: 'manual_review_dynamic_on',
           },
         },
+        {
+          code: '600378',
+          name: '昊华科技',
+          run_date: '2026-07-04',
+          signal_type: 'rec_momentum_continuation',
+          final_decision: 'BUY',
+          initial_price: 82,
+          current_price: 82,
+          dist_vwap_pct: 0.8,
+          rule_score: 96,
+          llm_decision: 'BUY',
+          llm_reason: '尾盘封板',
+          features_json: {},
+        },
       ],
     })
 
@@ -312,6 +326,10 @@ describe('execQueryTailBuy', () => {
 
     expect(result).toContain('归因调权 lps x0.50 80.0→40.0')
     expect(result).toContain('next=manual_review_dynamic_on')
+    expect(result).toContain('WATCH（观察买入）')
+    expect(result).toContain('下一步:继续观察，未达到直接开仓口径。')
+    expect(result).toContain('BUY（观察买入）')
+    expect(result).toContain('下一步:高位动能默认不买；只保留人工复核。')
   })
 })
 

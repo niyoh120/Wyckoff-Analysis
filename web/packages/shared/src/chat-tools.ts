@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { fetchValueSnapshotWithFetch, isCnSymbol, normalizeTickFlowSymbol, normalizeTushareCode, type ValueSnapshot } from './agent-market'
 import { buildValuePrompt, buildValueScore } from './agent-value'
 import { formatPatternReviewDigest, type PatternReviewRow } from './pattern-review'
+import { tailBuyExecutionSemantics } from './tail-buy-semantics'
 
 export interface KlineRow {
   date: string
@@ -596,7 +597,12 @@ export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<s
       : '入库价-/现价-'
     const vwapGap = typeof r.dist_vwap_pct === 'number' ? `距VWAP${r.dist_vwap_pct.toFixed(1)}%` : '距VWAP-'
     const policyWeight = tailBuyPolicyWeightText(r)
-    return `${code} ${r.name} | ${r.run_date} | ${r.signal_type} | ${r.final_decision || '-'} | ${price} | ${vwapGap} | 规则分${r.rule_score?.toFixed(1)}${policyWeight} | ${r.llm_decision || '-'} | ${r.llm_reason || ''}`
+    const execution = tailBuyExecutionSemantics({
+      finalDecision: r.final_decision,
+      signalType: r.signal_type,
+      features: jsonMapOrNull(r.features_json),
+    })
+    return `${code} ${r.name} | ${r.run_date} | ${r.signal_type} | ${execution.display} | ${price} | ${vwapGap} | 规则分${r.rule_score?.toFixed(1)}${policyWeight} | ${r.llm_decision || '-'} | ${r.llm_reason || ''} | 下一步:${execution.nextStep}`
   })
 
   return `最近 ${data.length} 条尾盘记录：\n\n${lines.join('\n')}`

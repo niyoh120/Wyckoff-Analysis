@@ -41,4 +41,6 @@ export {
   PATTERN_REVIEW_SCOPE_NOTE,
 } from './pattern-review'
 export type { PatternReviewRow } from './pattern-review'
+export { tailBuyExecutionSemantics } from './tail-buy-semantics'
+export type { TailBuyExecutionInput, TailBuyExecutionSemantics } from './tail-buy-semantics'
 export * from './chat-tools'

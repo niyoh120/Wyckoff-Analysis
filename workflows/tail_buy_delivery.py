@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+from core.tail_buy.decision_semantics import tail_buy_execution_semantics
 from core.tail_buy.reporting import build_tail_buy_markdown
 from core.tail_buy.strategy import TailBuyCandidate
 from integrations.supabase_market_signal import load_latest_market_signal_daily, load_market_signal_daily
@@ -112,6 +113,8 @@ def _tail_buy_report_title(started_at: datetime, report_mode: str) -> str:
 
 def tail_buy_persist_row(candidate: TailBuyCandidate, started_at: datetime) -> dict:
     initial_price = safe_float(candidate.features.get("last_close"), 0.0)
+    features = dict(candidate.features or {})
+    features.update(tail_buy_execution_semantics(candidate.final_decision, candidate.signal_type))
     return {
         "code": candidate.code,
         "name": candidate.name,
@@ -142,7 +145,7 @@ def tail_buy_persist_row(candidate: TailBuyCandidate, started_at: datetime) -> d
         "tail30_volume_share": candidate.features.get("tail30_volume_share", 0.0),
         "drop_from_high_pct": candidate.features.get("drop_from_high_pct", 0.0),
         "fetch_error": candidate.fetch_error,
-        "features_json": json.dumps(candidate.features, ensure_ascii=False, default=str),
+        "features_json": json.dumps(features, ensure_ascii=False, default=str),
     }
 
 
