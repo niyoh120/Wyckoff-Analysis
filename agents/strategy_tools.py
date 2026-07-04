@@ -7,6 +7,7 @@ from typing import Any
 
 from agents.report_tools import (
     last_screen_result,
+    normalize_report_symbol_names,
     reviewed_symbols_from_info,
     run_ai_report,
     screen_auto_handoff_block_reason,
@@ -65,6 +66,7 @@ def generate_strategy_decision(
         if not report_text:
             report_text = _report_for_candidates(candidate_meta, provider, api_key, model, base_url)
             report_source = "generated_from_candidates" if report_text else "empty"
+        report_text = normalize_report_symbol_names(report_text, candidate_meta)
         token = get_credential(tool_context, "tg_bot_token", "TG_BOT_TOKEN")
         chat_id = get_credential(tool_context, "tg_chat_id", "TG_CHAT_ID")
         missing_credentials = _missing_telegram_credentials(token, chat_id)

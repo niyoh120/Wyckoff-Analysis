@@ -673,7 +673,11 @@ def _cmd_report(args):
         if ek and mc.get("api_key"):
             os.environ.setdefault(ek, mc["api_key"])
 
-    symbols_info = [{"code": c, "name": "", "tag": ""} for c in codes]
+    from agents.stock_data_helpers import code_to_name
+
+    symbols_info = [
+        {"code": c, "name": code_to_name(c), "tag": "", "selection_source": "explicit_report_input"} for c in codes
+    ]
     print(f"正在生成 AI 研报 ({len(codes)} 只) ...")
     from workflows.step3_batch_report import run as run_report
 

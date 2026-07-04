@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pandas as pd
 
 from core.prompts import WYCKOFF_FUNNEL_SYSTEM_PROMPT
@@ -36,6 +38,12 @@ def _normalize_step3_items(symbols_info: list[dict] | list[str]) -> list[dict]:
         else:
             items.append(item)
     return items
+
+
+def _runtime_config_for_items(runtime_config: Step3RuntimeConfig, items: list[dict]) -> Step3RuntimeConfig:
+    if any(str(item.get("selection_source") or "").strip() == "explicit_report_input" for item in items):
+        return replace(runtime_config, respect_upstream_priority=True)
+    return runtime_config
 
 
 def _prepare_step3_selection(
@@ -165,6 +173,8 @@ def run(
     symbols_info: list[{"code", "name", "tag"}] 或 list[str]（向后兼容）。
     """
     runtime_config = step3_runtime_config_from_env()
+    items = _normalize_step3_items(symbols_info)
+    runtime_config = _runtime_config_for_items(runtime_config, items)
     options = Step3RunOptions(
         webhook_url,
         api_key,
@@ -176,7 +186,6 @@ def run(
         dingtalk_webhook,
         runtime_config,
     )
-    items = _normalize_step3_items(symbols_info)
     if not items:
         print("[step3] 无输入股票，发送空研报和合规简报")
         return send_empty_step3_report(

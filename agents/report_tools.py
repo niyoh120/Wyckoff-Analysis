@@ -17,6 +17,9 @@ _CN_CODE_RE = re.compile(r"(?i)^(?:SH|SZ|BJ)?\.?([0134568]\d{5})(?:\.(?:SH|SZ|BJ
 _CN_CODE_TOKEN_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9])(?:SH|SZ|BJ)?\.?([0134568]\d{5})(?:\.(?:SH|SZ|BJ))?(?![A-Za-z0-9])"
 )
+_REPORT_CODE_NAME_RE = re.compile(
+    r"(?i)(?P<prefix>(?:SH|SZ|BJ)?\.?(?P<code>[0134568]\d{5})(?:\.(?:SH|SZ|BJ))?)\s*[（(](?P<name>[^）)\n]{1,24})[）)]"
+)
 
 
 def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None = None) -> dict:
@@ -50,6 +53,7 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
         )
         ok_bool = bool(ok)
         reviewed_symbols = reviewed_symbols_from_info(symbols_info)
+        report_text = normalize_report_symbol_names(report_text, reviewed_symbols)
         guard_summary = candidate_guard_summary(reviewed_symbols)
         result = {
             "ok": ok_bool,
@@ -71,6 +75,35 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
         return {"error": str(e)}
 
 
+def normalize_report_symbol_names(report_text: Any, symbols_info: list[dict]) -> str:
+    text = str(report_text or "")
+    name_map = _report_symbol_name_map(symbols_info)
+    if not text or not name_map:
+        return text
+
+    def replace(match: re.Match[str]) -> str:
+        code = match.group("code")
+        expected = name_map.get(code)
+        current = str(match.group("name") or "").strip()
+        if not expected or not current or current == expected:
+            return match.group(0)
+        return f"{match.group('prefix')}（{expected}）"
+
+    return _REPORT_CODE_NAME_RE.sub(replace, text)
+
+
+def _report_symbol_name_map(symbols_info: list[dict]) -> dict[str, str]:
+    name_map: dict[str, str] = {}
+    for item in symbols_info:
+        if not isinstance(item, dict):
+            continue
+        code = _candidate_code(item)
+        name = str(item.get("name") or "").strip()
+        if code and name:
+            name_map[code] = name
+    return name_map
+
+
 def symbols_info_from_codes(stock_codes: Any, tool_context: ToolContext | None = None) -> list[dict]:
     screen_symbols = screen_symbol_map(tool_context)
     stock_codes = _stock_code_items(stock_codes)
@@ -86,6 +119,7 @@ def symbols_info_from_codes(stock_codes: Any, tool_context: ToolContext | None =
         row["code"] = code
         row["name"] = str(row.get("name") or code_to_name(code)).strip()
         row["tag"] = str(row.get("tag") or "chat_request").strip()
+        row["selection_source"] = str(row.get("selection_source") or "explicit_report_input").strip()
         if code in seen:
             continue
         seen.add(code)

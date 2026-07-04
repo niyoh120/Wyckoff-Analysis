@@ -2,9 +2,26 @@ from __future__ import annotations
 
 import pandas as pd
 
+from workflows.step3_batch_report import _runtime_config_for_items
 from workflows.step3_runtime_config import Step3RuntimeConfig
 from workflows.step3_selection import select_step3_candidates
 from workflows.step3_upstream_selection import select_upstream_priority_candidates
+
+
+def test_explicit_report_input_forces_upstream_priority() -> None:
+    cfg = Step3RuntimeConfig(respect_upstream_priority=False)
+
+    got = _runtime_config_for_items(cfg, [{"code": "000001", "selection_source": "explicit_report_input"}])
+
+    assert got.respect_upstream_priority is True
+
+
+def test_non_explicit_report_input_keeps_runtime_priority_setting() -> None:
+    cfg = Step3RuntimeConfig(respect_upstream_priority=False)
+
+    got = _runtime_config_for_items(cfg, [{"code": "000001", "selection_source": "signal_confirmed"}])
+
+    assert got.respect_upstream_priority is False
 
 
 def test_upstream_priority_selection_uses_priority_score_under_cap() -> None:

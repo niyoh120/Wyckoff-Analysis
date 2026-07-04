@@ -6,6 +6,7 @@ from cli.__main__ import _build_parser, _cmd_report
 
 
 def test_cmd_report_prints_generated_report(monkeypatch, capsys) -> None:
+    from agents import stock_data_helpers
     from cli import auth
     from integrations import local_db
     from workflows import step3_batch_report
@@ -18,6 +19,9 @@ def test_cmd_report_prints_generated_report(monkeypatch, capsys) -> None:
         lambda: [{"id": "m1", "provider_name": "openai", "api_key": "key", "model": "gpt-test", "base_url": ""}],
     )
     monkeypatch.setattr(auth, "load_default_model_id", lambda: "m1")
+    monkeypatch.setattr(
+        stock_data_helpers, "code_to_name", lambda code: {"002293": "罗莱生活", "001314": "亿道信息"}[code]
+    )
 
     def fake_run_report(**kwargs):
         captured.update(kwargs)
@@ -30,8 +34,8 @@ def test_cmd_report_prints_generated_report(monkeypatch, capsys) -> None:
 
     out = capsys.readouterr().out
     assert captured["symbols_info"] == [
-        {"code": "002293", "name": "", "tag": ""},
-        {"code": "001314", "name": "", "tag": ""},
+        {"code": "002293", "name": "罗莱生活", "tag": "", "selection_source": "explicit_report_input"},
+        {"code": "001314", "name": "亿道信息", "tag": "", "selection_source": "explicit_report_input"},
     ]
     assert captured["notify"] is False
     assert "✓ 研报生成完成" in out

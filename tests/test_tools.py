@@ -178,8 +178,18 @@ class TestAiReportTool:
         assert result["ok"] is True
         assert result["reviewed_codes"] == ["000001", "300750"]
         assert result["reviewed_symbols"] == [
-            {"code": "000001", "name": "平安银行", "tag": "chat_request"},
-            {"code": "300750", "name": "宁德时代", "tag": "chat_request"},
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "tag": "chat_request",
+                "selection_source": "explicit_report_input",
+            },
+            {
+                "code": "300750",
+                "name": "宁德时代",
+                "tag": "chat_request",
+                "selection_source": "explicit_report_input",
+            },
         ]
         assert result["next_action"] == "研报已完成，可结合持仓和候选进入组合攻防决策"
         assert result["next_tool"]["tool"] == "generate_strategy_decision"
@@ -310,6 +320,28 @@ class TestAiReportTool:
 
         assert result["reviewed_codes"] == ["000004", "000005"]
         assert [row["name"] for row in captured["symbols_info"]] == ["主线候选", "二号候选"]
+        assert [row["selection_source"] for row in captured["symbols_info"]] == [
+            "explicit_report_input",
+            "explicit_report_input",
+        ]
+
+    def test_generate_ai_report_corrects_llm_code_name_mismatch(self, monkeypatch):
+        from agents import report_tools
+
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+        monkeypatch.setattr(report_tools, "code_to_name", lambda code: {"002774": "快意电梯"}[code])
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            assert symbols_info[0]["name"] == "快意电梯"
+            return True, "ok", "### 近就绪\n- **002774（康尼机电）**\n  触发位 15.09。"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report("002774")
+
+        assert "002774（快意电梯）" in result["report_text"]
+        assert "康尼机电" not in result["report_text"]
 
     def test_generate_ai_report_normalizes_exchange_wrapped_codes_from_text(self, monkeypatch):
         from agents import report_tools
@@ -498,7 +530,12 @@ class TestAiReportTool:
         result = report_tools.generate_ai_report(["300750"], tool_context=ctx)
 
         assert result["reviewed_codes"] == ["300750"]
-        assert captured["symbols_info"][0] == {"code": "300750", "name": "宁德时代", "tag": "chat_request"}
+        assert captured["symbols_info"][0] == {
+            "code": "300750",
+            "name": "宁德时代",
+            "tag": "chat_request",
+            "selection_source": "explicit_report_input",
+        }
         assert "candidate_shadow_score" not in result["reviewed_symbols"][0]
         assert "action_status" not in result["reviewed_symbols"][0]
 
@@ -820,8 +857,18 @@ class TestAiReportTool:
         result = report_tools.generate_ai_report("000004", tool_context=ctx)
 
         assert result["reviewed_codes"] == ["000004"]
-        assert result["reviewed_symbols"][0] == {"code": "000004", "name": "主线候选", "tag": "chat_request"}
-        assert captured["symbols_info"][0] == {"code": "000004", "name": "主线候选", "tag": "chat_request"}
+        assert result["reviewed_symbols"][0] == {
+            "code": "000004",
+            "name": "主线候选",
+            "tag": "chat_request",
+            "selection_source": "explicit_report_input",
+        }
+        assert captured["symbols_info"][0] == {
+            "code": "000004",
+            "name": "主线候选",
+            "tag": "chat_request",
+            "selection_source": "explicit_report_input",
+        }
 
     def test_generate_ai_report_uses_best_candidates_when_handoff_missing(self, monkeypatch):
         from agents import report_tools
@@ -1602,6 +1649,32 @@ class TestStrategyDecisionTool:
         assert result["reviewed_symbols"][0]["track"] == "Trend"
         assert [row["code"] for row in captured["symbols_info"]] == ["000390", "600519", "833575"]
         assert result["report_preview"] == "# 归一研报"
+
+    def test_generate_strategy_decision_corrects_generated_report_names(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext()
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            assert symbols_info[0]["name"] == "快意电梯"
+            return True, "ok", "- **002774（康尼机电）**\n  触发位 15.09。"
+
+        monkeypatch.setattr(strategy_tools, "run_ai_report", fake_run_ai_report)
+
+        result = strategy_tools.generate_strategy_decision(
+            reviewed_symbols={"code": "002774", "name": "快意电梯", "track": "Trend"},
+            tool_context=ctx,
+        )
+
+        assert "002774（快意电梯）" in result["report_preview"]
+        assert "康尼机电" not in result["report_preview"]
 
     def test_generate_strategy_decision_accepts_single_reviewed_symbol_object(self, monkeypatch):
         from agents import strategy_tools
