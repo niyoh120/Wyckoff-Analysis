@@ -72,12 +72,33 @@ def _item_line(item: TailBuyCandidate) -> str:
 
 def _item_reason_text(item: TailBuyCandidate) -> str:
     reasons = list(item.rule_reasons[:2]) if item.rule_reasons else []
+    policy_reason = _item_policy_weight_reason(item)
+    if policy_reason and all(policy_reason not in reason for reason in reasons):
+        reasons.append(policy_reason)
     if _is_high_risk_momentum_buy(item):
         reasons.append("高位动能票，仅观察买入，默认不买")
     trap_reason = str(item.features.get("daily_trap_reason") or "").strip()
     if trap_reason and all(trap_reason not in reason for reason in reasons):
         reasons.append(trap_reason)
     return "；".join(reasons) if reasons else "规则信号一般"
+
+
+def _item_policy_weight_reason(item: TailBuyCandidate) -> str:
+    features = item.features or {}
+    multiplier = features.get("policy_weight_multiplier")
+    if multiplier is None:
+        return ""
+    signal = str(features.get("policy_weight_signal") or item.signal_type or "").strip().lower() or "unknown"
+    old_score = _float_feature(features.get("policy_weight_old_score"))
+    new_score = _float_feature(features.get("policy_weight_new_score"))
+    return f"归因治理调权({signal}) x{_float_feature(multiplier):.2f}: {old_score:.1f}->{new_score:.1f}"
+
+
+def _float_feature(raw: object, default: float = 0.0) -> float:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def _is_high_risk_momentum_buy(item: TailBuyCandidate) -> bool:

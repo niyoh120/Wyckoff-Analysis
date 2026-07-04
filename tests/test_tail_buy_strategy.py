@@ -194,6 +194,9 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
     assert result[0].rule_decision == DECISION_WATCH
     assert result[0].final_decision == DECISION_WATCH
     assert result[0].rule_score == 40.0
+    assert result[0].features["policy_weight_multiplier"] == 0.5
+    assert result[0].features["policy_weight_old_score"] == 80.0
+    assert result[0].features["policy_weight_new_score"] == 40.0
     assert "归因治理调权(lps) x0.50: 80.0->40.0" in result[0].rule_reasons
     assert "调权后低于买入线，尾盘只观察" in result[0].rule_reasons
 
@@ -217,6 +220,7 @@ def test_apply_policy_weight_adjustments_upweight_does_not_auto_buy():
     assert result[0].rule_decision == DECISION_WATCH
     assert result[0].final_decision == DECISION_WATCH
     assert result[0].rule_score == 74.75
+    assert result[0].features["policy_weight_multiplier"] == 1.15
     assert "归因治理调权(sos) x1.15: 65.0->74.8" in result[0].rule_reasons
 
 
@@ -1010,6 +1014,41 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
     )
 
     assert "- 归因调权: launchpad=x1.20；lps=x0.50" in md
+
+
+def test_build_tail_buy_markdown_surfaces_item_policy_adjustment():
+    c = TailBuyCandidate(
+        code="301090",
+        name="华润材料",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="lps",
+        signal_score=6.0,
+        rule_score=40.0,
+        rule_decision=DECISION_WATCH,
+        final_decision=DECISION_WATCH,
+        priority_score=43.0,
+        rule_reasons=["尾盘走强", "回踩不破", "第三条普通原因"],
+        features={
+            "policy_weight_signal": "lps",
+            "policy_weight_multiplier": 0.5,
+            "policy_weight_old_score": 80.0,
+            "policy_weight_new_score": 40.0,
+        },
+    )
+    md = build_tail_buy_markdown(
+        now_text="2026-04-23 14:10:00",
+        target_signal_date="2026-04-22",
+        market_reminder="NORMAL/NORMAL",
+        candidates=[c],
+        llm_total=0,
+        llm_success=0,
+        elapsed_seconds=10.0,
+        policy_weights={"lps": 0.5},
+        buy_only=False,
+    )
+
+    assert "归因治理调权(lps) x0.50: 80.0->40.0" in md
 
 
 def test_build_tail_buy_markdown_keeps_daily_trap_reason_visible():

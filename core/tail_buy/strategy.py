@@ -970,6 +970,14 @@ def apply_policy_weight_adjustments(
         old_score = safe_float(item.rule_score, 0.0)
         new_score = _priority_score(old_score * multiplier)
         item.rule_score = new_score
+        item.features.update(
+            {
+                "policy_weight_signal": str(item.signal_type or "").strip().lower(),
+                "policy_weight_multiplier": multiplier,
+                "policy_weight_old_score": old_score,
+                "policy_weight_new_score": new_score,
+            }
+        )
         if item.priority_score > 0:
             item.priority_score = _priority_score(item.priority_score * multiplier)
         item.rule_reasons.append(
