@@ -12,6 +12,7 @@ from core.tail_buy.strategy import (
     TailBuyCandidate,
     TailBuyStrategyConfig,
     _normalize_signal_score,
+    apply_policy_weight_adjustments,
     build_5m_summary,
     build_llm_prompt,
     compute_tail_features,
@@ -172,6 +173,51 @@ def test_pick_tail_candidates_prefers_newer_pending_over_stale_confirmed():
     assert got[0].signal_date == "2026-06-26"
     assert got[0].status == "pending"
     assert got[0].snap["snap_support"] == 37.50
+
+
+def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
+    candidate = TailBuyCandidate(
+        code="000001",
+        name="弱信号",
+        signal_date="2026-07-01",
+        status="confirmed",
+        signal_type="lps",
+        signal_score=80.0,
+        rule_score=80.0,
+        rule_decision=DECISION_BUY,
+        final_decision=DECISION_BUY,
+        priority_score=80.0,
+    )
+
+    result = apply_policy_weight_adjustments([candidate], {"lps": 0.5})
+
+    assert result[0].rule_decision == DECISION_WATCH
+    assert result[0].final_decision == DECISION_WATCH
+    assert result[0].rule_score == 40.0
+    assert "归因治理调权(lps) x0.50: 80.0->40.0" in result[0].rule_reasons
+    assert "调权后低于买入线，尾盘只观察" in result[0].rule_reasons
+
+
+def test_apply_policy_weight_adjustments_upweight_does_not_auto_buy():
+    candidate = TailBuyCandidate(
+        code="000002",
+        name="强信号",
+        signal_date="2026-07-01",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=80.0,
+        rule_score=65.0,
+        rule_decision=DECISION_WATCH,
+        final_decision=DECISION_WATCH,
+        priority_score=65.0,
+    )
+
+    result = apply_policy_weight_adjustments([candidate], {"sos": 1.15})
+
+    assert result[0].rule_decision == DECISION_WATCH
+    assert result[0].final_decision == DECISION_WATCH
+    assert result[0].rule_score == 74.75
+    assert "归因治理调权(sos) x1.15: 65.0->74.8" in result[0].rule_reasons
 
 
 def test_evaluate_rule_decision_buy_and_skip_split():

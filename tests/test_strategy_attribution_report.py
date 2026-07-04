@@ -290,6 +290,40 @@ def test_attribution_policy_governor_keeps_shadow_reject_when_signal_actions_exi
     assert {row["type"] for row in rows} >= {"policy_governor", "downweight", "upweight"}
 
 
+def test_signal_weight_multipliers_ignore_governor_and_wrong_horizon():
+    from core.strategy_policy_governor import signal_weight_multipliers_from_rows
+
+    rows = [
+        {"type": "policy_governor", "target": "dynamic_policy", "horizon": "5", "reason": "{}"},
+        {
+            "type": "downweight",
+            "horizon": "5",
+            "target": "lps",
+            "reason": '{"action":"downweight","horizon":"5","target":"lps","weight_multiplier":0.5}',
+        },
+        {
+            "type": "upweight",
+            "horizon": "5",
+            "target": "sos",
+            "reason": '{"action":"upweight","horizon":"5","target":"sos","weight_multiplier":1.15}',
+        },
+        {
+            "type": "downweight",
+            "horizon": "10",
+            "target": "evr",
+            "reason": '{"action":"downweight","horizon":"10","target":"evr","weight_multiplier":0.75}',
+        },
+        {
+            "type": "downweight",
+            "horizon": "5",
+            "target": "unknown",
+            "reason": '{"action":"downweight","horizon":"5","target":"unknown","weight_multiplier":0.5}',
+        },
+    ]
+
+    assert signal_weight_multipliers_from_rows(rows, horizon=5) == {"lps": 0.5, "sos": 1.15}
+
+
 def test_attribution_observation_coverage_marks_current_and_legacy():
     import workflows.strategy_attribution_stats as stats_mod
 

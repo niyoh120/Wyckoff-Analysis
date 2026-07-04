@@ -50,6 +50,43 @@ def test_candidate_flow_empty_pool_skips_rule_and_llm(monkeypatch) -> None:
     assert logs == ["候选池为空：本轮仅输出持仓动作建议。"]
 
 
+def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
+    candidate = _candidate("000001", score=80)
+    calls: dict[str, object] = {}
+
+    monkeypatch.setattr(job, "run_tail_buy_rule_scan", lambda *_args, **_kwargs: [candidate])
+    monkeypatch.setattr(job, "load_tail_buy_policy_adjustments", lambda _logs: {"lps": 0.5})
+
+    def fake_adjust(scored, weights):
+        calls["weights"] = weights
+        scored[0].rule_score = 40.0
+        return scored
+
+    monkeypatch.setattr(job, "apply_policy_weight_adjustments", fake_adjust)
+    monkeypatch.setattr(job, "apply_tail_buy_depth_filter", lambda scored, **_kwargs: {"000001": {}})
+    monkeypatch.setattr(job, "run_llm_overlay", lambda *args, **_kwargs: ({}, 0, 0, {}))
+    monkeypatch.setattr(job, "merge_rule_and_llm", lambda scored, _llm, **_kwargs: scored)
+
+    result = job.run_tail_buy_candidate_flow(
+        [candidate],
+        tickflow_client=object(),
+        config=SimpleNamespace(
+            logs_path="",
+            llm_routes=[],
+            style="auto",
+            max_llm_symbols=5,
+            llm_min_rule_score=60.0,
+            llm_allowed_rule_decisions=("BUY", "WATCH"),
+            llm_concurrency=1,
+            deadline_at=current_time() + timedelta(minutes=5),
+            strategy_config=object(),
+        ),
+    )
+
+    assert calls["weights"] == {"lps": 0.5}
+    assert result.merged[0].rule_score == 40.0
+
+
 def test_single_rule_scan_marks_deferred_candidates(monkeypatch) -> None:
     scanned = [_candidate("000001", score=80)]
     deferred = _candidate("000002")

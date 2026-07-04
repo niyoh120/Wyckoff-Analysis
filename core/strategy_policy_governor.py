@@ -50,6 +50,27 @@ def governor_recommendation_rows(governor: dict[str, Any]) -> list[dict[str, str
     return rows
 
 
+def signal_weight_multipliers_from_rows(
+    rows: Any,
+    *,
+    horizon: str | int = "5",
+) -> dict[str, float]:
+    """Extract actionable signal weights from strategy attribution recommendations."""
+    horizon_text = str(horizon)
+    weights: dict[str, float] = {}
+    for row in _json_rows(rows):
+        action = _action_from_recommendation_row(row)
+        if not action or str(action.get("horizon") or "") != horizon_text:
+            continue
+        target = str(action.get("target") or "").strip().lower()
+        if not target or target in EXCLUDED_SIGNAL_TARGETS:
+            continue
+        multiplier = _bounded_multiplier(action.get("weight_multiplier"), str(action.get("action") or ""))
+        if multiplier != 1.0:
+            weights[target] = multiplier
+    return dict(sorted(weights.items()))
+
+
 def _focus_horizon(horizons: list[int]) -> int:
     if 5 in horizons:
         return 5
@@ -218,6 +239,48 @@ def _unique_targets(signal_actions: list[dict[str, Any]], action: str) -> list[s
         if item.get("action") == action and target and target not in names:
             names.append(target)
     return names
+
+
+def _json_rows(raw: Any) -> list[dict[str, Any]]:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    return [row for row in raw if isinstance(row, dict)]
+
+
+def _action_from_recommendation_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    if row.get("type") == "policy_governor":
+        return None
+    payload = row.get("reason")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    return {
+        "action": payload.get("action") or row.get("type"),
+        "horizon": payload.get("horizon") or row.get("horizon"),
+        "target": payload.get("target") or row.get("target"),
+        "weight_multiplier": payload.get("weight_multiplier"),
+    }
+
+
+def _bounded_multiplier(raw: Any, action: str) -> float:
+    value = _num(raw)
+    if value is None:
+        return 1.0
+    if action == "downweight":
+        return round(max(0.4, min(value, 0.95)), 2)
+    if action == "upweight":
+        return round(max(1.01, min(value, 1.3)), 2)
+    value = round(max(0.4, min(value, 1.3)), 2)
+    return value if value != 1.0 else 1.0
 
 
 def _num(raw: Any, default: float | None = None) -> float | None:

@@ -954,6 +954,46 @@ def select_llm_overlay_candidates(
     return selected[:limit]
 
 
+def apply_policy_weight_adjustments(
+    candidates: list[TailBuyCandidate],
+    signal_weights: dict[str, float] | None,
+    *,
+    min_buy_score: float = 72.0,
+) -> list[TailBuyCandidate]:
+    if not candidates or not signal_weights:
+        return candidates
+    floor = max(safe_float(min_buy_score, 72.0), 0.0)
+    for item in candidates:
+        multiplier = _policy_multiplier_for_signal(item.signal_type, signal_weights)
+        if multiplier == 1.0:
+            continue
+        old_score = safe_float(item.rule_score, 0.0)
+        new_score = _priority_score(old_score * multiplier)
+        item.rule_score = new_score
+        if item.priority_score > 0:
+            item.priority_score = _priority_score(item.priority_score * multiplier)
+        item.rule_reasons.append(
+            f"归因治理调权({item.signal_type}) x{multiplier:.2f}: {old_score:.1f}->{new_score:.1f}"
+        )
+        if multiplier < 1.0 and item.rule_decision == DECISION_BUY and new_score < floor:
+            item.rule_decision = DECISION_WATCH
+            if item.final_decision == DECISION_BUY:
+                item.final_decision = DECISION_WATCH
+            item.priority_score = _priority_score(new_score + 3.0)
+            item.rule_reasons.append("调权后低于买入线，尾盘只观察")
+    return candidates
+
+
+def _policy_multiplier_for_signal(signal_type: str, signal_weights: dict[str, float]) -> float:
+    signal = str(signal_type or "").strip().lower()
+    if not signal:
+        return 1.0
+    value = safe_float(signal_weights.get(signal), 1.0)
+    if value <= 0 or abs(value - 1.0) < 1e-9:
+        return 1.0
+    return max(0.4, min(value, 1.3))
+
+
 def merge_rule_and_llm(
     candidates: list[TailBuyCandidate],
     llm_result_by_code: dict[str, dict[str, Any]] | None = None,
