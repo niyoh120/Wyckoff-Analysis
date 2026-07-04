@@ -95,6 +95,14 @@ interface PolicySignalAction {
   evidence?: MetricStats
 }
 
+interface PolicyExecutionStats {
+  actionCount: number
+  downCount: number
+  upCount: number
+  otherCount: number
+  targets: string[]
+}
+
 async function fetchLatestReport(): Promise<AttributionReport | null> {
   const { data, error } = await supabase
     .from('strategy_attribution_reports')
@@ -169,11 +177,16 @@ function ReportView({ report }: { report: AttributionReport }) {
     [report.score_bucket_stats_json],
   )
   const governor = useMemo(() => policyGovernor(report.shadow_diff_stats_json), [report.shadow_diff_stats_json])
+  const policyExecution = useMemo(
+    () => policyExecutionStats(report.recommendations_json),
+    [report.recommendations_json],
+  )
   return (
     <div className="space-y-6">
       <Summary report={report} />
       <ObservationCoverage rows={observationCoverageRows} />
       <PolicyGovernorBox governor={governor} />
+      <PolicyExecutionState stats={policyExecution} governor={governor} />
       <Recommendations rows={report.recommendations_json} />
       <CandidateShadowStats rows={candidateShadowRows} />
       <EntryQualityStats rows={entryQualityRows} />
@@ -303,6 +316,40 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
         仍可被尾盘策略和动态策略 shadow/on 读取。
       </p>
       <ShadowGateLine gate={governor.shadow_gate} />
+    </Panel>
+  )
+}
+
+function PolicyExecutionState({
+  stats,
+  governor,
+}: {
+  stats: PolicyExecutionStats
+  governor: PolicyGovernor | null
+}) {
+  const hasActions = stats.actionCount > 0
+  const scope = hasActions ? '尾盘 + 动态策略输入' : '仅观察'
+  const targetText = stats.targets.length ? stats.targets.join(' / ') : '-'
+  const modeText = governor?.auto_apply
+    ? '治理器允许自动晋级，但仍应通过运行时配置和人工复核确认。'
+    : '治理器不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on。'
+  return (
+    <Panel title="调权执行状态">
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricCard label="可执行调权" value={`${stats.actionCount} 项`} />
+        <MetricCard label="建议降权" value={`${stats.downCount} 项`} />
+        <MetricCard label="建议升权" value={`${stats.upCount} 项`} />
+        <MetricCard label="当前范围" value={scope} />
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground">
+        {hasActions
+          ? `归因调权已沉淀为信号级权重输入，覆盖 ${targetText}。尾盘策略会读取这些权重；漏斗侧会作为动态策略输入，正式生效范围取决于运行时 FUNNEL_DYNAMIC_POLICY。`
+          : '本期没有可执行的信号级调权，归因结果只用于观察与人工复盘。'}
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {modeText} 精确执行态可通过 Agent 的 `query_history(source="attribution")` 查看 latest_execution_state。
+        {stats.otherCount > 0 ? ` 另有 ${stats.otherCount} 条非升降权建议保留为观察项。` : ''}
+      </p>
     </Panel>
   )
 }
@@ -638,6 +685,30 @@ function flattenObservationCoverage(data: JsonMap | undefined) {
 function policyGovernor(data: JsonMap | undefined): PolicyGovernor | null {
   const raw = data?.policy_governor
   return raw && typeof raw === 'object' ? raw as PolicyGovernor : null
+}
+
+function policyExecutionStats(rows: AttributionRecommendation[]): PolicyExecutionStats {
+  const targets: string[] = []
+  let downCount = 0
+  let upCount = 0
+  let otherCount = 0
+  for (const row of rows) {
+    if (row.type === 'policy_governor') continue
+    const payload = parseRecommendationReason(row.reason)
+    const action = String(row.type || payload.action || '').trim()
+    const target = String(row.target || payload.target || '').trim()
+    if (target && !targets.includes(target)) targets.push(target)
+    if (action === 'downweight') downCount += 1
+    else if (action === 'upweight') upCount += 1
+    else if (action) otherCount += 1
+  }
+  return {
+    actionCount: downCount + upCount,
+    downCount,
+    upCount,
+    otherCount,
+    targets: targets.slice(0, 8),
+  }
 }
 
 function parseRecommendationReason(raw: string | undefined): PolicySignalAction {
