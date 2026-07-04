@@ -592,6 +592,147 @@ export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<s
   return `最近 ${data.length} 条尾盘记录：\n\n${lines.join('\n')}`
 }
 
+export async function execQueryAttribution(deps: ToolDeps, limit: number): Promise<string> {
+  const { data } = await deps.supabase
+    .from('strategy_attribution_reports')
+    .select('report_date,window_start,window_end,shadow_diff_stats_json,recommendations_json')
+    .eq('market', 'cn')
+    .order('report_date', { ascending: false })
+    .limit(Math.max(Math.trunc(limit) || 1, 1))
+
+  if (!data || data.length === 0) return '暂无策略归因报告'
+  return data.map(formatAttributionReport).join('\n\n---\n\n')
+}
+
+function formatAttributionReport(row: Record<string, unknown>): string {
+  const shadow = jsonMapOrNull(row.shadow_diff_stats_json) || {}
+  const governor = jsonMapOrNull(shadow.policy_governor) || {}
+  const execution = jsonMapOrNull(shadow.policy_execution_state) || attributionExecutionFallback(governor, row.recommendations_json)
+  const latest = jsonMapOrNull(shadow.latest) || {}
+  const actions = jsonArray(row.recommendations_json).filter(isSignalAction).slice(0, 8)
+  return [
+    `策略归因报告 ${String(row.report_date || '-')}`,
+    `窗口：${String(row.window_start || '-')} 至 ${String(row.window_end || '-')}`,
+    `策略治理：${String(governor.status || 'unknown')} / ${String(governor.mode_recommendation || 'keep_shadow')} / auto_apply=${Boolean(governor.auto_apply)}`,
+    `治理摘要：${String(governor.summary || '-')}`,
+    attributionExecutionLine(execution),
+    latestShadowLine(latest),
+    sampleLine('Shadow 新增样本', latest.diff_added_sample),
+    sampleLine('Shadow 移除样本', latest.diff_removed_sample),
+    actionLines(actions),
+  ].filter(Boolean).join('\n')
+}
+
+function attributionExecutionFallback(governor: Record<string, unknown>, rawActions: unknown): Record<string, unknown> {
+  const horizon = String(governor.horizon || '5')
+  const actionCount = jsonArray(rawActions).filter(row => isSignalAction(row) && String(row.horizon || payloadOf(row).horizon || '') === horizon).length
+  return {
+    funnel_dynamic_policy: 'unknown',
+    horizon,
+    scope: actionCount > 0 ? 'unknown' : 'none',
+    signal_action_count: actionCount,
+    summary: actionCount > 0 ? `h=${horizon} 有 ${actionCount} 个信号级调权。` : '暂无可执行信号调权。',
+  }
+}
+
+function attributionExecutionLine(execution: Record<string, unknown>): string {
+  return [
+    `执行态：mode=${String(execution.funnel_dynamic_policy || 'unknown')}`,
+    `h=${String(execution.horizon || '5')}`,
+    `scope=${String(execution.scope || 'none')}`,
+    `actions=${Number(execution.signal_action_count || 0)}`,
+    String(execution.summary || ''),
+  ].filter(Boolean).join(' | ')
+}
+
+function latestShadowLine(latest: Record<string, unknown>): string {
+  const selection = jsonMapOrNull(latest.selection_summary) || {}
+  if (!latest.trade_date && Object.keys(selection).length === 0) return '最新 Shadow：暂无'
+  return [
+    `最新 Shadow：${String(latest.trade_date || '-')} / ${String(latest.regime || '-')}`,
+    `base=${fmtUnknown(selection.base_count)}`,
+    `shadow=${fmtUnknown(selection.shadow_count)}`,
+    `新增=${fmtUnknown(selection.diff_added_count)}`,
+    `移除=${fmtUnknown(selection.diff_removed_count)}`,
+    `Jaccard=${fmtUnknown(selection.jaccard)}`,
+  ].join(' | ')
+}
+
+function sampleLine(label: string, raw: unknown): string {
+  const sample = arrayValues(raw).map(String).filter(Boolean).slice(0, 12)
+  return `${label}：${sample.length > 0 ? sample.join(', ') : '-'}`
+}
+
+function actionLines(actions: Record<string, unknown>[]): string {
+  if (actions.length === 0) return '调权明细：无'
+  const lines = actions.map(actionLine)
+  return `调权明细：\n${lines.join('\n')}`
+}
+
+function actionLine(row: Record<string, unknown>): string {
+  const payload = payloadOf(row)
+  const scope = jsonMapOrNull(payload.scope) || {}
+  const target = String(row.target || payload.target || '-')
+  const label = scopedSignalLabel(target, scope)
+  const evidence = jsonMapOrNull(payload.evidence) || {}
+  return [
+    `- ${label}`,
+    String(row.type || payload.action || '-'),
+    `h=${String(row.horizon || payload.horizon || '-')}`,
+    `x${fmtWeight(payload.weight_multiplier)}`,
+    `avg=${fmtUnknown(evidence.avg_return_pct)}`,
+    `win=${fmtUnknown(evidence.win_rate_pct)}%`,
+    `dd=${fmtUnknown(evidence.avg_drawdown_pct)}`,
+  ].join(' | ')
+}
+
+function scopedSignalLabel(signal: string, scope: Record<string, unknown>): string {
+  const parts = [
+    scope.regime ? `regime=${String(scope.regime)}` : '',
+    scope.lane ? `lane=${String(scope.lane)}` : '',
+    scope.entry_type || scope.entry ? `entry=${String(scope.entry_type || scope.entry)}` : '',
+  ].filter(Boolean)
+  return parts.length > 0 ? `${signal}[${parts.join(', ')}]` : signal
+}
+
+function jsonArray(raw: unknown): Record<string, unknown>[] {
+  const value = typeof raw === 'string' ? parseJson(raw) : raw
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : []
+}
+
+function arrayValues(raw: unknown): unknown[] {
+  const value = typeof raw === 'string' ? parseJson(raw) : raw
+  return Array.isArray(value) ? value : []
+}
+
+function isSignalAction(row: Record<string, unknown>): boolean {
+  const action = String(row.type || payloadOf(row).action || '')
+  return action !== '' && action !== 'policy_governor'
+}
+
+function payloadOf(row: Record<string, unknown>): Record<string, unknown> {
+  return jsonMapOrNull(row.reason) || {}
+}
+
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown
+  } catch {
+    return null
+  }
+}
+
+function fmtWeight(raw: unknown): string {
+  const value = Number(raw ?? 1)
+  return Number.isFinite(value) ? value.toFixed(2) : '1.00'
+}
+
+function fmtUnknown(raw: unknown): string {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw.toFixed(2).replace(/\.00$/, '')
+  const text = String(raw ?? '').trim()
+  return text || '-'
+}
+
 export async function execExecutePortfolioUpdate(
   deps: ToolDeps,
   userId: string,

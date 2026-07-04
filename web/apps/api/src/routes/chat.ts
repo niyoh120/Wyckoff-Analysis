@@ -11,6 +11,7 @@ import {
   execIntradayAnalysis,
   execMarketHistory,
   execMarketOverview,
+  execQueryAttribution,
   execQueryRecommendations,
   execQueryTailBuy,
   execScreenStocks,
@@ -111,7 +112,8 @@ const WYCKOFF_CHAT_SYSTEM_PROMPT = `# 角色设定
 2. 并行调用优先：需要同时获取多只股票、大盘与持仓数据时，优先并行调用工具。
 3. 调仓两步走：涉及调仓时，先调用 plan_portfolio_update 展示方案；execute_portfolio_update 会在协议层要求用户确认。
 4. 风险声明：涉及具体操作建议时，附带风险提示。
-5. 技术面为主：价值面只用于质量、风险、置信度和仓位校准，不能替代 K 线事实。`
+5. 技术面为主：价值面只用于质量、风险、置信度和仓位校准，不能替代 K 线事实。
+6. 策略归因问题必须调用 query_attribution，读取 latest_execution_state 和 latest_operations 后再判断信号升降权与 shadow 新增/移除样本。`
 
 function checkRateLimit(env: Env, userId: string): ChatRateResult {
   const limit = parsePositiveInt(env.CHAT_DAILY_LIMIT_PER_USER, 80)
@@ -263,6 +265,7 @@ function buildReadTools(deps: ToolDeps, userId: string, model: unknown) {
     market_history: tool({ description: '回看大盘指数过去N个交易日K线，分析量价关系和威科夫阶段。', inputSchema: z.object({ days: z.number().nullable(), index: z.enum(['sse', 'csi300', 'szse', 'chinext']).nullable() }), execute: ({ days, index }) => execMarketHistory(deps, userId, model, days ?? 100, index ?? 'sse') }),
     query_recommendations: tool({ description: '查询形态复盘记录。', inputSchema: z.object({ limit: z.number() }), execute: ({ limit }) => execQueryRecommendations(deps, limit) }),
     query_tail_buy: tool({ description: '查询尾盘买入策略历史记录。', inputSchema: z.object({ limit: z.number() }), execute: ({ limit }) => execQueryTailBuy(deps, limit) }),
+    query_attribution: tool({ description: '查询策略归因治理器、latest_execution_state 和 latest_operations。', inputSchema: z.object({ limit: z.number() }), execute: ({ limit }) => execQueryAttribution(deps, limit) }),
   }
 }
 

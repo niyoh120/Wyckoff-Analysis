@@ -7,6 +7,7 @@ import {
   execViewPortfolio,
   execMarketOverview,
   execQueryRecommendations,
+  execQueryAttribution,
   execQueryTailBuy,
   execExecutePortfolioUpdate,
   execScreenStocks,
@@ -273,6 +274,75 @@ describe('execQueryTailBuy', () => {
     const deps = createMockDeps({ tail_buy_history: [] })
     const result = await execQueryTailBuy(deps, 10)
     expect(result).toBe('暂无尾盘买入记录')
+  })
+})
+
+describe('execQueryAttribution', () => {
+  it('returns no-data message when empty', async () => {
+    const deps = createMockDeps({ strategy_attribution_reports: [] })
+    const result = await execQueryAttribution(deps, 1)
+    expect(result).toBe('暂无策略归因报告')
+  })
+
+  it('formats execution state, latest shadow, and scoped actions', async () => {
+    const deps = createMockDeps({
+      strategy_attribution_reports: [
+        {
+          report_date: '2026-07-04',
+          window_start: '2026-05-05',
+          window_end: '2026-07-04',
+          shadow_diff_stats_json: {
+            policy_governor: {
+              status: 'candidate',
+              mode_recommendation: 'review_promote_dynamic_policy',
+              auto_apply: false,
+              summary: 'shadow 新增组显著优于移除组',
+            },
+            policy_execution_state: {
+              funnel_dynamic_policy: 'shadow',
+              horizon: '5',
+              scope: 'tail_buy_and_funnel_shadow',
+              signal_action_count: 1,
+              summary: 'h=5 调权会影响尾盘和漏斗 shadow。',
+            },
+            latest: {
+              trade_date: '2026-07-03',
+              regime: 'RISK_ON',
+              selection_summary: {
+                base_count: 8,
+                shadow_count: 9,
+                diff_added_count: 2,
+                diff_removed_count: 1,
+                jaccard: 0.7,
+              },
+              diff_added_sample: ['300502', '688008'],
+              diff_removed_sample: ['002079'],
+            },
+          },
+          recommendations_json: [
+            {
+              type: 'downweight',
+              horizon: '5',
+              target: 'lps',
+              reason: {
+                weight_multiplier: 0.5,
+                scope: { regime: 'RISK_ON', lane: 'trend_pullback' },
+                evidence: { avg_return_pct: -3.0, win_rate_pct: 39.8, avg_drawdown_pct: -11.15 },
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    const result = await execQueryAttribution(deps, 1)
+
+    expect(result).toContain('策略归因报告 2026-07-04')
+    expect(result).toContain('执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | actions=1')
+    expect(result).toContain('最新 Shadow：2026-07-03 / RISK_ON | base=8 | shadow=9 | 新增=2 | 移除=1 | Jaccard=0.70')
+    expect(result).toContain('Shadow 新增样本：300502, 688008')
+    expect(result).toContain('lps[regime=RISK_ON, lane=trend_pullback] | downweight | h=5 | x0.50')
+    expect(result).toContain('avg=-3')
   })
 })
 
