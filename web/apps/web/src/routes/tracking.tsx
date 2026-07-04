@@ -47,6 +47,10 @@ interface Recommendation {
   entry_type?: string | null
   signal_key?: string | null
   candidate_status?: string | null
+  action_status?: string | null
+  action_label?: string | null
+  action_level?: string | null
+  direct_buy_allowed?: boolean | string | number | null
   candidate_timing?: string | null
   candidate_risk?: string | null
   mainline_score?: number | null
@@ -72,6 +76,10 @@ interface SignalPendingRow {
   entry_type?: string | null
   signal_key?: string | null
   candidate_status?: string | null
+  action_status?: string | null
+  action_label?: string | null
+  action_level?: string | null
+  direct_buy_allowed?: boolean | string | number | null
   mainline_score?: number | null
   theme_score?: number | null
   stock_role_score?: number | null
@@ -188,6 +196,10 @@ function mapSignalPendingRow(row: SignalPendingRow): Recommendation | null {
     entry_type: row.entry_type ?? null,
     signal_key: row.signal_key ?? row.signal_type ?? null,
     candidate_status: row.candidate_status ?? row.status ?? null,
+    action_status: row.action_status ?? signalActionStatus(row.status),
+    action_label: row.action_label ?? null,
+    action_level: row.action_level ?? null,
+    direct_buy_allowed: false,
     mainline_score: nullableNumber(row.mainline_score),
     theme_score: nullableNumber(row.theme_score),
     stock_role_score: nullableNumber(row.stock_role_score),
@@ -660,7 +672,7 @@ function TrackingTableHead({
         <th className="px-3 py-2 text-left font-medium">入选路径</th>
         {market === 'us' && <UsPerformanceHeaders sortBy={sortBy} sortOrder={sortOrder} onSortChange={onSortChange} />}
         <th className="px-3 py-2 text-center font-medium">{t('tracking.springboard')}</th>
-        <th className="px-3 py-2 text-center font-medium">AI</th>
+        <th className="px-3 py-2 text-center font-medium">{t('tracking.actionStatus')}</th>
       </tr>
     </thead>
   )
@@ -755,9 +767,22 @@ function TrackingRow({ row, market = 'cn' }: { row: Recommendation; market?: Mar
         <SpringboardBadge row={row} />
       </td>
       <td className="px-3 py-2 text-center">
-        {row.is_ai_recommended && <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" />}
+        <ActionStatusBadge row={row} />
       </td>
     </tr>
+  )
+}
+
+function ActionStatusBadge({ row }: { row: Recommendation }) {
+  const action = resolveActionStatus(row)
+  if (!action.label) {
+    return row.is_ai_recommended ? <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" /> : <span className="text-muted-foreground">-</span>
+  }
+  return (
+    <span className={`inline-flex max-w-[7.5rem] items-center justify-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${action.cls}`} title={action.title}>
+      {row.is_ai_recommended && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />}
+      <span className="truncate">{action.label}</span>
+    </span>
   )
 }
 
@@ -845,6 +870,75 @@ function labelCandidateTerm(value: string): string {
     过热不追: '过热不追',
   }
   return labels[value] || value
+}
+
+function resolveActionStatus(row: Recommendation): { label: string; cls: string; title: string } {
+  const status = cleanText(row.action_status || row.candidate_status)
+  const label = cleanText(row.action_label) || actionStatusLabel(status, row)
+  const level = cleanText(row.action_level) || actionStatusLevel(status, row)
+  const direct = isTruthy(row.direct_buy_allowed)
+  const cls = direct
+    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+    : actionStatusClass(level)
+  const title = [
+    label,
+    status ? `status=${status}` : '',
+    direct ? '允许直接买入' : '不等于直接买入',
+  ].filter(Boolean).join(' · ')
+  return { label, cls, title }
+}
+
+function actionStatusLabel(status: string, row: Recommendation): string {
+  const labels: Record<string, string> = {
+    ready_for_ai_review: '可进入AI复核',
+    repair_review_only: '只做修复复核',
+    confirmation_required: '等待确认',
+    watch_only: '观察池',
+    priority_watch: '重点观察',
+    trigger_watch: '触发观察',
+    caution_watch: '警戒观察',
+    watch: '观察',
+    avoid: '回避',
+    blocked_by_market_gate: '风险闸门关闭',
+    blocked_by_data_quality: '数据质量未过关',
+    blocked_by_policy_guard: '策略护栏阻断',
+    blocked_by_quality_gate: '质量门槛阻断',
+    blocked_by_watch_only: '仅观察阻断',
+    pending: '待确认',
+    confirmed: '信号确认',
+  }
+  if (labels[status]) return labels[status]
+  if (status.startsWith('blocked_')) return '阻断'
+  if (row.is_ai_recommended) return 'AI入选'
+  return status
+}
+
+function actionStatusLevel(status: string, row: Recommendation): string {
+  if (status.startsWith('blocked_') || status === 'avoid') return 'blocked'
+  if (status === 'ready_for_ai_review' || row.is_ai_recommended) return 'ai_review'
+  if (status === 'confirmation_required' || status === 'pending' || status === 'confirmed') return 'confirmation'
+  if (status === 'repair_review_only') return 'review_only'
+  if (status === 'watch_only' || status.endsWith('_watch') || status === 'watch') return 'watch'
+  return ''
+}
+
+function actionStatusClass(level: string): string {
+  if (level === 'blocked') return 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+  if (level === 'ai_review') return 'border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300'
+  if (level === 'confirmation') return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+  if (level === 'review_only') return 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+  return 'border-border bg-muted text-muted-foreground'
+}
+
+function signalActionStatus(status: string | null | undefined): string {
+  return cleanText(status) === 'confirmed' ? 'confirmation_required' : 'watch_only'
+}
+
+function isTruthy(value: boolean | string | number | null | undefined): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value === 'string') return ['1', 'true', 'yes', 'y'].includes(value.trim().toLowerCase())
+  return false
 }
 
 function trackingScoreKind(row: Recommendation): 'priority' | 'raw' | null {
