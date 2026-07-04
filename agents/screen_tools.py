@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from agents.tool_context import ToolContext, ensure_tushare_token
+from core.candidate_actions import candidate_action_fields
 from core.candidate_guards import candidate_guard_summary
 from core.candidate_metadata import build_candidate_metadata_map, code6
 from core.candidate_policy import candidate_score_value
@@ -907,6 +908,7 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str, data_qua
     rank_reason = str(row.get("rank_reason") or "").strip()
     why = "；".join(part for part in (profile, rank_reason) if part) or "候选证据不足"
     next_step = _candidate_next_step(trade_mode, bucket, data_quality)
+    action_fields = _candidate_action_fields(trade_mode, bucket, data_quality)
     return _drop_empty_candidate_fields(
         {
             "code": str(row.get("code") or "").strip(),
@@ -915,7 +917,7 @@ def _selection_candidate_item(row: dict, trade_mode: dict, bucket: str, data_qua
             "why": why,
             "quality_factors": _candidate_quality_factors(row, next_step=next_step),
             "risk_factors": _candidate_risk_factors(row, trade_mode, bucket, data_quality),
-            "action_status": _candidate_action_status(trade_mode, bucket, data_quality),
+            **action_fields,
             "next_step": next_step,
             "priority_score": row.get("priority_score"),
             "shadow_score": row.get("shadow_score"),
@@ -1225,6 +1227,7 @@ def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str, data_quality
     evidence = "；".join(part for part in (profile, rank_reason) if part) or "候选证据不足"
     code = str(row.get("code") or "").strip()
     name = str(row.get("name") or code).strip()
+    action_fields = _candidate_action_fields(trade_mode, bucket, data_quality)
     return {
         "code": code,
         "name": name,
@@ -1232,7 +1235,7 @@ def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str, data_quality
         "evidence": evidence,
         "quality_factors": _candidate_quality_factors(row, next_step=next_step),
         "risk_factors": _candidate_risk_factors(row, trade_mode, bucket, data_quality),
-        "action_status": _candidate_action_status(trade_mode, bucket, data_quality),
+        **action_fields,
         "next_step": next_step,
         **_candidate_style_fields(row),
         **_candidate_quality_metrics(row),
@@ -1242,6 +1245,7 @@ def _candidate_brief_item(row: dict, trade_mode: dict, bucket: str, data_quality
 
 def _candidate_ref(row: dict, trade_mode: dict, bucket: str, data_quality: dict) -> dict:
     next_step = _candidate_next_step(trade_mode, bucket, data_quality)
+    action_fields = _candidate_action_fields(trade_mode, bucket, data_quality)
     payload = {
         "code": row.get("code"),
         "name": row.get("name"),
@@ -1251,7 +1255,7 @@ def _candidate_ref(row: dict, trade_mode: dict, bucket: str, data_quality: dict)
         "rank_reason": row.get("rank_reason"),
         "quality_factors": _candidate_quality_factors(row, next_step=next_step),
         "risk_factors": _candidate_risk_factors(row, trade_mode, bucket, data_quality),
-        "action_status": _candidate_action_status(trade_mode, bucket, data_quality),
+        **action_fields,
         "priority_score": row.get("priority_score"),
         "shadow_score": row.get("shadow_score"),
         "selection_source": row.get("selection_source"),
@@ -1337,6 +1341,31 @@ def _candidate_action_status(trade_mode: dict, bucket: str, data_quality: dict |
     if mode == "confirmation_only":
         return "confirmation_required"
     return "ready_for_ai_review"
+
+
+def _candidate_action_fields(trade_mode: dict, bucket: str, data_quality: dict | None = None) -> dict[str, Any]:
+    return candidate_action_fields(
+        {
+            "action_status": _candidate_action_status(trade_mode, bucket, data_quality),
+            "new_buy_allowed": bool(trade_mode.get("allow_recommendation_write")) and bucket != "watch",
+            "direct_buy_allowed": False,
+            "trade_readiness": _candidate_trade_readiness(trade_mode, bucket, data_quality),
+        }
+    )
+
+
+def _candidate_trade_readiness(trade_mode: dict, bucket: str, data_quality: dict | None = None) -> str:
+    if bucket == "watch":
+        return "watch_only"
+    if _data_quality_blocks_ready_flow(trade_mode, data_quality):
+        return "data_quality_blocked"
+    if not bool(trade_mode.get("allow_ai_review")):
+        return "observe_only"
+    if not bool(trade_mode.get("allow_recommendation_write")):
+        return "research_only"
+    if str(trade_mode.get("mode") or "").strip() == "confirmation_only":
+        return "confirmation_required"
+    return "review_ready"
 
 
 def _candidate_profile(row: dict) -> str:

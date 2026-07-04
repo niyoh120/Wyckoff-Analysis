@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-BLOCKING_CANDIDATE_ACTION_STATUSES = {
-    "watch_only",
-    "blocked_by_data_quality",
-    "blocked_by_market_gate",
-    "blocked_by_policy_guard",
-    "repair_review_only",
-    "confirmation_required",
-}
+from core.candidate_actions import (
+    candidate_action_blocks_direct_buy,
+    candidate_action_fields,
+)
 
 
 def candidate_guard_summary(candidate_meta: list[dict]) -> dict[str, Any]:
@@ -54,12 +50,13 @@ def candidate_guard_item(row: dict[str, Any]) -> dict[str, Any]:
     reason = candidate_guard_reason(row)
     if not reason:
         return {}
+    action_fields = candidate_action_fields(row)
     return _compact_guard_item(
         {
             "code": row.get("code"),
             "name": row.get("name"),
             "reason": reason,
-            "action_status": row.get("action_status"),
+            **action_fields,
             "label_ready": row.get("label_ready"),
             "trade_readiness": row.get("trade_readiness"),
             "new_buy_allowed": row.get("new_buy_allowed"),
@@ -78,7 +75,7 @@ def candidate_guard_reason(row: dict[str, Any]) -> str:
     if trade_readiness in {"research_only", "review_only"}:
         return f"候选交易就绪状态 {trade_readiness} 不允许直接买入"
     status = str(row.get("action_status") or "").strip()
-    if status.startswith("blocked_") or status in BLOCKING_CANDIDATE_ACTION_STATUSES:
+    if status and candidate_action_blocks_direct_buy(status):
         return f"候选状态 {status} 不允许直接买入"
     return ""
 

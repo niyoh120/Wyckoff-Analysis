@@ -521,7 +521,7 @@ def test_screen_stocks_brief_lines_surface_diagnosis_review_chain():
         "快扫: all 前1200只，实际扫描1200只",
         "本轮首选可进入 AI 研报复核: 002436 兴森科技",
         "复核链路: analyze_stock(code=002436, mode=diagnose) → generate_ai_report(stock_codes=002436,002245) · 先结构诊断，再研报复核",
-        "候选结论: 候选 002436 兴森科技 · 等待确认 · 证据: 优先分111.08",
+        "候选结论: 待确认候选 002436 兴森科技 · 等待确认 · 证据: 优先分111.08",
     ]
 
 

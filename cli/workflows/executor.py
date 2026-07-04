@@ -42,6 +42,7 @@ from cli.workflows.planner import (
     workflow_steps_from_script,
 )
 from cli.workflows.store import append_workflow_event, persist_workflow_script, save_workflow_run
+from core.candidate_actions import candidate_action_fields, candidate_action_label, candidate_action_role
 from core.candidate_guards import candidate_guard_reason
 from core.candidate_ranker import TRIGGER_SHORT_LABELS
 from utils.tool_result_preview import tool_result_brief_lines
@@ -147,6 +148,9 @@ _CANDIDATE_HANDOFF_FIELDS = (
     "quality_factors",
     "risk_factors",
     "action_status",
+    "action_label",
+    "action_level",
+    "direct_buy_allowed",
     "status",
     "trade_readiness",
     "new_buy_allowed",
@@ -1252,13 +1256,16 @@ def _candidate_guard_rows(value: Any, limit: int) -> list[dict[str, Any]]:
 
 
 def _compact_candidate_guard_row(row: dict[str, Any]) -> dict[str, Any]:
-    return _pick_fields(
+    payload = _pick_fields(
         row,
         (
             "code",
             "name",
             "reason",
             "action_status",
+            "action_label",
+            "action_level",
+            "direct_buy_allowed",
             "label_ready",
             "trade_readiness",
             "new_buy_allowed",
@@ -1266,6 +1273,9 @@ def _compact_candidate_guard_row(row: dict[str, Any]) -> dict[str, Any]:
             "next_step",
         ),
     )
+    if payload.get("action_status") or payload.get("status") or "direct_buy_allowed" in row:
+        payload.update(candidate_action_fields({**row, **payload}))
+    return _drop_empty(payload)
 
 
 def _candidate_rows(value: Any, limit: int) -> list[dict[str, Any]]:
@@ -1285,6 +1295,8 @@ def _compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
     payload = _pick_fields(row, _CANDIDATE_HANDOFF_FIELDS)
     if "code" not in payload and (code := _candidate_code(row)):
         payload["code"] = code
+    if payload.get("action_status") or payload.get("status") or "direct_buy_allowed" in row:
+        payload.update(candidate_action_fields({**row, **payload}))
     for field in (
         "profile",
         "theme_event_title",
@@ -1642,13 +1654,14 @@ def _fallback_candidate_conclusion_payload(
 ) -> dict[str, Any]:
     role = _fallback_candidate_prefix(row, guard_reason, ready_rank)
     line = _fallback_candidate_line(row, stage, handoff, guard_reason, ready_rank, role)
+    action_fields = _fallback_candidate_action_fields(row)
     return _drop_empty(
         {
             "line": line,
             "role": role,
             "code": str(row.get("code") or "").strip(),
             "name": str(row.get("name") or "").strip(),
-            "action_status": str(row.get("action_status") or "").strip(),
+            **action_fields,
             "evidence": _fallback_evidence_items(row),
             "action": _fallback_action_payload(row),
             "quality_factors": _fallback_quality_items(row, 4, 120),
@@ -1659,6 +1672,12 @@ def _fallback_candidate_conclusion_payload(
             "source_stage": source_stage,
         }
     )
+
+
+def _fallback_candidate_action_fields(row: dict[str, Any]) -> dict[str, Any]:
+    if not any(key in row for key in ("action_status", "status", "direct_buy_allowed")):
+        return {}
+    return candidate_action_fields(row)
 
 
 def _ready_candidate_rank(row: dict[str, Any], guard_reason: str, ready_count: int) -> int:
@@ -1694,30 +1713,12 @@ def _fallback_candidate_line(
 
 
 def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "", ready_rank: int = 0) -> str:
-    status = str(row.get("action_status") or "").strip()
-    if status in {"priority_watch", "trigger_watch", "caution_watch", "avoid", "watch"}:
-        return {
-            "priority_watch": "重点观察",
-            "trigger_watch": "触发观察",
-            "caution_watch": "警戒观察",
-            "avoid": "回避",
-            "watch": "观察候选",
-        }[status]
-    if status == "ready_for_ai_review":
-        if not str(row.get("code") or "").strip():
-            return "待确认候选"
-        if ready_rank > 1:
-            return "备选复核候选"
-        return "受限复核候选" if guard_reason else "首选"
-    if status == "repair_review_only":
-        return "修复复核候选"
-    if status == "confirmation_required":
-        return "待确认候选"
-    if status == "watch_only":
-        return "观察候选"
-    if status.startswith("blocked_"):
-        return "阻断候选"
-    return "候选"
+    return candidate_action_role(
+        row.get("action_status"),
+        guard_reason=guard_reason,
+        ready_rank=ready_rank,
+        has_code=bool(str(row.get("code") or "").strip()),
+    )
 
 
 def _fallback_merged_candidate(row: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
@@ -1787,13 +1788,7 @@ def _fallback_status_text(row: dict[str, Any]) -> str:
     if label:
         return label
     status = str(row.get("action_status") or "").strip()
-    return {
-        "priority_watch": "重点观察",
-        "trigger_watch": "触发观察",
-        "caution_watch": "警戒观察",
-        "avoid": "回避",
-        "watch": "观察",
-    }.get(status, status)
+    return candidate_action_label(status) if status else ""
 
 
 def _fallback_action_part(row: dict[str, Any]) -> str:

@@ -6,6 +6,7 @@ import json
 import math
 from typing import Any
 
+from core.candidate_actions import candidate_action_fields, candidate_action_label, candidate_action_role
 from core.candidate_guards import candidate_guard_reason
 from utils.safe import drop_empty as _drop_empty_preview_fields
 
@@ -299,6 +300,9 @@ def _recommendation_pick_preview(value: dict[str, Any]) -> dict[str, Any]:
         "label_ready",
         "label_status",
         "action_status",
+        "action_label",
+        "action_level",
+        "direct_buy_allowed",
         "quality_factors",
         "risk_factors",
         "next_step",
@@ -991,6 +995,7 @@ def _candidate_guard_candidate_preview(value: Any) -> list[dict[str, Any]]:
                 "name": row.get("name"),
                 "reason": row.get("reason"),
                 "action_status": row.get("action_status"),
+                **_candidate_action_preview_fields(row),
                 "label_ready": row.get("label_ready"),
                 "risk_factors": _preview_list(row.get("risk_factors"), 3),
                 "next_step": _text_excerpt(row.get("next_step"), 120),
@@ -1046,13 +1051,14 @@ def _candidate_conclusion_preview(source_stage: str, result: dict[str, Any]) -> 
     if not row:
         return {}
     action_plan = _candidate_conclusion_action_plan(result)
+    action_fields = _candidate_action_preview_fields({**action_plan, **row})
     return _drop_empty_preview_fields(
         {
             "line": _candidate_conclusion_line(row, result),
             "code": str(row.get("code") or "").strip(),
             "name": str(row.get("name") or "").strip(),
             "scores": _candidate_conclusion_score_preview(row),
-            "action_status": str(row.get("action_status") or "").strip(),
+            **action_fields,
             "trade_readiness": str(row.get("trade_readiness") or action_plan.get("trade_readiness") or "").strip(),
             "new_buy_allowed": row.get("new_buy_allowed")
             if row.get("new_buy_allowed") is not None
@@ -1079,6 +1085,12 @@ def _candidate_conclusion_score_preview(row: dict[str, Any]) -> dict[str, Any]:
         "entry_risk_penalty",
     )
     return _drop_empty_preview_fields({key: row.get(key) for key in keys})
+
+
+def _candidate_action_preview_fields(row: dict[str, Any]) -> dict[str, Any]:
+    if not any(key in row for key in ("action_status", "status", "direct_buy_allowed")):
+        return {}
+    return candidate_action_fields(row)
 
 
 def _candidate_conclusion_brief_line(source_stage: str, result: dict[str, Any]) -> str:
@@ -1248,14 +1260,11 @@ def _candidate_conclusion_line(row: dict[str, Any], result: dict[str, Any]) -> s
 
 
 def _candidate_conclusion_prefix(row: dict[str, Any], guard_reason: str = "") -> str:
-    status = str(row.get("action_status") or "").strip()
-    if status == "ready_for_ai_review":
-        return "受限复核候选" if guard_reason else "首选"
-    if status == "watch_only":
-        return "观察候选"
-    if status.startswith("blocked_"):
-        return "阻断候选"
-    return "候选"
+    return candidate_action_role(
+        row.get("action_status"),
+        guard_reason=guard_reason,
+        has_code=bool(str(row.get("code") or "").strip()),
+    )
 
 
 def _candidate_conclusion_evidence_items(row: dict[str, Any]) -> list[str]:
@@ -1790,14 +1799,11 @@ def _candidate_name(row: dict[str, Any]) -> str:
 
 
 def _action_status_label(value: Any) -> str:
-    return {
-        "blocked_by_data_quality": "数据质量未过关",
-        "blocked_by_market_gate": "风险闸门关闭",
-        "watch_only": "观察池",
-        "repair_review_only": "只做修复复核",
-        "confirmation_required": "等待确认",
-        "ready_for_ai_review": "可进入AI复核",
-    }.get(str(value or "").strip(), "")
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    label = candidate_action_label(text)
+    return label if label != text or text.startswith("blocked_") else ""
 
 
 def _brief_risk(row: dict[str, Any]) -> str:

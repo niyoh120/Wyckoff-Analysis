@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from agents.tool_context import ToolContext
+from core.candidate_actions import candidate_action_fields
 from core.candidate_guards import policy_candidate_guard_summary
 from core.candidate_quality import risk_adjusted_quality_metrics
 
@@ -240,6 +241,16 @@ def _policy_pick_handoff(row: dict[str, Any]) -> dict[str, Any]:
     rank = row.get("rank")
     quality_factors = _policy_quality_factors(row)
     quality_metrics = _policy_quality_metrics(row)
+    action_status = str(row.get("action_status") or "ready_for_ai_review")
+    action_fields = candidate_action_fields(
+        {
+            "action_status": action_status,
+            "trade_readiness": str(row.get("trade_readiness") or "research_only"),
+            "new_buy_allowed": row.get("new_buy_allowed") if row.get("new_buy_allowed") is not None else False,
+            "direct_buy_allowed": False,
+            "label_ready": row.get("label_ready"),
+        }
+    )
     return {
         "code": code,
         "name": str(row.get("name") or code).strip(),
@@ -250,7 +261,7 @@ def _policy_pick_handoff(row: dict[str, Any]) -> dict[str, Any]:
         "rank_reason": _policy_rank_reason(rank, strategy, quality_factors),
         "quality_factors": quality_factors,
         "risk_factors": _policy_risk_factors(row),
-        "action_status": str(row.get("action_status") or "ready_for_ai_review"),
+        **action_fields,
         "trade_readiness": str(row.get("trade_readiness") or "research_only"),
         "new_buy_allowed": row.get("new_buy_allowed") if row.get("new_buy_allowed") is not None else False,
         "ai_review_allowed": row.get("ai_review_allowed"),
