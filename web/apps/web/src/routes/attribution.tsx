@@ -419,7 +419,8 @@ function PolicyExecutionState({
             : '本期没有可执行的信号级调权，归因结果只用于观察与人工复盘。')}
       </p>
       <p className="mt-2 text-xs text-muted-foreground">
-        漏斗动态策略 `{policyMode}`。{modeText} 精确执行态可通过 Agent 的 `query_history(source="attribution")` 查看 latest_execution_state。
+        漏斗动态策略 `{policyMode}`。{modeText} Web 读盘室可通过 `query_attribution` 查看执行态和运营摘要；
+        CLI 可通过 `query_history(source="attribution")` 查看 latest_execution_state / latest_operations。
         {stats.otherCount > 0 ? ` 另有 ${stats.otherCount} 条非升降权建议保留为观察项。` : ''}
       </p>
     </Panel>

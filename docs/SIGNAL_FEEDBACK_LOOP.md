@@ -245,6 +245,11 @@ limit 10;
 `signal_health_daily` / `signal_registry` 合并。`shadow` 模式下它只影响 shadow 对照候选，`on`
 模式下才会影响漏斗正式候选。
 
+Agent 入口也读取同一份执行态，避免页面、CLI 和 Web 各说一套。CLI 使用
+`query_history(source="attribution")`，Web 读盘室使用 `query_attribution`；回答策略归因问题时必须看
+`latest_execution_state` 和 `latest_operations`。前者说明调权当前影响尾盘、漏斗 shadow 还是正式漏斗，
+后者给出最新 shadow 新增/移除样本和 scoped 调权明细，用于每日运营复盘。
+
 生产归因任务默认使用最近 60 天窗口。漏斗和尾盘读取归因调权时会检查 `report_date`，默认只接受
 7 天内的报告；可以通过 `STRATEGY_ATTRIBUTION_MAX_AGE_DAYS` 调整，设为 `0` 表示关闭过期保护。
 远端报告过期时会回退本地 `STRATEGY_ATTRIBUTION_REPORT_JSON` / `TAIL_BUY_ATTRIBUTION_REPORT_JSON`

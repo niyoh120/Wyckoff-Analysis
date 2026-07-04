@@ -122,6 +122,10 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 `review_promote_dynamic_policy`、`keep_shadow` 或 `keep_static_policy`。其中信号级调权可以进入尾盘和
 动态策略输入；生产策略是否从 `shadow` 切到 `on`，仍需要人工确认多期报告和回测结果一致。
 
+日常复盘不只看调权结论，还要看运营摘要：`latest_execution_state` 回答“调权现在影响哪里”，
+`latest_operations` 回答“最近一次 shadow 新增了什么、移除了什么、哪些 scoped 信号被升降权”。
+CLI Agent 通过 `query_history(source="attribution")` 读取；Web 读盘室通过 `query_attribution` 读取。
+
 外部观察复盘重点看 `external_seed_observations`：
 - `watch_status`：观察对象是被 L1 拒绝、已过 L2、L4 确认，还是只适合继续观察。
 - `l4_trigger_tags`：外部观察名单是否真的出现 Spring / SOS / LPS / EVR / Compression。

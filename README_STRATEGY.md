@@ -69,6 +69,9 @@ flowchart LR
 Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否真的比静态配额更聪明。
 策略归因报告使用最近 60 天样本生成；漏斗和尾盘读取归因调权时默认要求报告不超过 7 天，超过
 `STRATEGY_ATTRIBUTION_MAX_AGE_DAYS` 会自动跳过，避免陈旧市场风格继续影响当前候选。
+归因执行态同时暴露给 Agent：CLI 使用 `query_history(source="attribution")`，Web 读盘室使用
+`query_attribution`。两者都应读取 `latest_execution_state` 判断当前调权影响尾盘、漏斗 shadow
+还是正式漏斗，并读取 `latest_operations` 查看最新 shadow 新增/移除样本和 scoped 调权明细。
 
 ### 外部观察验证
 
