@@ -18,6 +18,7 @@ def build_strategy_policy_governor(
     *,
     signal_stats_json: dict[str, Any],
     signal_context_stats_json: dict[str, Any] | None = None,
+    score_bucket_stats_json: dict[str, Any] | None = None,
     shadow_diff_stats_json: dict[str, Any],
     backtest_confirmation_json: dict[str, Any] | None = None,
     horizons: list[int],
@@ -26,6 +27,7 @@ def build_strategy_policy_governor(
     shadow_gate = _shadow_gate(shadow_diff_stats_json, horizon)
     signal_actions = _signal_actions(signal_stats_json)
     context_actions = _context_actions(signal_context_stats_json or {})
+    selection_actions = _selection_actions(score_bucket_stats_json or {})
     all_actions = signal_actions + context_actions
     promotion_checklist = _promotion_checklist(shadow_gate, all_actions, backtest_confirmation_json or {})
     next_action = _next_action(shadow_gate, all_actions, promotion_checklist)
@@ -45,13 +47,19 @@ def build_strategy_policy_governor(
         "shadow_gate": shadow_gate,
         "signal_actions": signal_actions,
         "context_actions": context_actions,
-        "summary": _summary(shadow_gate, signal_actions),
+        "selection_actions": selection_actions,
+        "summary": _summary(shadow_gate, signal_actions, selection_actions),
     }
 
 
 def governor_recommendation_rows(governor: dict[str, Any]) -> list[dict[str, str]]:
     rows = [_governor_summary_row(governor)]
-    for action in (governor.get("signal_actions") or []) + (governor.get("context_actions") or []):
+    actions = (
+        (governor.get("signal_actions") or [])
+        + (governor.get("context_actions") or [])
+        + (governor.get("selection_actions") or [])
+    )
+    for action in actions:
         if not isinstance(action, dict) or action.get("action") == "hold":
             continue
         rows.append(
@@ -256,6 +264,35 @@ def _context_actions(context_stats_json: dict[str, Any]) -> list[dict[str, Any]]
     return actions
 
 
+def _selection_actions(score_bucket_stats_json: dict[str, Any]) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    for bucket_key, category in (
+        ("_selection_mode", "selection_mode"),
+        ("_strategy_version", "strategy_version"),
+        ("_candidate_lane", "candidate_lane"),
+        ("_entry_type", "entry_type"),
+    ):
+        bucket = score_bucket_stats_json.get(bucket_key)
+        if not isinstance(bucket, dict):
+            continue
+        actions.extend(_selection_bucket_actions(bucket, category))
+    return actions
+
+
+def _selection_bucket_actions(bucket: dict[str, Any], category: str) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    for horizon, stats_by_value in sorted(bucket.items(), key=lambda item: int(item[0])):
+        if not isinstance(stats_by_value, dict):
+            continue
+        for value, value_stats in sorted(stats_by_value.items()):
+            action = _selection_action(
+                str(horizon), category, str(value), value_stats if isinstance(value_stats, dict) else {}
+            )
+            if action:
+                actions.append(action)
+    return actions
+
+
 def _context_action(horizon: str, row: dict[str, Any]) -> dict[str, Any] | None:
     signal = _norm_key(row.get("signal_type"))
     if signal in EXCLUDED_SIGNAL_TARGETS:
@@ -278,6 +315,45 @@ def _context_scope(row: dict[str, Any]) -> dict[str, str]:
         "lane": _norm_key(row.get("candidate_lane")),
         "entry_type": _norm_key(row.get("entry_type")),
     }
+
+
+def _selection_action(horizon: str, category: str, value: str, stats: dict[str, Any]) -> dict[str, Any] | None:
+    if value in EXCLUDED_SIGNAL_TARGETS:
+        return None
+    count = int(stats.get("count") or 0)
+    if count < MIN_CONTEXT_SAMPLES:
+        return None
+    avg_return = _num(stats.get("avg_return_pct"), 0.0)
+    win_rate = _num(stats.get("win_rate_pct"), 0.0)
+    big_loss = _num(stats.get("big_loss_rate_pct"), 0.0)
+    avg_dd = _num(stats.get("avg_drawdown_pct"), 0.0)
+    if avg_return <= -1.0 or win_rate < 45.0 or big_loss >= 35.0 or avg_dd <= -10.0:
+        return _selection_action_row(
+            "selection_downweight",
+            horizon,
+            category,
+            value,
+            stats,
+            _downweight_multiplier(avg_return, big_loss, avg_dd),
+        )
+    if avg_return >= 2.0 and win_rate >= 60.0 and big_loss <= 25.0:
+        return _selection_action_row("selection_upweight", horizon, category, value, stats, 1.15)
+    return None
+
+
+def _selection_action_row(
+    action: str,
+    horizon: str,
+    category: str,
+    value: str,
+    stats: dict[str, Any],
+    multiplier: float,
+) -> dict[str, Any]:
+    row = _action_row(action, horizon, f"{category}={value}", stats, multiplier)
+    row["category"] = category
+    row["group_value"] = value
+    row["recommendation"] = "降级到 shadow/人工复核" if action == "selection_downweight" else "进入人工晋级复核"
+    return row
 
 
 def _signal_action(
@@ -538,9 +614,15 @@ def _check_status(checklist: list[dict[str, str]], key: str) -> str:
     return ""
 
 
-def _summary(shadow_gate: dict[str, Any], signal_actions: list[dict[str, Any]]) -> str:
+def _summary(
+    shadow_gate: dict[str, Any],
+    signal_actions: list[dict[str, Any]],
+    selection_actions: list[dict[str, Any]] | None = None,
+) -> str:
     down = _unique_targets(signal_actions, "downweight")
     up = _unique_targets(signal_actions, "upweight")
+    selection_down = _unique_targets(selection_actions or [], "selection_downweight")
+    selection_up = _unique_targets(selection_actions or [], "selection_upweight")
     shadow_text = {
         "candidate": "shadow 新增组显著优于移除组，可进入人工晋级评审",
         "reject": "shadow 新增组未跑赢移除组，继续保持静态策略",
@@ -551,6 +633,10 @@ def _summary(shadow_gate: dict[str, Any], signal_actions: list[dict[str, Any]]) 
         parts.append("建议降权 " + "、".join(down[:6]))
     if up:
         parts.append("建议升权 " + "、".join(up[:6]))
+    if selection_down:
+        parts.append("候选源降级复核 " + "、".join(selection_down[:4]))
+    if selection_up:
+        parts.append("候选源晋级复核 " + "、".join(selection_up[:4]))
     return "；".join(parts)
 
 
@@ -619,8 +705,7 @@ def _bounded_multiplier(raw: Any, action: str) -> float:
         return round(max(0.4, min(value, 0.95)), 2)
     if action == "upweight":
         return round(max(1.01, min(value, 1.3)), 2)
-    value = round(max(0.4, min(value, 1.3)), 2)
-    return value if value != 1.0 else 1.0
+    return 1.0
 
 
 def _num(raw: Any, default: float | None = None) -> float | None:

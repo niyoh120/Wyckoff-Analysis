@@ -38,6 +38,7 @@ def build_strategy_attribution_payload(
     governor = build_strategy_policy_governor(
         signal_stats_json=signal_stats,
         signal_context_stats_json=signal_context_stats,
+        score_bucket_stats_json=score_stats,
         shadow_diff_stats_json=shadow,
         backtest_confirmation_json=backtest_confirmation_json,
         horizons=horizons,

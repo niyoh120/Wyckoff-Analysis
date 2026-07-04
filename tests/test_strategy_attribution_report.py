@@ -344,6 +344,56 @@ def test_attribution_policy_governor_emits_scoped_context_weight():
     assert weights == {"lps|regime=RISK_ON|lane=trend_pullback|entry=wyckoff_structure": 0.75}
 
 
+def test_attribution_policy_governor_emits_selection_source_actions():
+    import workflows.strategy_attribution_stats as stats_mod
+    from core.strategy_policy_governor import signal_weight_multipliers_from_rows
+
+    observations = [
+        {
+            "id": idx,
+            "trade_date": "2026-06-01",
+            "code": f"00000{idx}",
+            "signal_type": "shadow_added",
+            "selection_mode": "candidate_lane_shadow",
+            "strategy_version": "candidate_lane_v1",
+            "candidate_lane": "trend_pullback",
+            "entry_type": "wyckoff_structure",
+        }
+        for idx in range(1, 6)
+    ]
+    outcomes = [
+        {
+            "observation_id": idx,
+            "trade_date": "2026-06-01",
+            "code": f"00000{idx}",
+            "horizon_days": 5,
+            "return_pct": -2.0,
+            "max_drawdown_pct": -11.0,
+        }
+        for idx in range(1, 6)
+    ]
+
+    payload = stats_mod.build_strategy_attribution_payload(
+        report_date=stats_mod.date(2026, 7, 4),
+        market="cn",
+        window_start=stats_mod.date(2026, 5, 5),
+        window_end=stats_mod.date(2026, 7, 4),
+        horizons=[5],
+        observations=observations,
+        outcomes=outcomes,
+        shadow_runs=[],
+    )
+
+    governor = payload["shadow_diff_stats_json"]["policy_governor"]
+    rows = payload["recommendations_json"]
+
+    assert any(row["target"] == "candidate_lane=trend_pullback" for row in governor["selection_actions"])
+    assert any(row["type"] == "selection_downweight" for row in rows)
+    assert "候选源降级复核" in governor["summary"]
+    assert "candidate_lane=trend_pullback" in governor["summary"]
+    assert signal_weight_multipliers_from_rows(rows, horizon=5) == {}
+
+
 def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
     import workflows.strategy_attribution_report as report_mod
 
@@ -679,6 +729,15 @@ def test_signal_weight_multipliers_ignore_governor_and_wrong_horizon():
             "reason": (
                 '{"action":"downweight","horizon":"5","target":"evr","weight_multiplier":0.75,'
                 '"scope":{"regime":"RISK_ON","lane":"trend_pullback","entry_type":"wyckoff_structure"}}'
+            ),
+        },
+        {
+            "type": "selection_downweight",
+            "horizon": "5",
+            "target": "candidate_lane=trend_pullback",
+            "reason": (
+                '{"action":"selection_downweight","horizon":"5","target":"candidate_lane=trend_pullback",'
+                '"weight_multiplier":0.5}'
             ),
         },
     ]

@@ -193,7 +193,7 @@ def build_report_markdown(report: dict[str, Any]) -> str:
         f"- 可执行调权: `{execution.get('signal_action_count', 0)}`",
         f"- 摘要: {execution.get('summary', '暂无可执行信号调权。')}",
         "",
-        "## 信号权重建议",
+        "## 治理建议",
     ]
     lines.extend(_recommendation_markdown_rows(report.get("recommendations_json") or []))
     return "\n".join(lines)
