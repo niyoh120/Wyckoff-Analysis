@@ -15,7 +15,7 @@ ACCUM_CHANNEL_TAGS = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护
 HIT_KEYS = ("sos", "spring", "lps", "evr", "compression", "trend_pullback")
 BLOCKED_EXIT_SIGNALS = {"stop_loss", "distribution_warning"}
 DEFAULT_AI_QUOTA_BY_FAMILY: dict[str, tuple[int, int]] = {
-    "RISK_ON": (3, 5),
+    "RISK_ON": (5, 3),
     "BEAR_REBOUND": (0, 0),
     "RISK_OFF": (0, 0),
     "NEUTRAL": (2, 3),

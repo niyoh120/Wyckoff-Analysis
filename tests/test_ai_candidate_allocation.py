@@ -11,6 +11,7 @@ from core.ai_candidate_allocation import (
 )
 from core.wyckoff_engine import FunnelResult
 from workflows.ai_candidate_allocation_config import ai_candidate_allocation_config_from_env
+from workflows.candidate_policy_config import candidate_policy_config_from_env
 
 
 class TestAllocateAiCandidates:
@@ -33,6 +34,18 @@ class TestAllocateAiCandidates:
         assert policy["trend_quota"] == 0
         assert policy["accum_quota"] == 0
 
+    def test_risk_on_default_quota_matches_current_production_style(self, monkeypatch):
+        monkeypatch.delenv("FUNNEL_AI_RISK_ON_TREND", raising=False)
+        monkeypatch.delenv("FUNNEL_AI_RISK_ON_ACCUM", raising=False)
+
+        config = ai_candidate_allocation_config_from_env()
+        policy = resolve_ai_candidate_policy("RISK_ON", config=config)
+
+        assert policy["requested_trend_quota"] == 5
+        assert policy["requested_accum_quota"] == 3
+        assert policy["trend_quota"] == 5
+        assert policy["accum_quota"] == 3
+
     def test_allocation_env_loader_stays_in_workflow_layer(self, monkeypatch):
         monkeypatch.setenv("FUNNEL_AI_TOTAL_CAP", "6")
         monkeypatch.setenv("FUNNEL_AI_RISK_ON_TREND", "4")
@@ -44,6 +57,20 @@ class TestAllocateAiCandidates:
         assert policy["total_cap"] == 6
         assert policy["trend_quota"] == 4
         assert policy["accum_quota"] == 2
+
+    def test_candidate_policy_default_risk_on_overheat_matches_production(self, monkeypatch):
+        monkeypatch.delenv("FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET", raising=False)
+
+        config = candidate_policy_config_from_env()
+
+        assert config.risk_on_pre5_ret == 35.0
+
+    def test_candidate_policy_env_can_override_risk_on_overheat(self, monkeypatch):
+        monkeypatch.setenv("FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET", "28")
+
+        config = candidate_policy_config_from_env()
+
+        assert config.risk_on_pre5_ret == 28.0
 
     def test_evr_and_compression_only_hits_enter_quota_tracks(self):
         result = FunnelResult(

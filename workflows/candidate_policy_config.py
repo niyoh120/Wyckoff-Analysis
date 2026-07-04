@@ -24,7 +24,7 @@ def candidate_policy_config_from_env() -> CandidatePolicyConfig:
         pure_evr_observe_only=_env_bool("FUNNEL_LOSS_GUARD_PURE_EVR_OBSERVE_ONLY", True),
         pure_evr_min_score_default=evr_min_score if evr_min_score is not None else 3.0,
         pure_evr_min_score_hot=evr_min_score if evr_min_score is not None else 5.0,
-        risk_on_pre5_ret=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET", 25.0),
+        risk_on_pre5_ret=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET", 35.0),
         risk_on_range_pos=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_RANGE_POS", 85.0),
         risk_on_vol_ratio=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_VOL_RATIO", 1.8),
         defensive_high_range_pos=_env_float("FUNNEL_LOSS_GUARD_DEFENSIVE_HIGH_RANGE_POS", 78.0),
