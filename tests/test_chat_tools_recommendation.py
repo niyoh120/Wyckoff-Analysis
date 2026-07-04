@@ -109,6 +109,7 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     result = query_history(source="attribution", limit=1)
 
     assert result["latest_policy"]["status"] == "candidate"
+    assert result["latest_source"] == "remote"
     assert result["latest_policy"]["promotion_status"] == "manual_review_required"
     assert result["latest_policy"]["promotion_checklist"][0]["key"] == "shadow_sample"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
@@ -197,7 +198,11 @@ def test_query_history_attribution_falls_back_to_local_report(monkeypatch, tmp_p
     from agents import history_tools
 
     monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
-    monkeypatch.setattr(history_tools, "_load_remote_attribution_rows", lambda limit, tool_context: [])
+
+    def fail_remote(_limit, _tool_context):
+        raise RuntimeError("RLS denied")
+
+    monkeypatch.setattr(history_tools, "_load_remote_attribution_rows", fail_remote)
     report_path = tmp_path / "report.json"
     report_path.write_text(
         json.dumps(
@@ -237,6 +242,8 @@ def test_query_history_attribution_falls_back_to_local_report(monkeypatch, tmp_p
     result = query_history(source="attribution", limit=1)
 
     assert result["latest_policy"]["promotion_status"] == "manual_review_required"
+    assert result["latest_source"] == "local"
+    assert "RLS denied" in result["remote_error"]
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
     assert result["latest_execution_state"]["promotion_checklist"][0]["key"] == "shadow_sample"
     assert result["records"][0]["shadow"]["runs"] == 24
@@ -307,6 +314,7 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
     result = query_history(source="attribution", limit=1)
 
     assert result["latest_policy"]["status"] == "candidate"
+    assert result["latest_source"] == "remote"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel"
     assert result["records"][0]["policy_governor"]["mode_recommendation"] == "review_promote_dynamic_policy"
     assert result["records"][0]["policy_governor"]["promotion_status"] == "manual_review_required"

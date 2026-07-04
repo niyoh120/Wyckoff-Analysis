@@ -177,6 +177,8 @@ def _query_attribution(limit: int, tool_context: ToolContext | None = None) -> d
         records = [_attribution_record(row) for row in rows]
         return {
             "total": len(records),
+            "latest_source": records[0].get("source", "remote"),
+            "remote_error": records[0].get("remote_error", ""),
             "latest_policy": records[0].get("policy_governor", {}),
             "latest_execution_state": records[0].get("execution_state", {}),
             "latest_operations": records[0].get("operations", {}),
@@ -192,14 +194,14 @@ def _load_attribution_rows(limit: int, tool_context: ToolContext | None) -> list
     try:
         rows = _load_remote_attribution_rows(limit, tool_context)
         if rows:
-            return rows
+            return [_with_attribution_source(row, "remote") for row in rows]
     except Exception as exc:
         logger.warning("failed to load attribution reports from remote", exc_info=True)
         remote_error = exc
 
     local = _load_local_attribution_row()
     if local:
-        return [local]
+        return [_with_attribution_source(local, "local", remote_error)]
     if remote_error:
         raise remote_error
     return []
@@ -228,6 +230,14 @@ def _load_local_attribution_row() -> dict | None:
     return load_local_attribution_report("cn")
 
 
+def _with_attribution_source(row: dict, source: str, remote_error: Exception | None = None) -> dict:
+    annotated = dict(row)
+    annotated["_source"] = source
+    if remote_error:
+        annotated["_remote_error"] = str(remote_error)
+    return annotated
+
+
 def _attribution_record(row: dict) -> dict:
     shadow = _json_map(row.get("shadow_diff_stats_json"))
     governor = _json_map(shadow.get("policy_governor"))
@@ -235,6 +245,8 @@ def _attribution_record(row: dict) -> dict:
     governor_record = _policy_governor_record(governor)
     execution = _attribution_execution_state(governor_record, actions)
     return {
+        "source": str(row.get("_source") or "remote"),
+        "remote_error": str(row.get("_remote_error") or ""),
         "report_date": str(row.get("report_date", "")),
         "window_start": str(row.get("window_start", "")),
         "window_end": str(row.get("window_end", "")),

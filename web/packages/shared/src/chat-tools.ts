@@ -600,7 +600,9 @@ export async function execQueryAttribution(deps: ToolDeps, limit: number): Promi
     .order('report_date', { ascending: false })
     .limit(Math.max(Math.trunc(limit) || 1, 1))
 
-  if (!data || data.length === 0) return '暂无策略归因报告'
+  if (!data || data.length === 0) {
+    return '暂无策略归因报告；Web 只读取远端 strategy_attribution_reports，本地 --no-write 报告请用 CLI/MCP 的 query_history(source="attribution") 查看。'
+  }
   return data.map(formatAttributionReport).join('\n\n---\n\n')
 }
 

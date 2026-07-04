@@ -281,7 +281,9 @@ describe('execQueryAttribution', () => {
   it('returns no-data message when empty', async () => {
     const deps = createMockDeps({ strategy_attribution_reports: [] })
     const result = await execQueryAttribution(deps, 1)
-    expect(result).toBe('暂无策略归因报告')
+    expect(result).toContain('暂无策略归因报告')
+    expect(result).toContain('Web 只读取远端 strategy_attribution_reports')
+    expect(result).toContain('query_history(source="attribution")')
   })
 
   it('formats execution state, latest shadow, and scoped actions', async () => {
