@@ -312,10 +312,27 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "promotion_status": "manual_review_required",
         "auto_apply": False,
         "policy_summary": "shadow 新增组显著优于移除组",
+        "policy_display": {
+            "status": "可进入人工晋级评审",
+            "mode_recommendation": "评审是否切 on",
+            "next_action": "进入人工晋级评审（非正式生效）",
+            "promotion_status": "需人工复核",
+            "auto_apply": "否",
+        },
         "shadow_runs": 24,
         "execution_policy": "shadow",
         "execution_horizon": "5",
         "execution_scope": "tail_buy_and_funnel_shadow",
+        "execution_summary": {
+            "active_scope": "尾盘+漏斗shadow",
+            "promotion_status": "需人工复核",
+            "next_action": "进入人工晋级评审（非正式生效）",
+            "formal_dynamic": "未进正式漏斗(auto_apply=false)",
+            "summary": (
+                "h=5 信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。 "
+                "策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；manual_review_dynamic_on 只是人工复核入口。"
+            ),
+        },
         "formal_dynamic_allowed": False,
         "formal_dynamic_block_reason": "auto_apply=false",
         "active_scope": "尾盘+漏斗shadow",
