@@ -11,6 +11,7 @@ def _sample_tail_buy_report() -> str:
         "- 扫描数量: 80",
         "- 分层结果: BUY=6 / WATCH=13 / SKIP=61",
         "- AI 二判: 14/19",
+        "- 归因调权: lps×0.50↓（远端, report=2026-07-04, h=5, active=尾盘+漏斗shadow）",
         "- 总耗时: 57.9s",
         "",
         "⚠️ 风险提醒: UNKNOWN/NORMAL（常态） | 风险提示文案",
@@ -71,6 +72,7 @@ def test_send_tail_buy_card_uses_rich_card_and_keeps_full_items_by_default(monke
     )
     assert "持仓动作建议（硬止损/结构减仓/洗盘观察）" in body_text
     assert "BUY（可执行买入）" in body_text
+    assert "归因调权：lps×0.50↓（远端, report=2026-07-04, h=5, active=尾盘+漏斗shadow）" in body_text
     assert "BUY（观察买入：高位动能默认不买）" in body_text
     assert "600378 昊华科技" in body_text
     assert "WATCH（观察买入）" in body_text

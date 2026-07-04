@@ -32,6 +32,7 @@ class TailBuyReportSections:
     scan_count: str
     decision_line: str
     llm_line: str
+    policy_line: str
     route_line: str
     data_fetched_line: str
     elapsed_line: str
@@ -159,6 +160,7 @@ def _report_sections(content: str) -> TailBuyReportSections:
         scan_count=_extract_line(lines, "- 扫描数量:"),
         decision_line=_extract_line(lines, "- 分层结果:"),
         llm_line=_extract_line(lines, "- LLM 二判:"),
+        policy_line=_extract_line(lines, "- 归因调权:"),
         route_line=_extract_line(lines, "- LLM 路由:"),
         data_fetched_line=_extract_line(lines, "- 分时数据获取:"),
         elapsed_line=_extract_line(lines, "- 总耗时:"),
@@ -223,6 +225,8 @@ def _summary_elements(sections: TailBuyReportSections) -> list[dict]:
     elements = [_summary_header(sections), _summary_columns(sections)]
     if sections.route_line:
         elements.append(lark_md_div(f"LLM 路由：`{sections.route_line}`"))
+    if sections.policy_line:
+        elements.append(lark_md_div(f"归因调权：{sections.policy_line}"))
     if sections.data_fetched_line:
         elements.append(lark_md_div(f"分时数据获取：`{sections.data_fetched_line}`"))
     if sections.risk_line:
