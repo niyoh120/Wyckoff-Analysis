@@ -6,7 +6,7 @@ import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
 import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
-import { tailBuyExecutionSemantics } from '@wyckoff/shared'
+import { formatPolicyWeightMetaText, tailBuyExecutionSemantics } from '@wyckoff/shared'
 
 interface TailBuyRecord {
   code: string
@@ -105,23 +105,7 @@ function policyWeightText(record: TailBuyRecord): string {
   const oldScore = numberFeature(features, 'policy_weight_old_score')
   const newScore = numberFeature(features, 'policy_weight_new_score')
   const scoreText = oldScore !== undefined && newScore !== undefined ? ` ${oldScore.toFixed(1)}→${newScore.toFixed(1)}` : ''
-  const source = String(features.policy_weight_source || '').trim()
-  const reportDate = String(features.policy_weight_report_date || '').trim()
-  const horizon = String(features.policy_weight_horizon || '').trim()
-  const mode = String(features.policy_weight_execution_policy || '').trim()
-  const scope = String(features.policy_weight_execution_scope || '').trim()
-  const nextAction = String(features.policy_weight_next_action || '').trim()
-  const formalBlock = String(features.policy_weight_formal_dynamic_block_reason || '').trim()
-  const meta = [
-    source,
-    reportDate ? `report=${reportDate}` : '',
-    horizon ? `h=${horizon}` : '',
-    mode ? `mode=${mode}` : '',
-    scope ? `scope=${scope}` : '',
-    nextAction ? `next=${nextAction}` : '',
-    formalBlock ? `formal_block=${formalBlock}` : '',
-  ].filter(Boolean).join(' ')
-  return `${signal} x${multiplier.toFixed(2)}${scoreText}${meta ? ` (${meta})` : ''}`
+  return `${signal} x${multiplier.toFixed(2)}${scoreText}${formatPolicyWeightMetaText(features)}`
 }
 
 function policyWeightSortValue(record: TailBuyRecord): number | undefined {

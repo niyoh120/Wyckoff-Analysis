@@ -986,6 +986,9 @@ def apply_policy_weight_adjustments(
                 "policy_weight_execution_scope": str((policy_meta or {}).get("execution_scope") or ""),
                 "policy_weight_next_action": str((policy_meta or {}).get("next_action") or ""),
                 "policy_weight_formal_dynamic_allowed": (policy_meta or {}).get("formal_dynamic_allowed"),
+                "policy_weight_tail_buy_weights_active": (policy_meta or {}).get("tail_buy_weights_active"),
+                "policy_weight_funnel_shadow_weights_active": (policy_meta or {}).get("funnel_shadow_weights_active"),
+                "policy_weight_funnel_formal_weights_active": (policy_meta or {}).get("funnel_formal_weights_active"),
                 "policy_weight_formal_dynamic_block_reason": str(
                     (policy_meta or {}).get("formal_dynamic_block_reason") or ""
                 ),

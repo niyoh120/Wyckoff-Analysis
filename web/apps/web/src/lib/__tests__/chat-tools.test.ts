@@ -303,6 +303,9 @@ describe('execQueryTailBuy', () => {
             policy_weight_execution_policy: 'shadow',
             policy_weight_execution_scope: 'tail_buy_and_funnel_shadow',
             policy_weight_next_action: 'manual_review_dynamic_on',
+            policy_weight_tail_buy_weights_active: true,
+            policy_weight_funnel_shadow_weights_active: true,
+            policy_weight_funnel_formal_weights_active: false,
           },
         },
         {
@@ -326,6 +329,7 @@ describe('execQueryTailBuy', () => {
 
     expect(result).toContain('归因调权 lps x0.50 80.0→40.0')
     expect(result).toContain('next=manual_review_dynamic_on')
+    expect(result).toContain('active=尾盘+漏斗shadow')
     expect(result).toContain('WATCH（观察买入）')
     expect(result).toContain('下一步:继续观察，未达到直接开仓口径。')
     expect(result).toContain('BUY（观察买入）')
