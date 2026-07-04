@@ -95,7 +95,14 @@ def test_send_tail_buy_report_builds_buy_only_report(monkeypatch) -> None:
         {"efficiency:model": 1},
         "2026-06-22 14:00:00",
         {"lps": 0.5},
-        {"source": "远端", "report_date": "2026-07-04", "horizon": "5", "age_days": 0},
+        {
+            "source": "远端",
+            "report_date": "2026-07-04",
+            "horizon": "5",
+            "age_days": 0,
+            "execution_policy": "shadow",
+            "execution_scope": "tail_buy_and_funnel_shadow",
+        },
     )
 
     assert delivery.send_tail_buy_report(
@@ -115,4 +122,6 @@ def test_send_tail_buy_report_builds_buy_only_report(monkeypatch) -> None:
         "report_date": "2026-07-04",
         "horizon": "5",
         "age_days": 0,
+        "execution_policy": "shadow",
+        "execution_scope": "tail_buy_and_funnel_shadow",
     }

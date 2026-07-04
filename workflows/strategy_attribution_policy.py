@@ -13,6 +13,7 @@ from typing import Any
 from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
 from core.strategy_policy_governor import signal_weight_multipliers_from_rows
 from integrations.supabase_base import close_client, create_read_client
+from workflows.strategy_attribution_execution import attribution_execution_state
 
 LOCAL_ATTRIBUTION_REPORT = Path("/private/tmp/wyckoff-strategy-attribution/latest/report.json")
 
@@ -25,6 +26,13 @@ class AttributionPolicySnapshot:
     horizon: str = "5"
     age_days: int | None = None
     max_age_days: int = 7
+    governor_status: str = ""
+    mode_recommendation: str = ""
+    auto_apply: bool = False
+    execution_policy: str = ""
+    execution_scope: str = ""
+    signal_action_count: int = 0
+    execution_summary: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -34,6 +42,13 @@ class AttributionPolicySnapshot:
             "age_days": self.age_days,
             "max_age_days": self.max_age_days,
             "weight_count": len(self.weights),
+            "governor_status": self.governor_status,
+            "mode_recommendation": self.mode_recommendation,
+            "auto_apply": self.auto_apply,
+            "execution_policy": self.execution_policy,
+            "execution_scope": self.execution_scope,
+            "signal_action_count": self.signal_action_count,
+            "execution_summary": self.execution_summary,
         }
 
 
@@ -141,6 +156,8 @@ def _policy_snapshot(
     horizon: str,
 ) -> AttributionPolicySnapshot:
     report_day = _report_day(row)
+    governor = _policy_governor(row)
+    execution = attribution_execution_state(governor, _recommendation_rows(row.get("recommendations_json")))
     return AttributionPolicySnapshot(
         weights=weights,
         source=source,
@@ -148,6 +165,13 @@ def _policy_snapshot(
         horizon=str(horizon or "5"),
         age_days=(today - report_day).days if report_day else None,
         max_age_days=max_age,
+        governor_status=str(governor.get("status") or ""),
+        mode_recommendation=str(governor.get("mode_recommendation") or ""),
+        auto_apply=bool(governor.get("auto_apply")),
+        execution_policy=str(execution.get("funnel_dynamic_policy") or ""),
+        execution_scope=str(execution.get("scope") or ""),
+        signal_action_count=int(execution.get("signal_action_count") or 0),
+        execution_summary=str(execution.get("summary") or ""),
     )
 
 
@@ -160,8 +184,31 @@ def _snapshot_log_text(snapshot: AttributionPolicySnapshot) -> str:
     meta.append(f"h={snapshot.horizon}")
     if snapshot.age_days is not None:
         meta.append(f"age={snapshot.age_days}d")
+    if snapshot.execution_policy:
+        meta.append(f"mode={snapshot.execution_policy}")
+    if snapshot.execution_scope:
+        meta.append(f"scope={snapshot.execution_scope}")
     weights = ", ".join(f"{k}=x{v:.2f}" for k, v in snapshot.weights.items())
     return f"{' '.join(meta)}; {weights}"
+
+
+def _policy_governor(row: dict[str, Any]) -> dict[str, Any]:
+    shadow = row.get("shadow_diff_stats_json")
+    if not isinstance(shadow, dict):
+        return {}
+    governor = shadow.get("policy_governor")
+    return governor if isinstance(governor, dict) else {}
+
+
+def _recommendation_rows(raw: Any) -> list[dict[str, Any]]:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    return [row for row in raw if isinstance(row, dict)]
 
 
 def _fresh_report(

@@ -265,6 +265,12 @@ def _policy_weight_source_text(meta: dict[str, object] | None) -> str:
     age = row.get("age_days")
     if age is not None and str(age) != "":
         tokens.append(f"age={age}d")
+    execution_policy = str(row.get("execution_policy") or "").strip()
+    execution_scope = str(row.get("execution_scope") or "").strip()
+    if execution_policy:
+        tokens.append(f"mode={execution_policy}")
+    if execution_scope:
+        tokens.append(f"scope={execution_scope}")
     return f"（{', '.join(tokens)}）" if tokens else ""
 
 

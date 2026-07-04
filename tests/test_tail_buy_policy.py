@@ -108,14 +108,22 @@ def test_attribution_weights_fall_back_to_fresh_local_when_remote_is_stale(monke
     assert weights == {"sos": 1.15}
 
 
-def test_attribution_policy_snapshot_exposes_source_and_age(monkeypatch):
+def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatch):
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
     monkeypatch.setattr(
         attribution_policy,
         "load_latest_attribution_report",
         lambda _market: {
             "market": "cn",
             "report_date": "2026-07-02",
-            "shadow_diff_stats_json": {"policy_governor": {"horizon": "5"}},
+            "shadow_diff_stats_json": {
+                "policy_governor": {
+                    "horizon": "5",
+                    "status": "candidate",
+                    "mode_recommendation": "review_promote_dynamic_policy",
+                    "auto_apply": False,
+                }
+            },
             "recommendations_json": [
                 {
                     "type": "downweight",
@@ -133,7 +141,13 @@ def test_attribution_policy_snapshot_exposes_source_and_age(monkeypatch):
     assert snapshot.source == "远端"
     assert snapshot.report_date == "2026-07-02"
     assert snapshot.age_days == 2
+    assert snapshot.governor_status == "candidate"
+    assert snapshot.mode_recommendation == "review_promote_dynamic_policy"
+    assert snapshot.execution_policy == "shadow"
+    assert snapshot.execution_scope == "tail_buy_and_funnel_shadow"
+    assert snapshot.signal_action_count == 1
     assert snapshot.as_dict()["weight_count"] == 1
+    assert snapshot.as_dict()["execution_scope"] == "tail_buy_and_funnel_shadow"
 
 
 def test_attribution_weights_skip_stale_reports(monkeypatch, tmp_path):

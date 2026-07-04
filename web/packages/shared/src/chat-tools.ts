@@ -556,7 +556,9 @@ function tailBuyPolicyWeightText(row: Record<string, unknown>): string {
   const source = String(features?.policy_weight_source || '').trim()
   const reportDate = String(features?.policy_weight_report_date || '').trim()
   const horizon = String(features?.policy_weight_horizon || '').trim()
-  const meta = [source, reportDate ? `report=${reportDate}` : '', horizon ? `h=${horizon}` : ''].filter(Boolean).join(' ')
+  const mode = String(features?.policy_weight_execution_policy || '').trim()
+  const scope = String(features?.policy_weight_execution_scope || '').trim()
+  const meta = [source, reportDate ? `report=${reportDate}` : '', horizon ? `h=${horizon}` : '', mode ? `mode=${mode}` : '', scope ? `scope=${scope}` : ''].filter(Boolean).join(' ')
   return ` | 归因调权 ${signal} x${multiplier.toFixed(2)}${scoreText}${meta ? ` (${meta})` : ''}`
 }
 

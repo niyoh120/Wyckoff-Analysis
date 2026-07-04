@@ -308,6 +308,12 @@ def _policy_meta_text(meta: dict) -> str:
     age = meta.get("age_days")
     if age is not None and str(age) != "":
         tokens.append(f"age={age}d")
+    execution_policy = str(meta.get("execution_policy") or "").strip()
+    execution_scope = str(meta.get("execution_scope") or "").strip()
+    if execution_policy:
+        tokens.append(f"mode={execution_policy}")
+    if execution_scope:
+        tokens.append(f"scope={execution_scope}")
     return f"（{', '.join(tokens)}）" if tokens else ""
 
 

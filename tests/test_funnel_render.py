@@ -25,13 +25,23 @@ def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> Non
     line = _policy_governance_line(
         {
             "_attribution_signal_weights": {"lps": 0.5, "sos": 1.15},
-            "_attribution_policy_meta": {"source": "远端", "report_date": "2026-07-04", "horizon": "5", "age_days": 0},
+            "_attribution_policy_meta": {
+                "source": "远端",
+                "report_date": "2026-07-04",
+                "horizon": "5",
+                "age_days": 0,
+                "execution_policy": "shadow",
+                "execution_scope": "tail_buy_and_funnel_shadow",
+            },
             "_signal_weights": {"evr": 0.75, "lps": 0.5, "sos": 1.15},
         }
     )
 
     assert line.startswith("**策略治理调权**")
-    assert "归因 lps×0.50↓，sos×1.15↑（远端, report=2026-07-04, h=5, age=0d）" in line
+    assert (
+        "归因 lps×0.50↓，sos×1.15↑"
+        "（远端, report=2026-07-04, h=5, age=0d, mode=shadow, scope=tail_buy_and_funnel_shadow）"
+    ) in line
     assert "最终 evr×0.75↓，lps×0.50↓，sos×1.15↑" in line
 
 

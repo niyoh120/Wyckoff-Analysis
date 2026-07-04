@@ -981,6 +981,8 @@ def apply_policy_weight_adjustments(
                 "policy_weight_report_date": str((policy_meta or {}).get("report_date") or ""),
                 "policy_weight_horizon": str((policy_meta or {}).get("horizon") or ""),
                 "policy_weight_age_days": (policy_meta or {}).get("age_days"),
+                "policy_weight_execution_policy": str((policy_meta or {}).get("execution_policy") or ""),
+                "policy_weight_execution_scope": str((policy_meta or {}).get("execution_scope") or ""),
             }
         )
         if item.priority_score > 0:
