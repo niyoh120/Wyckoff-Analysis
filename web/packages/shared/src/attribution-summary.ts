@@ -54,6 +54,8 @@ export function attributionModeRecommendationLabel(value: unknown): string {
 export function attributionNextActionLabel(value: unknown): string {
   const labels: Record<string, string> = {
     manual_review_dynamic_on: '进入人工晋级评审（非正式生效）',
+    run_backtest_confirmation: '先跑回测确认',
+    keep_shadow_backtest_failed: '回测未通过，保持 shadow',
     keep_static_policy: '保持静态策略',
     collect_more_shadow_samples: '继续收集样本',
     keep_shadow_apply_signal_weights: '保持 shadow 并应用信号级调权',
@@ -92,6 +94,12 @@ export function attributionFormalDynamicLabel(
   }
   if (optionalText(execution?.next_action) === 'manual_review_dynamic_on') {
     return '未进正式漏斗(manual_review_required)'
+  }
+  if (optionalText(execution?.next_action) === 'run_backtest_confirmation') {
+    return '未进正式漏斗(backtest_confirmation_required)'
+  }
+  if (optionalText(execution?.next_action) === 'keep_shadow_backtest_failed') {
+    return '未进正式漏斗(backtest_confirmation_failed)'
   }
   return '未知'
 }

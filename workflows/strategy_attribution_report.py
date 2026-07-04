@@ -34,6 +34,7 @@ class StrategyAttributionRequest:
     horizons: tuple[int, ...] = (1, 3, 5, 10, 20)
     output_dir: Path | None = None
     no_write: bool = False
+    backtest_confirmation_json: dict[str, Any] | None = None
 
 
 def parse_horizons(raw: str) -> tuple[int, ...]:
@@ -43,7 +44,13 @@ def parse_horizons(raw: str) -> tuple[int, ...]:
 def run_strategy_attribution_report(request: StrategyAttributionRequest) -> dict[str, Any]:
     client = create_report_client(no_write=request.no_write)
     try:
-        report = build_report(client, request.market, request.days, list(request.horizons))
+        report = build_report(
+            client,
+            request.market,
+            request.days,
+            list(request.horizons),
+            backtest_confirmation_json=request.backtest_confirmation_json,
+        )
         attach_policy_execution_state(report)
         report["created_at"] = datetime.now(UTC).isoformat()
         if not request.no_write:
@@ -87,7 +94,14 @@ def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str,
     }
 
 
-def build_report(client: Any, market: str, days: int, horizons: list[int]) -> dict[str, Any]:
+def build_report(
+    client: Any,
+    market: str,
+    days: int,
+    horizons: list[int],
+    *,
+    backtest_confirmation_json: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     end = date.today()
     start = end - timedelta(days=days)
     observations = fetch_all(client, "signal_observations", "*", market=market, start=start, end=end)
@@ -102,6 +116,7 @@ def build_report(client: Any, market: str, days: int, horizons: list[int]) -> di
         observations=observations,
         outcomes=outcomes,
         shadow_runs=shadow,
+        backtest_confirmation_json=backtest_confirmation_json,
     )
 
 

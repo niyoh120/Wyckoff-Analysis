@@ -279,7 +279,8 @@ shadow 差异和信号表现收敛成统一的治理结论：
 - `mode_recommendation`：只给出 `review_promote_dynamic_policy`、`keep_shadow` 或
   `keep_static_policy`，不自动修改生产配置。
 - `next_action` / `next_action_summary`：给 Agent、Web 和 CLI 读取的机器可读下一步动作与人类说明。
-  例如 `manual_review_dynamic_on` 只表示进入人工复核，不等于自动切 `on`，也不会让正式漏斗直接读取归因权重。
+  例如 `run_backtest_confirmation` 表示缺最新回测确认，`manual_review_dynamic_on` 只表示进入人工复核；
+  二者都不等于自动切 `on`，也不会让正式漏斗直接读取归因权重。
 - `promotion_status`：把生产晋级状态说清楚。`manual_review_required` 表示 shadow 已过主要量化门槛，
   但仍要人工检查多期报告和回测；`do_not_promote` 表示当前不应切 `on`；`collect_more_samples`
   表示样本不足；`keep_shadow` 表示继续观察。
@@ -288,13 +289,19 @@ shadow 差异和信号表现收敛成统一的治理结论：
 - `signal_actions`：把信号表现转成 `downweight` / `upweight` / `hold`，并附带 count、平均收益、
   胜率、大亏率和平均回撤。
 
+`backtest_confirmation` 不是纯文案。只读归因任务可以通过 `--backtest-confirmation-json` 读取一个
+JSON 对象，例如 `{"status":"pass","summary":"三周期回测确认正收益"}`。没有该输入时，
+candidate 只会得到 `backtest_confirmation: review`，正式 dynamic 的阻断原因为
+`backtest_confirmation_required`；如果输入为 `fail`，阻断原因为 `backtest_confirmation_failed`。
+
 报告还会生成 `shadow_diff_stats_json.policy_operations_brief`，其中 `operator_summary` 是给人读的
 运营摘要，和 Agent 的 `latest_operator_summary`、Web 归因页“运营复盘”第一行保持同一口径。它不是新的
 交易信号，也不会改变候选；只是把治理器、执行态、shadow 差异和调权明细汇总成统一操作语言。
 
 治理器默认不会自动把 `FUNNEL_DYNAMIC_POLICY` 从 `shadow` 晋级到 `on`。报告会显式写出
-`formal_dynamic_allowed=false` 和 `formal_dynamic_block_reason`，例如 `manual_review_required` 表示已进入人工复核，
-但还不是正式执行许可。信号级调权可以进入尾盘和动态策略输入；正式漏斗生效必须满足更硬的 gate：
+`formal_dynamic_allowed=false` 和 `formal_dynamic_block_reason`。`backtest_confirmation_required`
+表示还缺结构化回测确认；`manual_review_required` 表示回测确认后已进入人工复核，但还不是正式执行许可。
+信号级调权可以进入尾盘和动态策略输入；正式漏斗生效必须满足更硬的 gate：
 报告中显式写入 `formal_dynamic_allowed=true`，或未来治理器支持 `auto_apply=true` 且
 `promotion_checklist` 全部通过。
 

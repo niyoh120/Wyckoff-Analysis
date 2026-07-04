@@ -35,6 +35,15 @@ def test_attribution_report_write_requires_server_context(monkeypatch):
         report.create_report_client(no_write=False)
 
 
+def test_strategy_attribution_cli_loads_backtest_confirmation(tmp_path):
+    import scripts.strategy_attribution_report as cli
+
+    path = tmp_path / "backtest-confirmation.json"
+    path.write_text('{"status":"pass","summary":"三周期回测通过"}', encoding="utf-8")
+
+    assert cli.load_backtest_confirmation(str(path)) == {"status": "pass", "summary": "三周期回测通过"}
+
+
 def test_attribution_report_groups_candidate_shadow_grade():
     import workflows.strategy_attribution_stats as stats_mod
 
@@ -201,12 +210,13 @@ def test_attribution_policy_governor_promotes_shadow_review_and_signal_actions()
     rows = payload["recommendations_json"]
     assert governor["status"] == "candidate"
     assert governor["mode_recommendation"] == "review_promote_dynamic_policy"
-    assert governor["next_action"] == "manual_review_dynamic_on"
+    assert governor["next_action"] == "run_backtest_confirmation"
+    assert governor["next_action_summary"] == "shadow 新增组已跑赢移除组；先补齐最新回测确认，再进入人工晋级评审。"
     assert governor["promotion_status"] == "manual_review_required"
     assert governor["auto_apply"] is False
     assert governor["formal_dynamic_allowed"] is False
-    assert governor["formal_dynamic_approval"] == "manual_review_required"
-    assert governor["formal_dynamic_block_reason"] == "manual_review_required"
+    assert governor["formal_dynamic_approval"] == "backtest_confirmation_required"
+    assert governor["formal_dynamic_block_reason"] == "backtest_confirmation_required"
     assert {row["key"]: row["status"] for row in governor["promotion_checklist"]} == {
         "shadow_sample": "pass",
         "shadow_performance": "pass",
@@ -214,6 +224,65 @@ def test_attribution_policy_governor_promotes_shadow_review_and_signal_actions()
         "backtest_confirmation": "review",
     }
     assert {row["type"] for row in rows} >= {"policy_governor", "downweight", "upweight"}
+
+
+def test_attribution_policy_governor_accepts_structured_backtest_confirmation():
+    import workflows.strategy_attribution_stats as stats_mod
+
+    observations = [
+        {"id": 1, "trade_date": "2026-06-01", "code": "000001", "signal_type": "lps"},
+        {"id": 2, "trade_date": "2026-06-01", "code": "000002", "signal_type": "sos"},
+    ]
+    outcomes = [
+        {
+            "observation_id": 1,
+            "trade_date": "2026-06-01",
+            "code": "000001",
+            "horizon_days": 5,
+            "return_pct": -3.0,
+            "max_drawdown_pct": -11.0,
+        }
+        for _ in range(10)
+    ]
+    outcomes.extend(
+        {
+            "observation_id": 2,
+            "trade_date": "2026-06-01",
+            "code": "000002",
+            "horizon_days": 5,
+            "return_pct": 3.0,
+            "max_drawdown_pct": -3.0,
+        }
+        for _ in range(10)
+    )
+    shadow_runs = [
+        {"trade_date": "2026-06-01", "diff_added": ["000002"], "diff_removed": ["000001"]} for _ in range(10)
+    ]
+
+    payload = stats_mod.build_strategy_attribution_payload(
+        report_date=stats_mod.date(2026, 7, 4),
+        market="cn",
+        window_start=stats_mod.date(2026, 5, 5),
+        window_end=stats_mod.date(2026, 7, 4),
+        horizons=[5],
+        observations=observations,
+        outcomes=outcomes,
+        shadow_runs=shadow_runs,
+        backtest_confirmation_json={
+            "status": "pass",
+            "summary": "三周期回测确认正收益，允许进入人工晋级评审。",
+        },
+    )
+
+    governor = payload["shadow_diff_stats_json"]["policy_governor"]
+    checklist = {row["key"]: row for row in governor["promotion_checklist"]}
+
+    assert governor["formal_dynamic_allowed"] is False
+    assert governor["next_action"] == "manual_review_dynamic_on"
+    assert governor["formal_dynamic_approval"] == "manual_review_required"
+    assert governor["formal_dynamic_block_reason"] == "manual_review_required"
+    assert checklist["backtest_confirmation"]["status"] == "pass"
+    assert checklist["backtest_confirmation"]["summary"] == "三周期回测确认正收益，允许进入人工晋级评审。"
 
 
 def test_attribution_policy_governor_emits_scoped_context_weight():

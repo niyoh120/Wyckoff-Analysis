@@ -280,6 +280,19 @@ def _normalize_mode(raw: object) -> str:
 def _auto_apply_note(summary: str, governor: dict[str, Any]) -> str:
     if governor.get("auto_apply"):
         return summary
+    next_action = str(governor.get("next_action") or "").strip()
+    if next_action == "run_backtest_confirmation":
+        return (
+            summary
+            + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；"
+            + "run_backtest_confirmation 表示先补齐结构化回测确认。"
+        )
+    if next_action == "keep_shadow_backtest_failed":
+        return (
+            summary
+            + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；"
+            + "keep_shadow_backtest_failed 表示回测确认未通过。"
+        )
     return (
         summary
         + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；"

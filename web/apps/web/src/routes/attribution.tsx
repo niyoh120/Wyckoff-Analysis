@@ -443,7 +443,8 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
       <p className="mt-2 text-sm text-muted-foreground">{governor.next_action_summary || '-'}</p>
       <p className="mt-2 text-xs text-muted-foreground">
         说明：`自动切模式=否` 表示不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；
-        `manual_review_dynamic_on` 只是人工晋级评审入口，不等于正式漏斗已经读取归因权重。
+        `run_backtest_confirmation` 表示先补齐回测确认，`manual_review_dynamic_on`
+        只是人工晋级评审入口，不等于正式漏斗已经读取归因权重。
       </p>
       <PromotionChecklist rows={governor.promotion_checklist} />
       <ShadowGateLine gate={governor.shadow_gate} />
@@ -486,7 +487,7 @@ function PolicyExecutionState({
   const targetText = stats.targets.length ? stats.targets.join(' / ') : '-'
   const modeText = governor?.auto_apply
     ? '治理器允许自动晋级，但仍应通过运行时配置和人工复核留痕。'
-    : '治理器不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；manual_review_dynamic_on 只代表进入人工评审。'
+    : '治理器不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；run_backtest_confirmation 先补回测确认，manual_review_dynamic_on 才代表进入人工评审。'
   const policyMode = execution?.funnel_dynamic_policy || '未知'
   const horizon = execution?.horizon || '-'
   const promotion = execution?.promotion_status || governor?.promotion_status

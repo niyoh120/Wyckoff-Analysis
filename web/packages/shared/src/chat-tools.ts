@@ -732,6 +732,12 @@ function fallbackFormalDynamic(governor: Record<string, unknown>): { allowed: bo
   if (String(governor.next_action || '').trim() === 'manual_review_dynamic_on') {
     return { allowed: false, reason: 'manual_review_required' }
   }
+  if (String(governor.next_action || '').trim() === 'run_backtest_confirmation') {
+    return { allowed: false, reason: 'backtest_confirmation_required' }
+  }
+  if (String(governor.next_action || '').trim() === 'keep_shadow_backtest_failed') {
+    return { allowed: false, reason: 'backtest_confirmation_failed' }
+  }
   return { allowed: false, reason: String(governor.next_action || 'unknown') }
 }
 

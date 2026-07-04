@@ -45,6 +45,16 @@ describe('attributionOperatorSummary', () => {
       actions: [{ target: 'lps', weight_multiplier: 0.5 }],
     })).toContain('下一步=进入人工晋级评审（非正式生效）')
   })
+
+  it('surfaces missing backtest confirmation before manual review', () => {
+    expect(attributionOperatorSummary({
+      execution: {
+        scope: 'tail_buy_and_funnel_shadow',
+        next_action: 'run_backtest_confirmation',
+      },
+      actions: [{ target: 'lps', weight_multiplier: 0.5 }],
+    })).toContain('正式dynamic=未进正式漏斗(backtest_confirmation_required)')
+  })
 })
 
 describe('attributionExecutionImpactText', () => {

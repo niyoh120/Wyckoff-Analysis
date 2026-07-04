@@ -86,6 +86,14 @@ def test_policy_display_helpers_translate_governor_codes() -> None:
     }
 
 
+def test_policy_display_helpers_translate_backtest_gate_actions() -> None:
+    assert policy_governor_display({"next_action": "run_backtest_confirmation"})["next_action"] == "先跑回测确认"
+    assert (
+        policy_governor_display({"next_action": "keep_shadow_backtest_failed"})["next_action"]
+        == "回测未通过，保持 shadow"
+    )
+
+
 def test_policy_execution_display_distinguishes_formal_gate() -> None:
     execution = {
         "active_scope": "尾盘+漏斗shadow",

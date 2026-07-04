@@ -19,6 +19,7 @@ def build_strategy_policy_governor(
     signal_stats_json: dict[str, Any],
     signal_context_stats_json: dict[str, Any] | None = None,
     shadow_diff_stats_json: dict[str, Any],
+    backtest_confirmation_json: dict[str, Any] | None = None,
     horizons: list[int],
 ) -> dict[str, Any]:
     horizon = _focus_horizon(horizons)
@@ -26,16 +27,16 @@ def build_strategy_policy_governor(
     signal_actions = _signal_actions(signal_stats_json)
     context_actions = _context_actions(signal_context_stats_json or {})
     all_actions = signal_actions + context_actions
-    promotion_checklist = _promotion_checklist(shadow_gate, all_actions)
-    next_action = _next_action(shadow_gate, all_actions)
+    promotion_checklist = _promotion_checklist(shadow_gate, all_actions, backtest_confirmation_json or {})
+    next_action = _next_action(shadow_gate, all_actions, promotion_checklist)
     return {
         "version": VERSION,
         "horizon": str(horizon),
         "status": _governor_status(shadow_gate, all_actions),
         "auto_apply": False,
         "formal_dynamic_allowed": False,
-        "formal_dynamic_approval": _formal_dynamic_approval_status(shadow_gate),
-        "formal_dynamic_block_reason": _formal_dynamic_block_reason(shadow_gate),
+        "formal_dynamic_approval": _formal_dynamic_approval_status(shadow_gate, promotion_checklist),
+        "formal_dynamic_block_reason": _formal_dynamic_block_reason(shadow_gate, promotion_checklist),
         "mode_recommendation": _mode_recommendation(shadow_gate),
         "next_action": next_action,
         "next_action_summary": _next_action_summary(next_action),
@@ -341,9 +342,18 @@ def _mode_recommendation(shadow_gate: dict[str, Any]) -> str:
     return "keep_shadow"
 
 
-def _next_action(shadow_gate: dict[str, Any], actions: list[dict[str, Any]]) -> str:
+def _next_action(
+    shadow_gate: dict[str, Any],
+    actions: list[dict[str, Any]],
+    checklist: list[dict[str, str]],
+) -> str:
     status = str(shadow_gate.get("status") or "")
     if status == "candidate":
+        backtest_status = _check_status(checklist, "backtest_confirmation")
+        if backtest_status == "fail":
+            return "keep_shadow_backtest_failed"
+        if backtest_status != "pass":
+            return "run_backtest_confirmation"
         return "manual_review_dynamic_on"
     if status == "reject":
         return "keep_static_policy"
@@ -357,6 +367,8 @@ def _next_action(shadow_gate: dict[str, Any], actions: list[dict[str, Any]]) -> 
 def _next_action_summary(next_action: str) -> str:
     summaries = {
         "manual_review_dynamic_on": "shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。",
+        "run_backtest_confirmation": "shadow 新增组已跑赢移除组；先补齐最新回测确认，再进入人工晋级评审。",
+        "keep_shadow_backtest_failed": "shadow 新增组已跑赢移除组，但回测确认未通过；保持 shadow，不晋级 dynamic=on。",
         "keep_static_policy": "shadow 新增组未证明优于移除组；保持静态策略，不晋级 dynamic=on。",
         "collect_more_shadow_samples": "shadow 样本不足；继续收集 shadow run 与命中结果。",
         "keep_shadow_apply_signal_weights": "保持 shadow；信号级调权可继续用于尾盘和漏斗 shadow。",
@@ -376,9 +388,12 @@ def _promotion_status(shadow_gate: dict[str, Any]) -> str:
     return "keep_shadow"
 
 
-def _formal_dynamic_approval_status(shadow_gate: dict[str, Any]) -> str:
+def _formal_dynamic_approval_status(shadow_gate: dict[str, Any], checklist: list[dict[str, str]]) -> str:
     status = str(shadow_gate.get("status") or "")
     if status == "candidate":
+        block = _formal_dynamic_checklist_block(checklist)
+        if block:
+            return block
         return "manual_review_required"
     if status == "reject":
         return "not_approved"
@@ -387,9 +402,12 @@ def _formal_dynamic_approval_status(shadow_gate: dict[str, Any]) -> str:
     return "keep_shadow"
 
 
-def _formal_dynamic_block_reason(shadow_gate: dict[str, Any]) -> str:
+def _formal_dynamic_block_reason(shadow_gate: dict[str, Any], checklist: list[dict[str, str]]) -> str:
     status = str(shadow_gate.get("status") or "")
     if status == "candidate":
+        block = _formal_dynamic_checklist_block(checklist)
+        if block:
+            return block
         return "manual_review_required"
     if status == "reject":
         return "shadow_rejected"
@@ -398,12 +416,16 @@ def _formal_dynamic_block_reason(shadow_gate: dict[str, Any]) -> str:
     return "keep_shadow"
 
 
-def _promotion_checklist(shadow_gate: dict[str, Any], actions: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _promotion_checklist(
+    shadow_gate: dict[str, Any],
+    actions: list[dict[str, Any]],
+    backtest_confirmation: dict[str, Any],
+) -> list[dict[str, str]]:
     return [
         _shadow_sample_check(shadow_gate),
         _shadow_performance_check(shadow_gate),
         _signal_action_check(actions),
-        _backtest_confirmation_check(shadow_gate),
+        _backtest_confirmation_check(shadow_gate, backtest_confirmation),
     ]
 
 
@@ -450,12 +472,70 @@ def _signal_action_check(actions: list[dict[str, Any]]) -> dict[str, str]:
     }
 
 
-def _backtest_confirmation_check(shadow_gate: dict[str, Any]) -> dict[str, str]:
+def _backtest_confirmation_check(shadow_gate: dict[str, Any], confirmation: dict[str, Any]) -> dict[str, str]:
+    if shadow_gate.get("status") != "candidate":
+        return {
+            "key": "backtest_confirmation",
+            "status": "not_required",
+            "summary": "未进入 dynamic 晋级候选，暂不要求回测确认",
+        }
+    status = _normalized_backtest_status(confirmation)
+    if status:
+        return {
+            "key": "backtest_confirmation",
+            "status": status,
+            "summary": _backtest_confirmation_summary(confirmation, status),
+        }
     return {
         "key": "backtest_confirmation",
-        "status": "review" if shadow_gate.get("status") == "candidate" else "not_required",
+        "status": "review",
         "summary": "切换 dynamic=on 前需要最新回测或实盘观察确认",
     }
+
+
+def _normalized_backtest_status(confirmation: dict[str, Any]) -> str:
+    status = str(confirmation.get("status") or confirmation.get("result") or "").strip().lower()
+    aliases = {
+        "approved": "pass",
+        "passed": "pass",
+        "ok": "pass",
+        "success": "pass",
+        "rejected": "fail",
+        "failed": "fail",
+        "block": "fail",
+        "blocked": "fail",
+    }
+    status = aliases.get(status, status)
+    return status if status in {"pass", "fail", "review"} else ""
+
+
+def _backtest_confirmation_summary(confirmation: dict[str, Any], status: str) -> str:
+    summary = str(confirmation.get("summary") or confirmation.get("note") or "").strip()
+    if summary:
+        return summary
+    source = str(confirmation.get("source") or "backtest").strip()
+    report_date = str(confirmation.get("report_date") or confirmation.get("date") or "").strip()
+    suffix = f"，报告 {report_date}" if report_date else ""
+    labels = {"pass": "回测确认通过", "fail": "回测确认未通过", "review": "回测结果仍需人工复核"}
+    return f"{source} {labels.get(status, '回测确认待复核')}{suffix}"
+
+
+def _formal_dynamic_checklist_block(checklist: list[dict[str, str]]) -> str:
+    backtest_status = _check_status(checklist, "backtest_confirmation")
+    if backtest_status == "fail":
+        return "backtest_confirmation_failed"
+    if backtest_status == "review":
+        return "backtest_confirmation_required"
+    if backtest_status in {"", "unknown"}:
+        return "backtest_confirmation_missing"
+    return ""
+
+
+def _check_status(checklist: list[dict[str, str]], key: str) -> str:
+    for row in checklist:
+        if str(row.get("key") or "") == key:
+            return str(row.get("status") or "unknown").strip().lower()
+    return ""
 
 
 def _summary(shadow_gate: dict[str, Any], signal_actions: list[dict[str, Any]]) -> str:

@@ -21,6 +21,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--horizons", default="1,3,5,10,20")
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--no-write", action="store_true")
+    parser.add_argument(
+        "--backtest-confirmation-json",
+        default="",
+        help="Optional JSON file with structured backtest confirmation for policy promotion gates.",
+    )
     return parser.parse_args()
 
 
@@ -31,7 +36,18 @@ def request_from_args(args: argparse.Namespace) -> StrategyAttributionRequest:
         horizons=parse_horizons(args.horizons),
         output_dir=Path(args.output_dir) if args.output_dir else None,
         no_write=args.no_write,
+        backtest_confirmation_json=load_backtest_confirmation(args.backtest_confirmation_json),
     )
+
+
+def load_backtest_confirmation(path: str) -> dict[str, object] | None:
+    if not str(path or "").strip():
+        return None
+    raw = Path(path).read_text(encoding="utf-8")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("--backtest-confirmation-json must point to a JSON object")
+    return data
 
 
 def main() -> int:

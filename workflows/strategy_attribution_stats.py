@@ -22,6 +22,7 @@ def build_strategy_attribution_payload(
     observations: list[dict[str, Any]],
     outcomes: list[dict[str, Any]],
     shadow_runs: list[dict[str, Any]],
+    backtest_confirmation_json: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     joined = join_outcomes(outcomes, observations)
     focus_horizon = 3 if 3 in horizons else horizons[0]
@@ -38,6 +39,7 @@ def build_strategy_attribution_payload(
         signal_stats_json=signal_stats,
         signal_context_stats_json=signal_context_stats,
         shadow_diff_stats_json=shadow,
+        backtest_confirmation_json=backtest_confirmation_json,
         horizons=horizons,
     )
     shadow["policy_governor"] = governor
