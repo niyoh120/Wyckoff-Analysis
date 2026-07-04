@@ -79,7 +79,11 @@ def _shadow_gate(shadow: dict[str, Any], horizon: int) -> dict[str, Any]:
     added = row.get("added") if isinstance(row, dict) else {}
     removed = row.get("removed") if isinstance(row, dict) else {}
     evidence = _shadow_evidence(shadow, added or {}, removed or {})
-    if evidence["run_count"] < MIN_SHADOW_RUNS or evidence["added_matched"] < MIN_SHADOW_MATCHED:
+    if (
+        evidence["run_count"] < MIN_SHADOW_RUNS
+        or evidence["added_matched"] < MIN_SHADOW_MATCHED
+        or evidence["removed_matched"] < MIN_SHADOW_MATCHED
+    ):
         status = "insufficient_sample"
     elif _shadow_added_outperforms(evidence):
         status = "candidate"
@@ -175,11 +179,12 @@ def _downweight_multiplier(avg_return: float, big_loss: float, avg_dd: float) ->
 
 
 def _governor_status(shadow_gate: dict[str, Any], signal_actions: list[dict[str, Any]]) -> str:
-    if shadow_gate.get("status") == "candidate":
-        return "candidate"
+    shadow_status = str(shadow_gate.get("status") or "insufficient_sample")
+    if shadow_status in {"candidate", "reject"}:
+        return shadow_status
     if any(item.get("action") in {"downweight", "upweight"} for item in signal_actions):
         return "watch"
-    return str(shadow_gate.get("status") or "insufficient_sample")
+    return shadow_status
 
 
 def _mode_recommendation(shadow_gate: dict[str, Any]) -> str:
