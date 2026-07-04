@@ -274,8 +274,41 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
 
     assert "## 调权执行状态" in markdown
     assert "- 漏斗动态策略: `on`" in markdown
+    assert "- 执行周期: `h=5`" in markdown
     assert "- 当前作用范围: `tail_buy_and_funnel`" in markdown
     assert "- 可执行调权: `1`" in markdown
+
+
+def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):
+    import workflows.strategy_attribution_report as report_mod
+
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
+    report = {
+        "market": "cn",
+        "report_date": "2026-07-04",
+        "shadow_diff_stats_json": {
+            "policy_governor": {
+                "status": "candidate",
+                "mode_recommendation": "review_promote_dynamic_policy",
+                "auto_apply": False,
+                "summary": "shadow 新增组显著优于移除组",
+                "horizon": "5",
+            },
+        },
+        "recommendations_json": [
+            {"type": "downweight", "target": "evr", "horizon": "1", "reason": '{"weight_multiplier":0.5}'},
+            {"type": "downweight", "target": "lps", "horizon": "5", "reason": '{"weight_multiplier":0.5}'},
+            {"type": "upweight", "target": "launchpad", "horizon": "5", "reason": '{"weight_multiplier":1.2}'},
+            {"type": "downweight", "target": "sos", "horizon": "10", "reason": '{"weight_multiplier":0.5}'},
+        ],
+    }
+    report_mod.attach_policy_execution_state(report)
+
+    state = report["shadow_diff_stats_json"]["policy_execution_state"]
+
+    assert state["horizon"] == "5"
+    assert state["signal_action_count"] == 2
+    assert state["scope"] == "tail_buy_and_funnel_shadow"
 
 
 def test_attribution_policy_governor_keeps_shadow_reject_when_signal_actions_exist():

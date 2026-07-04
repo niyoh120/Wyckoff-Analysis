@@ -19,21 +19,23 @@ def attribution_execution_state(
     workflow_path: Path | None = None,
 ) -> dict[str, Any]:
     mode = funnel_dynamic_policy_mode(workflow_path=workflow_path)
-    action_count = _action_count(actions)
+    horizon = str(governor.get("horizon") or "5")
+    action_count = _action_count(actions, horizon=horizon)
     if action_count <= 0:
         scope = "none"
         summary = "暂无可执行信号调权。"
     elif mode == "on":
         scope = "tail_buy_and_funnel"
-        summary = "信号级调权会影响尾盘策略和漏斗正式候选。"
+        summary = f"h={horizon} 信号级调权会影响尾盘策略和漏斗正式候选。"
     elif mode == "shadow":
         scope = "tail_buy_and_funnel_shadow"
-        summary = "信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。"
+        summary = f"h={horizon} 信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。"
     else:
         scope = "tail_buy_only"
-        summary = "信号级调权会影响尾盘策略；漏斗动态策略当前关闭。"
+        summary = f"h={horizon} 信号级调权会影响尾盘策略；漏斗动态策略当前关闭。"
     return {
         "funnel_dynamic_policy": mode,
+        "horizon": horizon,
         "tail_buy_reads_attribution": action_count > 0,
         "signal_action_count": action_count,
         "scope": scope,
@@ -66,11 +68,11 @@ def _workflow_default_mode(path: Path) -> str:
     return ""
 
 
-def _action_count(actions: list[dict[str, Any]]) -> int:
+def _action_count(actions: list[dict[str, Any]], *, horizon: str) -> int:
     total = 0
     for item in actions:
         action = _action_from_item(item)
-        if action in {"downweight", "upweight"}:
+        if action in {"downweight", "upweight"} and _horizon_from_item(item) == horizon:
             total += 1
     return total
 
@@ -80,6 +82,11 @@ def _action_from_item(item: dict[str, Any]) -> str:
         return ""
     payload = _json_payload(item.get("reason"))
     return str(item.get("action") or item.get("type") or payload.get("action") or "").strip()
+
+
+def _horizon_from_item(item: dict[str, Any]) -> str:
+    payload = _json_payload(item.get("reason"))
+    return str(item.get("horizon") or payload.get("horizon") or "").strip()
 
 
 def _json_payload(raw: Any) -> dict[str, Any]:

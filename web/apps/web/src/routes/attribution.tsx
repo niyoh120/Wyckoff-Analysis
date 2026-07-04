@@ -105,6 +105,7 @@ interface PolicyExecutionStats {
 
 interface PolicyExecutionPayload {
   funnel_dynamic_policy?: string
+  horizon?: string
   signal_action_count?: number
   scope?: string
   summary?: string
@@ -348,13 +349,14 @@ function PolicyExecutionState({
     ? '治理器允许自动晋级，但仍应通过运行时配置和人工复核确认。'
     : '治理器不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on。'
   const policyMode = execution?.funnel_dynamic_policy || '未知'
+  const horizon = execution?.horizon || '-'
   return (
     <Panel title="调权执行状态">
       <div className="grid gap-3 md:grid-cols-4">
         <MetricCard label="可执行调权" value={`${actionCount} 项`} />
         <MetricCard label="建议降权" value={`${stats.downCount} 项`} />
         <MetricCard label="建议升权" value={`${stats.upCount} 项`} />
-        <MetricCard label="当前范围" value={scope} />
+        <MetricCard label="当前范围" value={`${scope} · h=${horizon}`} />
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
         {execution?.summary ||
