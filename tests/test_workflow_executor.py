@@ -12,6 +12,7 @@ from cli.workflows.dispatch import build_turn_runtime
 from cli.workflows.executor import (
     WorkflowExecutor,
     _candidate_conclusion_from_handoff,
+    _candidate_conclusions_from_handoff,
     _ensure_candidate_delivery,
     _fallback_handoff_lines,
     _fallback_summary,
@@ -1382,6 +1383,55 @@ def test_workflow_handoff_state_compacts_stock_diagnosis_and_candidate_conclusio
     assert "诊断分83" in conclusion["line"]
     assert "短线涨幅偏快" in conclusion["line"]
     assert conclusion["next_step"] == "加入重点观察，等待市场闸门打开"
+
+
+def test_workflow_candidate_conclusion_labels_diagnosis_statuses():
+    conclusions = _candidate_conclusions_from_handoff(
+        {
+            "last_screen_result": {
+                "report_candidates": [
+                    {
+                        "code": "002436",
+                        "name": "兴森科技",
+                        "action_status": "ready_for_ai_review",
+                        "priority_score": 111.08,
+                    }
+                ]
+            },
+            "last_stock_diagnosis": {
+                "diagnosed_symbols": [
+                    {
+                        "code": "002436",
+                        "name": "兴森科技",
+                        "action_status": "avoid",
+                        "status_label": "回避",
+                        "candidate_score": 96.05,
+                        "risk_factors": ["结构止损（从高点回撤>10%）"],
+                        "next_step": "回避新增，等待结构止损解除",
+                    },
+                    {
+                        "code": "002669",
+                        "name": "康达新材",
+                        "action_status": "priority_watch",
+                        "status_label": "重点观察",
+                        "candidate_score": 99.05,
+                        "quality_factors": ["L2通道: 主升通道"],
+                        "next_step": "加入重点观察，等待回踩/触发确认",
+                    },
+                ]
+            },
+        },
+        limit=3,
+    )
+
+    assert [row["code"] for row in conclusions[:2]] == ["002669", "002436"]
+    assert conclusions[0]["role"] == "重点观察"
+    assert "候选结论: 重点观察 002669 康达新材" in conclusions[0]["line"]
+    assert "状态=重点观察" in conclusions[0]["line"]
+    assert conclusions[1]["role"] == "回避"
+    assert "候选结论: 回避 002436 兴森科技" in conclusions[1]["line"]
+    assert "状态=回避" in conclusions[1]["line"]
+    assert "结构止损" in conclusions[1]["line"]
 
 
 def test_workflow_adaptation_handoff_summary_includes_stock_diagnosis():

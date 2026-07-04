@@ -1641,6 +1641,14 @@ def _fallback_candidate_line(
 
 def _fallback_candidate_prefix(row: dict[str, Any], guard_reason: str = "", ready_rank: int = 0) -> str:
     status = str(row.get("action_status") or "").strip()
+    if status in {"priority_watch", "trigger_watch", "caution_watch", "avoid", "watch"}:
+        return {
+            "priority_watch": "重点观察",
+            "trigger_watch": "触发观察",
+            "caution_watch": "警戒观察",
+            "avoid": "回避",
+            "watch": "观察候选",
+        }[status]
     if status == "ready_for_ai_review":
         if not str(row.get("code") or "").strip():
             return "待确认候选"
@@ -1711,13 +1719,27 @@ def _fallback_candidate_name(row: dict[str, Any]) -> str:
 
 def _fallback_status_part(row: dict[str, Any]) -> str:
     parts = []
-    if status := str(row.get("action_status") or "").strip():
+    if status := _fallback_status_text(row):
         parts.append(f"状态={status}")
     if readiness := str(row.get("trade_readiness") or "").strip():
         parts.append(f"交易就绪={readiness}")
     if row.get("new_buy_allowed") is False:
         parts.append("不允许新增买入")
     return "，".join(parts)
+
+
+def _fallback_status_text(row: dict[str, Any]) -> str:
+    label = str(row.get("status_label") or "").strip()
+    if label:
+        return label
+    status = str(row.get("action_status") or "").strip()
+    return {
+        "priority_watch": "重点观察",
+        "trigger_watch": "触发观察",
+        "caution_watch": "警戒观察",
+        "avoid": "回避",
+        "watch": "观察",
+    }.get(status, status)
 
 
 def _fallback_action_part(row: dict[str, Any]) -> str:
@@ -2089,12 +2111,16 @@ def _candidate_status_rank(row: dict[str, Any]) -> int:
     status = str(row.get("action_status") or row.get("status") or "").strip()
     if status == "ready_for_ai_review":
         return 4
+    if status in {"priority_watch", "trigger_watch"}:
+        return 3
     if status in {"candidate", "review_ready", "repair_review_only", "confirmation_required"}:
         return 3
-    if status == "watch_only":
+    if status in {"caution_watch", "watch_only", "watch"}:
         return 2
     if status.startswith("blocked_"):
         return 1
+    if status == "avoid":
+        return 0
     return 2
 
 
