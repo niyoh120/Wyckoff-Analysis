@@ -14,7 +14,7 @@ def test_market_report_includes_cash_account_metrics(tmp_path):
                 "- 区间: 2021-12-13 ~ 2022-10-31",
                 "- 持有周期: 5 交易日",
                 "- 每日候选上限: Top 4",
-                "- 策略治理调权: lps[regime=RISK_ON]×0.50↓（远端, report=2026-07-04, h=5, mode=on, active=尾盘+正式漏斗）",
+                "- 策略治理调权: lps[regime=RISK_ON]×0.50↓（远端, 报告=2026-07-04, 周期=h5, 策略=正式调权(on), 范围=尾盘+正式漏斗）",
                 "- 股票池: main_chinext (sample=0)",
                 "- 绩效引擎: auto（wbt 可用）",
                 "- 成交样本: 249",
@@ -56,7 +56,7 @@ def test_market_report_includes_cash_account_metrics(tmp_path):
 
     assert "代表现金账户: 初始 **100000.00**；最终 **53785.51**；盈亏 **-46214.49**" in report
     assert (
-        "- 策略治理调权: lps[regime=RISK_ON]×0.50↓（远端, report=2026-07-04, h=5, mode=on, active=尾盘+正式漏斗）"
+        "- 策略治理调权: lps[regime=RISK_ON]×0.50↓（远端, 报告=2026-07-04, 周期=h5, 策略=正式调权(on), 范围=尾盘+正式漏斗）"
         in report
     )
     assert "| 排名 | 参数组合 | 夏普 | 胜率 | 均收 | 现金回撤 | 最终现金 | 现金收益 | 样本 |" in report

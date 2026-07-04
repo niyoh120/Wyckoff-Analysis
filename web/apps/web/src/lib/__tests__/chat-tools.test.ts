@@ -328,8 +328,8 @@ describe('execQueryTailBuy', () => {
     const result = await execQueryTailBuy(deps, 10)
 
     expect(result).toContain('归因调权 lps x0.50 80.0→40.0')
-    expect(result).toContain('next=进入人工晋级评审（非正式生效）')
-    expect(result).toContain('active=尾盘+漏斗shadow')
+    expect(result).toContain('下一步=进入人工晋级评审（非正式生效）')
+    expect(result).toContain('范围=尾盘+漏斗shadow')
     expect(result).toContain('WATCH（观察买入）')
     expect(result).toContain('下一步:继续观察，未达到直接开仓口径。')
     expect(result).toContain('BUY（观察买入）')

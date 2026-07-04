@@ -82,7 +82,7 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
     assert "## 真实现金账户模拟" in md
     assert "RISK_OFF 环境下平均收益 -2.00%" in md
     assert "lps[regime=RISK_ON, lane=trend_pullback]×0.50↓" in md
-    assert "（远端, report=2026-07-04, h=5, age=0d, mode=on, active=尾盘+正式漏斗）" in md
+    assert "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=正式调权(on), 范围=尾盘+正式漏斗）" in md
 
 
 def test_generate_strategy_advice_returns_default_when_no_warning() -> None:
@@ -106,6 +106,6 @@ def test_build_summary_md_renders_inactive_policy_meta() -> None:
     )
 
     assert (
-        "- 策略治理调权: 未启用（远端, report=2026-07-04, h=5, mode=shadow, active=尾盘+漏斗shadow, formal_block=auto_apply=false）"
+        "- 策略治理调权: 未启用（远端, 报告=2026-07-04, 周期=h5, 策略=shadow 对照(shadow), 范围=尾盘+漏斗shadow, 正式dynamic=未进正式漏斗(auto_apply=false)）"
         in md
     )

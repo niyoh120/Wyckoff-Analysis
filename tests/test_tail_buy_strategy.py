@@ -1084,7 +1084,7 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
 
     assert (
         "- 归因调权: launchpad×1.20↑；lps×0.50↓"
-        "（远端, report=2026-07-04, h=5, age=0d, mode=shadow, next=进入人工晋级评审（非正式生效）, active=尾盘+漏斗shadow）"
+        "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow）"
     ) in md
 
 

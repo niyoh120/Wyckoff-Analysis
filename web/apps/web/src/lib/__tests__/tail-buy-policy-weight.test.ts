@@ -23,7 +23,7 @@ describe('tail-buy policy weight formatting', () => {
     }
 
     expect(formatTailBuyPolicyWeightText(row, { prefix: ' | 归因调权 ' })).toBe(
-      ' | 归因调权 lps x0.50 80.0→40.0（远端, report=2026-07-04, h=5, mode=shadow, next=进入人工晋级评审（非正式生效）, active=尾盘+漏斗shadow）',
+      ' | 归因调权 lps x0.50 80.0→40.0（远端, 报告=2026-07-04, 周期=h5, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow）',
     )
     expect(tailBuyPolicyWeightMultiplier(row)).toBe(0.5)
   })

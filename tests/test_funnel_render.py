@@ -45,7 +45,7 @@ def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> Non
     assert line.startswith("**策略治理调权**")
     assert (
         "归因 lps×0.50↓，sos×1.15↑"
-        "（远端, report=2026-07-04, h=5, age=0d, mode=shadow, next=进入人工晋级评审（非正式生效）, active=尾盘+漏斗shadow）"
+        "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow）"
     ) in line
     assert "最终 evr×0.75↓，lps×0.50↓，sos×1.15↑" in line
 

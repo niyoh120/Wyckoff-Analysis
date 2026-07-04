@@ -38,10 +38,10 @@ def format_policy_meta_text(meta: dict[str, Any] | None) -> str:
     tokens = _policy_source_tokens(meta)
     active = _policy_active_scope(meta)
     if active:
-        tokens.append(f"active={active}")
+        tokens.append(f"范围={active}")
     formal_block = str(meta.get("formal_dynamic_block_reason") or "").strip()
     if meta.get("formal_dynamic_allowed") is False and formal_block:
-        tokens.append(f"formal_block={formal_block}")
+        tokens.append(f"正式dynamic={policy_formal_dynamic_label(meta)}")
     return f"（{', '.join(tokens)}）" if tokens else ""
 
 
@@ -103,18 +103,18 @@ def _policy_source_tokens(meta: dict[str, Any]) -> list[str]:
     if source:
         tokens.append(source)
     if report_date:
-        tokens.append(f"report={report_date}")
+        tokens.append(f"报告={report_date}")
     if horizon:
-        tokens.append(f"h={horizon}")
+        tokens.append(f"周期=h{horizon}")
     age = meta.get("age_days")
     if age is not None and str(age) != "":
-        tokens.append(f"age={age}d")
+        tokens.append(f"距今={age}天")
     execution_policy = str(meta.get("execution_policy") or "").strip()
     if execution_policy:
-        tokens.append(f"mode={execution_policy}")
+        tokens.append(f"策略={policy_execution_mode_label(execution_policy)}")
     next_action = str(meta.get("next_action") or "").strip()
     if next_action:
-        tokens.append(f"next={policy_next_action_label(next_action)}")
+        tokens.append(f"下一步={policy_next_action_label(next_action)}")
     return tokens
 
 
@@ -161,6 +161,17 @@ def policy_mode_recommendation_label(raw: Any) -> str:
         "keep_static_policy": "保持静态策略",
     }
     return labels.get(text, text or "保持 shadow")
+
+
+def policy_execution_mode_label(raw: Any) -> str:
+    text = str(raw or "").strip()
+    labels = {
+        "on": "正式调权(on)",
+        "shadow": "shadow 对照(shadow)",
+        "off": "静态策略(off)",
+        "unknown": "未知模式",
+    }
+    return labels.get(text, f"{text} 模式" if text else "未知模式")
 
 
 def policy_promotion_status_label(raw: Any) -> str:
