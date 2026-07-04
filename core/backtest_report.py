@@ -57,7 +57,7 @@ def _overview_lines(summary: dict) -> list[str]:
         f"- 卖出摩擦成本: {fmt_metric(summary.get('sell_friction_pct'), 3)}%",
         f"- 元数据口径: {_meta_mode(summary)}",
         f"- 信号确认模式: {summary.get('pending_mode')}",
-        f"- 大盘水温仓控: {'开启' if summary.get('regime_filter') else '关闭'}",
+        _regime_filter_line(summary),
         _entry_price_mode_line(summary),
         f"- 交易风格: {_style_text(summary)}",
         _metrics_engine_line(summary),
@@ -73,6 +73,12 @@ def _return_stats_lines(summary: dict) -> list[str]:
         f"- 25%分位: {fmt_metric(summary.get('q25_ret_pct'), 3)}%",
         f"- 75%分位: {fmt_metric(summary.get('q75_ret_pct'), 3)}%",
     ]
+
+
+def _regime_filter_line(summary: dict) -> str:
+    if summary.get("regime_filter_note") == "deprecated_live_aligned_noop":
+        return "- 大盘水温仓控: 关闭（旧回测开关已废弃，跟随实盘漏斗候选口径）"
+    return f"- 大盘水温仓控: {'开启' if summary.get('regime_filter') else '关闭'}"
 
 
 def _portfolio_risk_lines(summary: dict) -> list[str]:

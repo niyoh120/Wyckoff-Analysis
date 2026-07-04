@@ -27,6 +27,7 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
         "use_current_meta": False,
         "pending_mode": "confirmation",
         "regime_filter": True,
+        "regime_filter_note": "deprecated_live_aligned_noop",
         "entry_price_mode": "open",
         "cash_portfolio_enabled": True,
         "cash_portfolio_style": "confirmation_only",
@@ -68,6 +69,7 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
     md = build_summary_md(summary)
 
     assert "- 最大持有天数: 20（安全网）" in md
+    assert "- 大盘水温仓控: 关闭（旧回测开关已废弃，跟随实盘漏斗候选口径）" in md
     assert "## 真实现金账户模拟" in md
     assert "RISK_OFF 环境下平均收益 -2.00%" in md
 

@@ -78,6 +78,7 @@ def test_build_backtest_run_config_normalizes_and_expands(tmp_path) -> None:
     assert config.snapshot_dir == snapshot.resolve()
     assert config.replay.board == "main_chinext_star"
     assert config.replay.top_n == 4
+    assert config.replay.regime_filter is False
     assert config.replay.exit.take_profit_pct == 18.0
     assert config.performance.cash_portfolio is True
     assert [c.portfolio_style for c in config.performance.cash_config_by_style] == [

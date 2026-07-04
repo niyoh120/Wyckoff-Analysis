@@ -233,7 +233,7 @@ def _replay_config(
         top_n=int(params.top_n),
         selection_mode=params.selection_mode,
         full_formal_l4_max=params.full_formal_l4_max,
-        regime_filter=bool(params.regime_filter),
+        regime_filter=False,
         pending_mode=pending_mode,
         pending_merge_order=pending_merge_order,
         abc_filter=bool(params.abc_filter),

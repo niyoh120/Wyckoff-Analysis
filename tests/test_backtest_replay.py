@@ -122,6 +122,44 @@ def test_replay_backtest_generates_t1_trades(monkeypatch) -> None:
     assert calls["mainline_config"].max_ai_candidates == 2
 
 
+def test_replay_backtest_ignores_deprecated_regime_filter(monkeypatch) -> None:
+    result = FunnelResult(
+        layer1_symbols=["000001", "000002"],
+        layer2_symbols=["000001", "000002"],
+        layer3_symbols=["000001", "000002"],
+        top_sectors=[],
+        triggers={"sos": [("000001", 8.0), ("000002", 7.0)]},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={"000001": "点火破局", "000002": "点火破局"},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+    )
+    monkeypatch.setattr("core.backtest_replay.calc_market_breadth", lambda _df_map: {})
+    monkeypatch.setattr(
+        "core.backtest_replay.analyze_benchmark_and_tune_cfg", lambda *_args, **_kwargs: {"regime": "RISK_ON"}
+    )
+    monkeypatch.setattr("core.backtest_replay.run_funnel", lambda **_kwargs: result)
+    replay_cfg = replace(_config(), top_n=0, regime_filter=True)
+    hist = _hist()
+    cfg = FunnelConfig(trading_days=3)
+    cfg.ma_long = 2
+
+    replay = replay_backtest(
+        all_df_map={"000001": hist, "000002": hist},
+        bench_df=hist,
+        trade_dates=[date(2026, 1, day) for day in range(1, 6)],
+        name_map={"000001": "平安银行", "000002": "万科A"},
+        market_cap_map={},
+        sector_map={},
+        base_cfg=cfg,
+        config=replay_cfg,
+    )
+
+    assert {record.code for record in replay.records} == {"000001", "000002"}
+
+
 def test_confirmed_signals_dedupes_code_and_keeps_best_score() -> None:
     class Pending:
         def write(self, *_args, **_kwargs):

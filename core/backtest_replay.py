@@ -20,7 +20,7 @@ from core.backtest_execution import (
     resolve_trade_exit,
 )
 from core.backtest_selection import combine_trigger_scores, select_ai_input_codes
-from core.candidate_policy import CandidatePolicyConfig, apply_regime_position_filter, candidate_score_value
+from core.candidate_policy import CandidatePolicyConfig, candidate_score_value
 from core.candidate_tracks import candidate_entry_track
 from core.mainline_engine import MainlineEngineConfig
 from core.market_breadth import calc_market_breadth
@@ -327,8 +327,6 @@ def _merge_codes(selected: list[str], confirmed: list[str], pending_mode: str, m
 
 
 def _apply_selection_guards(codes: list[str], ctx: _DayContext, config: BacktestReplayConfig) -> list[str]:
-    if config.regime_filter:
-        codes = apply_regime_position_filter(codes, ctx.regime, config=config.candidate_policy)
     if config.abc_filter and codes:
         codes = apply_abc_filter(codes, ctx.day_df_map, ctx.result.triggers)
     if config.top_n > 0 and codes:
