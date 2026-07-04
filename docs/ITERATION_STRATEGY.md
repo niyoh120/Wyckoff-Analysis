@@ -130,6 +130,9 @@ display 字段和 `latest_operator_summary`，raw `next_action` / `promotion_sta
 或未来 `auto_apply=true` 且晋级清单全部通过。`formal_dynamic_block_reason=backtest_confirmation_required`
 表示缺少结构化回测确认；`formal_dynamic_block_reason=manual_review_required`
 表示回测确认后仍卡在人工复核，不是代码故障或自动开关遗漏。
+Backtest Grid 负责产出 `backtest_confirmation.json`：跨周期全正才记为 `pass`，出现弱周期全非正记为
+`fail`，其余保留 `review`。Signal Feedback 会尝试读取最近成功的 Backtest Grid artifact，把这个
+结果作为归因晋级清单的一项结构化证据。
 回测也按同一条线处理：`shadow` 只展示归因 meta，不把 shadow 权重当成正式 replay 输入；
 只有 `on` 且 formal gate 通过时才使用归因权重重排候选。
 

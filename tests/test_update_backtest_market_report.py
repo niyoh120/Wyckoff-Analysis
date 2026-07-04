@@ -1,6 +1,32 @@
 from __future__ import annotations
 
 
+def _write_grid_cell(tmp_path, period, start, end, hold, stop, cash_return):
+    artifact = tmp_path / f"backtest-grid-{period}-h{hold}-sl-{stop}-tp0-tr0-37"
+    artifact.mkdir()
+    (artifact / f"summary_{period}_h{hold}.md").write_text(
+        "\n".join(
+            [
+                f"- 区间: {start} ~ {end}",
+                "- 每日候选上限: Top 4",
+                "- 股票池: main_chinext (sample=0)",
+                "- 绩效引擎: legacy",
+                "- 成交样本: 10",
+                "- 胜率: 40.0%",
+                "- 平均收益: 1.0%",
+                "- 中位收益: 0.5%",
+                "- 夏普比 (Sharpe Ratio): 0.3",
+                "- 最大回撤: -10.0%",
+                "- 初始现金: 100000.00",
+                f"- 最终现金: {100000 * (1 + cash_return / 100):.2f}",
+                f"- 总收益: {cash_return}%",
+                "- 成交笔数: 4",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_market_report_includes_cash_account_metrics(tmp_path):
     from scripts.update_backtest_market_report import build_report, load_grid_cells
 
@@ -158,6 +184,74 @@ def test_market_report_prefers_cross_period_robust_params(tmp_path):
     assert "交易手册（按市场状态）" in report
     assert "稳健参数（跨周期全正）: **等额四仓 / 15天 / SL-8% / 无TP / 无Trail**" in report
     assert "跨周期参数稳健性" in report
+
+
+def test_backtest_confirmation_passes_only_cross_period_positive(tmp_path):
+    from scripts.update_backtest_market_report import build_confirmation, load_grid_cells
+
+    for period, start, end, cash_return in [
+        ("recent_6m", "2025-12-01", "2026-05-31", 6.0),
+        ("bull_2020", "2020-07-01", "2021-02-18", 4.0),
+        ("bear_2022", "2021-12-13", "2022-10-31", 3.0),
+    ]:
+        _write_grid_cell(tmp_path, period, start, end, 15, 8, cash_return)
+
+    confirmation = build_confirmation(
+        load_grid_cells(tmp_path),
+        run_url="https://github.com/example/actions/runs/1",
+        generated_at="2026-07-04 00:00:00 Asia/Shanghai",
+    )
+
+    assert confirmation["status"] == "pass"
+    assert confirmation["report_date"] == "2026-07-04"
+    assert confirmation["positive_periods"] == 3
+    assert confirmation["min_cash_return"] == 3.0
+    assert confirmation["best_param"]["label"] == "等额四仓 / 15天 / SL-8% / 无TP / 无Trail"
+
+
+def test_backtest_confirmation_fails_when_any_period_has_no_positive_combo(tmp_path):
+    from scripts.update_backtest_market_report import build_confirmation, load_grid_cells
+
+    _write_grid_cell(tmp_path, "recent_6m", "2025-12-01", "2026-05-31", 10, 7, 12.0)
+    _write_grid_cell(tmp_path, "bear_2022", "2021-12-13", "2022-10-31", 10, 7, -6.5)
+
+    confirmation = build_confirmation(load_grid_cells(tmp_path))
+
+    assert confirmation["status"] == "fail"
+    assert confirmation["weak_periods"] == [
+        {"period_key": "bear_2022", "period_label": "熊市 2021-12~2022-10", "best_cash_return": -6.5}
+    ]
+    assert "不能作为 dynamic=on 晋级依据" in confirmation["summary"]
+
+
+def test_update_market_report_writes_confirmation_json(tmp_path, monkeypatch):
+    import json
+
+    from scripts.update_backtest_market_report import main
+
+    _write_grid_cell(tmp_path, "recent_6m", "2025-12-01", "2026-05-31", 10, 7, 2.0)
+    report_path = tmp_path / "report.md"
+    confirmation_path = tmp_path / "confirmation.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "update_backtest_market_report.py",
+            "--artifacts-dir",
+            str(tmp_path),
+            "--output",
+            str(report_path),
+            "--confirmation-output",
+            str(confirmation_path),
+            "--generated-at",
+            "2026-07-04 00:00:00 Asia/Shanghai",
+        ],
+    )
+
+    assert main() == 0
+    confirmation = json.loads(confirmation_path.read_text(encoding="utf-8"))
+    assert report_path.exists()
+    assert confirmation["source"] == "backtest_grid"
+    assert confirmation["status"] == "review"
 
 
 def test_market_report_flags_period_with_no_positive_cash_combo(tmp_path):

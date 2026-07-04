@@ -293,6 +293,9 @@ shadow 差异和信号表现收敛成统一的治理结论：
 JSON 对象，例如 `{"status":"pass","summary":"三周期回测确认正收益"}`。没有该输入时，
 candidate 只会得到 `backtest_confirmation: review`，正式 dynamic 的阻断原因为
 `backtest_confirmation_required`；如果输入为 `fail`，阻断原因为 `backtest_confirmation_failed`。
+Backtest Grid 会通过 `scripts/update_backtest_market_report.py --confirmation-output backtest_confirmation.json`
+生成同一口径的结构化确认文件，并随 `backtest-market-report-*` artifact 上传；`Signal Feedback`
+会优先下载最近一次成功 Backtest Grid 的确认文件，下载不到时继续按缺回测确认处理。
 
 报告还会生成 `shadow_diff_stats_json.policy_operations_brief`，其中 `operator_summary` 是给人读的
 运营摘要，和 Agent 的 `latest_operator_summary`、Web 归因页“运营复盘”第一行保持同一口径。它不是新的

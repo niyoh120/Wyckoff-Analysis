@@ -438,6 +438,7 @@ jobs:
           python3 scripts/update_backtest_market_report.py \
             --artifacts-dir artifacts \
             --output docs/BACKTEST_MARKET_REPORT.md \
+            --confirmation-output backtest_confirmation.json \
             --run-url "$RUN_URL" \
             --generated-at "$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S Asia/Shanghai')"
 
@@ -445,7 +446,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: backtest-market-report-${{ github.run_number }}
-          path: docs/BACKTEST_MARKET_REPORT.md
+          path: |
+            docs/BACKTEST_MARKET_REPORT.md
+            backtest_confirmation.json
           retention-days: 30
           if-no-files-found: error
 

@@ -10,6 +10,10 @@ concurrency:
   group: signal-feedback-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -40,5 +44,43 @@ jobs:
       - name: Refresh signal feedback
         run: python -u scripts/signal_feedback_job.py
 
+      - name: Download latest backtest confirmation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! run_id="$(gh run list --workflow backtest_grid.yml --branch "$GITHUB_REF_NAME" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"; then
+            echo "[attribution] failed to query Backtest Grid runs; continue without confirmation"
+            exit 0
+          fi
+          if [ -z "$run_id" ]; then
+            echo "[attribution] no successful Backtest Grid run found; continue without confirmation"
+            exit 0
+          fi
+          if ! artifact_name="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" --jq '.artifacts[] | select(.expired == false and (.name | startswith("backtest-market-report-"))) | .name' | tail -n 1)"; then
+            echo "[attribution] failed to query Backtest Grid artifacts; continue without confirmation"
+            exit 0
+          fi
+          if [ -z "$artifact_name" ]; then
+            echo "[attribution] no backtest confirmation artifact in run ${run_id}; continue without confirmation"
+            exit 0
+          fi
+          mkdir -p backtest-confirmation
+          if gh run download "$run_id" --name "$artifact_name" --dir backtest-confirmation; then
+            if [ -s backtest-confirmation/backtest_confirmation.json ]; then
+              cp backtest-confirmation/backtest_confirmation.json backtest_confirmation.json
+              echo "[attribution] using backtest confirmation from run ${run_id} (${artifact_name})"
+            else
+              echo "[attribution] artifact has no backtest_confirmation.json; continue without confirmation"
+            fi
+          else
+            echo "[attribution] failed to download backtest confirmation; continue without confirmation"
+          fi
+
       - name: Build strategy attribution report
-        run: python -u scripts/strategy_attribution_report.py --market cn --days 60 --horizons 1,3,5,10,20
+        run: |
+          args=(--market cn --days 60 --horizons 1,3,5,10,20)
+          if [ -s backtest_confirmation.json ]; then
+            args+=(--backtest-confirmation-json backtest_confirmation.json)
+          fi
+          python -u scripts/strategy_attribution_report.py "${args[@]}"

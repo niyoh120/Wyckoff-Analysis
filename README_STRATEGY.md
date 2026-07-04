@@ -84,6 +84,9 @@ Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否
 `formal_dynamic_block_reason=manual_review_required` 才表示回测确认后仍在人工复核阶段。
 只读归因任务可通过 `--backtest-confirmation-json` 传入回测确认对象，作为 `promotion_checklist`
 里的结构化证据。
+Backtest Grid 会随 `backtest-market-report-*` artifact 生成 `backtest_confirmation.json`；Signal Feedback
+会自动尝试读取最近成功的 Backtest Grid 确认文件。确认口径偏保守：跨周期现金收益全正才 `pass`，
+存在弱周期全非正则 `fail`，其余保留 `review`。
 
 ### 外部观察验证
 

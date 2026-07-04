@@ -512,6 +512,101 @@ def _build_period_guardrail_lines(cells: list[GridCell]) -> list[str]:
     return lines
 
 
+def _round_metric(value: float | None, digits: int = 2) -> float | None:
+    return None if value is None else round(value, digits)
+
+
+def _confirmation_weak_periods(cells: list[GridCell]) -> list[dict[str, object]]:
+    guards = weak_period_guardrails(
+        cells,
+        period_fn=lambda cell: cell.period_key or _period_label(cell),
+        value_fn=_cell_cash_return_or_none,
+    )
+    return [
+        {
+            "period_key": guard.period_key,
+            "period_label": PERIOD_LABELS.get(guard.period_key, guard.period_key),
+            "best_cash_return": _round_metric(guard.best_value),
+        }
+        for guard in guards
+    ]
+
+
+def _confirmation_status(score: RobustParamScore | None, weak_periods: list[dict[str, object]]) -> str:
+    if score is None:
+        return "review"
+    if weak_periods:
+        return "fail"
+    if (
+        score.period_count >= 3
+        and score.positive_periods == score.period_count
+        and score.min_cash_return is not None
+        and score.min_cash_return > 0
+    ):
+        return "pass"
+    if score.period_count >= 2 and score.positive_periods == 0:
+        return "fail"
+    return "review"
+
+
+def _confirmation_summary(status: str, score: RobustParamScore | None, weak_periods: list[dict[str, object]]) -> str:
+    if score is None:
+        return "回测确认待复核：未找到可聚合的跨周期参数。"
+    if status == "pass":
+        return (
+            "回测确认通过：跨周期现金收益全正，"
+            f"正收益周期 {score.positive_periods}/{score.period_count}，"
+            f"最差收益 {_fmt_signed(score.min_cash_return, 2, '%')}。"
+        )
+    if status == "fail":
+        labels = "、".join(str(item["period_label"]) for item in weak_periods) or "跨周期"
+        return f"回测确认未通过：{labels} 未出现正现金收益组合，不能作为 dynamic=on 晋级依据。"
+    return f"回测结果仍需人工复核：尚未满足跨周期全正，正收益周期 {score.positive_periods}/{score.period_count}。"
+
+
+def _confirmation_param(score: RobustParamScore | None) -> dict[str, object]:
+    if score is None:
+        return {}
+    cell = score.best_cell
+    return {
+        "label": _fmt_param(cell),
+        "portfolio_style": cell.portfolio_style,
+        "portfolio_style_label": cell.portfolio_style_label,
+        "hold": cell.hold,
+        "stop_loss": cell.stop_loss,
+        "take_profit": cell.take_profit,
+        "trailing_stop": cell.trailing_stop,
+    }
+
+
+def build_confirmation(cells: list[GridCell], run_url: str = "", generated_at: str = "") -> dict[str, object]:
+    if not cells:
+        raise ValueError("未找到可解析的 backtest summary artifacts")
+
+    robust_ranked = _rank_robust_params(cells)
+    robust_best = robust_ranked[0] if robust_ranked else None
+    weak_periods = _confirmation_weak_periods(cells)
+    status = _confirmation_status(robust_best, weak_periods)
+    generated = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "status": status,
+        "source": "backtest_grid",
+        "report_date": generated.split()[0],
+        "generated_at": generated,
+        "run_url": run_url,
+        "summary": _confirmation_summary(status, robust_best, weak_periods),
+        "cell_count": len(cells),
+        "period_count": robust_best.period_count if robust_best else 0,
+        "positive_periods": robust_best.positive_periods if robust_best else 0,
+        "avg_cash_return": _round_metric(robust_best.avg_cash_return if robust_best else None),
+        "min_cash_return": _round_metric(robust_best.min_cash_return if robust_best else None),
+        "recent_cash_return": _round_metric(robust_best.recent_cash_return if robust_best else None),
+        "score": _round_metric(robust_best.score if robust_best else None, 4),
+        "best_param": _confirmation_param(robust_best),
+        "weak_periods": weak_periods,
+    }
+
+
 def _period_best_cell(cells: list[GridCell], period_key: str, style: str | None = None) -> GridCell | None:
     pool = [c for c in cells if c.period_key == period_key and (style is None or c.portfolio_style == style)]
     return max(pool, key=_cash_sort_key) if pool else None
