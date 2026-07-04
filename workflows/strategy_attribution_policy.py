@@ -40,6 +40,9 @@ class AttributionPolicySnapshot:
     execution_summary: str = ""
 
     def as_dict(self) -> dict[str, Any]:
+        tail_active = bool(self.weights)
+        shadow_active = tail_active and self.execution_scope in {"tail_buy_and_funnel_shadow", "tail_buy_and_funnel"}
+        formal_active = tail_active and self.execution_scope == "tail_buy_and_funnel"
         return {
             "source": self.source,
             "report_date": self.report_date,
@@ -58,10 +61,14 @@ class AttributionPolicySnapshot:
             "formal_dynamic_block_reason": self.formal_dynamic_block_reason,
             "signal_action_count": self.signal_action_count,
             "execution_summary": self.execution_summary,
-            "tail_buy_weights_active": bool(self.weights),
-            "funnel_shadow_weights_active": bool(self.weights)
-            and self.execution_scope in {"tail_buy_and_funnel_shadow", "tail_buy_and_funnel"},
-            "funnel_formal_weights_active": bool(self.weights) and self.execution_scope == "tail_buy_and_funnel",
+            "active_scope": _active_scope_text(
+                tail_active=tail_active,
+                shadow_active=shadow_active,
+                formal_active=formal_active,
+            ),
+            "tail_buy_weights_active": tail_active,
+            "funnel_shadow_weights_active": shadow_active,
+            "funnel_formal_weights_active": formal_active,
         }
 
 
@@ -240,14 +247,26 @@ def _snapshot_log_text(snapshot: AttributionPolicySnapshot) -> str:
         meta.append(f"age={snapshot.age_days}d")
     if snapshot.execution_policy:
         meta.append(f"mode={snapshot.execution_policy}")
-    if snapshot.execution_scope:
-        meta.append(f"scope={snapshot.execution_scope}")
+    active_scope = snapshot.as_dict().get("active_scope")
+    if active_scope:
+        meta.append(f"active={active_scope}")
     if snapshot.next_action:
         meta.append(f"next={snapshot.next_action}")
     if not snapshot.formal_dynamic_allowed and snapshot.formal_dynamic_block_reason:
         meta.append(f"formal_block={snapshot.formal_dynamic_block_reason}")
     weights = format_policy_weight_text(snapshot.weights, limit=12, delimiter=", ")
     return f"{' '.join(meta)}; {weights}"
+
+
+def _active_scope_text(*, tail_active: bool, shadow_active: bool, formal_active: bool) -> str:
+    parts = []
+    if tail_active:
+        parts.append("尾盘")
+    if formal_active:
+        parts.append("正式漏斗")
+    elif shadow_active:
+        parts.append("漏斗shadow")
+    return "+".join(parts) or "无"
 
 
 def _policy_governor(row: dict[str, Any]) -> dict[str, Any]:

@@ -202,6 +202,7 @@ def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatc
     assert snapshot.as_dict()["next_action"] == "manual_review_dynamic_on"
     assert snapshot.as_dict()["formal_dynamic_allowed"] is True
     assert snapshot.as_dict()["execution_scope"] == "tail_buy_and_funnel_shadow"
+    assert snapshot.as_dict()["active_scope"] == "尾盘+漏斗shadow"
     assert snapshot.as_dict()["tail_buy_weights_active"] is True
     assert snapshot.as_dict()["funnel_shadow_weights_active"] is True
     assert snapshot.as_dict()["funnel_formal_weights_active"] is False

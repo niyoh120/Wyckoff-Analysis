@@ -199,6 +199,7 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
             "age_days": 0,
             "execution_policy": "shadow",
             "execution_scope": "tail_buy_and_funnel_shadow",
+            "active_scope": "尾盘+漏斗shadow",
             "next_action": "manual_review_dynamic_on",
             "formal_dynamic_allowed": True,
             "tail_buy_weights_active": True,
@@ -218,6 +219,7 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
     assert result[0].features["policy_weight_horizon"] == "5"
     assert result[0].features["policy_weight_execution_policy"] == "shadow"
     assert result[0].features["policy_weight_execution_scope"] == "tail_buy_and_funnel_shadow"
+    assert result[0].features["policy_weight_active_scope"] == "尾盘+漏斗shadow"
     assert result[0].features["policy_weight_next_action"] == "manual_review_dynamic_on"
     assert result[0].features["policy_weight_formal_dynamic_allowed"] is True
     assert result[0].features["policy_weight_tail_buy_weights_active"] is True
@@ -1082,7 +1084,7 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
 
     assert (
         "- 归因调权: launchpad×1.20↑；lps×0.50↓"
-        "（远端, report=2026-07-04, h=5, age=0d, mode=shadow, scope=tail_buy_and_funnel_shadow, next=manual_review_dynamic_on, active=尾盘+漏斗shadow）"
+        "（远端, report=2026-07-04, h=5, age=0d, mode=shadow, next=manual_review_dynamic_on, active=尾盘+漏斗shadow）"
     ) in md
 
 

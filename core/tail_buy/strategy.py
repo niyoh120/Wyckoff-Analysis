@@ -984,6 +984,7 @@ def apply_policy_weight_adjustments(
                 "policy_weight_age_days": (policy_meta or {}).get("age_days"),
                 "policy_weight_execution_policy": str((policy_meta or {}).get("execution_policy") or ""),
                 "policy_weight_execution_scope": str((policy_meta or {}).get("execution_scope") or ""),
+                "policy_weight_active_scope": str((policy_meta or {}).get("active_scope") or ""),
                 "policy_weight_next_action": str((policy_meta or {}).get("next_action") or ""),
                 "policy_weight_formal_dynamic_allowed": (policy_meta or {}).get("formal_dynamic_allowed"),
                 "policy_weight_tail_buy_weights_active": (policy_meta or {}).get("tail_buy_weights_active"),

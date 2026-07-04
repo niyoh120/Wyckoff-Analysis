@@ -48,5 +48,18 @@ def test_format_policy_meta_text_surfaces_active_scope() -> None:
                 "funnel_formal_weights_active": True,
             }
         )
-        == "（远端, report=2026-07-04, h=5, mode=on, scope=tail_buy_and_funnel, active=尾盘+正式漏斗）"
+        == "（远端, report=2026-07-04, h=5, mode=on, active=尾盘+正式漏斗）"
+    )
+
+
+def test_format_policy_meta_text_derives_active_scope_from_legacy_scope() -> None:
+    assert (
+        format_policy_meta_text(
+            {
+                "source": "远端",
+                "execution_policy": "shadow",
+                "execution_scope": "tail_buy_and_funnel_shadow",
+            }
+        )
+        == "（远端, mode=shadow, active=尾盘+漏斗shadow）"
     )

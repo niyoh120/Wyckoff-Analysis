@@ -19,7 +19,6 @@ function policySourceTokens(meta: Record<string, unknown>): string[] {
   const horizon = textMeta(meta, 'horizon')
   const ageDays = rawMeta(meta, 'age_days')
   const executionPolicy = textMeta(meta, 'execution_policy')
-  const executionScope = textMeta(meta, 'execution_scope')
   const nextAction = textMeta(meta, 'next_action')
 
   if (source) tokens.push(source)
@@ -27,12 +26,13 @@ function policySourceTokens(meta: Record<string, unknown>): string[] {
   if (horizon) tokens.push(`h=${horizon}`)
   if (ageDays !== undefined && ageDays !== null && String(ageDays) !== '') tokens.push(`age=${ageDays}d`)
   if (executionPolicy) tokens.push(`mode=${executionPolicy}`)
-  if (executionScope) tokens.push(`scope=${executionScope}`)
   if (nextAction) tokens.push(`next=${nextAction}`)
   return tokens
 }
 
 function policyActiveScope(meta: Record<string, unknown>): string {
+  const explicit = textMeta(meta, 'active_scope')
+  if (explicit && explicit !== '无') return explicit
   const parts: string[] = []
   if (boolMeta(meta, 'tail_buy_weights_active') === true) parts.push('尾盘')
   if (boolMeta(meta, 'funnel_formal_weights_active') === true) {
@@ -40,7 +40,12 @@ function policyActiveScope(meta: Record<string, unknown>): string {
   } else if (boolMeta(meta, 'funnel_shadow_weights_active') === true) {
     parts.push('漏斗shadow')
   }
-  return parts.join('+')
+  if (parts.length) return parts.join('+')
+  const scope = textMeta(meta, 'execution_scope')
+  if (scope === 'tail_buy_and_funnel') return '尾盘+正式漏斗'
+  if (scope === 'tail_buy_and_funnel_shadow') return '尾盘+漏斗shadow'
+  if (scope === 'tail_buy_only') return '尾盘'
+  return ''
 }
 
 function textMeta(meta: Record<string, unknown>, key: string): string {
