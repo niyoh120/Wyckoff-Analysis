@@ -417,6 +417,15 @@ def _best_per_hold_comment(cells: list[GridCell]) -> str:
     return "；".join(parts)
 
 
+def _strategy_policy_context(cells: list[GridCell]) -> str:
+    policies = sorted({cell.strategy_policy for cell in cells if cell.strategy_policy})
+    if not policies:
+        return "未写入"
+    if len(policies) == 1:
+        return policies[0]
+    return "多口径: " + "；".join(policies[:3]) + (f"；等{len(policies)}项" if len(policies) > 3 else "")
+
+
 def _build_execution_context_lines(
     *,
     cells: list[GridCell],
@@ -443,6 +452,7 @@ def _build_execution_context_lines(
         f"- 可完整验证信号期: {diagnostics.get('first_signal_date') or '-'} ~ {diagnostics.get('last_signal_date') or '-'}",
         f"- 股票池: {best.board or '-'} (sample={best.sample_size or '-'})",
         f"- 每日候选上限: {best.top_n or '-'}",
+        f"- 策略治理调权: {_strategy_policy_context(cells)}",
         f"- 参数/风格单元: {len(cells)} 组；正夏普 {pos_sharpe} 组，非正夏普 {neg_sharpe} 组",
         f"- GitHub Actions: {run_url or '-'}",
     ]

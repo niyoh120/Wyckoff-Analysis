@@ -582,6 +582,15 @@ jobs:
           def style_sort_key(style):
               return (style_order.get(style, 99), style)
 
+          def strategy_policy_summary(rows):
+              policies = sorted({str(c.get('strategy_policy') or '').strip() for c in rows if str(c.get('strategy_policy') or '').strip()})
+              if not policies:
+                  return '未写入'
+              if len(policies) == 1:
+                  return policies[0]
+              suffix = f'；等{len(policies)}项' if len(policies) > 3 else ''
+              return '多口径: ' + '；'.join(policies[:3]) + suffix
+
           def find_cash_trades_path(summary_path, style):
               base_dir = os.path.dirname(summary_path)
               matches = sorted(glob.glob(os.path.join(base_dir, f'cash_trades_{style}_*.csv')))
@@ -662,6 +671,7 @@ jobs:
                   'trades': extract(content, '成交样本'),
                   'calmar': extract(content, '卡玛比'),
                   'cash_initial': extract_exact(content, '初始现金'),
+                  'strategy_policy': extract_text(content, '策略治理调权'),
               }
               style_rows = parse_style_rows(content) or [{
                   '风格ID': 'slot_equal_4',
@@ -958,6 +968,8 @@ jobs:
                       'content': f'**策略体检**: {risk_comment(best)}  ·  正现金收益组合 {pos_cnt} / 非正现金收益组合 {neg_cnt}'}})
                   elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
                       'content': f'**逐笔辅助指标**: 夏普 {sharp_flag(best.get("sharpe"))} {fmt(best.get("sharpe"), ".3f")}，胜率 {fmt(best.get("win"), ".1f")}%，均收 {fmt(best.get("avg"), "+.2f")}%'}})
+                  elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
+                      'content': f'**策略治理调权**: {strategy_policy_summary(valid)}'}})
                   if robust_ranked:
                       rb = robust_ranked[0]
                       elements.append({'tag': 'div', 'text': {'tag': 'lark_md',

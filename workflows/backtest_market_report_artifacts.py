@@ -45,6 +45,7 @@ class GridCell:
     wbt_max_drawdown: float | None
     wbt_daily_win_rate: float | None
     metrics_engine: str
+    strategy_policy: str
 
 
 def load_grid_cells(artifacts_dir: Path) -> list[GridCell]:
@@ -224,6 +225,7 @@ def _summary_metadata(summary_path: Path, content: str) -> dict[str, Any]:
         "board": board,
         "sample_size": sample_size,
         "metrics_engine": _parse_simple_field(content, "绩效引擎"),
+        "strategy_policy": _parse_simple_field(content, "策略治理调权"),
     }
 
 
