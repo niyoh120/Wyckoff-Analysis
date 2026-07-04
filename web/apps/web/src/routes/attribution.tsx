@@ -235,11 +235,12 @@ function ReportView({ report }: { report: AttributionReport }) {
 
 function Summary({ report }: { report: AttributionReport }) {
   return (
-    <section className="grid gap-3 md:grid-cols-4">
+    <section className="grid gap-3 md:grid-cols-5">
       <MetricCard label="报告日期" value={report.report_date} />
       <MetricCard label="样本窗口" value={`${report.window_start} ~ ${report.window_end}`} />
       <MetricCard label="周期" value={report.horizons.join('/')} />
       <MetricCard label="生成时间" value={formatDateTime(report.created_at)} />
+      <MetricCard label="数据来源" value="远端 strategy_attribution_reports" />
     </section>
   )
 }
