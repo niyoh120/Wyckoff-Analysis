@@ -121,9 +121,10 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 信号的收益、胜率、大亏率和回撤转成 `downweight` / `upweight` / `hold`。治理器只输出晋级建议：
 `review_promote_dynamic_policy`、`keep_shadow` 或 `keep_static_policy`。其中信号级调权可以进入尾盘和
 动态策略输入；生产策略是否从 `shadow` 切到 `on`，仍需要人工确认多期报告和回测结果一致。
-报告同时输出 `promotion_status` 和 `promotion_checklist`：前者给出是否进入人工晋级、是否拒绝晋级、
-是否继续收集样本；后者固定检查 shadow 样本量、shadow 新增组表现、scoped 信号调权和回测确认。
-日常运营判断以这两个字段为准，不再只看一句 `review_promote_dynamic_policy`。
+报告同时输出 `next_action`、`promotion_status` 和 `promotion_checklist`：`next_action` 是 Agent/Web/CLI
+直接读取的下一步动作，`promotion_status` 给出是否进入人工晋级、是否拒绝晋级、是否继续收集样本；
+`promotion_checklist` 固定检查 shadow 样本量、shadow 新增组表现、scoped 信号调权和回测确认。
+日常运营判断以这些字段为准，不再只看一句 `review_promote_dynamic_policy`。
 
 日常复盘不只看调权结论，还要看来源和运营摘要：`latest_source` 回答“读的是远端表还是本地
 no-write 报告”，`latest_execution_state` 回答“调权现在影响哪里”，`latest_operations`

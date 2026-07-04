@@ -42,6 +42,8 @@ def attribution_execution_state(
         "tail_buy_reads_attribution": action_count > 0,
         "signal_action_count": action_count,
         "action_details": action_details,
+        "next_action": governor.get("next_action", "keep_shadow_observe"),
+        "next_action_summary": governor.get("next_action_summary", "-"),
         "promotion_status": governor.get("promotion_status", "unknown"),
         "promotion_checklist": governor.get("promotion_checklist")
         if isinstance(governor.get("promotion_checklist"), list)

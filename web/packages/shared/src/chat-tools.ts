@@ -616,7 +616,8 @@ function formatAttributionReport(row: Record<string, unknown>): string {
     `策略归因报告 ${String(row.report_date || '-')}`,
     '数据来源：远端 strategy_attribution_reports（Web 不读取本地 --no-write 报告）',
     `窗口：${String(row.window_start || '-')} 至 ${String(row.window_end || '-')}`,
-    `策略治理：${String(governor.status || 'unknown')} / ${String(governor.mode_recommendation || 'keep_shadow')} / promotion=${String(governor.promotion_status || 'unknown')} / auto_apply=${Boolean(governor.auto_apply)}`,
+    `策略治理：${String(governor.status || 'unknown')} / ${String(governor.mode_recommendation || 'keep_shadow')} / next=${String(governor.next_action || 'keep_shadow_observe')} / promotion=${String(governor.promotion_status || 'unknown')} / auto_apply=${Boolean(governor.auto_apply)}`,
+    `下一步：${String(governor.next_action_summary || '-')}`,
     `治理摘要：${String(governor.summary || '-')}`,
     promotionChecklistLine(governor.promotion_checklist),
     attributionExecutionLine(execution),
@@ -636,6 +637,8 @@ function attributionExecutionFallback(governor: Record<string, unknown>, rawActi
     scope: actionCount > 0 ? 'unknown' : 'none',
     signal_action_count: actionCount,
     promotion_status: String(governor.promotion_status || 'unknown'),
+    next_action: String(governor.next_action || 'keep_shadow_observe'),
+    next_action_summary: String(governor.next_action_summary || '-'),
     promotion_checklist: Array.isArray(governor.promotion_checklist) ? governor.promotion_checklist : [],
     summary: actionCount > 0 ? `h=${horizon} 有 ${actionCount} 个信号级调权。` : '暂无可执行信号调权。',
   }
@@ -647,6 +650,7 @@ function attributionExecutionLine(execution: Record<string, unknown>): string {
     `h=${String(execution.horizon || '5')}`,
     `scope=${String(execution.scope || 'none')}`,
     `promotion=${String(execution.promotion_status || 'unknown')}`,
+    `next=${String(execution.next_action || 'keep_shadow_observe')}`,
     `actions=${Number(execution.signal_action_count || 0)}`,
     String(execution.summary || ''),
   ].filter(Boolean).join(' | ')

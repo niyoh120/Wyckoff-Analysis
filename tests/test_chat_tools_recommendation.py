@@ -79,6 +79,8 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
                     "policy_governor": {
                         "status": "candidate",
                         "mode_recommendation": "review_promote_dynamic_policy",
+                        "next_action": "manual_review_dynamic_on",
+                        "next_action_summary": "shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。",
                         "promotion_status": "manual_review_required",
                         "promotion_checklist": [
                             {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
@@ -110,6 +112,7 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
 
     assert result["latest_policy"]["status"] == "candidate"
     assert result["latest_source"] == "remote"
+    assert result["latest_policy"]["next_action"] == "manual_review_dynamic_on"
     assert result["latest_policy"]["promotion_status"] == "manual_review_required"
     assert result["latest_policy"]["promotion_checklist"][0]["key"] == "shadow_sample"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
@@ -343,6 +346,8 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
                             "policy_governor": {
                                 "status": "candidate",
                                 "mode_recommendation": "review_promote_dynamic_policy",
+                                "next_action": "manual_review_dynamic_on",
+                                "next_action_summary": "shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。",
                                 "promotion_status": "manual_review_required",
                                 "promotion_checklist": [
                                     {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
@@ -372,6 +377,7 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
     assert result["latest_source"] == "remote"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel"
     assert result["records"][0]["policy_governor"]["mode_recommendation"] == "review_promote_dynamic_policy"
+    assert result["records"][0]["policy_governor"]["next_action"] == "manual_review_dynamic_on"
     assert result["records"][0]["policy_governor"]["promotion_status"] == "manual_review_required"
     assert result["records"][0]["execution_state"]["promotion_checklist"][0]["status"] == "pass"
     assert result["records"][0]["signal_actions"][0]["target"] == "lps"

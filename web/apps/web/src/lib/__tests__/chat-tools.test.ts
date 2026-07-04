@@ -297,6 +297,8 @@ describe('execQueryAttribution', () => {
             policy_governor: {
               status: 'candidate',
               mode_recommendation: 'review_promote_dynamic_policy',
+              next_action: 'manual_review_dynamic_on',
+              next_action_summary: 'shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。',
               promotion_status: 'manual_review_required',
               promotion_checklist: [
                 { key: 'shadow_sample', status: 'pass', summary: 'sample ok' },
@@ -309,6 +311,8 @@ describe('execQueryAttribution', () => {
               funnel_dynamic_policy: 'shadow',
               horizon: '5',
               scope: 'tail_buy_and_funnel_shadow',
+              next_action: 'manual_review_dynamic_on',
+              next_action_summary: 'shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。',
               promotion_status: 'manual_review_required',
               promotion_checklist: [
                 { key: 'shadow_sample', status: 'pass', summary: 'sample ok' },
@@ -353,7 +357,9 @@ describe('execQueryAttribution', () => {
     expect(result).toContain('数据来源：远端 strategy_attribution_reports')
     expect(result).toContain('promotion=manual_review_required')
     expect(result).toContain('晋级检查：shadow_sample:pass；backtest_confirmation:review')
-    expect(result).toContain('执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | promotion=manual_review_required | actions=1')
+    expect(result).toContain(
+      '执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | promotion=manual_review_required | next=manual_review_dynamic_on | actions=1',
+    )
     expect(result).toContain('最新 Shadow：2026-07-03 / RISK_ON | base=8 | shadow=9 | 新增=2 | 移除=1 | Jaccard=0.70')
     expect(result).toContain('Shadow 新增样本：300502, 688008')
     expect(result).toContain('lps[regime=RISK_ON, lane=trend_pullback] | downweight | h=5 | x0.50')

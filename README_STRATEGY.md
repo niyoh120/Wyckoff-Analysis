@@ -73,8 +73,9 @@ Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否
 `query_attribution`。回答前应先看归因数据来源：CLI/MCP 会暴露 `latest_source` 和 `remote_error`，
 并在远端表与本地 no-write 报告同时存在时按 `report_date` 取最新；Web 只读取远端
 `strategy_attribution_reports`。随后读取 `latest_execution_state` 判断当前调权影响尾盘、
-漏斗 shadow 还是正式漏斗，读取 `promotion_status` / `promotion_checklist` 判断 dynamic 是否只进入人工晋级评审，
-并读取 `latest_operations` 查看最新 shadow 新增/移除样本和 scoped 调权明细。`manual_review_required`
+漏斗 shadow 还是正式漏斗，读取 `next_action` / `promotion_status` / `promotion_checklist` 判断 dynamic 是否只进入人工晋级评审，
+并读取 `latest_operations` 查看最新 shadow 新增/移除样本和 scoped 调权明细。`manual_review_dynamic_on`
+和 `manual_review_required`
 只表示 shadow 数据已经过主要量化门槛；切换 `FUNNEL_DYNAMIC_POLICY=on` 仍要人工确认多期报告和回测。
 
 ### 外部观察验证

@@ -82,6 +82,8 @@ interface PolicyGovernor {
   horizon?: string
   auto_apply?: boolean
   mode_recommendation?: string
+  next_action?: string
+  next_action_summary?: string
   promotion_status?: string
   promotion_checklist?: PromotionCheck[]
   summary?: string
@@ -384,11 +386,13 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
       <div className="grid gap-3 md:grid-cols-4">
         <MetricCard label="治理状态" value={formatGovernorStatus(governor.status)} />
         <MetricCard label="建议模式" value={formatModeRecommendation(governor.mode_recommendation)} />
+        <MetricCard label="下一步动作" value={formatNextAction(governor.next_action)} />
         <MetricCard label="晋级状态" value={formatPromotionStatus(governor.promotion_status)} />
         <MetricCard label="观察周期" value={`h=${governor.horizon || '-'}`} />
         <MetricCard label="自动切模式" value={governor.auto_apply ? '是' : '否'} />
       </div>
       <p className="mt-3 text-sm text-muted-foreground">{governor.summary || '-'}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{governor.next_action_summary || '-'}</p>
       <p className="mt-2 text-xs text-muted-foreground">
         说明：`自动切模式=否` 只表示不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；信号级 downweight/upweight
         仍可被尾盘策略和动态策略 shadow/on 读取。
@@ -1017,6 +1021,17 @@ function formatModeRecommendation(raw: string | undefined) {
     keep_static_policy: '保持静态策略',
   }
   return labels[String(raw || '').trim()] || raw || '保持 shadow'
+}
+
+function formatNextAction(raw: string | undefined) {
+  const labels: Record<string, string> = {
+    manual_review_dynamic_on: '人工复核 dynamic=on',
+    keep_static_policy: '保持静态策略',
+    collect_more_shadow_samples: '继续收集样本',
+    keep_shadow_apply_signal_weights: 'shadow 下应用调权',
+    keep_shadow_observe: '保持观察',
+  }
+  return labels[String(raw || '').trim()] || raw || '保持观察'
 }
 
 function formatPromotionStatus(raw: string | undefined) {

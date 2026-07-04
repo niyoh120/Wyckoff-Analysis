@@ -279,6 +279,8 @@ def _policy_governor_record(governor: dict) -> dict:
     return {
         "status": str(governor.get("status", "unknown")),
         "mode_recommendation": str(governor.get("mode_recommendation", "keep_shadow")),
+        "next_action": str(governor.get("next_action", "keep_shadow_observe")),
+        "next_action_summary": str(governor.get("next_action_summary", "-")),
         "promotion_status": str(governor.get("promotion_status", "unknown")),
         "promotion_checklist": checklist if isinstance(checklist, list) else [],
         "auto_apply": bool(governor.get("auto_apply")),

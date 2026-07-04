@@ -27,12 +27,15 @@ def build_strategy_policy_governor(
     context_actions = _context_actions(signal_context_stats_json or {})
     all_actions = signal_actions + context_actions
     promotion_checklist = _promotion_checklist(shadow_gate, all_actions)
+    next_action = _next_action(shadow_gate, all_actions)
     return {
         "version": VERSION,
         "horizon": str(horizon),
         "status": _governor_status(shadow_gate, all_actions),
         "auto_apply": False,
         "mode_recommendation": _mode_recommendation(shadow_gate),
+        "next_action": next_action,
+        "next_action_summary": _next_action_summary(next_action),
         "promotion_status": _promotion_status(shadow_gate),
         "promotion_checklist": promotion_checklist,
         "shadow_gate": shadow_gate,
@@ -156,6 +159,8 @@ def _governor_summary_row(governor: dict[str, Any]) -> dict[str, str]:
             {
                 "status": governor.get("status"),
                 "mode_recommendation": governor.get("mode_recommendation"),
+                "next_action": governor.get("next_action"),
+                "next_action_summary": governor.get("next_action_summary"),
                 "promotion_status": governor.get("promotion_status"),
                 "promotion_checklist": governor.get("promotion_checklist"),
                 "summary": governor.get("summary"),
@@ -328,6 +333,30 @@ def _mode_recommendation(shadow_gate: dict[str, Any]) -> str:
     if shadow_gate.get("status") == "reject":
         return "keep_static_policy"
     return "keep_shadow"
+
+
+def _next_action(shadow_gate: dict[str, Any], actions: list[dict[str, Any]]) -> str:
+    status = str(shadow_gate.get("status") or "")
+    if status == "candidate":
+        return "manual_review_dynamic_on"
+    if status == "reject":
+        return "keep_static_policy"
+    if status == "insufficient_sample":
+        return "collect_more_shadow_samples"
+    if any(item.get("action") in {"downweight", "upweight"} for item in actions):
+        return "keep_shadow_apply_signal_weights"
+    return "keep_shadow_observe"
+
+
+def _next_action_summary(next_action: str) -> str:
+    summaries = {
+        "manual_review_dynamic_on": "shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。",
+        "keep_static_policy": "shadow 新增组未证明优于移除组；保持静态策略，不晋级 dynamic=on。",
+        "collect_more_shadow_samples": "shadow 样本不足；继续收集 shadow run 与命中结果。",
+        "keep_shadow_apply_signal_weights": "保持 shadow；信号级调权可继续用于尾盘和漏斗 shadow。",
+        "keep_shadow_observe": "保持 shadow 观察，不调整生产策略。",
+    }
+    return summaries.get(next_action, "保持 shadow 观察，不调整生产策略。")
 
 
 def _promotion_status(shadow_gate: dict[str, Any]) -> str:
