@@ -77,6 +77,24 @@ interface AttributionRecommendation {
   reason?: string
 }
 
+interface PolicyGovernor {
+  status?: string
+  horizon?: string
+  auto_apply?: boolean
+  mode_recommendation?: string
+  summary?: string
+  shadow_gate?: JsonMap
+  signal_actions?: PolicySignalAction[]
+}
+
+interface PolicySignalAction {
+  action?: string
+  horizon?: string
+  target?: string
+  weight_multiplier?: number
+  evidence?: MetricStats
+}
+
 async function fetchLatestReport(): Promise<AttributionReport | null> {
   const { data, error } = await supabase
     .from('strategy_attribution_reports')
@@ -149,10 +167,12 @@ function ReportView({ report }: { report: AttributionReport }) {
     () => flattenObservationCoverage(report.score_bucket_stats_json),
     [report.score_bucket_stats_json],
   )
+  const governor = useMemo(() => policyGovernor(report.shadow_diff_stats_json), [report.shadow_diff_stats_json])
   return (
     <div className="space-y-6">
       <Summary report={report} />
       <ObservationCoverage rows={observationCoverageRows} />
+      <PolicyGovernorBox governor={governor} />
       <Recommendations rows={report.recommendations_json} />
       <CandidateShadowStats rows={candidateShadowRows} />
       <EntryQualityStats rows={entryQualityRows} />
@@ -232,20 +252,63 @@ function ObservationCoverage({
 }
 
 function Recommendations({ rows }: { rows: AttributionRecommendation[] }) {
-  if (!rows.length) {
+  const actionRows = rows.filter((row) => row.type !== 'policy_governor')
+  if (!actionRows.length) {
     return <Panel title="策略建议"><p className="text-sm text-muted-foreground">暂无需要降权的信号。</p></Panel>
   }
   return (
     <Panel title="策略建议">
       <div className="space-y-2">
-        {rows.map((row) => (
-          <div key={`${row.horizon}-${row.target}`} className="rounded-lg border border-border bg-muted/30 p-3">
-            <div className="text-sm font-medium">{row.type === 'downweight' ? '建议降权' : row.type} · {row.target} · h={row.horizon}</div>
-            <p className="mt-1 break-words text-xs text-muted-foreground">{row.reason}</p>
-          </div>
-        ))}
+        {actionRows.map((row) => <RecommendationCard key={`${row.type}-${row.horizon}-${row.target}`} row={row} />)}
       </div>
     </Panel>
+  )
+}
+
+function RecommendationCard({ row }: { row: AttributionRecommendation }) {
+  const payload = parseRecommendationReason(row.reason)
+  const evidence = payload.evidence || {}
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-3">
+      <div className="text-sm font-medium">
+        {formatPolicyAction(row.type || payload.action)} · {row.target} · h={row.horizon}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        权重 {payload.weight_multiplier ?? '-'} · 均收 {fmtPct(evidence.avg_return_pct)} · 胜率 {fmtPct(evidence.win_rate_pct)} · 回撤 {fmtPct(evidence.avg_drawdown_pct)}
+      </p>
+    </div>
+  )
+}
+
+function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
+  if (!governor) {
+    return (
+      <Panel title="策略治理器">
+        <p className="text-sm text-muted-foreground">当前归因报告还没有治理器输出，等待下一次任务刷新。</p>
+      </Panel>
+    )
+  }
+  return (
+    <Panel title="策略治理器">
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricCard label="治理状态" value={formatGovernorStatus(governor.status)} />
+        <MetricCard label="建议模式" value={formatModeRecommendation(governor.mode_recommendation)} />
+        <MetricCard label="观察周期" value={`h=${governor.horizon || '-'}`} />
+        <MetricCard label="自动生效" value={governor.auto_apply ? '是' : '否'} />
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground">{governor.summary || '-'}</p>
+      <ShadowGateLine gate={governor.shadow_gate} />
+    </Panel>
+  )
+}
+
+function ShadowGateLine({ gate }: { gate?: JsonMap }) {
+  if (!gate) return null
+  return (
+    <div className="mt-3 text-xs text-muted-foreground">
+      Shadow 证据：run {fmtCountNumber(gate.run_count)} · 新增匹配 {fmtCountNumber(gate.added_matched)} · 移除匹配 {fmtCountNumber(gate.removed_matched)}
+      {' '}· 收益差 {fmtPctNumber(gate.return_lift_pct)} · 胜率差 {fmtPctNumber(gate.win_rate_lift_pct)} · 回撤差 {fmtPctNumber(gate.drawdown_lift_pct)}
+    </div>
   )
 }
 
@@ -567,6 +630,21 @@ function flattenObservationCoverage(data: JsonMap | undefined) {
     })
 }
 
+function policyGovernor(data: JsonMap | undefined): PolicyGovernor | null {
+  const raw = data?.policy_governor
+  return raw && typeof raw === 'object' ? raw as PolicyGovernor : null
+}
+
+function parseRecommendationReason(raw: string | undefined): PolicySignalAction {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed as PolicySignalAction : {}
+  } catch {
+    return {}
+  }
+}
+
 function flattenSignalStats(data: AttributionReport['signal_stats_json']) {
   return Object.entries(data || {}).flatMap(([horizon, stats]) =>
     Object.entries(stats || {}).map(([signal, item]) => ({ horizon, signal, stats: item })),
@@ -653,9 +731,46 @@ function fmtCount(raw: number | null | undefined) {
   return typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : '0'
 }
 
+function fmtCountNumber(raw: unknown) {
+  return typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : '0'
+}
+
+function fmtPctNumber(raw: unknown) {
+  return typeof raw === 'number' && Number.isFinite(raw) ? `${raw.toFixed(1)}%` : '-'
+}
+
 function formatGrade(raw: string | null | undefined) {
   const text = String(raw || '').trim()
   return text && text !== 'unknown' ? text : '未评分'
+}
+
+function formatPolicyAction(raw: string | undefined) {
+  const labels: Record<string, string> = {
+    downweight: '建议降权',
+    upweight: '建议升权',
+    watch: '继续观察',
+    hold: '保持权重',
+  }
+  return labels[String(raw || '').trim()] || raw || '策略建议'
+}
+
+function formatGovernorStatus(raw: string | undefined) {
+  const labels: Record<string, string> = {
+    candidate: '可进入人工晋级评审',
+    watch: '继续观察',
+    reject: '不建议晋级',
+    insufficient_sample: '样本不足',
+  }
+  return labels[String(raw || '').trim()] || raw || '未知'
+}
+
+function formatModeRecommendation(raw: string | undefined) {
+  const labels: Record<string, string> = {
+    review_promote_dynamic_policy: '评审 dynamic=on',
+    keep_shadow: '保持 shadow',
+    keep_static_policy: '保持静态策略',
+  }
+  return labels[String(raw || '').trim()] || raw || '保持 shadow'
 }
 
 function formatCoverageGrade(raw: string | null | undefined) {

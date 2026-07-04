@@ -94,6 +94,7 @@ def write_artifacts(report: dict[str, Any], output_dir: Path) -> None:
 def build_report_markdown(report: dict[str, Any]) -> str:
     shadow = report.get("shadow_diff_stats_json") or {}
     shadow_h5 = ((shadow.get("outcome_stats") or {}).get("5") or {}) if isinstance(shadow, dict) else {}
+    governor = shadow.get("policy_governor") if isinstance(shadow, dict) else {}
     lines = [
         f"# 策略归因报告 {report['report_date']}",
         "",
@@ -107,10 +108,45 @@ def build_report_markdown(report: dict[str, Any]) -> str:
         f"- h=5 新增组: `{json.dumps(shadow_h5.get('added') or {}, ensure_ascii=False)}`",
         f"- h=5 移除组: `{json.dumps(shadow_h5.get('removed') or {}, ensure_ascii=False)}`",
         "",
-        "## 降权建议",
+        "## 策略治理",
+        f"- 状态: `{governor.get('status', 'unknown') if isinstance(governor, dict) else 'unknown'}`",
+        f"- 动态策略建议: `{governor.get('mode_recommendation', 'keep_shadow') if isinstance(governor, dict) else 'keep_shadow'}`",
+        f"- 自动生效: `{bool(governor.get('auto_apply')) if isinstance(governor, dict) else False}`",
+        f"- 摘要: {governor.get('summary', '-') if isinstance(governor, dict) else '-'}",
+        "",
+        "## 信号权重建议",
     ]
-    lines.extend(f"- `{r['target']}` h={r['horizon']}: {r['reason']}" for r in report["recommendations_json"])
+    lines.extend(_recommendation_markdown_rows(report.get("recommendations_json") or []))
     return "\n".join(lines)
+
+
+def _recommendation_markdown_rows(rows: list[dict[str, Any]]) -> list[str]:
+    rendered = []
+    for row in rows:
+        if row.get("type") == "policy_governor":
+            continue
+        payload = _json_payload(row.get("reason"))
+        action = str(row.get("type") or payload.get("action") or "watch")
+        weight = payload.get("weight_multiplier", "-")
+        evidence = payload.get("evidence") or {}
+        rendered.append(
+            f"- `{row.get('target')}` h={row.get('horizon')}: {action}, weight={weight}, "
+            f"avg={evidence.get('avg_return_pct', '-')}, win={evidence.get('win_rate_pct', '-')}%, "
+            f"dd={evidence.get('avg_drawdown_pct', '-')}"
+        )
+    return rendered or ["- 暂无需要调整的信号。"]
+
+
+def _json_payload(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return data if isinstance(data, dict) else {}
+    return {}
 
 
 def create_report_client(*, no_write: bool) -> Any:

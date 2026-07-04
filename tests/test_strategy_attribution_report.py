@@ -146,6 +146,63 @@ def test_attribution_shadow_latest_uses_newest_trade_date():
     assert stats["latest"]["regime"] == "RISK_ON"
 
 
+def test_attribution_policy_governor_promotes_shadow_review_and_signal_actions():
+    import workflows.strategy_attribution_stats as stats_mod
+
+    observations = [
+        {"id": 1, "trade_date": "2026-06-01", "code": "000001", "signal_type": "lps"},
+        {"id": 2, "trade_date": "2026-06-01", "code": "000002", "signal_type": "sos"},
+    ]
+    outcomes = [
+        {
+            "observation_id": 1,
+            "trade_date": "2026-06-01",
+            "code": "000001",
+            "horizon_days": 5,
+            "return_pct": -3.0,
+            "max_drawdown_pct": -11.0,
+        }
+        for _ in range(10)
+    ]
+    outcomes.extend(
+        {
+            "observation_id": 2,
+            "trade_date": "2026-06-01",
+            "code": "000002",
+            "horizon_days": 5,
+            "return_pct": 3.0,
+            "max_drawdown_pct": -3.0,
+        }
+        for _ in range(10)
+    )
+    shadow_runs = [
+        {
+            "trade_date": "2026-06-01",
+            "diff_added": ["000002"],
+            "diff_removed": ["000001"],
+        }
+        for _ in range(10)
+    ]
+
+    payload = stats_mod.build_strategy_attribution_payload(
+        report_date=stats_mod.date(2026, 7, 4),
+        market="cn",
+        window_start=stats_mod.date(2026, 5, 5),
+        window_end=stats_mod.date(2026, 7, 4),
+        horizons=[5],
+        observations=observations,
+        outcomes=outcomes,
+        shadow_runs=shadow_runs,
+    )
+
+    governor = payload["shadow_diff_stats_json"]["policy_governor"]
+    rows = payload["recommendations_json"]
+    assert governor["status"] == "candidate"
+    assert governor["mode_recommendation"] == "review_promote_dynamic_policy"
+    assert governor["auto_apply"] is False
+    assert {row["type"] for row in rows} >= {"policy_governor", "downweight", "upweight"}
+
+
 def test_attribution_observation_coverage_marks_current_and_legacy():
     import workflows.strategy_attribution_stats as stats_mod
 

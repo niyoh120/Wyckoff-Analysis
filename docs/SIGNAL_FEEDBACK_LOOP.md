@@ -239,6 +239,21 @@ limit 10;
 `diff_removed`，并且 missing outcome 不高时，才考虑把 `FUNNEL_DYNAMIC_POLICY` 从 `shadow`
 切到 `on`。
 
+### 策略治理器
+
+`strategy_attribution_report.py` 还会生成 `shadow_diff_stats_json.policy_governor`，把
+shadow 差异和信号表现收敛成统一的治理结论：
+
+- `status`：`candidate` 表示 dynamic policy 可以进入人工晋级评审；`watch` 表示继续观察；
+  `reject` 表示 shadow 新增组没有跑赢移除组；`insufficient_sample` 表示样本不足。
+- `mode_recommendation`：只给出 `review_promote_dynamic_policy`、`keep_shadow` 或
+  `keep_static_policy`，不自动修改生产配置。
+- `signal_actions`：把信号表现转成 `downweight` / `upweight` / `hold`，并附带 count、平均收益、
+  胜率、大亏率和平均回撤。
+
+第一版治理器永远输出 `auto_apply=false`。它的职责是把“该不该调权”变成可复盘证据，而不是让
+单次 shadow 报告直接改生产策略。
+
 ## 和迭代策略的对应关系
 
 ```mermaid

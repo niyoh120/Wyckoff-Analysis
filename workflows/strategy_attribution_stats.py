@@ -9,6 +9,8 @@ from collections import defaultdict
 from datetime import date
 from typing import Any
 
+from core.strategy_policy_governor import build_strategy_policy_governor, governor_recommendation_rows
+
 
 def build_strategy_attribution_payload(
     *,
@@ -23,6 +25,20 @@ def build_strategy_attribution_payload(
 ) -> dict[str, Any]:
     joined = join_outcomes(outcomes, observations)
     focus_horizon = 3 if 3 in horizons else horizons[0]
+    signal_stats = group_stats(joined, "signal_type", horizons)
+    score_stats = score_stats_json(
+        joined,
+        horizons,
+        observations=observations,
+        outcomes=outcomes,
+    )
+    shadow = shadow_stats(shadow_runs, joined, horizons)
+    governor = build_strategy_policy_governor(
+        signal_stats_json=signal_stats,
+        shadow_diff_stats_json=shadow,
+        horizons=horizons,
+    )
+    shadow["policy_governor"] = governor
     return {
         "report_date": report_date.isoformat(),
         "market": market,
@@ -30,17 +46,12 @@ def build_strategy_attribution_payload(
         "window_end": window_end.isoformat(),
         "horizons": horizons,
         "summary_json": group_stats(joined, "horizon_days", horizons),
-        "signal_stats_json": group_stats(joined, "signal_type", horizons),
-        "score_bucket_stats_json": score_stats_json(
-            joined,
-            horizons,
-            observations=observations,
-            outcomes=outcomes,
-        ),
-        "shadow_diff_stats_json": shadow_stats(shadow_runs, joined, horizons),
+        "signal_stats_json": signal_stats,
+        "score_bucket_stats_json": score_stats,
+        "shadow_diff_stats_json": shadow,
         "top_winners_json": ranked_outcomes(joined, focus_horizon, reverse=True),
         "top_losers_json": ranked_outcomes(joined, focus_horizon, reverse=False),
-        "recommendations_json": recommendations(joined, horizons),
+        "recommendations_json": governor_recommendation_rows(governor),
     }
 
 
@@ -156,6 +167,9 @@ def num(raw: Any) -> float | None:
 _OBSERVATION_FIELDS = (
     "name",
     "industry",
+    "signal_type",
+    "track",
+    "regime",
     "source",
     "channel",
     "selected_for_ai",
