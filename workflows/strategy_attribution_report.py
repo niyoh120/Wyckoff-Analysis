@@ -60,6 +60,8 @@ def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str,
         "auto_apply": bool(governor.get("auto_apply")),
         "policy_summary": governor.get("summary", "-"),
         "shadow_runs": shadow.get("count", 0) if isinstance(shadow, dict) else 0,
+        "execution_policy": execution.get("funnel_dynamic_policy", "off"),
+        "execution_horizon": execution.get("horizon", "5"),
         "execution_scope": execution.get("scope", "none"),
         "signal_action_count": execution.get("signal_action_count", 0),
     }

@@ -238,6 +238,8 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "auto_apply": False,
         "policy_summary": "shadow 新增组显著优于移除组",
         "shadow_runs": 24,
+        "execution_policy": "shadow",
+        "execution_horizon": "5",
         "execution_scope": "tail_buy_and_funnel_shadow",
         "signal_action_count": 1,
     }
