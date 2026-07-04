@@ -764,8 +764,12 @@ function LockedView() {
 
 function EmptyView() {
   return (
-    <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
-      暂无归因报告。先运行 `scripts/strategy_attribution_report.py` 生成一条快照。
+    <div className="space-y-2 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+      <p>暂无远端策略归因报告。该页面只读取 Supabase `strategy_attribution_reports` 表。</p>
+      <p>
+        如果刚执行的是 `scripts/strategy_attribution_report.py --no-write`，报告只在本地文件中；
+        请用 CLI/MCP 的 `query_history(source="attribution")` 查看本地只读结果。
+      </p>
     </div>
   )
 }
