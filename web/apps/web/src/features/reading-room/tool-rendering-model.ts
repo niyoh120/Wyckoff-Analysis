@@ -157,7 +157,7 @@ export function toolProgressDescription(toolName: string, input: unknown): strin
     case 'query_tail_buy':
       return `读取最近 ${limitInputLabel(item)} 条尾盘买入记录。`
     case 'query_attribution':
-      return `读取最近 ${limitInputLabel(item)} 条策略归因报告，检查执行态和 shadow 新增/移除样本。`
+      return `读取最近 ${limitInputLabel(item)} 条策略归因报告，检查运营摘要、执行态和 shadow 新增/移除样本。`
     case 'analyze_stock':
       return `诊断 ${sanitizeText(item?.code) || '个股'} 的形态阶段、支撑压力和交易动作。`
     case 'screen_stocks':

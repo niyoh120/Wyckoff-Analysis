@@ -487,8 +487,8 @@ function PolicyExecutionState({
             : '本期没有可执行的信号级调权，归因结果只用于观察与人工复盘。')}
       </p>
       <p className="mt-2 text-xs text-muted-foreground">
-        漏斗动态策略 `{policyMode}`，晋级状态 `{promotion || 'unknown'}`。{formatFormalDynamicReason(execution)}{modeText} Web 读盘室可通过 `query_attribution` 查看执行态、晋级检查和运营摘要；
-        CLI 可通过 `query_history(source="attribution")` 查看 latest_source / remote_error / next_action / latest_execution_state / latest_operations。
+        漏斗动态策略 `{policyMode}`，晋级状态 `{promotion || 'unknown'}`。{formatFormalDynamicReason(execution)}{modeText} Web 读盘室可通过 `query_attribution` 查看运营摘要、执行态和晋级检查；
+        CLI 可通过 `query_history(source="attribution")` 查看 latest_source / remote_error / latest_operator_summary / next_action / latest_execution_state / latest_operations。
         {stats.otherCount > 0 ? ` 另有 ${stats.otherCount} 条非升降权建议保留为观察项。` : ''}
       </p>
     </Panel>

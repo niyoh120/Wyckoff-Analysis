@@ -442,6 +442,7 @@ def test_query_history_schema_allows_attribution_source():
     assert "attribution" in source["enum"]
     assert "latest_source" in source["description"]
     assert "remote_error" in source["description"]
+    assert "latest_operator_summary" in source["description"]
     assert "next_action" in source["description"]
     assert "promotion_checklist" in source["description"]
     assert "latest_execution_state" in source["description"]
