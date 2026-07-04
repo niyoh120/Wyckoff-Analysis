@@ -185,13 +185,13 @@ function ReportView({ report }: { report: AttributionReport }) {
     [report.score_bucket_stats_json],
   )
   const governor = useMemo(() => policyGovernor(report.shadow_diff_stats_json), [report.shadow_diff_stats_json])
-  const policyExecution = useMemo(
-    () => policyExecutionStats(report.recommendations_json),
-    [report.recommendations_json],
-  )
   const executionPayload = useMemo(
     () => policyExecutionPayload(report.shadow_diff_stats_json),
     [report.shadow_diff_stats_json],
+  )
+  const policyExecution = useMemo(
+    () => policyExecutionStats(report.recommendations_json, executionPayload?.horizon),
+    [report.recommendations_json, executionPayload?.horizon],
   )
   return (
     <div className="space-y-6">
@@ -710,7 +710,7 @@ function policyExecutionPayload(data: JsonMap | undefined): PolicyExecutionPaylo
   return raw && typeof raw === 'object' ? raw as PolicyExecutionPayload : null
 }
 
-function policyExecutionStats(rows: AttributionRecommendation[]): PolicyExecutionStats {
+function policyExecutionStats(rows: AttributionRecommendation[], horizon?: string): PolicyExecutionStats {
   const targets: string[] = []
   let downCount = 0
   let upCount = 0
@@ -718,6 +718,8 @@ function policyExecutionStats(rows: AttributionRecommendation[]): PolicyExecutio
   for (const row of rows) {
     if (row.type === 'policy_governor') continue
     const payload = parseRecommendationReason(row.reason)
+    const rowHorizon = String(row.horizon || payload.horizon || '').trim()
+    if (horizon && rowHorizon !== horizon) continue
     const action = String(row.type || payload.action || '').trim()
     const target = String(row.target || payload.target || '').trim()
     if (target && !targets.includes(target)) targets.push(target)
