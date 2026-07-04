@@ -705,7 +705,7 @@ def _analyze_stock_preview(result: dict[str, Any]) -> str:
             "next_action": result.get("next_action"),
             "next_tool": result.get("next_tool"),
             "days": result.get("days"),
-            "data": _preview_list(result.get("data"), 3),
+            "data": _price_data_preview(result.get("data"), 3),
         }
     )
     return serialize_tool_result(payload) if payload else ""
@@ -785,6 +785,12 @@ def _analyze_stock_price_line(result: dict[str, Any]) -> str:
     if pct := _format_pct_signed(latest.get("pct_chg")):
         parts.append(f"最新涨跌{pct}")
     return " · ".join(parts)
+
+
+def _price_data_preview(value: Any, limit: int) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    return list(value[-limit:])
 
 
 def _stock_list_part(label: str, value: Any, limit: int) -> str:

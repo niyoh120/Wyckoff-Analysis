@@ -137,8 +137,10 @@ def test_analyze_stock_price_brief_uses_market_label() -> None:
         "latest_date": "2026-07-03",
         "latest_close": 11.07,
         "data_status": "ok",
-        "days": 3,
+        "days": 5,
         "data": [
+            {"date": "2026-06-29", "close": 9.98, "pct_chg": 2.89},
+            {"date": "2026-06-30", "close": 9.89, "pct_chg": -0.9},
             {"date": "2026-07-01", "close": 10.66, "pct_chg": 7.79},
             {"date": "2026-07-02", "close": 10.85, "pct_chg": 1.78},
             {"date": "2026-07-03", "close": 11.07, "pct_chg": 2.03},
@@ -149,10 +151,11 @@ def test_analyze_stock_price_brief_uses_market_label() -> None:
     lines = tool_result_brief_lines("analyze_stock", result)
 
     assert preview["data"][0]["date"] == "2026-07-01"
+    assert preview["data"][-1]["date"] == "2026-07-03"
     assert lines == [
         "个股行情: 002293",
         "现价11.07 · 日期2026-07-03",
-        "行情样本: 3条 · 最新涨跌+2.03%",
+        "行情样本: 5条 · 最新涨跌+2.03%",
     ]
 
 
