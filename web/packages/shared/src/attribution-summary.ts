@@ -89,7 +89,11 @@ function normalizeOperatorSummaryScope(
 }
 
 function operatorNextAction(execution: AttributionOperatorSummaryInput['execution']): string {
-  return optionalText(execution?.next_action_summary) || optionalText(execution?.next_action) || '-'
+  const summary = optionalText(execution?.next_action_summary)
+  if (summary) return summary
+  const action = optionalText(execution?.next_action)
+  if (action === 'manual_review_dynamic_on') return '进入人工晋级评审（非正式生效）'
+  return action || '-'
 }
 
 function operatorScope(

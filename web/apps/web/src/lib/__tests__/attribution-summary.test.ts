@@ -35,6 +35,16 @@ describe('attributionOperatorSummary', () => {
       '下一步=shadow 新增组已跑赢移除组。；作用范围=尾盘+漏斗shadow；正式dynamic=blocked(manual_review_required)；Shadow=2026-07-03 RISK_ON 新增2 移除1；调权=1项',
     )
   })
+
+  it('does not present manual review as formal dynamic activation', () => {
+    expect(attributionOperatorSummary({
+      execution: {
+        scope: 'tail_buy_and_funnel_shadow',
+        next_action: 'manual_review_dynamic_on',
+      },
+      actions: [{ target: 'lps', weight_multiplier: 0.5 }],
+    })).toContain('下一步=进入人工晋级评审（非正式生效）')
+  })
 })
 
 describe('attributionExecutionImpactText', () => {

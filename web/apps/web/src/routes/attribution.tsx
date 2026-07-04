@@ -437,8 +437,8 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
       <p className="mt-3 text-sm text-muted-foreground">{governor.summary || '-'}</p>
       <p className="mt-2 text-sm text-muted-foreground">{governor.next_action_summary || '-'}</p>
       <p className="mt-2 text-xs text-muted-foreground">
-        说明：`自动切模式=否` 只表示不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；信号级 downweight/upweight
-        仍可被尾盘策略和动态策略 shadow/on 读取。
+        说明：`自动切模式=否` 表示不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；
+        `manual_review_dynamic_on` 只是人工晋级评审入口，不等于正式漏斗已经读取归因权重。
       </p>
       <PromotionChecklist rows={governor.promotion_checklist} />
       <ShadowGateLine gate={governor.shadow_gate} />
@@ -480,8 +480,8 @@ function PolicyExecutionState({
   const activeScope = formatExecutionActiveScope(execution, actionCount)
   const targetText = stats.targets.length ? stats.targets.join(' / ') : '-'
   const modeText = governor?.auto_apply
-    ? '治理器允许自动晋级，但仍应通过运行时配置和人工复核确认。'
-    : '治理器不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on。'
+    ? '治理器允许自动晋级，但仍应通过运行时配置和人工复核留痕。'
+    : '治理器不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；manual_review_dynamic_on 只代表进入人工评审。'
   const policyMode = execution?.funnel_dynamic_policy || '未知'
   const horizon = execution?.horizon || '-'
   const promotion = execution?.promotion_status || governor?.promotion_status
@@ -1065,7 +1065,7 @@ function formatGovernorStatus(raw: string | undefined) {
 
 function formatModeRecommendation(raw: string | undefined) {
   const labels: Record<string, string> = {
-    review_promote_dynamic_policy: '评审 dynamic=on',
+    review_promote_dynamic_policy: '评审是否切 on',
     keep_shadow: '保持 shadow',
     keep_static_policy: '保持静态策略',
   }
@@ -1074,7 +1074,7 @@ function formatModeRecommendation(raw: string | undefined) {
 
 function formatNextAction(raw: string | undefined) {
   const labels: Record<string, string> = {
-    manual_review_dynamic_on: '人工复核 dynamic=on',
+    manual_review_dynamic_on: '进入人工晋级评审',
     keep_static_policy: '保持静态策略',
     collect_more_shadow_samples: '继续收集样本',
     keep_shadow_apply_signal_weights: 'shadow 下应用调权',
@@ -1114,8 +1114,8 @@ function formatPromotionCheckStatus(raw: string | undefined) {
 }
 
 function formatFormalDynamicStatus(execution: PolicyExecutionPayload | null) {
-  if (execution?.formal_dynamic_allowed === true) return '允许正式'
-  if (execution?.formal_dynamic_allowed === false) return '仅 shadow/尾盘'
+  if (execution?.formal_dynamic_allowed === true) return '允许正式生效'
+  if (execution?.formal_dynamic_allowed === false) return '未进正式漏斗'
   return '未知'
 }
 

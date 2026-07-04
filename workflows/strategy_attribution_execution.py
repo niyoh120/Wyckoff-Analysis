@@ -223,7 +223,7 @@ def _execution_active_scope_text(execution: dict[str, Any]) -> str:
 
 def _formal_dynamic_summary(execution: dict[str, Any]) -> str:
     if execution.get("formal_dynamic_allowed"):
-        return "正式dynamic=允许人工晋级"
+        return "正式dynamic=允许正式生效"
     reason = str(execution.get("formal_dynamic_block_reason") or "").strip()
     return f"正式dynamic=暂不晋级{f'({reason})' if reason else ''}"
 
@@ -280,7 +280,11 @@ def _normalize_mode(raw: object) -> str:
 def _auto_apply_note(summary: str, governor: dict[str, Any]) -> str:
     if governor.get("auto_apply"):
         return summary
-    return summary + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on。"
+    return (
+        summary
+        + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；"
+        + "manual_review_dynamic_on 只是人工复核入口。"
+    )
 
 
 def _formal_dynamic_block_reason(governor: dict[str, Any], allowed: bool) -> str:

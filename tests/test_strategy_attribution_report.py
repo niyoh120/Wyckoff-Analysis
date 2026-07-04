@@ -386,6 +386,7 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     assert "- 当前生效范围: `尾盘+漏斗shadow`" in markdown
     assert "- 底层 scope: `tail_buy_and_funnel_shadow`" in markdown
     assert "- 可执行调权: `1`" in markdown
+    assert "manual_review_dynamic_on 只是人工复核入口" in markdown
     assert "## 运营复盘" in markdown
     assert "- 操作摘要: 下一步=shadow 新增组已跑赢移除组" in markdown
     assert "作用范围=尾盘+漏斗shadow" in markdown
