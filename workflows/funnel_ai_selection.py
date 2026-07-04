@@ -50,7 +50,7 @@ from workflows.funnel_settings import (
     FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED,
     FUNNEL_THEME_RADAR_PROMOTE_CAP,
 )
-from workflows.strategy_attribution_policy import load_attribution_policy_snapshot
+from workflows.strategy_attribution_policy import attribution_weights_for_funnel, load_attribution_policy_snapshot
 
 SHADOW_POLICY_SCHEMA_VERSION = "shadow_policy_v2"
 
@@ -355,12 +355,11 @@ def _load_dynamic_policy_context(
 
 
 def _effective_attribution_weights(attribution_snapshot: Any, mode: str) -> dict[str, float]:
-    weights = dict(getattr(attribution_snapshot, "weights", {}) or {})
-    if mode != "on" or not weights or getattr(attribution_snapshot, "formal_dynamic_allowed", False):
-        return weights
-    reason = getattr(attribution_snapshot, "formal_dynamic_block_reason", "") or "governor_not_approved"
-    print(f"[funnel] 策略归因调权: formal dynamic 未启用归因权重({reason})，仅保留尾盘/漏斗shadow语义。")
-    return {}
+    return attribution_weights_for_funnel(
+        attribution_snapshot,
+        mode=mode,
+        log_fn=lambda message: print(f"[funnel] {message}"),
+    )
 
 
 def _dynamic_policy_fallback(mode: str, pv_policy_shadow: dict) -> dict:

@@ -60,7 +60,7 @@ from workflows.candidate_policy_config import candidate_policy_config_from_env
 from workflows.dynamic_policy_config import dynamic_policy_config_from_env
 from workflows.funnel_config_overrides import funnel_cfg_overrides_from_env
 from workflows.market_regime_config import market_regime_config_from_env
-from workflows.strategy_attribution_policy import load_attribution_policy_snapshot
+from workflows.strategy_attribution_policy import attribution_weights_for_funnel, load_attribution_policy_snapshot
 
 logger = logging.getLogger(__name__)
 BACKTEST_FULL_FORMAL_L4_MAX = full_formal_l4_max()
@@ -177,10 +177,11 @@ def _market_regime_analyzer_from_env():
 
 def _signal_weight_map_from_env() -> dict[str, float]:
     config = dynamic_policy_config_from_env()
-    if dynamic_policy_mode(config) != "on":
+    mode = dynamic_policy_mode(config)
+    if mode != "on":
         return {}
     snapshot = load_attribution_policy_snapshot(market="cn", log_fn=lambda message: logger.info(message))
-    return snapshot.weights
+    return attribution_weights_for_funnel(snapshot, mode=mode, log_fn=lambda message: logger.info(message))
 
 
 def _intraday_entry_price_fetcher(request: BacktestWorkflowRequest):

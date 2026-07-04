@@ -202,6 +202,28 @@ def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatc
     assert snapshot.as_dict()["next_action"] == "manual_review_dynamic_on"
     assert snapshot.as_dict()["formal_dynamic_allowed"] is True
     assert snapshot.as_dict()["execution_scope"] == "tail_buy_and_funnel_shadow"
+    assert snapshot.as_dict()["tail_buy_weights_active"] is True
+    assert snapshot.as_dict()["funnel_shadow_weights_active"] is True
+    assert snapshot.as_dict()["funnel_formal_weights_active"] is False
+
+
+def test_attribution_weights_for_funnel_respects_governor_gate():
+    blocked = attribution_policy.AttributionPolicySnapshot(
+        weights={"lps": 0.5},
+        execution_scope="tail_buy_and_funnel_shadow",
+        formal_dynamic_allowed=False,
+        formal_dynamic_block_reason="next_action=keep_static_policy",
+    )
+    allowed = attribution_policy.AttributionPolicySnapshot(
+        weights={"sos": 1.15},
+        execution_scope="tail_buy_and_funnel",
+        formal_dynamic_allowed=True,
+    )
+
+    assert attribution_policy.attribution_weights_for_funnel(blocked, mode="shadow") == {"lps": 0.5}
+    assert attribution_policy.attribution_weights_for_funnel(blocked, mode="on") == {}
+    assert attribution_policy.attribution_weights_for_funnel(allowed, mode="on") == {"sos": 1.15}
+    assert attribution_policy.attribution_weights_for_funnel(allowed, mode="off") == {}
 
 
 def test_attribution_weights_skip_stale_reports(monkeypatch, tmp_path):

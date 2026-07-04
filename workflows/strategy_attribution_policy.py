@@ -58,6 +58,10 @@ class AttributionPolicySnapshot:
             "formal_dynamic_block_reason": self.formal_dynamic_block_reason,
             "signal_action_count": self.signal_action_count,
             "execution_summary": self.execution_summary,
+            "tail_buy_weights_active": bool(self.weights),
+            "funnel_shadow_weights_active": bool(self.weights)
+            and self.execution_scope in {"tail_buy_and_funnel_shadow", "tail_buy_and_funnel"},
+            "funnel_formal_weights_active": bool(self.weights) and self.execution_scope == "tail_buy_and_funnel",
         }
 
 
@@ -113,6 +117,25 @@ def load_latest_attribution_report(market: str) -> dict[str, Any] | None:
         return rows[0] if rows else None
     finally:
         close_client(client)
+
+
+def attribution_weights_for_funnel(
+    snapshot: AttributionPolicySnapshot,
+    *,
+    mode: str,
+    log_fn: Callable[[str], None] | None = None,
+) -> dict[str, float]:
+    weights = dict(snapshot.weights or {})
+    normalized_mode = _normalize_funnel_mode(mode)
+    if not weights or normalized_mode == "off":
+        return {}
+    if normalized_mode == "shadow":
+        return weights
+    if normalized_mode == "on" and snapshot.formal_dynamic_allowed:
+        return weights
+    reason = snapshot.formal_dynamic_block_reason or "governor_not_approved"
+    _log(log_fn, f"策略归因调权: formal dynamic 未启用归因权重({reason})，仅保留尾盘/漏斗shadow语义。")
+    return {}
 
 
 def load_local_attribution_report(market: str) -> dict[str, Any] | None:
@@ -286,6 +309,11 @@ def _max_report_age_days() -> int:
         return int(raw)
     except (TypeError, ValueError):
         return 7
+
+
+def _normalize_funnel_mode(raw: object) -> str:
+    mode = str(raw or "").strip().lower()
+    return mode if mode in {"off", "shadow", "on"} else "off"
 
 
 def _log(log_fn: Callable[[str], None] | None, message: str) -> None:

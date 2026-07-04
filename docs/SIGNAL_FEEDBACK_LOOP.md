@@ -243,7 +243,10 @@ limit 10;
 归因报告里的信号级 `downweight` / `upweight` 已经是策略治理输入：尾盘策略会读取最新
 `strategy_attribution_reports` 或本地只读报告文件进行候选调权；漏斗动态策略会把这些归因权重和
 `signal_health_daily` / `signal_registry` 合并。`shadow` 模式下它只影响 shadow 对照候选，`on`
-模式下才会影响漏斗正式候选。
+模式下也必须经过 `policy_governor` 的 `formal_dynamic_allowed` 检查，不能只因为 workflow
+开了 `FUNNEL_DYNAMIC_POLICY=on` 就把归因调权直接当正式策略。回测读取归因权重也走同一个
+formal gate：`FUNNEL_DYNAMIC_POLICY=on` 但治理器没有批准时，回测不会把调权当成正式漏斗输入，
+避免“回测已经吃调权、实盘仍被治理器挡住”或反向不一致。
 
 Agent 入口也读取同一份执行态，避免页面、CLI 和 Web 各说一套。CLI 使用
 `query_history(source="attribution")`，Web 读盘室使用 `query_attribution`；回答策略归因问题时先看

@@ -6,6 +6,7 @@ import pandas as pd
 
 from workflows.backtest import BacktestWorkflowRequest, run_backtest_request
 from workflows.backtest_data import BacktestHistory, BacktestMetadata, BacktestUniverse
+from workflows.strategy_attribution_policy import AttributionPolicySnapshot
 
 
 def test_run_backtest_workflow_builds_context_without_network(monkeypatch) -> None:
@@ -63,3 +64,28 @@ def test_run_backtest_workflow_builds_context_without_network(monkeypatch) -> No
     assert captured["config"].performance.cash_portfolio is True
     analyzer = captured["config"].replay.market_regime_analyzer
     assert analyzer.keywords["regime_config"].smallcap_bench_code == "399905"
+
+
+def test_backtest_signal_weight_map_respects_formal_dynamic_gate(monkeypatch) -> None:
+    import workflows.backtest as backtest
+
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
+    monkeypatch.setattr(
+        backtest,
+        "load_attribution_policy_snapshot",
+        lambda **_kwargs: AttributionPolicySnapshot(
+            weights={"lps": 0.5},
+            formal_dynamic_allowed=False,
+            formal_dynamic_block_reason="next_action=keep_static_policy",
+        ),
+    )
+
+    assert backtest._signal_weight_map_from_env() == {}
+
+    monkeypatch.setattr(
+        backtest,
+        "load_attribution_policy_snapshot",
+        lambda **_kwargs: AttributionPolicySnapshot(weights={"sos": 1.15}, formal_dynamic_allowed=True),
+    )
+
+    assert backtest._signal_weight_map_from_env() == {"sos": 1.15}
