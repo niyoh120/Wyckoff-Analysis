@@ -137,6 +137,11 @@ interface PolicyExecutionPayload {
   summary?: string
 }
 
+interface PolicyOperationsPayload {
+  operator_summary?: string
+  action_summary?: string
+}
+
 async function fetchLatestReport(): Promise<AttributionReport | null> {
   const { data, error } = await supabase
     .from('strategy_attribution_reports')
@@ -215,6 +220,10 @@ function ReportView({ report }: { report: AttributionReport }) {
     () => policyExecutionPayload(report.shadow_diff_stats_json),
     [report.shadow_diff_stats_json],
   )
+  const operationsPayload = useMemo(
+    () => policyOperationsPayload(report.shadow_diff_stats_json),
+    [report.shadow_diff_stats_json],
+  )
   const policyExecution = useMemo(
     () => policyExecutionStats(report.recommendations_json, executionPayload?.horizon),
     [report.recommendations_json, executionPayload?.horizon],
@@ -222,7 +231,11 @@ function ReportView({ report }: { report: AttributionReport }) {
   return (
     <div className="space-y-6">
       <Summary report={report} />
-      <OperationsBrief shadow={report.shadow_diff_stats_json} execution={executionPayload} />
+      <OperationsBrief
+        shadow={report.shadow_diff_stats_json}
+        execution={executionPayload}
+        operations={operationsPayload}
+      />
       <ObservationCoverage rows={observationCoverageRows} />
       <PolicyGovernorBox governor={governor} />
       <PolicyExecutionState stats={policyExecution} governor={governor} execution={executionPayload} />
@@ -249,12 +262,26 @@ function Summary({ report }: { report: AttributionReport }) {
   )
 }
 
-function OperationsBrief({ shadow, execution }: { shadow: JsonMap; execution: PolicyExecutionPayload | null }) {
+function OperationsBrief({
+  shadow,
+  execution,
+  operations,
+}: {
+  shadow: JsonMap
+  execution: PolicyExecutionPayload | null
+  operations: PolicyOperationsPayload | null
+}) {
   const latest = shadowLatest(shadow)
   const selection = latestSelection(latest)
   const actions = execution?.action_details || []
+  const operatorSummary = operations?.operator_summary || ''
   return (
     <Panel title="运营复盘">
+      {operatorSummary ? (
+        <div className="mb-3 rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm text-foreground">
+          {operatorSummary}
+        </div>
+      ) : null}
       <div className="grid gap-3 md:grid-cols-4">
         <MetricCard label="最新 Shadow" value={`${String(latest?.trade_date || '-')} · ${String(latest?.regime || '-')}`} />
         <MetricCard label="Base → Shadow" value={`${fmtCountNumber(selection?.base_count)} → ${fmtCountNumber(selection?.shadow_count)}`} />
@@ -816,6 +843,11 @@ function policyGovernor(data: JsonMap | undefined): PolicyGovernor | null {
 function policyExecutionPayload(data: JsonMap | undefined): PolicyExecutionPayload | null {
   const raw = data?.policy_execution_state
   return raw && typeof raw === 'object' ? raw as PolicyExecutionPayload : null
+}
+
+function policyOperationsPayload(data: JsonMap | undefined): PolicyOperationsPayload | null {
+  const raw = data?.policy_operations_brief
+  return raw && typeof raw === 'object' ? raw as PolicyOperationsPayload : null
 }
 
 function policyExecutionStats(rows: AttributionRecommendation[], horizon?: string): PolicyExecutionStats {
