@@ -135,6 +135,41 @@ class RunState:
     recent_args_texts: list[str] = field(default_factory=list)
 
 
+def _normalize_required_tool_arg_sets(
+    required_tools: tuple[str, ...],
+    required_tool_args: dict[str, dict[str, Any]],
+    required_tool_arg_sets: dict[str, tuple[dict[str, Any], ...]] | None,
+) -> dict[str, tuple[dict[str, Any], ...]]:
+    arg_sets: dict[str, tuple[dict[str, Any], ...]] = {}
+    for name in required_tools:
+        cleaned_sets = _clean_required_arg_sets((required_tool_arg_sets or {}).get(name))
+        if not cleaned_sets and (args := _clean_required_args(required_tool_args.get(name))):
+            cleaned_sets = (args,)
+        if cleaned_sets:
+            arg_sets[name] = cleaned_sets
+    return arg_sets
+
+
+def _clean_required_arg_sets(value: Any) -> tuple[dict[str, Any], ...]:
+    if isinstance(value, dict):
+        items = (value,)
+    elif isinstance(value, (list, tuple)):
+        items = tuple(item for item in value if isinstance(item, dict))
+    else:
+        items = ()
+    return tuple(args for item in items if (args := _clean_required_args(item)))
+
+
+def _clean_required_args(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items() if str(key).strip() and item not in (None, "")}
+
+
+def _format_required_arg_set(args: dict[str, Any]) -> str:
+    return ", ".join(f'{key}="{value}"' for key, value in args.items())
+
+
 def _drop_internal_retry_messages(messages: list[dict[str, Any]]) -> None:
     messages[:] = [m for m in messages if not m.get(_INTERNAL_RETRY_MARKER)]
 
@@ -170,6 +205,7 @@ class AgentRuntime:
         allowed_tools: set[str] | tuple[str, ...] | None = None,
         required_tools: tuple[str, ...] | None = None,
         required_tool_args: dict[str, dict[str, str]] | None = None,
+        required_tool_arg_sets: dict[str, tuple[dict[str, Any], ...]] | None = None,
         workflow: Any | None = None,
         enforce_turn_expectations: bool | None = None,
     ) -> None:
@@ -194,6 +230,11 @@ class AgentRuntime:
             for name in self.required_tools
             if required_tool_args and isinstance(required_tool_args.get(name), dict)
         }
+        self.required_tool_arg_sets = _normalize_required_tool_arg_sets(
+            self.required_tools,
+            self.required_tool_args,
+            required_tool_arg_sets,
+        )
 
     def run_stream(
         self,
@@ -433,8 +474,7 @@ class AgentRuntime:
     def _required_tool_satisfied(self, name: str, state: RunState, seen_this_round: set[str]) -> bool:
         if name in seen_this_round:
             return True
-        required_args = self.required_tool_args.get(name, {})
-        return not missing_required_tool(TurnExpectation(name, "", required_args=required_args), state.used_tools)
+        return not self._missing_required_arg_sets(name, state)
 
     def _maybe_retry_required_tool(
         self,
@@ -494,14 +534,35 @@ class AgentRuntime:
         if not self.required_tools:
             return None
         for name in self.required_tools:
-            required_args = self.required_tool_args.get(name, {})
-            if missing_required_tool(TurnExpectation(name, "", required_args=required_args), state.used_tools):
+            missing_arg_sets = self._missing_required_arg_sets(name, state)
+            if missing_arg_sets:
                 return TurnExpectation(
                     required_tool=name,
-                    reason="当前 workflow step 声明了必需工具，必须先运行对应工具获取真实数据。",
-                    required_args=required_args,
+                    reason=self._required_tool_reason(missing_arg_sets),
+                    required_args=missing_arg_sets[0],
                 )
         return None
+
+    def _missing_required_arg_sets(self, name: str, state: RunState) -> list[dict[str, Any]]:
+        arg_sets = self.required_tool_arg_sets.get(name)
+        if arg_sets:
+            return [
+                required_args
+                for required_args in arg_sets
+                if missing_required_tool(TurnExpectation(name, "", required_args=required_args), state.used_tools)
+            ]
+        required_args = self.required_tool_args.get(name, {})
+        expectation = TurnExpectation(name, "", required_args=required_args)
+        return [required_args] if missing_required_tool(expectation, state.used_tools) else []
+
+    def _required_tool_reason(self, missing_arg_sets: list[dict[str, Any]]) -> str:
+        if not missing_arg_sets or not missing_arg_sets[0]:
+            return "当前 workflow step 声明了必需工具，必须先运行对应工具获取真实数据。"
+        reason = "当前 workflow step 声明了必需工具参数，必须按指定参数逐个运行工具获取真实数据。"
+        if len(missing_arg_sets) > 1:
+            targets = "；".join(_format_required_arg_set(args) for args in missing_arg_sets[:6])
+            reason += f" 还缺少 {len(missing_arg_sets)} 组调用：{targets}。下一轮请一次性逐个调用这些参数组。"
+        return reason
 
     def _available_expectation(self, expectation: Any) -> Any:
         if expectation is None:

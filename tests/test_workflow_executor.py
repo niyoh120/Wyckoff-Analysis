@@ -4229,6 +4229,109 @@ def test_workflow_executor_retries_stock_diagnosis_until_analyze_stock_runs(tmp_
         _reset_local_db(local_db)
 
 
+def test_workflow_executor_requires_each_handoff_diagnosis_target(tmp_path, monkeypatch):
+    from integrations import local_db
+
+    class HandoffTools(StubToolRegistry):
+        def __init__(self):
+            super().__init__(
+                schemas=[
+                    {"name": "screen_stocks", "description": "Mock screen", "parameters": {"type": "object"}},
+                    {"name": "analyze_stock", "description": "Mock analyze", "parameters": {"type": "object"}},
+                ],
+                tool_results={
+                    "screen_stocks": {"candidate_count": 3},
+                    "analyze_stock": lambda _name, args: {"code": args["code"], "stage": "Markup"},
+                },
+                concurrency_safe_tools=set(),
+            )
+            self._tool_context = SimpleNamespace(state={})
+
+        def execute(self, name, args, messages=None):
+            result = super().execute(name, args, messages=messages)
+            if name == "screen_stocks":
+                self._tool_context.state["last_screen_result"] = {
+                    "selection_brief": {"status": "ready_for_ai_review", "best_codes": ["002001"]},
+                    "diagnosis_targets": [
+                        {"tool": "analyze_stock", "args": {"code": "002001", "mode": "diagnose"}},
+                        {"tool": "analyze_stock", "args": {"code": "002002", "mode": "diagnose"}},
+                        {"tool": "analyze_stock", "args": {"code": "002003", "mode": "diagnose"}},
+                    ],
+                }
+            return result
+
+    def _remaining_diagnosis_round(messages, _tools, _system_prompt):
+        prompt = messages[-1]["content"]
+        assert "002002" in prompt
+        assert "002003" in prompt
+        return [
+            {
+                "type": "tool_calls",
+                "tool_calls": [
+                    {"id": "tc_analyze_2", "name": "analyze_stock", "args": {"code": "002002", "mode": "diagnose"}},
+                    {"id": "tc_analyze_3", "name": "analyze_stock", "args": {"code": "002003", "mode": "diagnose"}},
+                ],
+            }
+        ]
+
+    _reset_local_db(local_db)
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "workflow-diagnosis-targets.db")
+    monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "tool_calls", "tool_calls": [{"id": "tc_screen", "name": "screen_stocks", "args": {}}]}],
+            [{"type": "text_delta", "text": "筛选完成。"}],
+            [
+                {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {"id": "tc_analyze_1", "name": "analyze_stock", "args": {"code": "002001", "mode": "diagnose"}}
+                    ],
+                }
+            ],
+            _remaining_diagnosis_round,
+            [{"type": "text_delta", "text": "三个候选都已诊断。"}],
+            [{"type": "text_delta", "text": "已汇总三只候选诊断。"}],
+        ]
+    )
+    tools = HandoffTools()
+    executor = WorkflowExecutor(
+        provider,
+        tools,
+        session_id="s_handoff_diagnosis_targets",
+        user_text="用 workflow 筛选并诊断候选",
+        workflow_context=route_workflow("用 workflow 筛选并诊断候选"),
+        workflow_script={
+            "tasks": [
+                {"id": "scan", "title": "扫描候选", "tools": ["screen_stocks"], "prompt": "扫描候选"},
+                {
+                    "id": "diagnose",
+                    "title": "逐个诊断候选",
+                    "tools": ["analyze_stock"],
+                    "depends_on": ["scan"],
+                    "prompt": "逐个诊断候选",
+                },
+            ]
+        },
+    )
+
+    events = list(executor.run_stream([{"role": "user", "content": "用 workflow 筛选并诊断候选"}]))
+
+    try:
+        diagnose_detail = [
+            event["source"]["agent_detail"] for event in events if event["type"] == "workflow_step_done"
+        ][1]
+        assert diagnose_detail["tool_calls"] == ["analyze_stock", "analyze_stock", "analyze_stock"]
+        assert [call["args"].get("code") for call in tools.calls if call["name"] == "analyze_stock"] == [
+            "002001",
+            "002002",
+            "002003",
+        ]
+        assert events[-1]["text"] == "已汇总三只候选诊断。"
+    finally:
+        _reset_local_db(local_db)
+
+
 def test_workflow_executor_retries_market_scope_until_tool_runs(tmp_path, monkeypatch):
     from integrations import local_db
 

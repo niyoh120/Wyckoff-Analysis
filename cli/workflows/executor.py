@@ -565,6 +565,7 @@ class WorkflowExecutor:
             enforce_turn_expectations=_step_turn_expectations_enabled(step),
             required_tool_names=_step_required_tool_names(step),
             required_tool_args=_step_required_tool_args(step),
+            required_tool_arg_sets=_step_required_tool_arg_sets(step, prior_results),
         )
         if wait_result := _wait_step_background_tasks(self.tools, result.get("background_task_ids") or []):
             result["background_tasks"] = wait_result
@@ -920,6 +921,59 @@ def _step_required_tool_args(step: WorkflowStep) -> dict[str, dict[str, str]]:
     if len(tools) == 1:
         return {tools[0]: args}
     return {tool: tool_args for tool in tools if (tool_args := _tool_scoped_args(tool, args))}
+
+
+def _step_required_tool_arg_sets(
+    step: WorkflowStep,
+    prior_results: list[dict[str, Any]],
+) -> dict[str, tuple[dict[str, Any], ...]]:
+    tools = _step_required_tool_names(step)
+    args_hint = step.args_hint or _handoff_tool_args_hint(step, prior_results)
+    if not tools or not args_hint:
+        return {}
+    if arg_sets := _json_tool_arg_sets(args_hint):
+        return {tool: sets for tool, sets in arg_sets.items() if tool in tools}
+    args = _simple_args_hint(args_hint)
+    if not args:
+        return {}
+    if len(tools) == 1:
+        return {tools[0]: (_tool_scoped_args(tools[0], args) or args,)}
+    return {tool: (tool_args,) for tool in tools if (tool_args := _tool_scoped_args(tool, args))}
+
+
+def _json_tool_arg_sets(text: str) -> dict[str, tuple[dict[str, Any], ...]]:
+    try:
+        payload = json.loads(str(text or ""))
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    tool_name = str(payload.get("tool") or "").strip()
+    if not tool_name:
+        return {}
+    targets = payload.get("targets")
+    if isinstance(targets, list):
+        arg_sets = tuple(
+            args
+            for target in targets
+            if isinstance(target, dict)
+            and isinstance(target.get("args"), dict)
+            and (args := _clean_json_tool_args(tool_name, target["args"]))
+        )
+        return {tool_name: arg_sets} if arg_sets else {}
+    args = payload.get("args")
+    if isinstance(args, dict) and (cleaned := _clean_json_tool_args(tool_name, args)):
+        return {tool_name: (cleaned,)}
+    return {}
+
+
+def _clean_json_tool_args(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+    keys = _TOOL_ARG_KEYS.get(tool_name)
+    return {
+        str(key): value
+        for key, value in args.items()
+        if str(key).strip() and value not in (None, "") and (not keys or str(key) in keys)
+    }
 
 
 _SIMPLE_ARGS_HINT_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(.+?)\s*$")
