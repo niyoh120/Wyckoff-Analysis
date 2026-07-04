@@ -89,7 +89,10 @@ def test_query_history_supports_attribution_source(monkeypatch):
 
     def fake_query_history(**kwargs):
         captured.update(kwargs)
-        return {"latest_execution_state": {"scope": "tail_buy_and_funnel_shadow"}}
+        return {
+            "latest_operator_summary": "下一步=继续观察；作用范围=tail_buy_and_funnel_shadow",
+            "latest_execution_state": {"scope": "tail_buy_and_funnel_shadow"},
+        }
 
     monkeypatch.setattr(mcp_server, "_query_history", fake_query_history)
 
@@ -97,4 +100,5 @@ def test_query_history_supports_attribution_source(monkeypatch):
 
     assert captured["source"] == "attribution"
     assert captured["limit"] == 1
+    assert "作用范围=tail_buy_and_funnel_shadow" in result["latest_operator_summary"]
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
