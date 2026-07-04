@@ -188,6 +188,24 @@ def _query_attribution(limit: int, tool_context: ToolContext | None = None) -> d
 
 
 def _load_attribution_rows(limit: int, tool_context: ToolContext | None) -> list[dict]:
+    remote_error: Exception | None = None
+    try:
+        rows = _load_remote_attribution_rows(limit, tool_context)
+        if rows:
+            return rows
+    except Exception as exc:
+        logger.warning("failed to load attribution reports from remote", exc_info=True)
+        remote_error = exc
+
+    local = _load_local_attribution_row()
+    if local:
+        return [local]
+    if remote_error:
+        raise remote_error
+    return []
+
+
+def _load_remote_attribution_rows(limit: int, tool_context: ToolContext | None) -> list[dict]:
     from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
     from integrations.supabase_base import create_read_client
 
@@ -202,6 +220,12 @@ def _load_attribution_rows(limit: int, tool_context: ToolContext | None) -> list
         .data
         or []
     )
+
+
+def _load_local_attribution_row() -> dict | None:
+    from workflows.strategy_attribution_policy import load_local_attribution_report
+
+    return load_local_attribution_report("cn")
 
 
 def _attribution_record(row: dict) -> dict:

@@ -191,6 +191,57 @@ def test_query_history_attribution_uses_workflow_default_when_env_missing(monkey
     assert state["scope"] == "tail_buy_and_funnel_shadow"
 
 
+def test_query_history_attribution_falls_back_to_local_report(monkeypatch, tmp_path):
+    import json
+
+    from agents import history_tools
+
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
+    monkeypatch.setattr(history_tools, "_load_remote_attribution_rows", lambda limit, tool_context: [])
+    report_path = tmp_path / "report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "market": "cn",
+                "report_date": "2026-07-04",
+                "window_start": "2026-05-05",
+                "window_end": "2026-07-04",
+                "shadow_diff_stats_json": {
+                    "count": 24,
+                    "policy_governor": {
+                        "status": "candidate",
+                        "mode_recommendation": "review_promote_dynamic_policy",
+                        "promotion_status": "manual_review_required",
+                        "promotion_checklist": [
+                            {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
+                        ],
+                        "auto_apply": False,
+                        "summary": "shadow 新增组显著优于移除组",
+                        "horizon": "5",
+                    },
+                },
+                "recommendations_json": [
+                    {
+                        "type": "downweight",
+                        "target": "lps",
+                        "horizon": "5",
+                        "reason": '{"action":"downweight","weight_multiplier":0.5}',
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("STRATEGY_ATTRIBUTION_REPORT_JSON", str(report_path))
+
+    result = query_history(source="attribution", limit=1)
+
+    assert result["latest_policy"]["promotion_status"] == "manual_review_required"
+    assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
+    assert result["latest_execution_state"]["promotion_checklist"][0]["key"] == "shadow_sample"
+    assert result["records"][0]["shadow"]["runs"] == 24
+
+
 def test_query_attribution_exposes_policy_governor(monkeypatch):
     from integrations import supabase_base
 
