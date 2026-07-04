@@ -12,7 +12,7 @@ from core.funnel_etf import append_etf_section
 from core.funnel_sections import append_formal_l4_sections, score_star
 from core.market_trade_mode import resolve_market_trade_mode
 from core.signal_confirmation import score_springboard_abc
-from core.strategy_policy_display import format_policy_weight_text, safe_policy_weight
+from core.strategy_policy_display import format_policy_meta_text, format_policy_weight_text, safe_policy_weight
 from core.theme_radar import summarize_theme_radar
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_report_payload import (
@@ -268,7 +268,7 @@ def _policy_governance_line(policy: dict) -> str:
         return ""
     parts = []
     if attribution:
-        parts.append(f"归因 {_policy_weight_text(attribution)}{_policy_meta_text(attribution_meta)}")
+        parts.append(f"归因 {_policy_weight_text(attribution)}{format_policy_meta_text(attribution_meta)}")
     if merged:
         parts.append(f"最终 {_policy_weight_text(merged)}")
     return "**策略治理调权**: " + "；".join(parts)
@@ -280,37 +280,6 @@ def _policy_weight_text(weights: dict) -> str:
 
 def _weight_value(raw: Any) -> float:
     return safe_policy_weight(raw)
-
-
-def _policy_meta_text(meta: dict) -> str:
-    if not isinstance(meta, dict) or not meta:
-        return ""
-    tokens = []
-    source = str(meta.get("source") or "").strip()
-    report_date = str(meta.get("report_date") or "").strip()
-    horizon = str(meta.get("horizon") or "").strip()
-    if source:
-        tokens.append(source)
-    if report_date:
-        tokens.append(f"report={report_date}")
-    if horizon:
-        tokens.append(f"h={horizon}")
-    age = meta.get("age_days")
-    if age is not None and str(age) != "":
-        tokens.append(f"age={age}d")
-    execution_policy = str(meta.get("execution_policy") or "").strip()
-    execution_scope = str(meta.get("execution_scope") or "").strip()
-    if execution_policy:
-        tokens.append(f"mode={execution_policy}")
-    if execution_scope:
-        tokens.append(f"scope={execution_scope}")
-    next_action = str(meta.get("next_action") or "").strip()
-    if next_action:
-        tokens.append(f"next={next_action}")
-    formal_block = str(meta.get("formal_dynamic_block_reason") or "").strip()
-    if meta.get("formal_dynamic_allowed") is False and formal_block:
-        tokens.append(f"formal_block={formal_block}")
-    return f"（{', '.join(tokens)}）" if tokens else ""
 
 
 def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[str]:

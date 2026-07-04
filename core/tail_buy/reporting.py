@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.strategy_policy_display import format_policy_weight_text
+from core.strategy_policy_display import format_policy_meta_text, format_policy_weight_text
 from core.tail_buy.decision_semantics import HIGH_RISK_MOMENTUM_SIGNALS
 from core.tail_buy.models import DECISION_BUY, DECISION_SKIP, DECISION_WATCH, TailBuyCandidate
 
@@ -242,37 +242,7 @@ def _policy_weight_line(weights: dict[str, float] | None, meta: dict[str, object
     if not weights:
         return "- 归因调权: 无"
     text = format_policy_weight_text(weights, limit=12, delimiter="；")
-    return "- 归因调权: " + (text if text else "无") + _policy_weight_source_text(meta)
-
-
-def _policy_weight_source_text(meta: dict[str, object] | None) -> str:
-    row = meta or {}
-    tokens = []
-    source = str(row.get("source") or "").strip()
-    report_date = str(row.get("report_date") or "").strip()
-    horizon = str(row.get("horizon") or "").strip()
-    if source:
-        tokens.append(source)
-    if report_date:
-        tokens.append(f"report={report_date}")
-    if horizon:
-        tokens.append(f"h={horizon}")
-    age = row.get("age_days")
-    if age is not None and str(age) != "":
-        tokens.append(f"age={age}d")
-    execution_policy = str(row.get("execution_policy") or "").strip()
-    execution_scope = str(row.get("execution_scope") or "").strip()
-    if execution_policy:
-        tokens.append(f"mode={execution_policy}")
-    if execution_scope:
-        tokens.append(f"scope={execution_scope}")
-    next_action = str(row.get("next_action") or "").strip()
-    if next_action:
-        tokens.append(f"next={next_action}")
-    formal_block = str(row.get("formal_dynamic_block_reason") or "").strip()
-    if row.get("formal_dynamic_allowed") is False and formal_block:
-        tokens.append(f"formal_block={formal_block}")
-    return f"（{', '.join(tokens)}）" if tokens else ""
+    return "- 归因调权: " + (text if text else "无") + format_policy_meta_text(meta)
 
 
 def _execution_scope_line(report_mode: str) -> str:

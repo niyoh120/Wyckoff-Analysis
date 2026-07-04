@@ -1068,12 +1068,15 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
             "execution_scope": "tail_buy_and_funnel_shadow",
             "next_action": "manual_review_dynamic_on",
             "formal_dynamic_allowed": True,
+            "tail_buy_weights_active": True,
+            "funnel_shadow_weights_active": True,
+            "funnel_formal_weights_active": False,
         },
     )
 
     assert (
         "- 归因调权: launchpad×1.20↑；lps×0.50↓"
-        "（远端, report=2026-07-04, h=5, age=0d, mode=shadow, scope=tail_buy_and_funnel_shadow, next=manual_review_dynamic_on）"
+        "（远端, report=2026-07-04, h=5, age=0d, mode=shadow, scope=tail_buy_and_funnel_shadow, next=manual_review_dynamic_on, active=尾盘+漏斗shadow）"
     ) in md
 
 
