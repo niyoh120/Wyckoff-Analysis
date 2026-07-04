@@ -427,6 +427,57 @@ describe('execQueryAttribution', () => {
     expect(result).toContain('lps[regime=RISK_ON, lane=trend_pullback] | downweight | h=5 | x0.50')
     expect(result).toContain('avg=-3')
   })
+
+  it('synthesizes an operator summary for older reports', async () => {
+    const deps = createMockDeps({
+      strategy_attribution_reports: [
+        {
+          report_date: '2026-07-04',
+          window_start: '2026-05-05',
+          window_end: '2026-07-04',
+          shadow_diff_stats_json: {
+            policy_governor: {
+              next_action: 'manual_review_dynamic_on',
+              next_action_summary: 'shadow 新增组已跑赢移除组。',
+              promotion_status: 'manual_review_required',
+            },
+            policy_execution_state: {
+              funnel_dynamic_policy: 'shadow',
+              horizon: '5',
+              scope: 'tail_buy_and_funnel_shadow',
+              next_action: 'manual_review_dynamic_on',
+              next_action_summary: 'shadow 新增组已跑赢移除组。',
+              promotion_status: 'manual_review_required',
+              signal_action_count: 1,
+            },
+            latest: {
+              trade_date: '2026-07-03',
+              regime: 'RISK_ON',
+              selection_summary: {
+                diff_added_count: 2,
+                diff_removed_count: 1,
+              },
+            },
+          },
+          recommendations_json: [
+            {
+              type: 'downweight',
+              horizon: '5',
+              target: 'lps',
+              reason: { weight_multiplier: 0.5 },
+            },
+          ],
+        },
+      ],
+    })
+
+    const result = await execQueryAttribution(deps, 1)
+
+    expect(result).toContain('操作摘要：下一步=shadow 新增组已跑赢移除组。')
+    expect(result).toContain('作用范围=tail_buy_and_funnel_shadow')
+    expect(result).toContain('Shadow=2026-07-03 RISK_ON 新增2 移除1')
+    expect(result).toContain('调权=1项')
+  })
 })
 
 describe('execExecutePortfolioUpdate', () => {
