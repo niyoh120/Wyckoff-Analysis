@@ -8,6 +8,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from core.strategy_policy_display import format_policy_signal_label, safe_policy_weight
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FUNNEL_WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "wyckoff_funnel.yml"
 
@@ -20,7 +22,8 @@ def attribution_execution_state(
 ) -> dict[str, Any]:
     mode = funnel_dynamic_policy_mode(workflow_path=workflow_path)
     horizon = str(governor.get("horizon") or "5")
-    action_count = _action_count(actions, horizon=horizon)
+    action_details = _action_details(actions, horizon=horizon)
+    action_count = len(action_details)
     if action_count <= 0:
         scope = "none"
         summary = "暂无可执行信号调权。"
@@ -38,6 +41,7 @@ def attribution_execution_state(
         "horizon": horizon,
         "tail_buy_reads_attribution": action_count > 0,
         "signal_action_count": action_count,
+        "action_details": action_details,
         "scope": scope,
         "summary": _auto_apply_note(summary, governor),
     }
@@ -68,13 +72,28 @@ def _workflow_default_mode(path: Path) -> str:
     return ""
 
 
-def _action_count(actions: list[dict[str, Any]], *, horizon: str) -> int:
-    total = 0
+def _action_details(actions: list[dict[str, Any]], *, horizon: str) -> list[dict[str, Any]]:
+    details = []
     for item in actions:
         action = _action_from_item(item)
         if action in {"downweight", "upweight"} and _horizon_from_item(item) == horizon:
-            total += 1
-    return total
+            details.append(_action_detail(item, action))
+    return details
+
+
+def _action_detail(item: dict[str, Any], action: str) -> dict[str, Any]:
+    payload = _json_payload(item.get("reason"))
+    scope = payload.get("scope") if isinstance(payload.get("scope"), dict) else {}
+    target = str(item.get("target") or payload.get("target") or "").strip()
+    return {
+        "action": action,
+        "horizon": _horizon_from_item(item),
+        "target": target,
+        "label": format_policy_signal_label(target, scope),
+        "weight_multiplier": safe_policy_weight(payload.get("weight_multiplier")),
+        "scope": scope,
+        "evidence": payload.get("evidence") if isinstance(payload.get("evidence"), dict) else {},
+    }
 
 
 def _action_from_item(item: dict[str, Any]) -> str:

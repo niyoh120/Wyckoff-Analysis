@@ -554,10 +554,26 @@ def _shadow_latest_summary(row: dict[str, Any]) -> dict[str, Any]:
         "schema_version": row.get("schema_version") or "legacy",
         "snapshot_level": row.get("snapshot_level") or "full",
         "selection_summary": row.get("selection_summary") or _legacy_selection_summary(row),
+        "diff_added_sample": _code_sample(row.get("diff_added")),
+        "diff_removed_sample": _code_sample(row.get("diff_removed")),
         "policy_summary": row.get("policy_summary") or {},
         "registry_summary": row.get("registry_summary") or _legacy_snapshot_count(row, "registry_snapshot"),
         "health_summary": row.get("health_summary") or _legacy_snapshot_count(row, "health_snapshot"),
     }
+
+
+def _code_sample(raw: Any, limit: int = 12) -> list[str]:
+    codes = raw if isinstance(raw, list) else []
+    out = []
+    seen = set()
+    for item in codes:
+        code = str(item or "").strip()
+        if code and code not in seen:
+            out.append(code)
+            seen.add(code)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _shadow_sort_key(row: dict[str, Any]) -> tuple[str, str]:

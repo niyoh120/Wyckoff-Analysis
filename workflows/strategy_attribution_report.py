@@ -132,6 +132,9 @@ def build_report_markdown(report: dict[str, Any]) -> str:
         f"- h=5 新增组: `{json.dumps(shadow_h5.get('added') or {}, ensure_ascii=False)}`",
         f"- h=5 移除组: `{json.dumps(shadow_h5.get('removed') or {}, ensure_ascii=False)}`",
         "",
+        "## 运营复盘",
+        *_operations_markdown_lines(report),
+        "",
         "## 策略治理",
         f"- 状态: `{governor.get('status', 'unknown') if isinstance(governor, dict) else 'unknown'}`",
         f"- 动态策略建议: `{governor.get('mode_recommendation', 'keep_shadow') if isinstance(governor, dict) else 'keep_shadow'}`",
@@ -149,6 +152,53 @@ def build_report_markdown(report: dict[str, Any]) -> str:
     ]
     lines.extend(_recommendation_markdown_rows(report.get("recommendations_json") or []))
     return "\n".join(lines)
+
+
+def _operations_markdown_lines(report: dict[str, Any]) -> list[str]:
+    shadow = report.get("shadow_diff_stats_json") or {}
+    latest = shadow.get("latest") if isinstance(shadow, dict) else {}
+    execution = _report_policy_execution_state(report)
+    lines = _latest_shadow_lines(latest if isinstance(latest, dict) else {})
+    lines.extend(_action_detail_lines(execution.get("action_details") if isinstance(execution, dict) else []))
+    return lines or ["- 暂无可用运营复盘信息。"]
+
+
+def _latest_shadow_lines(latest: dict[str, Any]) -> list[str]:
+    if not latest:
+        return ["- 最新 shadow: 暂无。"]
+    selection = latest.get("selection_summary") if isinstance(latest.get("selection_summary"), dict) else {}
+    added_sample = ", ".join(str(x) for x in latest.get("diff_added_sample") or []) or "-"
+    removed_sample = ", ".join(str(x) for x in latest.get("diff_removed_sample") or []) or "-"
+    return [
+        (
+            f"- 最新 shadow: `{latest.get('trade_date', '-')}` / `{latest.get('regime', '-')}`，"
+            f"base `{selection.get('base_count', '-')}` -> shadow `{selection.get('shadow_count', '-')}`，"
+            f"新增 `{selection.get('diff_added_count', '-')}`，移除 `{selection.get('diff_removed_count', '-')}`，"
+            f"Jaccard `{selection.get('jaccard', '-')}`"
+        ),
+        f"- Shadow 新增样本: `{added_sample}`",
+        f"- Shadow 移除样本: `{removed_sample}`",
+    ]
+
+
+def _action_detail_lines(raw: Any) -> list[str]:
+    rows = raw if isinstance(raw, list) else []
+    if not rows:
+        return ["- 本期可执行调权: 无。"]
+    lines = ["- 本期可执行调权:"]
+    for row in rows[:8]:
+        if not isinstance(row, dict):
+            continue
+        evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+        lines.append(
+            f"  - `{row.get('label', row.get('target', '-'))}` {row.get('action', '-')}"
+            f" ×{row.get('weight_multiplier', 1.0)}；"
+            f"avg={evidence.get('avg_return_pct', '-')}，win={evidence.get('win_rate_pct', '-')}%，"
+            f"dd={evidence.get('avg_drawdown_pct', '-')}"
+        )
+    if len(rows) > 8:
+        lines.append(f"  - ... 另 {len(rows) - 8} 项")
+    return lines
 
 
 def _report_policy_governor(report: dict[str, Any]) -> dict[str, Any]:

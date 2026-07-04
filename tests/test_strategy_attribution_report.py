@@ -126,6 +126,8 @@ def test_attribution_shadow_latest_uses_compact_summary():
         "schema_version": "shadow_policy_v2",
         "snapshot_level": "summary",
         "selection_summary": {"base_count": 2, "shadow_count": 2, "diff_added_count": 1},
+        "diff_added_sample": ["000003"],
+        "diff_removed_sample": ["000001"],
         "policy_summary": {"signal_weight_count": 2},
         "registry_summary": {"count": 12},
         "health_summary": {"count": 30},
@@ -346,6 +348,8 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     assert "- 执行周期: `h=5`" in markdown
     assert "- 当前作用范围: `tail_buy_and_funnel`" in markdown
     assert "- 可执行调权: `1`" in markdown
+    assert "## 运营复盘" in markdown
+    assert "- 本期可执行调权:" in markdown
     assert "`lps[regime=RISK_ON, lane=trend_pullback, entry=wyckoff_structure]`" in markdown
 
 
@@ -379,6 +383,8 @@ def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):
     assert state["horizon"] == "5"
     assert state["signal_action_count"] == 2
     assert state["scope"] == "tail_buy_and_funnel_shadow"
+    assert state["action_details"][0]["label"] == "lps"
+    assert state["action_details"][1]["label"] == "launchpad"
 
 
 def test_attribution_policy_governor_keeps_shadow_reject_when_signal_actions_exist():

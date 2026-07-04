@@ -96,6 +96,16 @@ interface PolicySignalAction {
   scope?: Record<string, string>
 }
 
+interface PolicyActionDetail {
+  action?: string
+  horizon?: string
+  target?: string
+  label?: string
+  weight_multiplier?: number
+  scope?: Record<string, string>
+  evidence?: MetricStats
+}
+
 interface PolicyExecutionStats {
   actionCount: number
   downCount: number
@@ -108,6 +118,7 @@ interface PolicyExecutionPayload {
   funnel_dynamic_policy?: string
   horizon?: string
   signal_action_count?: number
+  action_details?: PolicyActionDetail[]
   scope?: string
   summary?: string
 }
@@ -197,6 +208,7 @@ function ReportView({ report }: { report: AttributionReport }) {
   return (
     <div className="space-y-6">
       <Summary report={report} />
+      <OperationsBrief shadow={report.shadow_diff_stats_json} execution={executionPayload} />
       <ObservationCoverage rows={observationCoverageRows} />
       <PolicyGovernorBox governor={governor} />
       <PolicyExecutionState stats={policyExecution} governor={governor} execution={executionPayload} />
@@ -219,6 +231,46 @@ function Summary({ report }: { report: AttributionReport }) {
       <MetricCard label="周期" value={report.horizons.join('/')} />
       <MetricCard label="生成时间" value={formatDateTime(report.created_at)} />
     </section>
+  )
+}
+
+function OperationsBrief({ shadow, execution }: { shadow: JsonMap; execution: PolicyExecutionPayload | null }) {
+  const latest = shadowLatest(shadow)
+  const selection = latestSelection(latest)
+  const actions = execution?.action_details || []
+  return (
+    <Panel title="运营复盘">
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricCard label="最新 Shadow" value={`${String(latest?.trade_date || '-')} · ${String(latest?.regime || '-')}`} />
+        <MetricCard label="Base → Shadow" value={`${fmtCountNumber(selection?.base_count)} → ${fmtCountNumber(selection?.shadow_count)}`} />
+        <MetricCard label="新增 / 移除" value={`${fmtCountNumber(selection?.diff_added_count)} / ${fmtCountNumber(selection?.diff_removed_count)}`} />
+        <MetricCard label="Jaccard" value={fmtScoreNumber(selection?.jaccard)} />
+      </div>
+      <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+        <p className="text-muted-foreground">新增样本：{formatCodeSample(latest?.diff_added_sample)}</p>
+        <p className="text-muted-foreground">移除样本：{formatCodeSample(latest?.diff_removed_sample)}</p>
+      </div>
+      <div className="mt-4 text-sm">
+        <div className="mb-2 font-medium">本期可执行调权</div>
+        {actions.length ? (
+          <div className="space-y-2">
+            {actions.slice(0, 6).map((item, index) => (
+              <div key={`${item.label}-${item.action}-${index}`} className="rounded-md border border-border/70 px-3 py-2">
+                <div className="font-medium">
+                  {formatPolicyAction(item.action)} · {item.label || formatPolicySignalTarget(item.target, item.scope)} · x{fmtWeight(item.weight_multiplier)}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  均收 {fmtPct(item.evidence?.avg_return_pct)} · 胜率 {fmtPct(item.evidence?.win_rate_pct)} · 回撤 {fmtPct(item.evidence?.avg_drawdown_pct)}
+                </div>
+              </div>
+            ))}
+            {actions.length > 6 ? <p className="text-xs text-muted-foreground">另有 {actions.length - 6} 项调权在策略建议中查看。</p> : null}
+          </div>
+        ) : (
+          <p className="text-muted-foreground">暂无可执行调权。</p>
+        )}
+      </div>
+    </Panel>
   )
 }
 
@@ -629,6 +681,8 @@ function OutcomeTable({ title, rows }: { title: string; rows: StockOutcome[] }) 
 }
 
 function ShadowBox({ data }: { data: JsonMap }) {
+  const latest = shadowLatest(data)
+  const selection = latestSelection(latest)
   return (
     <Panel title="Shadow 差异">
       <div className="grid gap-3 md:grid-cols-3">
@@ -636,6 +690,12 @@ function ShadowBox({ data }: { data: JsonMap }) {
         <MetricCard label="平均新增" value={String(data.avg_added ?? 0)} />
         <MetricCard label="平均移除" value={String(data.avg_removed ?? 0)} />
       </div>
+      {latest ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          最新 {String(latest.trade_date || '-')}：新增 {fmtCountNumber(selection?.diff_added_count)}，移除{' '}
+          {fmtCountNumber(selection?.diff_removed_count)}，新增样本 {formatCodeSample(latest.diff_added_sample)}。
+        </p>
+      ) : null}
     </Panel>
   )
 }
@@ -760,6 +820,21 @@ function formatPolicySignalTarget(raw: unknown, scope?: Record<string, string>) 
   return parts.length ? `${signal}[${parts.join(', ')}]` : signal
 }
 
+function shadowLatest(data: JsonMap | undefined): JsonMap | null {
+  const raw = data?.latest
+  return raw && typeof raw === 'object' ? raw as JsonMap : null
+}
+
+function latestSelection(latest: JsonMap | null): JsonMap | null {
+  const raw = latest?.selection_summary
+  return raw && typeof raw === 'object' ? raw as JsonMap : null
+}
+
+function formatCodeSample(raw: unknown) {
+  const rows = Array.isArray(raw) ? raw.map((x) => String(x || '').trim()).filter(Boolean) : []
+  return rows.length ? rows.join(' / ') : '-'
+}
+
 function parseRecommendationReason(raw: string | undefined): PolicySignalAction {
   if (!raw) return {}
   try {
@@ -852,6 +927,10 @@ function fmtScore(raw: number | null | undefined) {
   return typeof raw === 'number' && Number.isFinite(raw) ? raw.toFixed(1) : '-'
 }
 
+function fmtScoreNumber(raw: unknown) {
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw.toFixed(2) : '-'
+}
+
 function fmtCount(raw: number | null | undefined) {
   return typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : '0'
 }
@@ -862,6 +941,10 @@ function fmtCountNumber(raw: unknown) {
 
 function fmtPctNumber(raw: unknown) {
   return typeof raw === 'number' && Number.isFinite(raw) ? `${raw.toFixed(1)}%` : '-'
+}
+
+function fmtWeight(raw: number | undefined) {
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw.toFixed(2) : '1.00'
 }
 
 function formatGrade(raw: string | null | undefined) {
