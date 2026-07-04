@@ -5,7 +5,8 @@ import logging
 
 from agents.tool_context import ToolContext, get_user_client, get_user_id
 from core.pattern_review.records import pattern_review_tool_records
-from workflows.strategy_attribution_execution import attribution_execution_state
+from core.strategy_policy_display import format_policy_signal_label
+from workflows.strategy_attribution_execution import attribution_execution_state, attribution_operations_brief
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,7 @@ def _query_attribution(limit: int, tool_context: ToolContext | None = None) -> d
             "total": len(records),
             "latest_policy": records[0].get("policy_governor", {}),
             "latest_execution_state": records[0].get("execution_state", {}),
+            "latest_operations": records[0].get("operations", {}),
             "records": records,
         }
     except Exception as e:
@@ -207,12 +209,14 @@ def _attribution_record(row: dict) -> dict:
     governor = _json_map(shadow.get("policy_governor"))
     actions = _attribution_actions(row.get("recommendations_json"))
     governor_record = _policy_governor_record(governor)
+    execution = _attribution_execution_state(governor_record, actions)
     return {
         "report_date": str(row.get("report_date", "")),
         "window_start": str(row.get("window_start", "")),
         "window_end": str(row.get("window_end", "")),
         "policy_governor": governor_record,
-        "execution_state": _attribution_execution_state(governor_record, actions),
+        "execution_state": execution,
+        "operations": attribution_operations_brief(shadow, execution),
         "signal_actions": actions,
         "shadow": {
             "runs": shadow.get("count", 0),
@@ -242,12 +246,16 @@ def _attribution_actions(raw: object) -> list[dict]:
         if not isinstance(row, dict) or row.get("type") == "policy_governor":
             continue
         payload = _json_map(row.get("reason"))
+        scope = _json_map(payload.get("scope"))
+        target = str(row.get("target") or payload.get("target") or "")
         rows.append(
             {
                 "action": str(row.get("type") or payload.get("action") or ""),
                 "horizon": str(row.get("horizon") or payload.get("horizon") or ""),
-                "target": str(row.get("target") or payload.get("target") or ""),
+                "target": target,
+                "label": format_policy_signal_label(target, scope),
                 "weight_multiplier": payload.get("weight_multiplier"),
+                "scope": scope,
                 "evidence": _json_map(payload.get("evidence")),
             }
         )

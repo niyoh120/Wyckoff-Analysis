@@ -63,6 +63,19 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
                     "count": 12,
                     "avg_added": 1.4,
                     "avg_removed": 1.1,
+                    "latest": {
+                        "trade_date": "2026-07-03",
+                        "regime": "RISK_ON",
+                        "selection_summary": {
+                            "base_count": 8,
+                            "shadow_count": 9,
+                            "diff_added_count": 2,
+                            "diff_removed_count": 1,
+                            "jaccard": 0.7,
+                        },
+                        "diff_added_sample": ["300502", "688008"],
+                        "diff_removed_sample": ["002079"],
+                    },
                     "policy_governor": {
                         "status": "candidate",
                         "mode_recommendation": "review_promote_dynamic_policy",
@@ -78,7 +91,9 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
                         "target": "lps",
                         "horizon": "5",
                         "reason": (
-                            '{"action":"downweight","weight_multiplier":0.5,"evidence":{"avg_return_pct":-3.0}}'
+                            '{"action":"downweight","weight_multiplier":0.5,'
+                            '"scope":{"regime":"RISK_ON","lane":"trend_pullback"},'
+                            '"evidence":{"avg_return_pct":-3.0}}'
                         ),
                     },
                 ],
@@ -90,15 +105,26 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
 
     assert result["latest_policy"]["status"] == "candidate"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
+    assert result["latest_operations"]["latest_shadow"]["trade_date"] == "2026-07-03"
+    assert result["latest_operations"]["latest_shadow"]["diff_added_sample"] == ["300502", "688008"]
+    assert result["latest_operations"]["action_summary"].startswith("本期 1 个 scoped 调权")
     assert result["records"][0]["shadow"]["runs"] == 12
     assert result["records"][0]["execution_state"]["signal_action_count"] == 1
+    assert result["records"][0]["execution_state"]["action_details"][0]["weight_multiplier"] == 0.5
+    assert result["records"][0]["execution_state"]["action_details"][0]["evidence"] == {"avg_return_pct": -3.0}
+    assert (
+        result["records"][0]["execution_state"]["action_details"][0]["label"]
+        == "lps[regime=RISK_ON, lane=trend_pullback]"
+    )
     assert "漏斗动态策略 shadow 对照" in result["records"][0]["execution_state"]["summary"]
     assert result["records"][0]["signal_actions"] == [
         {
             "action": "downweight",
             "horizon": "5",
             "target": "lps",
+            "label": "lps[regime=RISK_ON, lane=trend_pullback]",
             "weight_multiplier": 0.5,
+            "scope": {"regime": "RISK_ON", "lane": "trend_pullback"},
             "evidence": {"avg_return_pct": -3.0},
         }
     ]
@@ -217,6 +243,8 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel"
     assert result["records"][0]["policy_governor"]["mode_recommendation"] == "review_promote_dynamic_policy"
     assert result["records"][0]["signal_actions"][0]["target"] == "lps"
+    assert result["records"][0]["execution_state"]["action_details"][0]["weight_multiplier"] == 0.5
+    assert result["records"][0]["operations"]["action_count"] == 1
     assert "漏斗正式候选" in result["records"][0]["execution_state"]["summary"]
     assert result["records"][0]["shadow"]["runs"] == 24
 

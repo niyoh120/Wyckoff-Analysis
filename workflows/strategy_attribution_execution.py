@@ -83,17 +83,74 @@ def _action_details(actions: list[dict[str, Any]], *, horizon: str) -> list[dict
 
 def _action_detail(item: dict[str, Any], action: str) -> dict[str, Any]:
     payload = _json_payload(item.get("reason"))
-    scope = payload.get("scope") if isinstance(payload.get("scope"), dict) else {}
+    scope = _scope_from_item(item, payload)
     target = str(item.get("target") or payload.get("target") or "").strip()
     return {
         "action": action,
         "horizon": _horizon_from_item(item),
         "target": target,
         "label": format_policy_signal_label(target, scope),
-        "weight_multiplier": safe_policy_weight(payload.get("weight_multiplier")),
+        "weight_multiplier": safe_policy_weight(payload.get("weight_multiplier", item.get("weight_multiplier"))),
         "scope": scope,
-        "evidence": payload.get("evidence") if isinstance(payload.get("evidence"), dict) else {},
+        "evidence": _evidence_from_item(item, payload),
     }
+
+
+def attribution_operations_brief(
+    shadow: dict[str, Any],
+    execution: dict[str, Any],
+    *,
+    max_actions: int = 8,
+) -> dict[str, Any]:
+    latest = shadow.get("latest") if isinstance(shadow.get("latest"), dict) else {}
+    actions = [row for row in execution.get("action_details") or [] if isinstance(row, dict)]
+    limited_actions = actions[: max(int(max_actions), 0)]
+    return {
+        "latest_shadow": _latest_shadow_brief(latest),
+        "action_count": len(actions),
+        "action_details": limited_actions,
+        "action_summary": _action_summary(limited_actions, total=len(actions)),
+    }
+
+
+def _scope_from_item(item: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(payload.get("scope"), dict):
+        return payload["scope"]
+    return item.get("scope") if isinstance(item.get("scope"), dict) else {}
+
+
+def _evidence_from_item(item: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(payload.get("evidence"), dict):
+        return payload["evidence"]
+    return item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+
+
+def _latest_shadow_brief(latest: dict[str, Any]) -> dict[str, Any]:
+    if not latest:
+        return {}
+    selection = latest.get("selection_summary") if isinstance(latest.get("selection_summary"), dict) else {}
+    return {
+        "trade_date": latest.get("trade_date"),
+        "regime": latest.get("regime"),
+        "base_count": selection.get("base_count"),
+        "shadow_count": selection.get("shadow_count"),
+        "diff_added_count": selection.get("diff_added_count"),
+        "diff_removed_count": selection.get("diff_removed_count"),
+        "jaccard": selection.get("jaccard"),
+        "diff_added_sample": latest.get("diff_added_sample") or [],
+        "diff_removed_sample": latest.get("diff_removed_sample") or [],
+    }
+
+
+def _action_summary(actions: list[dict[str, Any]], *, total: int) -> str:
+    if total <= 0:
+        return "本期暂无可执行调权。"
+    parts = [
+        f"{row.get('label', row.get('target', '-'))}×{safe_policy_weight(row.get('weight_multiplier')):.2f}"
+        for row in actions[:4]
+    ]
+    suffix = f"，另 {total - len(actions)} 项" if total > len(actions) else ""
+    return f"本期 {total} 个 scoped 调权：" + "，".join(parts) + suffix
 
 
 def _action_from_item(item: dict[str, Any]) -> str:
