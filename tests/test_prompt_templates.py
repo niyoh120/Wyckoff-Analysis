@@ -33,6 +33,7 @@ class TestBuiltinPromptTemplates:
         assert "latest_source" in prompt
         assert "remote_error" in prompt
         assert "latest_execution_state" in prompt
+        assert "next_action" in prompt
         assert "promotion_status" in prompt
         assert "promotion_checklist" in prompt
         assert "latest_operations" in prompt

@@ -617,10 +617,10 @@ flowchart LR
 | `shadow` | 主流程保持静态配额，同时把读取 health / registry / 归因调权后的动态策略候选差异写入 `signal_policy_shadow_runs`。 |
 | `on` | 正式使用 `signal_health_daily` 权重、`signal_registry` 启停状态和归因调权。 |
 
-策略归因治理器会同时输出 `promotion_status` 和 `promotion_checklist`，用于判断 dynamic policy 是否只进入
-人工晋级评审。CLI/MCP 的 `latest_source` 和 `remote_error` 先说明读到的是远端表还是本地 no-write
-报告；`latest_execution_state` 说明归因调权当前影响尾盘、漏斗 shadow 还是正式漏斗；`promotion_checklist`
-则把样本量、shadow 新增表现、scoped 信号调权和回测确认拆成结构化证据。
+策略归因治理器会同时输出 `next_action`、`promotion_status` 和 `promotion_checklist`，用于判断 dynamic
+policy 是否只进入人工晋级评审。CLI/MCP 的 `latest_source` 和 `remote_error` 先说明读到的是远端表还是本地
+no-write 报告；`latest_execution_state` 说明归因调权当前影响尾盘、漏斗 shadow 还是正式漏斗；
+`next_action` 给出下一步动作；`promotion_checklist` 则把样本量、shadow 新增表现、scoped 信号调权和回测确认拆成结构化证据。
 
 ## 尾盘策略
 

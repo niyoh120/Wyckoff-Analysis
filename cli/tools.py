@@ -196,7 +196,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "enum": ["recommendation", "signal", "tail_buy", "attribution", "archive"],
                     "description": (
                         "'recommendation' 形态复盘；'signal' 信号确认池；'tail_buy' 尾盘买入；"
-                        "'attribution' 策略归因治理器、latest_source/remote_error、promotion_checklist、"
+                        "'attribution' 策略归因治理器、latest_source/remote_error、next_action、promotion_checklist、"
                         "latest_execution_state 和 latest_operations；"
                         "'archive' 历史上下文归档"
                     ),

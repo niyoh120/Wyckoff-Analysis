@@ -32,7 +32,7 @@ BUILTIN_PROMPT_TEMPLATES: dict[str, PromptTemplate] = {
             "1. 调用 get_market_overview() 判断大盘水温。\n"
             '2. 调用 query_history(source="recommendation", limit=20) 查看近期形态复盘池。\n'
             '3. 调用 query_history(source="signal", status="pending", limit=20) 查看待确认信号。\n'
-            '4. 调用 query_history(source="attribution", limit=1) 查看策略治理器、升降权建议、latest_source/remote_error、promotion_status、promotion_checklist、latest_execution_state 和 latest_operations。\n'
+            '4. 调用 query_history(source="attribution", limit=1) 查看策略治理器、升降权建议、latest_source/remote_error、next_action、promotion_status、promotion_checklist、latest_execution_state 和 latest_operations。\n'
             '5. 如果用户提到持仓或当前组合，再调用 portfolio(mode="view")；没有提到就不要主动诊断持仓。\n'
             "6. 输出：市场状态、今日可观察方向、归因数据来源、shadow 最新新增/移除样本、归因调权当前影响范围、dynamic 是否只适合继续 shadow、需要回避的风险、下一步动作。"
         ),
