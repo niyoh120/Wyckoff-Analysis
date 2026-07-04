@@ -27,6 +27,12 @@ class TestBuiltinPromptTemplates:
         assert "重点看半导体" in rendered
         assert "{user_input}" not in rendered
 
+    def test_daily_template_requests_attribution_execution_state(self):
+        prompt = BUILTIN_PROMPT_TEMPLATES["daily"].prompt
+
+        assert "latest_execution_state" in prompt
+        assert "归因调权当前影响范围" in prompt
+
 
 class TestParsePromptMd:
     def test_with_frontmatter(self, tmp_path: Path):
