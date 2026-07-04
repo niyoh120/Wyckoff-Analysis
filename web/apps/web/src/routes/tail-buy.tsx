@@ -6,7 +6,7 @@ import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
 import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
-import { formatPolicyWeightMetaText, tailBuyExecutionSemantics } from '@wyckoff/shared'
+import { formatTailBuyPolicyWeightText, tailBuyExecutionSemantics, tailBuyPolicyWeightMultiplier } from '@wyckoff/shared'
 
 interface TailBuyRecord {
   code: string
@@ -92,24 +92,12 @@ function parseFeatures(raw: unknown): Record<string, unknown> {
   }
 }
 
-function numberFeature(features: Record<string, unknown>, key: string): number | undefined {
-  const value = features[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
 function policyWeightText(record: TailBuyRecord): string {
-  const features = parseFeatures(record.features_json)
-  const multiplier = numberFeature(features, 'policy_weight_multiplier')
-  if (multiplier === undefined) return '-'
-  const signal = String(features.policy_weight_signal || record.signal_type || 'unknown')
-  const oldScore = numberFeature(features, 'policy_weight_old_score')
-  const newScore = numberFeature(features, 'policy_weight_new_score')
-  const scoreText = oldScore !== undefined && newScore !== undefined ? ` ${oldScore.toFixed(1)}→${newScore.toFixed(1)}` : ''
-  return `${signal} x${multiplier.toFixed(2)}${scoreText}${formatPolicyWeightMetaText(features)}`
+  return formatTailBuyPolicyWeightText(record, { emptyText: '-' })
 }
 
 function policyWeightSortValue(record: TailBuyRecord): number | undefined {
-  return numberFeature(parseFeatures(record.features_json), 'policy_weight_multiplier')
+  return tailBuyPolicyWeightMultiplier(record)
 }
 
 function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {

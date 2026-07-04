@@ -6,7 +6,7 @@ import { fetchValueSnapshotWithFetch, isCnSymbol, normalizeTickFlowSymbol, norma
 import { buildValuePrompt, buildValueScore } from './agent-value'
 import { attributionOperatorSummary as buildAttributionOperatorSummary } from './attribution-summary'
 import { formatPatternReviewDigest, type PatternReviewRow } from './pattern-review'
-import { formatPolicyWeightMetaText } from './policy-weight-meta'
+import { formatTailBuyPolicyWeightText } from './tail-buy-policy-weight'
 import { tailBuyExecutionSemantics } from './tail-buy-semantics'
 
 export interface KlineRow {
@@ -548,17 +548,6 @@ function jsonMapOrNull(value: unknown): Record<string, unknown> | null {
   }
 }
 
-function tailBuyPolicyWeightText(row: Record<string, unknown>): string {
-  const features = jsonMapOrNull(row.features_json)
-  const multiplier = features ? numberOrNull(features.policy_weight_multiplier) : null
-  if (multiplier === null) return ''
-  const signal = String(features?.policy_weight_signal || row.signal_type || 'unknown')
-  const oldScore = features ? numberOrNull(features.policy_weight_old_score) : null
-  const newScore = features ? numberOrNull(features.policy_weight_new_score) : null
-  const scoreText = oldScore !== null && newScore !== null ? ` ${oldScore.toFixed(1)}→${newScore.toFixed(1)}` : ''
-  return ` | 归因调权 ${signal} x${multiplier.toFixed(2)}${scoreText}${formatPolicyWeightMetaText(features)}`
-}
-
 function normalizeReviewCode(value: unknown): string {
   const raw = String(value ?? '').trim()
   return /^\d+$/.test(raw) ? raw.padStart(6, '0') : raw
@@ -582,7 +571,7 @@ export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<s
       ? `入库${entry.toFixed(2)}→现价${current.toFixed(2)} ${change}`
       : '入库价-/现价-'
     const vwapGap = typeof r.dist_vwap_pct === 'number' ? `距VWAP${r.dist_vwap_pct.toFixed(1)}%` : '距VWAP-'
-    const policyWeight = tailBuyPolicyWeightText(r)
+    const policyWeight = formatTailBuyPolicyWeightText(r, { prefix: ' | 归因调权 ' })
     const execution = tailBuyExecutionSemantics({
       finalDecision: r.final_decision,
       signalType: r.signal_type,

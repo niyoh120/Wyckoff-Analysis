@@ -47,4 +47,6 @@ export { attributionExecutionImpactText, attributionOperatorSummary } from './at
 export type { AttributionExecutionImpactInput, AttributionOperatorAction, AttributionOperatorSummaryInput } from './attribution-summary'
 export { formatPolicyWeightMetaText } from './policy-weight-meta'
 export type { PolicyWeightMetaInput } from './policy-weight-meta'
+export { formatTailBuyPolicyWeightText, tailBuyPolicyWeightMultiplier } from './tail-buy-policy-weight'
+export type { TailBuyPolicyWeightFormatOptions, TailBuyPolicyWeightInput } from './tail-buy-policy-weight'
 export * from './chat-tools'
