@@ -614,6 +614,7 @@ function formatAttributionReport(row: Record<string, unknown>): string {
   const actions = jsonArray(row.recommendations_json).filter(isSignalAction).slice(0, 8)
   return [
     `策略归因报告 ${String(row.report_date || '-')}`,
+    '数据来源：远端 strategy_attribution_reports（Web 不读取本地 --no-write 报告）',
     `窗口：${String(row.window_start || '-')} 至 ${String(row.window_end || '-')}`,
     `策略治理：${String(governor.status || 'unknown')} / ${String(governor.mode_recommendation || 'keep_shadow')} / promotion=${String(governor.promotion_status || 'unknown')} / auto_apply=${Boolean(governor.auto_apply)}`,
     `治理摘要：${String(governor.summary || '-')}`,

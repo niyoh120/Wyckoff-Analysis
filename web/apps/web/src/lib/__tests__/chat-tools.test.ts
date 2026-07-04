@@ -350,6 +350,7 @@ describe('execQueryAttribution', () => {
     const result = await execQueryAttribution(deps, 1)
 
     expect(result).toContain('策略归因报告 2026-07-04')
+    expect(result).toContain('数据来源：远端 strategy_attribution_reports')
     expect(result).toContain('promotion=manual_review_required')
     expect(result).toContain('晋级检查：shadow_sample:pass；backtest_confirmation:review')
     expect(result).toContain('执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | promotion=manual_review_required | actions=1')
