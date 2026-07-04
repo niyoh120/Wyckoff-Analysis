@@ -40,7 +40,7 @@ def attribution_execution_state(
     else:
         scope = "tail_buy_only"
         summary = f"h={horizon} 信号级调权会影响尾盘策略；漏斗动态策略当前关闭。"
-    return {
+    state = {
         "funnel_dynamic_policy": mode,
         "horizon": horizon,
         "tail_buy_reads_attribution": action_count > 0,
@@ -57,6 +57,8 @@ def attribution_execution_state(
         "scope": scope,
         "summary": _auto_apply_note(summary, governor),
     }
+    state.update(attribution_active_scope_flags(state))
+    return state
 
 
 def attribution_formal_dynamic_allowed(governor: dict[str, Any]) -> bool:
@@ -67,6 +69,27 @@ def attribution_formal_dynamic_allowed(governor: dict[str, Any]) -> bool:
         str(governor.get("mode_recommendation") or "").strip() == "review_promote_dynamic_policy"
         or str(governor.get("promotion_status") or "").strip() == "manual_review_required"
     )
+
+
+def attribution_active_scope_flags(execution: dict[str, Any]) -> dict[str, Any]:
+    action_count = int(execution.get("signal_action_count") or 0)
+    scope = str(execution.get("scope") or "none").strip()
+    tail_active = action_count > 0 and scope in {"tail_buy_only", "tail_buy_and_funnel_shadow", "tail_buy_and_funnel"}
+    shadow_active = action_count > 0 and scope == "tail_buy_and_funnel_shadow"
+    formal_active = action_count > 0 and scope == "tail_buy_and_funnel"
+    labels = []
+    if tail_active:
+        labels.append("尾盘")
+    if formal_active:
+        labels.append("正式漏斗")
+    elif shadow_active:
+        labels.append("漏斗shadow")
+    return {
+        "active_scope": "+".join(labels) or "无",
+        "tail_buy_weights_active": tail_active,
+        "funnel_shadow_weights_active": shadow_active,
+        "funnel_formal_weights_active": formal_active,
+    }
 
 
 def funnel_dynamic_policy_mode(*, workflow_path: Path | None = None) -> str:

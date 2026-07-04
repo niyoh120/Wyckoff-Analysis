@@ -159,6 +159,10 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     assert result["latest_policy"]["promotion_status"] == "manual_review_required"
     assert result["latest_policy"]["promotion_checklist"][0]["key"] == "shadow_sample"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
+    assert result["latest_execution_state"]["active_scope"] == "尾盘+漏斗shadow"
+    assert result["latest_execution_state"]["tail_buy_weights_active"] is True
+    assert result["latest_execution_state"]["funnel_shadow_weights_active"] is True
+    assert result["latest_execution_state"]["funnel_formal_weights_active"] is False
     assert result["latest_execution_state"]["promotion_status"] == "manual_review_required"
     assert result["latest_operations"]["latest_shadow"]["trade_date"] == "2026-07-03"
     assert result["latest_operations"]["latest_shadow"]["diff_added_sample"] == ["300502", "688008"]
@@ -422,6 +426,10 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
     assert result["latest_policy"]["status"] == "candidate"
     assert result["latest_source"] == "remote"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel"
+    assert result["latest_execution_state"]["active_scope"] == "尾盘+正式漏斗"
+    assert result["latest_execution_state"]["tail_buy_weights_active"] is True
+    assert result["latest_execution_state"]["funnel_shadow_weights_active"] is False
+    assert result["latest_execution_state"]["funnel_formal_weights_active"] is True
     assert result["records"][0]["policy_governor"]["mode_recommendation"] == "review_promote_dynamic_policy"
     assert result["records"][0]["policy_governor"]["next_action"] == "manual_review_dynamic_on"
     assert result["records"][0]["policy_governor"]["promotion_status"] == "manual_review_required"

@@ -450,6 +450,10 @@ def test_attribution_execution_state_blocks_formal_on_without_governor_approval(
     assert state["scope"] == "tail_buy_and_funnel_shadow"
     assert state["formal_dynamic_allowed"] is False
     assert state["formal_dynamic_block_reason"] == "next_action=keep_static_policy"
+    assert state["active_scope"] == "尾盘+漏斗shadow"
+    assert state["tail_buy_weights_active"] is True
+    assert state["funnel_shadow_weights_active"] is True
+    assert state["funnel_formal_weights_active"] is False
     assert "未批准进入漏斗正式 dynamic" in state["summary"]
 
 

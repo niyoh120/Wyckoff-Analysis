@@ -197,7 +197,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "description": (
                         "'recommendation' 形态复盘；'signal' 信号确认池；'tail_buy' 尾盘买入；"
                         "'attribution' 策略归因治理器、latest_source/remote_error、latest_operator_summary、"
-                        "next_action、promotion_checklist、latest_execution_state 和 latest_operations；"
+                        "next_action、promotion_checklist、latest_execution_state(active_scope/生效标志) 和 latest_operations；"
                         "'archive' 历史上下文归档"
                     ),
                 },
