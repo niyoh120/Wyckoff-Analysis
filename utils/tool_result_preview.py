@@ -1361,7 +1361,7 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     conclusion_line = _text_excerpt(conclusion.get("line"), 280)
     guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
     etf_line = _screen_etf_brief_line(result.get("etf_enhancement"), result.get("etf_candidates"))
-    handoff_line = _next_tool_brief_line(result.get("next_tool"))
+    handoff_line = _screen_review_chain_line(result) or _next_tool_brief_line(result.get("next_tool"))
     reserved = int(bool(conclusion_line)) + int(bool(guard_line)) + int(bool(etf_line)) + int(bool(handoff_line))
     if scope_line and len(lines) < max_lines:
         lines.append(scope_line)
@@ -1390,6 +1390,27 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
         if len(lines) >= max_lines:
             break
     return lines[:max_lines]
+
+
+def _screen_review_chain_line(result: dict[str, Any]) -> str:
+    handoff = result.get("next_tool") if isinstance(result.get("next_tool"), dict) else {}
+    if handoff.get("tool") != "generate_ai_report":
+        return ""
+    diagnosis_call = _screen_diagnosis_call(result.get("diagnosis_targets"))
+    if not diagnosis_call:
+        return ""
+    report_call = _next_tool_call_text(handoff)
+    return f"复核链路: {diagnosis_call} → {report_call} · 先结构诊断，再研报复核"
+
+
+def _screen_diagnosis_call(value: Any) -> str:
+    if not isinstance(value, list):
+        return ""
+    for row in value:
+        if not isinstance(row, dict) or row.get("tool") != "analyze_stock":
+            continue
+        return _next_tool_call_text(row)
+    return ""
 
 
 def _screen_etf_enhancement_preview(value: Any) -> dict[str, Any]:
@@ -1423,15 +1444,21 @@ def _screen_etf_brief_line(metrics: Any, candidates: Any) -> str:
 
 
 def _next_tool_brief_line(value: Any) -> str:
+    call = _next_tool_call_text(value)
+    if not call:
+        return ""
+    reason = _text_excerpt(value.get("reason"), 80) if isinstance(value, dict) else ""
+    return f"下一工具: {call} · {reason}" if reason else f"下一工具: {call}"
+
+
+def _next_tool_call_text(value: Any) -> str:
     if not isinstance(value, dict):
         return ""
     tool = str(value.get("tool") or "").strip()
     if not tool:
         return ""
     args = _next_tool_args_text(value.get("args"))
-    call = f"{tool}({args})" if args else f"{tool}()"
-    reason = _text_excerpt(value.get("reason"), 80)
-    return f"下一工具: {call} · {reason}" if reason else f"下一工具: {call}"
+    return f"{tool}({args})" if args else f"{tool}()"
 
 
 def _next_tool_args_text(value: Any) -> str:

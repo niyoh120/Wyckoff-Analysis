@@ -461,6 +461,42 @@ def test_screen_stocks_brief_lines_surface_next_tool_handoff():
     ]
 
 
+def test_screen_stocks_brief_lines_surface_diagnosis_review_chain():
+    result = {
+        "scan_scope": {"scope": "bounded", "board": "all", "limit": 1200, "total_scanned": 1200},
+        "selection_brief": {
+            "headline": "本轮首选可进入 AI 研报复核: 002436 兴森科技",
+            "primary_pick": {
+                "code": "002436",
+                "name": "兴森科技",
+                "priority_score": 111.08,
+                "action_status": "confirmation_required",
+            },
+        },
+        "diagnosis_targets": [
+            {
+                "tool": "analyze_stock",
+                "args": {"code": "002436", "mode": "diagnose"},
+                "reason": "研报候选先做个股结构复核",
+            }
+        ],
+        "next_tool": {
+            "tool": "generate_ai_report",
+            "args": {"stock_codes": ["002436", "002245"]},
+            "reason": "首选候选已通过市场闸门，可进入 AI 研报复核",
+        },
+    }
+
+    lines = tool_result_brief_lines("screen_stocks", result, max_lines=4)
+
+    assert lines == [
+        "快扫: all 前1200只，实际扫描1200只",
+        "本轮首选可进入 AI 研报复核: 002436 兴森科技",
+        "复核链路: analyze_stock(code=002436, mode=diagnose) → generate_ai_report(stock_codes=002436,002245) · 先结构诊断，再研报复核",
+        "候选结论: 候选 002436 兴森科技 · 等待确认 · 证据: 优先分111.08",
+    ]
+
+
 def test_screen_stocks_brief_lines_surface_bounded_scan_scope():
     result = {
         "style_preference": {"raw": "pullback", "styles": ["pullback"]},
