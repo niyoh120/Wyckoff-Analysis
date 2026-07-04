@@ -248,7 +248,8 @@ limit 10;
 Agent 入口也读取同一份执行态，避免页面、CLI 和 Web 各说一套。CLI 使用
 `query_history(source="attribution")`，Web 读盘室使用 `query_attribution`；回答策略归因问题时先看
 数据来源。CLI/MCP 会返回 `latest_source` 和 `remote_error`，Web 只读取远端
-`strategy_attribution_reports`。随后必须看 `latest_execution_state` 和 `latest_operations`：
+`strategy_attribution_reports`；CLI/MCP 在远端表与本地 no-write 报告同时存在时按 `report_date`
+取最新。随后必须看 `latest_execution_state` 和 `latest_operations`：
 前者说明调权当前影响尾盘、漏斗 shadow 还是正式漏斗，后者给出最新 shadow 新增/移除样本和
 scoped 调权明细，用于每日运营复盘。
 

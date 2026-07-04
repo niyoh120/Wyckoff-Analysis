@@ -249,6 +249,61 @@ def test_query_history_attribution_falls_back_to_local_report(monkeypatch, tmp_p
     assert result["records"][0]["shadow"]["runs"] == 24
 
 
+def test_query_history_attribution_uses_newer_local_report(monkeypatch, tmp_path):
+    import json
+
+    from agents import history_tools
+
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
+    monkeypatch.setattr(
+        history_tools,
+        "_load_remote_attribution_rows",
+        lambda limit, tool_context: [
+            {
+                "report_date": "2026-07-03",
+                "window_start": "2026-05-04",
+                "window_end": "2026-07-03",
+                "shadow_diff_stats_json": {
+                    "count": 12,
+                    "policy_governor": {"status": "watch", "promotion_status": "keep_shadow"},
+                },
+                "recommendations_json": [],
+            }
+        ],
+    )
+    report_path = tmp_path / "report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "market": "cn",
+                "report_date": "2026-07-04",
+                "window_start": "2026-05-05",
+                "window_end": "2026-07-04",
+                "shadow_diff_stats_json": {
+                    "count": 24,
+                    "policy_governor": {
+                        "status": "candidate",
+                        "promotion_status": "manual_review_required",
+                        "promotion_checklist": [{"key": "shadow_sample", "status": "pass"}],
+                    },
+                },
+                "recommendations_json": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("STRATEGY_ATTRIBUTION_REPORT_JSON", str(report_path))
+
+    result = query_history(source="attribution", limit=2)
+
+    assert result["latest_source"] == "local"
+    assert result["latest_policy"]["promotion_status"] == "manual_review_required"
+    assert result["records"][0]["source"] == "local"
+    assert result["records"][0]["report_date"] == "2026-07-04"
+    assert result["records"][1]["source"] == "remote"
+    assert result["records"][1]["report_date"] == "2026-07-03"
+
+
 def test_query_attribution_exposes_policy_governor(monkeypatch):
     from integrations import supabase_base
 

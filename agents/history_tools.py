@@ -190,19 +190,22 @@ def _query_attribution(limit: int, tool_context: ToolContext | None = None) -> d
 
 
 def _load_attribution_rows(limit: int, tool_context: ToolContext | None) -> list[dict]:
+    rows: list[dict] = []
     remote_error: Exception | None = None
     try:
-        rows = _load_remote_attribution_rows(limit, tool_context)
-        if rows:
-            return [_with_attribution_source(row, "remote") for row in rows]
+        rows.extend(
+            _with_attribution_source(row, "remote") for row in _load_remote_attribution_rows(limit, tool_context)
+        )
     except Exception as exc:
         logger.warning("failed to load attribution reports from remote", exc_info=True)
         remote_error = exc
 
     local = _load_local_attribution_row()
     if local:
-        return [_with_attribution_source(local, "local", remote_error)]
-    if remote_error:
+        rows.append(_with_attribution_source(local, "local", remote_error))
+    if rows:
+        return _sort_attribution_rows(rows)[:limit]
+    if remote_error is not None:
         raise remote_error
     return []
 
@@ -236,6 +239,15 @@ def _with_attribution_source(row: dict, source: str, remote_error: Exception | N
     if remote_error:
         annotated["_remote_error"] = str(remote_error)
     return annotated
+
+
+def _sort_attribution_rows(rows: list[dict]) -> list[dict]:
+    return sorted(rows, key=_attribution_sort_key, reverse=True)
+
+
+def _attribution_sort_key(row: dict) -> tuple[str, int, str]:
+    source_rank = 1 if row.get("_source") == "remote" else 0
+    return (str(row.get("report_date") or ""), source_rank, str(row.get("created_at") or ""))
 
 
 def _attribution_record(row: dict) -> dict:
