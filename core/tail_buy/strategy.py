@@ -23,6 +23,7 @@ from core.intraday_analysis import (
     ensure_intraday_df,
     infer_session_vwap,
 )
+from core.strategy_policy_governor import resolve_signal_weight_multiplier
 from core.tail_buy.guardrails import tail_candidate_veto_reasons, tail_entry_veto_reasons, tail_hard_veto_reasons
 from core.tail_buy.models import (
     DECISION_BUY,
@@ -965,7 +966,7 @@ def apply_policy_weight_adjustments(
         return candidates
     floor = max(safe_float(min_buy_score, 72.0), 0.0)
     for item in candidates:
-        multiplier = _policy_multiplier_for_signal(item.signal_type, signal_weights)
+        multiplier = _policy_multiplier_for_signal(item, signal_weights)
         if multiplier == 1.0:
             continue
         old_score = safe_float(item.rule_score, 0.0)
@@ -999,14 +1000,17 @@ def apply_policy_weight_adjustments(
     return candidates
 
 
-def _policy_multiplier_for_signal(signal_type: str, signal_weights: dict[str, float]) -> float:
-    signal = str(signal_type or "").strip().lower()
+def _policy_multiplier_for_signal(item: TailBuyCandidate, signal_weights: dict[str, float]) -> float:
+    signal = str(item.signal_type or item.signal_key or "").strip().lower()
     if not signal:
         return 1.0
-    value = safe_float(signal_weights.get(signal), 1.0)
-    if value <= 0 or abs(value - 1.0) < 1e-9:
-        return 1.0
-    return max(0.4, min(value, 1.3))
+    return resolve_signal_weight_multiplier(
+        signal_weights,
+        signal,
+        regime=item.market_regime,
+        lane=item.candidate_lane,
+        entry_type=item.entry_type,
+    )
 
 
 def merge_rule_and_llm(

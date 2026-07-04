@@ -165,6 +165,36 @@ def test_all_formal_l4_selection_applies_signal_weight_map() -> None:
     assert track_map == {"000001": "Trend", "000002": "Accum"}
 
 
+def test_all_formal_l4_selection_applies_scoped_regime_signal_weight() -> None:
+    result = FunnelResult(
+        layer1_symbols=["000001", "000002"],
+        layer2_symbols=["000001", "000002"],
+        layer3_symbols=["000001", "000002"],
+        top_sectors=[],
+        triggers={"sos": [("000001", 8.0)], "lps": [("000002", 12.0)]},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={"000001": "点火破局", "000002": "地量蓄势"},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+    )
+
+    codes, score_map, track_map = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="RISK_ON",
+        selection_mode="all_formal_l4",
+        signal_weight_map={"lps|regime=RISK_ON": 0.4},
+    )
+
+    assert codes == ["000001", "000002"]
+    assert score_map["000001"] == 8.0
+    assert score_map["000002"] == pytest.approx(4.8)
+    assert track_map == {"000001": "Trend", "000002": "Accum"}
+
+
 def test_tradeable_l4_selection_uses_formal_l4_without_l3_fallback() -> None:
     result = FunnelResult(
         layer1_symbols=[],
@@ -283,6 +313,46 @@ def test_tradeable_l4_candidate_board_applies_signal_weight_map() -> None:
     assert codes == ["000001", "000002"]
     assert score_map == {"000001": 70.0, "000002": 45.0}
     assert track_map == {"000001": "Trend", "000002": "Trend"}
+
+
+def test_tradeable_l4_candidate_board_applies_scoped_signal_weight_map() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {
+                "code": "000001",
+                "track": "future_leader",
+                "entry_type": "wyckoff_structure",
+                "candidate_lane": "trend_pullback",
+                "signal_key": "lps",
+                "score": 90.0,
+            },
+        ],
+    )
+
+    codes, score_map, track_map = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="RISK_ON",
+        selection_mode="tradeable_l4",
+        candidate_policy=CandidatePolicyConfig(loss_guard_enabled=False),
+        signal_weight_map={"lps|regime=RISK_ON|lane=trend_pullback|entry=wyckoff_structure": 0.5},
+    )
+
+    assert codes == ["000001"]
+    assert score_map == {"000001": 45.0}
+    assert track_map == {"000001": "Trend"}
 
 
 def test_tradeable_l4_candidate_board_allows_high_score_risk_on_early_breakout() -> None:

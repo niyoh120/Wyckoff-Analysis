@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.candidate_tracks import candidate_entry_sort_key, candidate_entry_track
+from core.strategy_policy_governor import resolve_signal_weight_multiplier
 
 TREND_CHANNEL_TAGS = {"主升通道", "趋势延续", "点火破局", "加速突破"}
 ACCUM_CHANNEL_TAGS = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护盘"}
@@ -127,7 +128,7 @@ def allocate_ai_candidates(
     )
     policy = _allocation_policy(raw_policy)
     hit_sets = _hit_sets(_result_map(result, "triggers"))
-    pools = _candidate_pools(result, l3_ranked_symbols, hit_sets, signal_weight_map or {})
+    pools = _candidate_pools(result, l3_ranked_symbols, hit_sets, signal_weight_map or {}, regime)
     score_map = _score_map(pools)
     if policy.total_cap <= 0:
         return [], [], score_map
@@ -140,8 +141,9 @@ def _candidate_pools(
     l3_ranked_symbols: list[str],
     hit_sets: dict[str, set[str]],
     signal_weight_map: dict[str, float],
+    regime: str,
 ) -> CandidatePools:
-    score_candidate = _build_candidate_priority_scorer(result, hit_sets, signal_weight_map)
+    score_candidate = _build_candidate_priority_scorer(result, hit_sets, signal_weight_map, regime)
     sos_hit_set = hit_sets["sos"]
     pools = _entry_candidate_pools(result, sos_hit_set)
     _add_markup_candidates(pools, result, hit_sets, score_candidate)
@@ -483,6 +485,7 @@ def _build_candidate_priority_scorer(
     result: Any,
     hit_sets: dict[str, set[str]],
     signal_weight_map: dict[str, float],
+    regime: str,
 ) -> Callable[[str, bool], float]:
     markup_set = _result_set(result, "markup_symbols")
     spring_hits = hit_sets.get("spring", set())
@@ -507,8 +510,9 @@ def _build_candidate_priority_scorer(
             compression_hits,
             trend_pb_hits,
             signal_weight_map,
+            regime,
         )
-        value += _track_alignment_bonus(code, is_trend_side, hit_sets, signal_weight_map)
+        value += _track_alignment_bonus(code, is_trend_side, hit_sets, signal_weight_map, regime)
         value += _layer3_rank_bonus(code, l3_score_map)
         return value + _exit_penalty(result, code)
 
@@ -535,13 +539,14 @@ def _trigger_score(
     compression_hits: set[str],
     trend_pb_hits: set[str],
     weights: dict[str, float],
+    regime: str,
 ) -> float:
-    value = (50.0 if code in other_hits else 15.0) * _signal_weight(weights, "sos") if code in sos_hits else 0.0
-    value += 45.0 * _signal_weight(weights, "spring") if code in spring_hits else 0.0
-    value += 30.0 * _signal_weight(weights, "lps") if code in lps_hits else 0.0
-    value += 12.0 * _signal_weight(weights, "evr") if code in evr_hits else 0.0
-    value += 22.0 * _signal_weight(weights, "compression") if code in compression_hits else 0.0
-    value += 34.0 * _signal_weight(weights, "trend_pullback") if code in trend_pb_hits else 0.0
+    value = (50.0 if code in other_hits else 15.0) * _signal_weight(weights, "sos", regime) if code in sos_hits else 0.0
+    value += 45.0 * _signal_weight(weights, "spring", regime) if code in spring_hits else 0.0
+    value += 30.0 * _signal_weight(weights, "lps", regime) if code in lps_hits else 0.0
+    value += 12.0 * _signal_weight(weights, "evr", regime) if code in evr_hits else 0.0
+    value += 22.0 * _signal_weight(weights, "compression", regime) if code in compression_hits else 0.0
+    value += 34.0 * _signal_weight(weights, "trend_pullback", regime) if code in trend_pb_hits else 0.0
     return value
 
 
@@ -550,14 +555,19 @@ def _track_alignment_bonus(
     is_trend_side: bool,
     hit_sets: dict[str, set[str]],
     weights: dict[str, float],
+    regime: str,
 ) -> float:
     if is_trend_side and (code in hit_sets["sos"] or code in hit_sets["evr"] or code in hit_sets["trend_pullback"]):
         return 10.0 * max(
-            _signal_weight(weights, "sos"), _signal_weight(weights, "evr"), _signal_weight(weights, "trend_pullback")
+            _signal_weight(weights, "sos", regime),
+            _signal_weight(weights, "evr", regime),
+            _signal_weight(weights, "trend_pullback", regime),
         )
     if not is_trend_side and (code in hit_sets["spring"] or code in hit_sets["lps"] or code in hit_sets["compression"]):
         return 10.0 * max(
-            _signal_weight(weights, "spring"), _signal_weight(weights, "lps"), _signal_weight(weights, "compression")
+            _signal_weight(weights, "spring", regime),
+            _signal_weight(weights, "lps", regime),
+            _signal_weight(weights, "compression", regime),
         )
     return 0.0
 
@@ -734,8 +744,8 @@ def _all_trigger_rows(triggers: dict[str, list[tuple[str, float]]]) -> list[tupl
     return rows
 
 
-def _signal_weight(weights: dict[str, float], signal_type: str) -> float:
-    return max(float(weights.get(signal_type, 1.0) or 0.0), 0.0)
+def _signal_weight(weights: dict[str, float], signal_type: str, regime: str) -> float:
+    return max(resolve_signal_weight_multiplier(weights, signal_type, regime=regime), 0.0)
 
 
 def _score(item: tuple[str, float]) -> float:

@@ -26,6 +26,7 @@ def build_strategy_attribution_payload(
     joined = join_outcomes(outcomes, observations)
     focus_horizon = 3 if 3 in horizons else horizons[0]
     signal_stats = group_stats(joined, "signal_type", horizons)
+    signal_context_stats = signal_context_stats_json(joined, horizons)
     score_stats = score_stats_json(
         joined,
         horizons,
@@ -35,6 +36,7 @@ def build_strategy_attribution_payload(
     shadow = shadow_stats(shadow_runs, joined, horizons)
     governor = build_strategy_policy_governor(
         signal_stats_json=signal_stats,
+        signal_context_stats_json=signal_context_stats,
         shadow_diff_stats_json=shadow,
         horizons=horizons,
     )
@@ -47,6 +49,7 @@ def build_strategy_attribution_payload(
         "horizons": horizons,
         "summary_json": group_stats(joined, "horizon_days", horizons),
         "signal_stats_json": signal_stats,
+        "signal_context_stats_json": signal_context_stats,
         "score_bucket_stats_json": score_stats,
         "shadow_diff_stats_json": shadow,
         "top_winners_json": ranked_outcomes(joined, focus_horizon, reverse=True),
@@ -79,6 +82,45 @@ def group_stats(rows: list[dict[str, Any]], group_key: str, horizons: list[int])
             groups[str(row.get(group_key) or "unknown")].append(row)
         result[str(horizon)] = {key: stats(group_rows) for key, group_rows in sorted(groups.items())}
     return result
+
+
+def signal_context_stats_json(rows: list[dict[str, Any]], horizons: list[int]) -> dict[str, list[dict[str, Any]]]:
+    result: dict[str, list[dict[str, Any]]] = {}
+    for horizon in horizons:
+        grouped = _signal_context_groups(rows, horizon)
+        result[str(horizon)] = [_signal_context_row(key, group_rows) for key, group_rows in sorted(grouped.items())]
+    return result
+
+
+def _signal_context_groups(
+    rows: list[dict[str, Any]], horizon: int
+) -> dict[tuple[str, str, str, str], list[dict[str, Any]]]:
+    groups: dict[tuple[str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        if int(row.get("horizon_days") or 0) != int(horizon):
+            continue
+        groups[_signal_context_key(row)].append(row)
+    return groups
+
+
+def _signal_context_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(row.get("signal_type") or "unknown").strip().lower() or "unknown",
+        str(row.get("regime") or "ALL").strip().upper() or "ALL",
+        str(row.get("candidate_lane") or "unknown").strip().lower() or "unknown",
+        str(row.get("entry_type") or "unknown").strip().lower() or "unknown",
+    )
+
+
+def _signal_context_row(key: tuple[str, str, str, str], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    signal, regime, lane, entry_type = key
+    return {
+        "signal_type": signal,
+        "regime": regime,
+        "candidate_lane": lane,
+        "entry_type": entry_type,
+        **stats(rows),
+    }
 
 
 def score_stats_json(

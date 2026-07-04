@@ -126,9 +126,13 @@ def merge_signal_weight_maps(*maps: dict[str, float] | None) -> dict[str, float]
 
 
 def _track_weights(signal_weights: dict[str, float]) -> tuple[float, float]:
-    trend = [w for sig, w in signal_weights.items() if signal_track(sig) == "Trend"]
-    accum = [w for sig, w in signal_weights.items() if signal_track(sig) == "Accum"]
+    trend = [w for sig, w in signal_weights.items() if signal_track(_base_signal_key(sig)) == "Trend"]
+    accum = [w for sig, w in signal_weights.items() if signal_track(_base_signal_key(sig)) == "Accum"]
     return (float(mean(trend)) if trend else 1.0, float(mean(accum)) if accum else 1.0)
+
+
+def _base_signal_key(raw: Any) -> str:
+    return str(raw or "").split("|", 1)[0].strip()
 
 
 def _apply_breadth_bias(trend_weight: float, accum_weight: float, breadth: dict | None) -> tuple[float, float]:

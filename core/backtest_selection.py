@@ -19,9 +19,9 @@ from core.candidate_tracks import (
     candidate_entry_key,
     candidate_entry_sort_key,
     candidate_entry_track,
-    normalize_candidate_entry_key,
 )
 from core.sector_rotation import analyze_sector_rotation
+from core.strategy_policy_governor import resolve_signal_weight_multiplier
 from core.wyckoff_engine import FunnelConfig, FunnelResult
 
 TRADEABLE_L4_SELECTION_MODES = {"tradeable_l4"}
@@ -49,6 +49,8 @@ SIGNAL_WEIGHT_ALIASES = {
 def combine_trigger_scores(
     triggers: dict[str, list[tuple[str, float]]],
     signal_weight_map: dict[str, float] | None = None,
+    *,
+    regime: str = "",
 ) -> dict[str, tuple[float, str]]:
     reason_map: dict[str, list[str]] = {}
     score_map: dict[str, float] = {}
@@ -62,7 +64,7 @@ def combine_trigger_scores(
             reason_map[code_s].append(key)
             score_map[code_s] = max(
                 candidate_score_value(score_map.get(code_s)),
-                candidate_score_value(score) * signal_weight_multiplier(key, signal_weight_map),
+                candidate_score_value(score) * signal_weight_multiplier(key, signal_weight_map, regime=regime),
             )
     return {code: (score_map.get(code, 0.0), "、".join(reasons)) for code, reasons in reason_map.items()}
 
@@ -145,7 +147,7 @@ def select_ai_input_codes(
     ai_allocation: AiCandidateAllocationConfig | None = None,
     signal_weight_map: dict[str, float] | None = None,
 ) -> tuple[list[str], dict[str, float], dict[str, str]]:
-    merged_trigger_map = combine_trigger_scores(result.triggers, signal_weight_map)
+    merged_trigger_map = combine_trigger_scores(result.triggers, signal_weight_map, regime=regime)
     hit_score_map = {code: candidate_score_value(value[0]) for code, value in merged_trigger_map.items()}
     sorted_hit_codes = sorted(merged_trigger_map.keys(), key=lambda code: -hit_score_map.get(code, 0.0))
     l4_selection = _select_l4_mode_codes(
@@ -256,15 +258,15 @@ def _select_candidate_entries(
     )
     entries = sorted(
         best_entries.values(),
-        key=lambda item: weighted_candidate_entry_sort_key(item, signal_weight_map),
+        key=lambda item: weighted_candidate_entry_sort_key(item, signal_weight_map, regime=regime),
     )
     selected_codes = dedup_order([str(item.get("code", "")).strip() for item in entries])
-    score_map, track_map = _candidate_entry_maps(entries, signal_weight_map)
+    score_map, track_map = _candidate_entry_maps(entries, signal_weight_map, regime=regime)
     return selected_codes, score_map, track_map
 
 
 def _candidate_entry_maps(
-    entries: list[dict[str, object]], signal_weight_map: dict[str, float] | None
+    entries: list[dict[str, object]], signal_weight_map: dict[str, float] | None, *, regime: str
 ) -> tuple[dict[str, float], dict[str, str]]:
     score_map: dict[str, float] = {}
     track_map: dict[str, str] = {}
@@ -272,7 +274,7 @@ def _candidate_entry_maps(
         code = str(item.get("code", "")).strip()
         if not code:
             continue
-        score = weighted_candidate_entry_score(item, signal_weight_map)
+        score = weighted_candidate_entry_score(item, signal_weight_map, regime=regime)
         if code not in score_map or score > score_map[code]:
             score_map[code] = score
             track_map[code] = candidate_entry_track(item)
@@ -296,7 +298,7 @@ def candidate_entry_loss_guard(
         code,
         regime,
         [entry_type],
-        weighted_candidate_entry_score(item, signal_weight_map),
+        weighted_candidate_entry_score(item, signal_weight_map, regime=regime),
         str(result.channel_map.get(code, "") or ""),
         day_df_map,
         config=candidate_policy,
@@ -350,37 +352,60 @@ def _apply_min_score(selected_codes: list[str], score_map: dict[str, float]) -> 
 def weighted_candidate_entry_sort_key(
     item: dict[str, object],
     signal_weight_map: dict[str, float] | None,
+    *,
+    regime: str = "",
 ) -> tuple[int, float, str]:
     priority, _score, code = candidate_entry_sort_key(item)
-    return priority, -weighted_candidate_entry_score(item, signal_weight_map), code
+    return priority, -weighted_candidate_entry_score(item, signal_weight_map, regime=regime), code
 
 
-def weighted_candidate_entry_score(item: dict[str, object], signal_weight_map: dict[str, float] | None) -> float:
-    return candidate_score_value(item.get("score")) * _candidate_entry_multiplier(item, signal_weight_map)
+def weighted_candidate_entry_score(
+    item: dict[str, object],
+    signal_weight_map: dict[str, float] | None,
+    *,
+    regime: str = "",
+) -> float:
+    return candidate_score_value(item.get("score")) * _candidate_entry_multiplier(
+        item, signal_weight_map, regime=regime
+    )
 
 
-def _candidate_entry_multiplier(item: dict[str, object], signal_weight_map: dict[str, float] | None) -> float:
+def _candidate_entry_multiplier(
+    item: dict[str, object],
+    signal_weight_map: dict[str, float] | None,
+    *,
+    regime: str,
+) -> float:
     key = candidate_entry_key(item, fields=("signal_key", "entry_type", "lane"))
-    return signal_weight_multiplier(key, signal_weight_map)
+    return signal_weight_multiplier(
+        key,
+        signal_weight_map,
+        regime=regime,
+        lane=item.get("candidate_lane") or item.get("lane"),
+        entry_type=item.get("entry_type"),
+    )
 
 
-def signal_weight_multiplier(signal_type: object, signal_weight_map: dict[str, float] | None) -> float:
-    if not signal_weight_map:
-        return 1.0
-    key = normalize_candidate_entry_key(signal_type)
-    aliases = (key, SIGNAL_WEIGHT_ALIASES.get(key, ""))
-    for alias in aliases:
-        value = _bounded_signal_weight(signal_weight_map.get(alias))
+def signal_weight_multiplier(
+    signal_type: object,
+    signal_weight_map: dict[str, float] | None,
+    *,
+    regime: str = "",
+    lane: object = "",
+    entry_type: object = "",
+) -> float:
+    for alias in _signal_aliases(signal_type):
+        value = resolve_signal_weight_multiplier(
+            signal_weight_map,
+            alias,
+            regime=regime,
+            lane=lane,
+            entry_type=entry_type,
+        )
         if value != 1.0:
             return value
     return 1.0
 
 
-def _bounded_signal_weight(raw: object) -> float:
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return 1.0
-    if not pd.notna(value) or value <= 0:
-        return 1.0
-    return max(0.4, min(value, 1.3))
+def _signal_aliases(signal_type: object) -> tuple[object, object]:
+    return signal_type, SIGNAL_WEIGHT_ALIASES.get(str(signal_type or "").strip().lower(), "")

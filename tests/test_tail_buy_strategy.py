@@ -217,6 +217,34 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
     assert "调权后低于买入线，尾盘只观察" in result[0].rule_reasons
 
 
+def test_apply_policy_weight_adjustments_uses_scoped_signal_weight():
+    candidate = TailBuyCandidate(
+        code="000003",
+        name="分桶弱信号",
+        signal_date="2026-07-01",
+        status="confirmed",
+        signal_type="lps",
+        signal_score=80.0,
+        rule_score=80.0,
+        rule_decision=DECISION_BUY,
+        final_decision=DECISION_BUY,
+        priority_score=80.0,
+        market_regime="RISK_ON",
+        candidate_lane="trend_pullback",
+        entry_type="wyckoff_structure",
+    )
+
+    result = apply_policy_weight_adjustments(
+        [candidate],
+        {"lps|regime=RISK_ON|lane=trend_pullback|entry=wyckoff_structure": 0.5},
+    )
+
+    assert result[0].rule_decision == DECISION_WATCH
+    assert result[0].final_decision == DECISION_WATCH
+    assert result[0].rule_score == 40.0
+    assert result[0].features["policy_weight_multiplier"] == 0.5
+
+
 def test_apply_policy_weight_adjustments_upweight_does_not_auto_buy():
     candidate = TailBuyCandidate(
         code="000002",

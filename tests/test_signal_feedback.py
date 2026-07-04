@@ -631,6 +631,25 @@ def test_dynamic_policy_shifts_quota_toward_healthier_track():
     assert policy["trend_quota"] > policy["accum_quota"]
 
 
+def test_dynamic_policy_tracks_scoped_weight_by_base_signal():
+    base = {
+        "quota_family": "NEUTRAL",
+        "total_cap": 10,
+        "requested_trend_quota": 5,
+        "requested_accum_quota": 5,
+        "trend_quota": 5,
+        "accum_quota": 5,
+    }
+
+    policy = resolve_dynamic_candidate_policy(
+        base,
+        {"sos|regime=RISK_ON": 1.0, "lps|regime=RISK_ON|lane=trend_pullback": 0.4},
+    )
+
+    assert policy["quota_family"] == "NEUTRAL+DYNAMIC"
+    assert policy["trend_quota"] > policy["accum_quota"]
+
+
 def test_dynamic_policy_uses_configured_feedback_horizon():
     weights = build_signal_weight_map(
         [

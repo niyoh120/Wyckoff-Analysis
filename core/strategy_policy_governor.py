@@ -6,8 +6,9 @@ import json
 import math
 from typing import Any
 
-VERSION = "strategy_policy_governor_v1"
+VERSION = "strategy_policy_governor_v2"
 MIN_SIGNAL_SAMPLES = 10
+MIN_CONTEXT_SAMPLES = 5
 MIN_SHADOW_RUNS = 10
 MIN_SHADOW_MATCHED = 3
 EXCLUDED_SIGNAL_TARGETS = {"unknown", "shadow_added", "shadow_removed"}
@@ -16,27 +17,30 @@ EXCLUDED_SIGNAL_TARGETS = {"unknown", "shadow_added", "shadow_removed"}
 def build_strategy_policy_governor(
     *,
     signal_stats_json: dict[str, Any],
+    signal_context_stats_json: dict[str, Any] | None = None,
     shadow_diff_stats_json: dict[str, Any],
     horizons: list[int],
 ) -> dict[str, Any]:
     horizon = _focus_horizon(horizons)
     shadow_gate = _shadow_gate(shadow_diff_stats_json, horizon)
     signal_actions = _signal_actions(signal_stats_json)
+    context_actions = _context_actions(signal_context_stats_json or {})
     return {
         "version": VERSION,
         "horizon": str(horizon),
-        "status": _governor_status(shadow_gate, signal_actions),
+        "status": _governor_status(shadow_gate, signal_actions + context_actions),
         "auto_apply": False,
         "mode_recommendation": _mode_recommendation(shadow_gate),
         "shadow_gate": shadow_gate,
         "signal_actions": signal_actions,
+        "context_actions": context_actions,
         "summary": _summary(shadow_gate, signal_actions),
     }
 
 
 def governor_recommendation_rows(governor: dict[str, Any]) -> list[dict[str, str]]:
     rows = [_governor_summary_row(governor)]
-    for action in governor.get("signal_actions") or []:
+    for action in (governor.get("signal_actions") or []) + (governor.get("context_actions") or []):
         if not isinstance(action, dict) or action.get("action") == "hold":
             continue
         rows.append(
@@ -67,8 +71,70 @@ def signal_weight_multipliers_from_rows(
             continue
         multiplier = _bounded_multiplier(action.get("weight_multiplier"), str(action.get("action") or ""))
         if multiplier != 1.0:
-            weights[target] = multiplier
+            weights[_action_weight_key(action)] = multiplier
     return dict(sorted(weights.items()))
+
+
+def scoped_signal_weight_key(
+    signal_type: Any,
+    *,
+    regime: Any = "",
+    lane: Any = "",
+    entry_type: Any = "",
+) -> str:
+    signal = _norm_key(signal_type)
+    parts = [signal]
+    regime_text = str(regime or "").strip().upper()
+    lane_text = _norm_key(lane)
+    entry_text = _norm_key(entry_type)
+    if regime_text and regime_text != "ALL":
+        parts.append(f"regime={regime_text}")
+    if lane_text and lane_text != "unknown":
+        parts.append(f"lane={lane_text}")
+    if entry_text and entry_text != "unknown":
+        parts.append(f"entry={entry_text}")
+    return "|".join(parts)
+
+
+def signal_weight_lookup_keys(
+    signal_type: Any,
+    *,
+    regime: Any = "",
+    lane: Any = "",
+    entry_type: Any = "",
+) -> list[str]:
+    signal = _norm_key(signal_type)
+    regime_text = str(regime or "").strip().upper()
+    lane_text = _norm_key(lane)
+    entry_text = _norm_key(entry_type)
+    keys = [
+        scoped_signal_weight_key(signal, regime=regime_text, lane=lane_text, entry_type=entry_text),
+        scoped_signal_weight_key(signal, regime=regime_text, lane=lane_text),
+        scoped_signal_weight_key(signal, regime=regime_text, entry_type=entry_text),
+        scoped_signal_weight_key(signal, lane=lane_text, entry_type=entry_text),
+        scoped_signal_weight_key(signal, regime=regime_text),
+        scoped_signal_weight_key(signal, lane=lane_text),
+        scoped_signal_weight_key(signal, entry_type=entry_text),
+        signal,
+    ]
+    return _dedup(keys)
+
+
+def resolve_signal_weight_multiplier(
+    weights: dict[str, float] | None,
+    signal_type: Any,
+    *,
+    regime: Any = "",
+    lane: Any = "",
+    entry_type: Any = "",
+) -> float:
+    if not weights:
+        return 1.0
+    for key in signal_weight_lookup_keys(signal_type, regime=regime, lane=lane, entry_type=entry_type):
+        value = _bounded_runtime_weight(weights.get(key))
+        if value != 1.0:
+            return value
+    return 1.0
 
 
 def _focus_horizon(horizons: list[int]) -> int:
@@ -160,11 +226,53 @@ def _signal_actions(signal_stats_json: dict[str, Any]) -> list[dict[str, Any]]:
     return actions
 
 
-def _signal_action(horizon: str, signal: str, stats: dict[str, Any]) -> dict[str, Any] | None:
+def _context_actions(context_stats_json: dict[str, Any]) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    for horizon, rows in sorted((context_stats_json or {}).items(), key=lambda item: int(item[0])):
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            action = _context_action(str(horizon), row if isinstance(row, dict) else {})
+            if action:
+                actions.append(action)
+    return actions
+
+
+def _context_action(horizon: str, row: dict[str, Any]) -> dict[str, Any] | None:
+    signal = _norm_key(row.get("signal_type"))
+    if signal in EXCLUDED_SIGNAL_TARGETS:
+        return None
+    count = int(row.get("count") or 0)
+    if count < MIN_CONTEXT_SAMPLES:
+        return None
+    scope = _context_scope(row)
+    action = _signal_action(horizon, signal, row, min_samples=MIN_CONTEXT_SAMPLES)
+    if not action or action.get("action") == "hold":
+        return None
+    action["scope"] = scope
+    action["scoped_target"] = scoped_signal_weight_key(signal, **scope)
+    return action
+
+
+def _context_scope(row: dict[str, Any]) -> dict[str, str]:
+    return {
+        "regime": str(row.get("regime") or "").strip().upper(),
+        "lane": _norm_key(row.get("candidate_lane")),
+        "entry_type": _norm_key(row.get("entry_type")),
+    }
+
+
+def _signal_action(
+    horizon: str,
+    signal: str,
+    stats: dict[str, Any],
+    *,
+    min_samples: int = MIN_SIGNAL_SAMPLES,
+) -> dict[str, Any] | None:
     if signal in EXCLUDED_SIGNAL_TARGETS:
         return None
     count = int(stats.get("count") or 0)
-    if count < MIN_SIGNAL_SAMPLES:
+    if count < min_samples:
         return None
     avg_return = _num(stats.get("avg_return_pct"), 0.0)
     win_rate = _num(stats.get("win_rate_pct"), 0.0)
@@ -268,7 +376,25 @@ def _action_from_recommendation_row(row: dict[str, Any]) -> dict[str, Any] | Non
         "horizon": payload.get("horizon") or row.get("horizon"),
         "target": payload.get("target") or row.get("target"),
         "weight_multiplier": payload.get("weight_multiplier"),
+        "scope": payload.get("scope") if isinstance(payload.get("scope"), dict) else {},
     }
+
+
+def _action_weight_key(action: dict[str, Any]) -> str:
+    scope = action.get("scope") if isinstance(action.get("scope"), dict) else {}
+    return scoped_signal_weight_key(
+        action.get("target"),
+        regime=scope.get("regime"),
+        lane=scope.get("lane"),
+        entry_type=scope.get("entry_type"),
+    )
+
+
+def _bounded_runtime_weight(raw: Any) -> float:
+    value = _num(raw)
+    if value is None or value <= 0:
+        return 1.0
+    return round(max(0.4, min(value, 1.3)), 2)
 
 
 def _bounded_multiplier(raw: Any, action: str) -> float:
@@ -289,6 +415,18 @@ def _num(raw: Any, default: float | None = None) -> float | None:
     except (TypeError, ValueError):
         return default
     return value if math.isfinite(value) else default
+
+
+def _norm_key(raw: Any) -> str:
+    return str(raw or "").strip().lower().replace("-", "_").replace(" ", "_") or "unknown"
+
+
+def _dedup(values: list[str]) -> list[str]:
+    out: list[str] = []
+    for value in values:
+        if value and value not in out:
+            out.append(value)
+    return out
 
 
 def _round(raw: Any) -> float | None:

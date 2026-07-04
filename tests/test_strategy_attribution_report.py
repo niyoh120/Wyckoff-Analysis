@@ -203,6 +203,65 @@ def test_attribution_policy_governor_promotes_shadow_review_and_signal_actions()
     assert {row["type"] for row in rows} >= {"policy_governor", "downweight", "upweight"}
 
 
+def test_attribution_policy_governor_emits_scoped_context_weight():
+    import workflows.strategy_attribution_stats as stats_mod
+    from core.strategy_policy_governor import signal_weight_multipliers_from_rows
+
+    observations = [
+        {
+            "id": idx,
+            "trade_date": "2026-06-01",
+            "code": f"00000{idx}",
+            "signal_type": "lps",
+            "regime": "RISK_ON",
+            "candidate_lane": "trend_pullback",
+            "entry_type": "wyckoff_structure",
+        }
+        for idx in range(1, 6)
+    ]
+    outcomes = [
+        {
+            "observation_id": idx,
+            "trade_date": "2026-06-01",
+            "code": f"00000{idx}",
+            "horizon_days": 5,
+            "return_pct": -2.0,
+            "max_drawdown_pct": -11.0,
+        }
+        for idx in range(1, 6)
+    ]
+
+    payload = stats_mod.build_strategy_attribution_payload(
+        report_date=stats_mod.date(2026, 7, 4),
+        market="cn",
+        window_start=stats_mod.date(2026, 5, 5),
+        window_end=stats_mod.date(2026, 7, 4),
+        horizons=[5],
+        observations=observations,
+        outcomes=outcomes,
+        shadow_runs=[],
+    )
+
+    context_rows = payload["signal_context_stats_json"]["5"]
+    weights = signal_weight_multipliers_from_rows(payload["recommendations_json"], horizon=5)
+
+    assert len(context_rows) == 1
+    expected_context = {
+        "signal_type": "lps",
+        "regime": "RISK_ON",
+        "candidate_lane": "trend_pullback",
+        "entry_type": "wyckoff_structure",
+        "count": 5,
+        "avg_return_pct": -2.0,
+        "win_rate_pct": 0.0,
+        "big_loss_rate_pct": 0.0,
+        "avg_drawdown_pct": -11.0,
+    }
+    for key, value in expected_context.items():
+        assert context_rows[0][key] == value
+    assert weights == {"lps|regime=RISK_ON|lane=trend_pullback|entry=wyckoff_structure": 0.75}
+
+
 def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
     import workflows.strategy_attribution_report as report_mod
 
@@ -398,9 +457,22 @@ def test_signal_weight_multipliers_ignore_governor_and_wrong_horizon():
             "target": "unknown",
             "reason": '{"action":"downweight","horizon":"5","target":"unknown","weight_multiplier":0.5}',
         },
+        {
+            "type": "downweight",
+            "horizon": "5",
+            "target": "evr",
+            "reason": (
+                '{"action":"downweight","horizon":"5","target":"evr","weight_multiplier":0.75,'
+                '"scope":{"regime":"RISK_ON","lane":"trend_pullback","entry_type":"wyckoff_structure"}}'
+            ),
+        },
     ]
 
-    assert signal_weight_multipliers_from_rows(rows, horizon=5) == {"lps": 0.5, "sos": 1.15}
+    assert signal_weight_multipliers_from_rows(rows, horizon=5) == {
+        "evr|regime=RISK_ON|lane=trend_pullback|entry=wyckoff_structure": 0.75,
+        "lps": 0.5,
+        "sos": 1.15,
+    }
 
 
 def test_attribution_observation_coverage_marks_current_and_legacy():

@@ -108,6 +108,37 @@ class TestAllocateAiCandidates:
 
         assert scores["000001"] > scores["000002"]
 
+    def test_regime_scoped_weight_changes_ai_candidate_scores(self):
+        result = FunnelResult(
+            layer1_symbols=["000001", "000002"],
+            layer2_symbols=["000001", "000002"],
+            layer3_symbols=["000001", "000002"],
+            top_sectors=[],
+            triggers={"sos": [("000001", 4.0)], "evr": [("000002", 4.0)]},
+            stage_map={},
+            markup_symbols=[],
+            exit_signals={},
+            channel_map={"000001": "点火破局", "000002": "趋势延续"},
+            leader_radar_symbols=[],
+            leader_radar_rows=[],
+        )
+
+        _trend, _accum, scores = allocate_ai_candidates(
+            result,
+            [],
+            "RISK_ON",
+            policy_override={
+                "total_cap": 2,
+                "trend_quota": 2,
+                "accum_quota": 0,
+                "max_trend_l3_fill": 0,
+                "max_accum_l3_fill": 0,
+            },
+            signal_weight_map={"sos|regime=RISK_ON": 0.4},
+        )
+
+        assert scores["000002"] > scores["000001"]
+
     def test_layer3_score_breaks_same_trigger_priority_ties(self):
         result = FunnelResult(
             layer1_symbols=["000001", "000002"],
