@@ -264,14 +264,24 @@ def _policy_governance_line(policy: dict) -> str:
     attribution = policy.get("_attribution_signal_weights") or policy.get("attribution_signal_weights") or {}
     attribution_meta = policy.get("_attribution_policy_meta") or policy.get("attribution_policy_meta") or {}
     merged = policy.get("_signal_weights") or policy.get("signal_weights") or {}
-    if not attribution and not merged:
+    selection_summary = _policy_selection_summary(attribution_meta)
+    if not attribution and not merged and not selection_summary:
         return ""
     parts = []
     if attribution:
         parts.append(f"归因 {_policy_weight_text(attribution)}{format_policy_meta_text(attribution_meta)}")
     if merged:
         parts.append(f"最终 {_policy_weight_text(merged)}")
+    if selection_summary:
+        parts.append(selection_summary)
     return "**策略治理调权**: " + "；".join(parts)
+
+
+def _policy_selection_summary(meta: dict | None) -> str:
+    if not isinstance(meta, dict):
+        return ""
+    summary = str(meta.get("selection_action_summary") or "").strip()
+    return summary if summary and summary != "候选源治理=无" else ""
 
 
 def _policy_weight_text(weights: dict) -> str:

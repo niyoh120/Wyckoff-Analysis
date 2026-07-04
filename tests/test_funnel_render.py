@@ -39,6 +39,7 @@ def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> Non
                 "tail_buy_weights_active": True,
                 "funnel_shadow_weights_active": True,
                 "funnel_formal_weights_active": False,
+                "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
             },
             "_signal_weights": {"evr": 0.75, "lps": 0.5, "sos": 1.15},
         }
@@ -50,6 +51,21 @@ def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> Non
         "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow, 回测=待复核(need backtest), 晋级=样本=pass；回测=review）"
     ) in line
     assert "最终 evr×0.75↓，lps×0.50↓，sos×1.15↑" in line
+    assert "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75" in line
+
+
+def test_policy_governance_line_surfaces_selection_governance_without_weights() -> None:
+    from workflows.funnel_render import _policy_governance_line
+
+    line = _policy_governance_line(
+        {
+            "_attribution_policy_meta": {
+                "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
+            },
+        }
+    )
+
+    assert line == "**策略治理调权**: 候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75"
 
 
 def test_policy_governance_line_formats_scoped_weights() -> None:
