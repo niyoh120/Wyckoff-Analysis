@@ -146,11 +146,11 @@ def build_report_markdown(report: dict[str, Any]) -> str:
         *_operations_markdown_lines(report),
         "",
         "## 策略治理",
-        f"- 状态: `{governor.get('status', 'unknown') if isinstance(governor, dict) else 'unknown'}`",
-        f"- 动态策略建议: `{governor.get('mode_recommendation', 'keep_shadow') if isinstance(governor, dict) else 'keep_shadow'}`",
-        f"- 下一步动作: `{governor.get('next_action', 'keep_shadow_observe') if isinstance(governor, dict) else 'keep_shadow_observe'}`",
+        f"- 状态: {_governor_status_text(governor)}",
+        f"- 动态策略建议: {_mode_recommendation_text(governor)}",
+        f"- 下一步动作: {_next_action_text(governor)}",
         f"- 下一步说明: {governor.get('next_action_summary', '-') if isinstance(governor, dict) else '-'}",
-        f"- 晋级状态: `{governor.get('promotion_status', 'unknown') if isinstance(governor, dict) else 'unknown'}`",
+        f"- 晋级状态: {_promotion_status_text(governor)}",
         f"- 自动生效: `{bool(governor.get('auto_apply')) if isinstance(governor, dict) else False}`",
         f"- 摘要: {governor.get('summary', '-') if isinstance(governor, dict) else '-'}",
         "",
@@ -169,6 +169,60 @@ def build_report_markdown(report: dict[str, Any]) -> str:
     ]
     lines.extend(_recommendation_markdown_rows(report.get("recommendations_json") or []))
     return "\n".join(lines)
+
+
+def _governor_status_text(governor: dict[str, Any]) -> str:
+    raw = _governor_value(governor, "status", "unknown")
+    labels = {
+        "candidate": "可进入人工晋级评审",
+        "watch": "继续观察",
+        "reject": "不建议晋级",
+        "insufficient_sample": "样本不足",
+    }
+    return _label_with_raw(labels.get(raw, raw or "未知"), raw)
+
+
+def _mode_recommendation_text(governor: dict[str, Any]) -> str:
+    raw = _governor_value(governor, "mode_recommendation", "keep_shadow")
+    labels = {
+        "review_promote_dynamic_policy": "评审是否切 on",
+        "keep_shadow": "保持 shadow",
+        "keep_static_policy": "保持静态策略",
+    }
+    return _label_with_raw(labels.get(raw, raw or "保持 shadow"), raw)
+
+
+def _next_action_text(governor: dict[str, Any]) -> str:
+    raw = _governor_value(governor, "next_action", "keep_shadow_observe")
+    labels = {
+        "manual_review_dynamic_on": "进入人工晋级评审（非正式生效）",
+        "keep_static_policy": "保持静态策略",
+        "collect_more_shadow_samples": "继续收集样本",
+        "keep_shadow_apply_signal_weights": "保持 shadow 并应用信号级调权",
+        "keep_shadow_observe": "保持 shadow 观察",
+    }
+    return _label_with_raw(labels.get(raw, raw or "保持观察"), raw)
+
+
+def _promotion_status_text(governor: dict[str, Any]) -> str:
+    raw = _governor_value(governor, "promotion_status", "unknown")
+    labels = {
+        "manual_review_required": "需人工复核",
+        "do_not_promote": "禁止晋级",
+        "collect_more_samples": "继续收集样本",
+        "keep_shadow": "保持 shadow",
+    }
+    return _label_with_raw(labels.get(raw, raw or "未知"), raw)
+
+
+def _governor_value(governor: dict[str, Any], key: str, default: str) -> str:
+    if not isinstance(governor, dict):
+        return default
+    return str(governor.get(key) or default).strip()
+
+
+def _label_with_raw(label: str, raw: str) -> str:
+    return f"{label} (`{raw}`)"
 
 
 def _operations_markdown_lines(report: dict[str, Any]) -> list[str]:

@@ -42,6 +42,60 @@ export interface AttributionExecutionImpactInput {
   targetText?: unknown
 }
 
+export function attributionModeRecommendationLabel(value: unknown): string {
+  const labels: Record<string, string> = {
+    review_promote_dynamic_policy: '评审是否切 on',
+    keep_shadow: '保持 shadow',
+    keep_static_policy: '保持静态策略',
+  }
+  return labels[optionalText(value)] || optionalText(value) || '保持 shadow'
+}
+
+export function attributionNextActionLabel(value: unknown): string {
+  const labels: Record<string, string> = {
+    manual_review_dynamic_on: '进入人工晋级评审（非正式生效）',
+    keep_static_policy: '保持静态策略',
+    collect_more_shadow_samples: '继续收集样本',
+    keep_shadow_apply_signal_weights: '保持 shadow 并应用信号级调权',
+    keep_shadow_observe: '保持 shadow 观察',
+  }
+  return labels[optionalText(value)] || optionalText(value) || '保持观察'
+}
+
+export function attributionPromotionStatusLabel(value: unknown): string {
+  const labels: Record<string, string> = {
+    manual_review_required: '需人工复核',
+    do_not_promote: '禁止晋级',
+    collect_more_samples: '继续收集样本',
+    keep_shadow: '保持 shadow',
+  }
+  return labels[optionalText(value)] || optionalText(value) || '未知'
+}
+
+export function attributionGovernorStatusLabel(value: unknown): string {
+  const labels: Record<string, string> = {
+    candidate: '可进入人工晋级评审',
+    watch: '继续观察',
+    reject: '不建议晋级',
+    insufficient_sample: '样本不足',
+  }
+  return labels[optionalText(value)] || optionalText(value) || '未知'
+}
+
+export function attributionFormalDynamicLabel(
+  execution: AttributionOperatorSummaryInput['execution'],
+): string {
+  if (execution?.formal_dynamic_allowed === true) return '允许正式生效'
+  if (execution?.formal_dynamic_allowed === false) {
+    const reason = optionalText(execution.formal_dynamic_block_reason)
+    return reason ? `未进正式漏斗(${reason})` : '未进正式漏斗'
+  }
+  if (optionalText(execution?.next_action) === 'manual_review_dynamic_on') {
+    return '未进正式漏斗(manual_review_required)'
+  }
+  return '未知'
+}
+
 export function attributionOperatorSummary(input: AttributionOperatorSummaryInput): string {
   const summary = optionalText(input.operations?.operator_summary)
   if (summary) return normalizeOperatorSummaryScope(summary, input.execution, input.actions || [])
@@ -91,9 +145,7 @@ function normalizeOperatorSummaryScope(
 function operatorNextAction(execution: AttributionOperatorSummaryInput['execution']): string {
   const summary = optionalText(execution?.next_action_summary)
   if (summary) return summary
-  const action = optionalText(execution?.next_action)
-  if (action === 'manual_review_dynamic_on') return '进入人工晋级评审（非正式生效）'
-  return action || '-'
+  return attributionNextActionLabel(execution?.next_action)
 }
 
 function operatorScope(
@@ -148,13 +200,7 @@ function boolValue(value: unknown): boolean | undefined {
 }
 
 function operatorFormalDynamic(execution: AttributionOperatorSummaryInput['execution']): string {
-  if (execution?.formal_dynamic_allowed === true) return 'allowed'
-  if (execution?.formal_dynamic_allowed === false) {
-    const reason = optionalText(execution.formal_dynamic_block_reason)
-    return reason ? `blocked(${reason})` : 'blocked'
-  }
-  if (optionalText(execution?.next_action) === 'manual_review_dynamic_on') return 'blocked(manual_review_required)'
-  return 'unknown'
+  return attributionFormalDynamicLabel(execution)
 }
 
 function operatorShadowSummary(

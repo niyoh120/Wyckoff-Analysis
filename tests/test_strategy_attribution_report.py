@@ -376,9 +376,9 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     markdown = report_mod.build_report_markdown(report)
 
     assert "## 调权执行状态" in markdown
-    assert "- 下一步动作: `manual_review_dynamic_on`" in markdown
+    assert "- 下一步动作: 进入人工晋级评审（非正式生效） (`manual_review_dynamic_on`)" in markdown
     assert "- 下一步说明: shadow 新增组已跑赢移除组" in markdown
-    assert "- 晋级状态: `manual_review_required`" in markdown
+    assert "- 晋级状态: 需人工复核 (`manual_review_required`)" in markdown
     assert "### 晋级检查" in markdown
     assert "`shadow_sample`: `pass`" in markdown
     assert "- 漏斗动态策略: `on`" in markdown

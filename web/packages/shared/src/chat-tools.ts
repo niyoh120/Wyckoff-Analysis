@@ -4,7 +4,14 @@ import type { generateText as GenerateTextFn } from 'ai'
 import { z } from 'zod'
 import { fetchValueSnapshotWithFetch, isCnSymbol, normalizeTickFlowSymbol, normalizeTushareCode, type ValueSnapshot } from './agent-market'
 import { buildValuePrompt, buildValueScore } from './agent-value'
-import { attributionOperatorSummary as buildAttributionOperatorSummary } from './attribution-summary'
+import {
+  attributionFormalDynamicLabel,
+  attributionGovernorStatusLabel,
+  attributionModeRecommendationLabel,
+  attributionNextActionLabel,
+  attributionOperatorSummary as buildAttributionOperatorSummary,
+  attributionPromotionStatusLabel,
+} from './attribution-summary'
 import { formatPatternReviewDigest, type PatternReviewRow } from './pattern-review'
 import { formatTailBuyPolicyWeightText } from './tail-buy-policy-weight'
 import { tailBuyExecutionSemantics } from './tail-buy-semantics'
@@ -610,7 +617,7 @@ function formatAttributionReport(row: Record<string, unknown>): string {
     `策略归因报告 ${String(row.report_date || '-')}`,
     '数据来源：远端 strategy_attribution_reports（Web 不读取本地 --no-write 报告）',
     `窗口：${String(row.window_start || '-')} 至 ${String(row.window_end || '-')}`,
-    `策略治理：${String(governor.status || 'unknown')} / ${String(governor.mode_recommendation || 'keep_shadow')} / next=${String(governor.next_action || 'keep_shadow_observe')} / promotion=${String(governor.promotion_status || 'unknown')} / auto_apply=${Boolean(governor.auto_apply)}`,
+    attributionGovernorLine(governor),
     `下一步：${String(governor.next_action_summary || '-')}`,
     `治理摘要：${String(governor.summary || '-')}`,
     promotionChecklistLine(governor.promotion_checklist),
@@ -648,12 +655,24 @@ function attributionExecutionLine(execution: Record<string, unknown>): string {
     `h=${String(execution.horizon || '5')}`,
     `scope=${String(execution.scope || 'none')}`,
     `active=${String(execution.active_scope || '无')}`,
-    `promotion=${String(execution.promotion_status || 'unknown')}`,
-    `next=${String(execution.next_action || 'keep_shadow_observe')}`,
+    `promotion=${attributionPromotionStatusLabel(execution.promotion_status)}`,
+    `next=${attributionNextActionLabel(execution.next_action)}`,
     `formal=${formalDynamicText(execution)}`,
     `actions=${Number(execution.signal_action_count || 0)}`,
     String(execution.summary || ''),
   ].filter(Boolean).join(' | ')
+}
+
+function attributionGovernorLine(governor: Record<string, unknown>): string {
+  return [
+    '策略治理：',
+    attributionGovernorStatusLabel(governor.status),
+    '/',
+    attributionModeRecommendationLabel(governor.mode_recommendation),
+    `/ next=${attributionNextActionLabel(governor.next_action)}`,
+    `/ promotion=${attributionPromotionStatusLabel(governor.promotion_status)}`,
+    `/ auto_apply=${Boolean(governor.auto_apply) ? '是' : '否'}`,
+  ].join(' ')
 }
 
 function withAttributionActiveScope(execution: Record<string, unknown>): Record<string, unknown> {
@@ -686,13 +705,7 @@ function attributionActiveFlags(execution: Record<string, unknown>): Record<stri
 }
 
 function formalDynamicText(execution: Record<string, unknown>): string {
-  if (execution.formal_dynamic_allowed === true) return 'allowed'
-  if (execution.formal_dynamic_allowed === false) {
-    const reason = String(execution.formal_dynamic_block_reason || '').trim()
-    return reason ? `blocked(${reason})` : 'blocked'
-  }
-  if (String(execution.next_action || '').trim() === 'manual_review_dynamic_on') return 'blocked(manual_review_required)'
-  return 'unknown'
+  return attributionFormalDynamicLabel(execution)
 }
 
 function fallbackFormalDynamic(governor: Record<string, unknown>): { allowed: boolean, reason: string } {

@@ -328,7 +328,7 @@ describe('execQueryTailBuy', () => {
     const result = await execQueryTailBuy(deps, 10)
 
     expect(result).toContain('归因调权 lps x0.50 80.0→40.0')
-    expect(result).toContain('next=manual_review_dynamic_on')
+    expect(result).toContain('next=进入人工晋级评审（非正式生效）')
     expect(result).toContain('active=尾盘+漏斗shadow')
     expect(result).toContain('WATCH（观察买入）')
     expect(result).toContain('下一步:继续观察，未达到直接开仓口径。')
@@ -425,10 +425,10 @@ describe('execQueryAttribution', () => {
 
     expect(result).toContain('策略归因报告 2026-07-04')
     expect(result).toContain('数据来源：远端 strategy_attribution_reports')
-    expect(result).toContain('promotion=manual_review_required')
+    expect(result).toContain('promotion=需人工复核')
     expect(result).toContain('晋级检查：shadow_sample:pass；backtest_confirmation:review')
     expect(result).toContain(
-      '执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | active=尾盘+漏斗shadow | promotion=manual_review_required | next=manual_review_dynamic_on | formal=blocked(auto_apply=false) | actions=1',
+      '执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | active=尾盘+漏斗shadow | promotion=需人工复核 | next=进入人工晋级评审（非正式生效） | formal=未进正式漏斗(auto_apply=false) | actions=1',
     )
     expect(result).toContain('操作摘要：下一步=shadow 新增组已跑赢移除组')
     expect(result).toContain('作用范围=尾盘+漏斗shadow')

@@ -3,7 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
 import {
   attributionExecutionImpactText,
+  attributionFormalDynamicLabel,
+  attributionGovernorStatusLabel,
+  attributionModeRecommendationLabel,
+  attributionNextActionLabel,
   attributionOperatorSummary as buildAttributionOperatorSummary,
+  attributionPromotionStatusLabel,
 } from '@wyckoff/shared'
 import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
@@ -1054,43 +1059,19 @@ function formatPolicyAction(raw: string | undefined) {
 }
 
 function formatGovernorStatus(raw: string | undefined) {
-  const labels: Record<string, string> = {
-    candidate: '可进入人工晋级评审',
-    watch: '继续观察',
-    reject: '不建议晋级',
-    insufficient_sample: '样本不足',
-  }
-  return labels[String(raw || '').trim()] || raw || '未知'
+  return attributionGovernorStatusLabel(raw)
 }
 
 function formatModeRecommendation(raw: string | undefined) {
-  const labels: Record<string, string> = {
-    review_promote_dynamic_policy: '评审是否切 on',
-    keep_shadow: '保持 shadow',
-    keep_static_policy: '保持静态策略',
-  }
-  return labels[String(raw || '').trim()] || raw || '保持 shadow'
+  return attributionModeRecommendationLabel(raw)
 }
 
 function formatNextAction(raw: string | undefined) {
-  const labels: Record<string, string> = {
-    manual_review_dynamic_on: '进入人工晋级评审',
-    keep_static_policy: '保持静态策略',
-    collect_more_shadow_samples: '继续收集样本',
-    keep_shadow_apply_signal_weights: 'shadow 下应用调权',
-    keep_shadow_observe: '保持观察',
-  }
-  return labels[String(raw || '').trim()] || raw || '保持观察'
+  return attributionNextActionLabel(raw)
 }
 
 function formatPromotionStatus(raw: string | undefined) {
-  const labels: Record<string, string> = {
-    manual_review_required: '需人工复核',
-    do_not_promote: '禁止晋级',
-    collect_more_samples: '继续收集样本',
-    keep_shadow: '保持 shadow',
-  }
-  return labels[String(raw || '').trim()] || raw || '未知'
+  return attributionPromotionStatusLabel(raw)
 }
 
 function formatPromotionCheckKey(raw: string | undefined) {
@@ -1114,9 +1095,7 @@ function formatPromotionCheckStatus(raw: string | undefined) {
 }
 
 function formatFormalDynamicStatus(execution: PolicyExecutionPayload | null) {
-  if (execution?.formal_dynamic_allowed === true) return '允许正式生效'
-  if (execution?.formal_dynamic_allowed === false) return '未进正式漏斗'
-  return '未知'
+  return attributionFormalDynamicLabel(execution)
 }
 
 function formatExecutionActiveScope(execution: PolicyExecutionPayload | null, actionCount: number) {

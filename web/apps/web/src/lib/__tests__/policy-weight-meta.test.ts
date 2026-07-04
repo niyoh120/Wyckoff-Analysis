@@ -30,7 +30,7 @@ describe('formatPolicyWeightMetaText', () => {
       policy_weight_funnel_shadow_weights_active: true,
       policy_weight_funnel_formal_weights_active: false,
     })).toBe(
-      '（远端, report=2026-07-04, h=5, age=0d, mode=shadow, next=manual_review_dynamic_on, active=尾盘+漏斗shadow, formal_block=shadow_only）',
+      '（远端, report=2026-07-04, h=5, age=0d, mode=shadow, next=进入人工晋级评审（非正式生效）, active=尾盘+漏斗shadow, formal_block=shadow_only）',
     )
   })
 

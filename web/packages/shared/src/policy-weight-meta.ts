@@ -1,3 +1,5 @@
+import { attributionNextActionLabel } from './attribution-summary'
+
 export type PolicyWeightMetaInput = Record<string, unknown> | null | undefined
 
 export function formatPolicyWeightMetaText(meta: PolicyWeightMetaInput): string {
@@ -26,7 +28,7 @@ function policySourceTokens(meta: Record<string, unknown>): string[] {
   if (horizon) tokens.push(`h=${horizon}`)
   if (ageDays !== undefined && ageDays !== null && String(ageDays) !== '') tokens.push(`age=${ageDays}d`)
   if (executionPolicy) tokens.push(`mode=${executionPolicy}`)
-  if (nextAction) tokens.push(`next=${nextAction}`)
+  if (nextAction) tokens.push(`next=${attributionNextActionLabel(nextAction)}`)
   return tokens
 }
 

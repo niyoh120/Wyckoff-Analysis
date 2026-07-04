@@ -114,7 +114,7 @@ def _policy_source_tokens(meta: dict[str, Any]) -> list[str]:
         tokens.append(f"mode={execution_policy}")
     next_action = str(meta.get("next_action") or "").strip()
     if next_action:
-        tokens.append(f"next={next_action}")
+        tokens.append(f"next={policy_next_action_label(next_action)}")
     return tokens
 
 
@@ -139,6 +139,18 @@ def _policy_active_scope(meta: dict[str, Any]) -> str:
     if scope == "tail_buy_only":
         return "尾盘"
     return ""
+
+
+def policy_next_action_label(raw: Any) -> str:
+    text = str(raw or "").strip()
+    labels = {
+        "manual_review_dynamic_on": "进入人工晋级评审（非正式生效）",
+        "keep_static_policy": "保持静态策略",
+        "collect_more_shadow_samples": "继续收集样本",
+        "keep_shadow_apply_signal_weights": "保持 shadow 并应用信号级调权",
+        "keep_shadow_observe": "保持 shadow 观察",
+    }
+    return labels.get(text, text or "保持观察")
 
 
 def _scope_key(raw: str) -> str:

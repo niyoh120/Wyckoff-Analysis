@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
-from core.strategy_policy_display import format_policy_weight_text
+from core.strategy_policy_display import format_policy_weight_text, policy_next_action_label
 from core.strategy_policy_governor import signal_weight_multipliers_from_rows
 from integrations.supabase_base import close_client, create_read_client
 from workflows.strategy_attribution_execution import attribution_execution_state, attribution_formal_dynamic_allowed
@@ -251,7 +251,7 @@ def _snapshot_log_text(snapshot: AttributionPolicySnapshot) -> str:
     if active_scope:
         meta.append(f"active={active_scope}")
     if snapshot.next_action:
-        meta.append(f"next={snapshot.next_action}")
+        meta.append(f"next={policy_next_action_label(snapshot.next_action)}")
     if not snapshot.formal_dynamic_allowed and snapshot.formal_dynamic_block_reason:
         meta.append(f"formal_block={snapshot.formal_dynamic_block_reason}")
     weights = format_policy_weight_text(snapshot.weights, limit=12, delimiter=", ")

@@ -43,7 +43,15 @@ export {
 export type { PatternReviewRow } from './pattern-review'
 export { tailBuyExecutionSemantics } from './tail-buy-semantics'
 export type { TailBuyExecutionInput, TailBuyExecutionSemantics } from './tail-buy-semantics'
-export { attributionExecutionImpactText, attributionOperatorSummary } from './attribution-summary'
+export {
+  attributionExecutionImpactText,
+  attributionFormalDynamicLabel,
+  attributionGovernorStatusLabel,
+  attributionModeRecommendationLabel,
+  attributionNextActionLabel,
+  attributionOperatorSummary,
+  attributionPromotionStatusLabel,
+} from './attribution-summary'
 export type { AttributionExecutionImpactInput, AttributionOperatorAction, AttributionOperatorSummaryInput } from './attribution-summary'
 export { formatPolicyWeightMetaText } from './policy-weight-meta'
 export type { PolicyWeightMetaInput } from './policy-weight-meta'
