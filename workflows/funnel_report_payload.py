@@ -120,6 +120,7 @@ def funnel_run_details(
             "allow_ai_review": trade_mode.allow_ai_review,
             "allow_recommendation_write": trade_mode.allow_recommendation_write,
         },
+        "strategy_policy": _strategy_policy_payload(selection.ai_policy),
         "triggers": ctx.review_triggers,
         "review_triggers": ctx.review_triggers,
         "formal_triggers": ctx.formal_triggers,
@@ -156,6 +157,24 @@ def funnel_run_details(
         "name_map": ctx.name_map,
         "sector_map": ctx.sector_map,
         "all_df_map": ctx.all_df_map,
+    }
+
+
+def _strategy_policy_payload(policy: dict) -> dict[str, Any]:
+    meta = policy.get("_attribution_policy_meta") or policy.get("attribution_policy_meta") or {}
+    return {
+        "dynamic_mode": str(policy.get("_dynamic_mode") or policy.get("dynamic_mode") or "").strip(),
+        "signal_weights": policy.get("_signal_weights") or policy.get("signal_weights") or {},
+        "attribution_signal_weights": policy.get("_attribution_signal_weights")
+        or policy.get("attribution_signal_weights")
+        or {},
+        "attribution_policy_meta": meta,
+        "selection_action_count": int(meta.get("selection_action_count") or 0),
+        "selection_action_summary": str(meta.get("selection_action_summary") or "").strip(),
+        "formal_dynamic_allowed": meta.get("formal_dynamic_allowed"),
+        "policy_weight_active_scope": str(meta.get("policy_weight_active_scope") or meta.get("active_scope") or ""),
+        "execution_policy": str(meta.get("execution_policy") or ""),
+        "next_action": str(meta.get("next_action") or ""),
     }
 
 

@@ -142,6 +142,51 @@ def test_funnel_run_details_keeps_report_payload_fields():
     assert details["priority_score_map"] == {"000001": 3.5}
 
 
+def test_funnel_run_details_carries_strategy_policy_evidence():
+    selection = FunnelAiSelection(
+        selected_for_ai=["000001"],
+        trend_selected=["000001"],
+        accum_selected=[],
+        score_map={"000001": 2.0},
+        ai_policy={
+            "_dynamic_mode": "shadow",
+            "_signal_weights": {"lps": 0.5},
+            "_attribution_signal_weights": {"lps": 0.5},
+            "_attribution_policy_meta": {
+                "execution_policy": "shadow",
+                "formal_dynamic_allowed": False,
+                "next_action": "manual_review_dynamic_on",
+                "policy_weight_active_scope": "尾盘+漏斗shadow",
+                "selection_action_count": 1,
+                "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
+            },
+        },
+        theme_promoted_count=0,
+    )
+
+    details = funnel_run_details(_ctx(), selection, content="内容", title="标题", symbols=[])
+
+    assert details["strategy_policy"] == {
+        "dynamic_mode": "shadow",
+        "signal_weights": {"lps": 0.5},
+        "attribution_signal_weights": {"lps": 0.5},
+        "attribution_policy_meta": {
+            "execution_policy": "shadow",
+            "formal_dynamic_allowed": False,
+            "next_action": "manual_review_dynamic_on",
+            "policy_weight_active_scope": "尾盘+漏斗shadow",
+            "selection_action_count": 1,
+            "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
+        },
+        "selection_action_count": 1,
+        "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
+        "formal_dynamic_allowed": False,
+        "policy_weight_active_scope": "尾盘+漏斗shadow",
+        "execution_policy": "shadow",
+        "next_action": "manual_review_dynamic_on",
+    }
+
+
 def test_recommendation_payload_keeps_capital_migration_bonus():
     payload = build_recommendation_payload(
         20260630,
