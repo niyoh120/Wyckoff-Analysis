@@ -377,6 +377,10 @@ describe('execQueryAttribution', () => {
               signal_action_count: 1,
               summary: 'h=5 调权会影响尾盘和漏斗 shadow。',
             },
+            policy_operations_brief: {
+              operator_summary:
+                '下一步=shadow 新增组已跑赢移除组；作用范围=tail_buy_and_funnel_shadow；Shadow=2026-07-03 RISK_ON 新增2 移除1；本期 1 个 scoped 调权：lps[regime=RISK_ON, lane=trend_pullback]×0.50',
+            },
             latest: {
               trade_date: '2026-07-03',
               regime: 'RISK_ON',
@@ -416,6 +420,8 @@ describe('execQueryAttribution', () => {
     expect(result).toContain(
       '执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | promotion=manual_review_required | next=manual_review_dynamic_on | formal=allowed | actions=1',
     )
+    expect(result).toContain('操作摘要：下一步=shadow 新增组已跑赢移除组')
+    expect(result).toContain('作用范围=tail_buy_and_funnel_shadow')
     expect(result).toContain('最新 Shadow：2026-07-03 / RISK_ON | base=8 | shadow=9 | 新增=2 | 移除=1 | Jaccard=0.70')
     expect(result).toContain('Shadow 新增样本：300502, 688008')
     expect(result).toContain('lps[regime=RISK_ON, lane=trend_pullback] | downweight | h=5 | x0.50')

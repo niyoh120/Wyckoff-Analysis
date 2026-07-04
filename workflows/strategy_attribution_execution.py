@@ -127,11 +127,18 @@ def attribution_operations_brief(
     latest = shadow.get("latest") if isinstance(shadow.get("latest"), dict) else {}
     actions = [row for row in execution.get("action_details") or [] if isinstance(row, dict)]
     limited_actions = actions[: max(int(max_actions), 0)]
+    action_summary = _action_summary(limited_actions, total=len(actions))
     return {
         "latest_shadow": _latest_shadow_brief(latest),
+        "next_action": execution.get("next_action", "keep_shadow_observe"),
+        "next_action_summary": execution.get("next_action_summary", "-"),
+        "scope": execution.get("scope", "none"),
+        "formal_dynamic_allowed": bool(execution.get("formal_dynamic_allowed")),
+        "formal_dynamic_block_reason": execution.get("formal_dynamic_block_reason", ""),
         "action_count": len(actions),
         "action_details": limited_actions,
-        "action_summary": _action_summary(limited_actions, total=len(actions)),
+        "action_summary": action_summary,
+        "operator_summary": _operator_summary(_latest_shadow_brief(latest), execution, action_summary),
     }
 
 
@@ -162,6 +169,34 @@ def _latest_shadow_brief(latest: dict[str, Any]) -> dict[str, Any]:
         "diff_added_sample": latest.get("diff_added_sample") or [],
         "diff_removed_sample": latest.get("diff_removed_sample") or [],
     }
+
+
+def _operator_summary(latest: dict[str, Any], execution: dict[str, Any], action_summary: str) -> str:
+    return "；".join(
+        [
+            f"下一步={execution.get('next_action_summary') or execution.get('next_action') or '-'}",
+            f"作用范围={execution.get('scope', 'none')}",
+            _formal_dynamic_summary(execution),
+            _shadow_summary(latest),
+            action_summary,
+        ]
+    )
+
+
+def _formal_dynamic_summary(execution: dict[str, Any]) -> str:
+    if execution.get("formal_dynamic_allowed"):
+        return "正式dynamic=允许人工晋级"
+    reason = str(execution.get("formal_dynamic_block_reason") or "").strip()
+    return f"正式dynamic=暂不晋级{f'({reason})' if reason else ''}"
+
+
+def _shadow_summary(latest: dict[str, Any]) -> str:
+    if not latest:
+        return "Shadow=暂无最新对照"
+    return (
+        f"Shadow={latest.get('trade_date', '-')} {latest.get('regime', '-')} "
+        f"新增{latest.get('diff_added_count', '-')} 移除{latest.get('diff_removed_count', '-')}"
+    )
 
 
 def _action_summary(actions: list[dict[str, Any]], *, total: int) -> str:

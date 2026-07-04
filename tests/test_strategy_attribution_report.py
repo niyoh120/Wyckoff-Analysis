@@ -317,6 +317,11 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "execution_horizon": "5",
         "execution_scope": "tail_buy_and_funnel_shadow",
         "signal_action_count": 1,
+        "operator_summary": (
+            "下一步=shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。；"
+            "作用范围=tail_buy_and_funnel_shadow；正式dynamic=允许人工晋级；"
+            "Shadow=暂无最新对照；本期 1 个 scoped 调权：lps×0.50"
+        ),
     }
 
 
@@ -375,6 +380,8 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     assert "- 当前作用范围: `tail_buy_and_funnel`" in markdown
     assert "- 可执行调权: `1`" in markdown
     assert "## 运营复盘" in markdown
+    assert "- 操作摘要: 下一步=shadow 新增组已跑赢移除组" in markdown
+    assert "作用范围=tail_buy_and_funnel" in markdown
     assert "- 本期可执行调权:" in markdown
     assert "`lps[regime=RISK_ON, lane=trend_pullback, entry=wyckoff_structure]`" in markdown
 
@@ -405,6 +412,7 @@ def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):
     report_mod.attach_policy_execution_state(report)
 
     state = report["shadow_diff_stats_json"]["policy_execution_state"]
+    operations = report["shadow_diff_stats_json"]["policy_operations_brief"]
 
     assert state["horizon"] == "5"
     assert state["signal_action_count"] == 2
@@ -412,6 +420,8 @@ def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):
     assert state["scope"] == "tail_buy_and_funnel_shadow"
     assert state["action_details"][0]["label"] == "lps"
     assert state["action_details"][1]["label"] == "launchpad"
+    assert operations["action_count"] == 2
+    assert operations["operator_summary"].startswith("下一步=-；作用范围=tail_buy_and_funnel_shadow")
 
 
 def test_attribution_execution_state_blocks_formal_on_without_governor_approval(monkeypatch):

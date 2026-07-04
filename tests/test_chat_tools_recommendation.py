@@ -163,6 +163,9 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     assert result["latest_operations"]["latest_shadow"]["trade_date"] == "2026-07-03"
     assert result["latest_operations"]["latest_shadow"]["diff_added_sample"] == ["300502", "688008"]
     assert result["latest_operations"]["action_summary"].startswith("本期 1 个 scoped 调权")
+    assert result["latest_operator_summary"] == result["latest_operations"]["operator_summary"]
+    assert "Shadow=2026-07-03 RISK_ON 新增2 移除1" in result["latest_operator_summary"]
+    assert "作用范围=tail_buy_and_funnel_shadow" in result["latest_operator_summary"]
     assert result["records"][0]["shadow"]["runs"] == 12
     assert result["records"][0]["execution_state"]["signal_action_count"] == 1
     assert result["records"][0]["execution_state"]["action_details"][0]["weight_multiplier"] == 0.5

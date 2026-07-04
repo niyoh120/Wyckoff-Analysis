@@ -16,7 +16,7 @@ from integrations.supabase_base import (
     create_read_client,
     require_server_write_context,
 )
-from workflows.strategy_attribution_execution import attribution_execution_state
+from workflows.strategy_attribution_execution import attribution_execution_state, attribution_operations_brief
 from workflows.strategy_attribution_stats import build_strategy_attribution_payload
 
 
@@ -68,6 +68,7 @@ def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str,
         "execution_horizon": execution.get("horizon", "5"),
         "execution_scope": execution.get("scope", "none"),
         "signal_action_count": execution.get("signal_action_count", 0),
+        "operator_summary": _report_policy_operations(report).get("operator_summary", "-"),
     }
 
 
@@ -167,7 +168,9 @@ def _operations_markdown_lines(report: dict[str, Any]) -> list[str]:
     shadow = report.get("shadow_diff_stats_json") or {}
     latest = shadow.get("latest") if isinstance(shadow, dict) else {}
     execution = _report_policy_execution_state(report)
-    lines = _latest_shadow_lines(latest if isinstance(latest, dict) else {})
+    operations = _report_policy_operations(report)
+    lines = [f"- 操作摘要: {operations.get('operator_summary', '-')}"]
+    lines.extend(_latest_shadow_lines(latest if isinstance(latest, dict) else {}))
     lines.extend(_action_detail_lines(execution.get("action_details") if isinstance(execution, dict) else []))
     return lines or ["- 暂无可用运营复盘信息。"]
 
@@ -234,10 +237,11 @@ def attach_policy_execution_state(report: dict[str, Any]) -> None:
     shadow = report.get("shadow_diff_stats_json")
     if not isinstance(shadow, dict):
         return
-    shadow["policy_execution_state"] = attribution_execution_state(
-        _report_policy_governor(report),
-        list(report.get("recommendations_json") or []),
+    execution = attribution_execution_state(
+        _report_policy_governor(report), list(report.get("recommendations_json") or [])
     )
+    shadow["policy_execution_state"] = execution
+    shadow["policy_operations_brief"] = attribution_operations_brief(shadow, execution)
 
 
 def _report_policy_execution_state(report: dict[str, Any]) -> dict[str, Any]:
@@ -245,6 +249,15 @@ def _report_policy_execution_state(report: dict[str, Any]) -> dict[str, Any]:
     if isinstance(shadow, dict) and isinstance(shadow.get("policy_execution_state"), dict):
         return shadow["policy_execution_state"]
     return attribution_execution_state(_report_policy_governor(report), list(report.get("recommendations_json") or []))
+
+
+def _report_policy_operations(report: dict[str, Any]) -> dict[str, Any]:
+    shadow = report.get("shadow_diff_stats_json") or {}
+    if isinstance(shadow, dict) and isinstance(shadow.get("policy_operations_brief"), dict):
+        return shadow["policy_operations_brief"]
+    return attribution_operations_brief(
+        shadow if isinstance(shadow, dict) else {}, _report_policy_execution_state(report)
+    )
 
 
 def _recommendation_markdown_rows(rows: list[dict[str, Any]]) -> list[str]:

@@ -183,6 +183,7 @@ def _query_attribution(limit: int, tool_context: ToolContext | None = None) -> d
             "latest_policy": records[0].get("policy_governor", {}),
             "latest_execution_state": records[0].get("execution_state", {}),
             "latest_operations": records[0].get("operations", {}),
+            "latest_operator_summary": records[0].get("operations", {}).get("operator_summary", ""),
             "records": records,
         }
     except Exception as e:
