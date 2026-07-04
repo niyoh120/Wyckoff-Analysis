@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
+
+import yaml
 
 from core.ai_candidate_allocation import (
+    DEFAULT_AI_QUOTA_BY_FAMILY,
     AiCandidateAllocationConfig,
     allocate_ai_candidates,
     resolve_ai_candidate_policy,
 )
+from core.candidate_policy import CandidatePolicyConfig
 from core.wyckoff_engine import FunnelResult
 from workflows.ai_candidate_allocation_config import ai_candidate_allocation_config_from_env
 from workflows.candidate_policy_config import candidate_policy_config_from_env
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestAllocateAiCandidates:
@@ -71,6 +78,17 @@ class TestAllocateAiCandidates:
         config = candidate_policy_config_from_env()
 
         assert config.risk_on_pre5_ret == 28.0
+
+    def test_production_workflows_stay_aligned_with_core_policy_defaults(self):
+        for path, job_name in (
+            (".github/workflows/wyckoff_funnel.yml", "run"),
+            (".github/workflows/backtest_grid.yml", "grid"),
+        ):
+            env = _workflow_job_env(path, job_name)
+
+            assert int(env["FUNNEL_AI_RISK_ON_TREND"]) == DEFAULT_AI_QUOTA_BY_FAMILY["RISK_ON"][0]
+            assert int(env["FUNNEL_AI_RISK_ON_ACCUM"]) == DEFAULT_AI_QUOTA_BY_FAMILY["RISK_ON"][1]
+            assert float(env["FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET"]) == CandidatePolicyConfig().risk_on_pre5_ret
 
     def test_evr_and_compression_only_hits_enter_quota_tracks(self):
         result = FunnelResult(
@@ -465,3 +483,8 @@ class TestAllocateAiCandidates:
 
         assert trend == []
         assert accum == []
+
+
+def _workflow_job_env(path: str, job_name: str) -> dict[str, str]:
+    workflow = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
+    return workflow["jobs"][job_name]["env"]
