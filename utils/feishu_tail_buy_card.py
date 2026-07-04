@@ -13,6 +13,7 @@ from integrations.tickflow_notice import (
 from utils.feishu_text import annotate_financial_terms, lark_md_div, lark_note
 
 HOLDING_HEADINGS = ("持仓动作建议（硬止损/结构减仓/洗盘观察）", "持仓动作建议（加仓/减仓）")
+RUN_LINE_PREFIXES = ("⏰ Tail Buy ", "📋 盘后尾盘复核 ")
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,10 @@ def _extract_line(lines: list[str], prefix: str) -> str:
         if text.startswith(prefix):
             return text[len(prefix) :].strip()
     return ""
+
+
+def _extract_run_line(lines: list[str]) -> str:
+    return next((text for raw in lines if (text := raw.strip()) and text.startswith(RUN_LINE_PREFIXES)), "⏰ Tail Buy")
 
 
 def _extract_section_items(lines: list[str], heading: str) -> list[str]:
@@ -155,7 +160,7 @@ def _report_sections(content: str) -> TailBuyReportSections:
     lines = annotated.replace("\r\n", "\n").replace("\r", "\n").splitlines()
     return TailBuyReportSections(
         annotated=annotated,
-        run_line=next((x.strip() for x in lines if x.strip().startswith("⏰ Tail Buy ")), "⏰ Tail Buy"),
+        run_line=_extract_run_line(lines),
         source=_extract_line(lines, "- 候选来源:"),
         scan_count=_extract_line(lines, "- 扫描数量:"),
         decision_line=_extract_line(lines, "- 分层结果:"),
@@ -182,13 +187,16 @@ def _report_sections(content: str) -> TailBuyReportSections:
             ("HOLD（结构中性持有观察）", "HOLD（持有观察）"),
         ),
         buy_items=_extract_section_items(lines, "BUY（可执行买入）")
+        or _extract_section_items(lines, "BUY（明日观察买入）")
         or _extract_section_items(lines, "BUY（可执行候选）")
         or _extract_section_items(lines, "BUY（优先关注）"),
         risk_buy_items=_extract_section_items(lines, "BUY（观察买入：高位动能默认不买）")
         or _extract_section_items(lines, "BUY（高位动能观察，默认不买）"),
         watch_items=_extract_section_items(lines, "WATCH（观察买入）")
+        or _extract_section_items(lines, "WATCH（明日观察）")
         or _extract_section_items(lines, "WATCH（观察）"),
         skip_items=_extract_section_items(lines, "SKIP（禁止新仓/暂不买）")
+        or _extract_section_items(lines, "SKIP（明日放弃）")
         or _extract_section_items(lines, "SKIP（暂不买入）"),
     )
 
@@ -279,6 +287,11 @@ def _holding_meta_elements(sections: TailBuyReportSections) -> list[dict]:
 
 def _candidate_elements(sections: TailBuyReportSections, limits: TailBuyCardLimits) -> list[dict]:
     elements: list[dict] = [{"tag": "hr"}]
+    if _is_post_close_review(sections):
+        _add_bucket(elements, "BUY（明日观察买入）", sections.buy_items, limits.max_buy, limits.item_char_limit)
+        _add_bucket(elements, "WATCH（明日观察）", sections.watch_items, limits.max_watch, limits.item_char_limit)
+        _add_bucket(elements, "SKIP（明日放弃）", sections.skip_items, limits.max_skip, limits.item_char_limit)
+        return elements
     _add_bucket(elements, "BUY（可执行买入）", sections.buy_items, limits.max_buy, limits.item_char_limit)
     _add_bucket(
         elements, "BUY（观察买入：高位动能默认不买）", sections.risk_buy_items, limits.max_buy, limits.item_char_limit
@@ -289,10 +302,20 @@ def _candidate_elements(sections: TailBuyReportSections, limits: TailBuyCardLimi
 
 
 def _footer_elements(sections: TailBuyReportSections) -> list[dict]:
-    elements = [{"tag": "hr"}, lark_note("说明：本任务仅输出尾盘扫描建议，不生成订单，不写入交易表。")]
+    elements = [{"tag": "hr"}, lark_note(_footer_note_text(sections))]
     if has_recent_tickflow_limit_event() or TICKFLOW_LIMIT_HINT in sections.annotated:
         elements.append(lark_note(f"⚠️ {TICKFLOW_LIMIT_HINT}"))
     return elements
+
+
+def _is_post_close_review(sections: TailBuyReportSections) -> bool:
+    return str(sections.run_line or "").startswith("📋 盘后尾盘复核")
+
+
+def _footer_note_text(sections: TailBuyReportSections) -> str:
+    if _is_post_close_review(sections):
+        return "说明：BUY=明日观察买入；WATCH=继续观察；SKIP=明日放弃。本任务不生成订单，不写入交易表。"
+    return "说明：本任务仅输出尾盘扫描建议，不生成订单，不写入交易表。"
 
 
 def build_tail_buy_card_elements(content: str) -> list[dict]:

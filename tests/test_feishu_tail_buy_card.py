@@ -79,3 +79,50 @@ def test_send_tail_buy_card_uses_rich_card_and_keeps_full_items_by_default(monke
     assert "SKIP（禁止新仓/暂不买）" in body_text
     assert "600014 示例14" in body_text
     assert "其余" not in body_text
+
+
+def test_tail_buy_card_supports_post_close_review_sections(monkeypatch):
+    captured = {}
+
+    def fake_post_rich_card(webhook_url: str, title: str, elements: list, template: str = "blue"):
+        captured["elements"] = elements
+        return True, "ok"
+
+    monkeypatch.setattr(feishu, "_post_rich_card", fake_post_rich_card)
+
+    content = "\n".join(
+        [
+            "📋 盘后尾盘复核 2026-07-04 16:05:42",
+            "",
+            "- 候选来源: signal_pending（signal_date=2026-07-04）",
+            "- 扫描数量: 3",
+            "- 分层结果: BUY=1 / WATCH=1 / SKIP=1",
+            "- AI 二判: 0/0",
+            "- 归因调权: lps×0.50↓（远端, active=尾盘+漏斗shadow）",
+            "- 总耗时: 12.0s",
+            "",
+            "## BUY（明日观察买入）",
+            "- 603713 密尔克卫 | priority=100.0 | rule=BUY(100.0)",
+            "",
+            "## WATCH（明日观察）",
+            "- 600611 大众交通 | priority=88.9 | rule=WATCH(76.9)",
+            "",
+            "## SKIP（明日放弃）",
+            "- 300956 英力股份 | priority=20.0 | rule=SKIP(20.0)",
+            "",
+            "说明：BUY=明日观察买入；WATCH=继续观察；SKIP=明日放弃。本任务不生成订单，不写入交易表。",
+        ]
+    )
+
+    ok = feishu.send_tail_buy_card("https://example.com/hook", "盘后复核", content)
+
+    assert ok is True
+    body_text = "\n".join(
+        str(el.get("text", {}).get("content", "")) for el in captured["elements"] if isinstance(el, dict)
+    )
+    assert "📋 盘后尾盘复核 2026-07-04 16:05:42" in body_text
+    assert "BUY（明日观察买入）" in body_text
+    assert "WATCH（明日观察）" in body_text
+    assert "SKIP（明日放弃）" in body_text
+    assert "BUY（可执行买入）" not in body_text
+    assert "归因调权：lps×0.50↓（远端, active=尾盘+漏斗shadow）" in body_text
