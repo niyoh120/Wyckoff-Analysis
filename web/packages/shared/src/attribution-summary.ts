@@ -14,6 +14,8 @@ export interface AttributionOperatorSummaryInput {
     next_action_summary?: unknown
     next_action?: unknown
     scope?: unknown
+    active_scope?: unknown
+    signal_action_count?: unknown
     formal_dynamic_allowed?: unknown
     formal_dynamic_block_reason?: unknown
   } | null
@@ -28,7 +30,7 @@ export interface AttributionOperatorSummaryInput {
 
 export function attributionOperatorSummary(input: AttributionOperatorSummaryInput): string {
   const summary = optionalText(input.operations?.operator_summary)
-  if (summary) return summary
+  if (summary) return normalizeOperatorSummaryScope(summary, input.execution, input.actions || [])
 
   const actions = input.actions || []
   return [
@@ -40,6 +42,18 @@ export function attributionOperatorSummary(input: AttributionOperatorSummaryInpu
   ].join('；')
 }
 
+function normalizeOperatorSummaryScope(
+  summary: string,
+  execution: AttributionOperatorSummaryInput['execution'],
+  actions: AttributionOperatorAction[],
+): string {
+  const activeScope = operatorScope(execution, actions)
+  return summary.replace(
+    /作用范围=(tail_buy_and_funnel_shadow|tail_buy_and_funnel|tail_buy_only|none)(?=；|$)/,
+    `作用范围=${activeScope}`,
+  )
+}
+
 function operatorNextAction(execution: AttributionOperatorSummaryInput['execution']): string {
   return optionalText(execution?.next_action_summary) || optionalText(execution?.next_action) || '-'
 }
@@ -48,7 +62,22 @@ function operatorScope(
   execution: AttributionOperatorSummaryInput['execution'],
   actions: AttributionOperatorAction[],
 ): string {
-  return optionalText(execution?.scope) || (actions.length ? 'tail_buy_only' : 'none')
+  const explicit = optionalText(execution?.active_scope)
+  if (explicit) return explicit
+  return activeScopeFromExecution(execution, actions)
+}
+
+function activeScopeFromExecution(
+  execution: AttributionOperatorSummaryInput['execution'],
+  actions: AttributionOperatorAction[],
+): string {
+  const actionCount = Number(execution?.signal_action_count ?? actions.length)
+  const scope = optionalText(execution?.scope) || (actions.length ? 'tail_buy_only' : 'none')
+  if (actionCount <= 0) return '无'
+  if (scope === 'tail_buy_and_funnel') return '尾盘+正式漏斗'
+  if (scope === 'tail_buy_and_funnel_shadow') return '尾盘+漏斗shadow'
+  if (scope === 'tail_buy_only') return '尾盘'
+  return '无'
 }
 
 function operatorFormalDynamic(execution: AttributionOperatorSummaryInput['execution']): string {

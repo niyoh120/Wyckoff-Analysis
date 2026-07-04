@@ -156,6 +156,7 @@ def attribution_operations_brief(
         "next_action": execution.get("next_action", "keep_shadow_observe"),
         "next_action_summary": execution.get("next_action_summary", "-"),
         "scope": execution.get("scope", "none"),
+        "active_scope": _execution_active_scope_text(execution),
         "formal_dynamic_allowed": bool(execution.get("formal_dynamic_allowed")),
         "formal_dynamic_block_reason": execution.get("formal_dynamic_block_reason", ""),
         "action_count": len(actions),
@@ -198,12 +199,19 @@ def _operator_summary(latest: dict[str, Any], execution: dict[str, Any], action_
     return "；".join(
         [
             f"下一步={execution.get('next_action_summary') or execution.get('next_action') or '-'}",
-            f"作用范围={execution.get('scope', 'none')}",
+            f"作用范围={_execution_active_scope_text(execution)}",
             _formal_dynamic_summary(execution),
             _shadow_summary(latest),
             action_summary,
         ]
     )
+
+
+def _execution_active_scope_text(execution: dict[str, Any]) -> str:
+    explicit = str(execution.get("active_scope") or "").strip()
+    if explicit:
+        return explicit
+    return str(attribution_active_scope_flags(execution)["active_scope"])
 
 
 def _formal_dynamic_summary(execution: dict[str, Any]) -> str:

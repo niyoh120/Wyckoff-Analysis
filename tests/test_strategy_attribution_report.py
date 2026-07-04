@@ -325,7 +325,7 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "signal_action_count": 1,
         "operator_summary": (
             "下一步=shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。；"
-            "作用范围=tail_buy_and_funnel_shadow；正式dynamic=允许人工晋级；"
+            "作用范围=尾盘+漏斗shadow；正式dynamic=允许人工晋级；"
             "Shadow=暂无最新对照；本期 1 个 scoped 调权：lps×0.50"
         ),
     }
@@ -383,11 +383,12 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     assert "`shadow_sample`: `pass`" in markdown
     assert "- 漏斗动态策略: `on`" in markdown
     assert "- 执行周期: `h=5`" in markdown
-    assert "- 当前作用范围: `tail_buy_and_funnel`" in markdown
+    assert "- 当前生效范围: `尾盘+正式漏斗`" in markdown
+    assert "- 底层 scope: `tail_buy_and_funnel`" in markdown
     assert "- 可执行调权: `1`" in markdown
     assert "## 运营复盘" in markdown
     assert "- 操作摘要: 下一步=shadow 新增组已跑赢移除组" in markdown
-    assert "作用范围=tail_buy_and_funnel" in markdown
+    assert "作用范围=尾盘+正式漏斗" in markdown
     assert "- 本期可执行调权:" in markdown
     assert "`lps[regime=RISK_ON, lane=trend_pullback, entry=wyckoff_structure]`" in markdown
 
@@ -427,7 +428,7 @@ def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):
     assert state["action_details"][0]["label"] == "lps"
     assert state["action_details"][1]["label"] == "launchpad"
     assert operations["action_count"] == 2
-    assert operations["operator_summary"].startswith("下一步=-；作用范围=tail_buy_and_funnel_shadow")
+    assert operations["operator_summary"].startswith("下一步=-；作用范围=尾盘+漏斗shadow")
 
 
 def test_attribution_execution_state_blocks_formal_on_without_governor_approval(monkeypatch):
