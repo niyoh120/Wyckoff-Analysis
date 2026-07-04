@@ -115,6 +115,7 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 - `signal_weights`：触发这次差异的信号权重。
 - `attribution_signal_weights`：归因报告给出的信号级调权，和 health / registry 合并后参与 shadow/on。
 - `registry_snapshot` / `health_snapshot`：当时策略状态快照。
+- 归因报告有效期：生产默认 60 天样本、7 天 freshness gate；过期报告只用于人工复盘，不再驱动尾盘或漏斗调权。
 
 只读归因报告会额外生成 `policy_governor`，先判断 shadow 新增组是否稳定跑赢移除组，再把每个
 信号的收益、胜率、大亏率和回撤转成 `downweight` / `upweight` / `hold`。治理器只输出晋级建议：

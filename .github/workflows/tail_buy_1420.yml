@@ -58,6 +58,7 @@ jobs:
       TAIL_BUY_CONFIRMED_ONLY_BUY: "1"
       TAIL_BUY_PORTFOLIO_ID: ${{ secrets.TAIL_BUY_PORTFOLIO_ID }}
       TAIL_BUY_HOLDING_HARD_STOP_PCT: "8"
+      STRATEGY_ATTRIBUTION_MAX_AGE_DAYS: "7"
 
     steps:
       - uses: actions/checkout@v4

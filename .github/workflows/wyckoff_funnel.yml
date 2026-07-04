@@ -87,6 +87,7 @@ jobs:
       # off=静态配额；shadow=旁路记录动态策略差异；on=正式启用动态配额。
       FUNNEL_DYNAMIC_POLICY: ${{ vars.FUNNEL_DYNAMIC_POLICY || secrets.FUNNEL_DYNAMIC_POLICY || 'shadow' }}
       FUNNEL_DYNAMIC_POLICY_HORIZON: "5"
+      STRATEGY_ATTRIBUTION_MAX_AGE_DAYS: "7"
       FUNNEL_DEFENSIVE_FORCE_QUOTA: "1"
       FUNNEL_AI_RISK_ON_TREND: "5"
       FUNNEL_AI_RISK_ON_ACCUM: "3"

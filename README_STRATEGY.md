@@ -67,6 +67,8 @@ flowchart LR
 | `on` | 正式使用信号健康度权重、registry 状态和策略归因调权。 |
 
 Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否真的比静态配额更聪明。
+策略归因报告使用最近 60 天样本生成；漏斗和尾盘读取归因调权时默认要求报告不超过 7 天，超过
+`STRATEGY_ATTRIBUTION_MAX_AGE_DAYS` 会自动跳过，避免陈旧市场风格继续影响当前候选。
 
 ### 外部观察验证
 
