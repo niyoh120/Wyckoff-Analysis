@@ -115,6 +115,16 @@ def build_signal_weight_map(
     return weights
 
 
+def merge_signal_weight_maps(*maps: dict[str, float] | None) -> dict[str, float]:
+    merged: dict[str, float] = {}
+    signals = sorted({signal for item in maps if item for signal in item})
+    for signal in signals:
+        weights = [_float(item.get(signal)) for item in maps if item and signal in item]
+        downweights = [weight for weight in weights if weight < 1.0]
+        merged[signal] = min(downweights) if downweights else max(weights)
+    return merged
+
+
 def _track_weights(signal_weights: dict[str, float]) -> tuple[float, float]:
     trend = [w for sig, w in signal_weights.items() if signal_track(sig) == "Trend"]
     accum = [w for sig, w in signal_weights.items() if signal_track(sig) == "Accum"]

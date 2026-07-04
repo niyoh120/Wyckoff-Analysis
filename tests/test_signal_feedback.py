@@ -9,6 +9,7 @@ from core.dynamic_policy import (
     DynamicPolicyConfig,
     build_signal_weight_map,
     filter_triggers_by_registry,
+    merge_signal_weight_maps,
     resolve_dynamic_candidate_policy,
 )
 from core.price_action_footprint import compute_price_action_footprint
@@ -642,6 +643,15 @@ def test_dynamic_policy_uses_configured_feedback_horizon():
     assert weights["lps"] == 0.4
 
 
+def test_dynamic_policy_merges_attribution_weights_conservatively():
+    weights = merge_signal_weight_maps(
+        {"lps": 0.75, "sos": 1.1},
+        {"lps": 0.5, "sos": 1.15, "evr": 0.75},
+    )
+
+    assert weights == {"evr": 0.75, "lps": 0.5, "sos": 1.15}
+
+
 def test_dynamic_policy_env_loader_stays_in_workflow_layer(monkeypatch):
     monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
     monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY_HORIZON", "8")
@@ -717,6 +727,39 @@ def test_attach_shadow_policy_preserves_base_policy():
     assert base["_dynamic_mode"] == "shadow"
     assert base["_shadow_policy"] == shadow
     assert base["_signal_weights"] == {"sos": 0.8}
+    assert base["_attribution_signal_weights"] == {}
+
+
+def test_load_dynamic_policy_context_merges_attribution_weights(monkeypatch):
+    from core.ai_candidate_allocation import AiCandidateAllocationConfig
+    from workflows import funnel_ai_selection as selection
+
+    monkeypatch.setattr(
+        selection,
+        "load_signal_health_snapshot",
+        lambda market: [
+            {
+                "as_of_date": "2026-07-04",
+                "horizon_days": 5,
+                "regime": "RISK_ON",
+                "signal_type": "lps",
+                "weight_multiplier": 0.75,
+            }
+        ],
+    )
+    monkeypatch.setattr(selection, "load_signal_registry", lambda market: [])
+    monkeypatch.setattr(selection, "load_attribution_signal_weights", lambda **_kwargs: {"lps": 0.5, "sos": 1.15})
+
+    ctx = selection._load_dynamic_policy_context(
+        "RISK_ON",
+        {"breadth": {}},
+        DynamicPolicyConfig(mode="shadow", horizon_days=5),
+        AiCandidateAllocationConfig(),
+    )
+
+    assert ctx["weights"]["lps"] == 0.5
+    assert ctx["weights"]["sos"] == 1.15
+    assert ctx["attribution_weights"] == {"lps": 0.5, "sos": 1.15}
 
 
 def test_policy_shadow_row_stores_compact_summaries():
@@ -744,6 +787,7 @@ def test_policy_shadow_row_stores_compact_summaries():
                     "avg_return_pct": -3.2,
                 }
             ],
+            "_attribution_signal_weights": {"sos": 0.8},
         },
         {"end_trade_date": "2026-06-30"},
         ["000001", "000002"],
@@ -755,7 +799,9 @@ def test_policy_shadow_row_stores_compact_summaries():
 
     assert row["schema_version"] == "shadow_policy_v2"
     assert row["snapshot_level"] == "summary"
+    assert row["attribution_signal_weights"] == {"sos": 0.8}
     assert row["selection_summary"]["jaccard"] == 0.3333
+    assert row["policy_summary"]["attribution_weight_count"] == 1
     assert row["policy_summary"]["downweighted_signals"] == [{"signal_type": "sos", "weight": 0.8}]
     assert row["registry_summary"]["by_status"] == {"ACTIVE": 1, "WATCH": 1}
     assert row["health_summary"]["changed"][0]["state"] == "DECAYED"

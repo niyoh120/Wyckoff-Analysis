@@ -18,6 +18,7 @@ from core.dynamic_policy import (
     dynamic_policy_horizon,
     dynamic_policy_mode,
     filter_triggers_by_registry,
+    merge_signal_weight_maps,
     resolve_dynamic_candidate_policy,
 )
 from core.funnel_selection import (
@@ -47,6 +48,7 @@ from workflows.funnel_settings import (
     FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED,
     FUNNEL_THEME_RADAR_PROMOTE_CAP,
 )
+from workflows.strategy_attribution_policy import load_attribution_signal_weights
 
 SHADOW_POLICY_SCHEMA_VERSION = "shadow_policy_v2"
 
@@ -285,6 +287,7 @@ def attach_shadow_policy(ai_policy: dict, dynamic_ctx: dict) -> None:
     ai_policy["_signal_weights"] = dynamic_ctx.get("weights") or {}
     ai_policy["_registry_rows"] = dynamic_ctx.get("registry") or []
     ai_policy["_health_rows"] = dynamic_ctx.get("health") or []
+    ai_policy["_attribution_signal_weights"] = dynamic_ctx.get("attribution_weights") or {}
     ai_policy["_pv_policy_shadow"] = dynamic_ctx.get("pv_policy_shadow") or {}
     print(
         "[funnel] 动态策略shadow: "
@@ -316,14 +319,18 @@ def _load_dynamic_policy_context(
         print(f"[funnel] 动态策略上下文加载失败，降级为静态: {exc}")
         return _dynamic_policy_fallback("off", pv_policy_shadow)
     horizon = dynamic_policy_horizon(dynamic_config)
-    weights = build_signal_weight_map(health_rows, registry_rows, regime=regime, horizon_days=horizon)
+    feedback_weights = build_signal_weight_map(health_rows, registry_rows, regime=regime, horizon_days=horizon)
+    attribution_weights = load_attribution_signal_weights(
+        market="cn", log_fn=lambda message: print(f"[funnel] {message}")
+    )
+    weights = merge_signal_weight_maps(feedback_weights, attribution_weights)
     base_policy = resolve_ai_candidate_policy(regime, config=allocation_config)
     policy = resolve_dynamic_candidate_policy(
         base_policy,
         weights,
         breadth=(benchmark_context.get("breadth") or {}),
     )
-    if health_rows or registry_rows:
+    if health_rows or registry_rows or attribution_weights:
         print(
             "[funnel] 动态策略上下文: "
             f"mode={mode}, horizon={horizon}, weights={weights or {}}, "
@@ -336,6 +343,7 @@ def _load_dynamic_policy_context(
         "health": health_rows,
         "registry": registry_rows,
         "weights": weights,
+        "attribution_weights": attribution_weights,
         "policy": policy,
         "pv_policy_shadow": pv_policy_shadow,
     }
@@ -347,6 +355,7 @@ def _dynamic_policy_fallback(mode: str, pv_policy_shadow: dict) -> dict:
         "health": [],
         "registry": [],
         "weights": {},
+        "attribution_weights": {},
         "policy": None,
         "pv_policy_shadow": pv_policy_shadow,
     }
@@ -451,12 +460,18 @@ def _policy_shadow_row(
         "base_policy": base_policy,
         "shadow_policy": shadow_policy,
         "signal_weights": ai_policy.get("_signal_weights") or {},
+        "attribution_signal_weights": ai_policy.get("_attribution_signal_weights") or {},
         "base_selected": selected_for_ai,
         "shadow_selected": shadow_selected,
         "diff_added": diff_added,
         "diff_removed": diff_removed,
         "selection_summary": _selection_summary(selected_for_ai, shadow_selected, diff_added, diff_removed),
-        "policy_summary": _policy_summary(base_policy, shadow_policy, ai_policy.get("_signal_weights") or {}),
+        "policy_summary": _policy_summary(
+            base_policy,
+            shadow_policy,
+            ai_policy.get("_signal_weights") or {},
+            ai_policy.get("_attribution_signal_weights") or {},
+        ),
         "registry_summary": _registry_summary(registry_rows),
         "health_summary": _health_summary(health_rows),
         "registry_snapshot": [],
@@ -507,11 +522,17 @@ def _selection_summary(
     }
 
 
-def _policy_summary(base_policy: dict, shadow_policy: dict, signal_weights: dict) -> dict:
+def _policy_summary(
+    base_policy: dict,
+    shadow_policy: dict,
+    signal_weights: dict,
+    attribution_weights: dict | None = None,
+) -> dict:
     return {
         "base": _policy_core(base_policy),
         "shadow": _policy_core(shadow_policy),
         "signal_weight_count": len(signal_weights),
+        "attribution_weight_count": len(attribution_weights or {}),
         "downweighted_signals": _weighted_signals(signal_weights, upper_bound=0.999),
         "upweighted_signals": _weighted_signals(signal_weights, lower_bound=1.001),
     }

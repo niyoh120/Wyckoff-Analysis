@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from workflows import strategy_attribution_policy as attribution_policy
 from workflows import tail_buy_policy as policy
 
 
@@ -26,7 +27,7 @@ def test_tail_buy_policy_adjustments_use_local_no_write_report(monkeypatch, tmp_
         encoding="utf-8",
     )
     monkeypatch.setenv("TAIL_BUY_ATTRIBUTION_REPORT_JSON", str(report_path))
-    monkeypatch.setattr(policy, "_load_latest_attribution_report", lambda _market: None)
+    monkeypatch.setattr(attribution_policy, "load_latest_attribution_report", lambda _market: None)
     monkeypatch.setattr(policy, "log_line", lambda *_args, **_kwargs: None)
 
     assert policy.load_tail_buy_policy_adjustments(market="cn") == {"lps": 0.5}
@@ -40,8 +41,8 @@ def test_tail_buy_policy_adjustments_prefer_remote_report(monkeypatch, tmp_path)
     )
     monkeypatch.setenv("TAIL_BUY_ATTRIBUTION_REPORT_JSON", str(report_path))
     monkeypatch.setattr(
-        policy,
-        "_load_latest_attribution_report",
+        attribution_policy,
+        "load_latest_attribution_report",
         lambda _market: {
             "market": "cn",
             "shadow_diff_stats_json": {"policy_governor": {"horizon": "5"}},
