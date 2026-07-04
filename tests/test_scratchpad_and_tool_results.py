@@ -131,6 +131,31 @@ def test_analyze_stock_brief_surfaces_ai_report_handoff() -> None:
     )
 
 
+def test_analyze_stock_price_brief_uses_market_label() -> None:
+    result = {
+        "code": "002293",
+        "latest_date": "2026-07-03",
+        "latest_close": 11.07,
+        "data_status": "ok",
+        "days": 3,
+        "data": [
+            {"date": "2026-07-01", "close": 10.66, "pct_chg": 7.79},
+            {"date": "2026-07-02", "close": 10.85, "pct_chg": 1.78},
+            {"date": "2026-07-03", "close": 11.07, "pct_chg": 2.03},
+        ],
+    }
+
+    preview = json.loads(tool_result_preview("analyze_stock", result))
+    lines = tool_result_brief_lines("analyze_stock", result)
+
+    assert preview["data"][0]["date"] == "2026-07-01"
+    assert lines == [
+        "个股行情: 002293",
+        "现价11.07 · 日期2026-07-03",
+        "行情样本: 3条 · 最新涨跌+2.03%",
+    ]
+
+
 def test_portfolio_view_brief_lines_guide_empty_holdings_in_chat() -> None:
     result = {
         "message": "未找到持仓记录，可通过 update_portfolio 添加",

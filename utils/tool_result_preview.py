@@ -733,7 +733,7 @@ def _analyze_stock_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     if brief:
         lines.append(_analyze_stock_action_line(brief))
     elif result.get("data"):
-        lines.append(f"行情样本: {len(_preview_list(result.get('data'), 999))}条")
+        lines.append(_analyze_stock_price_line(result))
     if handoff_line := _next_tool_brief_line(result.get("next_tool")):
         lines.append(handoff_line)
     return [line for line in lines if line][:max_lines]
@@ -746,6 +746,8 @@ def _analyze_stock_headline(result: dict[str, Any], brief: dict[str, Any]) -> st
     name = " ".join(
         part for part in (str(result.get("code") or "").strip(), str(result.get("name") or "").strip()) if part
     )
+    if result.get("data"):
+        return f"个股行情: {name}" if name else "个股行情"
     return f"个股诊断: {name}" if name else "个股诊断"
 
 
@@ -774,6 +776,15 @@ def _analyze_stock_action_line(brief: dict[str, Any]) -> str:
         _stock_next_step_part(brief.get("next_step")),
     ]
     return " · ".join(part for part in parts if part)
+
+
+def _analyze_stock_price_line(result: dict[str, Any]) -> str:
+    rows = _preview_list(result.get("data"), 999)
+    latest = rows[-1] if rows and isinstance(rows[-1], dict) else {}
+    parts = [f"行情样本: {len(rows)}条"]
+    if pct := _format_pct_signed(latest.get("pct_chg")):
+        parts.append(f"最新涨跌{pct}")
+    return " · ".join(parts)
 
 
 def _stock_list_part(label: str, value: Any, limit: int) -> str:
