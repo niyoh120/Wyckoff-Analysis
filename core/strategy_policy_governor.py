@@ -33,6 +33,9 @@ def build_strategy_policy_governor(
         "horizon": str(horizon),
         "status": _governor_status(shadow_gate, all_actions),
         "auto_apply": False,
+        "formal_dynamic_allowed": False,
+        "formal_dynamic_approval": _formal_dynamic_approval_status(shadow_gate),
+        "formal_dynamic_block_reason": _formal_dynamic_block_reason(shadow_gate),
         "mode_recommendation": _mode_recommendation(shadow_gate),
         "next_action": next_action,
         "next_action_summary": _next_action_summary(next_action),
@@ -163,6 +166,9 @@ def _governor_summary_row(governor: dict[str, Any]) -> dict[str, str]:
                 "next_action_summary": governor.get("next_action_summary"),
                 "promotion_status": governor.get("promotion_status"),
                 "promotion_checklist": governor.get("promotion_checklist"),
+                "formal_dynamic_allowed": governor.get("formal_dynamic_allowed"),
+                "formal_dynamic_approval": governor.get("formal_dynamic_approval"),
+                "formal_dynamic_block_reason": governor.get("formal_dynamic_block_reason"),
                 "summary": governor.get("summary"),
                 "auto_apply": governor.get("auto_apply"),
             },
@@ -367,6 +373,28 @@ def _promotion_status(shadow_gate: dict[str, Any]) -> str:
         return "do_not_promote"
     if status == "insufficient_sample":
         return "collect_more_samples"
+    return "keep_shadow"
+
+
+def _formal_dynamic_approval_status(shadow_gate: dict[str, Any]) -> str:
+    status = str(shadow_gate.get("status") or "")
+    if status == "candidate":
+        return "manual_review_required"
+    if status == "reject":
+        return "not_approved"
+    if status == "insufficient_sample":
+        return "insufficient_shadow_sample"
+    return "keep_shadow"
+
+
+def _formal_dynamic_block_reason(shadow_gate: dict[str, Any]) -> str:
+    status = str(shadow_gate.get("status") or "")
+    if status == "candidate":
+        return "manual_review_required"
+    if status == "reject":
+        return "shadow_rejected"
+    if status == "insufficient_sample":
+        return "insufficient_shadow_sample"
     return "keep_shadow"
 
 

@@ -78,7 +78,8 @@ Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否
 人工晋级评审；`promotion_checklist` 和 `latest_operations` 用于追证据。raw `next_action` /
 `promotion_status` 只给程序和排查用，不应直接复述给用户。`manual_review_dynamic_on` 和
 `manual_review_required` 只表示 shadow 数据已经过主要量化门槛；切换 `FUNNEL_DYNAMIC_POLICY=on`
-仍要人工确认多期报告和回测。
+仍要人工确认多期报告和回测。正式生效以 `formal_dynamic_allowed=true` 为准；
+`formal_dynamic_block_reason=manual_review_required` 表示仍在人工复核阶段。
 
 ### 外部观察验证
 

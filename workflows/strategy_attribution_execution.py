@@ -290,6 +290,9 @@ def _auto_apply_note(summary: str, governor: dict[str, Any]) -> str:
 def _formal_dynamic_block_reason(governor: dict[str, Any], allowed: bool) -> str:
     if allowed:
         return ""
+    explicit_reason = str(governor.get("formal_dynamic_block_reason") or "").strip()
+    if explicit_reason:
+        return explicit_reason
     explicit = _bool_value(governor.get("formal_dynamic_allowed"))
     if explicit is False:
         return "formal_dynamic_allowed=false"

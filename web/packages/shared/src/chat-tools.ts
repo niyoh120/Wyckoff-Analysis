@@ -726,7 +726,9 @@ function formalDynamicText(execution: Record<string, unknown>): string {
 
 function fallbackFormalDynamic(governor: Record<string, unknown>): { allowed: boolean, reason: string } {
   if (governor.formal_dynamic_allowed === true) return { allowed: true, reason: '' }
-  if (governor.formal_dynamic_allowed === false) return { allowed: false, reason: 'formal_dynamic_allowed=false' }
+  if (governor.formal_dynamic_allowed === false) {
+    return { allowed: false, reason: String(governor.formal_dynamic_block_reason || 'formal_dynamic_allowed=false') }
+  }
   if (String(governor.next_action || '').trim() === 'manual_review_dynamic_on') {
     return { allowed: false, reason: 'manual_review_required' }
   }

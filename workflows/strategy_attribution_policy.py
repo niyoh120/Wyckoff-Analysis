@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
-from core.strategy_policy_display import format_policy_weight_text, policy_next_action_label
+from core.strategy_policy_display import (
+    format_policy_meta_text,
+    format_policy_weight_text,
+)
 from core.strategy_policy_governor import signal_weight_multipliers_from_rows
 from integrations.supabase_base import close_client, create_read_client
 from workflows.strategy_attribution_execution import attribution_execution_state, attribution_formal_dynamic_allowed
@@ -237,25 +240,8 @@ def _policy_snapshot(
 
 
 def _snapshot_log_text(snapshot: AttributionPolicySnapshot) -> str:
-    meta = []
-    if snapshot.source:
-        meta.append(snapshot.source)
-    if snapshot.report_date:
-        meta.append(f"report_date={snapshot.report_date}")
-    meta.append(f"h={snapshot.horizon}")
-    if snapshot.age_days is not None:
-        meta.append(f"age={snapshot.age_days}d")
-    if snapshot.execution_policy:
-        meta.append(f"mode={snapshot.execution_policy}")
-    active_scope = snapshot.as_dict().get("active_scope")
-    if active_scope:
-        meta.append(f"active={active_scope}")
-    if snapshot.next_action:
-        meta.append(f"next={policy_next_action_label(snapshot.next_action)}")
-    if not snapshot.formal_dynamic_allowed and snapshot.formal_dynamic_block_reason:
-        meta.append(f"formal_block={snapshot.formal_dynamic_block_reason}")
     weights = format_policy_weight_text(snapshot.weights, limit=12, delimiter=", ")
-    return f"{' '.join(meta)}; {weights}"
+    return f"{format_policy_meta_text(snapshot.as_dict())}; {weights}"
 
 
 def _active_scope_text(*, tail_active: bool, shadow_active: bool, formal_active: bool) -> str:

@@ -292,11 +292,11 @@ shadow 差异和信号表现收敛成统一的治理结论：
 运营摘要，和 Agent 的 `latest_operator_summary`、Web 归因页“运营复盘”第一行保持同一口径。它不是新的
 交易信号，也不会改变候选；只是把治理器、执行态、shadow 差异和调权明细汇总成统一操作语言。
 
-第一版治理器永远输出 `auto_apply=false`。它表示系统不会自动把 `FUNNEL_DYNAMIC_POLICY` 从
-`shadow` 晋级到 `on`；不表示归因权重完全不参与策略。信号级调权可以进入尾盘和动态策略输入，
-但正式漏斗生效必须满足更硬的 gate：报告中显式写入 `formal_dynamic_allowed=true`，或未来治理器支持
-`auto_apply=true` 且 `promotion_checklist` 全部通过。仅有 `manual_review_required` / `manual_review_dynamic_on`
-只能进入复核，不是正式执行许可。
+治理器默认不会自动把 `FUNNEL_DYNAMIC_POLICY` 从 `shadow` 晋级到 `on`。报告会显式写出
+`formal_dynamic_allowed=false` 和 `formal_dynamic_block_reason`，例如 `manual_review_required` 表示已进入人工复核，
+但还不是正式执行许可。信号级调权可以进入尾盘和动态策略输入；正式漏斗生效必须满足更硬的 gate：
+报告中显式写入 `formal_dynamic_allowed=true`，或未来治理器支持 `auto_apply=true` 且
+`promotion_checklist` 全部通过。
 
 ## 和迭代策略的对应关系
 

@@ -170,6 +170,8 @@ def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatc
                     "mode_recommendation": "review_promote_dynamic_policy",
                     "next_action": "manual_review_dynamic_on",
                     "next_action_summary": "shadow 新增组已跑赢移除组",
+                    "formal_dynamic_allowed": False,
+                    "formal_dynamic_block_reason": "manual_review_required",
                     "auto_apply": False,
                 }
             },
@@ -195,7 +197,7 @@ def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatc
     assert snapshot.next_action == "manual_review_dynamic_on"
     assert snapshot.next_action_summary == "shadow 新增组已跑赢移除组"
     assert snapshot.formal_dynamic_allowed is False
-    assert snapshot.formal_dynamic_block_reason == "auto_apply=false"
+    assert snapshot.formal_dynamic_block_reason == "manual_review_required"
     assert snapshot.execution_policy == "shadow"
     assert snapshot.execution_scope == "tail_buy_and_funnel_shadow"
     assert snapshot.signal_action_count == 1

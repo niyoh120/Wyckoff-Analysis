@@ -384,7 +384,7 @@ describe('execQueryAttribution', () => {
               ],
               signal_action_count: 1,
               formal_dynamic_allowed: false,
-              formal_dynamic_block_reason: 'auto_apply=false',
+              formal_dynamic_block_reason: 'manual_review_required',
               summary: 'h=5 调权会影响尾盘和漏斗 shadow。',
             },
             policy_operations_brief: {
@@ -428,7 +428,7 @@ describe('execQueryAttribution', () => {
     expect(result).toContain('promotion=需人工复核')
     expect(result).toContain('晋级检查：shadow_sample:pass；backtest_confirmation:review')
     expect(result).toContain(
-      '执行态：shadow 对照模式 | 周期=h5 | 作用范围=尾盘+漏斗shadow（tail_buy_and_funnel_shadow） | 晋级=需人工复核 | 下一步=进入人工晋级评审（非正式生效） | 正式dynamic=未进正式漏斗(auto_apply=false) | 可执行调权=1',
+      '执行态：shadow 对照模式 | 周期=h5 | 作用范围=尾盘+漏斗shadow（tail_buy_and_funnel_shadow） | 晋级=需人工复核 | 下一步=进入人工晋级评审（非正式生效） | 正式dynamic=未进正式漏斗(manual_review_required) | 可执行调权=1',
     )
     expect(result).toContain('操作摘要：下一步=shadow 新增组已跑赢移除组')
     expect(result).toContain('作用范围=尾盘+漏斗shadow')

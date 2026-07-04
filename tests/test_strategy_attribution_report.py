@@ -204,6 +204,9 @@ def test_attribution_policy_governor_promotes_shadow_review_and_signal_actions()
     assert governor["next_action"] == "manual_review_dynamic_on"
     assert governor["promotion_status"] == "manual_review_required"
     assert governor["auto_apply"] is False
+    assert governor["formal_dynamic_allowed"] is False
+    assert governor["formal_dynamic_approval"] == "manual_review_required"
+    assert governor["formal_dynamic_block_reason"] == "manual_review_required"
     assert {row["key"]: row["status"] for row in governor["promotion_checklist"]} == {
         "shadow_sample": "pass",
         "shadow_performance": "pass",
@@ -291,6 +294,8 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
                 "next_action": "manual_review_dynamic_on",
                 "next_action_summary": "shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。",
                 "promotion_status": "manual_review_required",
+                "formal_dynamic_allowed": False,
+                "formal_dynamic_block_reason": "manual_review_required",
                 "auto_apply": False,
                 "summary": "shadow 新增组显著优于移除组",
             },
@@ -327,14 +332,14 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
             "active_scope": "尾盘+漏斗shadow",
             "promotion_status": "需人工复核",
             "next_action": "进入人工晋级评审（非正式生效）",
-            "formal_dynamic": "未进正式漏斗(auto_apply=false)",
+            "formal_dynamic": "未进正式漏斗(manual_review_required)",
             "summary": (
                 "h=5 信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。 "
                 "策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；manual_review_dynamic_on 只是人工复核入口。"
             ),
         },
         "formal_dynamic_allowed": False,
-        "formal_dynamic_block_reason": "auto_apply=false",
+        "formal_dynamic_block_reason": "manual_review_required",
         "active_scope": "尾盘+漏斗shadow",
         "tail_buy_weights_active": True,
         "funnel_shadow_weights_active": True,
@@ -342,7 +347,7 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "signal_action_count": 1,
         "operator_summary": (
             "下一步=shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。；"
-            "作用范围=尾盘+漏斗shadow；正式dynamic=暂不晋级(auto_apply=false)；"
+            "作用范围=尾盘+漏斗shadow；正式dynamic=暂不晋级(manual_review_required)；"
             "Shadow=暂无最新对照；本期 1 个 scoped 调权：lps×0.50"
         ),
     }

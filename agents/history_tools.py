@@ -296,6 +296,9 @@ def _policy_governor_record(governor: dict) -> dict:
         "promotion_status": str(governor.get("promotion_status", "unknown")),
         "promotion_checklist": checklist if isinstance(checklist, list) else [],
         "auto_apply": bool(governor.get("auto_apply")),
+        "formal_dynamic_allowed": governor.get("formal_dynamic_allowed"),
+        "formal_dynamic_approval": str(governor.get("formal_dynamic_approval", "")),
+        "formal_dynamic_block_reason": str(governor.get("formal_dynamic_block_reason", "")),
         "summary": str(governor.get("summary", "-")),
         "horizon": str(governor.get("horizon", "")),
     }

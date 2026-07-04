@@ -127,7 +127,8 @@ display 字段和 `latest_operator_summary`，raw `next_action` / `promotion_sta
 `promotion_checklist` 固定检查 shadow 样本量、shadow 新增组表现、scoped 信号调权和回测确认。
 `manual_review_dynamic_on`
 只表示可以开始人工晋级评审；正式漏斗读取归因调权还需要显式 `formal_dynamic_allowed=true`，
-或未来 `auto_apply=true` 且晋级清单全部通过。
+或未来 `auto_apply=true` 且晋级清单全部通过。`formal_dynamic_block_reason=manual_review_required`
+表示当前卡在人工复核，不是代码故障或自动开关遗漏。
 回测也按同一条线处理：`shadow` 只展示归因 meta，不把 shadow 权重当成正式 replay 输入；
 只有 `on` 且 formal gate 通过时才使用归因权重重排候选。
 
