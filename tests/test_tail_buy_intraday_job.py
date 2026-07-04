@@ -67,6 +67,7 @@ def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
             age_days=0,
             execution_policy="shadow",
             execution_scope="tail_buy_and_funnel_shadow",
+            next_action="manual_review_dynamic_on",
         ),
     )
 
@@ -100,10 +101,12 @@ def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
     assert calls["weights"] == {"lps": 0.5}
     assert calls["policy_meta"]["report_date"] == "2026-07-04"
     assert calls["policy_meta"]["execution_scope"] == "tail_buy_and_funnel_shadow"
+    assert calls["policy_meta"]["next_action"] == "manual_review_dynamic_on"
     assert result.merged[0].rule_score == 40.0
     assert result.policy_weights == {"lps": 0.5}
     assert result.policy_weight_meta["source"] == "远端"
     assert result.policy_weight_meta["execution_policy"] == "shadow"
+    assert result.policy_weight_meta["next_action"] == "manual_review_dynamic_on"
 
 
 def test_single_rule_scan_marks_deferred_candidates(monkeypatch) -> None:

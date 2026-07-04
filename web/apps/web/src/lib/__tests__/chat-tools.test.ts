@@ -275,6 +275,44 @@ describe('execQueryTailBuy', () => {
     const result = await execQueryTailBuy(deps, 10)
     expect(result).toBe('暂无尾盘买入记录')
   })
+
+  it('surfaces attribution next action in policy weight text', async () => {
+    const deps = createMockDeps({
+      tail_buy_history: [
+        {
+          code: '002079',
+          name: '苏州固锝',
+          run_date: '2026-07-04',
+          signal_type: 'lps',
+          final_decision: 'WATCH',
+          initial_price: 12,
+          current_price: 12.5,
+          change_pct: 4.2,
+          dist_vwap_pct: 1.1,
+          rule_score: 40,
+          llm_decision: '',
+          llm_reason: '',
+          features_json: {
+            policy_weight_signal: 'lps',
+            policy_weight_multiplier: 0.5,
+            policy_weight_old_score: 80,
+            policy_weight_new_score: 40,
+            policy_weight_source: '远端',
+            policy_weight_report_date: '2026-07-04',
+            policy_weight_horizon: '5',
+            policy_weight_execution_policy: 'shadow',
+            policy_weight_execution_scope: 'tail_buy_and_funnel_shadow',
+            policy_weight_next_action: 'manual_review_dynamic_on',
+          },
+        },
+      ],
+    })
+
+    const result = await execQueryTailBuy(deps, 10)
+
+    expect(result).toContain('归因调权 lps x0.50 80.0→40.0')
+    expect(result).toContain('next=manual_review_dynamic_on')
+  })
 })
 
 describe('execQueryAttribution', () => {

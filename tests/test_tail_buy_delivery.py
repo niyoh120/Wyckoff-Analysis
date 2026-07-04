@@ -102,6 +102,7 @@ def test_send_tail_buy_report_builds_buy_only_report(monkeypatch) -> None:
             "age_days": 0,
             "execution_policy": "shadow",
             "execution_scope": "tail_buy_and_funnel_shadow",
+            "next_action": "manual_review_dynamic_on",
         },
     )
 
@@ -124,4 +125,5 @@ def test_send_tail_buy_report_builds_buy_only_report(monkeypatch) -> None:
         "age_days": 0,
         "execution_policy": "shadow",
         "execution_scope": "tail_buy_and_funnel_shadow",
+        "next_action": "manual_review_dynamic_on",
     }

@@ -777,6 +777,7 @@ def test_load_dynamic_policy_context_merges_attribution_weights(monkeypatch):
             report_date="2026-07-04",
             horizon="5",
             age_days=0,
+            next_action="manual_review_dynamic_on",
         ),
     )
 
@@ -791,6 +792,7 @@ def test_load_dynamic_policy_context_merges_attribution_weights(monkeypatch):
     assert ctx["weights"]["sos"] == 1.15
     assert ctx["attribution_weights"] == {"lps": 0.5, "sos": 1.15}
     assert ctx["attribution_policy_meta"]["report_date"] == "2026-07-04"
+    assert ctx["attribution_policy_meta"]["next_action"] == "manual_review_dynamic_on"
 
 
 def test_policy_shadow_row_stores_compact_summaries():
@@ -819,7 +821,13 @@ def test_policy_shadow_row_stores_compact_summaries():
                 }
             ],
             "_attribution_signal_weights": {"sos": 0.8},
-            "_attribution_policy_meta": {"source": "远端", "report_date": "2026-07-04", "horizon": "5", "age_days": 0},
+            "_attribution_policy_meta": {
+                "source": "远端",
+                "report_date": "2026-07-04",
+                "horizon": "5",
+                "age_days": 0,
+                "next_action": "manual_review_dynamic_on",
+            },
         },
         {"end_trade_date": "2026-06-30"},
         ["000001", "000002"],
@@ -836,6 +844,7 @@ def test_policy_shadow_row_stores_compact_summaries():
     assert row["selection_summary"]["jaccard"] == 0.3333
     assert row["policy_summary"]["attribution_weight_count"] == 1
     assert row["policy_summary"]["attribution_policy_meta"]["source"] == "远端"
+    assert row["policy_summary"]["attribution_policy_meta"]["next_action"] == "manual_review_dynamic_on"
     downweighted = row["policy_summary"]["downweighted_signals"][0]
     assert downweighted["signal_type"] == "sos"
     assert downweighted["weight"] == 0.8

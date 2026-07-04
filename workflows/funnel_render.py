@@ -304,6 +304,9 @@ def _policy_meta_text(meta: dict) -> str:
         tokens.append(f"mode={execution_policy}")
     if execution_scope:
         tokens.append(f"scope={execution_scope}")
+    next_action = str(meta.get("next_action") or "").strip()
+    if next_action:
+        tokens.append(f"next={next_action}")
     return f"（{', '.join(tokens)}）" if tokens else ""
 
 

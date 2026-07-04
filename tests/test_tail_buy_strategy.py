@@ -199,6 +199,7 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
             "age_days": 0,
             "execution_policy": "shadow",
             "execution_scope": "tail_buy_and_funnel_shadow",
+            "next_action": "manual_review_dynamic_on",
         },
     )
 
@@ -213,6 +214,7 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
     assert result[0].features["policy_weight_horizon"] == "5"
     assert result[0].features["policy_weight_execution_policy"] == "shadow"
     assert result[0].features["policy_weight_execution_scope"] == "tail_buy_and_funnel_shadow"
+    assert result[0].features["policy_weight_next_action"] == "manual_review_dynamic_on"
     assert "归因治理调权(lps) x0.50: 80.0->40.0" in result[0].rule_reasons
     assert "调权后低于买入线，尾盘只观察" in result[0].rule_reasons
 
@@ -1062,12 +1064,13 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
             "age_days": 0,
             "execution_policy": "shadow",
             "execution_scope": "tail_buy_and_funnel_shadow",
+            "next_action": "manual_review_dynamic_on",
         },
     )
 
     assert (
         "- 归因调权: launchpad×1.20↑；lps×0.50↓"
-        "（远端, report=2026-07-04, h=5, age=0d, mode=shadow, scope=tail_buy_and_funnel_shadow）"
+        "（远端, report=2026-07-04, h=5, age=0d, mode=shadow, scope=tail_buy_and_funnel_shadow, next=manual_review_dynamic_on）"
     ) in md
 
 

@@ -29,6 +29,8 @@ class AttributionPolicySnapshot:
     max_age_days: int = 7
     governor_status: str = ""
     mode_recommendation: str = ""
+    next_action: str = ""
+    next_action_summary: str = ""
     auto_apply: bool = False
     execution_policy: str = ""
     execution_scope: str = ""
@@ -45,6 +47,8 @@ class AttributionPolicySnapshot:
             "weight_count": len(self.weights),
             "governor_status": self.governor_status,
             "mode_recommendation": self.mode_recommendation,
+            "next_action": self.next_action,
+            "next_action_summary": self.next_action_summary,
             "auto_apply": self.auto_apply,
             "execution_policy": self.execution_policy,
             "execution_scope": self.execution_scope,
@@ -185,6 +189,8 @@ def _policy_snapshot(
         max_age_days=max_age,
         governor_status=str(governor.get("status") or ""),
         mode_recommendation=str(governor.get("mode_recommendation") or ""),
+        next_action=str(governor.get("next_action") or ""),
+        next_action_summary=str(governor.get("next_action_summary") or ""),
         auto_apply=bool(governor.get("auto_apply")),
         execution_policy=str(execution.get("funnel_dynamic_policy") or ""),
         execution_scope=str(execution.get("scope") or ""),
@@ -206,6 +212,8 @@ def _snapshot_log_text(snapshot: AttributionPolicySnapshot) -> str:
         meta.append(f"mode={snapshot.execution_policy}")
     if snapshot.execution_scope:
         meta.append(f"scope={snapshot.execution_scope}")
+    if snapshot.next_action:
+        meta.append(f"next={snapshot.next_action}")
     weights = format_policy_weight_text(snapshot.weights, limit=12, delimiter=", ")
     return f"{' '.join(meta)}; {weights}"
 

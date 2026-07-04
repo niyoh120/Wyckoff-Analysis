@@ -109,7 +109,15 @@ function policyWeightText(record: TailBuyRecord): string {
   const horizon = String(features.policy_weight_horizon || '').trim()
   const mode = String(features.policy_weight_execution_policy || '').trim()
   const scope = String(features.policy_weight_execution_scope || '').trim()
-  const meta = [source, reportDate ? `report=${reportDate}` : '', horizon ? `h=${horizon}` : '', mode ? `mode=${mode}` : '', scope ? `scope=${scope}` : ''].filter(Boolean).join(' ')
+  const nextAction = String(features.policy_weight_next_action || '').trim()
+  const meta = [
+    source,
+    reportDate ? `report=${reportDate}` : '',
+    horizon ? `h=${horizon}` : '',
+    mode ? `mode=${mode}` : '',
+    scope ? `scope=${scope}` : '',
+    nextAction ? `next=${nextAction}` : '',
+  ].filter(Boolean).join(' ')
   return `${signal} x${multiplier.toFixed(2)}${scoreText}${meta ? ` (${meta})` : ''}`
 }
 
