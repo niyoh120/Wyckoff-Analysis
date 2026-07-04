@@ -1,7 +1,10 @@
 import { useMemo, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
-import { attributionOperatorSummary as buildAttributionOperatorSummary } from '@wyckoff/shared'
+import {
+  attributionExecutionImpactText,
+  attributionOperatorSummary as buildAttributionOperatorSummary,
+} from '@wyckoff/shared'
 import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
 import { WyckoffLoading } from '@/components/loading'
@@ -494,10 +497,7 @@ function PolicyExecutionState({
         <MetricCard label="正式 dynamic" value={formalStatus} />
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
-        {execution?.summary ||
-          (hasActions
-            ? `归因调权已沉淀为信号级权重输入，覆盖 ${targetText}。尾盘策略会读取这些权重；漏斗侧会作为动态策略输入。`
-            : '本期没有可执行的信号级调权，归因结果只用于观察与人工复盘。')}
+        {attributionExecutionImpactText({ execution, actionCount, targetText })}
       </p>
       <p className="mt-2 text-xs text-muted-foreground">
         漏斗动态策略 `{policyMode}`，晋级状态 `{promotion || 'unknown'}`。{formatFormalDynamicReason(execution)}{modeText} Web 读盘室可通过 `query_attribution` 查看运营摘要、执行态和晋级检查；

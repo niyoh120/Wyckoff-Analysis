@@ -28,6 +28,20 @@ export interface AttributionOperatorSummaryInput {
   actions?: AttributionOperatorAction[] | null
 }
 
+export interface AttributionExecutionImpactInput {
+  execution?: {
+    summary?: unknown
+    signal_action_count?: unknown
+    scope?: unknown
+    active_scope?: unknown
+    tail_buy_weights_active?: unknown
+    funnel_shadow_weights_active?: unknown
+    funnel_formal_weights_active?: unknown
+  } | null
+  actionCount?: unknown
+  targetText?: unknown
+}
+
 export function attributionOperatorSummary(input: AttributionOperatorSummaryInput): string {
   const summary = optionalText(input.operations?.operator_summary)
   if (summary) return normalizeOperatorSummaryScope(summary, input.execution, input.actions || [])
@@ -40,6 +54,26 @@ export function attributionOperatorSummary(input: AttributionOperatorSummaryInpu
     operatorShadowSummary(input.latest, input.selection),
     optionalText(input.operations?.action_summary) || `调权=${actions.length}项`,
   ].join('；')
+}
+
+export function attributionExecutionImpactText(input: AttributionExecutionImpactInput): string {
+  const summary = optionalText(input.execution?.summary)
+  if (summary) return summary
+
+  const actionCount = Number(input.actionCount ?? input.execution?.signal_action_count ?? 0)
+  if (actionCount <= 0) return '本期没有可执行的信号级调权，归因结果只用于观察与人工复盘。'
+
+  const active = activeFlags(input.execution, actionCount)
+  const targetText = optionalText(input.targetText) || '-'
+  const impacts = []
+  if (active.tail) impacts.push('尾盘策略会读取这些权重')
+  if (active.formal) {
+    impacts.push('正式漏斗候选排序会读取这些权重')
+  } else if (active.shadow) {
+    impacts.push('漏斗侧仅进入 shadow 对照，不影响正式推荐')
+  }
+  if (impacts.length === 0) impacts.push('当前只保留为归因观察，不进入执行排序')
+  return `归因调权已沉淀为信号级权重输入，覆盖 ${targetText}。${impacts.join('；')}。`
 }
 
 function normalizeOperatorSummaryScope(
@@ -78,6 +112,35 @@ function activeScopeFromExecution(
   if (scope === 'tail_buy_and_funnel_shadow') return '尾盘+漏斗shadow'
   if (scope === 'tail_buy_only') return '尾盘'
   return '无'
+}
+
+function activeFlags(
+  execution: AttributionExecutionImpactInput['execution'],
+  actionCount: number,
+): { tail: boolean, shadow: boolean, formal: boolean } {
+  const tail = boolValue(execution?.tail_buy_weights_active)
+  const shadow = boolValue(execution?.funnel_shadow_weights_active)
+  const formal = boolValue(execution?.funnel_formal_weights_active)
+  if (tail !== undefined || shadow !== undefined || formal !== undefined) {
+    return { tail: tail === true, shadow: shadow === true, formal: formal === true }
+  }
+
+  const scope = optionalText(execution?.scope) || 'none'
+  return {
+    tail: actionCount > 0 && ['tail_buy_only', 'tail_buy_and_funnel_shadow', 'tail_buy_and_funnel'].includes(scope),
+    shadow: actionCount > 0 && scope === 'tail_buy_and_funnel_shadow',
+    formal: actionCount > 0 && scope === 'tail_buy_and_funnel',
+  }
+}
+
+function boolValue(value: unknown): boolean | undefined {
+  if (value === true || value === false) return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true') return true
+    if (normalized === 'false') return false
+  }
+  return undefined
 }
 
 function operatorFormalDynamic(execution: AttributionOperatorSummaryInput['execution']): string {
