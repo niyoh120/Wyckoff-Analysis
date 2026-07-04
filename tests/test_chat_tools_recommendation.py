@@ -3,6 +3,49 @@ from __future__ import annotations
 from agents.history_tools import query_history
 
 
+def test_query_tail_buy_exposes_execution_semantics(monkeypatch):
+    from integrations import local_db
+
+    monkeypatch.setattr(
+        local_db,
+        "load_tail_buy_history",
+        lambda run_date="", decision="", limit=20: [
+            {
+                "code": "600378",
+                "name": "昊华科技",
+                "run_date": "2026-07-04",
+                "signal_type": "rec_momentum_continuation",
+                "final_decision": "BUY",
+                "rule_score": 96.0,
+                "priority_score": 100.0,
+                "llm_decision": "BUY",
+                "llm_reason": "尾盘动能延续",
+                "features_json": "",
+            },
+            {
+                "code": "603713",
+                "name": "密尔克卫",
+                "run_date": "2026-07-04",
+                "signal_type": "sos",
+                "final_decision": "BUY",
+                "rule_score": 92.0,
+                "priority_score": 100.0,
+                "llm_decision": "BUY",
+                "llm_reason": "尾盘确认",
+                "features_json": '{"execution_label":"可执行买入","orderable":true}',
+            },
+        ],
+    )
+
+    result = query_history(source="tail_buy", limit=2)
+
+    assert result["records"][0]["decision_display"] == "BUY（观察买入）"
+    assert result["records"][0]["orderable"] is False
+    assert result["records"][0]["execution_next_step"] == "高位动能默认不买；只保留人工复核。"
+    assert result["records"][1]["decision_display"] == "BUY（可执行买入）"
+    assert result["records"][1]["orderable"] is True
+
+
 def test_query_recommendation_exposes_non_ai_review_role(monkeypatch):
     from integrations import local_db
 

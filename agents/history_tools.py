@@ -6,6 +6,7 @@ import logging
 from agents.tool_context import ToolContext, get_user_client, get_user_id
 from core.pattern_review.records import pattern_review_tool_records
 from core.strategy_policy_display import format_policy_signal_label
+from core.tail_buy.decision_semantics import tail_buy_execution_semantics
 from workflows.strategy_attribution_execution import attribution_execution_state, attribution_operations_brief
 
 logger = logging.getLogger(__name__)
@@ -376,6 +377,7 @@ def _cache_tail_buy_rows(rows: list[dict]) -> None:
                 "rule_reasons": row.get("rule_reasons", ""),
                 "llm_decision": row.get("llm_decision", ""),
                 "llm_reason": row.get("llm_reason", ""),
+                "features_json": row.get("features_json", ""),
             }
             for row in rows
         ]
@@ -383,17 +385,31 @@ def _cache_tail_buy_rows(rows: list[dict]) -> None:
 
 
 def _tail_buy_record(row: dict) -> dict:
+    decision = str(row.get("final_decision", ""))
+    signal_type = str(row.get("signal_type", ""))
+    features = _json_map(row.get("features_json"))
+    semantics = tail_buy_execution_semantics(decision, signal_type, features=features)
     return {
         "code": str(row.get("code", "")),
         "name": str(row.get("name", "")),
         "run_date": str(row.get("run_date", "")),
-        "signal_type": str(row.get("signal_type", "")),
-        "final_decision": str(row.get("final_decision", "")),
+        "signal_type": signal_type,
+        "final_decision": decision,
+        "decision_display": _decision_display(decision, semantics),
+        "execution_label": semantics["execution_label"],
+        "execution_status": semantics["execution_status"],
+        "orderable": semantics["orderable"],
+        "execution_next_step": semantics["execution_next_step"],
         "rule_score": row.get("rule_score", 0),
         "priority_score": row.get("priority_score", 0),
         "llm_decision": str(row.get("llm_decision", "")),
         "llm_reason": str(row.get("llm_reason", "")),
     }
+
+
+def _decision_display(decision: str, semantics: dict) -> str:
+    label = str(semantics.get("execution_label") or "未知")
+    return f"{decision}（{label}）" if decision else label
 
 
 def _json_map(raw: object) -> dict:

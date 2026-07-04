@@ -12,11 +12,23 @@ def tail_buy_execution_semantics(
     signal_type: Any = "",
     *,
     report_mode: str = "intraday",
+    features: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     decision = str(final_decision or "").strip().upper()
     signal = str(signal_type or "").strip()
-    if report_mode == "post_close_review":
-        return _post_close_semantics(decision)
+    fallback = (
+        _post_close_semantics(decision) if report_mode == "post_close_review" else _intraday_semantics(decision, signal)
+    )
+    row = features or {}
+    return {
+        "execution_label": str(row.get("execution_label") or fallback["execution_label"]),
+        "execution_status": str(row.get("execution_status") or fallback["execution_status"]),
+        "orderable": row.get("orderable") if isinstance(row.get("orderable"), bool) else fallback["orderable"],
+        "execution_next_step": str(row.get("execution_next_step") or fallback["execution_next_step"]),
+    }
+
+
+def _intraday_semantics(decision: str, signal: str) -> dict[str, Any]:
     if decision == DECISION_BUY and signal in HIGH_RISK_MOMENTUM_SIGNALS:
         return _semantics("观察买入", "watch_buy", False, "高位动能默认不买；只保留人工复核。")
     if decision == DECISION_BUY:
