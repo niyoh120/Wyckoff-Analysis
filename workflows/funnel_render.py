@@ -307,6 +307,9 @@ def _policy_meta_text(meta: dict) -> str:
     next_action = str(meta.get("next_action") or "").strip()
     if next_action:
         tokens.append(f"next={next_action}")
+    formal_block = str(meta.get("formal_dynamic_block_reason") or "").strip()
+    if meta.get("formal_dynamic_allowed") is False and formal_block:
+        tokens.append(f"formal_block={formal_block}")
     return f"（{', '.join(tokens)}）" if tokens else ""
 
 

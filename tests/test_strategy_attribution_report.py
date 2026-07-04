@@ -414,6 +414,29 @@ def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):
     assert state["action_details"][1]["label"] == "launchpad"
 
 
+def test_attribution_execution_state_blocks_formal_on_without_governor_approval(monkeypatch):
+    from workflows.strategy_attribution_execution import attribution_execution_state
+
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
+    governor = {
+        "horizon": "5",
+        "next_action": "keep_static_policy",
+        "promotion_status": "do_not_promote",
+        "auto_apply": False,
+    }
+
+    state = attribution_execution_state(
+        governor,
+        [{"type": "downweight", "target": "lps", "horizon": "5", "reason": '{"weight_multiplier":0.5}'}],
+    )
+
+    assert state["funnel_dynamic_policy"] == "on"
+    assert state["scope"] == "tail_buy_and_funnel_shadow"
+    assert state["formal_dynamic_allowed"] is False
+    assert state["formal_dynamic_block_reason"] == "next_action=keep_static_policy"
+    assert "未批准进入漏斗正式 dynamic" in state["summary"]
+
+
 def test_attribution_policy_governor_keeps_shadow_reject_when_signal_actions_exist():
     import workflows.strategy_attribution_stats as stats_mod
 

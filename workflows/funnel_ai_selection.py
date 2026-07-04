@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any
 
 from core.ai_candidate_allocation import (
     AiCandidateAllocationConfig,
@@ -325,7 +326,7 @@ def _load_dynamic_policy_context(
     attribution_snapshot = load_attribution_policy_snapshot(
         market="cn", log_fn=lambda message: print(f"[funnel] {message}")
     )
-    attribution_weights = attribution_snapshot.weights
+    attribution_weights = _effective_attribution_weights(attribution_snapshot, mode)
     weights = merge_signal_weight_maps(feedback_weights, attribution_weights)
     base_policy = resolve_ai_candidate_policy(regime, config=allocation_config)
     policy = resolve_dynamic_candidate_policy(
@@ -351,6 +352,15 @@ def _load_dynamic_policy_context(
         "policy": policy,
         "pv_policy_shadow": pv_policy_shadow,
     }
+
+
+def _effective_attribution_weights(attribution_snapshot: Any, mode: str) -> dict[str, float]:
+    weights = dict(getattr(attribution_snapshot, "weights", {}) or {})
+    if mode != "on" or not weights or getattr(attribution_snapshot, "formal_dynamic_allowed", False):
+        return weights
+    reason = getattr(attribution_snapshot, "formal_dynamic_block_reason", "") or "governor_not_approved"
+    print(f"[funnel] 策略归因调权: formal dynamic 未启用归因权重({reason})，仅保留尾盘/漏斗shadow语义。")
+    return {}
 
 
 def _dynamic_policy_fallback(mode: str, pv_policy_shadow: dict) -> dict:

@@ -110,6 +110,7 @@ function policyWeightText(record: TailBuyRecord): string {
   const mode = String(features.policy_weight_execution_policy || '').trim()
   const scope = String(features.policy_weight_execution_scope || '').trim()
   const nextAction = String(features.policy_weight_next_action || '').trim()
+  const formalBlock = String(features.policy_weight_formal_dynamic_block_reason || '').trim()
   const meta = [
     source,
     reportDate ? `report=${reportDate}` : '',
@@ -117,6 +118,7 @@ function policyWeightText(record: TailBuyRecord): string {
     mode ? `mode=${mode}` : '',
     scope ? `scope=${scope}` : '',
     nextAction ? `next=${nextAction}` : '',
+    formalBlock ? `formal_block=${formalBlock}` : '',
   ].filter(Boolean).join(' ')
   return `${signal} x${multiplier.toFixed(2)}${scoreText}${meta ? ` (${meta})` : ''}`
 }

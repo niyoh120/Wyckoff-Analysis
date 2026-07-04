@@ -129,6 +129,8 @@ interface PolicyExecutionPayload {
   horizon?: string
   signal_action_count?: number
   action_details?: PolicyActionDetail[]
+  formal_dynamic_allowed?: boolean
+  formal_dynamic_block_reason?: string
   promotion_status?: string
   promotion_checklist?: PromotionCheck[]
   scope?: string
@@ -441,6 +443,7 @@ function PolicyExecutionState({
   const policyMode = execution?.funnel_dynamic_policy || '未知'
   const horizon = execution?.horizon || '-'
   const promotion = execution?.promotion_status || governor?.promotion_status
+  const formalStatus = formatFormalDynamicStatus(execution)
   return (
     <Panel title="调权执行状态">
       <div className="grid gap-3 md:grid-cols-4">
@@ -448,6 +451,7 @@ function PolicyExecutionState({
         <MetricCard label="建议降权" value={`${stats.downCount} 项`} />
         <MetricCard label="建议升权" value={`${stats.upCount} 项`} />
         <MetricCard label="当前范围" value={`${scope} · h=${horizon}`} />
+        <MetricCard label="正式 dynamic" value={formalStatus} />
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
         {execution?.summary ||
@@ -456,7 +460,7 @@ function PolicyExecutionState({
             : '本期没有可执行的信号级调权，归因结果只用于观察与人工复盘。')}
       </p>
       <p className="mt-2 text-xs text-muted-foreground">
-        漏斗动态策略 `{policyMode}`，晋级状态 `{promotion || 'unknown'}`。{modeText} Web 读盘室可通过 `query_attribution` 查看执行态、晋级检查和运营摘要；
+        漏斗动态策略 `{policyMode}`，晋级状态 `{promotion || 'unknown'}`。{formatFormalDynamicReason(execution)}{modeText} Web 读盘室可通过 `query_attribution` 查看执行态、晋级检查和运营摘要；
         CLI 可通过 `query_history(source="attribution")` 查看 latest_source / remote_error / next_action / latest_execution_state / latest_operations。
         {stats.otherCount > 0 ? ` 另有 ${stats.otherCount} 条非升降权建议保留为观察项。` : ''}
       </p>
@@ -1062,6 +1066,18 @@ function formatPromotionCheckStatus(raw: string | undefined) {
     not_required: '无需',
   }
   return labels[String(raw || '').trim()] || raw || '-'
+}
+
+function formatFormalDynamicStatus(execution: PolicyExecutionPayload | null) {
+  if (execution?.formal_dynamic_allowed === true) return '允许正式'
+  if (execution?.formal_dynamic_allowed === false) return '仅 shadow/尾盘'
+  return '未知'
+}
+
+function formatFormalDynamicReason(execution: PolicyExecutionPayload | null) {
+  if (execution?.formal_dynamic_allowed !== false) return ''
+  const reason = String(execution.formal_dynamic_block_reason || '').trim()
+  return reason ? `正式 dynamic 被治理器拦截：${reason}。` : '正式 dynamic 被治理器拦截。'
 }
 
 function promotionStatusClass(raw: string | undefined) {

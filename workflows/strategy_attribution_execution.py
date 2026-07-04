@@ -24,12 +24,16 @@ def attribution_execution_state(
     horizon = str(governor.get("horizon") or "5")
     action_details = _action_details(actions, horizon=horizon)
     action_count = len(action_details)
+    formal_allowed = attribution_formal_dynamic_allowed(governor)
     if action_count <= 0:
         scope = "none"
         summary = "暂无可执行信号调权。"
-    elif mode == "on":
+    elif mode == "on" and formal_allowed:
         scope = "tail_buy_and_funnel"
         summary = f"h={horizon} 信号级调权会影响尾盘策略和漏斗正式候选。"
+    elif mode == "on":
+        scope = "tail_buy_and_funnel_shadow"
+        summary = f"h={horizon} 信号级调权会影响尾盘策略；治理器未批准进入漏斗正式 dynamic。"
     elif mode == "shadow":
         scope = "tail_buy_and_funnel_shadow"
         summary = f"h={horizon} 信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。"
@@ -44,6 +48,8 @@ def attribution_execution_state(
         "action_details": action_details,
         "next_action": governor.get("next_action", "keep_shadow_observe"),
         "next_action_summary": governor.get("next_action_summary", "-"),
+        "formal_dynamic_allowed": formal_allowed,
+        "formal_dynamic_block_reason": _formal_dynamic_block_reason(governor, formal_allowed),
         "promotion_status": governor.get("promotion_status", "unknown"),
         "promotion_checklist": governor.get("promotion_checklist")
         if isinstance(governor.get("promotion_checklist"), list)
@@ -51,6 +57,16 @@ def attribution_execution_state(
         "scope": scope,
         "summary": _auto_apply_note(summary, governor),
     }
+
+
+def attribution_formal_dynamic_allowed(governor: dict[str, Any]) -> bool:
+    next_action = str(governor.get("next_action") or "").strip()
+    if next_action:
+        return next_action == "manual_review_dynamic_on"
+    return (
+        str(governor.get("mode_recommendation") or "").strip() == "review_promote_dynamic_policy"
+        or str(governor.get("promotion_status") or "").strip() == "manual_review_required"
+    )
 
 
 def funnel_dynamic_policy_mode(*, workflow_path: Path | None = None) -> str:
@@ -192,3 +208,13 @@ def _auto_apply_note(summary: str, governor: dict[str, Any]) -> str:
     if governor.get("auto_apply"):
         return summary
     return summary + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on。"
+
+
+def _formal_dynamic_block_reason(governor: dict[str, Any], allowed: bool) -> str:
+    if allowed:
+        return ""
+    next_action = str(governor.get("next_action") or "").strip()
+    if next_action:
+        return f"next_action={next_action}"
+    status = str(governor.get("promotion_status") or governor.get("status") or "unknown").strip()
+    return f"promotion_status={status}"

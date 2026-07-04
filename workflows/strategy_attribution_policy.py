@@ -14,7 +14,7 @@ from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
 from core.strategy_policy_display import format_policy_weight_text
 from core.strategy_policy_governor import signal_weight_multipliers_from_rows
 from integrations.supabase_base import close_client, create_read_client
-from workflows.strategy_attribution_execution import attribution_execution_state
+from workflows.strategy_attribution_execution import attribution_execution_state, attribution_formal_dynamic_allowed
 
 LOCAL_ATTRIBUTION_REPORT = Path("/private/tmp/wyckoff-strategy-attribution/latest/report.json")
 
@@ -34,6 +34,8 @@ class AttributionPolicySnapshot:
     auto_apply: bool = False
     execution_policy: str = ""
     execution_scope: str = ""
+    formal_dynamic_allowed: bool = False
+    formal_dynamic_block_reason: str = ""
     signal_action_count: int = 0
     execution_summary: str = ""
 
@@ -52,6 +54,8 @@ class AttributionPolicySnapshot:
             "auto_apply": self.auto_apply,
             "execution_policy": self.execution_policy,
             "execution_scope": self.execution_scope,
+            "formal_dynamic_allowed": self.formal_dynamic_allowed,
+            "formal_dynamic_block_reason": self.formal_dynamic_block_reason,
             "signal_action_count": self.signal_action_count,
             "execution_summary": self.execution_summary,
         }
@@ -180,6 +184,7 @@ def _policy_snapshot(
     report_day = _report_day(row)
     governor = _policy_governor(row)
     execution = attribution_execution_state(governor, _recommendation_rows(row.get("recommendations_json")))
+    formal_allowed = attribution_formal_dynamic_allowed(governor)
     return AttributionPolicySnapshot(
         weights=weights,
         source=source,
@@ -194,6 +199,8 @@ def _policy_snapshot(
         auto_apply=bool(governor.get("auto_apply")),
         execution_policy=str(execution.get("funnel_dynamic_policy") or ""),
         execution_scope=str(execution.get("scope") or ""),
+        formal_dynamic_allowed=formal_allowed,
+        formal_dynamic_block_reason=str(execution.get("formal_dynamic_block_reason") or ""),
         signal_action_count=int(execution.get("signal_action_count") or 0),
         execution_summary=str(execution.get("summary") or ""),
     )
@@ -214,6 +221,8 @@ def _snapshot_log_text(snapshot: AttributionPolicySnapshot) -> str:
         meta.append(f"scope={snapshot.execution_scope}")
     if snapshot.next_action:
         meta.append(f"next={snapshot.next_action}")
+    if not snapshot.formal_dynamic_allowed and snapshot.formal_dynamic_block_reason:
+        meta.append(f"formal_block={snapshot.formal_dynamic_block_reason}")
     weights = format_policy_weight_text(snapshot.weights, limit=12, delimiter=", ")
     return f"{' '.join(meta)}; {weights}"
 

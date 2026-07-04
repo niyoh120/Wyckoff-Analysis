@@ -778,6 +778,7 @@ def test_load_dynamic_policy_context_merges_attribution_weights(monkeypatch):
             horizon="5",
             age_days=0,
             next_action="manual_review_dynamic_on",
+            formal_dynamic_allowed=True,
         ),
     )
 
@@ -793,6 +794,42 @@ def test_load_dynamic_policy_context_merges_attribution_weights(monkeypatch):
     assert ctx["attribution_weights"] == {"lps": 0.5, "sos": 1.15}
     assert ctx["attribution_policy_meta"]["report_date"] == "2026-07-04"
     assert ctx["attribution_policy_meta"]["next_action"] == "manual_review_dynamic_on"
+
+
+def test_load_dynamic_policy_context_blocks_attribution_weights_in_formal_on(monkeypatch):
+    from core.ai_candidate_allocation import AiCandidateAllocationConfig
+    from workflows import funnel_ai_selection as selection
+    from workflows.strategy_attribution_policy import AttributionPolicySnapshot
+
+    monkeypatch.setattr(selection, "load_signal_health_snapshot", lambda market: [])
+    monkeypatch.setattr(selection, "load_signal_registry", lambda market: [])
+    monkeypatch.setattr(
+        selection,
+        "load_attribution_policy_snapshot",
+        lambda **_kwargs: AttributionPolicySnapshot(
+            weights={"lps": 0.5},
+            source="远端",
+            report_date="2026-07-04",
+            horizon="5",
+            age_days=0,
+            next_action="keep_static_policy",
+            formal_dynamic_allowed=False,
+            formal_dynamic_block_reason="next_action=keep_static_policy",
+        ),
+    )
+
+    ctx = selection._load_dynamic_policy_context(
+        "RISK_ON",
+        {"breadth": {}},
+        DynamicPolicyConfig(mode="on", horizon_days=5),
+        AiCandidateAllocationConfig(),
+    )
+
+    assert ctx["weights"] == {}
+    assert ctx["attribution_weights"] == {}
+    assert ctx["attribution_policy_meta"]["weight_count"] == 1
+    assert ctx["attribution_policy_meta"]["formal_dynamic_allowed"] is False
+    assert ctx["attribution_policy_meta"]["formal_dynamic_block_reason"] == "next_action=keep_static_policy"
 
 
 def test_policy_shadow_row_stores_compact_summaries():
@@ -827,6 +864,7 @@ def test_policy_shadow_row_stores_compact_summaries():
                 "horizon": "5",
                 "age_days": 0,
                 "next_action": "manual_review_dynamic_on",
+                "formal_dynamic_allowed": True,
             },
         },
         {"end_trade_date": "2026-06-30"},

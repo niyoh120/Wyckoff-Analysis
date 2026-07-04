@@ -270,6 +270,9 @@ def _policy_weight_source_text(meta: dict[str, object] | None) -> str:
     next_action = str(row.get("next_action") or "").strip()
     if next_action:
         tokens.append(f"next={next_action}")
+    formal_block = str(row.get("formal_dynamic_block_reason") or "").strip()
+    if row.get("formal_dynamic_allowed") is False and formal_block:
+        tokens.append(f"formal_block={formal_block}")
     return f"（{', '.join(tokens)}）" if tokens else ""
 
 

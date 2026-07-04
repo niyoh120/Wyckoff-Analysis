@@ -68,6 +68,7 @@ def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
             execution_policy="shadow",
             execution_scope="tail_buy_and_funnel_shadow",
             next_action="manual_review_dynamic_on",
+            formal_dynamic_allowed=True,
         ),
     )
 

@@ -33,6 +33,7 @@ def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> Non
                 "execution_policy": "shadow",
                 "execution_scope": "tail_buy_and_funnel_shadow",
                 "next_action": "manual_review_dynamic_on",
+                "formal_dynamic_allowed": True,
             },
             "_signal_weights": {"evr": 0.75, "lps": 0.5, "sos": 1.15},
         }

@@ -396,7 +396,7 @@ describe('execQueryAttribution', () => {
     expect(result).toContain('promotion=manual_review_required')
     expect(result).toContain('晋级检查：shadow_sample:pass；backtest_confirmation:review')
     expect(result).toContain(
-      '执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | promotion=manual_review_required | next=manual_review_dynamic_on | actions=1',
+      '执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | promotion=manual_review_required | next=manual_review_dynamic_on | formal=allowed | actions=1',
     )
     expect(result).toContain('最新 Shadow：2026-07-03 / RISK_ON | base=8 | shadow=9 | 新增=2 | 移除=1 | Jaccard=0.70')
     expect(result).toContain('Shadow 新增样本：300502, 688008')

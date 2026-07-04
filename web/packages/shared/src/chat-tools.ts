@@ -559,6 +559,7 @@ function tailBuyPolicyWeightText(row: Record<string, unknown>): string {
   const mode = String(features?.policy_weight_execution_policy || '').trim()
   const scope = String(features?.policy_weight_execution_scope || '').trim()
   const nextAction = String(features?.policy_weight_next_action || '').trim()
+  const formalBlock = String(features?.policy_weight_formal_dynamic_block_reason || '').trim()
   const meta = [
     source,
     reportDate ? `report=${reportDate}` : '',
@@ -566,6 +567,7 @@ function tailBuyPolicyWeightText(row: Record<string, unknown>): string {
     mode ? `mode=${mode}` : '',
     scope ? `scope=${scope}` : '',
     nextAction ? `next=${nextAction}` : '',
+    formalBlock ? `formal_block=${formalBlock}` : '',
   ].filter(Boolean).join(' ')
   return ` | 归因调权 ${signal} x${multiplier.toFixed(2)}${scoreText}${meta ? ` (${meta})` : ''}`
 }
@@ -647,6 +649,7 @@ function attributionExecutionFallback(governor: Record<string, unknown>, rawActi
     promotion_status: String(governor.promotion_status || 'unknown'),
     next_action: String(governor.next_action || 'keep_shadow_observe'),
     next_action_summary: String(governor.next_action_summary || '-'),
+    formal_dynamic_allowed: String(governor.next_action || '') === 'manual_review_dynamic_on',
     promotion_checklist: Array.isArray(governor.promotion_checklist) ? governor.promotion_checklist : [],
     summary: actionCount > 0 ? `h=${horizon} 有 ${actionCount} 个信号级调权。` : '暂无可执行信号调权。',
   }
@@ -659,9 +662,20 @@ function attributionExecutionLine(execution: Record<string, unknown>): string {
     `scope=${String(execution.scope || 'none')}`,
     `promotion=${String(execution.promotion_status || 'unknown')}`,
     `next=${String(execution.next_action || 'keep_shadow_observe')}`,
+    `formal=${formalDynamicText(execution)}`,
     `actions=${Number(execution.signal_action_count || 0)}`,
     String(execution.summary || ''),
   ].filter(Boolean).join(' | ')
+}
+
+function formalDynamicText(execution: Record<string, unknown>): string {
+  if (execution.formal_dynamic_allowed === true) return 'allowed'
+  if (execution.formal_dynamic_allowed === false) {
+    const reason = String(execution.formal_dynamic_block_reason || '').trim()
+    return reason ? `blocked(${reason})` : 'blocked'
+  }
+  if (String(execution.next_action || '').trim() === 'manual_review_dynamic_on') return 'allowed'
+  return 'unknown'
 }
 
 function promotionChecklistLine(raw: unknown): string {

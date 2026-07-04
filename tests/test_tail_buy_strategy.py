@@ -200,6 +200,7 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
             "execution_policy": "shadow",
             "execution_scope": "tail_buy_and_funnel_shadow",
             "next_action": "manual_review_dynamic_on",
+            "formal_dynamic_allowed": True,
         },
     )
 
@@ -215,6 +216,7 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
     assert result[0].features["policy_weight_execution_policy"] == "shadow"
     assert result[0].features["policy_weight_execution_scope"] == "tail_buy_and_funnel_shadow"
     assert result[0].features["policy_weight_next_action"] == "manual_review_dynamic_on"
+    assert result[0].features["policy_weight_formal_dynamic_allowed"] is True
     assert "归因治理调权(lps) x0.50: 80.0->40.0" in result[0].rule_reasons
     assert "调权后低于买入线，尾盘只观察" in result[0].rule_reasons
 
@@ -1065,6 +1067,7 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
             "execution_policy": "shadow",
             "execution_scope": "tail_buy_and_funnel_shadow",
             "next_action": "manual_review_dynamic_on",
+            "formal_dynamic_allowed": True,
         },
     )
 
