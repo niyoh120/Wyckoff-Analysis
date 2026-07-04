@@ -87,3 +87,25 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
 
 def test_generate_strategy_advice_returns_default_when_no_warning() -> None:
     assert generate_strategy_advice({}) == ["🟢 当前参数组合表现尚可，暂无强烈调整建议"]
+
+
+def test_build_summary_md_renders_inactive_policy_meta() -> None:
+    md = build_summary_md(
+        {
+            "signal_weight_map": {},
+            "signal_weight_meta": {
+                "source": "远端",
+                "report_date": "2026-07-04",
+                "horizon": "5",
+                "execution_policy": "shadow",
+                "active_scope": "尾盘+漏斗shadow",
+                "formal_dynamic_allowed": False,
+                "formal_dynamic_block_reason": "auto_apply=false",
+            },
+        }
+    )
+
+    assert (
+        "- 策略治理调权: 未启用（远端, report=2026-07-04, h=5, mode=shadow, active=尾盘+漏斗shadow, formal_block=auto_apply=false）"
+        in md
+    )

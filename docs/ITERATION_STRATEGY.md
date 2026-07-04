@@ -127,6 +127,8 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 日常运营判断以这些字段为准，不再只看一句 `review_promote_dynamic_policy`。`manual_review_dynamic_on`
 只表示可以开始人工晋级评审；正式漏斗读取归因调权还需要显式 `formal_dynamic_allowed=true`，
 或未来 `auto_apply=true` 且晋级清单全部通过。
+回测也按同一条线处理：`shadow` 只展示归因 meta，不把 shadow 权重当成正式 replay 输入；
+只有 `on` 且 formal gate 通过时才使用归因权重重排候选。
 
 日常复盘不只看调权结论，还要看来源和运营摘要：`latest_source` 回答“读的是远端表还是本地
 no-write 报告”，`latest_execution_state` 回答“调权现在影响哪里”，`latest_operations`

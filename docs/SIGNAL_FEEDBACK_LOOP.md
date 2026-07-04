@@ -246,7 +246,8 @@ limit 10;
 模式下也必须经过 `policy_governor` 的 `formal_dynamic_allowed` 检查，不能只因为 workflow
 开了 `FUNNEL_DYNAMIC_POLICY=on` 就把归因调权直接当正式策略。回测读取归因权重也走同一个
 formal gate：`FUNNEL_DYNAMIC_POLICY=on` 但治理器没有批准时，回测不会把调权当成正式漏斗输入，
-避免“回测已经吃调权、实盘仍被治理器挡住”或反向不一致。
+避免“回测已经吃调权、实盘仍被治理器挡住”或反向不一致。`FUNNEL_DYNAMIC_POLICY=shadow`
+的回测会读取并展示归因 meta，但不会把 shadow 权重注入正式 replay 排序。
 
 Agent 入口也读取同一份执行态，避免页面、CLI 和 Web 各说一套。CLI 使用
 `query_history(source="attribution")`，Web 读盘室使用 `query_attribution`；回答策略归因问题时先看

@@ -184,9 +184,11 @@ def _signal_weight_map_from_env() -> dict[str, float]:
 def _signal_policy_from_env() -> tuple[dict[str, float], dict[str, object]]:
     config = dynamic_policy_config_from_env()
     mode = dynamic_policy_mode(config)
-    if mode != "on":
+    if mode == "off":
         return {}, {}
     snapshot = load_attribution_policy_snapshot(market="cn", log_fn=lambda message: logger.info(message))
+    if mode == "shadow":
+        return {}, snapshot.as_dict()
     weights = attribution_weights_for_funnel(snapshot, mode=mode, log_fn=lambda message: logger.info(message))
     return weights, snapshot.as_dict()
 

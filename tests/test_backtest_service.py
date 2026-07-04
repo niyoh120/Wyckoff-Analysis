@@ -69,6 +69,28 @@ def test_run_backtest_workflow_builds_context_without_network(monkeypatch) -> No
 def test_backtest_signal_weight_map_respects_formal_dynamic_gate(monkeypatch) -> None:
     import workflows.backtest as backtest
 
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
+    monkeypatch.setattr(
+        backtest,
+        "load_attribution_policy_snapshot",
+        lambda **_kwargs: AttributionPolicySnapshot(
+            weights={"lps": 0.5},
+            source="远端",
+            report_date="2026-07-04",
+            execution_policy="shadow",
+            execution_scope="tail_buy_and_funnel_shadow",
+            formal_dynamic_allowed=False,
+            formal_dynamic_block_reason="auto_apply=false",
+        ),
+    )
+
+    shadow_weights, shadow_meta = backtest._signal_policy_from_env()
+    assert shadow_weights == {}
+    assert shadow_meta["source"] == "远端"
+    assert shadow_meta["active_scope"] == "尾盘+漏斗shadow"
+    assert shadow_meta["formal_dynamic_allowed"] is False
+    assert shadow_meta["formal_dynamic_block_reason"] == "auto_apply=false"
+
     monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
     monkeypatch.setattr(
         backtest,
