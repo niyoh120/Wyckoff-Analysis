@@ -62,12 +62,19 @@ def attribution_execution_state(
 
 
 def attribution_formal_dynamic_allowed(governor: dict[str, Any]) -> bool:
+    explicit = _bool_value(governor.get("formal_dynamic_allowed"))
+    if explicit is not None:
+        return explicit
+    approval = str(governor.get("formal_dynamic_approval") or governor.get("approval_status") or "").strip().lower()
+    if approval in {"approved", "manual_approved", "dynamic_on_approved", "formal_dynamic_approved"}:
+        return _promotion_checklist_ready(governor)
+    if approval in {"rejected", "blocked", "not_approved"}:
+        return False
     next_action = str(governor.get("next_action") or "").strip()
-    if next_action:
-        return next_action == "manual_review_dynamic_on"
     return (
-        str(governor.get("mode_recommendation") or "").strip() == "review_promote_dynamic_policy"
-        or str(governor.get("promotion_status") or "").strip() == "manual_review_required"
+        bool(governor.get("auto_apply"))
+        and next_action == "manual_review_dynamic_on"
+        and _promotion_checklist_ready(governor)
     )
 
 
@@ -279,8 +286,49 @@ def _auto_apply_note(summary: str, governor: dict[str, Any]) -> str:
 def _formal_dynamic_block_reason(governor: dict[str, Any], allowed: bool) -> str:
     if allowed:
         return ""
+    explicit = _bool_value(governor.get("formal_dynamic_allowed"))
+    if explicit is False:
+        return "formal_dynamic_allowed=false"
     next_action = str(governor.get("next_action") or "").strip()
-    if next_action:
+    if next_action and next_action != "manual_review_dynamic_on":
         return f"next_action={next_action}"
+    if not bool(governor.get("auto_apply")):
+        return "auto_apply=false"
+    checklist_block = _promotion_checklist_block_reason(governor)
+    if checklist_block:
+        return checklist_block
     status = str(governor.get("promotion_status") or governor.get("status") or "unknown").strip()
     return f"promotion_status={status}"
+
+
+def _bool_value(value: Any) -> bool | None:
+    if value is True or value is False:
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return None
+
+
+def _promotion_checklist_ready(governor: dict[str, Any]) -> bool:
+    rows = governor.get("promotion_checklist")
+    if not isinstance(rows, list) or not rows:
+        return False
+    return not _promotion_checklist_block_reason(governor)
+
+
+def _promotion_checklist_block_reason(governor: dict[str, Any]) -> str:
+    rows = governor.get("promotion_checklist")
+    if not isinstance(rows, list) or not rows:
+        return "promotion_checklist=missing"
+    blocked = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "").strip().lower()
+        if status not in {"pass", "not_required"}:
+            blocked.append(f"{row.get('key', 'unknown')}:{status or 'unknown'}")
+    return f"promotion_checklist={','.join(blocked)}" if blocked else ""

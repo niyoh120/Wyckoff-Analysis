@@ -276,7 +276,7 @@ shadow 差异和信号表现收敛成统一的治理结论：
 - `mode_recommendation`：只给出 `review_promote_dynamic_policy`、`keep_shadow` 或
   `keep_static_policy`，不自动修改生产配置。
 - `next_action` / `next_action_summary`：给 Agent、Web 和 CLI 读取的机器可读下一步动作与人类说明。
-  例如 `manual_review_dynamic_on` 只表示进入人工复核，不等于自动切 `on`。
+  例如 `manual_review_dynamic_on` 只表示进入人工复核，不等于自动切 `on`，也不会让正式漏斗直接读取归因权重。
 - `promotion_status`：把生产晋级状态说清楚。`manual_review_required` 表示 shadow 已过主要量化门槛，
   但仍要人工检查多期报告和回测；`do_not_promote` 表示当前不应切 `on`；`collect_more_samples`
   表示样本不足；`keep_shadow` 表示继续观察。
@@ -291,7 +291,9 @@ shadow 差异和信号表现收敛成统一的治理结论：
 
 第一版治理器永远输出 `auto_apply=false`。它表示系统不会自动把 `FUNNEL_DYNAMIC_POLICY` 从
 `shadow` 晋级到 `on`；不表示归因权重完全不参与策略。信号级调权可以进入尾盘和动态策略输入，
-但模式晋级必须人工确认多期报告和回测一致。
+但正式漏斗生效必须满足更硬的 gate：报告中显式写入 `formal_dynamic_allowed=true`，或未来治理器支持
+`auto_apply=true` 且 `promotion_checklist` 全部通过。仅有 `manual_review_required` / `manual_review_dynamic_on`
+只能进入复核，不是正式执行许可。
 
 ## 和迭代策略的对应关系
 

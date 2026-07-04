@@ -425,11 +425,11 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
 
     assert result["latest_policy"]["status"] == "candidate"
     assert result["latest_source"] == "remote"
-    assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel"
-    assert result["latest_execution_state"]["active_scope"] == "尾盘+正式漏斗"
+    assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
+    assert result["latest_execution_state"]["active_scope"] == "尾盘+漏斗shadow"
     assert result["latest_execution_state"]["tail_buy_weights_active"] is True
-    assert result["latest_execution_state"]["funnel_shadow_weights_active"] is False
-    assert result["latest_execution_state"]["funnel_formal_weights_active"] is True
+    assert result["latest_execution_state"]["funnel_shadow_weights_active"] is True
+    assert result["latest_execution_state"]["funnel_formal_weights_active"] is False
     assert result["records"][0]["policy_governor"]["mode_recommendation"] == "review_promote_dynamic_policy"
     assert result["records"][0]["policy_governor"]["next_action"] == "manual_review_dynamic_on"
     assert result["records"][0]["policy_governor"]["promotion_status"] == "manual_review_required"
@@ -437,7 +437,7 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
     assert result["records"][0]["signal_actions"][0]["target"] == "lps"
     assert result["records"][0]["execution_state"]["action_details"][0]["weight_multiplier"] == 0.5
     assert result["records"][0]["operations"]["action_count"] == 1
-    assert "漏斗正式候选" in result["records"][0]["execution_state"]["summary"]
+    assert "未批准进入漏斗正式 dynamic" in result["records"][0]["execution_state"]["summary"]
     assert result["records"][0]["shadow"]["runs"] == 24
 
 

@@ -149,7 +149,7 @@ function operatorFormalDynamic(execution: AttributionOperatorSummaryInput['execu
     const reason = optionalText(execution.formal_dynamic_block_reason)
     return reason ? `blocked(${reason})` : 'blocked'
   }
-  if (optionalText(execution?.next_action) === 'manual_review_dynamic_on') return 'allowed'
+  if (optionalText(execution?.next_action) === 'manual_review_dynamic_on') return 'blocked(manual_review_required)'
   return 'unknown'
 }
 

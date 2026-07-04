@@ -626,15 +626,17 @@ function formatAttributionReport(row: Record<string, unknown>): string {
 function attributionExecutionFallback(governor: Record<string, unknown>, rawActions: unknown): Record<string, unknown> {
   const horizon = String(governor.horizon || '5')
   const actionCount = jsonArray(rawActions).filter(row => isSignalAction(row) && String(row.horizon || payloadOf(row).horizon || '') === horizon).length
+  const formal = fallbackFormalDynamic(governor)
   return withAttributionActiveScope({
     funnel_dynamic_policy: 'unknown',
     horizon,
-    scope: actionCount > 0 ? 'unknown' : 'none',
+    scope: actionCount > 0 && formal.allowed ? 'tail_buy_and_funnel' : actionCount > 0 ? 'tail_buy_and_funnel_shadow' : 'none',
     signal_action_count: actionCount,
     promotion_status: String(governor.promotion_status || 'unknown'),
     next_action: String(governor.next_action || 'keep_shadow_observe'),
     next_action_summary: String(governor.next_action_summary || '-'),
-    formal_dynamic_allowed: String(governor.next_action || '') === 'manual_review_dynamic_on',
+    formal_dynamic_allowed: formal.allowed,
+    formal_dynamic_block_reason: formal.reason,
     promotion_checklist: Array.isArray(governor.promotion_checklist) ? governor.promotion_checklist : [],
     summary: actionCount > 0 ? `h=${horizon} 有 ${actionCount} 个信号级调权。` : '暂无可执行信号调权。',
   })
@@ -689,8 +691,17 @@ function formalDynamicText(execution: Record<string, unknown>): string {
     const reason = String(execution.formal_dynamic_block_reason || '').trim()
     return reason ? `blocked(${reason})` : 'blocked'
   }
-  if (String(execution.next_action || '').trim() === 'manual_review_dynamic_on') return 'allowed'
+  if (String(execution.next_action || '').trim() === 'manual_review_dynamic_on') return 'blocked(manual_review_required)'
   return 'unknown'
+}
+
+function fallbackFormalDynamic(governor: Record<string, unknown>): { allowed: boolean, reason: string } {
+  if (governor.formal_dynamic_allowed === true) return { allowed: true, reason: '' }
+  if (governor.formal_dynamic_allowed === false) return { allowed: false, reason: 'formal_dynamic_allowed=false' }
+  if (String(governor.next_action || '').trim() === 'manual_review_dynamic_on') {
+    return { allowed: false, reason: 'manual_review_required' }
+  }
+  return { allowed: false, reason: String(governor.next_action || 'unknown') }
 }
 
 function promotionChecklistLine(raw: unknown): string {

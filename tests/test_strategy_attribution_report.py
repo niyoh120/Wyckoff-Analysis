@@ -316,8 +316,8 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "execution_policy": "shadow",
         "execution_horizon": "5",
         "execution_scope": "tail_buy_and_funnel_shadow",
-        "formal_dynamic_allowed": True,
-        "formal_dynamic_block_reason": "",
+        "formal_dynamic_allowed": False,
+        "formal_dynamic_block_reason": "auto_apply=false",
         "active_scope": "尾盘+漏斗shadow",
         "tail_buy_weights_active": True,
         "funnel_shadow_weights_active": True,
@@ -325,7 +325,7 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "signal_action_count": 1,
         "operator_summary": (
             "下一步=shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。；"
-            "作用范围=尾盘+漏斗shadow；正式dynamic=允许人工晋级；"
+            "作用范围=尾盘+漏斗shadow；正式dynamic=暂不晋级(auto_apply=false)；"
             "Shadow=暂无最新对照；本期 1 个 scoped 调权：lps×0.50"
         ),
     }
@@ -383,12 +383,12 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     assert "`shadow_sample`: `pass`" in markdown
     assert "- 漏斗动态策略: `on`" in markdown
     assert "- 执行周期: `h=5`" in markdown
-    assert "- 当前生效范围: `尾盘+正式漏斗`" in markdown
-    assert "- 底层 scope: `tail_buy_and_funnel`" in markdown
+    assert "- 当前生效范围: `尾盘+漏斗shadow`" in markdown
+    assert "- 底层 scope: `tail_buy_and_funnel_shadow`" in markdown
     assert "- 可执行调权: `1`" in markdown
     assert "## 运营复盘" in markdown
     assert "- 操作摘要: 下一步=shadow 新增组已跑赢移除组" in markdown
-    assert "作用范围=尾盘+正式漏斗" in markdown
+    assert "作用范围=尾盘+漏斗shadow" in markdown
     assert "- 本期可执行调权:" in markdown
     assert "`lps[regime=RISK_ON, lane=trend_pullback, entry=wyckoff_structure]`" in markdown
 
@@ -456,6 +456,30 @@ def test_attribution_execution_state_blocks_formal_on_without_governor_approval(
     assert state["funnel_shadow_weights_active"] is True
     assert state["funnel_formal_weights_active"] is False
     assert "未批准进入漏斗正式 dynamic" in state["summary"]
+
+
+def test_attribution_execution_state_allows_formal_on_with_explicit_approval(monkeypatch):
+    from workflows.strategy_attribution_execution import attribution_execution_state
+
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
+    governor = {
+        "horizon": "5",
+        "next_action": "manual_review_dynamic_on",
+        "promotion_status": "manual_review_required",
+        "formal_dynamic_allowed": True,
+        "auto_apply": False,
+    }
+
+    state = attribution_execution_state(
+        governor,
+        [{"type": "upweight", "target": "sos", "horizon": "5", "reason": '{"weight_multiplier":1.15}'}],
+    )
+
+    assert state["scope"] == "tail_buy_and_funnel"
+    assert state["formal_dynamic_allowed"] is True
+    assert state["formal_dynamic_block_reason"] == ""
+    assert state["active_scope"] == "尾盘+正式漏斗"
+    assert state["funnel_formal_weights_active"] is True
 
 
 def test_attribution_policy_governor_keeps_shadow_reject_when_signal_actions_exist():

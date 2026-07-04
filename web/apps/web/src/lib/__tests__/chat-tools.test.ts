@@ -383,6 +383,8 @@ describe('execQueryAttribution', () => {
                 { key: 'backtest_confirmation', status: 'review', summary: 'need backtest' },
               ],
               signal_action_count: 1,
+              formal_dynamic_allowed: false,
+              formal_dynamic_block_reason: 'auto_apply=false',
               summary: 'h=5 调权会影响尾盘和漏斗 shadow。',
             },
             policy_operations_brief: {
@@ -426,7 +428,7 @@ describe('execQueryAttribution', () => {
     expect(result).toContain('promotion=manual_review_required')
     expect(result).toContain('晋级检查：shadow_sample:pass；backtest_confirmation:review')
     expect(result).toContain(
-      '执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | active=尾盘+漏斗shadow | promotion=manual_review_required | next=manual_review_dynamic_on | formal=allowed | actions=1',
+      '执行态：mode=shadow | h=5 | scope=tail_buy_and_funnel_shadow | active=尾盘+漏斗shadow | promotion=manual_review_required | next=manual_review_dynamic_on | formal=blocked(auto_apply=false) | actions=1',
     )
     expect(result).toContain('操作摘要：下一步=shadow 新增组已跑赢移除组')
     expect(result).toContain('作用范围=尾盘+漏斗shadow')
