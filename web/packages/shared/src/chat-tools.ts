@@ -651,16 +651,32 @@ function attributionExecutionFallback(governor: Record<string, unknown>, rawActi
 
 function attributionExecutionLine(execution: Record<string, unknown>): string {
   return [
-    `执行态：mode=${String(execution.funnel_dynamic_policy || 'unknown')}`,
-    `h=${String(execution.horizon || '5')}`,
-    `scope=${String(execution.scope || 'none')}`,
-    `active=${String(execution.active_scope || '无')}`,
-    `promotion=${attributionPromotionStatusLabel(execution.promotion_status)}`,
-    `next=${attributionNextActionLabel(execution.next_action)}`,
-    `formal=${formalDynamicText(execution)}`,
-    `actions=${Number(execution.signal_action_count || 0)}`,
+    `执行态：${executionModeText(execution.funnel_dynamic_policy)}`,
+    `周期=h${String(execution.horizon || '5')}`,
+    `作用范围=${executionScopeText(execution)}`,
+    `晋级=${attributionPromotionStatusLabel(execution.promotion_status)}`,
+    `下一步=${attributionNextActionLabel(execution.next_action)}`,
+    `正式dynamic=${formalDynamicText(execution)}`,
+    `可执行调权=${Number(execution.signal_action_count || 0)}`,
     String(execution.summary || ''),
   ].filter(Boolean).join(' | ')
+}
+
+function executionModeText(raw: unknown): string {
+  const value = String(raw || 'unknown').trim()
+  const labels: Record<string, string> = {
+    on: '正式调权模式(on)',
+    shadow: 'shadow 对照模式',
+    off: '静态策略模式(off)',
+    unknown: '未知模式',
+  }
+  return labels[value] || `${value} 模式`
+}
+
+function executionScopeText(execution: Record<string, unknown>): string {
+  const active = String(execution.active_scope || '无')
+  const scope = String(execution.scope || 'none').trim()
+  return scope && scope !== 'none' ? `${active}（${scope}）` : active
 }
 
 function attributionGovernorLine(governor: Record<string, unknown>): string {
