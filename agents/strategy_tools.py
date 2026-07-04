@@ -123,12 +123,19 @@ def _strategy_candidate_meta(
     last_report: dict[str, Any],
     tool_context: ToolContext | None,
 ) -> list[dict]:
-    rows = _screen_candidate_meta(screen_result)
+    explicit_rows = reviewed_symbols_from_info(_symbol_items(reviewed_symbols))
+    explicit_codes = _code_items(reviewed_codes)
+    explicit_candidates = bool(explicit_rows or explicit_codes)
+    rows = []
+    if explicit_candidates:
+        rows.extend(explicit_rows)
+        rows.extend(symbols_info_from_codes(explicit_codes, tool_context))
+    rows.extend(_screen_candidate_meta(screen_result))
     rows.extend(_diagnosis_candidate_meta(tool_context))
-    rows.extend(reviewed_symbols_from_info(_symbol_items(reviewed_symbols)))
     rows.extend(reviewed_symbols_from_info(_symbol_items(last_report.get("reviewed_symbols"))))
-    codes = _code_items(reviewed_codes) or _code_items(last_report.get("reviewed_codes"))
-    rows.extend(symbols_info_from_codes(codes, tool_context))
+    codes = [] if explicit_candidates else _code_items(last_report.get("reviewed_codes"))
+    if codes:
+        rows.extend(symbols_info_from_codes(codes, tool_context))
     return _dedupe_candidate_meta(rows)
 
 

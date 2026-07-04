@@ -995,6 +995,39 @@ class TestStrategyDecisionTool:
         ]
         assert ctx.state["last_strategy_decision"]["reviewed_symbols"][0]["health"] == "健康"
 
+    def test_generate_strategy_decision_preserves_explicit_reviewed_code_order(self, monkeypatch):
+        from agents import strategy_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_stock_diagnosis": {
+                    "diagnosed_symbols": [
+                        {"code": "001314", "name": "亿道信息", "candidate_score": 100.0},
+                        {"code": "002293", "name": "罗莱生活", "candidate_score": 97.62},
+                    ]
+                }
+            }
+        )
+        monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(
+            strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
+        )
+        monkeypatch.setattr(strategy_tools, "get_credential", lambda *_args, **_kwargs: "")
+        monkeypatch.setattr(strategy_tools, "screen_stocks", lambda **_kwargs: {"error": "should not screen"})
+        monkeypatch.setattr(
+            strategy_tools, "run_ai_report", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
+        )
+
+        result = strategy_tools.generate_strategy_decision(
+            report_text="# 显式研报",
+            reviewed_codes=["002293", "001314"],
+            tool_context=ctx,
+        )
+
+        assert result["reviewed_codes"] == ["002293", "001314"]
+        assert [row["candidate_score"] for row in result["reviewed_symbols"]] == [97.62, 100.0]
+
     def test_generate_strategy_decision_passes_provided_report_to_step4(self, monkeypatch):
         from agents import strategy_tools
         from agents.tool_context import ToolContext
