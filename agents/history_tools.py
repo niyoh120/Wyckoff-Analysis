@@ -2,16 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import re
-from pathlib import Path
 
 from agents.tool_context import ToolContext, get_user_client, get_user_id
 from core.pattern_review.records import pattern_review_tool_records
+from workflows.strategy_attribution_execution import attribution_execution_state
 
 logger = logging.getLogger(__name__)
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-_FUNNEL_WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "wyckoff_funnel.yml"
 
 
 def query_history(
@@ -237,62 +233,7 @@ def _policy_governor_record(governor: dict) -> dict:
 
 
 def _attribution_execution_state(governor: dict, actions: list[dict]) -> dict:
-    mode = _funnel_dynamic_policy_mode()
-    action_count = sum(1 for item in actions if item.get("action") in {"downweight", "upweight"})
-    if action_count <= 0:
-        scope = "none"
-        summary = "暂无可执行信号调权。"
-    elif mode == "on":
-        scope = "tail_buy_and_funnel"
-        summary = "信号级调权会影响尾盘策略和漏斗正式候选。"
-    elif mode == "shadow":
-        scope = "tail_buy_and_funnel_shadow"
-        summary = "信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。"
-    else:
-        scope = "tail_buy_only"
-        summary = "信号级调权会影响尾盘策略；漏斗动态策略当前关闭。"
-    return {
-        "funnel_dynamic_policy": mode,
-        "tail_buy_reads_attribution": action_count > 0,
-        "signal_action_count": action_count,
-        "scope": scope,
-        "summary": _auto_apply_note(summary, governor),
-    }
-
-
-def _funnel_dynamic_policy_mode() -> str:
-    raw = os.getenv("FUNNEL_DYNAMIC_POLICY")
-    if raw is None:
-        return _funnel_dynamic_policy_mode_from_workflow() or "off"
-    return _normalize_dynamic_policy_mode(raw) or "off"
-
-
-def _funnel_dynamic_policy_mode_from_workflow() -> str:
-    try:
-        text = _FUNNEL_WORKFLOW_PATH.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    for line in text.splitlines():
-        if "FUNNEL_DYNAMIC_POLICY:" not in line:
-            continue
-        fallback_match = re.search(r"\|\|\s*['\"]([A-Za-z_]+)['\"]\s*}}", line)
-        if fallback_match:
-            return _normalize_dynamic_policy_mode(fallback_match.group(1))
-        literal_match = re.search(r"FUNNEL_DYNAMIC_POLICY:\s*['\"]?([A-Za-z_]+)['\"]?", line)
-        if literal_match:
-            return _normalize_dynamic_policy_mode(literal_match.group(1))
-    return ""
-
-
-def _normalize_dynamic_policy_mode(raw: object) -> str:
-    mode = str(raw or "").strip().lower()
-    return mode if mode in {"off", "shadow", "on"} else "off"
-
-
-def _auto_apply_note(summary: str, governor: dict) -> str:
-    if governor.get("auto_apply"):
-        return summary
-    return summary + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on。"
+    return attribution_execution_state(governor, actions)
 
 
 def _attribution_actions(raw: object) -> list[dict]:

@@ -103,6 +103,13 @@ interface PolicyExecutionStats {
   targets: string[]
 }
 
+interface PolicyExecutionPayload {
+  funnel_dynamic_policy?: string
+  signal_action_count?: number
+  scope?: string
+  summary?: string
+}
+
 async function fetchLatestReport(): Promise<AttributionReport | null> {
   const { data, error } = await supabase
     .from('strategy_attribution_reports')
@@ -181,12 +188,16 @@ function ReportView({ report }: { report: AttributionReport }) {
     () => policyExecutionStats(report.recommendations_json),
     [report.recommendations_json],
   )
+  const executionPayload = useMemo(
+    () => policyExecutionPayload(report.shadow_diff_stats_json),
+    [report.shadow_diff_stats_json],
+  )
   return (
     <div className="space-y-6">
       <Summary report={report} />
       <ObservationCoverage rows={observationCoverageRows} />
       <PolicyGovernorBox governor={governor} />
-      <PolicyExecutionState stats={policyExecution} governor={governor} />
+      <PolicyExecutionState stats={policyExecution} governor={governor} execution={executionPayload} />
       <Recommendations rows={report.recommendations_json} />
       <CandidateShadowStats rows={candidateShadowRows} />
       <EntryQualityStats rows={entryQualityRows} />
@@ -323,31 +334,36 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
 function PolicyExecutionState({
   stats,
   governor,
+  execution,
 }: {
   stats: PolicyExecutionStats
   governor: PolicyGovernor | null
+  execution: PolicyExecutionPayload | null
 }) {
-  const hasActions = stats.actionCount > 0
-  const scope = hasActions ? '尾盘 + 动态策略输入' : '仅观察'
+  const actionCount = execution?.signal_action_count ?? stats.actionCount
+  const hasActions = actionCount > 0
+  const scope = formatExecutionScope(execution?.scope || (hasActions ? 'tail_buy_only' : 'none'))
   const targetText = stats.targets.length ? stats.targets.join(' / ') : '-'
   const modeText = governor?.auto_apply
     ? '治理器允许自动晋级，但仍应通过运行时配置和人工复核确认。'
     : '治理器不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on。'
+  const policyMode = execution?.funnel_dynamic_policy || '未知'
   return (
     <Panel title="调权执行状态">
       <div className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="可执行调权" value={`${stats.actionCount} 项`} />
+        <MetricCard label="可执行调权" value={`${actionCount} 项`} />
         <MetricCard label="建议降权" value={`${stats.downCount} 项`} />
         <MetricCard label="建议升权" value={`${stats.upCount} 项`} />
         <MetricCard label="当前范围" value={scope} />
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
-        {hasActions
-          ? `归因调权已沉淀为信号级权重输入，覆盖 ${targetText}。尾盘策略会读取这些权重；漏斗侧会作为动态策略输入，正式生效范围取决于运行时 FUNNEL_DYNAMIC_POLICY。`
-          : '本期没有可执行的信号级调权，归因结果只用于观察与人工复盘。'}
+        {execution?.summary ||
+          (hasActions
+            ? `归因调权已沉淀为信号级权重输入，覆盖 ${targetText}。尾盘策略会读取这些权重；漏斗侧会作为动态策略输入。`
+            : '本期没有可执行的信号级调权，归因结果只用于观察与人工复盘。')}
       </p>
       <p className="mt-2 text-xs text-muted-foreground">
-        {modeText} 精确执行态可通过 Agent 的 `query_history(source="attribution")` 查看 latest_execution_state。
+        漏斗动态策略 `{policyMode}`。{modeText} 精确执行态可通过 Agent 的 `query_history(source="attribution")` 查看 latest_execution_state。
         {stats.otherCount > 0 ? ` 另有 ${stats.otherCount} 条非升降权建议保留为观察项。` : ''}
       </p>
     </Panel>
@@ -687,6 +703,11 @@ function policyGovernor(data: JsonMap | undefined): PolicyGovernor | null {
   return raw && typeof raw === 'object' ? raw as PolicyGovernor : null
 }
 
+function policyExecutionPayload(data: JsonMap | undefined): PolicyExecutionPayload | null {
+  const raw = data?.policy_execution_state
+  return raw && typeof raw === 'object' ? raw as PolicyExecutionPayload : null
+}
+
 function policyExecutionStats(rows: AttributionRecommendation[]): PolicyExecutionStats {
   const targets: string[] = []
   let downCount = 0
@@ -709,6 +730,16 @@ function policyExecutionStats(rows: AttributionRecommendation[]): PolicyExecutio
     otherCount,
     targets: targets.slice(0, 8),
   }
+}
+
+function formatExecutionScope(raw: string | undefined) {
+  const labels: Record<string, string> = {
+    none: '仅观察',
+    tail_buy_only: '尾盘',
+    tail_buy_and_funnel_shadow: '尾盘 + 漏斗 shadow',
+    tail_buy_and_funnel: '尾盘 + 正式漏斗',
+  }
+  return labels[String(raw || '').trim()] || raw || '仅观察'
 }
 
 function parseRecommendationReason(raw: string | undefined): PolicySignalAction {

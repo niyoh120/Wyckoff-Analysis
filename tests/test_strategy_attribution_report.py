@@ -203,9 +203,14 @@ def test_attribution_policy_governor_promotes_shadow_review_and_signal_actions()
     assert {row["type"] for row in rows} >= {"policy_governor", "downweight", "upweight"}
 
 
-def test_attribution_console_summary_surfaces_policy_governor():
+def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
     import workflows.strategy_attribution_report as report_mod
 
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
+    recommendations = [
+        {"type": "policy_governor", "target": "dynamic_policy", "horizon": "5", "reason": "{}"},
+        {"type": "downweight", "target": "lps", "horizon": "5", "reason": '{"weight_multiplier":0.5}'},
+    ]
     report = {
         "market": "cn",
         "report_date": "2026-07-04",
@@ -218,7 +223,9 @@ def test_attribution_console_summary_surfaces_policy_governor():
                 "summary": "shadow 新增组显著优于移除组",
             },
         },
+        "recommendations_json": recommendations,
     }
+    report_mod.attach_policy_execution_state(report)
 
     got = report_mod.build_console_summary(report, written=False)
 
@@ -231,7 +238,44 @@ def test_attribution_console_summary_surfaces_policy_governor():
         "auto_apply": False,
         "policy_summary": "shadow 新增组显著优于移除组",
         "shadow_runs": 24,
+        "execution_scope": "tail_buy_and_funnel_shadow",
+        "signal_action_count": 1,
     }
+
+
+def test_attribution_markdown_surfaces_execution_state(monkeypatch):
+    import workflows.strategy_attribution_report as report_mod
+
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
+    report = {
+        "market": "cn",
+        "report_date": "2026-07-04",
+        "window_start": "2026-05-05",
+        "window_end": "2026-07-04",
+        "shadow_diff_stats_json": {
+            "count": 24,
+            "avg_added": 0.42,
+            "avg_removed": 12.83,
+            "outcome_stats": {"5": {"added": {"avg_return_pct": 2.5}, "removed": {"avg_return_pct": -3.45}}},
+            "policy_governor": {
+                "status": "candidate",
+                "mode_recommendation": "review_promote_dynamic_policy",
+                "auto_apply": False,
+                "summary": "shadow 新增组显著优于移除组",
+            },
+        },
+        "recommendations_json": [
+            {"type": "downweight", "target": "lps", "horizon": "5", "reason": '{"weight_multiplier":0.5}'}
+        ],
+    }
+    report_mod.attach_policy_execution_state(report)
+
+    markdown = report_mod.build_report_markdown(report)
+
+    assert "## 调权执行状态" in markdown
+    assert "- 漏斗动态策略: `on`" in markdown
+    assert "- 当前作用范围: `tail_buy_and_funnel`" in markdown
+    assert "- 可执行调权: `1`" in markdown
 
 
 def test_attribution_policy_governor_keeps_shadow_reject_when_signal_actions_exist():

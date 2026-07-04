@@ -106,6 +106,7 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
 
 def test_query_history_attribution_uses_workflow_default_when_env_missing(monkeypatch, tmp_path):
     from agents import history_tools
+    from workflows import strategy_attribution_execution
 
     monkeypatch.delenv("FUNNEL_DYNAMIC_POLICY", raising=False)
     workflow_path = tmp_path / "wyckoff_funnel.yml"
@@ -115,7 +116,7 @@ def test_query_history_attribution_uses_workflow_default_when_env_missing(monkey
         "${{ vars.FUNNEL_DYNAMIC_POLICY || secrets.FUNNEL_DYNAMIC_POLICY || 'shadow' }}\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(history_tools, "_FUNNEL_WORKFLOW_PATH", workflow_path)
+    monkeypatch.setattr(strategy_attribution_execution, "DEFAULT_FUNNEL_WORKFLOW_PATH", workflow_path)
     monkeypatch.setattr(
         history_tools,
         "_load_attribution_rows",

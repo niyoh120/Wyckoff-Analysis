@@ -15,6 +15,7 @@ from integrations.supabase_base import (
     create_read_client,
     require_server_write_context,
 )
+from workflows.strategy_attribution_execution import attribution_execution_state
 from workflows.strategy_attribution_stats import build_strategy_attribution_payload
 
 
@@ -35,6 +36,7 @@ def run_strategy_attribution_report(request: StrategyAttributionRequest) -> dict
     client = create_report_client(no_write=request.no_write)
     try:
         report = build_report(client, request.market, request.days, list(request.horizons))
+        attach_policy_execution_state(report)
         report["created_at"] = datetime.now(UTC).isoformat()
         if not request.no_write:
             write_report(client, report)
@@ -48,6 +50,7 @@ def run_strategy_attribution_report(request: StrategyAttributionRequest) -> dict
 def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str, Any]:
     governor = _report_policy_governor(report)
     shadow = report.get("shadow_diff_stats_json") or {}
+    execution = _report_policy_execution_state(report)
     return {
         "market": report.get("market"),
         "report_date": report.get("report_date"),
@@ -57,6 +60,8 @@ def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str,
         "auto_apply": bool(governor.get("auto_apply")),
         "policy_summary": governor.get("summary", "-"),
         "shadow_runs": shadow.get("count", 0) if isinstance(shadow, dict) else 0,
+        "execution_scope": execution.get("scope", "none"),
+        "signal_action_count": execution.get("signal_action_count", 0),
     }
 
 
@@ -110,6 +115,7 @@ def build_report_markdown(report: dict[str, Any]) -> str:
     shadow = report.get("shadow_diff_stats_json") or {}
     shadow_h5 = ((shadow.get("outcome_stats") or {}).get("5") or {}) if isinstance(shadow, dict) else {}
     governor = _report_policy_governor(report)
+    execution = _report_policy_execution_state(report)
     lines = [
         f"# 策略归因报告 {report['report_date']}",
         "",
@@ -129,6 +135,12 @@ def build_report_markdown(report: dict[str, Any]) -> str:
         f"- 自动生效: `{bool(governor.get('auto_apply')) if isinstance(governor, dict) else False}`",
         f"- 摘要: {governor.get('summary', '-') if isinstance(governor, dict) else '-'}",
         "",
+        "## 调权执行状态",
+        f"- 漏斗动态策略: `{execution.get('funnel_dynamic_policy', 'off')}`",
+        f"- 当前作用范围: `{execution.get('scope', 'none')}`",
+        f"- 可执行调权: `{execution.get('signal_action_count', 0)}`",
+        f"- 摘要: {execution.get('summary', '暂无可执行信号调权。')}",
+        "",
         "## 信号权重建议",
     ]
     lines.extend(_recommendation_markdown_rows(report.get("recommendations_json") or []))
@@ -141,6 +153,23 @@ def _report_policy_governor(report: dict[str, Any]) -> dict[str, Any]:
         return {}
     governor = shadow.get("policy_governor")
     return governor if isinstance(governor, dict) else {}
+
+
+def attach_policy_execution_state(report: dict[str, Any]) -> None:
+    shadow = report.get("shadow_diff_stats_json")
+    if not isinstance(shadow, dict):
+        return
+    shadow["policy_execution_state"] = attribution_execution_state(
+        _report_policy_governor(report),
+        list(report.get("recommendations_json") or []),
+    )
+
+
+def _report_policy_execution_state(report: dict[str, Any]) -> dict[str, Any]:
+    shadow = report.get("shadow_diff_stats_json") or {}
+    if isinstance(shadow, dict) and isinstance(shadow.get("policy_execution_state"), dict):
+        return shadow["policy_execution_state"]
+    return attribution_execution_state(_report_policy_governor(report), list(report.get("recommendations_json") or []))
 
 
 def _recommendation_markdown_rows(rows: list[dict[str, Any]]) -> list[str]:
