@@ -55,6 +55,7 @@ class BacktestRunInput:
     theme_radar: dict = field(default_factory=dict)
     financial_map: dict[str, dict] = field(default_factory=dict)
     mainline_config: MainlineEngineConfig | None = None
+    signal_weight_map: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -254,6 +255,7 @@ def _replay_config(
         theme_radar=dict(params.theme_radar),
         financial_map=dict(params.financial_map),
         mainline_config=params.mainline_config,
+        signal_weight_map=dict(params.signal_weight_map),
     )
 
 

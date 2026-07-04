@@ -72,6 +72,7 @@ class BacktestReplayConfig:
     theme_radar: dict = field(default_factory=dict)
     financial_map: dict[str, dict] = field(default_factory=dict)
     mainline_config: MainlineEngineConfig | None = None
+    signal_weight_map: dict[str, float] = field(default_factory=dict)
     market_breadth_calculator: MarketBreadthCalculator | None = None
     market_regime_analyzer: MarketRegimeAnalyzer | None = None
 
@@ -264,6 +265,7 @@ def _select_ranked_codes(
         full_formal_l4_max=config.full_formal_l4_max,
         candidate_policy=config.candidate_policy,
         ai_allocation=config.ai_allocation,
+        signal_weight_map=config.signal_weight_map,
     )
     ranked_codes = _merge_codes(selected_codes, confirmed.codes, config.pending_mode, config.pending_merge_order)
     _merge_confirmed_metadata(score_map, track_map, confirmed)

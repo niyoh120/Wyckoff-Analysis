@@ -46,6 +46,7 @@ def _overview_lines(summary: dict) -> list[str]:
         f"- 持有周期: {summary.get('hold_days')} 交易日",
         _top_n_line(summary),
         f"- AI 候选模式: {summary.get('ai_selection_mode')}",
+        _signal_weight_line(summary),
         f"- 股票池: {summary.get('board')} (sample={summary.get('sample_size')})",
         f"- 评估交易日: {summary.get('eval_days')}",
         f"- 触发交易日: {summary.get('signal_days')}",
@@ -63,6 +64,14 @@ def _overview_lines(summary: dict) -> list[str]:
         _metrics_engine_line(summary),
         f"- 成交样本: {summary.get('trades')}",
     ]
+
+
+def _signal_weight_line(summary: dict) -> str:
+    weights = summary.get("signal_weight_map") or {}
+    if not weights:
+        return "- 策略治理调权: 未启用"
+    parts = [f"{key}×{float(value):.2f}" for key, value in sorted(weights.items())]
+    return f"- 策略治理调权: {'；'.join(parts)}"
 
 
 def _return_stats_lines(summary: dict) -> list[str]:

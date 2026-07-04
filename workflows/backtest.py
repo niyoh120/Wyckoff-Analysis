@@ -14,6 +14,7 @@ from core.backtest_config import BacktestRunConfig, BacktestRunInput, build_back
 from core.backtest_execution import ExitSimulationConfig
 from core.backtest_run import BacktestPreparedData, BacktestRunContext, execute_backtest_run
 from core.cash_portfolio import CashPortfolioConfig
+from core.dynamic_policy import dynamic_policy_mode
 from core.market_breadth import calc_market_breadth
 from tools.mainline_config import load_mainline_engine_config
 from tools.market_regime import analyze_benchmark_and_tune_cfg
@@ -56,8 +57,10 @@ from workflows.backtest_defaults import (
 )
 from workflows.backtest_intraday import tickflow_entry_price_fetcher_from_env
 from workflows.candidate_policy_config import candidate_policy_config_from_env
+from workflows.dynamic_policy_config import dynamic_policy_config_from_env
 from workflows.funnel_config_overrides import funnel_cfg_overrides_from_env
 from workflows.market_regime_config import market_regime_config_from_env
+from workflows.strategy_attribution_policy import load_attribution_policy_snapshot
 
 logger = logging.getLogger(__name__)
 BACKTEST_FULL_FORMAL_L4_MAX = full_formal_l4_max()
@@ -163,12 +166,21 @@ def _build_run_config(request: BacktestWorkflowRequest) -> BacktestRunConfig:
             candidate_policy=candidate_policy_config_from_env(),
             ai_allocation=ai_candidate_allocation_config_from_env(),
             mainline_config=load_mainline_engine_config(),
+            signal_weight_map=_signal_weight_map_from_env(),
         )
     )
 
 
 def _market_regime_analyzer_from_env():
     return partial(analyze_benchmark_and_tune_cfg, regime_config=market_regime_config_from_env())
+
+
+def _signal_weight_map_from_env() -> dict[str, float]:
+    config = dynamic_policy_config_from_env()
+    if dynamic_policy_mode(config) != "on":
+        return {}
+    snapshot = load_attribution_policy_snapshot(market="cn", log_fn=lambda message: logger.info(message))
+    return snapshot.weights
 
 
 def _intraday_entry_price_fetcher(request: BacktestWorkflowRequest):

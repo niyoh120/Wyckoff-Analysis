@@ -87,6 +87,12 @@ def test_build_backtest_run_config_normalizes_and_expands(tmp_path) -> None:
     ]
 
 
+def test_build_backtest_run_config_preserves_signal_weight_map() -> None:
+    config = _build_config(signal_weight_map={"lps": 0.5, "sos": 1.15})
+
+    assert config.replay.signal_weight_map == {"lps": 0.5, "sos": 1.15}
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
