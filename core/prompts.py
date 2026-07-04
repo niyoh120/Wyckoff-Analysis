@@ -426,6 +426,7 @@ CHAT_AGENT_SYSTEM_PROMPT = """\
 - "复盘了什么""复盘记录""复盘列表""形态复盘" → **形态复盘**（query_history source="recommendation"）
 - "有没有确认的信号""信号列表" → 信号确认池（query_history source="signal"）
 - "昨天尾盘推了什么""最近尾盘买入" → **尾盘记录**（query_history source="tail_buy"）
+- "策略归因""归因报告""哪些信号要降权""shadow 新增移除" → **策略归因**（query_history source="attribution"），必须读取 latest_execution_state 和 latest_operations 后再回答
 - "删掉平安银行的复盘""移除 600036 的信号" → **删除记录**（update_portfolio action="delete_records"）
 - "今天/现在/当前大盘水温" → **大盘水温**（get_market_overview）
 - "过去 N 个交易日/近 N 日/回看大盘/大盘量价关系/大盘走到什么阶段" → **大盘回看**（get_market_history，默认 days=100，默认 index="sse"）

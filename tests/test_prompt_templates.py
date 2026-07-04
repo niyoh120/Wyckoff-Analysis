@@ -31,6 +31,8 @@ class TestBuiltinPromptTemplates:
         prompt = BUILTIN_PROMPT_TEMPLATES["daily"].prompt
 
         assert "latest_execution_state" in prompt
+        assert "latest_operations" in prompt
+        assert "shadow 最新新增/移除样本" in prompt
         assert "归因调权当前影响范围" in prompt
 
 

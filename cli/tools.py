@@ -187,7 +187,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "query_history",
-        "description": "查询历史记录：形态复盘、信号确认池、尾盘买入记录，或历史上下文归档。",
+        "description": "查询历史记录：形态复盘、信号确认池、尾盘买入记录、策略归因运营摘要，或历史上下文归档。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -196,7 +196,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "enum": ["recommendation", "signal", "tail_buy", "attribution", "archive"],
                     "description": (
                         "'recommendation' 形态复盘；'signal' 信号确认池；'tail_buy' 尾盘买入；"
-                        "'attribution' 策略归因治理器；'archive' 历史上下文归档"
+                        "'attribution' 策略归因治理器、latest_execution_state 和 latest_operations；"
+                        "'archive' 历史上下文归档"
                     ),
                 },
                 "status": {"type": "string", "description": "仅 signal：'all'/'pending'/'confirmed'/'expired'"},
