@@ -104,6 +104,54 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     ]
 
 
+def test_query_history_attribution_uses_workflow_default_when_env_missing(monkeypatch, tmp_path):
+    from agents import history_tools
+
+    monkeypatch.delenv("FUNNEL_DYNAMIC_POLICY", raising=False)
+    workflow_path = tmp_path / "wyckoff_funnel.yml"
+    workflow_path.write_text(
+        "env:\n"
+        "  FUNNEL_DYNAMIC_POLICY: "
+        "${{ vars.FUNNEL_DYNAMIC_POLICY || secrets.FUNNEL_DYNAMIC_POLICY || 'shadow' }}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(history_tools, "_FUNNEL_WORKFLOW_PATH", workflow_path)
+    monkeypatch.setattr(
+        history_tools,
+        "_load_attribution_rows",
+        lambda limit, tool_context: [
+            {
+                "report_date": "2026-07-04",
+                "window_start": "2026-05-05",
+                "window_end": "2026-07-04",
+                "shadow_diff_stats_json": {
+                    "policy_governor": {
+                        "status": "candidate",
+                        "mode_recommendation": "review_promote_dynamic_policy",
+                        "auto_apply": False,
+                        "summary": "shadow 新增组显著优于移除组",
+                        "horizon": "5",
+                    },
+                },
+                "recommendations_json": [
+                    {
+                        "type": "downweight",
+                        "target": "lps",
+                        "horizon": "5",
+                        "reason": '{"action":"downweight","weight_multiplier":0.5}',
+                    },
+                ],
+            }
+        ],
+    )
+
+    result = query_history(source="attribution", limit=1)
+
+    state = result["latest_execution_state"]
+    assert state["funnel_dynamic_policy"] == "shadow"
+    assert state["scope"] == "tail_buy_and_funnel_shadow"
+
+
 def test_query_attribution_exposes_policy_governor(monkeypatch):
     from integrations import supabase_base
 

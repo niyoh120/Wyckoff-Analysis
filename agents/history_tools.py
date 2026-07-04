@@ -3,11 +3,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+from pathlib import Path
 
 from agents.tool_context import ToolContext, get_user_client, get_user_id
 from core.pattern_review.records import pattern_review_tool_records
 
 logger = logging.getLogger(__name__)
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_FUNNEL_WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "wyckoff_funnel.yml"
 
 
 def query_history(
@@ -257,7 +261,31 @@ def _attribution_execution_state(governor: dict, actions: list[dict]) -> dict:
 
 
 def _funnel_dynamic_policy_mode() -> str:
-    mode = str(os.getenv("FUNNEL_DYNAMIC_POLICY", "off") or "off").strip().lower()
+    raw = os.getenv("FUNNEL_DYNAMIC_POLICY")
+    if raw is None:
+        return _funnel_dynamic_policy_mode_from_workflow() or "off"
+    return _normalize_dynamic_policy_mode(raw) or "off"
+
+
+def _funnel_dynamic_policy_mode_from_workflow() -> str:
+    try:
+        text = _FUNNEL_WORKFLOW_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        if "FUNNEL_DYNAMIC_POLICY:" not in line:
+            continue
+        fallback_match = re.search(r"\|\|\s*['\"]([A-Za-z_]+)['\"]\s*}}", line)
+        if fallback_match:
+            return _normalize_dynamic_policy_mode(fallback_match.group(1))
+        literal_match = re.search(r"FUNNEL_DYNAMIC_POLICY:\s*['\"]?([A-Za-z_]+)['\"]?", line)
+        if literal_match:
+            return _normalize_dynamic_policy_mode(literal_match.group(1))
+    return ""
+
+
+def _normalize_dynamic_policy_mode(raw: object) -> str:
+    mode = str(raw or "").strip().lower()
     return mode if mode in {"off", "shadow", "on"} else "off"
 
 
