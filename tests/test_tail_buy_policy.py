@@ -108,6 +108,53 @@ def test_attribution_weights_fall_back_to_fresh_local_when_remote_is_stale(monke
     assert weights == {"sos": 1.15}
 
 
+def test_attribution_weights_use_newer_explicit_local_report(monkeypatch, tmp_path):
+    report_path = tmp_path / "report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "market": "cn",
+                "report_date": "2026-07-04",
+                "shadow_diff_stats_json": {"policy_governor": {"horizon": "5"}},
+                "recommendations_json": [
+                    {
+                        "type": "upweight",
+                        "horizon": "5",
+                        "target": "launchpad",
+                        "reason": '{"action":"upweight","horizon":"5","target":"launchpad","weight_multiplier":1.2}',
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("STRATEGY_ATTRIBUTION_REPORT_JSON", str(report_path))
+    monkeypatch.setattr(
+        attribution_policy,
+        "load_latest_attribution_report",
+        lambda _market: {
+            "market": "cn",
+            "report_date": "2026-07-03",
+            "shadow_diff_stats_json": {"policy_governor": {"horizon": "5"}},
+            "recommendations_json": [
+                {
+                    "type": "downweight",
+                    "horizon": "5",
+                    "target": "lps",
+                    "reason": '{"action":"downweight","horizon":"5","target":"lps","weight_multiplier":0.5}',
+                }
+            ],
+        },
+    )
+
+    snapshot = attribution_policy.load_attribution_policy_snapshot(market="cn", as_of=date(2026, 7, 4))
+
+    assert snapshot.source == "本地"
+    assert snapshot.report_date == "2026-07-04"
+    assert snapshot.weights == {"launchpad": 1.2}
+
+
 def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatch):
     monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
     monkeypatch.setattr(

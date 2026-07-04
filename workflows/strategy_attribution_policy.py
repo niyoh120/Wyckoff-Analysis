@@ -140,11 +140,28 @@ def _select_fresh_report(
     today: date,
     log_fn: Callable[[str], None] | None,
 ) -> tuple[dict[str, Any] | None, str]:
-    row = _fresh_report(remote_row, today=today, log_fn=log_fn, source="远端")
-    if row:
-        return row, "远端"
-    row = _fresh_report(load_local_attribution_report(market), today=today, log_fn=log_fn, source="本地")
-    return (row, "本地") if row else (None, "")
+    remote = _fresh_report(remote_row, today=today, log_fn=log_fn, source="远端")
+    local = _fresh_report(load_local_attribution_report(market), today=today, log_fn=log_fn, source="本地")
+    if _has_explicit_local_report_path():
+        return _newest_report_source(remote, local)
+    if remote:
+        return remote, "远端"
+    return (local, "本地") if local else (None, "")
+
+
+def _has_explicit_local_report_path() -> bool:
+    return bool(os.getenv("STRATEGY_ATTRIBUTION_REPORT_JSON") or os.getenv("TAIL_BUY_ATTRIBUTION_REPORT_JSON"))
+
+
+def _newest_report_source(
+    remote: dict[str, Any] | None,
+    local: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, str]:
+    candidates = [(remote, "远端"), (local, "本地")]
+    candidates = [(row, source) for row, source in candidates if row]
+    if not candidates:
+        return None, ""
+    return max(candidates, key=lambda item: (_report_day(item[0]) or date.min, 1 if item[1] == "远端" else 0))
 
 
 def _policy_snapshot(

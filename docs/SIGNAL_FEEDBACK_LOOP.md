@@ -256,7 +256,9 @@ scoped 调权明细，用于每日运营复盘。
 生产归因任务默认使用最近 60 天窗口。漏斗和尾盘读取归因调权时会检查 `report_date`，默认只接受
 7 天内的报告；可以通过 `STRATEGY_ATTRIBUTION_MAX_AGE_DAYS` 调整，设为 `0` 表示关闭过期保护。
 远端报告过期时会回退本地 `STRATEGY_ATTRIBUTION_REPORT_JSON` / `TAIL_BUY_ATTRIBUTION_REPORT_JSON`
-或 `/private/tmp/wyckoff-strategy-attribution/latest/report.json`，本地也过期则不调权。
+或 `/private/tmp/wyckoff-strategy-attribution/latest/report.json`，本地也过期则不调权。若显式设置了
+`STRATEGY_ATTRIBUTION_REPORT_JSON` 或 `TAIL_BUY_ATTRIBUTION_REPORT_JSON`，本地报告会和远端报告按
+`report_date` 比较，较新的报告参与实际调权；同一天仍优先远端表。
 
 ### 策略治理器
 
