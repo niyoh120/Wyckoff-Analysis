@@ -12,6 +12,7 @@ from core.funnel_etf import append_etf_section
 from core.funnel_sections import append_formal_l4_sections, score_star
 from core.market_trade_mode import resolve_market_trade_mode
 from core.signal_confirmation import score_springboard_abc
+from core.strategy_policy_display import format_policy_weight_text, safe_policy_weight
 from core.theme_radar import summarize_theme_radar
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_report_payload import (
@@ -274,22 +275,11 @@ def _policy_governance_line(policy: dict) -> str:
 
 
 def _policy_weight_text(weights: dict) -> str:
-    rows = []
-    for signal, raw_weight in sorted((weights or {}).items()):
-        weight = _weight_value(raw_weight)
-        marker = "↓" if weight < 1.0 else "↑" if weight > 1.0 else ""
-        rows.append(f"{signal}×{weight:.2f}{marker}")
-    if len(rows) > 8:
-        return "，".join(rows[:8]) + f" 等{len(rows)}项"
-    return "，".join(rows)
+    return format_policy_weight_text(weights, limit=8, delimiter="，")
 
 
 def _weight_value(raw: Any) -> float:
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return 1.0
-    return value if value == value and value not in {float("inf"), float("-inf")} else 1.0
+    return safe_policy_weight(raw)
 
 
 def _policy_meta_text(meta: dict) -> str:

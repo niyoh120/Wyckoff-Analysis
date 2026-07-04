@@ -44,6 +44,7 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
         "cash_portfolio_commission_rate": 0.0003,
         "cash_portfolio_small_trade_threshold": 5000,
         "cash_portfolio_small_trade_fee": 5,
+        "signal_weight_map": {"lps|regime=RISK_ON|lane=trend_pullback": 0.5},
         "trades": 30,
         "win_rate_pct": 42,
         "avg_ret_pct": 1.2,
@@ -72,6 +73,7 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
     assert "- 大盘水温仓控: 关闭（旧回测开关已废弃，跟随实盘漏斗候选口径）" in md
     assert "## 真实现金账户模拟" in md
     assert "RISK_OFF 环境下平均收益 -2.00%" in md
+    assert "lps[regime=RISK_ON, lane=trend_pullback]×0.50↓" in md
 
 
 def test_generate_strategy_advice_returns_default_when_no_warning() -> None:

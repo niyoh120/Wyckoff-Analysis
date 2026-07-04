@@ -29,6 +29,7 @@ from core.funnel_selection import (
 )
 from core.funnel_theme import apply_theme_bonus_to_scores, promote_theme_l4_for_ai
 from core.market_trade_mode import resolve_market_trade_mode
+from core.strategy_policy_display import policy_weight_rows
 from core.wyckoff_engine import FunnelResult
 from integrations.supabase_signal_feedback import (
     load_signal_health_snapshot,
@@ -560,11 +561,19 @@ def _policy_core(policy: dict) -> dict:
 
 def _weighted_signals(weights: dict, *, lower_bound: float = 0.0, upper_bound: float = float("inf")) -> list[dict]:
     rows = []
-    for signal, raw_weight in weights.items():
-        weight = _candidate_score_value(raw_weight)
+    for item in policy_weight_rows(weights):
+        weight = _candidate_score_value(item.get("weight"))
         if lower_bound <= weight <= upper_bound:
-            rows.append({"signal_type": str(signal), "weight": weight})
-    return sorted(rows, key=lambda row: (row["weight"], row["signal_type"]))[:20]
+            rows.append(
+                {
+                    "signal_type": str(item.get("signal_type") or ""),
+                    "key": str(item.get("key") or ""),
+                    "label": str(item.get("label") or ""),
+                    "scope": item.get("scope") or {},
+                    "weight": weight,
+                }
+            )
+    return sorted(rows, key=lambda row: (row["weight"], row["label"] or row["signal_type"]))[:20]
 
 
 def _registry_summary(rows: list[dict]) -> dict:

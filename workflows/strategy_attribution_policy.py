@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
+from core.strategy_policy_display import format_policy_weight_text
 from core.strategy_policy_governor import signal_weight_multipliers_from_rows
 from integrations.supabase_base import close_client, create_read_client
 from workflows.strategy_attribution_execution import attribution_execution_state
@@ -188,7 +189,7 @@ def _snapshot_log_text(snapshot: AttributionPolicySnapshot) -> str:
         meta.append(f"mode={snapshot.execution_policy}")
     if snapshot.execution_scope:
         meta.append(f"scope={snapshot.execution_scope}")
-    weights = ", ".join(f"{k}=x{v:.2f}" for k, v in snapshot.weights.items())
+    weights = format_policy_weight_text(snapshot.weights, limit=12, delimiter=", ")
     return f"{' '.join(meta)}; {weights}"
 
 

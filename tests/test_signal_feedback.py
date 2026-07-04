@@ -836,7 +836,9 @@ def test_policy_shadow_row_stores_compact_summaries():
     assert row["selection_summary"]["jaccard"] == 0.3333
     assert row["policy_summary"]["attribution_weight_count"] == 1
     assert row["policy_summary"]["attribution_policy_meta"]["source"] == "远端"
-    assert row["policy_summary"]["downweighted_signals"] == [{"signal_type": "sos", "weight": 0.8}]
+    downweighted = row["policy_summary"]["downweighted_signals"][0]
+    assert downweighted["signal_type"] == "sos"
+    assert downweighted["weight"] == 0.8
     assert row["registry_summary"]["by_status"] == {"ACTIVE": 1, "WATCH": 1}
     assert row["health_summary"]["changed"][0]["state"] == "DECAYED"
     assert row["registry_snapshot"] == []

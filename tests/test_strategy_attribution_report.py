@@ -326,7 +326,15 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
             },
         },
         "recommendations_json": [
-            {"type": "downweight", "target": "lps", "horizon": "5", "reason": '{"weight_multiplier":0.5}'}
+            {
+                "type": "downweight",
+                "target": "lps",
+                "horizon": "5",
+                "reason": (
+                    '{"weight_multiplier":0.5,'
+                    '"scope":{"regime":"RISK_ON","lane":"trend_pullback","entry_type":"wyckoff_structure"}}'
+                ),
+            }
         ],
     }
     report_mod.attach_policy_execution_state(report)
@@ -338,6 +346,7 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     assert "- 执行周期: `h=5`" in markdown
     assert "- 当前作用范围: `tail_buy_and_funnel`" in markdown
     assert "- 可执行调权: `1`" in markdown
+    assert "`lps[regime=RISK_ON, lane=trend_pullback, entry=wyckoff_structure]`" in markdown
 
 
 def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):

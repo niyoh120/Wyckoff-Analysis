@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from core.strategy_policy_display import format_policy_weight_text
 from core.tail_buy.models import DECISION_BUY, DECISION_SKIP, DECISION_WATCH, TailBuyCandidate
 
 HIGH_RISK_MOMENTUM_SIGNALS = {"rec_momentum_continuation"}
@@ -241,13 +242,8 @@ def _report_mode_text(report_mode: str) -> tuple[str, str, str]:
 def _policy_weight_line(weights: dict[str, float] | None, meta: dict[str, object] | None = None) -> str:
     if not weights:
         return "- 归因调权: 无"
-    parts = []
-    for key, value in sorted(weights.items()):
-        try:
-            parts.append(f"{key}=x{float(value):.2f}")
-        except (TypeError, ValueError):
-            continue
-    return "- 归因调权: " + ("；".join(parts) if parts else "无") + _policy_weight_source_text(meta)
+    text = format_policy_weight_text(weights, limit=12, delimiter="；")
+    return "- 归因调权: " + (text if text else "无") + _policy_weight_source_text(meta)
 
 
 def _policy_weight_source_text(meta: dict[str, object] | None) -> str:

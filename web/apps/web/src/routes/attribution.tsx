@@ -93,6 +93,7 @@ interface PolicySignalAction {
   target?: string
   weight_multiplier?: number
   evidence?: MetricStats
+  scope?: Record<string, string>
 }
 
 interface PolicyExecutionStats {
@@ -294,10 +295,11 @@ function Recommendations({ rows }: { rows: AttributionRecommendation[] }) {
 function RecommendationCard({ row }: { row: AttributionRecommendation }) {
   const payload = parseRecommendationReason(row.reason)
   const evidence = payload.evidence || {}
+  const target = formatPolicySignalTarget(row.target || payload.target, payload.scope)
   return (
     <div className="rounded-lg border border-border bg-muted/30 p-3">
       <div className="text-sm font-medium">
-        {formatPolicyAction(row.type || payload.action)} · {row.target} · h={row.horizon}
+        {formatPolicyAction(row.type || payload.action)} · {target} · h={row.horizon}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         权重 {payload.weight_multiplier ?? '-'} · 均收 {fmtPct(evidence.avg_return_pct)} · 胜率 {fmtPct(evidence.win_rate_pct)} · 回撤 {fmtPct(evidence.avg_drawdown_pct)}
@@ -721,7 +723,7 @@ function policyExecutionStats(rows: AttributionRecommendation[], horizon?: strin
     const rowHorizon = String(row.horizon || payload.horizon || '').trim()
     if (horizon && rowHorizon !== horizon) continue
     const action = String(row.type || payload.action || '').trim()
-    const target = String(row.target || payload.target || '').trim()
+    const target = formatPolicySignalTarget(row.target || payload.target, payload.scope)
     if (target && !targets.includes(target)) targets.push(target)
     if (action === 'downweight') downCount += 1
     else if (action === 'upweight') upCount += 1
@@ -744,6 +746,18 @@ function formatExecutionScope(raw: string | undefined) {
     tail_buy_and_funnel: '尾盘 + 正式漏斗',
   }
   return labels[String(raw || '').trim()] || raw || '仅观察'
+}
+
+function formatPolicySignalTarget(raw: unknown, scope?: Record<string, string>) {
+  const signal = String(raw || '').trim()
+  const parts = []
+  const regime = String(scope?.regime || '').trim()
+  const lane = String(scope?.lane || '').trim()
+  const entry = String(scope?.entry_type || scope?.entry || '').trim()
+  if (regime) parts.push(`regime=${regime}`)
+  if (lane) parts.push(`lane=${lane}`)
+  if (entry) parts.push(`entry=${entry}`)
+  return parts.length ? `${signal}[${parts.join(', ')}]` : signal
 }
 
 function parseRecommendationReason(raw: string | undefined): PolicySignalAction {

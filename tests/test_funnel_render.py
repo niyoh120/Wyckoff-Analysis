@@ -45,6 +45,20 @@ def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> Non
     assert "最终 evr×0.75↓，lps×0.50↓，sos×1.15↑" in line
 
 
+def test_policy_governance_line_formats_scoped_weights() -> None:
+    from workflows.funnel_render import _policy_governance_line
+
+    line = _policy_governance_line(
+        {
+            "_signal_weights": {
+                "lps|regime=RISK_ON|lane=trend_pullback|entry=wyckoff_structure": 0.5,
+            },
+        }
+    )
+
+    assert "lps[regime=RISK_ON, lane=trend_pullback, entry=wyckoff_structure]×0.50↓" in line
+
+
 def test_policy_governance_line_sanitizes_invalid_weights() -> None:
     from workflows.funnel_render import _policy_governance_line
 

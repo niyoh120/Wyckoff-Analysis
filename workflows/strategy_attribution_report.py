@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
+from core.strategy_policy_display import format_policy_signal_label
 from integrations.supabase_base import (
     close_client,
     create_admin_client,
@@ -184,8 +185,9 @@ def _recommendation_markdown_rows(rows: list[dict[str, Any]]) -> list[str]:
         action = str(row.get("type") or payload.get("action") or "watch")
         weight = payload.get("weight_multiplier", "-")
         evidence = payload.get("evidence") or {}
+        target = format_policy_signal_label(row.get("target") or payload.get("target"), payload.get("scope") or {})
         rendered.append(
-            f"- `{row.get('target')}` h={row.get('horizon')}: {action}, weight={weight}, "
+            f"- `{target}` h={row.get('horizon')}: {action}, weight={weight}, "
             f"avg={evidence.get('avg_return_pct', '-')}, win={evidence.get('win_rate_pct', '-')}%, "
             f"dd={evidence.get('avg_drawdown_pct', '-')}"
         )
