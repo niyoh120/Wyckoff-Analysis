@@ -7,7 +7,6 @@ from core.backtest_metrics import calc_stratified_stats
 from core.backtest_selection import select_ai_input_codes
 from core.candidate_policy import (
     CandidatePolicyConfig,
-    apply_regime_position_filter,
     loss_guard_reason,
     rerank_selected_codes,
 )
@@ -730,23 +729,6 @@ def test_tradeable_l4_candidate_board_treats_invalid_scores_as_zero() -> None:
     assert codes == ["BAD", "INF", "NAN"]
     assert score_map == {"BAD": 0.0, "INF": 0.0, "NAN": 0.0}
     assert track_map == {"BAD": "Trend", "INF": "Trend", "NAN": "Trend"}
-
-
-def test_regime_position_filter_blocks_defensive_regimes() -> None:
-    codes = ["A", "B", "C", "D"]
-
-    assert apply_regime_position_filter(codes, "PANIC_REPAIR") == []
-    assert apply_regime_position_filter(codes, "RISK_OFF") == []
-    assert apply_regime_position_filter(codes, "NEUTRAL") == ["A", "B"]
-    assert apply_regime_position_filter(codes, "RISK_ON") == ["A"]
-    assert apply_regime_position_filter(codes, "BEAR_REBOUND") == []
-
-
-def test_candidate_policy_config_overrides_regime_position_ratio() -> None:
-    codes = ["A", "B", "C", "D"]
-    config = CandidatePolicyConfig(position_ratio_by_regime={"NEUTRAL": 1.0})
-
-    assert apply_regime_position_filter(codes, "NEUTRAL", config=config) == codes
 
 
 def test_candidate_policy_config_can_disable_loss_guard() -> None:

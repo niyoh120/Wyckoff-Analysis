@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -21,15 +21,6 @@ TREND_CANDIDATE_TRIGGERS = {
 }
 DEFENSIVE_REGIMES = {"RISK_OFF", "BEAR_REBOUND", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}
 WEAK_PULLBACK_REGIMES = DEFENSIVE_REGIMES | {"RISK_ON"}
-DEFAULT_POSITION_RATIO_BY_REGIME: dict[str, float] = {
-    "NEUTRAL": 0.5,
-    "RISK_ON": 0.25,
-    "BEAR_REBOUND": 0.0,
-    "PANIC_REPAIR": 0.0,
-    "RISK_OFF": 0.0,
-    "CRASH": 0.0,
-    "BLACK_SWAN": 0.0,
-}
 
 
 @dataclass(frozen=True)
@@ -54,14 +45,6 @@ class CandidatePolicyConfig:
     defensive_high_20d_ret: float = 18.0
     neutral_high_range_pos: float = 90.0
     neutral_high_20d_ret: float = 35.0
-    position_ratio_by_regime: Mapping[str, float] = field(
-        default_factory=lambda: dict(DEFAULT_POSITION_RATIO_BY_REGIME)
-    )
-
-    def position_ratio(self, regime_norm: str) -> float:
-        default = DEFAULT_POSITION_RATIO_BY_REGIME["NEUTRAL"]
-        raw = self.position_ratio_by_regime.get(regime_norm, default)
-        return min(max(float(raw), 0.0), 1.0)
 
 
 DEFAULT_CANDIDATE_POLICY_CONFIG = CandidatePolicyConfig()
@@ -91,24 +74,6 @@ def is_tradeable_l4_trigger_combo(trigger_keys: Iterable[str]) -> bool:
     if keys & STRUCTURAL_L4_TRIGGERS:
         return True
     return not keys <= NAKED_RIGHT_SIDE_TRIGGERS
-
-
-def apply_regime_position_filter(
-    ranked_codes: list[str],
-    regime: str,
-    *,
-    config: CandidatePolicyConfig | None = None,
-) -> list[str]:
-    if not ranked_codes:
-        return []
-    regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
-    ratio = _policy_config(config).position_ratio(regime_norm)
-    if ratio <= 0:
-        return []
-    if ratio >= 1.0:
-        return ranked_codes
-    keep_n = max(1, int(len(ranked_codes) * ratio + 0.5))
-    return ranked_codes[:keep_n]
 
 
 def rerank_selected_codes(codes: list[str], score_map: dict[str, float]) -> list[str]:

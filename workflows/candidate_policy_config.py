@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from core.candidate_policy import DEFAULT_POSITION_RATIO_BY_REGIME, CandidatePolicyConfig
+from core.candidate_policy import CandidatePolicyConfig
 from utils.env import env_bool as _env_bool
 from utils.env import env_float as _env_float
 
@@ -31,7 +31,6 @@ def candidate_policy_config_from_env() -> CandidatePolicyConfig:
         defensive_high_20d_ret=_env_float("FUNNEL_LOSS_GUARD_DEFENSIVE_HIGH_20D_RET", 18.0),
         neutral_high_range_pos=_env_float("FUNNEL_LOSS_GUARD_NEUTRAL_HIGH_RANGE_POS", 90.0),
         neutral_high_20d_ret=_env_float("FUNNEL_LOSS_GUARD_NEUTRAL_HIGH_20D_RET", 35.0),
-        position_ratio_by_regime=_position_ratio_by_regime_from_env(),
     )
 
 
@@ -43,22 +42,3 @@ def _env_optional_float(name: str) -> float | None:
         return float(raw)
     except ValueError:
         return None
-
-
-def _position_ratio_by_regime_from_env() -> dict[str, float]:
-    ratios = dict(DEFAULT_POSITION_RATIO_BY_REGIME)
-    for regime, default in DEFAULT_POSITION_RATIO_BY_REGIME.items():
-        ratios[regime] = _position_ratio_from_env(regime, default)
-    return ratios
-
-
-def _position_ratio_from_env(regime: str, default: float) -> float:
-    for prefix in ("FUNNEL_REGIME", "BACKTEST_REGIME"):
-        raw = os.getenv(f"{prefix}_{regime}_POSITION_RATIO")
-        if raw is None:
-            continue
-        try:
-            return min(max(float(raw), 0.0), 1.0)
-        except ValueError:
-            return default
-    return default
