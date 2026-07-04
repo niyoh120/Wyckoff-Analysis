@@ -80,12 +80,29 @@ def test_backtest_signal_weight_map_respects_formal_dynamic_gate(monkeypatch) ->
         ),
     )
 
+    blocked_weights, blocked_meta = backtest._signal_policy_from_env()
+    assert blocked_weights == {}
+    assert blocked_meta["formal_dynamic_allowed"] is False
+    assert blocked_meta["formal_dynamic_block_reason"] == "next_action=keep_static_policy"
     assert backtest._signal_weight_map_from_env() == {}
 
     monkeypatch.setattr(
         backtest,
         "load_attribution_policy_snapshot",
-        lambda **_kwargs: AttributionPolicySnapshot(weights={"sos": 1.15}, formal_dynamic_allowed=True),
+        lambda **_kwargs: AttributionPolicySnapshot(
+            weights={"sos": 1.15},
+            source="远端",
+            report_date="2026-07-04",
+            horizon="5",
+            execution_policy="on",
+            execution_scope="tail_buy_and_funnel",
+            formal_dynamic_allowed=True,
+        ),
     )
 
+    weights, meta = backtest._signal_policy_from_env()
+    assert weights == {"sos": 1.15}
+    assert meta["source"] == "远端"
+    assert meta["report_date"] == "2026-07-04"
+    assert meta["active_scope"] == "尾盘+正式漏斗"
     assert backtest._signal_weight_map_from_env() == {"sos": 1.15}

@@ -130,6 +130,7 @@ def run_backtest_request(
 
 
 def _build_run_config(request: BacktestWorkflowRequest) -> BacktestRunConfig:
+    signal_weight_map, signal_weight_meta = _signal_policy_from_env()
     return build_backtest_run_config(
         BacktestRunInput(
             start_dt=request.start_dt,
@@ -166,7 +167,8 @@ def _build_run_config(request: BacktestWorkflowRequest) -> BacktestRunConfig:
             candidate_policy=candidate_policy_config_from_env(),
             ai_allocation=ai_candidate_allocation_config_from_env(),
             mainline_config=load_mainline_engine_config(),
-            signal_weight_map=_signal_weight_map_from_env(),
+            signal_weight_map=signal_weight_map,
+            signal_weight_meta=signal_weight_meta,
         )
     )
 
@@ -176,12 +178,17 @@ def _market_regime_analyzer_from_env():
 
 
 def _signal_weight_map_from_env() -> dict[str, float]:
+    return _signal_policy_from_env()[0]
+
+
+def _signal_policy_from_env() -> tuple[dict[str, float], dict[str, object]]:
     config = dynamic_policy_config_from_env()
     mode = dynamic_policy_mode(config)
     if mode != "on":
-        return {}
+        return {}, {}
     snapshot = load_attribution_policy_snapshot(market="cn", log_fn=lambda message: logger.info(message))
-    return attribution_weights_for_funnel(snapshot, mode=mode, log_fn=lambda message: logger.info(message))
+    weights = attribution_weights_for_funnel(snapshot, mode=mode, log_fn=lambda message: logger.info(message))
+    return weights, snapshot.as_dict()
 
 
 def _intraday_entry_price_fetcher(request: BacktestWorkflowRequest):

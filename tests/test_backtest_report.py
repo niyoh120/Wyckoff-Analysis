@@ -45,6 +45,14 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
         "cash_portfolio_small_trade_threshold": 5000,
         "cash_portfolio_small_trade_fee": 5,
         "signal_weight_map": {"lps|regime=RISK_ON|lane=trend_pullback": 0.5},
+        "signal_weight_meta": {
+            "source": "远端",
+            "report_date": "2026-07-04",
+            "horizon": "5",
+            "age_days": 0,
+            "execution_policy": "on",
+            "active_scope": "尾盘+正式漏斗",
+        },
         "trades": 30,
         "win_rate_pct": 42,
         "avg_ret_pct": 1.2,
@@ -74,6 +82,7 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
     assert "## 真实现金账户模拟" in md
     assert "RISK_OFF 环境下平均收益 -2.00%" in md
     assert "lps[regime=RISK_ON, lane=trend_pullback]×0.50↓" in md
+    assert "（远端, report=2026-07-04, h=5, age=0d, mode=on, active=尾盘+正式漏斗）" in md
 
 
 def test_generate_strategy_advice_returns_default_when_no_warning() -> None:

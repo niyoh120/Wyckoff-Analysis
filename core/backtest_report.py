@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core.backtest_metrics import fmt_metric
 from core.cash_portfolio import STYLE_LABELS
-from core.strategy_policy_display import format_policy_weight_text
+from core.strategy_policy_display import format_policy_meta_text, format_policy_weight_text
 
 
 def build_summary_md(summary: dict) -> str:
@@ -69,9 +69,11 @@ def _overview_lines(summary: dict) -> list[str]:
 
 def _signal_weight_line(summary: dict) -> str:
     weights = summary.get("signal_weight_map") or {}
+    meta_text = format_policy_meta_text(summary.get("signal_weight_meta"))
     if not weights:
-        return "- 策略治理调权: 未启用"
-    return f"- 策略治理调权: {format_policy_weight_text(weights, limit=12, delimiter='；')}"
+        return f"- 策略治理调权: 未启用{meta_text}"
+    weight_text = format_policy_weight_text(weights, limit=12, delimiter="；")
+    return f"- 策略治理调权: {weight_text}{meta_text}"
 
 
 def _return_stats_lines(summary: dict) -> list[str]:

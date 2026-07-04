@@ -173,6 +173,7 @@ def _base_summary(
         "mainline_engine_enabled": bool(config.replay.mainline_config and config.replay.mainline_config.enabled),
         "signal_weight_count": len(config.replay.signal_weight_map),
         "signal_weight_map": dict(config.replay.signal_weight_map),
+        "signal_weight_meta": dict(config.replay.signal_weight_meta),
         "eval_days": replay.eval_days,
         "signal_days": replay.signal_days,
         "trades": len(trades_df),

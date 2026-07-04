@@ -73,6 +73,7 @@ class BacktestReplayConfig:
     financial_map: dict[str, dict] = field(default_factory=dict)
     mainline_config: MainlineEngineConfig | None = None
     signal_weight_map: dict[str, float] = field(default_factory=dict)
+    signal_weight_meta: dict[str, object] = field(default_factory=dict)
     market_breadth_calculator: MarketBreadthCalculator | None = None
     market_regime_analyzer: MarketRegimeAnalyzer | None = None
 

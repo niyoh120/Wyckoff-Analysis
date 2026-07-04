@@ -88,9 +88,11 @@ def test_build_backtest_run_config_normalizes_and_expands(tmp_path) -> None:
 
 
 def test_build_backtest_run_config_preserves_signal_weight_map() -> None:
-    config = _build_config(signal_weight_map={"lps": 0.5, "sos": 1.15})
+    meta = {"source": "远端", "active_scope": "尾盘+正式漏斗", "report_date": "2026-07-04"}
+    config = _build_config(signal_weight_map={"lps": 0.5, "sos": 1.15}, signal_weight_meta=meta)
 
     assert config.replay.signal_weight_map == {"lps": 0.5, "sos": 1.15}
+    assert config.replay.signal_weight_meta == meta
 
 
 @pytest.mark.parametrize(
