@@ -8,6 +8,7 @@ from pathlib import Path
 
 from workflows.strategy_attribution_report import (
     StrategyAttributionRequest,
+    build_console_summary,
     parse_horizons,
     run_strategy_attribution_report,
 )
@@ -36,7 +37,7 @@ def request_from_args(args: argparse.Namespace) -> StrategyAttributionRequest:
 def main() -> int:
     args = parse_args()
     report = run_strategy_attribution_report(request_from_args(args))
-    print(json.dumps({"market": args.market, "report_date": report["report_date"], "written": not args.no_write}))
+    print(json.dumps(build_console_summary(report, written=not args.no_write), ensure_ascii=False))
     return 0
 
 

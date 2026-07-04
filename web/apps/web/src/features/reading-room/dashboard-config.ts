@@ -101,7 +101,7 @@ export const SHORTCUTS: DeskShortcut[] = [
   {
     title: '策略归因',
     description: '用近期结果校准信号权重。',
-    prompt: '读取策略归因报告，告诉我最近哪些信号贡献最好、哪些信号需要降权，并把结论用于今天读盘。',
+    prompt: '读取策略归因报告和策略治理器，告诉我 dynamic policy 是否只适合继续 shadow、哪些信号需要降权或升权，并把结论用于今天读盘。',
     Icon: ClipboardList,
     metric: '归因',
   },

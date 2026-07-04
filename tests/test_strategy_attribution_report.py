@@ -203,6 +203,37 @@ def test_attribution_policy_governor_promotes_shadow_review_and_signal_actions()
     assert {row["type"] for row in rows} >= {"policy_governor", "downweight", "upweight"}
 
 
+def test_attribution_console_summary_surfaces_policy_governor():
+    import workflows.strategy_attribution_report as report_mod
+
+    report = {
+        "market": "cn",
+        "report_date": "2026-07-04",
+        "shadow_diff_stats_json": {
+            "count": 24,
+            "policy_governor": {
+                "status": "candidate",
+                "mode_recommendation": "review_promote_dynamic_policy",
+                "auto_apply": False,
+                "summary": "shadow 新增组显著优于移除组",
+            },
+        },
+    }
+
+    got = report_mod.build_console_summary(report, written=False)
+
+    assert got == {
+        "market": "cn",
+        "report_date": "2026-07-04",
+        "written": False,
+        "policy_status": "candidate",
+        "mode_recommendation": "review_promote_dynamic_policy",
+        "auto_apply": False,
+        "policy_summary": "shadow 新增组显著优于移除组",
+        "shadow_runs": 24,
+    }
+
+
 def test_attribution_policy_governor_keeps_shadow_reject_when_signal_actions_exist():
     import workflows.strategy_attribution_stats as stats_mod
 

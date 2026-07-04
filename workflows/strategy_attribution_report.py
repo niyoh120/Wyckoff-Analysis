@@ -45,6 +45,21 @@ def run_strategy_attribution_report(request: StrategyAttributionRequest) -> dict
         close_client(client)
 
 
+def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str, Any]:
+    governor = _report_policy_governor(report)
+    shadow = report.get("shadow_diff_stats_json") or {}
+    return {
+        "market": report.get("market"),
+        "report_date": report.get("report_date"),
+        "written": written,
+        "policy_status": governor.get("status", "unknown"),
+        "mode_recommendation": governor.get("mode_recommendation", "keep_shadow"),
+        "auto_apply": bool(governor.get("auto_apply")),
+        "policy_summary": governor.get("summary", "-"),
+        "shadow_runs": shadow.get("count", 0) if isinstance(shadow, dict) else 0,
+    }
+
+
 def build_report(client: Any, market: str, days: int, horizons: list[int]) -> dict[str, Any]:
     end = date.today()
     start = end - timedelta(days=days)
@@ -94,7 +109,7 @@ def write_artifacts(report: dict[str, Any], output_dir: Path) -> None:
 def build_report_markdown(report: dict[str, Any]) -> str:
     shadow = report.get("shadow_diff_stats_json") or {}
     shadow_h5 = ((shadow.get("outcome_stats") or {}).get("5") or {}) if isinstance(shadow, dict) else {}
-    governor = shadow.get("policy_governor") if isinstance(shadow, dict) else {}
+    governor = _report_policy_governor(report)
     lines = [
         f"# 策略归因报告 {report['report_date']}",
         "",
@@ -118,6 +133,14 @@ def build_report_markdown(report: dict[str, Any]) -> str:
     ]
     lines.extend(_recommendation_markdown_rows(report.get("recommendations_json") or []))
     return "\n".join(lines)
+
+
+def _report_policy_governor(report: dict[str, Any]) -> dict[str, Any]:
+    shadow = report.get("shadow_diff_stats_json") or {}
+    if not isinstance(shadow, dict):
+        return {}
+    governor = shadow.get("policy_governor")
+    return governor if isinstance(governor, dict) else {}
 
 
 def _recommendation_markdown_rows(rows: list[dict[str, Any]]) -> list[str]:
