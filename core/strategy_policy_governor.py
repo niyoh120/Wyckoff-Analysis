@@ -25,12 +25,16 @@ def build_strategy_policy_governor(
     shadow_gate = _shadow_gate(shadow_diff_stats_json, horizon)
     signal_actions = _signal_actions(signal_stats_json)
     context_actions = _context_actions(signal_context_stats_json or {})
+    all_actions = signal_actions + context_actions
+    promotion_checklist = _promotion_checklist(shadow_gate, all_actions)
     return {
         "version": VERSION,
         "horizon": str(horizon),
-        "status": _governor_status(shadow_gate, signal_actions + context_actions),
+        "status": _governor_status(shadow_gate, all_actions),
         "auto_apply": False,
         "mode_recommendation": _mode_recommendation(shadow_gate),
+        "promotion_status": _promotion_status(shadow_gate),
+        "promotion_checklist": promotion_checklist,
         "shadow_gate": shadow_gate,
         "signal_actions": signal_actions,
         "context_actions": context_actions,
@@ -152,6 +156,8 @@ def _governor_summary_row(governor: dict[str, Any]) -> dict[str, str]:
             {
                 "status": governor.get("status"),
                 "mode_recommendation": governor.get("mode_recommendation"),
+                "promotion_status": governor.get("promotion_status"),
+                "promotion_checklist": governor.get("promotion_checklist"),
                 "summary": governor.get("summary"),
                 "auto_apply": governor.get("auto_apply"),
             },
@@ -322,6 +328,77 @@ def _mode_recommendation(shadow_gate: dict[str, Any]) -> str:
     if shadow_gate.get("status") == "reject":
         return "keep_static_policy"
     return "keep_shadow"
+
+
+def _promotion_status(shadow_gate: dict[str, Any]) -> str:
+    status = str(shadow_gate.get("status") or "")
+    if status == "candidate":
+        return "manual_review_required"
+    if status == "reject":
+        return "do_not_promote"
+    if status == "insufficient_sample":
+        return "collect_more_samples"
+    return "keep_shadow"
+
+
+def _promotion_checklist(shadow_gate: dict[str, Any], actions: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        _shadow_sample_check(shadow_gate),
+        _shadow_performance_check(shadow_gate),
+        _signal_action_check(actions),
+        _backtest_confirmation_check(shadow_gate),
+    ]
+
+
+def _shadow_sample_check(shadow_gate: dict[str, Any]) -> dict[str, str]:
+    runs = int(shadow_gate.get("run_count") or 0)
+    added = int(shadow_gate.get("added_matched") or 0)
+    removed = int(shadow_gate.get("removed_matched") or 0)
+    passed = runs >= MIN_SHADOW_RUNS and added >= MIN_SHADOW_MATCHED and removed >= MIN_SHADOW_MATCHED
+    return {
+        "key": "shadow_sample",
+        "status": "pass" if passed else "fail",
+        "summary": (
+            f"shadow run {runs}/{MIN_SHADOW_RUNS}，新增命中 {added}/{MIN_SHADOW_MATCHED}，"
+            f"移除命中 {removed}/{MIN_SHADOW_MATCHED}"
+        ),
+    }
+
+
+def _shadow_performance_check(shadow_gate: dict[str, Any]) -> dict[str, str]:
+    status = str(shadow_gate.get("status") or "")
+    if status == "candidate":
+        check_status = "pass"
+    elif status == "reject":
+        check_status = "fail"
+    else:
+        check_status = "review"
+    return {
+        "key": "shadow_performance",
+        "status": check_status,
+        "summary": (
+            f"收益差 {shadow_gate.get('return_lift_pct', '-')}，"
+            f"胜率差 {shadow_gate.get('win_rate_lift_pct', '-')}，"
+            f"回撤差 {shadow_gate.get('drawdown_lift_pct', '-')}"
+        ),
+    }
+
+
+def _signal_action_check(actions: list[dict[str, Any]]) -> dict[str, str]:
+    active = [item for item in actions if item.get("action") in {"downweight", "upweight"}]
+    return {
+        "key": "signal_actions",
+        "status": "review" if active else "pass",
+        "summary": f"{len(active)} 个 scoped 信号调权需要一致性复核",
+    }
+
+
+def _backtest_confirmation_check(shadow_gate: dict[str, Any]) -> dict[str, str]:
+    return {
+        "key": "backtest_confirmation",
+        "status": "review" if shadow_gate.get("status") == "candidate" else "not_required",
+        "summary": "切换 dynamic=on 前需要最新回测或实盘观察确认",
+    }
 
 
 def _summary(shadow_gate: dict[str, Any], signal_actions: list[dict[str, Any]]) -> str:

@@ -201,7 +201,14 @@ def test_attribution_policy_governor_promotes_shadow_review_and_signal_actions()
     rows = payload["recommendations_json"]
     assert governor["status"] == "candidate"
     assert governor["mode_recommendation"] == "review_promote_dynamic_policy"
+    assert governor["promotion_status"] == "manual_review_required"
     assert governor["auto_apply"] is False
+    assert {row["key"]: row["status"] for row in governor["promotion_checklist"]} == {
+        "shadow_sample": "pass",
+        "shadow_performance": "pass",
+        "signal_actions": "review",
+        "backtest_confirmation": "review",
+    }
     assert {row["type"] for row in rows} >= {"policy_governor", "downweight", "upweight"}
 
 
@@ -280,6 +287,7 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
             "policy_governor": {
                 "status": "candidate",
                 "mode_recommendation": "review_promote_dynamic_policy",
+                "promotion_status": "manual_review_required",
                 "auto_apply": False,
                 "summary": "shadow 新增组显著优于移除组",
             },
@@ -296,6 +304,7 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "written": False,
         "policy_status": "candidate",
         "mode_recommendation": "review_promote_dynamic_policy",
+        "promotion_status": "manual_review_required",
         "auto_apply": False,
         "policy_summary": "shadow 新增组显著优于移除组",
         "shadow_runs": 24,
@@ -323,6 +332,11 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
             "policy_governor": {
                 "status": "candidate",
                 "mode_recommendation": "review_promote_dynamic_policy",
+                "promotion_status": "manual_review_required",
+                "promotion_checklist": [
+                    {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
+                    {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"},
+                ],
                 "auto_apply": False,
                 "summary": "shadow 新增组显著优于移除组",
             },
@@ -344,6 +358,9 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     markdown = report_mod.build_report_markdown(report)
 
     assert "## 调权执行状态" in markdown
+    assert "- 晋级状态: `manual_review_required`" in markdown
+    assert "### 晋级检查" in markdown
+    assert "`shadow_sample`: `pass`" in markdown
     assert "- 漏斗动态策略: `on`" in markdown
     assert "- 执行周期: `h=5`" in markdown
     assert "- 当前作用范围: `tail_buy_and_funnel`" in markdown
@@ -382,6 +399,7 @@ def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):
 
     assert state["horizon"] == "5"
     assert state["signal_action_count"] == 2
+    assert state["promotion_status"] == "unknown"
     assert state["scope"] == "tail_buy_and_funnel_shadow"
     assert state["action_details"][0]["label"] == "lps"
     assert state["action_details"][1]["label"] == "launchpad"
@@ -440,6 +458,8 @@ def test_attribution_policy_governor_keeps_shadow_reject_when_signal_actions_exi
     rows = payload["recommendations_json"]
     assert governor["status"] == "reject"
     assert governor["mode_recommendation"] == "keep_static_policy"
+    assert governor["promotion_status"] == "do_not_promote"
+    assert {row["key"]: row["status"] for row in governor["promotion_checklist"]}["shadow_performance"] == "fail"
     assert {row["type"] for row in rows} >= {"policy_governor", "downweight", "upweight"}
 
 

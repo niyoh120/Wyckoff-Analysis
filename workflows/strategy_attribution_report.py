@@ -58,6 +58,7 @@ def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str,
         "written": written,
         "policy_status": governor.get("status", "unknown"),
         "mode_recommendation": governor.get("mode_recommendation", "keep_shadow"),
+        "promotion_status": governor.get("promotion_status", "unknown"),
         "auto_apply": bool(governor.get("auto_apply")),
         "policy_summary": governor.get("summary", "-"),
         "shadow_runs": shadow.get("count", 0) if isinstance(shadow, dict) else 0,
@@ -138,8 +139,12 @@ def build_report_markdown(report: dict[str, Any]) -> str:
         "## 策略治理",
         f"- 状态: `{governor.get('status', 'unknown') if isinstance(governor, dict) else 'unknown'}`",
         f"- 动态策略建议: `{governor.get('mode_recommendation', 'keep_shadow') if isinstance(governor, dict) else 'keep_shadow'}`",
+        f"- 晋级状态: `{governor.get('promotion_status', 'unknown') if isinstance(governor, dict) else 'unknown'}`",
         f"- 自动生效: `{bool(governor.get('auto_apply')) if isinstance(governor, dict) else False}`",
         f"- 摘要: {governor.get('summary', '-') if isinstance(governor, dict) else '-'}",
+        "",
+        "### 晋级检查",
+        *_promotion_checklist_lines(governor),
         "",
         "## 调权执行状态",
         f"- 漏斗动态策略: `{execution.get('funnel_dynamic_policy', 'off')}`",
@@ -161,6 +166,18 @@ def _operations_markdown_lines(report: dict[str, Any]) -> list[str]:
     lines = _latest_shadow_lines(latest if isinstance(latest, dict) else {})
     lines.extend(_action_detail_lines(execution.get("action_details") if isinstance(execution, dict) else []))
     return lines or ["- 暂无可用运营复盘信息。"]
+
+
+def _promotion_checklist_lines(governor: dict[str, Any]) -> list[str]:
+    rows = governor.get("promotion_checklist") if isinstance(governor, dict) else []
+    if not isinstance(rows, list) or not rows:
+        return ["- 暂无晋级检查清单。"]
+    lines = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        lines.append(f"- `{row.get('key', '-')}`: `{row.get('status', '-')}` — {row.get('summary', '-')}")
+    return lines or ["- 暂无晋级检查清单。"]
 
 
 def _latest_shadow_lines(latest: dict[str, Any]) -> list[str]:

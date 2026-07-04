@@ -264,6 +264,11 @@ shadow 差异和信号表现收敛成统一的治理结论：
   `reject` 表示 shadow 新增组没有跑赢移除组；`insufficient_sample` 表示样本不足。
 - `mode_recommendation`：只给出 `review_promote_dynamic_policy`、`keep_shadow` 或
   `keep_static_policy`，不自动修改生产配置。
+- `promotion_status`：把生产晋级状态说清楚。`manual_review_required` 表示 shadow 已过主要量化门槛，
+  但仍要人工检查多期报告和回测；`do_not_promote` 表示当前不应切 `on`；`collect_more_samples`
+  表示样本不足；`keep_shadow` 表示继续观察。
+- `promotion_checklist`：固定检查 shadow 样本量、shadow 新增组表现、scoped 信号调权、回测确认。
+  这不是展示文案，而是 Agent/Web 判断“能不能切 dynamic=on”的证据结构。
 - `signal_actions`：把信号表现转成 `downweight` / `upweight` / `hold`，并附带 count、平均收益、
   胜率、大亏率和平均回撤。
 
