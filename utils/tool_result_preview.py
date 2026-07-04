@@ -861,10 +861,33 @@ def _strategy_decision_brief_lines(result: dict[str, Any], *, max_lines: int) ->
     lines = [_strategy_stage_line(result)]
     if conclusion_line := _candidate_conclusion_brief_line("last_strategy_decision", result):
         lines.append(conclusion_line)
-    if guard_line := _candidate_guard_brief_line(result.get("candidate_guard_summary")):
-        lines.append(guard_line)
+    if guard_or_report_line := _strategy_guard_or_report_brief_line(result):
+        lines.append(guard_or_report_line)
     lines.extend(_reviewed_symbol_lines(result, max_lines=max_lines))
     return [line for line in lines if line][:max_lines]
+
+
+def _strategy_guard_or_report_brief_line(result: dict[str, Any]) -> str:
+    guard_line = _candidate_guard_brief_line(result.get("candidate_guard_summary"))
+    report_line = _strategy_report_action_brief_line(result)
+    if guard_line and report_line:
+        return _text_excerpt(f"{guard_line} · {report_line}", 320)
+    return guard_line or report_line
+
+
+def _strategy_report_action_brief_line(result: dict[str, Any]) -> str:
+    text = str(result.get("report_preview") or "")
+    if not text.strip():
+        return ""
+    for raw_line in text.replace("\r\n", "\n").split("\n"):
+        line = raw_line.strip().lstrip("-*• \t")
+        if line and _has_strategy_action_keyword(line):
+            return f"研报边界: {_text_excerpt(line, 180)}"
+    return ""
+
+
+def _has_strategy_action_keyword(line: str) -> bool:
+    return any(keyword in line for keyword in ("触发", "失效", "止损", "突破", "站稳"))
 
 
 def _strategy_stage_line(result: dict[str, Any]) -> str:

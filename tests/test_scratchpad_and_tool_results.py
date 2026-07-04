@@ -1393,6 +1393,32 @@ def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_p
     ]
 
 
+def test_generate_strategy_decision_brief_surfaces_report_boundaries():
+    result = {
+        "ok": True,
+        "status": "skipped_notify_unconfigured",
+        "report_source": "last_ai_report",
+        "candidate_count": 1,
+        "reviewed_codes": ["002293"],
+        "reviewed_symbols": [
+            {
+                "code": "002293",
+                "name": "罗莱生活",
+                "action_status": "ready_for_ai_review",
+            }
+        ],
+        "report_preview": "# 攻防计划\n002293 罗莱生活：触发位 11.20；失效位 11.00；只做确认后的右侧。",
+    }
+
+    lines = tool_result_brief_lines("generate_strategy_decision", result, max_lines=3)
+
+    assert lines == [
+        "攻防决策: 未发送工单 · 来源: 上一轮AI研报 · 已复核: 1只",
+        "候选结论: 首选 002293 罗莱生活 · 可进入AI复核",
+        "研报边界: 002293 罗莱生活：触发位 11.20；失效位 11.00；只做确认后的右侧。",
+    ]
+
+
 def test_generate_strategy_decision_brief_labels_quality_gate_blocker():
     reason = "000013 低质量候选 风险调整质量分 65.00 低于AI复核门槛 70.00"
     result = {
