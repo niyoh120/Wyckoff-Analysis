@@ -70,8 +70,8 @@ flowchart TD
 | 模式 | 主流程候选 | 额外落库 | 适用阶段 |
 |------|------------|----------|----------|
 | `off` | 静态配额 | 无 | 默认保守模式 |
-| `shadow` | 静态配额 | `signal_policy_shadow_runs` 记录动态配额会选哪些、会换掉哪些 | 观察新策略是否稳定，不影响实盘输出 |
-| `on` | 动态配额 + registry 过滤 | observations / outcomes 正常记录 | shadow 结果稳定后切正式 |
+| `shadow` | 静态配额 | `signal_policy_shadow_runs` 记录动态配额会选哪些、会换掉哪些 | 观察新策略是否稳定，不影响漏斗正式输出 |
+| `on` | 动态配额 + registry 过滤 + 策略归因调权 | observations / outcomes 正常记录 | shadow 结果稳定后切正式 |
 
 GitHub Actions 中建议用 Repository Variables 配置：
 
@@ -216,7 +216,7 @@ Shadow 模式不会影响真实推荐。它的价值是回答三个问题：
 1. 动态策略比静态策略多选了哪些股票？
 2. 动态策略会移除哪些原本会进 AI 的股票？
 3. `diff_added` 的后续收益/回撤是否长期好于 `diff_removed`？
-4. 这些差异背后的 `signal_weights` 和 `registry_snapshot` 是否合理？
+4. 这些差异背后的 `signal_weights`、`attribution_signal_weights` 和 `registry_snapshot` 是否合理？
 
 常用查询：
 
@@ -228,7 +228,8 @@ select
   shadow_policy,
   diff_added,
   diff_removed,
-  signal_weights
+  signal_weights,
+  attribution_signal_weights
 from signal_policy_shadow_runs
 order by trade_date desc
 limit 10;
@@ -238,6 +239,11 @@ limit 10;
 `shadow_diff_stats_json.outcome_stats`。只有当 `diff_added` 在多个周期的收益/回撤稳定好于
 `diff_removed`，并且 missing outcome 不高时，才考虑把 `FUNNEL_DYNAMIC_POLICY` 从 `shadow`
 切到 `on`。
+
+归因报告里的信号级 `downweight` / `upweight` 已经是策略治理输入：尾盘策略会读取最新
+`strategy_attribution_reports` 或本地只读报告文件进行候选调权；漏斗动态策略会把这些归因权重和
+`signal_health_daily` / `signal_registry` 合并。`shadow` 模式下它只影响 shadow 对照候选，`on`
+模式下才会影响漏斗正式候选。
 
 ### 策略治理器
 
@@ -251,8 +257,9 @@ shadow 差异和信号表现收敛成统一的治理结论：
 - `signal_actions`：把信号表现转成 `downweight` / `upweight` / `hold`，并附带 count、平均收益、
   胜率、大亏率和平均回撤。
 
-第一版治理器永远输出 `auto_apply=false`。它的职责是把“该不该调权”变成可复盘证据，而不是让
-单次 shadow 报告直接改生产策略。
+第一版治理器永远输出 `auto_apply=false`。它表示系统不会自动把 `FUNNEL_DYNAMIC_POLICY` 从
+`shadow` 晋级到 `on`；不表示归因权重完全不参与策略。信号级调权可以进入尾盘和动态策略输入，
+但模式晋级必须人工确认多期报告和回测一致。
 
 ## 和迭代策略的对应关系
 

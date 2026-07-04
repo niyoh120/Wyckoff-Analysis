@@ -113,12 +113,13 @@ Shadow 复盘重点看 `signal_policy_shadow_runs`：
 - `diff_added`：动态策略新增的候选。
 - `diff_removed`：动态策略移除的静态候选。
 - `signal_weights`：触发这次差异的信号权重。
+- `attribution_signal_weights`：归因报告给出的信号级调权，和 health / registry 合并后参与 shadow/on。
 - `registry_snapshot` / `health_snapshot`：当时策略状态快照。
 
 只读归因报告会额外生成 `policy_governor`，先判断 shadow 新增组是否稳定跑赢移除组，再把每个
 信号的收益、胜率、大亏率和回撤转成 `downweight` / `upweight` / `hold`。治理器只输出晋级建议：
-`review_promote_dynamic_policy`、`keep_shadow` 或 `keep_static_policy`，默认不自动生效。生产策略
-是否从 `shadow` 切到 `on`，仍需要人工确认多期报告和回测结果一致。
+`review_promote_dynamic_policy`、`keep_shadow` 或 `keep_static_policy`。其中信号级调权可以进入尾盘和
+动态策略输入；生产策略是否从 `shadow` 切到 `on`，仍需要人工确认多期报告和回测结果一致。
 
 外部观察复盘重点看 `external_seed_observations`：
 - `watch_status`：观察对象是被 L1 拒绝、已过 L2、L4 确认，还是只适合继续观察。

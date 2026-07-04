@@ -63,8 +63,8 @@ flowchart LR
 | 模式 | 策略行为 |
 |------|----------|
 | `off` | 使用静态 Trend / Accum 配额。 |
-| `shadow` | 真实输出仍走静态配额，同时记录动态策略会新增/移除哪些候选。 |
-| `on` | 正式使用信号健康度权重和 registry 状态。 |
+| `shadow` | 真实输出仍走静态配额，同时用 signal health、registry 和策略归因调权模拟动态策略会新增/移除哪些候选。 |
+| `on` | 正式使用信号健康度权重、registry 状态和策略归因调权。 |
 
 Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否真的比静态配额更聪明。
 

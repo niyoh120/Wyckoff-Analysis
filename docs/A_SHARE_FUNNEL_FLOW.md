@@ -311,8 +311,8 @@ sequenceDiagram
 | 模式 | 行为 |
 |------|------|
 | `off` | 默认静态 Trend / Accum 配额，不读取反馈权重 |
-| `shadow` | 主流程保持静态配额，动态策略差异写入 `signal_policy_shadow_runs` |
-| `on` | 正式使用 `signal_health_daily` 权重和 `signal_registry` 启停状态 |
+| `shadow` | 主流程保持静态配额，动态策略读取 health / registry / 归因调权后把差异写入 `signal_policy_shadow_runs` |
+| `on` | 正式使用 `signal_health_daily` 权重、`signal_registry` 启停状态和归因调权 |
 
 ---
 

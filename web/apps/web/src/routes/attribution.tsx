@@ -132,7 +132,8 @@ export function AttributionPage() {
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Strategy Attribution</p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight">策略归因报告</h1>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            固定周期结果、形态表现、分数分桶和 shadow 差异的聚合视图。这里只展示分析快照，不参与漏斗出股。
+            固定周期结果、形态表现、分数分桶和 shadow 差异的聚合视图。信号级调权会作为尾盘策略和漏斗动态策略输入；
+            是否把动态策略从 shadow 晋级到 on 仍需人工确认。
           </p>
         </div>
         <button
@@ -294,9 +295,13 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
         <MetricCard label="治理状态" value={formatGovernorStatus(governor.status)} />
         <MetricCard label="建议模式" value={formatModeRecommendation(governor.mode_recommendation)} />
         <MetricCard label="观察周期" value={`h=${governor.horizon || '-'}`} />
-        <MetricCard label="自动生效" value={governor.auto_apply ? '是' : '否'} />
+        <MetricCard label="自动切模式" value={governor.auto_apply ? '是' : '否'} />
       </div>
       <p className="mt-3 text-sm text-muted-foreground">{governor.summary || '-'}</p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        说明：`自动切模式=否` 只表示不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；信号级 downweight/upweight
+        仍可被尾盘策略和动态策略 shadow/on 读取。
+      </p>
       <ShadowGateLine gate={governor.shadow_gate} />
     </Panel>
   )
