@@ -189,7 +189,11 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
         priority_score=80.0,
     )
 
-    result = apply_policy_weight_adjustments([candidate], {"lps": 0.5})
+    result = apply_policy_weight_adjustments(
+        [candidate],
+        {"lps": 0.5},
+        policy_meta={"source": "远端", "report_date": "2026-07-04", "horizon": "5", "age_days": 0},
+    )
 
     assert result[0].rule_decision == DECISION_WATCH
     assert result[0].final_decision == DECISION_WATCH
@@ -197,6 +201,9 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
     assert result[0].features["policy_weight_multiplier"] == 0.5
     assert result[0].features["policy_weight_old_score"] == 80.0
     assert result[0].features["policy_weight_new_score"] == 40.0
+    assert result[0].features["policy_weight_source"] == "远端"
+    assert result[0].features["policy_weight_report_date"] == "2026-07-04"
+    assert result[0].features["policy_weight_horizon"] == "5"
     assert "归因治理调权(lps) x0.50: 80.0->40.0" in result[0].rule_reasons
     assert "调权后低于买入线，尾盘只观察" in result[0].rule_reasons
 
@@ -1011,9 +1018,10 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
         llm_success=1,
         elapsed_seconds=10.0,
         policy_weights={"lps": 0.5, "launchpad": 1.2},
+        policy_weight_meta={"source": "远端", "report_date": "2026-07-04", "horizon": "5", "age_days": 0},
     )
 
-    assert "- 归因调权: launchpad=x1.20；lps=x0.50" in md
+    assert "- 归因调权: launchpad=x1.20；lps=x0.50（远端, report=2026-07-04, h=5, age=0d）" in md
 
 
 def test_build_tail_buy_markdown_surfaces_item_policy_adjustment():

@@ -32,6 +32,7 @@ def _header_lines(
     market_reminder: str,
     report_mode: str,
     policy_weights: dict[str, float] | None,
+    policy_weight_meta: dict[str, object] | None,
 ) -> list[str]:
     layer_text = f"- 分层结果: BUY={counts[DECISION_BUY]}"
     risky_buy_count = _high_risk_buy_count(candidates, report_mode)
@@ -49,7 +50,7 @@ def _header_lines(
         f"- 扫描数量: {len(candidates)}",
         layer_text,
         f"- AI 二判: {llm_success}/{llm_total}",
-        _policy_weight_line(policy_weights),
+        _policy_weight_line(policy_weights, policy_weight_meta),
         f"- 分时数据获取: {data_fetched_at}" if data_fetched_at else "- 分时数据获取: -",
         f"- 总耗时: {elapsed_seconds:.1f}s",
         "",
@@ -190,6 +191,7 @@ def build_tail_buy_markdown(
     data_fetched_at: str = "",
     report_mode: str = "intraday",
     policy_weights: dict[str, float] | None = None,
+    policy_weight_meta: dict[str, object] | None = None,
 ) -> str:
     lines = _header_lines(
         now_text=now_text,
@@ -204,6 +206,7 @@ def build_tail_buy_markdown(
         market_reminder=market_reminder,
         report_mode=report_mode,
         policy_weights=policy_weights,
+        policy_weight_meta=policy_weight_meta,
     )
     cleaned_sections = _clean_extra_sections(extra_sections)
     if extra_sections_first:
@@ -235,7 +238,7 @@ def _report_mode_text(report_mode: str) -> tuple[str, str, str]:
     )
 
 
-def _policy_weight_line(weights: dict[str, float] | None) -> str:
+def _policy_weight_line(weights: dict[str, float] | None, meta: dict[str, object] | None = None) -> str:
     if not weights:
         return "- 归因调权: 无"
     parts = []
@@ -244,7 +247,25 @@ def _policy_weight_line(weights: dict[str, float] | None) -> str:
             parts.append(f"{key}=x{float(value):.2f}")
         except (TypeError, ValueError):
             continue
-    return "- 归因调权: " + ("；".join(parts) if parts else "无")
+    return "- 归因调权: " + ("；".join(parts) if parts else "无") + _policy_weight_source_text(meta)
+
+
+def _policy_weight_source_text(meta: dict[str, object] | None) -> str:
+    row = meta or {}
+    tokens = []
+    source = str(row.get("source") or "").strip()
+    report_date = str(row.get("report_date") or "").strip()
+    horizon = str(row.get("horizon") or "").strip()
+    if source:
+        tokens.append(source)
+    if report_date:
+        tokens.append(f"report={report_date}")
+    if horizon:
+        tokens.append(f"h={horizon}")
+    age = row.get("age_days")
+    if age is not None and str(age) != "":
+        tokens.append(f"age={age}d")
+    return f"（{', '.join(tokens)}）" if tokens else ""
 
 
 def _execution_scope_line(report_mode: str) -> str:

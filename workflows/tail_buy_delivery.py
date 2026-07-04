@@ -92,6 +92,7 @@ def send_tail_buy_report(
         data_fetched_at=run_result.data_fetched_at,
         report_mode=report_mode,
         policy_weights=run_result.policy_weights,
+        policy_weight_meta=run_result.policy_weight_meta,
     )
     return send_tail_buy_notifications(
         feishu_webhook=config.feishu_webhook,

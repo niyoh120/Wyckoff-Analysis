@@ -733,6 +733,7 @@ def test_attach_shadow_policy_preserves_base_policy():
 def test_load_dynamic_policy_context_merges_attribution_weights(monkeypatch):
     from core.ai_candidate_allocation import AiCandidateAllocationConfig
     from workflows import funnel_ai_selection as selection
+    from workflows.strategy_attribution_policy import AttributionPolicySnapshot
 
     monkeypatch.setattr(
         selection,
@@ -748,7 +749,17 @@ def test_load_dynamic_policy_context_merges_attribution_weights(monkeypatch):
         ],
     )
     monkeypatch.setattr(selection, "load_signal_registry", lambda market: [])
-    monkeypatch.setattr(selection, "load_attribution_signal_weights", lambda **_kwargs: {"lps": 0.5, "sos": 1.15})
+    monkeypatch.setattr(
+        selection,
+        "load_attribution_policy_snapshot",
+        lambda **_kwargs: AttributionPolicySnapshot(
+            weights={"lps": 0.5, "sos": 1.15},
+            source="远端",
+            report_date="2026-07-04",
+            horizon="5",
+            age_days=0,
+        ),
+    )
 
     ctx = selection._load_dynamic_policy_context(
         "RISK_ON",
@@ -760,6 +771,7 @@ def test_load_dynamic_policy_context_merges_attribution_weights(monkeypatch):
     assert ctx["weights"]["lps"] == 0.5
     assert ctx["weights"]["sos"] == 1.15
     assert ctx["attribution_weights"] == {"lps": 0.5, "sos": 1.15}
+    assert ctx["attribution_policy_meta"]["report_date"] == "2026-07-04"
 
 
 def test_policy_shadow_row_stores_compact_summaries():
@@ -788,6 +800,7 @@ def test_policy_shadow_row_stores_compact_summaries():
                 }
             ],
             "_attribution_signal_weights": {"sos": 0.8},
+            "_attribution_policy_meta": {"source": "远端", "report_date": "2026-07-04", "horizon": "5", "age_days": 0},
         },
         {"end_trade_date": "2026-06-30"},
         ["000001", "000002"],
@@ -800,8 +813,10 @@ def test_policy_shadow_row_stores_compact_summaries():
     assert row["schema_version"] == "shadow_policy_v2"
     assert row["snapshot_level"] == "summary"
     assert row["attribution_signal_weights"] == {"sos": 0.8}
+    assert row["attribution_policy_meta"]["report_date"] == "2026-07-04"
     assert row["selection_summary"]["jaccard"] == 0.3333
     assert row["policy_summary"]["attribution_weight_count"] == 1
+    assert row["policy_summary"]["attribution_policy_meta"]["source"] == "远端"
     assert row["policy_summary"]["downweighted_signals"] == [{"signal_type": "sos", "weight": 0.8}]
     assert row["registry_summary"]["by_status"] == {"ACTIVE": 1, "WATCH": 1}
     assert row["health_summary"]["changed"][0]["state"] == "DECAYED"

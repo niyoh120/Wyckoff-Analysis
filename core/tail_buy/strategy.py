@@ -959,6 +959,7 @@ def apply_policy_weight_adjustments(
     signal_weights: dict[str, float] | None,
     *,
     min_buy_score: float = 72.0,
+    policy_meta: dict[str, Any] | None = None,
 ) -> list[TailBuyCandidate]:
     if not candidates or not signal_weights:
         return candidates
@@ -976,6 +977,10 @@ def apply_policy_weight_adjustments(
                 "policy_weight_multiplier": multiplier,
                 "policy_weight_old_score": old_score,
                 "policy_weight_new_score": new_score,
+                "policy_weight_source": str((policy_meta or {}).get("source") or ""),
+                "policy_weight_report_date": str((policy_meta or {}).get("report_date") or ""),
+                "policy_weight_horizon": str((policy_meta or {}).get("horizon") or ""),
+                "policy_weight_age_days": (policy_meta or {}).get("age_days"),
             }
         )
         if item.priority_score > 0:

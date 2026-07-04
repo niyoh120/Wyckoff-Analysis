@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from core.tail_buy.models import TailBuyCandidate
 from workflows import tail_buy_intraday_job as job
+from workflows.strategy_attribution_policy import AttributionPolicySnapshot
 from workflows.tail_buy_market_repair import apply_intraday_market_mode
 from workflows.tail_buy_utils import current_time
 
@@ -55,10 +56,21 @@ def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
     calls: dict[str, object] = {}
 
     monkeypatch.setattr(job, "run_tail_buy_rule_scan", lambda *_args, **_kwargs: [candidate])
-    monkeypatch.setattr(job, "load_tail_buy_policy_adjustments", lambda _logs: {"lps": 0.5})
+    monkeypatch.setattr(
+        job,
+        "load_tail_buy_policy_snapshot",
+        lambda _logs: AttributionPolicySnapshot(
+            weights={"lps": 0.5},
+            source="远端",
+            report_date="2026-07-04",
+            horizon="5",
+            age_days=0,
+        ),
+    )
 
-    def fake_adjust(scored, weights):
+    def fake_adjust(scored, weights, *, policy_meta=None):
         calls["weights"] = weights
+        calls["policy_meta"] = policy_meta
         scored[0].rule_score = 40.0
         return scored
 
@@ -84,8 +96,10 @@ def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
     )
 
     assert calls["weights"] == {"lps": 0.5}
+    assert calls["policy_meta"]["report_date"] == "2026-07-04"
     assert result.merged[0].rule_score == 40.0
     assert result.policy_weights == {"lps": 0.5}
+    assert result.policy_weight_meta["source"] == "远端"
 
 
 def test_single_rule_scan_marks_deferred_candidates(monkeypatch) -> None:

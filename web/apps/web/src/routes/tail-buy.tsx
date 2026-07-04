@@ -104,7 +104,11 @@ function policyWeightText(record: TailBuyRecord): string {
   const oldScore = numberFeature(features, 'policy_weight_old_score')
   const newScore = numberFeature(features, 'policy_weight_new_score')
   const scoreText = oldScore !== undefined && newScore !== undefined ? ` ${oldScore.toFixed(1)}→${newScore.toFixed(1)}` : ''
-  return `${signal} x${multiplier.toFixed(2)}${scoreText}`
+  const source = String(features.policy_weight_source || '').trim()
+  const reportDate = String(features.policy_weight_report_date || '').trim()
+  const horizon = String(features.policy_weight_horizon || '').trim()
+  const meta = [source, reportDate ? `report=${reportDate}` : '', horizon ? `h=${horizon}` : ''].filter(Boolean).join(' ')
+  return `${signal} x${multiplier.toFixed(2)}${scoreText}${meta ? ` (${meta})` : ''}`
 }
 
 function policyWeightSortValue(record: TailBuyRecord): number | undefined {

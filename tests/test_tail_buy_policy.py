@@ -108,6 +108,34 @@ def test_attribution_weights_fall_back_to_fresh_local_when_remote_is_stale(monke
     assert weights == {"sos": 1.15}
 
 
+def test_attribution_policy_snapshot_exposes_source_and_age(monkeypatch):
+    monkeypatch.setattr(
+        attribution_policy,
+        "load_latest_attribution_report",
+        lambda _market: {
+            "market": "cn",
+            "report_date": "2026-07-02",
+            "shadow_diff_stats_json": {"policy_governor": {"horizon": "5"}},
+            "recommendations_json": [
+                {
+                    "type": "downweight",
+                    "horizon": "5",
+                    "target": "lps",
+                    "reason": '{"action":"downweight","horizon":"5","target":"lps","weight_multiplier":0.5}',
+                }
+            ],
+        },
+    )
+
+    snapshot = attribution_policy.load_attribution_policy_snapshot(market="cn", as_of=date(2026, 7, 4))
+
+    assert snapshot.weights == {"lps": 0.5}
+    assert snapshot.source == "远端"
+    assert snapshot.report_date == "2026-07-02"
+    assert snapshot.age_days == 2
+    assert snapshot.as_dict()["weight_count"] == 1
+
+
 def test_attribution_weights_skip_stale_reports(monkeypatch, tmp_path):
     report_path = tmp_path / "report.json"
     report_path.write_text(

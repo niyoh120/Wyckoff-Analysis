@@ -261,12 +261,13 @@ def _market_mix_policy_line(policy: dict) -> str:
 
 def _policy_governance_line(policy: dict) -> str:
     attribution = policy.get("_attribution_signal_weights") or policy.get("attribution_signal_weights") or {}
+    attribution_meta = policy.get("_attribution_policy_meta") or policy.get("attribution_policy_meta") or {}
     merged = policy.get("_signal_weights") or policy.get("signal_weights") or {}
     if not attribution and not merged:
         return ""
     parts = []
     if attribution:
-        parts.append(f"归因 {_policy_weight_text(attribution)}")
+        parts.append(f"归因 {_policy_weight_text(attribution)}{_policy_meta_text(attribution_meta)}")
     if merged:
         parts.append(f"最终 {_policy_weight_text(merged)}")
     return "**策略治理调权**: " + "；".join(parts)
@@ -289,6 +290,25 @@ def _weight_value(raw: Any) -> float:
     except (TypeError, ValueError):
         return 1.0
     return value if value == value and value not in {float("inf"), float("-inf")} else 1.0
+
+
+def _policy_meta_text(meta: dict) -> str:
+    if not isinstance(meta, dict) or not meta:
+        return ""
+    tokens = []
+    source = str(meta.get("source") or "").strip()
+    report_date = str(meta.get("report_date") or "").strip()
+    horizon = str(meta.get("horizon") or "").strip()
+    if source:
+        tokens.append(source)
+    if report_date:
+        tokens.append(f"report={report_date}")
+    if horizon:
+        tokens.append(f"h={horizon}")
+    age = meta.get("age_days")
+    if age is not None and str(age) != "":
+        tokens.append(f"age={age}d")
+    return f"（{', '.join(tokens)}）" if tokens else ""
 
 
 def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[str]:

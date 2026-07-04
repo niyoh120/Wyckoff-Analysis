@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -16,29 +17,60 @@ from integrations.supabase_base import close_client, create_read_client
 LOCAL_ATTRIBUTION_REPORT = Path("/private/tmp/wyckoff-strategy-attribution/latest/report.json")
 
 
+@dataclass(frozen=True)
+class AttributionPolicySnapshot:
+    weights: dict[str, float] = field(default_factory=dict)
+    source: str = ""
+    report_date: str = ""
+    horizon: str = "5"
+    age_days: int | None = None
+    max_age_days: int = 7
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "report_date": self.report_date,
+            "horizon": self.horizon,
+            "age_days": self.age_days,
+            "max_age_days": self.max_age_days,
+            "weight_count": len(self.weights),
+        }
+
+
 def load_attribution_signal_weights(
     *,
     market: str = "cn",
     log_fn: Callable[[str], None] | None = None,
     as_of: date | None = None,
 ) -> dict[str, float]:
+    return load_attribution_policy_snapshot(market=market, log_fn=log_fn, as_of=as_of).weights
+
+
+def load_attribution_policy_snapshot(
+    *,
+    market: str = "cn",
+    log_fn: Callable[[str], None] | None = None,
+    as_of: date | None = None,
+) -> AttributionPolicySnapshot:
     today = as_of or date.today()
+    max_age = _max_report_age_days()
     try:
         row = load_latest_attribution_report(market)
     except Exception as exc:
         _log(log_fn, f"策略归因调权读取失败，跳过: {exc}")
         row = None
-    row = _fresh_report(row, today=today, log_fn=log_fn, source="远端")
-    row = row or _fresh_report(load_local_attribution_report(market), today=today, log_fn=log_fn, source="本地")
+    row, source = _select_fresh_report(row, market=market, today=today, log_fn=log_fn)
     if not row:
         _log(log_fn, "策略归因调权: 暂无归因报告，跳过。")
-        return {}
-    weights = signal_weight_multipliers_from_rows(row.get("recommendations_json"), horizon=policy_horizon(row))
+        return AttributionPolicySnapshot(max_age_days=max_age)
+    horizon = policy_horizon(row)
+    weights = signal_weight_multipliers_from_rows(row.get("recommendations_json"), horizon=horizon)
+    snapshot = _policy_snapshot(row, weights, source=source, today=today, max_age=max_age, horizon=horizon)
     if weights:
-        _log(log_fn, "策略归因调权: " + ", ".join(f"{k}=x{v:.2f}" for k, v in weights.items()))
+        _log(log_fn, "策略归因调权: " + _snapshot_log_text(snapshot))
     else:
         _log(log_fn, "策略归因调权: 最新报告无可执行信号权重。")
-    return weights
+    return snapshot
 
 
 def load_latest_attribution_report(market: str) -> dict[str, Any] | None:
@@ -83,6 +115,53 @@ def policy_horizon(row: dict[str, Any]) -> str:
         if isinstance(governor, dict) and governor.get("horizon"):
             return str(governor["horizon"])
     return "5"
+
+
+def _select_fresh_report(
+    remote_row: dict[str, Any] | None,
+    *,
+    market: str,
+    today: date,
+    log_fn: Callable[[str], None] | None,
+) -> tuple[dict[str, Any] | None, str]:
+    row = _fresh_report(remote_row, today=today, log_fn=log_fn, source="远端")
+    if row:
+        return row, "远端"
+    row = _fresh_report(load_local_attribution_report(market), today=today, log_fn=log_fn, source="本地")
+    return (row, "本地") if row else (None, "")
+
+
+def _policy_snapshot(
+    row: dict[str, Any],
+    weights: dict[str, float],
+    *,
+    source: str,
+    today: date,
+    max_age: int,
+    horizon: str,
+) -> AttributionPolicySnapshot:
+    report_day = _report_day(row)
+    return AttributionPolicySnapshot(
+        weights=weights,
+        source=source,
+        report_date=report_day.isoformat() if report_day else "",
+        horizon=str(horizon or "5"),
+        age_days=(today - report_day).days if report_day else None,
+        max_age_days=max_age,
+    )
+
+
+def _snapshot_log_text(snapshot: AttributionPolicySnapshot) -> str:
+    meta = []
+    if snapshot.source:
+        meta.append(snapshot.source)
+    if snapshot.report_date:
+        meta.append(f"report_date={snapshot.report_date}")
+    meta.append(f"h={snapshot.horizon}")
+    if snapshot.age_days is not None:
+        meta.append(f"age={snapshot.age_days}d")
+    weights = ", ".join(f"{k}=x{v:.2f}" for k, v in snapshot.weights.items())
+    return f"{' '.join(meta)}; {weights}"
 
 
 def _fresh_report(

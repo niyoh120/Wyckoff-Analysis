@@ -29,7 +29,7 @@ from workflows.tail_buy_market_repair import (
     apply_intraday_market_mode,
     resolve_intraday_market_mode,
 )
-from workflows.tail_buy_policy import load_tail_buy_policy_adjustments
+from workflows.tail_buy_policy import load_tail_buy_policy_snapshot
 from workflows.tail_buy_rule_scan import log_fetch_error_summary, run_rule_scan, run_rule_scan_batch
 from workflows.tail_buy_runtime import (
     TailBuyCandidateRun,
@@ -233,8 +233,9 @@ def run_tail_buy_candidate_flow(
         return TailBuyCandidateRun([], 0, 0, {}, "")
     data_fetched_at = now_text()
     scored = run_tail_buy_rule_scan(pending_candidates, tickflow_client=tickflow_client, config=config)
-    policy_weights = load_tail_buy_policy_adjustments(config.logs_path)
-    scored = apply_policy_weight_adjustments(scored, policy_weights)
+    policy_snapshot = load_tail_buy_policy_snapshot(config.logs_path)
+    policy_weights = policy_snapshot.weights
+    scored = apply_policy_weight_adjustments(scored, policy_weights, policy_meta=policy_snapshot.as_dict())
     depth_map = apply_tail_buy_depth_filter(scored, tickflow_client=tickflow_client, config=config)
     llm_map, llm_total, llm_success, llm_route_stats = run_llm_overlay(
         scored,
@@ -255,6 +256,7 @@ def run_tail_buy_candidate_flow(
         llm_route_stats=llm_route_stats,
         data_fetched_at=data_fetched_at,
         policy_weights=policy_weights,
+        policy_weight_meta=policy_snapshot.as_dict(),
     )
 
 

@@ -48,7 +48,7 @@ from workflows.funnel_settings import (
     FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED,
     FUNNEL_THEME_RADAR_PROMOTE_CAP,
 )
-from workflows.strategy_attribution_policy import load_attribution_signal_weights
+from workflows.strategy_attribution_policy import load_attribution_policy_snapshot
 
 SHADOW_POLICY_SCHEMA_VERSION = "shadow_policy_v2"
 
@@ -288,6 +288,7 @@ def attach_shadow_policy(ai_policy: dict, dynamic_ctx: dict) -> None:
     ai_policy["_registry_rows"] = dynamic_ctx.get("registry") or []
     ai_policy["_health_rows"] = dynamic_ctx.get("health") or []
     ai_policy["_attribution_signal_weights"] = dynamic_ctx.get("attribution_weights") or {}
+    ai_policy["_attribution_policy_meta"] = dynamic_ctx.get("attribution_policy_meta") or {}
     ai_policy["_pv_policy_shadow"] = dynamic_ctx.get("pv_policy_shadow") or {}
     print(
         "[funnel] 动态策略shadow: "
@@ -320,9 +321,10 @@ def _load_dynamic_policy_context(
         return _dynamic_policy_fallback("off", pv_policy_shadow)
     horizon = dynamic_policy_horizon(dynamic_config)
     feedback_weights = build_signal_weight_map(health_rows, registry_rows, regime=regime, horizon_days=horizon)
-    attribution_weights = load_attribution_signal_weights(
+    attribution_snapshot = load_attribution_policy_snapshot(
         market="cn", log_fn=lambda message: print(f"[funnel] {message}")
     )
+    attribution_weights = attribution_snapshot.weights
     weights = merge_signal_weight_maps(feedback_weights, attribution_weights)
     base_policy = resolve_ai_candidate_policy(regime, config=allocation_config)
     policy = resolve_dynamic_candidate_policy(
@@ -344,6 +346,7 @@ def _load_dynamic_policy_context(
         "registry": registry_rows,
         "weights": weights,
         "attribution_weights": attribution_weights,
+        "attribution_policy_meta": attribution_snapshot.as_dict(),
         "policy": policy,
         "pv_policy_shadow": pv_policy_shadow,
     }
@@ -356,6 +359,7 @@ def _dynamic_policy_fallback(mode: str, pv_policy_shadow: dict) -> dict:
         "registry": [],
         "weights": {},
         "attribution_weights": {},
+        "attribution_policy_meta": {},
         "policy": None,
         "pv_policy_shadow": pv_policy_shadow,
     }
@@ -461,6 +465,7 @@ def _policy_shadow_row(
         "shadow_policy": shadow_policy,
         "signal_weights": ai_policy.get("_signal_weights") or {},
         "attribution_signal_weights": ai_policy.get("_attribution_signal_weights") or {},
+        "attribution_policy_meta": ai_policy.get("_attribution_policy_meta") or {},
         "base_selected": selected_for_ai,
         "shadow_selected": shadow_selected,
         "diff_added": diff_added,
@@ -471,6 +476,7 @@ def _policy_shadow_row(
             shadow_policy,
             ai_policy.get("_signal_weights") or {},
             ai_policy.get("_attribution_signal_weights") or {},
+            ai_policy.get("_attribution_policy_meta") or {},
         ),
         "registry_summary": _registry_summary(registry_rows),
         "health_summary": _health_summary(health_rows),
@@ -527,12 +533,14 @@ def _policy_summary(
     shadow_policy: dict,
     signal_weights: dict,
     attribution_weights: dict | None = None,
+    attribution_policy_meta: dict | None = None,
 ) -> dict:
     return {
         "base": _policy_core(base_policy),
         "shadow": _policy_core(shadow_policy),
         "signal_weight_count": len(signal_weights),
         "attribution_weight_count": len(attribution_weights or {}),
+        "attribution_policy_meta": attribution_policy_meta or {},
         "downweighted_signals": _weighted_signals(signal_weights, upper_bound=0.999),
         "upweighted_signals": _weighted_signals(signal_weights, lower_bound=1.001),
     }

@@ -553,7 +553,11 @@ function tailBuyPolicyWeightText(row: Record<string, unknown>): string {
   const oldScore = features ? numberOrNull(features.policy_weight_old_score) : null
   const newScore = features ? numberOrNull(features.policy_weight_new_score) : null
   const scoreText = oldScore !== null && newScore !== null ? ` ${oldScore.toFixed(1)}→${newScore.toFixed(1)}` : ''
-  return ` | 归因调权 ${signal} x${multiplier.toFixed(2)}${scoreText}`
+  const source = String(features?.policy_weight_source || '').trim()
+  const reportDate = String(features?.policy_weight_report_date || '').trim()
+  const horizon = String(features?.policy_weight_horizon || '').trim()
+  const meta = [source, reportDate ? `report=${reportDate}` : '', horizon ? `h=${horizon}` : ''].filter(Boolean).join(' ')
+  return ` | 归因调权 ${signal} x${multiplier.toFixed(2)}${scoreText}${meta ? ` (${meta})` : ''}`
 }
 
 function normalizeReviewCode(value: unknown): string {
