@@ -79,6 +79,11 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
                     "policy_governor": {
                         "status": "candidate",
                         "mode_recommendation": "review_promote_dynamic_policy",
+                        "promotion_status": "manual_review_required",
+                        "promotion_checklist": [
+                            {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
+                            {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"},
+                        ],
                         "auto_apply": False,
                         "summary": "shadow 新增组显著优于移除组",
                         "horizon": "5",
@@ -104,7 +109,10 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     result = query_history(source="attribution", limit=1)
 
     assert result["latest_policy"]["status"] == "candidate"
+    assert result["latest_policy"]["promotion_status"] == "manual_review_required"
+    assert result["latest_policy"]["promotion_checklist"][0]["key"] == "shadow_sample"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
+    assert result["latest_execution_state"]["promotion_status"] == "manual_review_required"
     assert result["latest_operations"]["latest_shadow"]["trade_date"] == "2026-07-03"
     assert result["latest_operations"]["latest_shadow"]["diff_added_sample"] == ["300502", "688008"]
     assert result["latest_operations"]["action_summary"].startswith("本期 1 个 scoped 调权")
@@ -155,6 +163,10 @@ def test_query_history_attribution_uses_workflow_default_when_env_missing(monkey
                     "policy_governor": {
                         "status": "candidate",
                         "mode_recommendation": "review_promote_dynamic_policy",
+                        "promotion_status": "manual_review_required",
+                        "promotion_checklist": [
+                            {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
+                        ],
                         "auto_apply": False,
                         "summary": "shadow 新增组显著优于移除组",
                         "horizon": "5",
@@ -218,6 +230,10 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
                             "policy_governor": {
                                 "status": "candidate",
                                 "mode_recommendation": "review_promote_dynamic_policy",
+                                "promotion_status": "manual_review_required",
+                                "promotion_checklist": [
+                                    {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
+                                ],
                                 "auto_apply": False,
                                 "summary": "shadow 新增组显著优于移除组",
                                 "horizon": "5",
@@ -242,6 +258,8 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
     assert result["latest_policy"]["status"] == "candidate"
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel"
     assert result["records"][0]["policy_governor"]["mode_recommendation"] == "review_promote_dynamic_policy"
+    assert result["records"][0]["policy_governor"]["promotion_status"] == "manual_review_required"
+    assert result["records"][0]["execution_state"]["promotion_checklist"][0]["status"] == "pass"
     assert result["records"][0]["signal_actions"][0]["target"] == "lps"
     assert result["records"][0]["execution_state"]["action_details"][0]["weight_multiplier"] == 0.5
     assert result["records"][0]["operations"]["action_count"] == 1
@@ -256,5 +274,6 @@ def test_query_history_schema_allows_attribution_source():
     source = query_schema["parameters"]["properties"]["source"]
 
     assert "attribution" in source["enum"]
+    assert "promotion_checklist" in source["description"]
     assert "latest_execution_state" in source["description"]
     assert "latest_operations" in source["description"]

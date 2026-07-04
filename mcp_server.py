@@ -79,7 +79,7 @@ def query_history(
 
     **调用时机**：用户问"最近推荐了什么"、"信号池有哪些"、"尾盘买入记录"、"策略归因/降权"时调用。
     source 决定查哪张表：recommendation(形态复盘)、signal(信号确认池)、tail_buy(尾盘买入)、
-    attribution(策略归因治理器，返回 latest_execution_state/latest_operations)。
+    attribution(策略归因治理器，返回 promotion_checklist/latest_execution_state/latest_operations)。
     """
     return _query_history(source=source, status=status, run_date=run_date, decision=decision, limit=limit)
 

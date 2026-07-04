@@ -227,9 +227,12 @@ def _attribution_record(row: dict) -> dict:
 
 
 def _policy_governor_record(governor: dict) -> dict:
+    checklist = governor.get("promotion_checklist")
     return {
         "status": str(governor.get("status", "unknown")),
         "mode_recommendation": str(governor.get("mode_recommendation", "keep_shadow")),
+        "promotion_status": str(governor.get("promotion_status", "unknown")),
+        "promotion_checklist": checklist if isinstance(checklist, list) else [],
         "auto_apply": bool(governor.get("auto_apply")),
         "summary": str(governor.get("summary", "-")),
         "horizon": str(governor.get("horizon", "")),
