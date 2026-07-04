@@ -1092,6 +1092,38 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
     ) in md
 
 
+def test_build_tail_buy_markdown_surfaces_selection_governance_without_weights():
+    c = TailBuyCandidate(
+        code="301090",
+        name="华润材料",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="shadow_added",
+        signal_score=6.0,
+        rule_score=80.0,
+        rule_decision=DECISION_WATCH,
+        final_decision=DECISION_WATCH,
+        priority_score=80.0,
+        rule_reasons=["候选源观察"],
+    )
+    md = build_tail_buy_markdown(
+        now_text="2026-04-23 14:10:00",
+        target_signal_date="2026-04-22",
+        market_reminder="NORMAL/NORMAL",
+        candidates=[c],
+        llm_total=0,
+        llm_success=0,
+        elapsed_seconds=10.0,
+        policy_weight_meta={
+            "selection_action_count": 1,
+            "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
+        },
+        buy_only=False,
+    )
+
+    assert ("- 归因调权: 无；候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75") in md
+
+
 def test_build_tail_buy_markdown_surfaces_item_policy_adjustment():
     c = TailBuyCandidate(
         code="301090",

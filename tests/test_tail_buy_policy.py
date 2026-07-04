@@ -143,7 +143,7 @@ def test_attribution_weights_use_newer_explicit_local_report(monkeypatch, tmp_pa
                     "horizon": "5",
                     "target": "lps",
                     "reason": '{"action":"downweight","horizon":"5","target":"lps","weight_multiplier":0.5}',
-                }
+                },
             ],
         },
     )
@@ -185,7 +185,17 @@ def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatc
                     "horizon": "5",
                     "target": "lps",
                     "reason": '{"action":"downweight","horizon":"5","target":"lps","weight_multiplier":0.5}',
-                }
+                },
+                {
+                    "type": "selection_downweight",
+                    "horizon": "5",
+                    "target": "candidate_lane=trend_pullback",
+                    "reason": (
+                        '{"action":"selection_downweight","horizon":"5",'
+                        '"target":"candidate_lane=trend_pullback","weight_multiplier":0.75,'
+                        '"recommendation":"降级到 shadow/人工复核"}'
+                    ),
+                },
             ],
         },
     )
@@ -207,11 +217,19 @@ def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatc
     assert snapshot.execution_policy == "shadow"
     assert snapshot.execution_scope == "tail_buy_and_funnel_shadow"
     assert snapshot.signal_action_count == 1
+    assert snapshot.selection_action_count == 1
+    assert snapshot.selection_action_summary == (
+        "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75"
+    )
     assert snapshot.as_dict()["weight_count"] == 1
     assert snapshot.as_dict()["next_action"] == "manual_review_dynamic_on"
     assert snapshot.as_dict()["formal_dynamic_allowed"] is False
     assert snapshot.as_dict()["promotion_checklist_summary"] == "样本=pass；回测=review"
     assert snapshot.as_dict()["backtest_confirmation_text"] == "待复核(need backtest)"
+    assert snapshot.as_dict()["selection_action_count"] == 1
+    assert snapshot.as_dict()["selection_action_summary"] == (
+        "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75"
+    )
     assert snapshot.as_dict()["execution_scope"] == "tail_buy_and_funnel_shadow"
     assert snapshot.as_dict()["active_scope"] == "尾盘+漏斗shadow"
     assert snapshot.as_dict()["tail_buy_weights_active"] is True

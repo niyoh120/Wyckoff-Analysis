@@ -17,7 +17,11 @@ from core.strategy_policy_display import (
 )
 from core.strategy_policy_governor import signal_weight_multipliers_from_rows
 from integrations.supabase_base import close_client, create_read_client
-from workflows.strategy_attribution_execution import attribution_execution_state, attribution_formal_dynamic_allowed
+from workflows.strategy_attribution_execution import (
+    attribution_execution_state,
+    attribution_formal_dynamic_allowed,
+    attribution_operations_brief,
+)
 
 LOCAL_ATTRIBUTION_REPORT = Path("/private/tmp/wyckoff-strategy-attribution/latest/report.json")
 
@@ -42,6 +46,8 @@ class AttributionPolicySnapshot:
     promotion_checklist_summary: str = ""
     backtest_confirmation_text: str = ""
     signal_action_count: int = 0
+    selection_action_count: int = 0
+    selection_action_summary: str = ""
     execution_summary: str = ""
 
     def as_dict(self) -> dict[str, Any]:
@@ -67,6 +73,8 @@ class AttributionPolicySnapshot:
             "promotion_checklist_summary": self.promotion_checklist_summary,
             "backtest_confirmation_text": self.backtest_confirmation_text,
             "signal_action_count": self.signal_action_count,
+            "selection_action_count": self.selection_action_count,
+            "selection_action_summary": self.selection_action_summary,
             "execution_summary": self.execution_summary,
             "active_scope": _active_scope_text(
                 tail_active=tail_active,
@@ -110,6 +118,8 @@ def load_attribution_policy_snapshot(
     snapshot = _policy_snapshot(row, weights, source=source, today=today, max_age=max_age, horizon=horizon)
     if weights:
         _log(log_fn, "策略归因调权: " + _snapshot_log_text(snapshot))
+    elif snapshot.selection_action_count:
+        _log(log_fn, f"策略归因治理: {snapshot.selection_action_summary}")
     else:
         _log(log_fn, "策略归因调权: 最新报告无可执行信号权重。")
     return snapshot
@@ -219,8 +229,10 @@ def _policy_snapshot(
     horizon: str,
 ) -> AttributionPolicySnapshot:
     report_day = _report_day(row)
+    shadow = row.get("shadow_diff_stats_json") if isinstance(row.get("shadow_diff_stats_json"), dict) else {}
     governor = _policy_governor(row)
     execution = attribution_execution_state(governor, _recommendation_rows(row.get("recommendations_json")))
+    operations = attribution_operations_brief(shadow, execution)
     formal_allowed = attribution_formal_dynamic_allowed(governor)
     checklist = _promotion_checklist(governor)
     return AttributionPolicySnapshot(
@@ -242,6 +254,8 @@ def _policy_snapshot(
         promotion_checklist_summary=_checklist_summary(checklist),
         backtest_confirmation_text=_backtest_confirmation_text(checklist),
         signal_action_count=int(execution.get("signal_action_count") or 0),
+        selection_action_count=int(execution.get("selection_action_count") or 0),
+        selection_action_summary=str(operations.get("selection_action_summary") or ""),
         execution_summary=str(execution.get("summary") or ""),
     )
 

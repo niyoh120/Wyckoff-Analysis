@@ -239,10 +239,20 @@ def _report_mode_text(report_mode: str) -> tuple[str, str, str]:
 
 
 def _policy_weight_line(weights: dict[str, float] | None, meta: dict[str, object] | None = None) -> str:
+    selection_summary = _policy_selection_summary(meta)
     if not weights:
-        return "- 归因调权: 无"
+        suffix = f"；{selection_summary}" if selection_summary else ""
+        return "- 归因调权: 无" + suffix
     text = format_policy_weight_text(weights, limit=12, delimiter="；")
-    return "- 归因调权: " + (text if text else "无") + format_policy_meta_text(meta)
+    suffix = f"；{selection_summary}" if selection_summary else ""
+    return "- 归因调权: " + (text if text else "无") + format_policy_meta_text(meta) + suffix
+
+
+def _policy_selection_summary(meta: dict[str, object] | None) -> str:
+    if not isinstance(meta, dict):
+        return ""
+    summary = str(meta.get("selection_action_summary") or "").strip()
+    return summary if summary and summary != "候选源治理=无" else ""
 
 
 def _execution_scope_line(report_mode: str) -> str:
