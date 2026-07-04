@@ -347,6 +347,7 @@ def test_attribution_policy_governor_emits_scoped_context_weight():
 def test_attribution_policy_governor_emits_selection_source_actions():
     import workflows.strategy_attribution_stats as stats_mod
     from core.strategy_policy_governor import signal_weight_multipliers_from_rows
+    from workflows.strategy_attribution_execution import attribution_execution_state, attribution_operations_brief
 
     observations = [
         {
@@ -392,6 +393,12 @@ def test_attribution_policy_governor_emits_selection_source_actions():
     assert "候选源降级复核" in governor["summary"]
     assert "candidate_lane=trend_pullback" in governor["summary"]
     assert signal_weight_multipliers_from_rows(rows, horizon=5) == {}
+    execution = attribution_execution_state(governor, rows)
+    operations = attribution_operations_brief(payload["shadow_diff_stats_json"], execution)
+    assert execution["signal_action_count"] == 0
+    assert execution["selection_action_count"] == 4
+    assert "candidate_lane=trend_pullback" in operations["selection_action_summary"]
+    assert "候选源治理 4 项" in operations["operator_summary"]
 
 
 def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
@@ -468,6 +475,8 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "funnel_shadow_weights_active": True,
         "funnel_formal_weights_active": False,
         "signal_action_count": 1,
+        "selection_action_count": 0,
+        "selection_action_summary": "候选源治理=无",
         "promotion_checklist_summary": "样本=pass；回测=review",
         "promotion_blockers": [{"key": "backtest_confirmation", "status": "review", "summary": "need backtest"}],
         "backtest_confirmation": {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"},
@@ -475,7 +484,7 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
             "下一步=shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。；"
             "作用范围=尾盘+漏斗shadow；正式dynamic=暂不晋级(manual_review_required)；"
             "回测确认=待复核(need backtest)；"
-            "Shadow=暂无最新对照；本期 1 个 scoped 调权：lps×0.50"
+            "Shadow=暂无最新对照；本期 1 个 scoped 调权：lps×0.50；候选源治理=无"
         ),
     }
 

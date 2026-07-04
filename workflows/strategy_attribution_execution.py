@@ -23,6 +23,7 @@ def attribution_execution_state(
     mode = funnel_dynamic_policy_mode(workflow_path=workflow_path)
     horizon = str(governor.get("horizon") or "5")
     action_details = _action_details(actions, horizon=horizon)
+    selection_details = _selection_action_details(actions, horizon=horizon)
     action_count = len(action_details)
     formal_allowed = attribution_formal_dynamic_allowed(governor)
     if action_count <= 0:
@@ -46,6 +47,8 @@ def attribution_execution_state(
         "tail_buy_reads_attribution": action_count > 0,
         "signal_action_count": action_count,
         "action_details": action_details,
+        "selection_action_count": len(selection_details),
+        "selection_action_details": selection_details,
         "next_action": governor.get("next_action", "keep_shadow_observe"),
         "next_action_summary": governor.get("next_action_summary", "-"),
         "formal_dynamic_allowed": formal_allowed,
@@ -133,6 +136,15 @@ def _action_details(actions: list[dict[str, Any]], *, horizon: str) -> list[dict
     return details
 
 
+def _selection_action_details(actions: list[dict[str, Any]], *, horizon: str) -> list[dict[str, Any]]:
+    details = []
+    for item in actions:
+        action = _action_from_item(item)
+        if action in {"selection_downweight", "selection_upweight"} and _horizon_from_item(item) == horizon:
+            details.append(_selection_action_detail(item, action))
+    return details
+
+
 def _action_detail(item: dict[str, Any], action: str) -> dict[str, Any]:
     payload = _json_payload(item.get("reason"))
     scope = _scope_from_item(item, payload)
@@ -148,6 +160,22 @@ def _action_detail(item: dict[str, Any], action: str) -> dict[str, Any]:
     }
 
 
+def _selection_action_detail(item: dict[str, Any], action: str) -> dict[str, Any]:
+    payload = _json_payload(item.get("reason"))
+    target = str(item.get("target") or payload.get("target") or "").strip()
+    return {
+        "action": action,
+        "horizon": _horizon_from_item(item),
+        "target": target,
+        "label": target,
+        "weight_multiplier": safe_policy_weight(payload.get("weight_multiplier", item.get("weight_multiplier"))),
+        "recommendation": str(payload.get("recommendation") or item.get("recommendation") or ""),
+        "category": str(payload.get("category") or item.get("category") or ""),
+        "group_value": str(payload.get("group_value") or item.get("group_value") or ""),
+        "evidence": _evidence_from_item(item, payload),
+    }
+
+
 def attribution_operations_brief(
     shadow: dict[str, Any],
     execution: dict[str, Any],
@@ -156,8 +184,11 @@ def attribution_operations_brief(
 ) -> dict[str, Any]:
     latest = shadow.get("latest") if isinstance(shadow.get("latest"), dict) else {}
     actions = [row for row in execution.get("action_details") or [] if isinstance(row, dict)]
+    selection_actions = [row for row in execution.get("selection_action_details") or [] if isinstance(row, dict)]
     limited_actions = actions[: max(int(max_actions), 0)]
+    limited_selection_actions = selection_actions[: max(int(max_actions), 0)]
     action_summary = _action_summary(limited_actions, total=len(actions))
+    selection_action_summary = _selection_action_summary(limited_selection_actions, total=len(selection_actions))
     checklist = _promotion_checklist(execution)
     backtest_confirmation = _checklist_item_brief(checklist, "backtest_confirmation")
     return {
@@ -175,8 +206,11 @@ def attribution_operations_brief(
         "action_count": len(actions),
         "action_details": limited_actions,
         "action_summary": action_summary,
+        "selection_action_count": len(selection_actions),
+        "selection_action_details": limited_selection_actions,
+        "selection_action_summary": selection_action_summary,
         "operator_summary": _operator_summary(
-            _latest_shadow_brief(latest), execution, action_summary, backtest_confirmation
+            _latest_shadow_brief(latest), execution, action_summary, selection_action_summary, backtest_confirmation
         ),
     }
 
@@ -214,6 +248,7 @@ def _operator_summary(
     latest: dict[str, Any],
     execution: dict[str, Any],
     action_summary: str,
+    selection_action_summary: str,
     backtest_confirmation: dict[str, str],
 ) -> str:
     return "；".join(
@@ -224,6 +259,7 @@ def _operator_summary(
             f"回测确认={_checklist_item_text(backtest_confirmation)}",
             _shadow_summary(latest),
             action_summary,
+            selection_action_summary,
         ]
     )
 
@@ -317,6 +353,26 @@ def _action_summary(actions: list[dict[str, Any]], *, total: int) -> str:
     ]
     suffix = f"，另 {total - len(actions)} 项" if total > len(actions) else ""
     return f"本期 {total} 个 scoped 调权：" + "，".join(parts) + suffix
+
+
+def _selection_action_summary(actions: list[dict[str, Any]], *, total: int) -> str:
+    if total <= 0:
+        return "候选源治理=无"
+    parts = []
+    for row in actions[:4]:
+        label = str(row.get("label") or row.get("target") or "-")
+        recommendation = str(row.get("recommendation") or _selection_recommendation_label(row.get("action"))).strip()
+        parts.append(f"{label} {recommendation}×{safe_policy_weight(row.get('weight_multiplier')):.2f}")
+    suffix = f"，另 {total - len(actions)} 项" if total > len(actions) else ""
+    return f"候选源治理 {total} 项：" + "，".join(parts) + suffix
+
+
+def _selection_recommendation_label(action: Any) -> str:
+    if str(action or "") == "selection_downweight":
+        return "降级到 shadow/人工复核"
+    if str(action or "") == "selection_upweight":
+        return "进入人工晋级复核"
+    return "人工复核"
 
 
 def _action_from_item(item: dict[str, Any]) -> str:
