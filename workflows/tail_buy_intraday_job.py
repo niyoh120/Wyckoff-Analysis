@@ -254,6 +254,7 @@ def run_tail_buy_candidate_flow(
         llm_success=llm_success,
         llm_route_stats=llm_route_stats,
         data_fetched_at=data_fetched_at,
+        policy_weights=policy_weights,
     )
 
 

@@ -88,7 +88,14 @@ def test_send_tail_buy_report_builds_buy_only_report(monkeypatch) -> None:
         tg_chat_id="",
         logs_path="",
     )
-    run_result = TailBuyCandidateRun([_candidate()], 1, 1, {"efficiency:model": 1}, "2026-06-22 14:00:00")
+    run_result = TailBuyCandidateRun(
+        [_candidate()],
+        1,
+        1,
+        {"efficiency:model": 1},
+        "2026-06-22 14:00:00",
+        {"lps": 0.5},
+    )
 
     assert delivery.send_tail_buy_report(
         config=config,
@@ -101,3 +108,4 @@ def test_send_tail_buy_report_builds_buy_only_report(monkeypatch) -> None:
     ) == (True, False)
     assert captured["buy_only"] is True
     assert captured["extra_sections"] == ["holdings"]
+    assert captured["policy_weights"] == {"lps": 0.5}

@@ -85,6 +85,7 @@ def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
 
     assert calls["weights"] == {"lps": 0.5}
     assert result.merged[0].rule_score == 40.0
+    assert result.policy_weights == {"lps": 0.5}
 
 
 def test_single_rule_scan_marks_deferred_candidates(monkeypatch) -> None:

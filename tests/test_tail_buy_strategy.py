@@ -984,6 +984,34 @@ def test_build_tail_buy_markdown_supports_custom_candidate_source():
     assert "signal_pending + recommendation_tracking (2026-04-22)" in md
 
 
+def test_build_tail_buy_markdown_surfaces_policy_weights():
+    c = TailBuyCandidate(
+        code="301090",
+        name="华润材料",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="lps",
+        signal_score=6.0,
+        rule_score=80.0,
+        rule_decision=DECISION_BUY,
+        final_decision=DECISION_BUY,
+        priority_score=90.0,
+        rule_reasons=["尾盘走强"],
+    )
+    md = build_tail_buy_markdown(
+        now_text="2026-04-23 14:10:00",
+        target_signal_date="2026-04-22",
+        market_reminder="NORMAL/NORMAL",
+        candidates=[c],
+        llm_total=1,
+        llm_success=1,
+        elapsed_seconds=10.0,
+        policy_weights={"lps": 0.5, "launchpad": 1.2},
+    )
+
+    assert "- 归因调权: launchpad=x1.20；lps=x0.50" in md
+
+
 def test_build_tail_buy_markdown_keeps_daily_trap_reason_visible():
     c = TailBuyCandidate(
         code="002217",

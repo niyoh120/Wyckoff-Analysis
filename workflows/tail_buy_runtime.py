@@ -74,6 +74,7 @@ class TailBuyCandidateRun:
     llm_success: int
     llm_route_stats: dict[str, int]
     data_fetched_at: str
+    policy_weights: dict[str, float] = field(default_factory=dict)
 
 
 def env_flag(name: str, default: bool = False) -> bool:

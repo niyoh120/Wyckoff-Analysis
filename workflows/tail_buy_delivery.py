@@ -91,6 +91,7 @@ def send_tail_buy_report(
         buy_only=report_mode != "post_close_review",
         data_fetched_at=run_result.data_fetched_at,
         report_mode=report_mode,
+        policy_weights=run_result.policy_weights,
     )
     return send_tail_buy_notifications(
         feishu_webhook=config.feishu_webhook,

@@ -31,6 +31,7 @@ def _header_lines(
     data_fetched_at: str,
     market_reminder: str,
     report_mode: str,
+    policy_weights: dict[str, float] | None,
 ) -> list[str]:
     layer_text = f"- 分层结果: BUY={counts[DECISION_BUY]}"
     risky_buy_count = _high_risk_buy_count(candidates, report_mode)
@@ -39,7 +40,7 @@ def _header_lines(
     if not buy_only:
         layer_text += f" / WATCH={counts[DECISION_WATCH]} / SKIP={counts[DECISION_SKIP]}"
     title, action_line, guard_line = _report_mode_text(report_mode)
-    return [
+    lines = [
         f"{title} {now_text}",
         "",
         action_line,
@@ -48,12 +49,14 @@ def _header_lines(
         f"- 扫描数量: {len(candidates)}",
         layer_text,
         f"- AI 二判: {llm_success}/{llm_total}",
+        _policy_weight_line(policy_weights),
         f"- 分时数据获取: {data_fetched_at}" if data_fetched_at else "- 分时数据获取: -",
         f"- 总耗时: {elapsed_seconds:.1f}s",
         "",
         f"⚠️ 风险提醒: {market_reminder} | {guard_line}",
         "",
     ]
+    return lines
 
 
 def _item_line(item: TailBuyCandidate) -> str:
@@ -165,6 +168,7 @@ def build_tail_buy_markdown(
     buy_only: bool = False,
     data_fetched_at: str = "",
     report_mode: str = "intraday",
+    policy_weights: dict[str, float] | None = None,
 ) -> str:
     lines = _header_lines(
         now_text=now_text,
@@ -178,6 +182,7 @@ def build_tail_buy_markdown(
         data_fetched_at=data_fetched_at,
         market_reminder=market_reminder,
         report_mode=report_mode,
+        policy_weights=policy_weights,
     )
     cleaned_sections = _clean_extra_sections(extra_sections)
     if extra_sections_first:
@@ -207,6 +212,18 @@ def _report_mode_text(report_mode: str) -> tuple[str, str, str]:
         "- 任务定位: 使用上一交易日候选 + 今日分钟线，确认今日尾盘是否可执行。",
         "安全闸: 缺支撑/防守水温单EVR/跌支撑/冲高回落不进BUY",
     )
+
+
+def _policy_weight_line(weights: dict[str, float] | None) -> str:
+    if not weights:
+        return "- 归因调权: 无"
+    parts = []
+    for key, value in sorted(weights.items()):
+        try:
+            parts.append(f"{key}=x{float(value):.2f}")
+        except (TypeError, ValueError):
+            continue
+    return "- 归因调权: " + ("；".join(parts) if parts else "无")
 
 
 def _execution_scope_line(report_mode: str) -> str:
