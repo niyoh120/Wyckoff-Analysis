@@ -158,6 +158,8 @@ def attribution_operations_brief(
     actions = [row for row in execution.get("action_details") or [] if isinstance(row, dict)]
     limited_actions = actions[: max(int(max_actions), 0)]
     action_summary = _action_summary(limited_actions, total=len(actions))
+    checklist = _promotion_checklist(execution)
+    backtest_confirmation = _checklist_item_brief(checklist, "backtest_confirmation")
     return {
         "latest_shadow": _latest_shadow_brief(latest),
         "next_action": execution.get("next_action", "keep_shadow_observe"),
@@ -166,10 +168,16 @@ def attribution_operations_brief(
         "active_scope": _execution_active_scope_text(execution),
         "formal_dynamic_allowed": bool(execution.get("formal_dynamic_allowed")),
         "formal_dynamic_block_reason": execution.get("formal_dynamic_block_reason", ""),
+        "promotion_checklist_summary": _checklist_summary(checklist),
+        "promotion_blockers": _checklist_blockers(checklist),
+        "backtest_confirmation": backtest_confirmation,
+        "backtest_confirmation_text": _checklist_item_text(backtest_confirmation),
         "action_count": len(actions),
         "action_details": limited_actions,
         "action_summary": action_summary,
-        "operator_summary": _operator_summary(_latest_shadow_brief(latest), execution, action_summary),
+        "operator_summary": _operator_summary(
+            _latest_shadow_brief(latest), execution, action_summary, backtest_confirmation
+        ),
     }
 
 
@@ -202,16 +210,79 @@ def _latest_shadow_brief(latest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _operator_summary(latest: dict[str, Any], execution: dict[str, Any], action_summary: str) -> str:
+def _operator_summary(
+    latest: dict[str, Any],
+    execution: dict[str, Any],
+    action_summary: str,
+    backtest_confirmation: dict[str, str],
+) -> str:
     return "；".join(
         [
             f"下一步={execution.get('next_action_summary') or execution.get('next_action') or '-'}",
             f"作用范围={_execution_active_scope_text(execution)}",
             _formal_dynamic_summary(execution),
+            f"回测确认={_checklist_item_text(backtest_confirmation)}",
             _shadow_summary(latest),
             action_summary,
         ]
     )
+
+
+def _promotion_checklist(execution: dict[str, Any]) -> list[dict[str, str]]:
+    rows = execution.get("promotion_checklist")
+    if not isinstance(rows, list):
+        return []
+    return [_checklist_item_brief(rows, str(row.get("key") or "")) for row in rows if isinstance(row, dict)]
+
+
+def _checklist_item_brief(rows: list[dict[str, Any]], key: str) -> dict[str, str]:
+    for row in rows:
+        if not isinstance(row, dict) or str(row.get("key") or "") != key:
+            continue
+        return {
+            "key": key,
+            "status": str(row.get("status") or "unknown"),
+            "summary": str(row.get("summary") or "-"),
+        }
+    return {"key": key, "status": "missing", "summary": "缺少检查项"}
+
+
+def _checklist_summary(rows: list[dict[str, str]]) -> str:
+    if not rows:
+        return "晋级清单=无"
+    return "；".join(f"{_checklist_label(row.get('key', ''))}={row.get('status') or 'unknown'}" for row in rows)
+
+
+def _checklist_blockers(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [row for row in rows if row.get("status") in {"fail", "review", "missing", "unknown"}]
+
+
+def _checklist_item_text(row: dict[str, str]) -> str:
+    status = row.get("status") or "unknown"
+    summary = row.get("summary") or "-"
+    return f"{_status_label(status)}({summary})"
+
+
+def _checklist_label(key: str) -> str:
+    labels = {
+        "shadow_sample": "样本",
+        "shadow_added_outperforms_removed": "新增跑赢",
+        "signal_actions": "信号调权",
+        "backtest_confirmation": "回测",
+    }
+    return labels.get(key, key or "-")
+
+
+def _status_label(status: str) -> str:
+    labels = {
+        "pass": "通过",
+        "fail": "失败",
+        "review": "待复核",
+        "missing": "缺失",
+        "not_required": "不需要",
+        "unknown": "未知",
+    }
+    return labels.get(status, status or "未知")
 
 
 def _execution_active_scope_text(execution: dict[str, Any]) -> str:

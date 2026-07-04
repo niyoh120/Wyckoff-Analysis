@@ -66,6 +66,7 @@ def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str,
     governor = _report_policy_governor(report)
     shadow = report.get("shadow_diff_stats_json") or {}
     execution = _report_policy_execution_state(report)
+    operations = _report_policy_operations(report)
     return {
         "market": report.get("market"),
         "report_date": report.get("report_date"),
@@ -90,7 +91,10 @@ def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str,
         "funnel_shadow_weights_active": bool(execution.get("funnel_shadow_weights_active")),
         "funnel_formal_weights_active": bool(execution.get("funnel_formal_weights_active")),
         "signal_action_count": execution.get("signal_action_count", 0),
-        "operator_summary": _report_policy_operations(report).get("operator_summary", "-"),
+        "promotion_checklist_summary": operations.get("promotion_checklist_summary", "-"),
+        "promotion_blockers": operations.get("promotion_blockers", []),
+        "backtest_confirmation": operations.get("backtest_confirmation", {}),
+        "operator_summary": operations.get("operator_summary", "-"),
     }
 
 

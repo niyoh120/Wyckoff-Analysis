@@ -133,6 +133,9 @@ display 字段和 `latest_operator_summary`，raw `next_action` / `promotion_sta
 Backtest Grid 负责产出 `backtest_confirmation.json`：跨周期全正才记为 `pass`，出现弱周期全非正记为
 `fail`，其余保留 `review`。Signal Feedback 会尝试读取最近成功的 Backtest Grid artifact，把这个
 结果作为归因晋级清单的一项结构化证据。
+归因报告还会把晋级清单压成 `policy_operations_brief.promotion_checklist_summary`、
+`backtest_confirmation_text` 和 `promotion_blockers`。后续 Agent/Web/CLI 的日常运营口径应优先读取这些
+字段，再回查 raw `promotion_checklist`。
 回测也按同一条线处理：`shadow` 只展示归因 meta，不把 shadow 权重当成正式 replay 输入；
 只有 `on` 且 formal gate 通过时才使用归因权重重排候选。
 

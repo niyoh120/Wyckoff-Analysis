@@ -155,6 +155,8 @@ interface PolicyExecutionPayload {
 interface PolicyOperationsPayload {
   operator_summary?: string
   action_summary?: string
+  backtest_confirmation_text?: string
+  promotion_checklist_summary?: string
 }
 
 async function fetchLatestReport(): Promise<AttributionReport | null> {
@@ -301,11 +303,13 @@ function OperationsBrief({
       <div className="mb-3 rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm text-foreground">
         {operatorSummary}
       </div>
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-6">
         <MetricCard label="最新 Shadow" value={`${String(latest?.trade_date || '-')} · ${String(latest?.regime || '-')}`} />
         <MetricCard label="Base → Shadow" value={`${fmtCountNumber(selection?.base_count)} → ${fmtCountNumber(selection?.shadow_count)}`} />
         <MetricCard label="新增 / 移除" value={`${fmtCountNumber(selection?.diff_added_count)} / ${fmtCountNumber(selection?.diff_removed_count)}`} />
         <MetricCard label="Jaccard" value={fmtScoreNumber(selection?.jaccard)} />
+        <MetricCard label="回测确认" value={operations?.backtest_confirmation_text || '-'} />
+        <MetricCard label="晋级清单" value={operations?.promotion_checklist_summary || '-'} />
       </div>
       <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
         <p className="text-muted-foreground">新增样本：{formatCodeSample(latest?.diff_added_sample)}</p>

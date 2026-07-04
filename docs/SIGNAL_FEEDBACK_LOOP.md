@@ -300,6 +300,9 @@ Backtest Grid 会通过 `scripts/update_backtest_market_report.py --confirmation
 报告还会生成 `shadow_diff_stats_json.policy_operations_brief`，其中 `operator_summary` 是给人读的
 运营摘要，和 Agent 的 `latest_operator_summary`、Web 归因页“运营复盘”第一行保持同一口径。它不是新的
 交易信号，也不会改变候选；只是把治理器、执行态、shadow 差异和调权明细汇总成统一操作语言。
+日常排查优先看 `policy_operations_brief.backtest_confirmation_text`、
+`policy_operations_brief.promotion_checklist_summary` 和 `policy_operations_brief.promotion_blockers`；
+它们是 `promotion_checklist` 的稳定摘要，避免 Agent/Web/CLI 各自解析 raw checklist 后说法不一致。
 
 治理器默认不会自动把 `FUNNEL_DYNAMIC_POLICY` 从 `shadow` 晋级到 `on`。报告会显式写出
 `formal_dynamic_allowed=false` 和 `formal_dynamic_block_reason`。`backtest_confirmation_required`

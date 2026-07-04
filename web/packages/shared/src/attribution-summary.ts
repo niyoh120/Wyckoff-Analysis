@@ -9,6 +9,8 @@ export interface AttributionOperatorSummaryInput {
   operations?: {
     operator_summary?: unknown
     action_summary?: unknown
+    backtest_confirmation_text?: unknown
+    promotion_checklist_summary?: unknown
   } | null
   execution?: {
     next_action_summary?: unknown
@@ -18,6 +20,7 @@ export interface AttributionOperatorSummaryInput {
     signal_action_count?: unknown
     formal_dynamic_allowed?: unknown
     formal_dynamic_block_reason?: unknown
+    promotion_checklist?: unknown
   } | null
   latest?: {
     trade_date?: unknown
@@ -113,6 +116,7 @@ export function attributionOperatorSummary(input: AttributionOperatorSummaryInpu
     `下一步=${operatorNextAction(input.execution)}`,
     `作用范围=${operatorScope(input.execution, actions)}`,
     `正式dynamic=${operatorFormalDynamic(input.execution)}`,
+    `回测确认=${operatorBacktestConfirmation(input)}`,
     operatorShadowSummary(input.latest, input.selection),
     optionalText(input.operations?.action_summary) || `调权=${actions.length}项`,
   ].join('；')
@@ -209,6 +213,36 @@ function boolValue(value: unknown): boolean | undefined {
 
 function operatorFormalDynamic(execution: AttributionOperatorSummaryInput['execution']): string {
   return attributionFormalDynamicLabel(execution)
+}
+
+function operatorBacktestConfirmation(input: AttributionOperatorSummaryInput): string {
+  const explicit = optionalText(input.operations?.backtest_confirmation_text)
+  if (explicit) return explicit
+  const row = checklistItem(input.execution?.promotion_checklist, 'backtest_confirmation')
+  if (!row) return '缺失(缺少检查项)'
+  return `${statusLabel(row.status)}(${optionalText(row.summary) || '-'})`
+}
+
+function checklistItem(rows: unknown, key: string): Record<string, unknown> | null {
+  if (!Array.isArray(rows)) return null
+  for (const row of rows) {
+    if (row && typeof row === 'object' && !Array.isArray(row) && optionalText((row as Record<string, unknown>).key) === key) {
+      return row as Record<string, unknown>
+    }
+  }
+  return null
+}
+
+function statusLabel(value: unknown): string {
+  const labels: Record<string, string> = {
+    pass: '通过',
+    fail: '失败',
+    review: '待复核',
+    missing: '缺失',
+    not_required: '不需要',
+    unknown: '未知',
+  }
+  return labels[optionalText(value)] || optionalText(value) || '未知'
 }
 
 function operatorShadowSummary(

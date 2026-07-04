@@ -365,6 +365,10 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
                 "promotion_status": "manual_review_required",
                 "formal_dynamic_allowed": False,
                 "formal_dynamic_block_reason": "manual_review_required",
+                "promotion_checklist": [
+                    {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
+                    {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"},
+                ],
                 "auto_apply": False,
                 "summary": "shadow 新增组显著优于移除组",
             },
@@ -414,9 +418,13 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "funnel_shadow_weights_active": True,
         "funnel_formal_weights_active": False,
         "signal_action_count": 1,
+        "promotion_checklist_summary": "样本=pass；回测=review",
+        "promotion_blockers": [{"key": "backtest_confirmation", "status": "review", "summary": "need backtest"}],
+        "backtest_confirmation": {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"},
         "operator_summary": (
             "下一步=shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。；"
             "作用范围=尾盘+漏斗shadow；正式dynamic=暂不晋级(manual_review_required)；"
+            "回测确认=待复核(need backtest)；"
             "Shadow=暂无最新对照；本期 1 个 scoped 调权：lps×0.50"
         ),
     }
@@ -521,6 +529,8 @@ def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):
     assert state["action_details"][1]["label"] == "launchpad"
     assert operations["action_count"] == 2
     assert operations["operator_summary"].startswith("下一步=-；作用范围=尾盘+漏斗shadow")
+    assert operations["backtest_confirmation_text"] == "缺失(缺少检查项)"
+    assert operations["promotion_checklist_summary"] == "晋级清单=无"
 
 
 def test_attribution_execution_state_blocks_formal_on_without_governor_approval(monkeypatch):
