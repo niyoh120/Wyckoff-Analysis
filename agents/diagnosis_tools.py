@@ -173,12 +173,23 @@ def _compact_diagnosis_handoff_row(result: dict[str, Any]) -> dict[str, Any]:
             "status_label": brief.get("label"),
             "headline": brief.get("headline"),
             "quality_factors": brief.get("strengths"),
-            "risk_factors": brief.get("risks") or result.get("health_reasons"),
+            "risk_factors": _diagnosis_handoff_risks(result, brief),
             "new_buy_allowed": brief.get("direct_buy_allowed"),
             "next_step": brief.get("next_step"),
             "data_status": result.get("data_status"),
         }
     )
+
+
+def _diagnosis_handoff_risks(result: dict[str, Any], brief: dict[str, Any]) -> list[str]:
+    if "risks" in brief:
+        value = brief.get("risks")
+        return [str(item) for item in value if str(item).strip()] if isinstance(value, list) else []
+    return [
+        str(item)
+        for item in (result.get("health_reasons") or [])
+        if str(item).strip() and not _positive_health_reason(str(item))
+    ]
 
 
 def diagnosis_brief_from_diagnostic(d) -> dict[str, Any]:

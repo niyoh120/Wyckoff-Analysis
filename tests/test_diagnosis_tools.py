@@ -191,6 +191,7 @@ def test_remember_stock_diagnosis_stores_compact_handoff() -> None:
     assert latest["status_label"] == "重点观察"
     assert latest["candidate_score"] == 83.04
     assert latest["new_buy_allowed"] is False
+    assert "risk_factors" not in latest
     assert handoff["diagnosed_symbols"][0]["next_step"].startswith("加入重点观察")
 
 
