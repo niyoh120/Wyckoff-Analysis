@@ -52,6 +52,7 @@ def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str,
     governor = _report_policy_governor(report)
     shadow = report.get("shadow_diff_stats_json") or {}
     execution = _report_policy_execution_state(report)
+    active = _execution_active_flags(execution)
     return {
         "market": report.get("market"),
         "report_date": report.get("report_date"),
@@ -67,6 +68,12 @@ def build_console_summary(report: dict[str, Any], *, written: bool) -> dict[str,
         "execution_policy": execution.get("funnel_dynamic_policy", "off"),
         "execution_horizon": execution.get("horizon", "5"),
         "execution_scope": execution.get("scope", "none"),
+        "formal_dynamic_allowed": bool(execution.get("formal_dynamic_allowed")),
+        "formal_dynamic_block_reason": execution.get("formal_dynamic_block_reason", ""),
+        "active_scope": active["active_scope"],
+        "tail_buy_weights_active": active["tail_buy_weights_active"],
+        "funnel_shadow_weights_active": active["funnel_shadow_weights_active"],
+        "funnel_formal_weights_active": active["funnel_formal_weights_active"],
         "signal_action_count": execution.get("signal_action_count", 0),
         "operator_summary": _report_policy_operations(report).get("operator_summary", "-"),
     }
@@ -258,6 +265,27 @@ def _report_policy_operations(report: dict[str, Any]) -> dict[str, Any]:
     return attribution_operations_brief(
         shadow if isinstance(shadow, dict) else {}, _report_policy_execution_state(report)
     )
+
+
+def _execution_active_flags(execution: dict[str, Any]) -> dict[str, Any]:
+    action_count = int(execution.get("signal_action_count") or 0)
+    scope = str(execution.get("scope") or "none").strip()
+    tail_active = action_count > 0 and scope in {"tail_buy_only", "tail_buy_and_funnel_shadow", "tail_buy_and_funnel"}
+    shadow_active = action_count > 0 and scope == "tail_buy_and_funnel_shadow"
+    formal_active = action_count > 0 and scope == "tail_buy_and_funnel"
+    labels = []
+    if tail_active:
+        labels.append("尾盘")
+    if formal_active:
+        labels.append("正式漏斗")
+    elif shadow_active:
+        labels.append("漏斗shadow")
+    return {
+        "active_scope": "+".join(labels) or "无",
+        "tail_buy_weights_active": tail_active,
+        "funnel_shadow_weights_active": shadow_active,
+        "funnel_formal_weights_active": formal_active,
+    }
 
 
 def _recommendation_markdown_rows(rows: list[dict[str, Any]]) -> list[str]:

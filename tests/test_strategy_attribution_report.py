@@ -316,6 +316,12 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "execution_policy": "shadow",
         "execution_horizon": "5",
         "execution_scope": "tail_buy_and_funnel_shadow",
+        "formal_dynamic_allowed": True,
+        "formal_dynamic_block_reason": "",
+        "active_scope": "尾盘+漏斗shadow",
+        "tail_buy_weights_active": True,
+        "funnel_shadow_weights_active": True,
+        "funnel_formal_weights_active": False,
         "signal_action_count": 1,
         "operator_summary": (
             "下一步=shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。；"
