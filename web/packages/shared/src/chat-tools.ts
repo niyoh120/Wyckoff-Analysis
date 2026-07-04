@@ -534,6 +534,28 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function jsonMapOrNull(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value !== 'string' || value.trim() === '') return null
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
+  } catch {
+    return null
+  }
+}
+
+function tailBuyPolicyWeightText(row: Record<string, unknown>): string {
+  const features = jsonMapOrNull(row.features_json)
+  const multiplier = features ? numberOrNull(features.policy_weight_multiplier) : null
+  if (multiplier === null) return ''
+  const signal = String(features?.policy_weight_signal || row.signal_type || 'unknown')
+  const oldScore = features ? numberOrNull(features.policy_weight_old_score) : null
+  const newScore = features ? numberOrNull(features.policy_weight_new_score) : null
+  const scoreText = oldScore !== null && newScore !== null ? ` ${oldScore.toFixed(1)}→${newScore.toFixed(1)}` : ''
+  return ` | 归因调权 ${signal} x${multiplier.toFixed(2)}${scoreText}`
+}
+
 function normalizeReviewCode(value: unknown): string {
   const raw = String(value ?? '').trim()
   return /^\d+$/.test(raw) ? raw.padStart(6, '0') : raw
@@ -557,7 +579,8 @@ export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<s
       ? `入库${entry.toFixed(2)}→现价${current.toFixed(2)} ${change}`
       : '入库价-/现价-'
     const vwapGap = typeof r.dist_vwap_pct === 'number' ? `距VWAP${r.dist_vwap_pct.toFixed(1)}%` : '距VWAP-'
-    return `${code} ${r.name} | ${r.run_date} | ${r.signal_type} | ${r.final_decision || '-'} | ${price} | ${vwapGap} | 规则分${r.rule_score?.toFixed(1)} | ${r.llm_decision || '-'} | ${r.llm_reason || ''}`
+    const policyWeight = tailBuyPolicyWeightText(r)
+    return `${code} ${r.name} | ${r.run_date} | ${r.signal_type} | ${r.final_decision || '-'} | ${price} | ${vwapGap} | 规则分${r.rule_score?.toFixed(1)}${policyWeight} | ${r.llm_decision || '-'} | ${r.llm_reason || ''}`
   })
 
   return `最近 ${data.length} 条尾盘记录：\n\n${lines.join('\n')}`

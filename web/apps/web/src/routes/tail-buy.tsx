@@ -26,6 +26,7 @@ interface TailBuyRecord {
   vwap?: number
   dist_vwap_pct?: number
   last30_ret_pct?: number
+  features_json?: unknown
 }
 
 type TailBuySortKey =
@@ -40,6 +41,7 @@ type TailBuySortKey =
   | 'vwap'
   | 'distVwap'
   | 'last30Ret'
+  | 'policyWeight'
   | 'ruleScore'
   | 'priorityScore'
   | 'llmDecision'
@@ -78,11 +80,43 @@ function resolveCurrentPrice(record: TailBuyRecord): number | undefined {
   return record.current_price && record.current_price > 0 ? record.current_price : resolveEntryPrice(record)
 }
 
+function parseFeatures(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>
+  if (typeof raw !== 'string' || raw.trim() === '') return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
+}
+
+function numberFeature(features: Record<string, unknown>, key: string): number | undefined {
+  const value = features[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function policyWeightText(record: TailBuyRecord): string {
+  const features = parseFeatures(record.features_json)
+  const multiplier = numberFeature(features, 'policy_weight_multiplier')
+  if (multiplier === undefined) return '-'
+  const signal = String(features.policy_weight_signal || record.signal_type || 'unknown')
+  const oldScore = numberFeature(features, 'policy_weight_old_score')
+  const newScore = numberFeature(features, 'policy_weight_new_score')
+  const scoreText = oldScore !== undefined && newScore !== undefined ? ` ${oldScore.toFixed(1)}→${newScore.toFixed(1)}` : ''
+  return `${signal} x${multiplier.toFixed(2)}${scoreText}`
+}
+
+function policyWeightSortValue(record: TailBuyRecord): number | undefined {
+  return numberFeature(parseFeatures(record.features_json), 'policy_weight_multiplier')
+}
+
 function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
   const entryPrice = resolveEntryPrice(record)
   const currentPrice = resolveCurrentPrice(record)
   const changePct = resolveChangePct(entryPrice, currentPrice, record.change_pct)
   const changeClass = financialValueClass(changePct)
+  const policyText = policyWeightText(record)
 
   return (
     <tr key={`${record.code}-${record.run_date}`} className="border-t border-border hover:bg-muted/20">
@@ -101,6 +135,9 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
       <td className="px-3 py-2 text-right">{fmtNumber(record.vwap)}</td>
       <td className="px-3 py-2 text-right">{fmtPercent(record.dist_vwap_pct)}</td>
       <td className="px-3 py-2 text-right">{fmtPercent(record.last30_ret_pct)}</td>
+      <td className="max-w-[150px] truncate px-3 py-2 text-right text-xs text-muted-foreground" title={policyText}>
+        {policyText}
+      </td>
       <td className="px-3 py-2 text-right">{record.rule_score?.toFixed(1)}</td>
       <td className="px-3 py-2 text-right">{record.priority_score?.toFixed(1)}</td>
       <td className="px-3 py-2 text-center">
@@ -222,6 +259,7 @@ function TailBuyTableHead({
         <SortableHeader align="right" active={sortBy === 'vwap'} label="VWAP" order={sortOrder} onClick={() => onSortChange('vwap')} />
         <SortableHeader align="right" active={sortBy === 'distVwap'} label="距VWAP" order={sortOrder} onClick={() => onSortChange('distVwap')} />
         <SortableHeader align="right" active={sortBy === 'last30Ret'} label="30m" order={sortOrder} onClick={() => onSortChange('last30Ret')} />
+        <SortableHeader align="right" active={sortBy === 'policyWeight'} label="归因调权" order={sortOrder} onClick={() => onSortChange('policyWeight')} />
         <SortableHeader align="right" active={sortBy === 'ruleScore'} label={t('tailBuy.ruleScore')} order={sortOrder} onClick={() => onSortChange('ruleScore')} />
         <SortableHeader align="right" active={sortBy === 'priorityScore'} label={t('tailBuy.priorityScore')} order={sortOrder} onClick={() => onSortChange('priorityScore')} />
         <SortableHeader align="center" active={sortBy === 'llmDecision'} label={t('tailBuy.llmDecision')} order={sortOrder} onClick={() => onSortChange('llmDecision')} />
@@ -278,6 +316,7 @@ function sortValue(record: TailBuyRecord, sortBy: TailBuySortKey): string | numb
     case 'vwap': return record.vwap
     case 'distVwap': return record.dist_vwap_pct
     case 'last30Ret': return record.last30_ret_pct
+    case 'policyWeight': return policyWeightSortValue(record)
     case 'ruleScore': return record.rule_score
     case 'priorityScore': return record.priority_score
     case 'llmDecision': return record.llm_decision
