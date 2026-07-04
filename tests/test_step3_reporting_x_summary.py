@@ -6,12 +6,12 @@ from workflows.step3_models import Step3LlmResult, Step3RunOptions, Step3TrackIn
 from workflows.step3_runtime_config import Step3RuntimeConfig
 
 
-def _options(*, send_x_summary: bool = True) -> Step3RunOptions:
+def _options(*, send_x_summary: bool = True, notify: bool = True) -> Step3RunOptions:
     return Step3RunOptions(
         webhook_url="https://example.test/hook",
         api_key="key",
         model="model",
-        notify=True,
+        notify=notify,
         provider="gemini",
         llm_base_url="",
         wecom_webhook="",
@@ -166,6 +166,35 @@ def test_step3_final_report_ignores_x_summary_generation_failure(monkeypatch) ->
     assert (ok, reason) == (True, "ok")
     assert len(sent) == 1
     assert "批量研报" in sent[0]
+
+
+def test_step3_final_report_labels_notify_false_as_local_generation(capsys) -> None:
+    import workflows.step3_reporting as reporting
+
+    ok, reason, _report = reporting.send_step3_final_report(
+        options=_options(send_x_summary=False, notify=False),
+        active_tracks=["launchpad"],
+        track_inputs=_track_inputs(),
+        selected_df=pd.DataFrame([{"code": "000001", "name": "高分股"}]),
+        selected_codes=["000001"],
+        benchmark_context={"regime": "RISK_ON"},
+        rag_veto_preview="",
+        rag_veto_lines=[],
+        failed=[],
+        llm_result=Step3LlmResult(
+            ok=True,
+            status="ok",
+            report="## 🏹 处于起跳板\n- 000001 高分股",
+            used_models={"launchpad": "model"},
+        ),
+        report_progress=lambda *_args: None,
+    )
+
+    output = capsys.readouterr().out
+    assert (ok, reason) == (True, "ok")
+    assert "仅生成，不推送外部渠道" in output
+    assert "研报生成完成" in output
+    assert "飞书发送" not in output
 
 
 def test_step3_final_report_ignores_x_summary_build_failure(monkeypatch) -> None:

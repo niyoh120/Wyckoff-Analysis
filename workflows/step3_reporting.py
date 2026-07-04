@@ -112,7 +112,7 @@ def send_step3_final_report(
         rag_veto_lines=rag_veto_lines,
         failed=failed,
     )
-    _log_step3_report_stats(content, llm_result, active_tracks, track_inputs, failed, options.model)
+    _log_step3_report_stats(content, llm_result, active_tracks, track_inputs, failed, options.model, options.notify)
     if options.notify and not notify_step3_channels(options, _step3_title(), content):
         print("[step3] 飞书推送失败")
         return (False, "feishu_failed", llm_result.report)
@@ -278,12 +278,17 @@ def _log_step3_report_stats(
     track_inputs: Step3TrackInputs,
     failed: list[tuple[str, str]],
     fallback_model: str,
+    notify: bool,
 ) -> None:
-    print(f"[step3] 飞书发送原文长度={len(content)}（不压缩，交由飞书分片）")
+    if notify:
+        print(f"[step3] 飞书发送原文长度={len(content)}（不压缩，交由飞书分片）")
+    else:
+        print(f"[step3] 研报原文长度={len(content)}（仅生成，不推送外部渠道）")
     models = " | ".join(f"{track}:{llm_result.used_models.get(track, fallback_model)}" for track in active_tracks)
     print(f"[step3] 研报实际使用模型={models}")
     stock_count = sum(len(track_inputs.payloads_by_track.get(t, [])) for t in active_tracks)
-    print(f"[step3] 研报发送成功，股票数={stock_count}，拉取失败数={len(failed)}")
+    action = "发送成功" if notify else "生成完成"
+    print(f"[step3] 研报{action}，股票数={stock_count}，拉取失败数={len(failed)}")
 
 
 def _step3_title() -> str:
