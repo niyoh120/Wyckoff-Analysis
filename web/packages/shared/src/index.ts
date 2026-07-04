@@ -43,4 +43,6 @@ export {
 export type { PatternReviewRow } from './pattern-review'
 export { tailBuyExecutionSemantics } from './tail-buy-semantics'
 export type { TailBuyExecutionInput, TailBuyExecutionSemantics } from './tail-buy-semantics'
+export { attributionOperatorSummary } from './attribution-summary'
+export type { AttributionOperatorAction, AttributionOperatorSummaryInput } from './attribution-summary'
 export * from './chat-tools'

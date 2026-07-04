@@ -4,6 +4,7 @@ import type { generateText as GenerateTextFn } from 'ai'
 import { z } from 'zod'
 import { fetchValueSnapshotWithFetch, isCnSymbol, normalizeTickFlowSymbol, normalizeTushareCode, type ValueSnapshot } from './agent-market'
 import { buildValuePrompt, buildValueScore } from './agent-value'
+import { attributionOperatorSummary as buildAttributionOperatorSummary } from './attribution-summary'
 import { formatPatternReviewDigest, type PatternReviewRow } from './pattern-review'
 import { tailBuyExecutionSemantics } from './tail-buy-semantics'
 
@@ -638,37 +639,12 @@ function formatAttributionReport(row: Record<string, unknown>): string {
     `治理摘要：${String(governor.summary || '-')}`,
     promotionChecklistLine(governor.promotion_checklist),
     attributionExecutionLine(execution),
-    attributionOperatorSummary(operations, execution, latest, actions),
+    `操作摘要：${buildAttributionOperatorSummary({ operations, execution, latest, actions })}`,
     latestShadowLine(latest),
     sampleLine('Shadow 新增样本', latest.diff_added_sample),
     sampleLine('Shadow 移除样本', latest.diff_removed_sample),
     actionLines(actions),
   ].filter(Boolean).join('\n')
-}
-
-function attributionOperatorSummary(
-  operations: Record<string, unknown>,
-  execution: Record<string, unknown>,
-  latest: Record<string, unknown>,
-  actions: Record<string, unknown>[],
-): string {
-  const summary = String(operations.operator_summary || '').trim()
-  if (summary) return `操作摘要：${summary}`
-  return `操作摘要：${fallbackOperatorSummary(execution, latest, actions)}`
-}
-
-function fallbackOperatorSummary(
-  execution: Record<string, unknown>,
-  latest: Record<string, unknown>,
-  actions: Record<string, unknown>[],
-): string {
-  return [
-    `下一步=${String(execution.next_action_summary || execution.next_action || '-')}`,
-    `作用范围=${String(execution.scope || 'none')}`,
-    `正式dynamic=${formalDynamicText(execution)}`,
-    latestOperatorPart(latest),
-    `调权=${actions.length}项`,
-  ].join('；')
 }
 
 function attributionExecutionFallback(governor: Record<string, unknown>, rawActions: unknown): Record<string, unknown> {
@@ -686,17 +662,6 @@ function attributionExecutionFallback(governor: Record<string, unknown>, rawActi
     promotion_checklist: Array.isArray(governor.promotion_checklist) ? governor.promotion_checklist : [],
     summary: actionCount > 0 ? `h=${horizon} 有 ${actionCount} 个信号级调权。` : '暂无可执行信号调权。',
   }
-}
-
-function latestOperatorPart(latest: Record<string, unknown>): string {
-  const selection = jsonMapOrNull(latest.selection_summary) || {}
-  if (!latest.trade_date && Object.keys(selection).length === 0) return 'Shadow=暂无最新对照'
-  return [
-    `Shadow=${String(latest.trade_date || '-')}`,
-    String(latest.regime || '-'),
-    `新增${fmtUnknown(selection.diff_added_count)}`,
-    `移除${fmtUnknown(selection.diff_removed_count)}`,
-  ].join(' ')
 }
 
 function attributionExecutionLine(execution: Record<string, unknown>): string {
