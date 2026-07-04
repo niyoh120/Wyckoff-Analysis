@@ -193,8 +193,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "source": {
                     "type": "string",
-                    "enum": ["recommendation", "signal", "tail_buy", "archive"],
-                    "description": "'recommendation' 形态复盘；'signal' 信号确认池；'tail_buy' 尾盘买入；'archive' 历史上下文归档",
+                    "enum": ["recommendation", "signal", "tail_buy", "attribution", "archive"],
+                    "description": (
+                        "'recommendation' 形态复盘；'signal' 信号确认池；'tail_buy' 尾盘买入；"
+                        "'attribution' 策略归因治理器；'archive' 历史上下文归档"
+                    ),
                 },
                 "status": {"type": "string", "description": "仅 signal：'all'/'pending'/'confirmed'/'expired'"},
                 "run_date": {"type": "string", "description": "仅 tail_buy：按日期过滤 YYYY-MM-DD"},

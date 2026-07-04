@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from agents.tool_context import ToolContext, get_user_client, get_user_id
@@ -27,7 +28,11 @@ def query_history(
         return _query_tail_buy(run_date, decision, limit, tool_context)
     if source == "archive":
         return _query_archive(query, archive_ref, limit, tool_context)
-    return {"error": f"不支持的 source：{source}，请用 'recommendation'、'signal'、'tail_buy' 或 'archive'"}
+    if source == "attribution":
+        return _query_attribution(limit, tool_context)
+    return {
+        "error": f"不支持的 source：{source}，请用 'recommendation'、'signal'、'tail_buy'、'attribution' 或 'archive'"
+    }
 
 
 def _query_recommendation(limit: int, tool_context: ToolContext | None = None) -> dict:
@@ -162,6 +167,80 @@ def _status_counts(records: list[dict]) -> dict[str, int]:
     return counts
 
 
+def _query_attribution(limit: int, tool_context: ToolContext | None = None) -> dict:
+    try:
+        rows = _load_attribution_rows(min(max(int(limit), 1), 10), tool_context)
+        if not rows:
+            return {"message": "暂无策略归因报告", "records": []}
+        records = [_attribution_record(row) for row in rows]
+        return {"total": len(records), "latest_policy": records[0].get("policy_governor", {}), "records": records}
+    except Exception as e:
+        logger.exception("query_history(attribution) error")
+        return {"error": str(e)}
+
+
+def _load_attribution_rows(limit: int, tool_context: ToolContext | None) -> list[dict]:
+    from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
+    from integrations.supabase_base import create_read_client
+
+    client = get_user_client(tool_context) or create_read_client()
+    return (
+        client.table(TABLE_STRATEGY_ATTRIBUTION_REPORTS)
+        .select("*")
+        .eq("market", "cn")
+        .order("report_date", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+
+
+def _attribution_record(row: dict) -> dict:
+    shadow = _json_map(row.get("shadow_diff_stats_json"))
+    governor = _json_map(shadow.get("policy_governor"))
+    return {
+        "report_date": str(row.get("report_date", "")),
+        "window_start": str(row.get("window_start", "")),
+        "window_end": str(row.get("window_end", "")),
+        "policy_governor": _policy_governor_record(governor),
+        "signal_actions": _attribution_actions(row.get("recommendations_json")),
+        "shadow": {
+            "runs": shadow.get("count", 0),
+            "avg_added": shadow.get("avg_added", 0),
+            "avg_removed": shadow.get("avg_removed", 0),
+        },
+    }
+
+
+def _policy_governor_record(governor: dict) -> dict:
+    return {
+        "status": str(governor.get("status", "unknown")),
+        "mode_recommendation": str(governor.get("mode_recommendation", "keep_shadow")),
+        "auto_apply": bool(governor.get("auto_apply")),
+        "summary": str(governor.get("summary", "-")),
+        "horizon": str(governor.get("horizon", "")),
+    }
+
+
+def _attribution_actions(raw: object) -> list[dict]:
+    rows = []
+    for row in _json_list(raw):
+        if not isinstance(row, dict) or row.get("type") == "policy_governor":
+            continue
+        payload = _json_map(row.get("reason"))
+        rows.append(
+            {
+                "action": str(row.get("type") or payload.get("action") or ""),
+                "horizon": str(row.get("horizon") or payload.get("horizon") or ""),
+                "target": str(row.get("target") or payload.get("target") or ""),
+                "weight_multiplier": payload.get("weight_multiplier"),
+                "evidence": _json_map(payload.get("evidence")),
+            }
+        )
+    return rows[:12]
+
+
 def _query_tail_buy(
     run_date: str,
     decision: str,
@@ -241,6 +320,30 @@ def _tail_buy_record(row: dict) -> dict:
         "llm_decision": str(row.get("llm_decision", "")),
         "llm_reason": str(row.get("llm_reason", "")),
     }
+
+
+def _json_map(raw: object) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _json_list(raw: object) -> list:
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
 
 
 def _query_archive(
