@@ -68,6 +68,22 @@ def test_format_policy_meta_text_derives_active_scope_from_legacy_scope() -> Non
     )
 
 
+def test_format_policy_meta_text_surfaces_promotion_evidence() -> None:
+    assert (
+        format_policy_meta_text(
+            {
+                "source": "远端",
+                "report_date": "2026-07-04",
+                "formal_dynamic_allowed": False,
+                "formal_dynamic_block_reason": "backtest_confirmation_required",
+                "backtest_confirmation_text": "待复核(need backtest)",
+                "promotion_checklist_summary": "样本=pass；回测=review",
+            }
+        )
+        == "（远端, 报告=2026-07-04, 正式dynamic=未进正式漏斗(backtest_confirmation_required), 回测=待复核(need backtest), 晋级=样本=pass；回测=review）"
+    )
+
+
 def test_policy_display_helpers_translate_governor_codes() -> None:
     governor = {
         "status": "candidate",

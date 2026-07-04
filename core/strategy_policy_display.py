@@ -42,6 +42,12 @@ def format_policy_meta_text(meta: dict[str, Any] | None) -> str:
     formal_block = str(meta.get("formal_dynamic_block_reason") or "").strip()
     if meta.get("formal_dynamic_allowed") is False and formal_block:
         tokens.append(f"正式dynamic={policy_formal_dynamic_label(meta)}")
+    backtest = str(meta.get("backtest_confirmation_text") or "").strip()
+    if backtest:
+        tokens.append(f"回测={backtest}")
+    checklist = str(meta.get("promotion_checklist_summary") or "").strip()
+    if checklist:
+        tokens.append(f"晋级={checklist}")
     return f"（{', '.join(tokens)}）" if tokens else ""
 
 

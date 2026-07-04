@@ -34,6 +34,8 @@ def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> Non
                 "execution_scope": "tail_buy_and_funnel_shadow",
                 "next_action": "manual_review_dynamic_on",
                 "formal_dynamic_allowed": True,
+                "backtest_confirmation_text": "待复核(need backtest)",
+                "promotion_checklist_summary": "样本=pass；回测=review",
                 "tail_buy_weights_active": True,
                 "funnel_shadow_weights_active": True,
                 "funnel_formal_weights_active": False,
@@ -45,7 +47,7 @@ def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> Non
     assert line.startswith("**策略治理调权**")
     assert (
         "归因 lps×0.50↓，sos×1.15↑"
-        "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow）"
+        "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow, 回测=待复核(need backtest), 晋级=样本=pass；回测=review）"
     ) in line
     assert "最终 evr×0.75↓，lps×0.50↓，sos×1.15↑" in line
 

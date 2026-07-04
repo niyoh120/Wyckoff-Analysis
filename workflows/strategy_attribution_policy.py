@@ -39,6 +39,8 @@ class AttributionPolicySnapshot:
     execution_scope: str = ""
     formal_dynamic_allowed: bool = False
     formal_dynamic_block_reason: str = ""
+    promotion_checklist_summary: str = ""
+    backtest_confirmation_text: str = ""
     signal_action_count: int = 0
     execution_summary: str = ""
 
@@ -62,6 +64,8 @@ class AttributionPolicySnapshot:
             "execution_scope": self.execution_scope,
             "formal_dynamic_allowed": self.formal_dynamic_allowed,
             "formal_dynamic_block_reason": self.formal_dynamic_block_reason,
+            "promotion_checklist_summary": self.promotion_checklist_summary,
+            "backtest_confirmation_text": self.backtest_confirmation_text,
             "signal_action_count": self.signal_action_count,
             "execution_summary": self.execution_summary,
             "active_scope": _active_scope_text(
@@ -218,6 +222,7 @@ def _policy_snapshot(
     governor = _policy_governor(row)
     execution = attribution_execution_state(governor, _recommendation_rows(row.get("recommendations_json")))
     formal_allowed = attribution_formal_dynamic_allowed(governor)
+    checklist = _promotion_checklist(governor)
     return AttributionPolicySnapshot(
         weights=weights,
         source=source,
@@ -234,6 +239,8 @@ def _policy_snapshot(
         execution_scope=str(execution.get("scope") or ""),
         formal_dynamic_allowed=formal_allowed,
         formal_dynamic_block_reason=str(execution.get("formal_dynamic_block_reason") or ""),
+        promotion_checklist_summary=_checklist_summary(checklist),
+        backtest_confirmation_text=_backtest_confirmation_text(checklist),
         signal_action_count=int(execution.get("signal_action_count") or 0),
         execution_summary=str(execution.get("summary") or ""),
     )
@@ -272,6 +279,56 @@ def _recommendation_rows(raw: Any) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         return []
     return [row for row in raw if isinstance(row, dict)]
+
+
+def _promotion_checklist(governor: dict[str, Any]) -> list[dict[str, str]]:
+    rows = governor.get("promotion_checklist")
+    if not isinstance(rows, list):
+        return []
+    return [
+        {
+            "key": str(row.get("key") or ""),
+            "status": str(row.get("status") or "unknown"),
+            "summary": str(row.get("summary") or "-"),
+        }
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
+def _checklist_summary(rows: list[dict[str, str]]) -> str:
+    if not rows:
+        return ""
+    return "；".join(f"{_checklist_label(row.get('key', ''))}={row.get('status') or 'unknown'}" for row in rows)
+
+
+def _backtest_confirmation_text(rows: list[dict[str, str]]) -> str:
+    for row in rows:
+        if row.get("key") == "backtest_confirmation":
+            return f"{_status_label(row.get('status', 'unknown'))}({row.get('summary') or '-'})"
+    return ""
+
+
+def _checklist_label(key: str) -> str:
+    labels = {
+        "shadow_sample": "样本",
+        "shadow_added_outperforms_removed": "新增跑赢",
+        "signal_actions": "信号调权",
+        "backtest_confirmation": "回测",
+    }
+    return labels.get(key, key or "-")
+
+
+def _status_label(status: str) -> str:
+    labels = {
+        "pass": "通过",
+        "fail": "失败",
+        "review": "待复核",
+        "missing": "缺失",
+        "not_required": "不需要",
+        "unknown": "未知",
+    }
+    return labels.get(status, status or "未知")
 
 
 def _fresh_report(

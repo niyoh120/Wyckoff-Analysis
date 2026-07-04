@@ -172,6 +172,10 @@ def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatc
                     "next_action_summary": "shadow 新增组已跑赢移除组",
                     "formal_dynamic_allowed": False,
                     "formal_dynamic_block_reason": "manual_review_required",
+                    "promotion_checklist": [
+                        {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
+                        {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"},
+                    ],
                     "auto_apply": False,
                 }
             },
@@ -198,12 +202,16 @@ def test_attribution_policy_snapshot_exposes_source_age_and_execution(monkeypatc
     assert snapshot.next_action_summary == "shadow 新增组已跑赢移除组"
     assert snapshot.formal_dynamic_allowed is False
     assert snapshot.formal_dynamic_block_reason == "manual_review_required"
+    assert snapshot.promotion_checklist_summary == "样本=pass；回测=review"
+    assert snapshot.backtest_confirmation_text == "待复核(need backtest)"
     assert snapshot.execution_policy == "shadow"
     assert snapshot.execution_scope == "tail_buy_and_funnel_shadow"
     assert snapshot.signal_action_count == 1
     assert snapshot.as_dict()["weight_count"] == 1
     assert snapshot.as_dict()["next_action"] == "manual_review_dynamic_on"
     assert snapshot.as_dict()["formal_dynamic_allowed"] is False
+    assert snapshot.as_dict()["promotion_checklist_summary"] == "样本=pass；回测=review"
+    assert snapshot.as_dict()["backtest_confirmation_text"] == "待复核(need backtest)"
     assert snapshot.as_dict()["execution_scope"] == "tail_buy_and_funnel_shadow"
     assert snapshot.as_dict()["active_scope"] == "尾盘+漏斗shadow"
     assert snapshot.as_dict()["tail_buy_weights_active"] is True

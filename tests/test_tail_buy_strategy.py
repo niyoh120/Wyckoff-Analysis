@@ -202,6 +202,8 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
             "active_scope": "尾盘+漏斗shadow",
             "next_action": "manual_review_dynamic_on",
             "formal_dynamic_allowed": True,
+            "backtest_confirmation_text": "待复核(need backtest)",
+            "promotion_checklist_summary": "样本=pass；回测=review",
             "tail_buy_weights_active": True,
             "funnel_shadow_weights_active": True,
             "funnel_formal_weights_active": False,
@@ -1076,6 +1078,8 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
             "execution_scope": "tail_buy_and_funnel_shadow",
             "next_action": "manual_review_dynamic_on",
             "formal_dynamic_allowed": True,
+            "backtest_confirmation_text": "待复核(need backtest)",
+            "promotion_checklist_summary": "样本=pass；回测=review",
             "tail_buy_weights_active": True,
             "funnel_shadow_weights_active": True,
             "funnel_formal_weights_active": False,
@@ -1084,7 +1088,7 @@ def test_build_tail_buy_markdown_surfaces_policy_weights():
 
     assert (
         "- 归因调权: launchpad×1.20↑；lps×0.50↓"
-        "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow）"
+        "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow, 回测=待复核(need backtest), 晋级=样本=pass；回测=review）"
     ) in md
 
 
