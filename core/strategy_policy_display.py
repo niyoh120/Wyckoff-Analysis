@@ -236,6 +236,8 @@ def _formal_dynamic_reason_label(reason: str) -> str:
         return labels[reason]
     if reason.startswith("next_action="):
         return f"下一步={policy_next_action_label(reason.split('=', 1)[1])}"
+    if reason.startswith("promotion_status="):
+        return f"晋级状态={policy_promotion_status_label(reason.split('=', 1)[1])}"
     if reason.startswith("promotion_checklist="):
         details = reason.split("=", 1)[1]
         return f"晋级清单未通过({_promotion_checklist_detail_label(details)})" if details else "晋级清单未通过"

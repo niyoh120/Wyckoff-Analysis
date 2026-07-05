@@ -16,6 +16,7 @@ describe('attributionFormalDynamicReasonLabel', () => {
     expect(attributionFormalDynamicReasonLabel('promotion_checklist=selection_actions:review,backtest_confirmation:fail')).toBe(
       '晋级清单未通过(候选源治理:待复核，回测:失败)',
     )
+    expect(attributionFormalDynamicReasonLabel('promotion_status=do_not_promote')).toBe('晋级状态=禁止晋级')
     expect(attributionFormalDynamicReasonLabel('selection_actions_review_required')).toBe('候选源治理待复核')
     expect(attributionFormalDynamicReasonLabel('execution_state=missing')).toBe('缺少后端执行态')
   })

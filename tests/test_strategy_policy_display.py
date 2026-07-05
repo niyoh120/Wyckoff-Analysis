@@ -153,6 +153,15 @@ def test_policy_execution_display_labels_missing_promotion_checklist() -> None:
     assert policy_formal_dynamic_label(execution) == "未进正式漏斗(晋级清单缺失)"
 
 
+def test_policy_execution_display_labels_promotion_status_reason() -> None:
+    execution = {
+        "formal_dynamic_allowed": False,
+        "formal_dynamic_block_reason": "promotion_status=do_not_promote",
+    }
+
+    assert policy_formal_dynamic_label(execution) == "未进正式漏斗(晋级状态=禁止晋级)"
+
+
 def test_policy_execution_display_labels_blocked_promotion_checklist() -> None:
     execution = {
         "formal_dynamic_allowed": False,

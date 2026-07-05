@@ -129,6 +129,9 @@ export function attributionFormalDynamicReasonLabel(reason: unknown): string {
   if (text.startsWith('next_action=')) {
     return `下一步=${attributionNextActionLabel(text.slice('next_action='.length))}`
   }
+  if (text.startsWith('promotion_status=')) {
+    return `晋级状态=${attributionPromotionStatusLabel(text.slice('promotion_status='.length))}`
+  }
   if (text.startsWith('promotion_checklist=')) {
     const details = text.slice('promotion_checklist='.length)
     return details ? `晋级清单未通过(${promotionChecklistDetailLabel(details)})` : '晋级清单未通过'
