@@ -256,6 +256,43 @@ def test_attribution_weights_for_funnel_respects_governor_gate():
     assert attribution_policy.attribution_weights_for_funnel(allowed, mode="off") == {}
 
 
+def test_attribution_policy_snapshot_requires_checklist_for_formal_dynamic(monkeypatch):
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
+    monkeypatch.setattr(
+        attribution_policy,
+        "load_latest_attribution_report",
+        lambda _market: {
+            "market": "cn",
+            "report_date": "2026-07-04",
+            "shadow_diff_stats_json": {
+                "policy_governor": {
+                    "horizon": "5",
+                    "next_action": "manual_review_dynamic_on",
+                    "promotion_status": "manual_review_required",
+                    "formal_dynamic_allowed": True,
+                }
+            },
+            "recommendations_json": [
+                {
+                    "type": "upweight",
+                    "horizon": "5",
+                    "target": "sos",
+                    "reason": '{"action":"upweight","horizon":"5","target":"sos","weight_multiplier":1.15}',
+                }
+            ],
+        },
+    )
+
+    snapshot = attribution_policy.load_attribution_policy_snapshot(market="cn", as_of=date(2026, 7, 4))
+
+    assert snapshot.weights == {"sos": 1.15}
+    assert snapshot.formal_dynamic_allowed is False
+    assert snapshot.formal_dynamic_block_reason == "promotion_checklist=missing"
+    assert snapshot.execution_scope == "tail_buy_and_funnel_shadow"
+    assert attribution_policy.attribution_weights_for_funnel(snapshot, mode="on") == {}
+    assert attribution_policy.attribution_weights_for_funnel(snapshot, mode="shadow") == {"sos": 1.15}
+
+
 def test_attribution_weights_skip_stale_reports(monkeypatch, tmp_path):
     report_path = tmp_path / "report.json"
     report_path.write_text(
