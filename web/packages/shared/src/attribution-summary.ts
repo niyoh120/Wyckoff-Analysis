@@ -57,6 +57,7 @@ export function attributionModeRecommendationLabel(value: unknown): string {
 export function attributionNextActionLabel(value: unknown): string {
   const labels: Record<string, string> = {
     manual_review_dynamic_on: '进入人工晋级评审（非正式生效）',
+    formal_dynamic_approved: '正式 dynamic 已人工批准',
     run_backtest_confirmation: '先跑回测确认',
     keep_shadow_backtest_failed: '回测未通过，保持 shadow',
     review_policy_actions: '先复核调权治理项',
@@ -71,6 +72,7 @@ export function attributionNextActionLabel(value: unknown): string {
 export function attributionPromotionStatusLabel(value: unknown): string {
   const labels: Record<string, string> = {
     manual_review_required: '需人工复核',
+    manual_approved: '已人工批准',
     do_not_promote: '禁止晋级',
     collect_more_samples: '继续收集样本',
     keep_shadow: '保持 shadow',
@@ -102,6 +104,9 @@ export function attributionFormalDynamicLabel(
   if (optionalText(execution?.next_action) === 'review_policy_actions') {
     return '未进正式漏斗(调权治理项待复核)'
   }
+  if (optionalText(execution?.next_action) === 'formal_dynamic_approved') {
+    return '允许正式生效'
+  }
   if (optionalText(execution?.next_action) === 'run_backtest_confirmation') {
     return '未进正式漏斗(缺少回测确认)'
   }
@@ -120,6 +125,7 @@ export function attributionFormalDynamicReasonLabel(reason: unknown): string {
     backtest_policy_evidence_required: '回测缺少策略治理证据',
     'execution_state=missing': '缺少后端执行态',
     'formal_dynamic_allowed=false': '治理器未放行',
+    manual_approval_incomplete: '人工批准证据不完整',
     manual_review_required: '人工复核未完成',
     'promotion_checklist=missing': '晋级清单缺失',
     shadow_only: '仅 shadow 观察',

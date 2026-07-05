@@ -26,6 +26,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Optional JSON file with structured backtest confirmation for policy promotion gates.",
     )
+    parser.add_argument(
+        "--formal-dynamic-approval-json",
+        default="",
+        help="Optional JSON file with manual approval for formal dynamic promotion.",
+    )
     return parser.parse_args()
 
 
@@ -36,17 +41,24 @@ def request_from_args(args: argparse.Namespace) -> StrategyAttributionRequest:
         horizons=parse_horizons(args.horizons),
         output_dir=Path(args.output_dir) if args.output_dir else None,
         no_write=args.no_write,
-        backtest_confirmation_json=load_backtest_confirmation(args.backtest_confirmation_json),
+        backtest_confirmation_json=load_json_object(args.backtest_confirmation_json, "--backtest-confirmation-json"),
+        formal_dynamic_approval_json=load_json_object(
+            args.formal_dynamic_approval_json, "--formal-dynamic-approval-json"
+        ),
     )
 
 
 def load_backtest_confirmation(path: str) -> dict[str, object] | None:
+    return load_json_object(path, "--backtest-confirmation-json")
+
+
+def load_json_object(path: str, flag: str) -> dict[str, object] | None:
     if not str(path or "").strip():
         return None
     raw = Path(path).read_text(encoding="utf-8")
     data = json.loads(raw)
     if not isinstance(data, dict):
-        raise ValueError("--backtest-confirmation-json must point to a JSON object")
+        raise ValueError(f"{flag} must point to a JSON object")
     return data
 
 

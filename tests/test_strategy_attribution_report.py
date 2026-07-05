@@ -325,6 +325,60 @@ def test_attribution_policy_governor_rejects_stale_backtest_confirmation():
     assert checklist["backtest_confirmation"]["summary"] == "回测结果仍需人工复核：缺少策略治理口径证据"
 
 
+def test_attribution_policy_governor_allows_formal_dynamic_with_manual_approval():
+    from core.strategy_policy_governor import build_strategy_policy_governor
+
+    base_kwargs = {
+        "signal_stats_json": {},
+        "score_bucket_stats_json": {},
+        "shadow_diff_stats_json": {
+            "count": 10,
+            "outcome_stats": {
+                "5": {
+                    "added": {
+                        "matched_outcomes": 3,
+                        "avg_return_pct": 3.0,
+                        "win_rate_pct": 70.0,
+                        "avg_drawdown_pct": -5.0,
+                    },
+                    "removed": {
+                        "matched_outcomes": 3,
+                        "avg_return_pct": -1.0,
+                        "win_rate_pct": 40.0,
+                        "avg_drawdown_pct": -8.0,
+                    },
+                }
+            },
+        },
+        "backtest_confirmation_json": {
+            "status": "pass",
+            "strategy_policy_ready": True,
+            "summary": "回测确认通过。",
+        },
+        "horizons": [5],
+    }
+
+    pending = build_strategy_policy_governor(**base_kwargs)
+    approved = build_strategy_policy_governor(
+        **base_kwargs,
+        formal_dynamic_approval_json={
+            "approved": True,
+            "approved_by": "youngcan",
+            "reason": "shadow 与回测均通过，人工批准进入正式 dynamic。",
+        },
+    )
+
+    assert pending["formal_dynamic_allowed"] is False
+    assert pending["formal_dynamic_approval"] == "manual_review_required"
+    assert pending["next_action"] == "manual_review_dynamic_on"
+    assert approved["formal_dynamic_allowed"] is True
+    assert approved["formal_dynamic_approval"] == "manual_approved"
+    assert approved["formal_dynamic_block_reason"] == ""
+    assert approved["promotion_status"] == "manual_approved"
+    assert approved["next_action"] == "formal_dynamic_approved"
+    assert approved["formal_dynamic_manual_approval"]["approved_by"] == "youngcan"
+
+
 def test_attribution_policy_governor_emits_scoped_context_weight():
     import workflows.strategy_attribution_stats as stats_mod
     from core.strategy_policy_governor import signal_weight_multipliers_from_rows

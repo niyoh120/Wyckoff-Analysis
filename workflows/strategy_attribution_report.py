@@ -38,6 +38,7 @@ class StrategyAttributionRequest:
     output_dir: Path | None = None
     no_write: bool = False
     backtest_confirmation_json: dict[str, Any] | None = None
+    formal_dynamic_approval_json: dict[str, Any] | None = None
 
 
 def parse_horizons(raw: str) -> tuple[int, ...]:
@@ -53,6 +54,7 @@ def run_strategy_attribution_report(request: StrategyAttributionRequest) -> dict
             request.days,
             list(request.horizons),
             backtest_confirmation_json=request.backtest_confirmation_json,
+            formal_dynamic_approval_json=request.formal_dynamic_approval_json,
         )
         attach_policy_execution_state(report)
         report["created_at"] = datetime.now(UTC).isoformat()
@@ -110,6 +112,7 @@ def build_report(
     horizons: list[int],
     *,
     backtest_confirmation_json: dict[str, Any] | None = None,
+    formal_dynamic_approval_json: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     end = date.today()
     start = end - timedelta(days=days)
@@ -126,6 +129,7 @@ def build_report(
         outcomes=outcomes,
         shadow_runs=shadow,
         backtest_confirmation_json=backtest_confirmation_json,
+        formal_dynamic_approval_json=formal_dynamic_approval_json,
     )
 
 

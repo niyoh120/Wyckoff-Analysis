@@ -151,6 +151,7 @@ def policy_next_action_label(raw: Any) -> str:
     text = str(raw or "").strip()
     labels = {
         "manual_review_dynamic_on": "进入人工晋级评审（非正式生效）",
+        "formal_dynamic_approved": "正式 dynamic 已人工批准",
         "run_backtest_confirmation": "先跑回测确认",
         "keep_shadow_backtest_failed": "回测未通过，保持 shadow",
         "review_policy_actions": "先复核调权治理项",
@@ -187,6 +188,7 @@ def policy_promotion_status_label(raw: Any) -> str:
     text = str(raw or "").strip()
     labels = {
         "manual_review_required": "需人工复核",
+        "manual_approved": "已人工批准",
         "do_not_promote": "禁止晋级",
         "collect_more_samples": "继续收集样本",
         "keep_shadow": "保持 shadow",
@@ -216,6 +218,8 @@ def policy_formal_dynamic_label(execution: dict[str, Any] | None) -> str:
         return "未进正式漏斗(人工复核未完成)"
     if str(row.get("next_action") or "").strip() == "review_policy_actions":
         return "未进正式漏斗(调权治理项待复核)"
+    if str(row.get("next_action") or "").strip() == "formal_dynamic_approved":
+        return "允许正式生效"
     return "未知"
 
 
@@ -227,6 +231,7 @@ def _formal_dynamic_reason_label(reason: str) -> str:
         "backtest_policy_evidence_required": "回测缺少策略治理证据",
         "execution_state=missing": "缺少后端执行态",
         "formal_dynamic_allowed=false": "治理器未放行",
+        "manual_approval_incomplete": "人工批准证据不完整",
         "manual_review_required": "人工复核未完成",
         "promotion_checklist=missing": "晋级清单缺失",
         "shadow_only": "仅 shadow 观察",

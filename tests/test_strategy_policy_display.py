@@ -120,9 +120,18 @@ def test_policy_display_helpers_translate_backtest_gate_actions() -> None:
     assert policy_governor_display({"next_action": "run_backtest_confirmation"})["next_action"] == "先跑回测确认"
     assert policy_governor_display({"next_action": "review_policy_actions"})["next_action"] == "先复核调权治理项"
     assert (
+        policy_governor_display({"next_action": "formal_dynamic_approved"})["next_action"] == "正式 dynamic 已人工批准"
+    )
+    assert (
         policy_governor_display({"next_action": "keep_shadow_backtest_failed"})["next_action"]
         == "回测未通过，保持 shadow"
     )
+
+
+def test_policy_display_helpers_translate_manual_approval() -> None:
+    display = policy_governor_display({"promotion_status": "manual_approved"})
+
+    assert display["promotion_status"] == "已人工批准"
 
 
 def test_policy_execution_display_distinguishes_formal_gate() -> None:

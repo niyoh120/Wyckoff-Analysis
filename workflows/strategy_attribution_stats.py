@@ -23,6 +23,7 @@ def build_strategy_attribution_payload(
     outcomes: list[dict[str, Any]],
     shadow_runs: list[dict[str, Any]],
     backtest_confirmation_json: dict[str, Any] | None = None,
+    formal_dynamic_approval_json: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     joined = join_outcomes(outcomes, observations)
     focus_horizon = 3 if 3 in horizons else horizons[0]
@@ -41,6 +42,7 @@ def build_strategy_attribution_payload(
         score_bucket_stats_json=score_stats,
         shadow_diff_stats_json=shadow,
         backtest_confirmation_json=backtest_confirmation_json,
+        formal_dynamic_approval_json=formal_dynamic_approval_json,
         horizons=horizons,
     )
     shadow["policy_governor"] = governor

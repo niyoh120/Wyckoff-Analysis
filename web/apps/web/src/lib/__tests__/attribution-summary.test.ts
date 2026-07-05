@@ -5,6 +5,7 @@ import {
   attributionFormalDynamicReasonLabel,
   attributionNextActionLabel,
   attributionOperatorSummary,
+  attributionPromotionStatusLabel,
 } from '@wyckoff/shared'
 
 describe('attributionFormalDynamicReasonLabel', () => {
@@ -26,9 +27,17 @@ describe('attributionFormalDynamicReasonLabel', () => {
 describe('attributionNextActionLabel', () => {
   it('labels policy action review before formal promotion', () => {
     expect(attributionNextActionLabel('review_policy_actions')).toBe('先复核调权治理项')
+    expect(attributionNextActionLabel('formal_dynamic_approved')).toBe('正式 dynamic 已人工批准')
     expect(attributionFormalDynamicLabel({ next_action: 'review_policy_actions' })).toBe(
       '未进正式漏斗(调权治理项待复核)',
     )
+    expect(attributionFormalDynamicLabel({ next_action: 'formal_dynamic_approved' })).toBe('允许正式生效')
+  })
+})
+
+describe('attributionPromotionStatusLabel', () => {
+  it('labels manually approved formal promotion', () => {
+    expect(attributionPromotionStatusLabel('manual_approved')).toBe('已人工批准')
   })
 })
 

@@ -21,6 +21,7 @@ def build_strategy_policy_governor(
     score_bucket_stats_json: dict[str, Any] | None = None,
     shadow_diff_stats_json: dict[str, Any],
     backtest_confirmation_json: dict[str, Any] | None = None,
+    formal_dynamic_approval_json: dict[str, Any] | None = None,
     horizons: list[int],
 ) -> dict[str, Any]:
     horizon = _focus_horizon(horizons)
@@ -32,19 +33,21 @@ def build_strategy_policy_governor(
     promotion_checklist = _promotion_checklist(
         shadow_gate, all_actions, selection_actions, backtest_confirmation_json or {}
     )
-    next_action = _next_action(shadow_gate, all_actions, promotion_checklist)
+    formal_approval = _formal_dynamic_manual_approval(formal_dynamic_approval_json or {})
+    next_action = _next_action(shadow_gate, all_actions, promotion_checklist, formal_approval)
     return {
         "version": VERSION,
         "horizon": str(horizon),
         "status": _governor_status(shadow_gate, all_actions),
         "auto_apply": False,
-        "formal_dynamic_allowed": False,
-        "formal_dynamic_approval": _formal_dynamic_approval_status(shadow_gate, promotion_checklist),
-        "formal_dynamic_block_reason": _formal_dynamic_block_reason(shadow_gate, promotion_checklist),
+        "formal_dynamic_allowed": _formal_dynamic_allowed(shadow_gate, promotion_checklist, formal_approval),
+        "formal_dynamic_approval": _formal_dynamic_approval_status(shadow_gate, promotion_checklist, formal_approval),
+        "formal_dynamic_block_reason": _formal_dynamic_block_reason(shadow_gate, promotion_checklist, formal_approval),
+        "formal_dynamic_manual_approval": formal_approval,
         "mode_recommendation": _mode_recommendation(shadow_gate),
         "next_action": next_action,
         "next_action_summary": _next_action_summary(next_action),
-        "promotion_status": _promotion_status(shadow_gate),
+        "promotion_status": _promotion_status(shadow_gate, formal_approval),
         "promotion_checklist": promotion_checklist,
         "shadow_gate": shadow_gate,
         "signal_actions": signal_actions,
@@ -424,6 +427,7 @@ def _next_action(
     shadow_gate: dict[str, Any],
     actions: list[dict[str, Any]],
     checklist: list[dict[str, str]],
+    formal_approval: dict[str, Any],
 ) -> str:
     status = str(shadow_gate.get("status") or "")
     if status == "candidate":
@@ -437,6 +441,8 @@ def _next_action(
             or _check_status(checklist, "selection_actions") == "review"
         ):
             return "review_policy_actions"
+        if formal_approval.get("status") == "approved":
+            return "formal_dynamic_approved"
         return "manual_review_dynamic_on"
     if status == "reject":
         return "keep_static_policy"
@@ -453,6 +459,7 @@ def _next_action_summary(next_action: str) -> str:
         "run_backtest_confirmation": "shadow 新增组已跑赢移除组；先补齐最新回测确认，再进入人工晋级评审。",
         "keep_shadow_backtest_failed": "shadow 新增组已跑赢移除组，但回测确认未通过；保持 shadow，不晋级 dynamic=on。",
         "review_policy_actions": "shadow 与回测已满足候选条件；先复核信号调权/候选源治理，再人工决定 dynamic=on。",
+        "formal_dynamic_approved": "shadow、回测、治理项与人工批准均完成；FUNNEL_DYNAMIC_POLICY=on 时可进入正式漏斗。",
         "keep_static_policy": "shadow 新增组未证明优于移除组；保持静态策略，不晋级 dynamic=on。",
         "collect_more_shadow_samples": "shadow 样本不足；继续收集 shadow run 与命中结果。",
         "keep_shadow_apply_signal_weights": "保持 shadow；信号级调权可继续用于尾盘和漏斗 shadow。",
@@ -461,9 +468,11 @@ def _next_action_summary(next_action: str) -> str:
     return summaries.get(next_action, "保持 shadow 观察，不调整生产策略。")
 
 
-def _promotion_status(shadow_gate: dict[str, Any]) -> str:
+def _promotion_status(shadow_gate: dict[str, Any], formal_approval: dict[str, Any]) -> str:
     status = str(shadow_gate.get("status") or "")
     if status == "candidate":
+        if formal_approval.get("status") == "approved":
+            return "manual_approved"
         return "manual_review_required"
     if status == "reject":
         return "do_not_promote"
@@ -472,12 +481,32 @@ def _promotion_status(shadow_gate: dict[str, Any]) -> str:
     return "keep_shadow"
 
 
-def _formal_dynamic_approval_status(shadow_gate: dict[str, Any], checklist: list[dict[str, str]]) -> str:
+def _formal_dynamic_allowed(
+    shadow_gate: dict[str, Any],
+    checklist: list[dict[str, str]],
+    formal_approval: dict[str, Any],
+) -> bool:
+    return (
+        shadow_gate.get("status") == "candidate"
+        and not _formal_dynamic_checklist_block(checklist)
+        and formal_approval.get("status") == "approved"
+    )
+
+
+def _formal_dynamic_approval_status(
+    shadow_gate: dict[str, Any],
+    checklist: list[dict[str, str]],
+    formal_approval: dict[str, Any],
+) -> str:
     status = str(shadow_gate.get("status") or "")
     if status == "candidate":
         block = _formal_dynamic_checklist_block(checklist)
         if block:
             return block
+        if formal_approval.get("status") == "approved":
+            return "manual_approved"
+        if formal_approval.get("status") == "incomplete":
+            return "manual_approval_incomplete"
         return "manual_review_required"
     if status == "reject":
         return "not_approved"
@@ -486,18 +515,48 @@ def _formal_dynamic_approval_status(shadow_gate: dict[str, Any], checklist: list
     return "keep_shadow"
 
 
-def _formal_dynamic_block_reason(shadow_gate: dict[str, Any], checklist: list[dict[str, str]]) -> str:
+def _formal_dynamic_block_reason(
+    shadow_gate: dict[str, Any],
+    checklist: list[dict[str, str]],
+    formal_approval: dict[str, Any],
+) -> str:
     status = str(shadow_gate.get("status") or "")
     if status == "candidate":
         block = _formal_dynamic_checklist_block(checklist)
         if block:
             return block
+        if formal_approval.get("status") == "approved":
+            return ""
+        if formal_approval.get("status") == "incomplete":
+            return "manual_approval_incomplete"
         return "manual_review_required"
     if status == "reject":
         return "shadow_rejected"
     if status == "insufficient_sample":
         return "insufficient_shadow_sample"
     return "keep_shadow"
+
+
+def _formal_dynamic_manual_approval(raw: dict[str, Any]) -> dict[str, Any]:
+    approved = _truthy(raw.get("approved"))
+    approved_by = str(raw.get("approved_by") or raw.get("operator") or "").strip()
+    reason = str(raw.get("reason") or raw.get("summary") or "").strip()
+    status = "approved" if approved and approved_by and reason else "incomplete" if approved else "missing"
+    return {
+        "status": status,
+        "approved": status == "approved",
+        "approved_by": approved_by,
+        "reason": reason,
+        "approved_at": str(raw.get("approved_at") or raw.get("timestamp") or "").strip(),
+    }
+
+
+def _truthy(raw: Any) -> bool:
+    if raw is True:
+        return True
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes", "y", "approved"}
+    return raw == 1
 
 
 def _promotion_checklist(

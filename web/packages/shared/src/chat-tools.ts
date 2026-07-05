@@ -752,6 +752,10 @@ function fallbackFormalDynamic(governor: Record<string, unknown>): { allowed: bo
   if (String(governor.next_action || '').trim() === 'manual_review_dynamic_on') {
     return { allowed: false, reason: 'manual_review_required' }
   }
+  if (String(governor.next_action || '').trim() === 'formal_dynamic_approved') {
+    const checklistBlock = promotionChecklistBlockReason(governor.promotion_checklist)
+    return checklistBlock ? { allowed: false, reason: checklistBlock } : { allowed: true, reason: '' }
+  }
   if (String(governor.next_action || '').trim() === 'review_policy_actions') {
     return { allowed: false, reason: promotionChecklistBlockReason(governor.promotion_checklist) || 'signal_actions_review_required' }
   }

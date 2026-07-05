@@ -412,6 +412,8 @@ def _normalize_mode(raw: object) -> str:
 
 
 def _auto_apply_note(summary: str, governor: dict[str, Any]) -> str:
+    if governor.get("formal_dynamic_allowed") is True:
+        return summary
     if governor.get("auto_apply"):
         return summary
     next_action = str(governor.get("next_action") or "").strip()
