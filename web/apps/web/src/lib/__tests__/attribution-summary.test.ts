@@ -90,6 +90,17 @@ describe('attributionOperatorSummary', () => {
       actions: [{ target: 'sos', weight_multiplier: 1.15 }],
     })).toContain('正式dynamic=未进正式漏斗(晋级清单未通过(shadow_sample:review))')
   })
+
+  it('labels a missing backend execution state as a formal blocker', () => {
+    expect(attributionOperatorSummary({
+      execution: {
+        scope: 'tail_buy_and_funnel_shadow',
+        formal_dynamic_allowed: false,
+        formal_dynamic_block_reason: 'execution_state=missing',
+      },
+      actions: [{ target: 'sos', weight_multiplier: 1.15 }],
+    })).toContain('正式dynamic=未进正式漏斗(缺少后端执行态)')
+  })
 })
 
 describe('attributionExecutionImpactText', () => {

@@ -527,6 +527,45 @@ describe('execQueryAttribution', () => {
     expect(result).toContain('正式dynamic=未进正式漏斗(晋级清单缺失)')
     expect(result).not.toContain('正式dynamic=允许正式生效')
   })
+
+  it('does not infer formal activation from governor-only reports even when checklist passed', async () => {
+    const deps = createMockDeps({
+      strategy_attribution_reports: [
+        {
+          report_date: '2026-07-04',
+          window_start: '2026-05-05',
+          window_end: '2026-07-04',
+          shadow_diff_stats_json: {
+            policy_governor: {
+              horizon: '5',
+              formal_dynamic_allowed: true,
+              promotion_checklist: [
+                { key: 'shadow_sample', status: 'pass', summary: 'sample ok' },
+                { key: 'backtest_confirmation', status: 'pass', summary: 'backtest ok' },
+              ],
+              promotion_status: 'manual_review_required',
+              next_action: 'manual_review_dynamic_on',
+            },
+          },
+          recommendations_json: [
+            {
+              type: 'upweight',
+              horizon: '5',
+              target: 'sos',
+              reason: { weight_multiplier: 1.15 },
+            },
+          ],
+        },
+      ],
+    })
+
+    const result = await execQueryAttribution(deps, 1)
+
+    expect(result).toContain('作用范围=尾盘+漏斗shadow（tail_buy_and_funnel_shadow）')
+    expect(result).toContain('正式dynamic=未进正式漏斗(缺少后端执行态)')
+    expect(result).toContain('缺少后端执行态，默认只按 shadow 展示')
+    expect(result).not.toContain('作用范围=尾盘+正式漏斗（tail_buy_and_funnel）')
+  })
 })
 
 describe('execExecutePortfolioUpdate', () => {

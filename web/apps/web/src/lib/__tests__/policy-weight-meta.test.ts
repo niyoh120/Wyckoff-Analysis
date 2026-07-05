@@ -50,6 +50,14 @@ describe('formatPolicyWeightMetaText', () => {
     })).toBe('（远端, 正式dynamic=未进正式漏斗(晋级清单未通过(shadow_sample:review))）')
   })
 
+  it('labels missing backend execution state as a formal blocker', () => {
+    expect(formatPolicyWeightMetaText({
+      source: '远端',
+      formal_dynamic_allowed: false,
+      formal_dynamic_block_reason: 'execution_state=missing',
+    })).toBe('（远端, 正式dynamic=未进正式漏斗(缺少后端执行态)）')
+  })
+
   it('derives active scope from legacy execution scope without echoing raw scope', () => {
     expect(formatPolicyWeightMetaText({
       source: '远端',

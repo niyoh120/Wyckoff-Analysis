@@ -155,3 +155,12 @@ def test_policy_execution_display_labels_blocked_promotion_checklist() -> None:
     }
 
     assert policy_formal_dynamic_label(execution) == "未进正式漏斗(晋级清单未通过(shadow_sample:review))"
+
+
+def test_policy_execution_display_labels_missing_execution_state() -> None:
+    execution = {
+        "formal_dynamic_allowed": False,
+        "formal_dynamic_block_reason": "execution_state=missing",
+    }
+
+    assert policy_formal_dynamic_label(execution) == "未进正式漏斗(缺少后端执行态)"

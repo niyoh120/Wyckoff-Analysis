@@ -648,18 +648,19 @@ function attributionExecutionFallback(governor: Record<string, unknown>, rawActi
   const horizon = String(governor.horizon || '5')
   const actionCount = jsonArray(rawActions).filter(row => isSignalAction(row) && String(row.horizon || payloadOf(row).horizon || '') === horizon).length
   const formal = fallbackFormalDynamic(governor)
+  const formalBlockReason = formal.allowed ? 'execution_state=missing' : formal.reason
   return withAttributionActiveScope({
     funnel_dynamic_policy: 'unknown',
     horizon,
-    scope: actionCount > 0 && formal.allowed ? 'tail_buy_and_funnel' : actionCount > 0 ? 'tail_buy_and_funnel_shadow' : 'none',
+    scope: actionCount > 0 ? 'tail_buy_and_funnel_shadow' : 'none',
     signal_action_count: actionCount,
     promotion_status: String(governor.promotion_status || 'unknown'),
     next_action: String(governor.next_action || 'keep_shadow_observe'),
     next_action_summary: String(governor.next_action_summary || '-'),
-    formal_dynamic_allowed: formal.allowed,
-    formal_dynamic_block_reason: formal.reason,
+    formal_dynamic_allowed: false,
+    formal_dynamic_block_reason: formalBlockReason,
     promotion_checklist: Array.isArray(governor.promotion_checklist) ? governor.promotion_checklist : [],
-    summary: actionCount > 0 ? `h=${horizon} 有 ${actionCount} 个信号级调权。` : '暂无可执行信号调权。',
+    summary: actionCount > 0 ? `h=${horizon} 有 ${actionCount} 个信号级调权；缺少后端执行态，默认只按 shadow 展示。` : '暂无可执行信号调权。',
   })
 }
 
