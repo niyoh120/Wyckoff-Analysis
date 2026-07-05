@@ -117,6 +117,7 @@ export function attributionFormalDynamicReasonLabel(reason: unknown): string {
     'auto_apply=false': '未启用自动晋级',
     backtest_confirmation_failed: '回测未通过',
     backtest_confirmation_required: '缺少回测确认',
+    backtest_policy_evidence_required: '回测缺少策略治理证据',
     'execution_state=missing': '缺少后端执行态',
     'formal_dynamic_allowed=false': '治理器未放行',
     manual_review_required: '人工复核未完成',

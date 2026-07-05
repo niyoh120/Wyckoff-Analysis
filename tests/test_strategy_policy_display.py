@@ -84,6 +84,20 @@ def test_format_policy_meta_text_surfaces_promotion_evidence() -> None:
     )
 
 
+def test_format_policy_meta_text_distinguishes_stale_backtest_evidence() -> None:
+    assert (
+        format_policy_meta_text(
+            {
+                "source": "远端",
+                "formal_dynamic_allowed": False,
+                "formal_dynamic_block_reason": "backtest_policy_evidence_required",
+                "backtest_confirmation_text": "待复核(缺少策略治理口径证据)",
+            }
+        )
+        == "（远端, 正式dynamic=未进正式漏斗(回测缺少策略治理证据), 回测=待复核(缺少策略治理口径证据)）"
+    )
+
+
 def test_policy_display_helpers_translate_governor_codes() -> None:
     governor = {
         "status": "candidate",

@@ -640,6 +640,8 @@ def _checklist_row_block(checklist: list[dict[str, str]], key: str) -> str:
         return f"{key}_failed"
     if status == "review":
         if key == "backtest_confirmation":
+            if "策略治理口径证据" in _check_summary(checklist, key):
+                return "backtest_policy_evidence_required"
             return "backtest_confirmation_required"
         return f"{key}_review_required"
     if status in {"", "missing", "unknown"}:
@@ -651,6 +653,13 @@ def _check_status(checklist: list[dict[str, str]], key: str) -> str:
     for row in checklist:
         if str(row.get("key") or "") == key:
             return str(row.get("status") or "unknown").strip().lower()
+    return ""
+
+
+def _check_summary(checklist: list[dict[str, str]], key: str) -> str:
+    for row in checklist:
+        if str(row.get("key") or "") == key:
+            return str(row.get("summary") or "").strip()
     return ""
 
 

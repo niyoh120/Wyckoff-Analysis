@@ -318,8 +318,8 @@ def test_attribution_policy_governor_rejects_stale_backtest_confirmation():
     )
 
     checklist = {row["key"]: row for row in governor["promotion_checklist"]}
-    assert governor["formal_dynamic_approval"] == "backtest_confirmation_required"
-    assert governor["formal_dynamic_block_reason"] == "backtest_confirmation_required"
+    assert governor["formal_dynamic_approval"] == "backtest_policy_evidence_required"
+    assert governor["formal_dynamic_block_reason"] == "backtest_policy_evidence_required"
     assert governor["next_action"] == "run_backtest_confirmation"
     assert checklist["backtest_confirmation"]["status"] == "review"
     assert checklist["backtest_confirmation"]["summary"] == "回测结果仍需人工复核：缺少策略治理口径证据"

@@ -19,6 +19,7 @@ describe('attributionFormalDynamicReasonLabel', () => {
     expect(attributionFormalDynamicReasonLabel('promotion_status=do_not_promote')).toBe('晋级状态=禁止晋级')
     expect(attributionFormalDynamicReasonLabel('selection_actions_review_required')).toBe('候选源治理待复核')
     expect(attributionFormalDynamicReasonLabel('execution_state=missing')).toBe('缺少后端执行态')
+    expect(attributionFormalDynamicReasonLabel('backtest_policy_evidence_required')).toBe('回测缺少策略治理证据')
   })
 })
 
