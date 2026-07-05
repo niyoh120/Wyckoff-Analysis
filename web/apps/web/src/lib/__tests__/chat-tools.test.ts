@@ -429,10 +429,10 @@ describe('execQueryAttribution', () => {
 
     expect(result).toContain('策略归因报告 2026-07-04')
     expect(result).toContain('数据来源：远端 strategy_attribution_reports')
-    expect(result).toContain('promotion=需人工复核')
+    expect(result).toContain('晋级=需人工复核')
     expect(result).toContain('晋级检查：样本:通过；回测:待复核')
     expect(result).toContain(
-      '执行态：shadow 对照模式 | 周期=h5 | 作用范围=尾盘+漏斗shadow（tail_buy_and_funnel_shadow） | 晋级=需人工复核 | 下一步=进入人工晋级评审（非正式生效） | 正式dynamic=未进正式漏斗(人工复核未完成) | 可执行调权=1',
+      '执行态：shadow 对照模式 | 周期=h5 | 作用范围=尾盘+漏斗shadow（底层=tail_buy_and_funnel_shadow） | 晋级=需人工复核 | 下一步=进入人工晋级评审（非正式生效） | 正式dynamic=未进正式漏斗(人工复核未完成) | 可执行调权=1',
     )
     expect(result).toContain('操作摘要：下一步=shadow 新增组已跑赢移除组')
     expect(result).toContain('作用范围=尾盘+漏斗shadow')
@@ -488,7 +488,7 @@ describe('execQueryAttribution', () => {
     const result = await execQueryAttribution(deps, 1)
 
     expect(result).toContain('操作摘要：下一步=shadow 新增组已跑赢移除组。')
-    expect(result).toContain('作用范围=尾盘+漏斗shadow（tail_buy_and_funnel_shadow）')
+    expect(result).toContain('作用范围=尾盘+漏斗shadow（底层=tail_buy_and_funnel_shadow）')
     expect(result).toContain('作用范围=尾盘+漏斗shadow')
     expect(result).toContain('Shadow=2026-07-03 RISK_ON 新增2 移除1')
     expect(result).toContain('调权=1项')
@@ -523,7 +523,7 @@ describe('execQueryAttribution', () => {
 
     const result = await execQueryAttribution(deps, 1)
 
-    expect(result).toContain('作用范围=尾盘+漏斗shadow（tail_buy_and_funnel_shadow）')
+    expect(result).toContain('作用范围=尾盘+漏斗shadow（底层=tail_buy_and_funnel_shadow）')
     expect(result).toContain('正式dynamic=未进正式漏斗(晋级清单缺失)')
     expect(result).not.toContain('正式dynamic=允许正式生效')
   })
@@ -561,7 +561,7 @@ describe('execQueryAttribution', () => {
 
     const result = await execQueryAttribution(deps, 1)
 
-    expect(result).toContain('作用范围=尾盘+漏斗shadow（tail_buy_and_funnel_shadow）')
+    expect(result).toContain('作用范围=尾盘+漏斗shadow（底层=tail_buy_and_funnel_shadow）')
     expect(result).toContain('正式dynamic=未进正式漏斗(缺少后端执行态)')
     expect(result).toContain('缺少后端执行态，默认只按 shadow 展示')
     expect(result).not.toContain('作用范围=尾盘+正式漏斗（tail_buy_and_funnel）')

@@ -12,9 +12,12 @@ from core.constants import TABLE_STRATEGY_ATTRIBUTION_REPORTS
 from core.strategy_policy_display import (
     format_policy_signal_label,
     policy_execution_display,
+    policy_execution_mode_label,
     policy_governor_display,
     policy_mode_recommendation_label,
     policy_next_action_label,
+    policy_promotion_check_key_label,
+    policy_promotion_check_status_label,
     policy_promotion_status_label,
 )
 from integrations.supabase_base import (
@@ -181,17 +184,17 @@ def build_report_markdown(report: dict[str, Any]) -> str:
         f"- 下一步动作: {_next_action_text(governor)}",
         f"- 下一步说明: {governor.get('next_action_summary', '-') if isinstance(governor, dict) else '-'}",
         f"- 晋级状态: {_promotion_status_text(governor)}",
-        f"- 自动生效: `{bool(governor.get('auto_apply')) if isinstance(governor, dict) else False}`",
+        f"- 自动生效: {policy_governor_display(governor).get('auto_apply', '否')}",
         f"- 摘要: {governor.get('summary', '-') if isinstance(governor, dict) else '-'}",
         "",
         "### 晋级检查",
         *_promotion_checklist_lines(governor),
         "",
         "## 调权执行状态",
-        f"- 漏斗动态策略: `{execution.get('funnel_dynamic_policy', 'off')}`",
+        f"- 漏斗动态策略: {policy_execution_mode_label(execution.get('funnel_dynamic_policy', 'off'))}",
         f"- 执行周期: `h={execution.get('horizon', '5')}`",
         f"- 当前生效范围: `{execution.get('active_scope', '无')}`",
-        f"- 底层 scope: `{execution.get('scope', 'none')}`",
+        f"- 底层范围: {_execution_scope_text(execution)}",
         f"- 可执行调权: `{execution.get('signal_action_count', 0)}`",
         f"- 候选源治理: `{execution.get('selection_action_count', 0)}`",
         f"- 摘要: {execution.get('summary', '暂无可执行信号调权。')}",
@@ -251,8 +254,19 @@ def _promotion_checklist_lines(governor: dict[str, Any]) -> list[str]:
     for row in rows:
         if not isinstance(row, dict):
             continue
-        lines.append(f"- `{row.get('key', '-')}`: `{row.get('status', '-')}` — {row.get('summary', '-')}")
+        key = str(row.get("key") or "-")
+        status = str(row.get("status") or "unknown")
+        lines.append(
+            f"- {policy_promotion_check_key_label(key)} (`{key}`): "
+            f"{policy_promotion_check_status_label(status)} (`{status}`) — {row.get('summary', '-')}"
+        )
     return lines or ["- 暂无晋级检查清单。"]
+
+
+def _execution_scope_text(execution: dict[str, Any]) -> str:
+    raw = str(execution.get("scope") or "none").strip()
+    active = str(execution.get("active_scope") or "无").strip()
+    return f"{active} (`{raw}`)" if raw and raw != "none" else active
 
 
 def _latest_shadow_lines(latest: dict[str, Any]) -> list[str]:

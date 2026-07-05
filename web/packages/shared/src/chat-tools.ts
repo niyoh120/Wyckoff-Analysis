@@ -691,18 +691,16 @@ function executionModeText(raw: unknown): string {
 function executionScopeText(execution: Record<string, unknown>): string {
   const active = String(execution.active_scope || '无')
   const scope = String(execution.scope || 'none').trim()
-  return scope && scope !== 'none' ? `${active}（${scope}）` : active
+  return scope && scope !== 'none' ? `${active}（底层=${scope}）` : active
 }
 
 function attributionGovernorLine(governor: Record<string, unknown>): string {
   return [
-    '策略治理：',
-    attributionGovernorStatusLabel(governor.status),
-    '/',
-    attributionModeRecommendationLabel(governor.mode_recommendation),
-    `/ next=${attributionNextActionLabel(governor.next_action)}`,
-    `/ promotion=${attributionPromotionStatusLabel(governor.promotion_status)}`,
-    `/ auto_apply=${Boolean(governor.auto_apply) ? '是' : '否'}`,
+    `策略治理：状态=${attributionGovernorStatusLabel(governor.status)}`,
+    `建议=${attributionModeRecommendationLabel(governor.mode_recommendation)}`,
+    `下一步=${attributionNextActionLabel(governor.next_action)}`,
+    `晋级=${attributionPromotionStatusLabel(governor.promotion_status)}`,
+    `自动生效=${Boolean(governor.auto_apply) ? '是' : '否'}`,
   ].join(' ')
 }
 

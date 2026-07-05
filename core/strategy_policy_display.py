@@ -244,13 +244,14 @@ def _promotion_checklist_detail_label(details: str) -> str:
     for item in [x.strip() for x in details.split(",") if x.strip()]:
         key, _, status = item.partition(":")
         if status:
-            parts.append(f"{_promotion_check_key_label(key)}:{_promotion_check_status_label(status)}")
+            parts.append(f"{policy_promotion_check_key_label(key)}:{policy_promotion_check_status_label(status)}")
         else:
-            parts.append(_promotion_check_key_label(key))
+            parts.append(policy_promotion_check_key_label(key))
     return "，".join(parts) if parts else details
 
 
-def _promotion_check_key_label(raw: str) -> str:
+def policy_promotion_check_key_label(raw: Any) -> str:
+    text = str(raw or "").strip()
     labels = {
         "shadow_sample": "样本",
         "shadow_performance": "Shadow表现",
@@ -259,10 +260,11 @@ def _promotion_check_key_label(raw: str) -> str:
         "signal_actions": "信号调权",
         "backtest_confirmation": "回测",
     }
-    return labels.get(raw.strip(), raw.strip() or "-")
+    return labels.get(text, text or "-")
 
 
-def _promotion_check_status_label(raw: str) -> str:
+def policy_promotion_check_status_label(raw: Any) -> str:
+    text = str(raw or "").strip()
     labels = {
         "pass": "通过",
         "fail": "失败",
@@ -271,7 +273,7 @@ def _promotion_check_status_label(raw: str) -> str:
         "not_required": "不需要",
         "unknown": "未知",
     }
-    return labels.get(raw.strip(), raw.strip() or "未知")
+    return labels.get(text, text or "未知")
 
 
 def policy_governor_display(governor: dict[str, Any] | None) -> dict[str, str]:

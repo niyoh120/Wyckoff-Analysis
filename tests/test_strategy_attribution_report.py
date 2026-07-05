@@ -590,11 +590,11 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     assert "- 下一步说明: shadow 新增组已跑赢移除组" in markdown
     assert "- 晋级状态: 需人工复核 (`manual_review_required`)" in markdown
     assert "### 晋级检查" in markdown
-    assert "`shadow_sample`: `pass`" in markdown
-    assert "- 漏斗动态策略: `on`" in markdown
+    assert "样本 (`shadow_sample`): 通过 (`pass`)" in markdown
+    assert "- 漏斗动态策略: 正式调权(on)" in markdown
     assert "- 执行周期: `h=5`" in markdown
     assert "- 当前生效范围: `尾盘+漏斗shadow`" in markdown
-    assert "- 底层 scope: `tail_buy_and_funnel_shadow`" in markdown
+    assert "- 底层范围: 尾盘+漏斗shadow (`tail_buy_and_funnel_shadow`)" in markdown
     assert "- 可执行调权: `1`" in markdown
     assert "manual_review_dynamic_on 只是人工复核入口" in markdown
     assert "## 运营复盘" in markdown
