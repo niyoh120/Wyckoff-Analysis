@@ -269,6 +269,43 @@ class TestAiReportTool:
         assert "候选护栏禁止" in result["next_tool"]["reason"]
         assert ctx.state["last_ai_report"]["reviewed_codes"] == ["300750"]
 
+    def test_generate_ai_report_carries_strategy_policy_from_screen_handoff(self, monkeypatch):
+        from agents import report_tools
+        from agents.tool_context import ToolContext
+
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "symbols_for_report": [{"code": "000004", "name": "主线候选", "candidate_lane": "trend_pullback"}],
+                    "strategy_policy": {
+                        "dynamic_mode": "shadow",
+                        "execution_policy": "shadow",
+                        "policy_weight_active_scope": "尾盘+漏斗shadow",
+                        "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级",
+                        "attribution_signal_weights": {"lps": 0.5, "trend_pullback": 0.75},
+                        "next_action": "manual_review_dynamic_on",
+                    },
+                }
+            }
+        )
+        monkeypatch.setattr(report_tools, "ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(report_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", ""))
+
+        def fake_run_ai_report(symbols_info, **_kwargs):
+            assert symbols_info[0]["candidate_lane"] == "trend_pullback"
+            return True, "ok", "# 主线候选研报"
+
+        monkeypatch.setattr(report_tools, "run_ai_report", fake_run_ai_report)
+
+        result = report_tools.generate_ai_report(tool_context=ctx)
+
+        assert result["strategy_policy"]["policy_weight_active_scope"] == "尾盘+漏斗shadow"
+        assert result["report_text"].startswith("## 策略治理上下文")
+        assert "candidate_lane=trend_pullback" in result["report_text"]
+        assert "信号调权: lps=0.5, trend_pullback=0.75" in result["report_text"]
+        assert "# 主线候选研报" in result["report_text"]
+        assert ctx.state["last_ai_report"]["strategy_policy"]["execution_policy"] == "shadow"
+
     def test_generate_ai_report_accepts_candidate_object_inputs(self, monkeypatch):
         from agents import report_tools
 

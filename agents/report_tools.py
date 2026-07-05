@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from agents.stock_data_helpers import code_to_name
+from agents.strategy_policy_context import report_with_strategy_policy_context, screen_strategy_policy
 from agents.tool_context import ToolContext, ensure_tushare_token, resolve_llm_config
 from core.candidate_guards import candidate_guard_summary
 from utils.safe import has_value as _has_value
@@ -27,6 +28,7 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
     try:
         ensure_tushare_token(tool_context)
         stock_items = _stock_code_items(stock_codes)
+        explicit_stock_items = bool(stock_items)
         screen_result = last_screen_result(tool_context)
         if not stock_items and (reason := screen_auto_handoff_block_reason(screen_result)):
             status = screen_auto_handoff_block_status(screen_result)
@@ -53,6 +55,8 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
         )
         ok_bool = bool(ok)
         reviewed_symbols = reviewed_symbols_from_info(symbols_info)
+        policy_screen = {} if explicit_stock_items else screen_result
+        report_text = report_with_strategy_policy_context(report_text, policy_screen)
         report_text = normalize_report_symbol_names(report_text, reviewed_symbols)
         guard_summary = candidate_guard_summary(reviewed_symbols)
         result = {
@@ -66,6 +70,8 @@ def generate_ai_report(stock_codes: Any = None, tool_context: ToolContext | None
             "next_action": report_next_action(ok_bool, guard_summary),
             "next_tool": report_next_tool(ok_bool, guard_summary),
         }
+        if policy := screen_strategy_policy(policy_screen):
+            result["strategy_policy"] = policy
         if guard_summary:
             result["candidate_guard_summary"] = guard_summary
         remember_ai_report(tool_context, result)
