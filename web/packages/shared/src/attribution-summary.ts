@@ -132,7 +132,7 @@ function formalDynamicReasonLabel(reason: string): string {
 
 export function attributionOperatorSummary(input: AttributionOperatorSummaryInput): string {
   const summary = optionalText(input.operations?.operator_summary)
-  if (summary) return normalizeOperatorSummaryScope(summary, input.execution, input.actions || [])
+  if (summary) return normalizeOperatorSummary(summary, input.execution, input.actions || [])
 
   const actions = input.actions || []
   return [
@@ -165,6 +165,14 @@ export function attributionExecutionImpactText(input: AttributionExecutionImpact
   return `归因调权已沉淀为信号级权重输入，覆盖 ${targetText}。${impacts.join('；')}。`
 }
 
+function normalizeOperatorSummary(
+  summary: string,
+  execution: AttributionOperatorSummaryInput['execution'],
+  actions: AttributionOperatorAction[],
+): string {
+  return normalizeOperatorSummaryFormalDynamic(normalizeOperatorSummaryScope(summary, execution, actions), execution)
+}
+
 function normalizeOperatorSummaryScope(
   summary: string,
   execution: AttributionOperatorSummaryInput['execution'],
@@ -175,6 +183,23 @@ function normalizeOperatorSummaryScope(
     /作用范围=(tail_buy_and_funnel_shadow|tail_buy_and_funnel|tail_buy_only|none)(?=；|$)/,
     `作用范围=${activeScope}`,
   )
+}
+
+function normalizeOperatorSummaryFormalDynamic(
+  summary: string,
+  execution: AttributionOperatorSummaryInput['execution'],
+): string {
+  const formalLabel = attributionFormalDynamicLabel(execution)
+  if (formalLabel !== '未知') {
+    return summary.replace(/正式dynamic=[^；]+(?=；|$)/, `正式dynamic=${formalLabel}`)
+  }
+  return summary
+    .replace(/正式dynamic=暂不晋级(?:\(([^；)]*)\))?(?=；|$)/g, (_match, reason: string | undefined) => (
+      reason ? `正式dynamic=未进正式漏斗(${formalDynamicReasonLabel(reason)})` : '正式dynamic=未进正式漏斗'
+    ))
+    .replace(/正式dynamic=未进正式漏斗\(([^；)]*)\)(?=；|$)/g, (_match, reason: string) => (
+      `正式dynamic=未进正式漏斗(${formalDynamicReasonLabel(reason)})`
+    ))
 }
 
 function operatorNextAction(execution: AttributionOperatorSummaryInput['execution']): string {

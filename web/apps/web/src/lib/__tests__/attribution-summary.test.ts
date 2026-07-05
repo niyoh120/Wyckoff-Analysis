@@ -15,6 +15,30 @@ describe('attributionOperatorSummary', () => {
     })).toBe('下一步=人工复核；作用范围=尾盘+漏斗shadow；Shadow=2026-07-03 RISK_ON 新增2 移除1')
   })
 
+  it('normalizes raw formal gate codes in persisted backend summaries', () => {
+    expect(attributionOperatorSummary({
+      operations: {
+        operator_summary: '下一步=人工复核；作用范围=tail_buy_and_funnel_shadow；正式dynamic=暂不晋级(manual_review_required)；调权=1项',
+      },
+      execution: {
+        scope: 'tail_buy_and_funnel_shadow',
+        signal_action_count: 1,
+        formal_dynamic_allowed: false,
+        formal_dynamic_block_reason: 'manual_review_required',
+      },
+      actions: [{ target: 'lps' }],
+    })).toBe('下一步=人工复核；作用范围=尾盘+漏斗shadow；正式dynamic=未进正式漏斗(人工复核未完成)；调权=1项')
+  })
+
+  it('normalizes raw formal gate codes even without execution state', () => {
+    expect(attributionOperatorSummary({
+      operations: {
+        operator_summary: '下一步=人工复核；正式dynamic=暂不晋级(backtest_confirmation_required)；调权=1项',
+      },
+      actions: [{ target: 'lps' }],
+    })).toBe('下一步=人工复核；正式dynamic=未进正式漏斗(缺少回测确认)；调权=1项')
+  })
+
   it('synthesizes a summary for older attribution reports', () => {
     expect(attributionOperatorSummary({
       execution: {
