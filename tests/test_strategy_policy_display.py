@@ -77,10 +77,10 @@ def test_format_policy_meta_text_surfaces_promotion_evidence() -> None:
                 "formal_dynamic_allowed": False,
                 "formal_dynamic_block_reason": "backtest_confirmation_required",
                 "backtest_confirmation_text": "待复核(need backtest)",
-                "promotion_checklist_summary": "样本=pass；回测=review",
+                "promotion_checklist_summary": "样本=通过；回测=待复核",
             }
         )
-        == "（远端, 报告=2026-07-04, 正式dynamic=未进正式漏斗(缺少回测确认), 回测=待复核(need backtest), 晋级=样本=pass；回测=review）"
+        == "（远端, 报告=2026-07-04, 正式dynamic=未进正式漏斗(缺少回测确认), 回测=待复核(need backtest), 晋级=样本=通过；回测=待复核）"
     )
 
 

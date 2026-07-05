@@ -528,7 +528,7 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "signal_action_count": 1,
         "selection_action_count": 0,
         "selection_action_summary": "候选源治理=无",
-        "promotion_checklist_summary": "样本=pass；回测=review",
+        "promotion_checklist_summary": "样本=通过；回测=待复核",
         "promotion_blockers": [{"key": "backtest_confirmation", "status": "review", "summary": "need backtest"}],
         "backtest_confirmation": {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"},
         "operator_summary": (

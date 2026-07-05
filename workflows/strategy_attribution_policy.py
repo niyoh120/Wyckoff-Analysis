@@ -313,7 +313,9 @@ def _promotion_checklist(governor: dict[str, Any]) -> list[dict[str, str]]:
 def _checklist_summary(rows: list[dict[str, str]]) -> str:
     if not rows:
         return ""
-    return "；".join(f"{_checklist_label(row.get('key', ''))}={row.get('status') or 'unknown'}" for row in rows)
+    return "；".join(
+        f"{_checklist_label(row.get('key', ''))}={_status_label(row.get('status') or 'unknown')}" for row in rows
+    )
 
 
 def _backtest_confirmation_text(rows: list[dict[str, str]]) -> str:

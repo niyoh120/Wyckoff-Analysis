@@ -288,7 +288,9 @@ def _checklist_item_brief(rows: list[dict[str, Any]], key: str) -> dict[str, str
 def _checklist_summary(rows: list[dict[str, str]]) -> str:
     if not rows:
         return "晋级清单=无"
-    return "；".join(f"{_checklist_label(row.get('key', ''))}={row.get('status') or 'unknown'}" for row in rows)
+    return "；".join(
+        f"{_checklist_label(row.get('key', ''))}={_status_label(row.get('status') or 'unknown')}" for row in rows
+    )
 
 
 def _checklist_blockers(rows: list[dict[str, str]]) -> list[dict[str, str]]:

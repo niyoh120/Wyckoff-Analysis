@@ -173,7 +173,7 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     assert result["latest_operations"]["latest_shadow"]["trade_date"] == "2026-07-03"
     assert result["latest_operations"]["latest_shadow"]["diff_added_sample"] == ["300502", "688008"]
     assert result["latest_operations"]["backtest_confirmation_text"] == "待复核(need backtest)"
-    assert result["latest_operations"]["promotion_checklist_summary"] == "样本=pass；回测=review"
+    assert result["latest_operations"]["promotion_checklist_summary"] == "样本=通过；回测=待复核"
     assert result["latest_operations"]["promotion_blockers"] == [
         {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"}
     ]
