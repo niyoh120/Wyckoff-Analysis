@@ -680,9 +680,9 @@ function attributionExecutionLine(execution: Record<string, unknown>): string {
 function executionModeText(raw: unknown): string {
   const value = String(raw || 'unknown').trim()
   const labels: Record<string, string> = {
-    on: '正式调权模式(on)',
-    shadow: 'shadow 对照模式',
-    off: '静态策略模式(off)',
+    on: '正式调权(on)',
+    shadow: 'shadow 对照(shadow)',
+    off: '静态策略(off)',
     unknown: '未知模式',
   }
   return labels[value] || `${value} 模式`
@@ -1264,8 +1264,9 @@ function withStrategyPolicy(result: StrategyDecisionResult, policy: ScreenStrate
 function formatStrategyPolicyDigest(policy: ScreenStrategyPolicy | null): string {
   if (!policy) return '无最新策略治理摘要。'
   const lines = [
-    `执行策略: ${policy.execution_policy || policy.dynamic_mode || '未知'}`,
+    `执行策略: ${executionModeText(policy.execution_policy || policy.dynamic_mode || 'unknown')}`,
     `生效范围: ${policy.policy_weight_active_scope || '未知'}`,
+    `下一步: ${attributionNextActionLabel(policy.next_action)}`,
     `候选源治理: ${policy.selection_action_summary || '无'}`,
   ]
   const weights = policy.attribution_signal_weights || policy.signal_weights

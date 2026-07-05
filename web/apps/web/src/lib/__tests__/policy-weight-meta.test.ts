@@ -58,6 +58,13 @@ describe('formatPolicyWeightMetaText', () => {
     })).toBe('（远端, 正式dynamic=未进正式漏斗(候选源治理待复核)）')
   })
 
+  it('labels policy action review next step from persisted feature keys', () => {
+    expect(formatPolicyWeightMetaText({
+      policy_weight_source: '远端',
+      policy_weight_next_action: 'review_policy_actions',
+    })).toBe('（远端, 下一步=先复核调权治理项）')
+  })
+
   it('labels missing backend execution state as a formal blocker', () => {
     expect(formatPolicyWeightMetaText({
       source: '远端',

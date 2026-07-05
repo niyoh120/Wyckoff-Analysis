@@ -283,7 +283,7 @@ class TestAiReportTool:
                         "policy_weight_active_scope": "尾盘+漏斗shadow",
                         "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级",
                         "attribution_signal_weights": {"lps": 0.5, "trend_pullback": 0.75},
-                        "next_action": "manual_review_dynamic_on",
+                        "next_action": "review_policy_actions",
                     },
                 }
             }
@@ -301,6 +301,8 @@ class TestAiReportTool:
 
         assert result["strategy_policy"]["policy_weight_active_scope"] == "尾盘+漏斗shadow"
         assert result["report_text"].startswith("## 策略治理上下文")
+        assert "下一步: 先复核调权治理项" in result["report_text"]
+        assert "执行模式: shadow 对照(shadow)" in result["report_text"]
         assert "candidate_lane=trend_pullback" in result["report_text"]
         assert "信号调权: lps=0.5, trend_pullback=0.75" in result["report_text"]
         assert "# 主线候选研报" in result["report_text"]

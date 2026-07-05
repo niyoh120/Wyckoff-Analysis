@@ -432,7 +432,7 @@ describe('execQueryAttribution', () => {
     expect(result).toContain('晋级=需人工复核')
     expect(result).toContain('晋级检查：样本:通过；回测:待复核')
     expect(result).toContain(
-      '执行态：shadow 对照模式 | 周期=h5 | 作用范围=尾盘+漏斗shadow（底层=tail_buy_and_funnel_shadow） | 晋级=需人工复核 | 下一步=进入人工晋级评审（非正式生效） | 正式dynamic=未进正式漏斗(人工复核未完成) | 可执行调权=1',
+      '执行态：shadow 对照(shadow) | 周期=h5 | 作用范围=尾盘+漏斗shadow（底层=tail_buy_and_funnel_shadow） | 晋级=需人工复核 | 下一步=进入人工晋级评审（非正式生效） | 正式dynamic=未进正式漏斗(人工复核未完成) | 可执行调权=1',
     )
     expect(result).toContain('操作摘要：下一步=shadow 新增组已跑赢移除组')
     expect(result).toContain('作用范围=尾盘+漏斗shadow')
@@ -655,7 +655,7 @@ describe('execScreenStocks', () => {
         {
           trade_date: '2026-07-04',
           shadow_diff_stats_json: {
-            policy_governor: { horizon: '5', next_action: 'manual_review_dynamic_on' },
+            policy_governor: { horizon: '5', next_action: 'review_policy_actions' },
             policy_execution_state: { funnel_dynamic_policy: 'shadow' },
             policy_operations_brief: {
               active_scope: '尾盘+漏斗shadow',
@@ -710,7 +710,7 @@ describe('execStrategyDecision', () => {
       signal_policy_shadow_runs: [
         {
           shadow_diff_stats_json: {
-            policy_governor: { horizon: '5', next_action: 'manual_review_dynamic_on' },
+            policy_governor: { horizon: '5', next_action: 'review_policy_actions' },
             policy_execution_state: { funnel_dynamic_policy: 'shadow' },
             policy_operations_brief: {
               active_scope: '尾盘+漏斗shadow',
@@ -745,7 +745,7 @@ describe('execStrategyDecision', () => {
       signal_policy_shadow_runs: [
         {
           shadow_diff_stats_json: {
-            policy_governor: { horizon: '5', next_action: 'manual_review_dynamic_on' },
+            policy_governor: { horizon: '5', next_action: 'review_policy_actions' },
             policy_execution_state: { funnel_dynamic_policy: 'shadow' },
             policy_operations_brief: {
               active_scope: '尾盘+漏斗shadow',
@@ -781,6 +781,9 @@ describe('execStrategyDecision', () => {
       prompt: expect.stringContaining('候选源治理 1 项：candidate_lane=trend_pullback 降级'),
     }))
     expect(deps.generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('下一步: 先复核调权治理项'),
+    }))
+    expect(deps.generateText).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining('归因调权: trend_pullback×0.75'),
     }))
   })
@@ -793,7 +796,7 @@ describe('execGenerateAiReport', () => {
       signal_policy_shadow_runs: [
         {
           shadow_diff_stats_json: {
-            policy_governor: { horizon: '5', next_action: 'manual_review_dynamic_on' },
+            policy_governor: { horizon: '5', next_action: 'review_policy_actions' },
             policy_execution_state: { funnel_dynamic_policy: 'shadow' },
             policy_operations_brief: {
               active_scope: '尾盘+漏斗shadow',
@@ -832,6 +835,7 @@ describe('execGenerateAiReport', () => {
     )
 
     expect(result).toContain('### 策略治理')
+    expect(result).toContain('下一步: 先复核调权治理项')
     expect(result).toContain('候选源治理 1 项：candidate_lane=sos 降级')
     expect(deps.generateText).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining('归因调权: sos×0.80'),
