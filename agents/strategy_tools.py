@@ -66,6 +66,7 @@ def generate_strategy_decision(
         if not report_text:
             report_text = _report_for_candidates(candidate_meta, provider, api_key, model, base_url)
             report_source = "generated_from_candidates" if report_text else "empty"
+        report_text = _report_with_strategy_policy_context(report_text, screen_payload)
         report_text = normalize_report_symbol_names(report_text, candidate_meta)
         token = get_credential(tool_context, "tg_bot_token", "TG_BOT_TOKEN")
         chat_id = get_credential(tool_context, "tg_chat_id", "TG_CHAT_ID")
@@ -116,6 +117,35 @@ def _report_for_candidates(symbols_info: list[dict], provider: str, api_key: str
         base_url=base_url,
     )
     return str(report_text or "")
+
+
+def _report_with_strategy_policy_context(report_text: str, screen_result: dict | None) -> str:
+    lines = _strategy_policy_context_lines(_screen_strategy_policy(screen_result))
+    text = str(report_text or "").strip()
+    if not lines or "## 策略治理上下文" in text:
+        return text
+    context = "## 策略治理上下文\n" + "\n".join(f"- {line}" for line in lines)
+    return f"{context}\n\n{text}" if text else context
+
+
+def _strategy_policy_context_lines(policy: dict[str, Any]) -> list[str]:
+    if not policy:
+        return []
+    lines: list[str] = []
+    _append_policy_line(lines, "执行模式", policy.get("execution_policy"))
+    _append_policy_line(lines, "动态模式", policy.get("dynamic_mode"))
+    _append_policy_line(lines, "作用范围", policy.get("policy_weight_active_scope"))
+    _append_policy_line(lines, "候选源治理", policy.get("selection_action_summary"))
+    _append_policy_line(lines, "下一步", policy.get("next_action"))
+    weights = policy.get("attribution_signal_weights") or policy.get("signal_weights")
+    if isinstance(weights, dict) and weights:
+        lines.append("信号调权: " + ", ".join(f"{key}={value}" for key, value in weights.items()))
+    return lines
+
+
+def _append_policy_line(lines: list[str], label: str, value: Any) -> None:
+    if _has_value(value):
+        lines.append(f"{label}: {value}")
 
 
 def _strategy_candidate_meta(
@@ -307,7 +337,7 @@ def _missing_telegram_credentials(token: str, chat_id: str) -> list[str]:
 
 def _strategy_blocked_by_screen_handoff(screen_result: dict, reason: str) -> dict:
     status = screen_auto_handoff_block_status(screen_result)
-    return {
+    payload = {
         "ok": False,
         "reason": reason,
         "status": status,
@@ -319,6 +349,9 @@ def _strategy_blocked_by_screen_handoff(screen_result: dict, reason: str) -> dic
         "decision_brief": screen_result.get("decision_brief", {}) if isinstance(screen_result, dict) else {},
         "next_action": _blocked_next_action(status),
     }
+    if policy := _screen_strategy_policy(screen_result):
+        payload["strategy_policy"] = policy
+    return payload
 
 
 def _blocked_report_source(status: str) -> str:
@@ -366,7 +399,16 @@ def _strategy_payload(
     }
     if guard_summary := candidate_guard_summary(candidate_meta):
         payload["candidate_guard_summary"] = guard_summary
+    if policy := _screen_strategy_policy(screen_result):
+        payload["strategy_policy"] = policy
     return payload
+
+
+def _screen_strategy_policy(screen_result: dict | None) -> dict[str, Any]:
+    if not isinstance(screen_result, dict):
+        return {}
+    value = screen_result.get("strategy_policy")
+    return dict(value) if isinstance(value, dict) and value else {}
 
 
 def _strategy_next_action(ok: bool, reason: str) -> str:

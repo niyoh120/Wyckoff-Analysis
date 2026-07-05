@@ -938,6 +938,14 @@ class TestStrategyDecisionTool:
                     "summary": {"report_candidates": 1},
                     "decision_brief": {"next_action": "允许候选进入AI复核"},
                     "symbols_for_report": [{"code": "300750", "name": "宁德时代", "track": "Trend"}],
+                    "strategy_policy": {
+                        "dynamic_mode": "shadow",
+                        "execution_policy": "shadow",
+                        "policy_weight_active_scope": "尾盘+漏斗shadow",
+                        "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级",
+                        "attribution_signal_weights": {"lps": 0.5},
+                        "next_action": "manual_review_dynamic_on",
+                    },
                 },
             }
         )
@@ -959,6 +967,7 @@ class TestStrategyDecisionTool:
         assert result["reviewed_codes"] == ["300750"]
         assert result["missing_credentials"] == ["TG_BOT_TOKEN", "TG_CHAT_ID"]
         assert result["screen_summary"] == {"report_candidates": 1}
+        assert result["strategy_policy"]["policy_weight_active_scope"] == "尾盘+漏斗shadow"
         assert result["candidate_guard_summary"] == {
             "direct_buy_blocked_count": 1,
             "message": "以下候选仅可复核或观察，禁止直接买入",
@@ -977,8 +986,11 @@ class TestStrategyDecisionTool:
                 }
             ],
         }
-        assert result["report_preview"] == "# 上一跳研报"
+        assert result["report_preview"].startswith("## 策略治理上下文")
+        assert "candidate_lane=trend_pullback" in result["report_preview"]
+        assert "# 上一跳研报" in result["report_preview"]
         assert ctx.state["last_strategy_decision"]["reviewed_codes"] == ["300750"]
+        assert ctx.state["last_strategy_decision"]["strategy_policy"]["execution_policy"] == "shadow"
 
     def test_generate_strategy_decision_merges_stock_diagnosis_handoff(self, monkeypatch):
         from agents import strategy_tools
@@ -1086,7 +1098,17 @@ class TestStrategyDecisionTool:
         from agents.tool_context import ToolContext
 
         captured = {}
-        ctx = ToolContext()
+        ctx = ToolContext(
+            {
+                "last_screen_result": {
+                    "strategy_policy": {
+                        "dynamic_mode": "shadow",
+                        "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级",
+                        "signal_weights": {"trend_pullback": 0.75},
+                    }
+                }
+            }
+        )
         monkeypatch.setattr(strategy_tools, "ensure_tushare_token", lambda tool_context: None)
         monkeypatch.setattr(
             strategy_tools, "resolve_llm_config", lambda tool_context: ("openai", "key", "gpt-test", "")
@@ -1119,8 +1141,11 @@ class TestStrategyDecisionTool:
         assert result["ok"] is True
         assert result["report_source"] == "provided"
         assert result["next_action"] == "攻防决策已完成，查看 Telegram 或订单记录确认工单"
-        assert captured["report_text"] == "# 显式研报"
+        assert captured["report_text"].startswith("## 策略治理上下文")
+        assert "candidate_lane=trend_pullback" in captured["report_text"]
+        assert "# 显式研报" in captured["report_text"]
         assert captured["candidate_meta"] == [{"code": "000001", "name": "平安银行", "stage": "Accum_C"}]
+        assert result["strategy_policy"]["signal_weights"] == {"trend_pullback": 0.75}
         assert ctx.state["last_strategy_decision"]["reviewed_codes"] == ["000001"]
 
     def test_generate_strategy_decision_uses_best_candidates_when_report_list_empty(self, monkeypatch):
