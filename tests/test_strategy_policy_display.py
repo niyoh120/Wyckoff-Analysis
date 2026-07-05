@@ -104,6 +104,7 @@ def test_policy_display_helpers_translate_governor_codes() -> None:
 
 def test_policy_display_helpers_translate_backtest_gate_actions() -> None:
     assert policy_governor_display({"next_action": "run_backtest_confirmation"})["next_action"] == "先跑回测确认"
+    assert policy_governor_display({"next_action": "review_policy_actions"})["next_action"] == "先复核调权治理项"
     assert (
         policy_governor_display({"next_action": "keep_shadow_backtest_failed"})["next_action"]
         == "回测未通过，保持 shadow"
@@ -137,6 +138,10 @@ def test_policy_execution_display_labels_signal_action_review_gate() -> None:
     }
 
     assert policy_formal_dynamic_label(execution) == "未进正式漏斗(信号调权待复核)"
+
+
+def test_policy_execution_display_labels_policy_action_review_next_step() -> None:
+    assert policy_formal_dynamic_label({"next_action": "review_policy_actions"}) == "未进正式漏斗(调权治理项待复核)"
 
 
 def test_policy_execution_display_labels_missing_promotion_checklist() -> None:

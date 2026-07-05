@@ -432,6 +432,11 @@ def _next_action(
             return "keep_shadow_backtest_failed"
         if backtest_status != "pass":
             return "run_backtest_confirmation"
+        if (
+            _check_status(checklist, "signal_actions") == "review"
+            or _check_status(checklist, "selection_actions") == "review"
+        ):
+            return "review_policy_actions"
         return "manual_review_dynamic_on"
     if status == "reject":
         return "keep_static_policy"
@@ -447,6 +452,7 @@ def _next_action_summary(next_action: str) -> str:
         "manual_review_dynamic_on": "shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。",
         "run_backtest_confirmation": "shadow 新增组已跑赢移除组；先补齐最新回测确认，再进入人工晋级评审。",
         "keep_shadow_backtest_failed": "shadow 新增组已跑赢移除组，但回测确认未通过；保持 shadow，不晋级 dynamic=on。",
+        "review_policy_actions": "shadow 与回测已满足候选条件；先复核信号调权/候选源治理，再人工决定 dynamic=on。",
         "keep_static_policy": "shadow 新增组未证明优于移除组；保持静态策略，不晋级 dynamic=on。",
         "collect_more_shadow_samples": "shadow 样本不足；继续收集 shadow run 与命中结果。",
         "keep_shadow_apply_signal_weights": "保持 shadow；信号级调权可继续用于尾盘和漏斗 shadow。",

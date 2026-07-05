@@ -279,7 +279,7 @@ def test_attribution_policy_governor_accepts_structured_backtest_confirmation():
     checklist = {row["key"]: row for row in governor["promotion_checklist"]}
 
     assert governor["formal_dynamic_allowed"] is False
-    assert governor["next_action"] == "manual_review_dynamic_on"
+    assert governor["next_action"] == "review_policy_actions"
     assert governor["formal_dynamic_approval"] == "signal_actions_review_required"
     assert governor["formal_dynamic_block_reason"] == "signal_actions_review_required"
     assert checklist["backtest_confirmation"]["status"] == "pass"
@@ -448,6 +448,8 @@ def test_attribution_policy_governor_blocks_formal_dynamic_on_selection_actions(
     assert governor["formal_dynamic_allowed"] is False
     assert governor["formal_dynamic_approval"] == "selection_actions_review_required"
     assert governor["formal_dynamic_block_reason"] == "selection_actions_review_required"
+    assert governor["next_action"] == "review_policy_actions"
+    assert "复核信号调权/候选源治理" in governor["next_action_summary"]
     assert checklist["selection_actions"]["status"] == "review"
     assert checklist["backtest_confirmation"]["status"] == "pass"
 

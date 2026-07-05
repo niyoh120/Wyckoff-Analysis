@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   attributionExecutionImpactText,
+  attributionFormalDynamicLabel,
   attributionFormalDynamicReasonLabel,
+  attributionNextActionLabel,
   attributionOperatorSummary,
 } from '@wyckoff/shared'
 
@@ -16,6 +18,15 @@ describe('attributionFormalDynamicReasonLabel', () => {
     )
     expect(attributionFormalDynamicReasonLabel('selection_actions_review_required')).toBe('候选源治理待复核')
     expect(attributionFormalDynamicReasonLabel('execution_state=missing')).toBe('缺少后端执行态')
+  })
+})
+
+describe('attributionNextActionLabel', () => {
+  it('labels policy action review before formal promotion', () => {
+    expect(attributionNextActionLabel('review_policy_actions')).toBe('先复核调权治理项')
+    expect(attributionFormalDynamicLabel({ next_action: 'review_policy_actions' })).toBe(
+      '未进正式漏斗(调权治理项待复核)',
+    )
   })
 })
 

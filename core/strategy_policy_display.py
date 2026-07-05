@@ -153,6 +153,7 @@ def policy_next_action_label(raw: Any) -> str:
         "manual_review_dynamic_on": "进入人工晋级评审（非正式生效）",
         "run_backtest_confirmation": "先跑回测确认",
         "keep_shadow_backtest_failed": "回测未通过，保持 shadow",
+        "review_policy_actions": "先复核调权治理项",
         "keep_static_policy": "保持静态策略",
         "collect_more_shadow_samples": "继续收集样本",
         "keep_shadow_apply_signal_weights": "保持 shadow 并应用信号级调权",
@@ -213,6 +214,8 @@ def policy_formal_dynamic_label(execution: dict[str, Any] | None) -> str:
         return f"未进正式漏斗({_formal_dynamic_reason_label(reason)})" if reason else "未进正式漏斗"
     if str(row.get("next_action") or "").strip() == "manual_review_dynamic_on":
         return "未进正式漏斗(人工复核未完成)"
+    if str(row.get("next_action") or "").strip() == "review_policy_actions":
+        return "未进正式漏斗(调权治理项待复核)"
     return "未知"
 
 
