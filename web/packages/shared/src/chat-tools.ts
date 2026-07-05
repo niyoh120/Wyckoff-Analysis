@@ -739,8 +739,12 @@ function formalDynamicText(execution: Record<string, unknown>): string {
 }
 
 function fallbackFormalDynamic(governor: Record<string, unknown>): { allowed: boolean, reason: string } {
-  if (governor.formal_dynamic_allowed === true) return { allowed: true, reason: '' }
-  if (governor.formal_dynamic_allowed === false) {
+  const explicit = truthValue(governor.formal_dynamic_allowed)
+  if (explicit === true) {
+    const checklistBlock = promotionChecklistBlockReason(governor.promotion_checklist)
+    return checklistBlock ? { allowed: false, reason: checklistBlock } : { allowed: true, reason: '' }
+  }
+  if (explicit === false) {
     return { allowed: false, reason: String(governor.formal_dynamic_block_reason || 'formal_dynamic_allowed=false') }
   }
   if (String(governor.next_action || '').trim() === 'manual_review_dynamic_on') {
@@ -753,6 +757,28 @@ function fallbackFormalDynamic(governor: Record<string, unknown>): { allowed: bo
     return { allowed: false, reason: 'backtest_confirmation_failed' }
   }
   return { allowed: false, reason: String(governor.next_action || 'unknown') }
+}
+
+function promotionChecklistBlockReason(raw: unknown): string {
+  const rows = arrayValues(raw).filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+  if (rows.length === 0) return 'promotion_checklist=missing'
+  const blocked = rows
+    .map((row) => {
+      const status = String(row.status || '').trim().toLowerCase()
+      return ['pass', 'not_required'].includes(status) ? '' : `${String(row.key || 'unknown')}:${status || 'unknown'}`
+    })
+    .filter(Boolean)
+  return blocked.length ? `promotion_checklist=${blocked.join(',')}` : ''
+}
+
+function truthValue(value: unknown): boolean | null {
+  if (value === true || value === false) return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true') return true
+    if (normalized === 'false') return false
+  }
+  return null
 }
 
 function promotionChecklistLine(raw: unknown): string {

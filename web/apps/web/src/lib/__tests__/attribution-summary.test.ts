@@ -79,6 +79,17 @@ describe('attributionOperatorSummary', () => {
       actions: [{ target: 'sos', weight_multiplier: 1.15 }],
     })).toContain('正式dynamic=未进正式漏斗(晋级清单缺失)')
   })
+
+  it('labels a blocked promotion checklist with checklist evidence', () => {
+    expect(attributionOperatorSummary({
+      execution: {
+        scope: 'tail_buy_and_funnel_shadow',
+        formal_dynamic_allowed: false,
+        formal_dynamic_block_reason: 'promotion_checklist=shadow_sample:review',
+      },
+      actions: [{ target: 'sos', weight_multiplier: 1.15 }],
+    })).toContain('正式dynamic=未进正式漏斗(晋级清单未通过(shadow_sample:review))')
+  })
 })
 
 describe('attributionExecutionImpactText', () => {

@@ -227,9 +227,14 @@ def _formal_dynamic_reason_label(reason: str) -> str:
         "shadow_only": "仅 shadow 观察",
         "signal_actions_review_required": "信号调权待复核",
     }
+    if reason in labels:
+        return labels[reason]
     if reason.startswith("next_action="):
         return f"下一步={policy_next_action_label(reason.split('=', 1)[1])}"
-    return labels.get(reason, reason)
+    if reason.startswith("promotion_checklist="):
+        details = reason.split("=", 1)[1]
+        return f"晋级清单未通过({details})" if details else "晋级清单未通过"
+    return reason
 
 
 def policy_governor_display(governor: dict[str, Any] | None) -> dict[str, str]:

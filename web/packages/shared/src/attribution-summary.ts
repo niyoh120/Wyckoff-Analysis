@@ -118,10 +118,15 @@ function formalDynamicReasonLabel(reason: string): string {
     shadow_only: '仅 shadow 观察',
     signal_actions_review_required: '信号调权待复核',
   }
+  if (labels[reason]) return labels[reason]
   if (reason.startsWith('next_action=')) {
     return `下一步=${attributionNextActionLabel(reason.slice('next_action='.length))}`
   }
-  return labels[reason] || reason
+  if (reason.startsWith('promotion_checklist=')) {
+    const details = reason.slice('promotion_checklist='.length)
+    return details ? `晋级清单未通过(${details})` : '晋级清单未通过'
+  }
+  return reason
 }
 
 export function attributionOperatorSummary(input: AttributionOperatorSummaryInput): string {
