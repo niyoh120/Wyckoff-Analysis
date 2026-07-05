@@ -1128,7 +1128,11 @@ function normalizeAnalyzeOutput(output: AnalyzeStockResult | undefined, text: st
 export async function execGenerateAiReport(
   deps: ToolDeps, userId: string, _config: LLMToolConfig, model: unknown, codes: string[],
 ): Promise<string> {
-  const keys = await fetchUserDataKeys(deps, userId)
+  const [keys, strategyPolicy] = await Promise.all([
+    fetchUserDataKeys(deps, userId),
+    fetchLatestStrategyPolicy(deps),
+  ])
+  const policyDigest = formatStrategyPolicyDigest(strategyPolicy)
 
   const results: string[] = []
   for (const code of codes.slice(0, 3)) {
@@ -1144,21 +1148,23 @@ export async function execGenerateAiReport(
     const valueDigest = buildValueAgentDigest(valueSnapshot)
     const result = await deps.generateText({
       model: model as Parameters<typeof GenerateTextFn>[0]['model'],
-      system: `你是威科夫分析大师。为 ${code} 撰写一份简明研报，包含：阶段判断、量价特征、价值面校准、关键价位、操作建议。价值面只校准质量/风险/置信度，不替代技术面。250字以内。`,
-      prompt: `${valueDigest}\n\n${digest}`,
+      system: `你是威科夫分析大师。为 ${code} 撰写一份简明研报，包含：阶段判断、量价特征、价值面校准、关键价位、操作建议、当前策略治理影响。价值面只校准质量/风险/置信度，不替代技术面。250字以内。`,
+      prompt: `策略治理:\n${policyDigest}\n\n${valueDigest}\n\n${digest}`,
     })
     results.push(`## ${code}\n${result.text || '无输出'}\n`)
   }
 
-  return results.join('\n---\n\n')
+  const report = results.join('\n---\n\n')
+  return strategyPolicy ? `### 策略治理\n${policyDigest}\n\n---\n\n${report}` : report
 }
 
 export async function execStrategyDecision(deps: ToolDeps, userId: string, model: unknown): Promise<StrategyDecisionResult> {
   const portfolioId = `USER_LIVE:${userId}`
 
-  const [posResult, signalResult] = await Promise.all([
+  const [posResult, signalResult, strategyPolicy] = await Promise.all([
     deps.supabase.from('portfolio_positions').select('code, name, shares, cost_price, stop_loss').eq('portfolio_id', portfolioId),
     deps.supabase.from('market_signal_daily').select('*').order('trade_date', { ascending: false }).limit(1).single(),
+    fetchLatestStrategyPolicy(deps),
   ])
 
   const positions = posResult.data || []
@@ -1171,6 +1177,7 @@ export async function execStrategyDecision(deps: ToolDeps, userId: string, model
       overall_position: '空仓',
       risk: '没有持仓数据，不能生成个股级调仓建议。',
       position_actions: [],
+      strategy_policy: strategyPolicy,
     }
   }
 
@@ -1181,23 +1188,41 @@ export async function execStrategyDecision(deps: ToolDeps, userId: string, model
   const marketInfo = signal
     ? `大盘状态: ${signal.benchmark_regime || '未知'}, 上证: ${signal.main_index_close || '--'}, A50涨幅: ${signal.a50_pct_chg || '--'}%, VIX: ${signal.vix_close || '--'}`
     : '暂无市场数据'
+  const policyInfo = formatStrategyPolicyDigest(strategyPolicy)
 
   const result = await deps.generateText({
     model: model as Parameters<typeof GenerateTextFn>[0]['model'],
     system: '你是威科夫大师。基于用户的持仓和当前市场环境，为每只持仓股给出操作建议（买入加仓/持有/减仓/卖出），并给出整体仓位管理建议。按结构化 schema 输出，必须附带风险提示。',
-    prompt: `当前持仓:\n${posInfo}\n\n市场环境:\n${marketInfo}`,
+    prompt: `当前持仓:\n${posInfo}\n\n市场环境:\n${marketInfo}\n\n策略治理:\n${policyInfo}`,
     output: Output.object({ schema: STRATEGY_DECISION_OUTPUT_SCHEMA }),
   })
 
-  return result.output || {
+  return withStrategyPolicy(result.output || {
     summary: result.text || '无法生成建议',
     market_regime: signal?.benchmark_regime || '未知',
     overall_position: '详见摘要',
     risk: '请结合实时行情与自身风险承受能力。',
     position_actions: [],
-  }
+  }, strategyPolicy)
 }
 
+function withStrategyPolicy(result: StrategyDecisionResult, policy: ScreenStrategyPolicy | null): StrategyDecisionResult {
+  return policy ? { ...result, strategy_policy: policy } : result
+}
+
+function formatStrategyPolicyDigest(policy: ScreenStrategyPolicy | null): string {
+  if (!policy) return '无最新策略治理摘要。'
+  const lines = [
+    `执行策略: ${policy.execution_policy || policy.dynamic_mode || '未知'}`,
+    `生效范围: ${policy.policy_weight_active_scope || '未知'}`,
+    `候选源治理: ${policy.selection_action_summary || '无'}`,
+  ]
+  const weights = policy.attribution_signal_weights || policy.signal_weights
+  if (weights && Object.keys(weights).length > 0) {
+    lines.push(`归因调权: ${Object.entries(weights).map(([key, value]) => `${key}×${value.toFixed(2)}`).join('，')}`)
+  }
+  return lines.join('\n')
+}
 
 export async function execIntradayAnalysis(deps: ToolDeps, userId: string, code: string): Promise<string> {
   const apiKey = await fetchTickFlowKey(deps, userId)

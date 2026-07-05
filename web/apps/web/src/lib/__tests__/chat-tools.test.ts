@@ -11,6 +11,8 @@ import {
   execQueryTailBuy,
   execExecutePortfolioUpdate,
   execScreenStocks,
+  execStrategyDecision,
+  execGenerateAiReport,
   execAnalyzeStock,
   execMarketHistory,
   SCREEN_RESULT_OUTPUT_SCHEMA,
@@ -624,6 +626,143 @@ describe('execScreenStocks', () => {
 
     expect(result.strategy_policy?.dynamic_mode).toBe('shadow')
     expect(result.strategy_policy?.attribution_signal_weights).toEqual({ lps: 0.5 })
+  })
+})
+
+describe('execStrategyDecision', () => {
+  it('returns latest strategy policy evidence when portfolio is empty', async () => {
+    const deps = createMockDeps({
+      portfolio_positions: [],
+      market_signal_daily: { benchmark_regime: 'RISK_ON' },
+      signal_policy_shadow_runs: [
+        {
+          shadow_diff_stats_json: {
+            policy_governor: { horizon: '5', next_action: 'manual_review_dynamic_on' },
+            policy_execution_state: { funnel_dynamic_policy: 'shadow' },
+            policy_operations_brief: {
+              active_scope: '尾盘+漏斗shadow',
+              selection_action_count: 1,
+              selection_action_summary: '候选源治理 1 项：candidate_lane=lps 降级到 shadow/人工复核×0.50',
+            },
+          },
+          recommendations_json: [
+            {
+              type: 'selection_downweight',
+              horizon: '5',
+              target: 'lps',
+              reason: '{"weight_multiplier":0.5}',
+            },
+          ],
+        },
+      ],
+    })
+
+    const result = await execStrategyDecision(deps, 'user1', {})
+
+    expect(result.overall_position).toBe('空仓')
+    expect(result.strategy_policy?.policy_weight_active_scope).toBe('尾盘+漏斗shadow')
+    expect(result.strategy_policy?.attribution_signal_weights).toEqual({ lps: 0.5 })
+    expect(deps.generateText).not.toHaveBeenCalled()
+  })
+
+  it('adds strategy policy evidence to the decision prompt and output', async () => {
+    const deps = createMockDeps({
+      portfolio_positions: [{ code: '600519', name: '贵州茅台', shares: 100, cost_price: 1800, stop_loss: 1700 }],
+      market_signal_daily: { benchmark_regime: 'RISK_ON', main_index_close: 4000 },
+      signal_policy_shadow_runs: [
+        {
+          shadow_diff_stats_json: {
+            policy_governor: { horizon: '5', next_action: 'manual_review_dynamic_on' },
+            policy_execution_state: { funnel_dynamic_policy: 'shadow' },
+            policy_operations_brief: {
+              active_scope: '尾盘+漏斗shadow',
+              selection_action_count: 1,
+              selection_action_summary: '候选源治理 1 项：candidate_lane=trend_pullback 降级',
+            },
+          },
+          recommendations_json: [
+            {
+              type: 'selection_downweight',
+              horizon: '5',
+              target: 'trend_pullback',
+              reason: '{"weight_multiplier":0.75}',
+            },
+          ],
+        },
+      ],
+    })
+    deps.generateText = vi.fn().mockResolvedValue({
+      output: {
+        summary: '持有为主',
+        market_regime: 'RISK_ON',
+        overall_position: '30%',
+        risk: '控制回撤',
+        position_actions: [],
+      },
+    }) as unknown as ToolDeps['generateText']
+
+    const result = await execStrategyDecision(deps, 'user1', {})
+
+    expect(result.strategy_policy?.attribution_signal_weights).toEqual({ trend_pullback: 0.75 })
+    expect(deps.generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('候选源治理 1 项：candidate_lane=trend_pullback 降级'),
+    }))
+    expect(deps.generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('归因调权: trend_pullback×0.75'),
+    }))
+  })
+})
+
+describe('execGenerateAiReport', () => {
+  it('adds strategy policy context to the report and prompt', async () => {
+    const deps = createMockDeps({
+      user_settings: { tickflow_api_key: ' tf-test ', tushare_token: '' },
+      signal_policy_shadow_runs: [
+        {
+          shadow_diff_stats_json: {
+            policy_governor: { horizon: '5', next_action: 'manual_review_dynamic_on' },
+            policy_execution_state: { funnel_dynamic_policy: 'shadow' },
+            policy_operations_brief: {
+              active_scope: '尾盘+漏斗shadow',
+              selection_action_summary: '候选源治理 1 项：candidate_lane=sos 降级',
+            },
+          },
+          recommendations_json: [
+            {
+              type: 'selection_downweight',
+              horizon: '5',
+              target: 'sos',
+              reason: '{"weight_multiplier":0.8}',
+            },
+          ],
+        },
+      ],
+    })
+    deps.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: [
+            { date: '2026-07-01', open: 10, high: 11, low: 9.8, close: 10.8, volume: 1000 },
+            { date: '2026-07-02', open: 10.8, high: 11.2, low: 10.6, close: 11, volume: 1200 },
+          ],
+        }),
+      })
+      .mockResolvedValue({ ok: false, json: () => Promise.resolve({}) }) as unknown as ToolDeps['fetch']
+
+    const result = await execGenerateAiReport(
+      deps,
+      'user1',
+      { api_key: 'llm-key', model: 'test-model', base_url: 'https://example.com/v1' },
+      {},
+      ['600519'],
+    )
+
+    expect(result).toContain('### 策略治理')
+    expect(result).toContain('候选源治理 1 项：candidate_lane=sos 降级')
+    expect(deps.generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('归因调权: sos×0.80'),
+    }))
   })
 })
 
