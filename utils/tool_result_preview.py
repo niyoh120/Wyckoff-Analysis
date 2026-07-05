@@ -1371,6 +1371,7 @@ def _screen_stocks_preview(result: dict[str, Any]) -> str:
             "summary": result.get("summary"),
             "data_quality": result.get("data_quality"),
             "trade_mode": result.get("trade_mode"),
+            "strategy_policy": _screen_strategy_policy_preview(result.get("strategy_policy")),
             "theme_context": _screen_theme_context_preview(result.get("theme_context")),
             "etf_enhancement": _screen_etf_enhancement_preview(result.get("etf_enhancement")),
             "etf_candidates": _screen_etf_candidate_preview_list(result.get("etf_candidates"), 6),
@@ -1423,6 +1424,9 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
     if theme_line := _screen_theme_context_line(result.get("theme_context")):
         if len(lines) < max(max_lines - reserved, 0):
             lines.append(theme_line)
+    if policy_line := _screen_strategy_policy_line(result.get("strategy_policy")):
+        if max_lines > 3 and len(lines) < max(max_lines - reserved, 0):
+            lines.append(policy_line)
     if etf_line:
         lines.append(etf_line)
     if handoff_line:
@@ -1439,6 +1443,36 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
         if len(lines) >= max_lines:
             break
     return lines[:max_lines]
+
+
+def _screen_strategy_policy_preview(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _drop_empty_preview_fields(
+        {
+            "dynamic_mode": value.get("dynamic_mode"),
+            "execution_policy": value.get("execution_policy"),
+            "active_scope": value.get("policy_weight_active_scope"),
+            "selection_action_count": value.get("selection_action_count"),
+            "selection_action_summary": _text_excerpt(value.get("selection_action_summary"), 180),
+            "formal_dynamic_allowed": value.get("formal_dynamic_allowed"),
+            "next_action": value.get("next_action"),
+            "signal_weights": value.get("signal_weights"),
+            "attribution_signal_weights": value.get("attribution_signal_weights"),
+        }
+    )
+
+
+def _screen_strategy_policy_line(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    summary = str(value.get("selection_action_summary") or "").strip()
+    if summary and summary != "候选源治理=无":
+        return f"策略治理: {_text_excerpt(summary, 180)}"
+    weights = value.get("attribution_signal_weights")
+    if isinstance(weights, dict) and weights:
+        return f"策略治理: 归因调权 {','.join(str(k) for k in list(weights)[:6])}"
+    return ""
 
 
 def _screen_review_chain_line(result: dict[str, Any]) -> str:

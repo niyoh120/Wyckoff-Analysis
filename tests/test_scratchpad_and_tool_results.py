@@ -422,6 +422,31 @@ def test_screen_stocks_brief_surfaces_data_date_and_coverage():
     ]
 
 
+def test_screen_stocks_preview_surfaces_strategy_policy_governance():
+    result = {
+        "scan_scope": {"scope": "bounded", "board": "all", "limit": 300, "total_scanned": 300},
+        "strategy_policy": {
+            "dynamic_mode": "shadow",
+            "execution_policy": "shadow",
+            "policy_weight_active_scope": "尾盘+漏斗shadow",
+            "selection_action_count": 1,
+            "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
+            "formal_dynamic_allowed": False,
+            "next_action": "manual_review_dynamic_on",
+            "signal_weights": {"lps": 0.5},
+            "attribution_signal_weights": {"lps": 0.5},
+        },
+    }
+
+    preview = json.loads(tool_result_preview("screen_stocks", result))
+    lines = tool_result_brief_lines("screen_stocks", result, max_lines=4)
+
+    assert preview["strategy_policy"]["selection_action_count"] == 1
+    assert preview["strategy_policy"]["active_scope"] == "尾盘+漏斗shadow"
+    assert "candidate_lane=trend_pullback" in preview["strategy_policy"]["selection_action_summary"]
+    assert "策略治理: 候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75" in lines
+
+
 def test_screen_stocks_brief_lines_surface_candidate_risk_status():
     result = {
         "selection_brief": {

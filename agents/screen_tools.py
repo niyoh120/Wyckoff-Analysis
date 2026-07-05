@@ -171,6 +171,7 @@ def _build_screen_result(
         trigger_groups=trigger_groups,
         summary=summary,
         data_quality=data_quality,
+        strategy_policy=_strategy_policy_summary(details),
         trade_mode=trade_mode,
         decision_brief=decision_brief,
         selection_brief=selection_brief,
@@ -209,6 +210,7 @@ def _screen_result_payload(**payload: Any) -> dict[str, Any]:
         ),
         "summary": summary,
         "data_quality": payload["data_quality"],
+        "strategy_policy": payload["strategy_policy"],
         "trade_mode": payload["trade_mode"],
         "decision_brief": payload["decision_brief"],
         "selection_brief": payload["selection_brief"],
@@ -416,6 +418,7 @@ def remember_screen_handoff(tool_context: ToolContext | None, result: dict[str, 
         "scan_scope": result.get("scan_scope", {}),
         "summary": result.get("summary", {}),
         "data_quality": result.get("data_quality", {}),
+        "strategy_policy": result.get("strategy_policy", {}),
         "trade_mode": result.get("trade_mode", {}),
         "decision_brief": result.get("decision_brief", {}),
         "selection_brief": result.get("selection_brief", {}),
@@ -621,6 +624,24 @@ def _trade_mode_summary(details: dict) -> dict:
         "allow_recommendation_write",
     )
     return {field: mode[field] for field in fields if field in mode}
+
+
+def _strategy_policy_summary(details: dict) -> dict:
+    policy = details.get("strategy_policy") if isinstance(details, dict) else {}
+    if not isinstance(policy, dict):
+        return {}
+    fields = (
+        "dynamic_mode",
+        "signal_weights",
+        "attribution_signal_weights",
+        "selection_action_count",
+        "selection_action_summary",
+        "formal_dynamic_allowed",
+        "policy_weight_active_scope",
+        "execution_policy",
+        "next_action",
+    )
+    return {field: policy[field] for field in fields if field in policy}
 
 
 def _theme_context(metrics: dict) -> dict[str, Any]:
