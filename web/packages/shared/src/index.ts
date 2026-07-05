@@ -46,6 +46,7 @@ export type { TailBuyExecutionInput, TailBuyExecutionSemantics } from './tail-bu
 export {
   attributionExecutionImpactText,
   attributionFormalDynamicLabel,
+  attributionFormalDynamicReasonLabel,
   attributionGovernorStatusLabel,
   attributionModeRecommendationLabel,
   attributionNextActionLabel,

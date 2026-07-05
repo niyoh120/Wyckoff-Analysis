@@ -93,7 +93,7 @@ export function attributionFormalDynamicLabel(
   if (execution?.formal_dynamic_allowed === true) return '允许正式生效'
   if (execution?.formal_dynamic_allowed === false) {
     const reason = optionalText(execution.formal_dynamic_block_reason)
-    return reason ? `未进正式漏斗(${formalDynamicReasonLabel(reason)})` : '未进正式漏斗'
+    return reason ? `未进正式漏斗(${attributionFormalDynamicReasonLabel(reason)})` : '未进正式漏斗'
   }
   if (optionalText(execution?.next_action) === 'manual_review_dynamic_on') {
     return '未进正式漏斗(人工复核未完成)'
@@ -107,7 +107,8 @@ export function attributionFormalDynamicLabel(
   return '未知'
 }
 
-function formalDynamicReasonLabel(reason: string): string {
+export function attributionFormalDynamicReasonLabel(reason: unknown): string {
+  const text = optionalText(reason)
   const labels: Record<string, string> = {
     'auto_apply=false': '未启用自动晋级',
     backtest_confirmation_failed: '回测未通过',
@@ -119,15 +120,15 @@ function formalDynamicReasonLabel(reason: string): string {
     shadow_only: '仅 shadow 观察',
     signal_actions_review_required: '信号调权待复核',
   }
-  if (labels[reason]) return labels[reason]
-  if (reason.startsWith('next_action=')) {
-    return `下一步=${attributionNextActionLabel(reason.slice('next_action='.length))}`
+  if (labels[text]) return labels[text]
+  if (text.startsWith('next_action=')) {
+    return `下一步=${attributionNextActionLabel(text.slice('next_action='.length))}`
   }
-  if (reason.startsWith('promotion_checklist=')) {
-    const details = reason.slice('promotion_checklist='.length)
+  if (text.startsWith('promotion_checklist=')) {
+    const details = text.slice('promotion_checklist='.length)
     return details ? `晋级清单未通过(${details})` : '晋级清单未通过'
   }
-  return reason
+  return text
 }
 
 export function attributionOperatorSummary(input: AttributionOperatorSummaryInput): string {
@@ -195,10 +196,10 @@ function normalizeOperatorSummaryFormalDynamic(
   }
   return summary
     .replace(/正式dynamic=暂不晋级(?:\(([^；)]*)\))?(?=；|$)/g, (_match, reason: string | undefined) => (
-      reason ? `正式dynamic=未进正式漏斗(${formalDynamicReasonLabel(reason)})` : '正式dynamic=未进正式漏斗'
+      reason ? `正式dynamic=未进正式漏斗(${attributionFormalDynamicReasonLabel(reason)})` : '正式dynamic=未进正式漏斗'
     ))
     .replace(/正式dynamic=未进正式漏斗\(([^；)]*)\)(?=；|$)/g, (_match, reason: string) => (
-      `正式dynamic=未进正式漏斗(${formalDynamicReasonLabel(reason)})`
+      `正式dynamic=未进正式漏斗(${attributionFormalDynamicReasonLabel(reason)})`
     ))
 }
 

@@ -4,6 +4,7 @@ import { RefreshCw } from 'lucide-react'
 import {
   attributionExecutionImpactText,
   attributionFormalDynamicLabel,
+  attributionFormalDynamicReasonLabel,
   attributionGovernorStatusLabel,
   attributionModeRecommendationLabel,
   attributionNextActionLabel,
@@ -1117,7 +1118,9 @@ function formatExecutionActiveScope(execution: PolicyExecutionPayload | null, ac
 function formatFormalDynamicReason(execution: PolicyExecutionPayload | null) {
   if (execution?.formal_dynamic_allowed !== false) return ''
   const reason = String(execution.formal_dynamic_block_reason || '').trim()
-  return reason ? `正式 dynamic 被治理器拦截：${reason}。` : '正式 dynamic 被治理器拦截。'
+  return reason
+    ? `正式 dynamic 被治理器拦截：${attributionFormalDynamicReasonLabel(reason)}。`
+    : '正式 dynamic 被治理器拦截。'
 }
 
 function promotionStatusClass(raw: string | undefined) {

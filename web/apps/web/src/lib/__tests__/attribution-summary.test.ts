@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { attributionExecutionImpactText, attributionOperatorSummary } from '@wyckoff/shared'
+import {
+  attributionExecutionImpactText,
+  attributionFormalDynamicReasonLabel,
+  attributionOperatorSummary,
+} from '@wyckoff/shared'
+
+describe('attributionFormalDynamicReasonLabel', () => {
+  it('formats formal gate blocker reasons for UI surfaces', () => {
+    expect(attributionFormalDynamicReasonLabel('manual_review_required')).toBe('人工复核未完成')
+    expect(attributionFormalDynamicReasonLabel('promotion_checklist=shadow_sample:review')).toBe(
+      '晋级清单未通过(shadow_sample:review)',
+    )
+    expect(attributionFormalDynamicReasonLabel('execution_state=missing')).toBe('缺少后端执行态')
+  })
+})
 
 describe('attributionOperatorSummary', () => {
   it('uses backend operator summary when present', () => {
