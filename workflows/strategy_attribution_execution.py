@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from core.strategy_policy_display import format_policy_signal_label, safe_policy_weight
+from core.strategy_policy_display import format_policy_signal_label, policy_formal_dynamic_label, safe_policy_weight
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FUNNEL_WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "wyckoff_funnel.yml"
@@ -331,10 +331,7 @@ def _execution_active_scope_text(execution: dict[str, Any]) -> str:
 
 
 def _formal_dynamic_summary(execution: dict[str, Any]) -> str:
-    if execution.get("formal_dynamic_allowed"):
-        return "正式dynamic=允许正式生效"
-    reason = str(execution.get("formal_dynamic_block_reason") or "").strip()
-    return f"正式dynamic=暂不晋级{f'({reason})' if reason else ''}"
+    return f"正式dynamic={policy_formal_dynamic_label(execution)}"
 
 
 def _shadow_summary(latest: dict[str, Any]) -> str:

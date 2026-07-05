@@ -482,11 +482,12 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "backtest_confirmation": {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"},
         "operator_summary": (
             "下一步=shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。；"
-            "作用范围=尾盘+漏斗shadow；正式dynamic=暂不晋级(manual_review_required)；"
+            "作用范围=尾盘+漏斗shadow；正式dynamic=未进正式漏斗(人工复核未完成)；"
             "回测确认=待复核(need backtest)；"
             "Shadow=暂无最新对照；本期 1 个 scoped 调权：lps×0.50；候选源治理=无"
         ),
     }
+    assert "manual_review_required" not in got["operator_summary"]
 
 
 def test_attribution_markdown_surfaces_execution_state(monkeypatch):
