@@ -159,10 +159,41 @@ function StrategyResultCard({
         <DecisionMetric label="市场环境" value={data.market_regime} />
         <DecisionMetric label="总仓位" value={data.overall_position} />
       </div>
+      <StrategyPolicyLine policy={data.strategy_policy} />
       <StrategyActionList actions={data.position_actions} onPinStock={onPinStock} />
       <p className="text-muted-foreground">组合风险：{data.risk}</p>
     </div>
   )
+}
+
+function StrategyPolicyLine({ policy }: { policy?: StrategyDecisionResult['strategy_policy'] }) {
+  const text = strategyPolicyText(policy)
+  if (!text) return null
+  return (
+    <div className="rounded-md border border-amber-200/70 bg-amber-50/70 px-2 py-1.5 text-[11px] leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+      <span className="font-medium">策略治理：</span>
+      <span className="break-words">{text}</span>
+    </div>
+  )
+}
+
+function strategyPolicyText(policy?: StrategyDecisionResult['strategy_policy']): string {
+  if (!policy) return ''
+  const summary = (policy.selection_action_summary || '').trim()
+  if (summary && summary !== '候选源治理=无') return summary
+  const weights = policy.attribution_signal_weights || policy.signal_weights
+  if (weights && Object.keys(weights).length > 0) return `归因调权 ${formatPolicyWeights(weights)}`
+  const scope = (policy.policy_weight_active_scope || '').trim()
+  const mode = (policy.execution_policy || policy.dynamic_mode || '').trim()
+  return [mode, scope].filter(Boolean).join(' / ')
+}
+
+function formatPolicyWeights(weights: Record<string, number>): string {
+  return Object.entries(weights)
+    .filter(([, value]) => Number.isFinite(value))
+    .slice(0, 6)
+    .map(([key, value]) => `${key}×${value.toFixed(2)}`)
+    .join('，')
 }
 
 function StrategyActionList({

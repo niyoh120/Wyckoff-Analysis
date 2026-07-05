@@ -14,6 +14,7 @@ import {
   execAnalyzeStock,
   execMarketHistory,
   SCREEN_RESULT_OUTPUT_SCHEMA,
+  STRATEGY_DECISION_OUTPUT_SCHEMA,
 } from '@wyckoff/shared'
 
 function createMockChain(resolvedData: unknown = null, error: unknown = null) {
@@ -559,6 +560,70 @@ describe('execScreenStocks', () => {
 
     expect(result.strategy_policy?.selection_action_count).toBe(1)
     expect(result.strategy_policy?.selection_action_summary).toContain('candidate_lane=trend_pullback')
+  })
+
+  it('attaches latest strategy policy evidence from shadow attribution runs', async () => {
+    const deps = createMockDeps({
+      recommendation_tracking: [
+        {
+          code: 300502,
+          name: '新易盛',
+          recommend_date: '2026-07-05',
+          funnel_score: 0.9,
+          change_pct: 3.2,
+          candidate_lane: 'trend_pullback',
+          entry_type: 'mainline',
+          is_ai_recommended: true,
+        },
+      ],
+      signal_policy_shadow_runs: [
+        {
+          trade_date: '2026-07-04',
+          shadow_diff_stats_json: {
+            policy_governor: { horizon: '5', next_action: 'manual_review_dynamic_on' },
+            policy_execution_state: { funnel_dynamic_policy: 'shadow' },
+            policy_operations_brief: {
+              active_scope: '尾盘+漏斗shadow',
+              selection_action_count: 1,
+              selection_action_summary: '候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75',
+              formal_dynamic_allowed: false,
+            },
+          },
+          recommendations_json: [
+            {
+              type: 'selection_downweight',
+              horizon: '5',
+              target: 'trend_pullback',
+              reason: '{"weight_multiplier":0.75}',
+            },
+          ],
+        },
+      ],
+    })
+
+    const result = await execScreenStocks(deps)
+
+    expect(result.strategy_policy?.policy_weight_active_scope).toBe('尾盘+漏斗shadow')
+    expect(result.strategy_policy?.selection_action_summary).toContain('candidate_lane=trend_pullback')
+    expect(result.strategy_policy?.attribution_signal_weights).toEqual({ trend_pullback: 0.75 })
+  })
+
+  it('keeps optional strategy policy evidence in strategy decision output schema', () => {
+    const result = STRATEGY_DECISION_OUTPUT_SCHEMA.parse({
+      summary: '组合保持轻仓',
+      market_regime: 'RISK_ON',
+      overall_position: '30%',
+      risk: '主线分歧日不追高',
+      position_actions: [],
+      strategy_policy: {
+        dynamic_mode: 'shadow',
+        selection_action_summary: '候选源治理 1 项：candidate_lane=lps 降级',
+        attribution_signal_weights: { lps: 0.5 },
+      },
+    })
+
+    expect(result.strategy_policy?.dynamic_mode).toBe('shadow')
+    expect(result.strategy_policy?.attribution_signal_weights).toEqual({ lps: 0.5 })
   })
 })
 

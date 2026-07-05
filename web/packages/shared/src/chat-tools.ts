@@ -48,6 +48,18 @@ export const ANALYZE_STOCK_OUTPUT_SCHEMA = z.object({
   markdown: z.string(),
 })
 
+export const STRATEGY_POLICY_OUTPUT_SCHEMA = z.object({
+  dynamic_mode: z.string().nullable().optional(),
+  execution_policy: z.string().nullable().optional(),
+  policy_weight_active_scope: z.string().nullable().optional(),
+  selection_action_count: z.number().nullable().optional(),
+  selection_action_summary: z.string().nullable().optional(),
+  formal_dynamic_allowed: z.boolean().nullable().optional(),
+  next_action: z.string().nullable().optional(),
+  signal_weights: z.record(z.number()).nullable().optional(),
+  attribution_signal_weights: z.record(z.number()).nullable().optional(),
+})
+
 export const STRATEGY_DECISION_OUTPUT_SCHEMA = z.object({
   summary: z.string(),
   market_regime: z.string(),
@@ -60,9 +72,11 @@ export const STRATEGY_DECISION_OUTPUT_SCHEMA = z.object({
     reason: z.string(),
     risk: z.string(),
   })),
+  strategy_policy: STRATEGY_POLICY_OUTPUT_SCHEMA.nullable().optional(),
 })
 
 export type AnalyzeStockResult = z.infer<typeof ANALYZE_STOCK_OUTPUT_SCHEMA>
+export type ScreenStrategyPolicy = z.infer<typeof STRATEGY_POLICY_OUTPUT_SCHEMA>
 export type StrategyDecisionResult = z.infer<typeof STRATEGY_DECISION_OUTPUT_SCHEMA>
 
 export function buildKlineDigest(data: KlineRow[]): string {
@@ -903,18 +917,6 @@ export interface ScreenStockItem {
   entry_type: string | null
 }
 
-export interface ScreenStrategyPolicy {
-  dynamic_mode?: string | null
-  execution_policy?: string | null
-  policy_weight_active_scope?: string | null
-  selection_action_count?: number | null
-  selection_action_summary?: string | null
-  formal_dynamic_allowed?: boolean | null
-  next_action?: string | null
-  signal_weights?: Record<string, number> | null
-  attribution_signal_weights?: Record<string, number> | null
-}
-
 export interface ScreenResult {
   date: string
   stocks: ScreenStockItem[]
@@ -934,17 +936,7 @@ export const SCREEN_RESULT_OUTPUT_SCHEMA = z.object({
     entry_type: z.string().nullable(),
   })),
   meta: z.object({ ai_count: z.number() }),
-  strategy_policy: z.object({
-    dynamic_mode: z.string().nullable().optional(),
-    execution_policy: z.string().nullable().optional(),
-    policy_weight_active_scope: z.string().nullable().optional(),
-    selection_action_count: z.number().nullable().optional(),
-    selection_action_summary: z.string().nullable().optional(),
-    formal_dynamic_allowed: z.boolean().nullable().optional(),
-    next_action: z.string().nullable().optional(),
-    signal_weights: z.record(z.number()).nullable().optional(),
-    attribution_signal_weights: z.record(z.number()).nullable().optional(),
-  }).nullable().optional(),
+  strategy_policy: STRATEGY_POLICY_OUTPUT_SCHEMA.nullable().optional(),
 })
 
 export async function execScreenStocks(deps: ToolDeps): Promise<ScreenResult> {
@@ -959,6 +951,7 @@ export async function execScreenStocks(deps: ToolDeps): Promise<ScreenResult> {
 
   const latestDate = data[0]!.recommend_date
   const latest = data.filter(r => r.recommend_date === latestDate)
+  const strategyPolicy = await fetchLatestStrategyPolicy(deps)
 
   const result: ScreenResult = {
     date: latestDate,
@@ -973,8 +966,83 @@ export async function execScreenStocks(deps: ToolDeps): Promise<ScreenResult> {
     })),
     meta: { ai_count: latest.length },
   }
+  if (strategyPolicy) result.strategy_policy = strategyPolicy
 
   return result
+}
+
+async function fetchLatestStrategyPolicy(deps: ToolDeps): Promise<ScreenStrategyPolicy | null> {
+  try {
+    const { data } = await deps.supabase
+      .from('signal_policy_shadow_runs')
+      .select('trade_date,market,shadow_diff_stats_json,recommendations_json')
+      .eq('market', 'cn')
+      .order('trade_date', { ascending: false })
+      .limit(1)
+    return strategyPolicyFromRow(Array.isArray(data) ? data[0] : null)
+  } catch {
+    return null
+  }
+}
+
+function strategyPolicyFromRow(row: unknown): ScreenStrategyPolicy | null {
+  const item = recordValue(row)
+  const shadow = recordValue(item?.shadow_diff_stats_json)
+  const operations = recordValue(shadow?.policy_operations_brief)
+  const execution = recordValue(shadow?.policy_execution_state)
+  const governor = recordValue(shadow?.policy_governor)
+  const summary = stringValue(operations?.selection_action_summary)
+  const weights = policyWeightsFromRows(Array.isArray(item?.recommendations_json) ? item.recommendations_json : [], stringValue(governor?.horizon))
+  if (!summary && Object.keys(weights).length === 0 && !stringValue(operations?.active_scope)) return null
+  return {
+    dynamic_mode: stringValue(execution?.funnel_dynamic_policy) || null,
+    execution_policy: stringValue(execution?.funnel_dynamic_policy) || null,
+    policy_weight_active_scope: stringValue(operations?.active_scope || execution?.active_scope) || null,
+    selection_action_count: numberValue(operations?.selection_action_count),
+    selection_action_summary: summary || null,
+    formal_dynamic_allowed: booleanValue(operations?.formal_dynamic_allowed ?? execution?.formal_dynamic_allowed),
+    next_action: stringValue(operations?.next_action || execution?.next_action || governor?.next_action) || null,
+    signal_weights: Object.keys(weights).length ? weights : null,
+    attribution_signal_weights: Object.keys(weights).length ? weights : null,
+  }
+}
+
+function policyWeightsFromRows(rows: unknown[], horizon: string): Record<string, number> {
+  const weights: Record<string, number> = {}
+  for (const row of rows) {
+    const item = recordValue(row)
+    if (!item || (horizon && stringValue(item.horizon) !== horizon)) continue
+    const payload = jsonRecord(item.reason)
+    const target = stringValue(payload?.target ?? item.target)
+    const multiplier = numberValue(payload?.weight_multiplier ?? item.weight_multiplier)
+    if (target && multiplier != null) weights[target] = multiplier
+  }
+  return weights
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  try {
+    return recordValue(JSON.parse(value))
+  } catch {
+    return null
+  }
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function booleanValue(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
 }
 
 function labelCandidateTerm(value: string): string | null {
