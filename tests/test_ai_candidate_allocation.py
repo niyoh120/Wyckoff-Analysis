@@ -93,6 +93,9 @@ class TestAllocateAiCandidates:
                 assert int(env[f"FUNNEL_AI_{family}_TREND"]) == trend_quota
                 assert int(env[f"FUNNEL_AI_{family}_ACCUM"]) == accum_quota
             assert float(env["FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET"]) == default_policy.risk_on_pre5_ret
+            assert "tradeable_l4" in str(env["FUNNEL_AI_SELECTION_MODE"])
+            if path.endswith("wyckoff_funnel.yml"):
+                assert "shadow" in str(env["FUNNEL_DYNAMIC_POLICY"])
 
     def test_evr_and_compression_only_hits_enter_quota_tracks(self):
         result = FunnelResult(
