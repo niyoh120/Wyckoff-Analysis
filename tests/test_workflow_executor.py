@@ -1279,6 +1279,8 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert screen["theme_context"]["event_mainlines"] == "机器人 0.82/爆发"
     assert screen["theme_context"]["hot_concepts"] == ["机器人", "灵巧手", "滚柱丝杠", "电子皮肤", "控制系统", "减速器"]
     assert screen["strategy_policy"]["policy_weight_active_scope"] == "尾盘+漏斗shadow"
+    assert screen["strategy_policy"]["execution_policy"] == "shadow"
+    assert screen["strategy_policy"]["execution_policy_label"] == "shadow 对照(shadow)"
     assert "candidate_lane=trend_pullback" in screen["strategy_policy"]["selection_action_summary"]
     assert screen["strategy_policy"]["attribution_signal_weights"] == {"lps": 0.5, "trend_pullback": 0.75}
     assert screen["action_plan"]["new_buy_allowed"] is False
@@ -1328,6 +1330,7 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert "debug_payload" not in guard["candidates"][0]
     decision_policy = handoff["last_strategy_decision"]["strategy_policy"]
     assert decision_policy["execution_policy"] == "shadow"
+    assert decision_policy["execution_policy_label"] == "shadow 对照(shadow)"
     assert decision_policy["signal_weights"] == {"trend_pullback": 0.75}
     assert "trigger_groups" not in screen
 

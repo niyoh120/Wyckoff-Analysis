@@ -4031,12 +4031,20 @@ class TestSymbolPool:
         assert result["next_tool"] == result["selection_brief"]["tool_handoff"]
         assert result["next_action"] == "首选候选已通过市场闸门，可进入 AI 研报复核"
         assert result["strategy_policy"]["selection_action_count"] == 1
+        assert result["strategy_policy"]["execution_policy"] == "shadow"
+        assert result["strategy_policy"]["execution_policy_label"] == "shadow 对照(shadow)"
+        assert result["strategy_policy"]["next_action"] == "manual_review_dynamic_on"
+        assert result["strategy_policy"]["next_action_label"] == "进入人工晋级评审（非正式生效）"
         assert "candidate_lane=trend_pullback" in result["strategy_policy"]["selection_action_summary"]
         assert result["diagnosis_targets"][0]["tool"] == "analyze_stock"
         assert result["diagnosis_targets"][0]["args"] == {"code": "000004", "mode": "diagnose"}
         assert ctx.state["last_screen_result"]["symbols_for_report"][0]["code"] == "000004"
         assert ctx.state["last_screen_result"]["selection_brief"]["best_codes"] == ["000004", "000005"]
         assert ctx.state["last_screen_result"]["strategy_policy"]["policy_weight_active_scope"] == "尾盘+漏斗shadow"
+        assert ctx.state["last_screen_result"]["strategy_policy"]["execution_policy_label"] == "shadow 对照(shadow)"
+        assert (
+            ctx.state["last_screen_result"]["strategy_policy"]["next_action_label"] == "进入人工晋级评审（非正式生效）"
+        )
         assert ctx.state["last_screen_result"]["next_tool"] == result["next_tool"]
         assert "trigger_groups" not in ctx.state["last_screen_result"]
 

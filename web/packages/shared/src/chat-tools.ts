@@ -50,12 +50,15 @@ export const ANALYZE_STOCK_OUTPUT_SCHEMA = z.object({
 
 export const STRATEGY_POLICY_OUTPUT_SCHEMA = z.object({
   dynamic_mode: z.string().nullable().optional(),
+  dynamic_mode_label: z.string().nullable().optional(),
   execution_policy: z.string().nullable().optional(),
+  execution_policy_label: z.string().nullable().optional(),
   policy_weight_active_scope: z.string().nullable().optional(),
   selection_action_count: z.number().nullable().optional(),
   selection_action_summary: z.string().nullable().optional(),
   formal_dynamic_allowed: z.boolean().nullable().optional(),
   next_action: z.string().nullable().optional(),
+  next_action_label: z.string().nullable().optional(),
   signal_weights: z.record(z.number()).nullable().optional(),
   attribution_signal_weights: z.record(z.number()).nullable().optional(),
 })

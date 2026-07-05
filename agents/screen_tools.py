@@ -24,6 +24,7 @@ from core.candidate_quality import (
 from core.candidate_ranker import TRIGGER_SHORT_LABELS
 from core.candidate_tracks import candidate_entry_track
 from core.funnel_taxonomy import lane_label, source_label
+from core.strategy_policy_display import policy_execution_mode_label, policy_next_action_label
 from core.theme_radar import THEME_ALIASES, normalize_theme_name, summarize_theme_radar
 from utils.safe import drop_empty as _drop_empty_candidate_fields
 
@@ -641,7 +642,14 @@ def _strategy_policy_summary(details: dict) -> dict:
         "execution_policy",
         "next_action",
     )
-    return {field: policy[field] for field in fields if field in policy}
+    payload = {field: policy[field] for field in fields if field in policy}
+    if mode := str(policy.get("dynamic_mode") or "").strip():
+        payload["dynamic_mode_label"] = policy_execution_mode_label(mode)
+    if mode := str(policy.get("execution_policy") or "").strip():
+        payload["execution_policy_label"] = policy_execution_mode_label(mode)
+    if action := str(policy.get("next_action") or "").strip():
+        payload["next_action_label"] = policy_next_action_label(action)
+    return payload
 
 
 def _theme_context(metrics: dict) -> dict[str, Any]:

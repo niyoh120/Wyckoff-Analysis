@@ -45,6 +45,7 @@ from cli.workflows.store import append_workflow_event, persist_workflow_script, 
 from core.candidate_actions import candidate_action_fields, candidate_action_label, candidate_action_role
 from core.candidate_guards import candidate_guard_reason
 from core.candidate_ranker import TRIGGER_SHORT_LABELS
+from core.strategy_policy_display import policy_execution_mode_label, policy_next_action_label
 from utils.tool_result_preview import tool_result_brief_lines
 
 _AGENTS: dict[str, SubAgent] = {
@@ -1260,6 +1261,12 @@ def _compact_strategy_policy(value: Any) -> dict[str, Any]:
             "attribution_signal_weights",
         ),
     )
+    if mode := str(value.get("dynamic_mode") or "").strip():
+        payload["dynamic_mode_label"] = policy_execution_mode_label(mode)
+    if mode := str(value.get("execution_policy") or "").strip():
+        payload["execution_policy_label"] = policy_execution_mode_label(mode)
+    if action := str(value.get("next_action") or "").strip():
+        payload["next_action_label"] = policy_next_action_label(action)
     if summary := _clip_text(value.get("selection_action_summary"), 240):
         payload["selection_action_summary"] = summary
     return _drop_empty(payload)
