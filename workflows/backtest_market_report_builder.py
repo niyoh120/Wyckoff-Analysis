@@ -549,7 +549,12 @@ def _confirmation_status(score: RobustParamScore | None, weak_periods: list[dict
     return "review"
 
 
-def _confirmation_summary(status: str, score: RobustParamScore | None, weak_periods: list[dict[str, object]]) -> str:
+def _confirmation_summary(
+    status: str,
+    score: RobustParamScore | None,
+    weak_periods: list[dict[str, object]],
+    policy_check: dict[str, object] | None = None,
+) -> str:
     if score is None:
         return "回测确认待复核：未找到可聚合的跨周期参数。"
     if status == "pass":
@@ -561,6 +566,8 @@ def _confirmation_summary(status: str, score: RobustParamScore | None, weak_peri
     if status == "fail":
         labels = "、".join(str(item["period_label"]) for item in weak_periods) or "跨周期"
         return f"回测确认未通过：{labels} 未出现正现金收益组合，不能作为 dynamic=on 晋级依据。"
+    if policy_check and not policy_check.get("ready"):
+        return f"回测结果仍需人工复核：{policy_check.get('reason') or '缺少策略治理口径证据'}。"
     return f"回测结果仍需人工复核：尚未满足跨周期全正，正收益周期 {score.positive_periods}/{score.period_count}。"
 
 
@@ -579,6 +586,18 @@ def _confirmation_param(score: RobustParamScore | None) -> dict[str, object]:
     }
 
 
+def _confirmation_policy_check(cells: list[GridCell]) -> dict[str, object]:
+    policies = sorted({cell.strategy_policy for cell in cells if cell.strategy_policy})
+    if not policies:
+        return {"ready": False, "reason": "缺少策略治理调权记录", "policies": []}
+    if len(policies) > 1:
+        return {"ready": False, "reason": "策略治理调权口径不一致", "policies": policies}
+    policy = policies[0]
+    if policy.startswith("未启用") or policy == "未写入" or "×" not in policy:
+        return {"ready": False, "reason": "策略治理调权未实际生效", "policies": policies}
+    return {"ready": True, "reason": "", "policies": policies}
+
+
 def build_confirmation(cells: list[GridCell], run_url: str = "", generated_at: str = "") -> dict[str, object]:
     if not cells:
         raise ValueError("未找到可解析的 backtest summary artifacts")
@@ -586,7 +605,10 @@ def build_confirmation(cells: list[GridCell], run_url: str = "", generated_at: s
     robust_ranked = _rank_robust_params(cells)
     robust_best = robust_ranked[0] if robust_ranked else None
     weak_periods = _confirmation_weak_periods(cells)
+    policy_check = _confirmation_policy_check(cells)
     status = _confirmation_status(robust_best, weak_periods)
+    if status == "pass" and not policy_check["ready"]:
+        status = "review"
     generated = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return {
         "status": status,
@@ -594,7 +616,7 @@ def build_confirmation(cells: list[GridCell], run_url: str = "", generated_at: s
         "report_date": generated.split()[0],
         "generated_at": generated,
         "run_url": run_url,
-        "summary": _confirmation_summary(status, robust_best, weak_periods),
+        "summary": _confirmation_summary(status, robust_best, weak_periods, policy_check),
         "cell_count": len(cells),
         "period_count": robust_best.period_count if robust_best else 0,
         "positive_periods": robust_best.positive_periods if robust_best else 0,
@@ -603,6 +625,10 @@ def build_confirmation(cells: list[GridCell], run_url: str = "", generated_at: s
         "recent_cash_return": _round_metric(robust_best.recent_cash_return if robust_best else None),
         "score": _round_metric(robust_best.score if robust_best else None, 4),
         "best_param": _confirmation_param(robust_best),
+        "strategy_policy": _strategy_policy_context(cells),
+        "strategy_policy_ready": bool(policy_check["ready"]),
+        "strategy_policy_reason": str(policy_check["reason"]),
+        "strategy_policy_values": policy_check["policies"],
         "weak_periods": weak_periods,
     }
 

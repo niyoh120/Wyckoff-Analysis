@@ -11,6 +11,7 @@ def _write_grid_cell(tmp_path, period, start, end, hold, stop, cash_return):
                 "- 每日候选上限: Top 4",
                 "- 股票池: main_chinext (sample=0)",
                 "- 绩效引擎: legacy",
+                "- 策略治理调权: lps[regime=RISK_ON]×0.50↓（远端, 报告=2026-07-04, 周期=h5, 策略=shadow 对照(shadow), 范围=尾盘+漏斗shadow）",
                 "- 成交样本: 10",
                 "- 胜率: 40.0%",
                 "- 平均收益: 1.0%",
@@ -207,6 +208,46 @@ def test_backtest_confirmation_passes_only_cross_period_positive(tmp_path):
     assert confirmation["positive_periods"] == 3
     assert confirmation["min_cash_return"] == 3.0
     assert confirmation["best_param"]["label"] == "等额四仓 / 15天 / SL-8% / 无TP / 无Trail"
+    assert confirmation["strategy_policy_ready"] is True
+    assert confirmation["strategy_policy"].startswith("lps[regime=RISK_ON]×0.50↓")
+
+
+def test_backtest_confirmation_requires_strategy_policy_evidence(tmp_path):
+    from scripts.update_backtest_market_report import build_confirmation, load_grid_cells
+
+    for period, start, end in [
+        ("recent_6m", "2025-12-01", "2026-05-31"),
+        ("bull_2020", "2020-07-01", "2021-02-18"),
+        ("bear_2022", "2021-12-13", "2022-10-31"),
+    ]:
+        artifact = tmp_path / f"backtest-grid-{period}-h15-sl-8-tp0-tr0-37"
+        artifact.mkdir()
+        (artifact / f"summary_{period}_h15.md").write_text(
+            "\n".join(
+                [
+                    f"- 区间: {start} ~ {end}",
+                    "- 每日候选上限: Top 4",
+                    "- 股票池: main_chinext (sample=0)",
+                    "- 绩效引擎: legacy",
+                    "- 成交样本: 10",
+                    "- 胜率: 40.0%",
+                    "- 夏普比 (Sharpe Ratio): 0.3",
+                    "- 最大回撤: -10.0%",
+                    "- 初始现金: 100000.00",
+                    "- 最终现金: 103000.00",
+                    "- 总收益: 3.0%",
+                    "- 成交笔数: 4",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    confirmation = build_confirmation(load_grid_cells(tmp_path))
+
+    assert confirmation["status"] == "review"
+    assert confirmation["strategy_policy_ready"] is False
+    assert confirmation["strategy_policy_reason"] == "缺少策略治理调权记录"
+    assert "缺少策略治理口径证据" in confirmation["summary"] or "缺少策略治理调权记录" in confirmation["summary"]
 
 
 def test_backtest_confirmation_fails_when_any_period_has_no_positive_combo(tmp_path):
