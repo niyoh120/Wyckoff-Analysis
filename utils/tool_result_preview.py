@@ -8,6 +8,7 @@ from typing import Any
 
 from core.candidate_actions import candidate_action_fields, candidate_action_label, candidate_action_role
 from core.candidate_guards import candidate_guard_reason
+from core.strategy_policy_display import policy_execution_mode_label, policy_next_action_label
 from utils.safe import drop_empty as _drop_empty_preview_fields
 
 PREVIEW_CHARS = 2_000
@@ -1457,19 +1458,33 @@ def _screen_stocks_brief_lines(result: dict[str, Any], *, max_lines: int) -> lis
 def _screen_strategy_policy_preview(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
+    dynamic_mode = value.get("dynamic_mode")
+    execution_policy = value.get("execution_policy")
+    next_action = value.get("next_action")
     return _drop_empty_preview_fields(
         {
-            "dynamic_mode": value.get("dynamic_mode"),
-            "execution_policy": value.get("execution_policy"),
+            "dynamic_mode": _policy_execution_preview(dynamic_mode),
+            "dynamic_mode_raw": dynamic_mode,
+            "execution_policy": _policy_execution_preview(execution_policy),
+            "execution_policy_raw": execution_policy,
             "active_scope": value.get("policy_weight_active_scope"),
             "selection_action_count": value.get("selection_action_count"),
             "selection_action_summary": _text_excerpt(value.get("selection_action_summary"), 180),
             "formal_dynamic_allowed": value.get("formal_dynamic_allowed"),
-            "next_action": value.get("next_action"),
+            "next_action": _policy_next_action_preview(next_action),
+            "next_action_raw": next_action,
             "signal_weights": value.get("signal_weights"),
             "attribution_signal_weights": value.get("attribution_signal_weights"),
         }
     )
+
+
+def _policy_execution_preview(value: Any) -> str:
+    return policy_execution_mode_label(value) if str(value or "").strip() else ""
+
+
+def _policy_next_action_preview(value: Any) -> str:
+    return policy_next_action_label(value) if str(value or "").strip() else ""
 
 
 def _screen_strategy_policy_line(value: Any) -> str:

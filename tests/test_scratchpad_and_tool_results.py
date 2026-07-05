@@ -443,6 +443,12 @@ def test_screen_stocks_preview_surfaces_strategy_policy_governance():
 
     assert preview["strategy_policy"]["selection_action_count"] == 1
     assert preview["strategy_policy"]["active_scope"] == "尾盘+漏斗shadow"
+    assert preview["strategy_policy"]["dynamic_mode"] == "shadow 对照(shadow)"
+    assert preview["strategy_policy"]["dynamic_mode_raw"] == "shadow"
+    assert preview["strategy_policy"]["execution_policy"] == "shadow 对照(shadow)"
+    assert preview["strategy_policy"]["execution_policy_raw"] == "shadow"
+    assert preview["strategy_policy"]["next_action"] == "进入人工晋级评审（非正式生效）"
+    assert preview["strategy_policy"]["next_action_raw"] == "manual_review_dynamic_on"
     assert "candidate_lane=trend_pullback" in preview["strategy_policy"]["selection_action_summary"]
     assert "策略治理: 候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75" in lines
 
