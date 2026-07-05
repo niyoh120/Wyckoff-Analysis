@@ -30,8 +30,16 @@ describe('formatPolicyWeightMetaText', () => {
       policy_weight_funnel_shadow_weights_active: true,
       policy_weight_funnel_formal_weights_active: false,
     })).toBe(
-      '（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow, 正式dynamic=未进正式漏斗(shadow_only)）',
+      '（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 范围=尾盘+漏斗shadow, 正式dynamic=未进正式漏斗(仅 shadow 观察)）',
     )
+  })
+
+  it('labels missing promotion checklist without leaking raw gate codes', () => {
+    expect(formatPolicyWeightMetaText({
+      source: '远端',
+      formal_dynamic_allowed: false,
+      formal_dynamic_block_reason: 'promotion_checklist=missing',
+    })).toBe('（远端, 正式dynamic=未进正式漏斗(晋级清单缺失)）')
   })
 
   it('derives active scope from legacy execution scope without echoing raw scope', () => {

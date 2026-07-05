@@ -55,7 +55,17 @@ function policyFormalDynamicLabel(meta: Record<string, unknown>): string {
 
 function formalDynamicReasonLabel(reason: string): string {
   const labels: Record<string, string> = {
+    'auto_apply=false': '未启用自动晋级',
+    backtest_confirmation_failed: '回测未通过',
+    backtest_confirmation_required: '缺少回测确认',
+    'formal_dynamic_allowed=false': '治理器未放行',
+    manual_review_required: '人工复核未完成',
+    'promotion_checklist=missing': '晋级清单缺失',
+    shadow_only: '仅 shadow 观察',
     signal_actions_review_required: '信号调权待复核',
+  }
+  if (reason.startsWith('next_action=')) {
+    return `下一步=${attributionNextActionLabel(reason.slice('next_action='.length))}`
   }
   return labels[reason] || reason
 }

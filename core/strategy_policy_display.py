@@ -212,14 +212,23 @@ def policy_formal_dynamic_label(execution: dict[str, Any] | None) -> str:
         reason = str(row.get("formal_dynamic_block_reason") or "").strip()
         return f"未进正式漏斗({_formal_dynamic_reason_label(reason)})" if reason else "未进正式漏斗"
     if str(row.get("next_action") or "").strip() == "manual_review_dynamic_on":
-        return "未进正式漏斗(manual_review_required)"
+        return "未进正式漏斗(人工复核未完成)"
     return "未知"
 
 
 def _formal_dynamic_reason_label(reason: str) -> str:
     labels = {
+        "auto_apply=false": "未启用自动晋级",
+        "backtest_confirmation_failed": "回测未通过",
+        "backtest_confirmation_required": "缺少回测确认",
+        "formal_dynamic_allowed=false": "治理器未放行",
+        "manual_review_required": "人工复核未完成",
+        "promotion_checklist=missing": "晋级清单缺失",
+        "shadow_only": "仅 shadow 观察",
         "signal_actions_review_required": "信号调权待复核",
     }
+    if reason.startswith("next_action="):
+        return f"下一步={policy_next_action_label(reason.split('=', 1)[1])}"
     return labels.get(reason, reason)
 
 

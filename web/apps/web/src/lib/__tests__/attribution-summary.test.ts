@@ -32,7 +32,7 @@ describe('attributionOperatorSummary', () => {
       },
       actions: [{ target: 'lps', weight_multiplier: 0.5 }],
     })).toBe(
-      '下一步=shadow 新增组已跑赢移除组。；作用范围=尾盘+漏斗shadow；正式dynamic=未进正式漏斗(manual_review_required)；回测确认=缺失(缺少检查项)；Shadow=2026-07-03 RISK_ON 新增2 移除1；调权=1项',
+      '下一步=shadow 新增组已跑赢移除组。；作用范围=尾盘+漏斗shadow；正式dynamic=未进正式漏斗(人工复核未完成)；回测确认=缺失(缺少检查项)；Shadow=2026-07-03 RISK_ON 新增2 移除1；调权=1项',
     )
   })
 
@@ -56,7 +56,7 @@ describe('attributionOperatorSummary', () => {
         ],
       },
       actions: [{ target: 'lps', weight_multiplier: 0.5 }],
-    })).toContain('正式dynamic=未进正式漏斗(backtest_confirmation_required)')
+    })).toContain('正式dynamic=未进正式漏斗(缺少回测确认)')
     expect(attributionOperatorSummary({
       execution: {
         scope: 'tail_buy_and_funnel_shadow',
@@ -67,6 +67,17 @@ describe('attributionOperatorSummary', () => {
       },
       actions: [{ target: 'lps', weight_multiplier: 0.5 }],
     })).toContain('回测确认=待复核(need backtest)')
+  })
+
+  it('labels a missing promotion checklist as a governance blocker', () => {
+    expect(attributionOperatorSummary({
+      execution: {
+        scope: 'tail_buy_and_funnel_shadow',
+        formal_dynamic_allowed: false,
+        formal_dynamic_block_reason: 'promotion_checklist=missing',
+      },
+      actions: [{ target: 'sos', weight_multiplier: 1.15 }],
+    })).toContain('正式dynamic=未进正式漏斗(晋级清单缺失)')
   })
 })
 

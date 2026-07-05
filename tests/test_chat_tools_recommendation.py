@@ -168,7 +168,7 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     assert result["latest_execution_state"]["funnel_shadow_weights_active"] is True
     assert result["latest_execution_state"]["funnel_formal_weights_active"] is False
     assert result["latest_execution_state"]["promotion_status"] == "manual_review_required"
-    assert result["latest_execution_summary"]["formal_dynamic"] == "未进正式漏斗(manual_review_required)"
+    assert result["latest_execution_summary"]["formal_dynamic"] == "未进正式漏斗(人工复核未完成)"
     assert result["latest_execution_summary"]["next_action"] == "进入人工晋级评审（非正式生效）"
     assert result["latest_operations"]["latest_shadow"]["trade_date"] == "2026-07-03"
     assert result["latest_operations"]["latest_shadow"]["diff_added_sample"] == ["300502", "688008"]

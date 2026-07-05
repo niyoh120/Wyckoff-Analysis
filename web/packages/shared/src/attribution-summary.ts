@@ -96,20 +96,30 @@ export function attributionFormalDynamicLabel(
     return reason ? `未进正式漏斗(${formalDynamicReasonLabel(reason)})` : '未进正式漏斗'
   }
   if (optionalText(execution?.next_action) === 'manual_review_dynamic_on') {
-    return '未进正式漏斗(manual_review_required)'
+    return '未进正式漏斗(人工复核未完成)'
   }
   if (optionalText(execution?.next_action) === 'run_backtest_confirmation') {
-    return '未进正式漏斗(backtest_confirmation_required)'
+    return '未进正式漏斗(缺少回测确认)'
   }
   if (optionalText(execution?.next_action) === 'keep_shadow_backtest_failed') {
-    return '未进正式漏斗(backtest_confirmation_failed)'
+    return '未进正式漏斗(回测未通过)'
   }
   return '未知'
 }
 
 function formalDynamicReasonLabel(reason: string): string {
   const labels: Record<string, string> = {
+    'auto_apply=false': '未启用自动晋级',
+    backtest_confirmation_failed: '回测未通过',
+    backtest_confirmation_required: '缺少回测确认',
+    'formal_dynamic_allowed=false': '治理器未放行',
+    manual_review_required: '人工复核未完成',
+    'promotion_checklist=missing': '晋级清单缺失',
+    shadow_only: '仅 shadow 观察',
     signal_actions_review_required: '信号调权待复核',
+  }
+  if (reason.startsWith('next_action=')) {
+    return `下一步=${attributionNextActionLabel(reason.slice('next_action='.length))}`
   }
   return labels[reason] || reason
 }

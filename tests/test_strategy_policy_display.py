@@ -80,7 +80,7 @@ def test_format_policy_meta_text_surfaces_promotion_evidence() -> None:
                 "promotion_checklist_summary": "样本=pass；回测=review",
             }
         )
-        == "（远端, 报告=2026-07-04, 正式dynamic=未进正式漏斗(backtest_confirmation_required), 回测=待复核(need backtest), 晋级=样本=pass；回测=review）"
+        == "（远端, 报告=2026-07-04, 正式dynamic=未进正式漏斗(缺少回测确认), 回测=待复核(need backtest), 晋级=样本=pass；回测=review）"
     )
 
 
@@ -120,12 +120,12 @@ def test_policy_execution_display_distinguishes_formal_gate() -> None:
         "summary": "只进入 shadow",
     }
 
-    assert policy_formal_dynamic_label(execution) == "未进正式漏斗(auto_apply=false)"
+    assert policy_formal_dynamic_label(execution) == "未进正式漏斗(未启用自动晋级)"
     assert policy_execution_display(execution) == {
         "active_scope": "尾盘+漏斗shadow",
         "promotion_status": "需人工复核",
         "next_action": "进入人工晋级评审（非正式生效）",
-        "formal_dynamic": "未进正式漏斗(auto_apply=false)",
+        "formal_dynamic": "未进正式漏斗(未启用自动晋级)",
         "summary": "只进入 shadow",
     }
 
@@ -137,3 +137,12 @@ def test_policy_execution_display_labels_signal_action_review_gate() -> None:
     }
 
     assert policy_formal_dynamic_label(execution) == "未进正式漏斗(信号调权待复核)"
+
+
+def test_policy_execution_display_labels_missing_promotion_checklist() -> None:
+    execution = {
+        "formal_dynamic_allowed": False,
+        "formal_dynamic_block_reason": "promotion_checklist=missing",
+    }
+
+    assert policy_formal_dynamic_label(execution) == "未进正式漏斗(晋级清单缺失)"

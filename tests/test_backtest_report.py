@@ -106,6 +106,6 @@ def test_build_summary_md_renders_inactive_policy_meta() -> None:
     )
 
     assert (
-        "- 策略治理调权: 未启用（远端, 报告=2026-07-04, 周期=h5, 策略=shadow 对照(shadow), 范围=尾盘+漏斗shadow, 正式dynamic=未进正式漏斗(auto_apply=false)）"
+        "- 策略治理调权: 未启用（远端, 报告=2026-07-04, 周期=h5, 策略=shadow 对照(shadow), 范围=尾盘+漏斗shadow, 正式dynamic=未进正式漏斗(未启用自动晋级)）"
         in md
     )
