@@ -271,6 +271,8 @@ def test_attribution_policy_governor_accepts_structured_backtest_confirmation():
         shadow_runs=shadow_runs,
         backtest_confirmation_json={
             "status": "pass",
+            "strategy_policy_ready": True,
+            "strategy_policy": "lps×0.50↓；trend_pullback×0.60↓",
             "summary": "三周期回测确认正收益，允许进入人工晋级评审。",
         },
     )
@@ -284,6 +286,43 @@ def test_attribution_policy_governor_accepts_structured_backtest_confirmation():
     assert governor["formal_dynamic_block_reason"] == "signal_actions_review_required"
     assert checklist["backtest_confirmation"]["status"] == "pass"
     assert checklist["backtest_confirmation"]["summary"] == "三周期回测确认正收益，允许进入人工晋级评审。"
+
+
+def test_attribution_policy_governor_rejects_stale_backtest_confirmation():
+    from core.strategy_policy_governor import build_strategy_policy_governor
+
+    governor = build_strategy_policy_governor(
+        signal_stats_json={},
+        score_bucket_stats_json={},
+        shadow_diff_stats_json={
+            "count": 10,
+            "outcome_stats": {
+                "5": {
+                    "added": {
+                        "matched_outcomes": 3,
+                        "avg_return_pct": 3.0,
+                        "win_rate_pct": 70.0,
+                        "avg_drawdown_pct": -5.0,
+                    },
+                    "removed": {
+                        "matched_outcomes": 3,
+                        "avg_return_pct": -1.0,
+                        "win_rate_pct": 40.0,
+                        "avg_drawdown_pct": -8.0,
+                    },
+                }
+            },
+        },
+        backtest_confirmation_json={"status": "pass", "summary": "旧 artifact 回测通过。"},
+        horizons=[5],
+    )
+
+    checklist = {row["key"]: row for row in governor["promotion_checklist"]}
+    assert governor["formal_dynamic_approval"] == "backtest_confirmation_required"
+    assert governor["formal_dynamic_block_reason"] == "backtest_confirmation_required"
+    assert governor["next_action"] == "run_backtest_confirmation"
+    assert checklist["backtest_confirmation"]["status"] == "review"
+    assert checklist["backtest_confirmation"]["summary"] == "回测结果仍需人工复核：缺少策略治理口径证据"
 
 
 def test_attribution_policy_governor_emits_scoped_context_weight():
@@ -439,7 +478,12 @@ def test_attribution_policy_governor_blocks_formal_dynamic_on_selection_actions(
                 }
             },
         },
-        backtest_confirmation_json={"status": "pass", "summary": "回测确认通过。"},
+        backtest_confirmation_json={
+            "status": "pass",
+            "strategy_policy_ready": True,
+            "strategy_policy": "candidate_lane=trend_pullback×0.50↓",
+            "summary": "回测确认通过。",
+        },
         horizons=[5],
     )
 

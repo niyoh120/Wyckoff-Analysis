@@ -601,10 +601,15 @@ def _normalized_backtest_status(confirmation: dict[str, Any]) -> str:
         "blocked": "fail",
     }
     status = aliases.get(status, status)
+    if status == "pass" and confirmation.get("strategy_policy_ready") is not True:
+        return "review"
     return status if status in {"pass", "fail", "review"} else ""
 
 
 def _backtest_confirmation_summary(confirmation: dict[str, Any], status: str) -> str:
+    if status == "review" and confirmation.get("strategy_policy_ready") is not True:
+        reason = str(confirmation.get("strategy_policy_reason") or "缺少策略治理口径证据").strip()
+        return f"回测结果仍需人工复核：{reason}"
     summary = str(confirmation.get("summary") or confirmation.get("note") or "").strip()
     if summary:
         return summary
