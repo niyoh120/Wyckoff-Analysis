@@ -1074,6 +1074,16 @@ def test_workflow_handoff_state_compacts_candidate_context():
                     "hot_concepts": ["机器人", "灵巧手", "滚柱丝杠", "电子皮肤", "控制系统", "减速器", "extra"],
                 },
                 "selection_brief": {"status": "ready_for_ai_review", "best_codes": ["300750"]},
+                "strategy_policy": {
+                    "dynamic_mode": "shadow",
+                    "execution_policy": "shadow",
+                    "policy_weight_active_scope": "尾盘+漏斗shadow",
+                    "selection_action_count": 1,
+                    "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
+                    "attribution_signal_weights": {"lps": 0.5, "trend_pullback": 0.75},
+                    "formal_dynamic_allowed": False,
+                    "next_action": "manual_review_dynamic_on",
+                },
                 "next_action": "首选候选已通过市场闸门，可进入 AI 研报复核",
                 "next_tool": {"tool": "generate_ai_report", "args": {"stock_codes": ["300750"]}},
                 "diagnosis_targets": [
@@ -1211,6 +1221,11 @@ def test_workflow_handoff_state_compacts_candidate_context():
                         }
                     ],
                 },
+                "strategy_policy": {
+                    "dynamic_mode": "shadow",
+                    "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
+                    "attribution_signal_weights": {"lps": 0.5, "trend_pullback": 0.75},
+                },
             },
             "last_strategy_decision": {
                 "status": "skipped_notify_unconfigured",
@@ -1241,6 +1256,12 @@ def test_workflow_handoff_state_compacts_candidate_context():
                         }
                     ],
                 },
+                "strategy_policy": {
+                    "dynamic_mode": "shadow",
+                    "execution_policy": "shadow",
+                    "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75",
+                    "signal_weights": {"trend_pullback": 0.75},
+                },
             },
         }
     )
@@ -1257,6 +1278,9 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert screen["next_tool"]["args"]["stock_codes"] == ["300750"]
     assert screen["theme_context"]["event_mainlines"] == "机器人 0.82/爆发"
     assert screen["theme_context"]["hot_concepts"] == ["机器人", "灵巧手", "滚柱丝杠", "电子皮肤", "控制系统", "减速器"]
+    assert screen["strategy_policy"]["policy_weight_active_scope"] == "尾盘+漏斗shadow"
+    assert "candidate_lane=trend_pullback" in screen["strategy_policy"]["selection_action_summary"]
+    assert screen["strategy_policy"]["attribution_signal_weights"] == {"lps": 0.5, "trend_pullback": 0.75}
     assert screen["action_plan"]["new_buy_allowed"] is False
     assert screen["action_plan"]["quality_gate"]["status"] == "blocked_by_quality_gate"
     assert screen["diagnosis_targets"][0]["tool"] == "analyze_stock"
@@ -1294,11 +1318,17 @@ def test_workflow_handoff_state_compacts_candidate_context():
     assert screen_guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
     report_guard = handoff["last_ai_report"]["candidate_guard_summary"]
     assert report_guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
+    report_policy = handoff["last_ai_report"]["strategy_policy"]
+    assert report_policy["attribution_signal_weights"] == {"lps": 0.5, "trend_pullback": 0.75}
+    assert "candidate_lane=trend_pullback" in report_policy["selection_action_summary"]
     guard = handoff["last_strategy_decision"]["candidate_guard_summary"]
     assert guard["direct_buy_blocked_count"] == 1
     assert guard["candidates"][0]["reason"] == "候选标签未成熟，禁止直接买入"
     assert guard["candidates"][0]["label_ready"] is False
     assert "debug_payload" not in guard["candidates"][0]
+    decision_policy = handoff["last_strategy_decision"]["strategy_policy"]
+    assert decision_policy["execution_policy"] == "shadow"
+    assert decision_policy["signal_weights"] == {"trend_pullback": 0.75}
     assert "trigger_groups" not in screen
 
 

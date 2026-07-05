@@ -1141,6 +1141,7 @@ def _compact_screen_handoff(value: Any) -> dict[str, Any]:
         ),
     )
     payload["theme_context"] = _compact_theme_context(value.get("theme_context"))
+    payload["strategy_policy"] = _compact_strategy_policy(value.get("strategy_policy"))
     payload["action_plan"] = _pick_fields(
         value.get("action_plan"),
         (
@@ -1213,6 +1214,7 @@ def _compact_ai_report_handoff(value: Any) -> dict[str, Any]:
     payload = _pick_fields(
         value, ("ok", "reason", "model", "stock_count", "reviewed_codes", "next_action", "next_tool")
     )
+    payload["strategy_policy"] = _compact_strategy_policy(value.get("strategy_policy"))
     payload["reviewed_symbols"] = _candidate_rows(value.get("reviewed_symbols"), 8)
     payload["candidate_guard_summary"] = _compact_candidate_guard(value.get("candidate_guard_summary"))
     return _drop_empty(payload)
@@ -1236,8 +1238,30 @@ def _compact_strategy_handoff(value: Any) -> dict[str, Any]:
             "message",
         ),
     )
+    payload["strategy_policy"] = _compact_strategy_policy(value.get("strategy_policy"))
     payload["reviewed_symbols"] = _candidate_rows(value.get("reviewed_symbols"), 8)
     payload["candidate_guard_summary"] = _compact_candidate_guard(value.get("candidate_guard_summary"))
+    return _drop_empty(payload)
+
+
+def _compact_strategy_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = _pick_fields(
+        value,
+        (
+            "dynamic_mode",
+            "execution_policy",
+            "policy_weight_active_scope",
+            "selection_action_count",
+            "formal_dynamic_allowed",
+            "next_action",
+            "signal_weights",
+            "attribution_signal_weights",
+        ),
+    )
+    if summary := _clip_text(value.get("selection_action_summary"), 240):
+        payload["selection_action_summary"] = summary
     return _drop_empty(payload)
 
 
