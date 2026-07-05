@@ -66,7 +66,7 @@ def test_run_backtest_workflow_builds_context_without_network(monkeypatch) -> No
     assert analyzer.keywords["regime_config"].smallcap_bench_code == "399905"
 
 
-def test_backtest_signal_weight_map_respects_formal_dynamic_gate(monkeypatch) -> None:
+def test_backtest_signal_weight_map_matches_funnel_policy_gate(monkeypatch) -> None:
     import workflows.backtest as backtest
 
     monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "shadow")
@@ -85,11 +85,12 @@ def test_backtest_signal_weight_map_respects_formal_dynamic_gate(monkeypatch) ->
     )
 
     shadow_weights, shadow_meta = backtest._signal_policy_from_env()
-    assert shadow_weights == {}
+    assert shadow_weights == {"lps": 0.5}
     assert shadow_meta["source"] == "远端"
     assert shadow_meta["active_scope"] == "尾盘+漏斗shadow"
     assert shadow_meta["formal_dynamic_allowed"] is False
     assert shadow_meta["formal_dynamic_block_reason"] == "auto_apply=false"
+    assert backtest._signal_weight_map_from_env() == {"lps": 0.5}
 
     monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
     monkeypatch.setattr(

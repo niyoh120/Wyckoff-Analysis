@@ -187,8 +187,6 @@ def _signal_policy_from_env() -> tuple[dict[str, float], dict[str, object]]:
     if mode == "off":
         return {}, {}
     snapshot = load_attribution_policy_snapshot(market="cn", log_fn=lambda message: logger.info(message))
-    if mode == "shadow":
-        return {}, snapshot.as_dict()
     weights = attribution_weights_for_funnel(snapshot, mode=mode, log_fn=lambda message: logger.info(message))
     return weights, snapshot.as_dict()
 
