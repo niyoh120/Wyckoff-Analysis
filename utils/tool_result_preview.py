@@ -819,6 +819,7 @@ def _strategy_decision_preview(result: dict[str, Any]) -> str:
             "reviewed_symbols": _candidate_preview_list(result.get("reviewed_symbols"), 12),
             "candidate_conclusion": _candidate_conclusion_preview("last_strategy_decision", result),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
+            "strategy_policy": _screen_strategy_policy_preview(result.get("strategy_policy")),
             "screen_summary": result.get("screen_summary"),
             "decision_brief": _screen_decision_preview(result.get("decision_brief")),
             "next_action": result.get("next_action"),
@@ -841,6 +842,7 @@ def _ai_report_preview(result: dict[str, Any]) -> str:
             "reviewed_symbols": _candidate_preview_list(result.get("reviewed_symbols"), 12),
             "candidate_conclusion": _candidate_conclusion_preview("last_ai_report", result),
             "candidate_guard_summary": _candidate_guard_preview(result.get("candidate_guard_summary")),
+            "strategy_policy": _screen_strategy_policy_preview(result.get("strategy_policy")),
             "next_action": result.get("next_action"),
             "next_tool": result.get("next_tool"),
             "report_excerpt": _text_excerpt(result.get("report_text"), 1400),
@@ -899,6 +901,7 @@ def _strategy_stage_line(result: dict[str, Any]) -> str:
         _strategy_status_label(result),
         _strategy_label_part("来源", _strategy_source_label(result.get("report_source"))),
         _strategy_label_part("已复核", _strategy_reviewed_label(_reviewed_count(result))),
+        _strategy_policy_stage_part(result.get("strategy_policy")),
         _strategy_label_part("原因", _strategy_blocker_reason(result)),
         _strategy_missing_credentials_part(result.get("missing_credentials")),
         _strategy_label_part("下一步", result.get("next_action") or result.get("message")),
@@ -968,10 +971,16 @@ def _tool_stage_line(label: str, result: dict[str, Any], reviewed: int) -> str:
     parts = [
         _key_value("reviewed", reviewed),
         _key_value("model", result.get("model")),
+        _strategy_policy_stage_part(result.get("strategy_policy")),
         _key_value("next", result.get("next_action") or result.get("reason")),
     ]
     detail = ", ".join(part for part in parts if part)
     return f"{label}: {detail}" if detail else ""
+
+
+def _strategy_policy_stage_part(value: Any) -> str:
+    line = _screen_strategy_policy_line(value)
+    return line.replace("策略治理: ", "策略治理=", 1) if line else ""
 
 
 def _candidate_guard_preview(value: Any) -> dict[str, Any]:

@@ -1353,6 +1353,34 @@ def test_ai_report_preview_prioritizes_ready_reviewed_candidate_over_guarded_wat
     assert lines[2].startswith("候选护栏: 1只禁止直接买入")
 
 
+def test_ai_report_preview_surfaces_strategy_policy():
+    result = {
+        "ok": True,
+        "model": "gpt-test",
+        "reviewed_codes": ["000004"],
+        "reviewed_symbols": [{"code": "000004", "name": "主线候选", "action_status": "ready_for_ai_review"}],
+        "strategy_policy": {
+            "dynamic_mode": "shadow",
+            "policy_weight_active_scope": "尾盘+漏斗shadow",
+            "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级",
+            "attribution_signal_weights": {"lps": 0.5, "trend_pullback": 0.75},
+        },
+        "next_action": "研报已完成，可结合持仓和候选进入组合攻防决策",
+    }
+
+    preview = json.loads(tool_result_preview("generate_ai_report", result))
+    lines = tool_result_brief_lines("generate_ai_report", result, max_lines=3)
+
+    assert preview["strategy_policy"]["active_scope"] == "尾盘+漏斗shadow"
+    assert "candidate_lane=trend_pullback" in preview["strategy_policy"]["selection_action_summary"]
+    assert lines[0] == (
+        "AI研报: reviewed=1, model=gpt-test, "
+        "策略治理=候选源治理 1 项：candidate_lane=trend_pullback 降级, "
+        "next=研报已完成，可结合持仓和候选进入组合攻防决策"
+    )
+    assert lines[1].startswith("候选结论: 首选 000004 主线候选")
+
+
 def test_generate_strategy_decision_large_result_preview_preserves_handoff(tmp_path, monkeypatch):
     monkeypatch.setenv("WYCKOFF_HOME", str(tmp_path))
     result = {
@@ -1442,6 +1470,35 @@ def test_generate_strategy_decision_brief_surfaces_report_boundaries():
         "候选结论: 首选 002293 罗莱生活 · 可进入AI复核",
         "研报边界: 002293 罗莱生活：触发位 11.20；失效位 11.00；只做确认后的右侧。",
     ]
+
+
+def test_generate_strategy_decision_preview_surfaces_strategy_policy():
+    result = {
+        "ok": True,
+        "status": "skipped_notify_unconfigured",
+        "report_source": "last_ai_report",
+        "candidate_count": 1,
+        "reviewed_codes": ["000004"],
+        "reviewed_symbols": [{"code": "000004", "name": "主线候选", "action_status": "ready_for_ai_review"}],
+        "strategy_policy": {
+            "dynamic_mode": "shadow",
+            "selection_action_summary": "候选源治理 1 项：candidate_lane=trend_pullback 降级",
+            "signal_weights": {"trend_pullback": 0.75},
+        },
+        "next_action": "补充 Telegram 配置后可生成并发送 OMS 工单",
+    }
+
+    preview = json.loads(tool_result_preview("generate_strategy_decision", result))
+    lines = tool_result_brief_lines("generate_strategy_decision", result, max_lines=3)
+
+    assert preview["strategy_policy"]["signal_weights"] == {"trend_pullback": 0.75}
+    assert "candidate_lane=trend_pullback" in preview["strategy_policy"]["selection_action_summary"]
+    assert lines[0] == (
+        "攻防决策: 未发送工单 · 来源: 上一轮AI研报 · 已复核: 1只 · "
+        "策略治理=候选源治理 1 项：candidate_lane=trend_pullback 降级 · "
+        "下一步: 补充 Telegram 配置后可生成并发送 OMS 工单"
+    )
+    assert lines[1].startswith("候选结论: 首选 000004 主线候选")
 
 
 def test_generate_strategy_decision_brief_labels_quality_gate_blocker():
