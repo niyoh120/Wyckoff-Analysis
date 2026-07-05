@@ -447,9 +447,8 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
       <p className="mt-3 text-sm text-muted-foreground">{governor.summary || '-'}</p>
       <p className="mt-2 text-sm text-muted-foreground">{governor.next_action_summary || '-'}</p>
       <p className="mt-2 text-xs text-muted-foreground">
-        说明：`自动切模式=否` 表示不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；
-        `run_backtest_confirmation` 表示先补齐回测确认，`review_policy_actions` 表示先复核调权治理项，
-        `manual_review_dynamic_on` 只是人工晋级评审入口，不等于正式漏斗已经读取归因权重。
+        说明：自动切模式=否 表示治理器不会自动把 dynamic policy 从 shadow 切到 on；
+        下一步动作以中文卡片为准，底层 next_action 只用于排查追证据，不等于正式漏斗已经读取归因权重。
       </p>
       <PromotionChecklist rows={governor.promotion_checklist} />
       <ShadowGateLine gate={governor.shadow_gate} />
@@ -492,11 +491,12 @@ function PolicyExecutionState({
   const targetText = stats.targets.length ? stats.targets.join(' / ') : '-'
   const modeText = governor?.auto_apply
     ? '治理器允许自动晋级，但仍应通过运行时配置和人工复核留痕。'
-    : '治理器不会自动把 FUNNEL_DYNAMIC_POLICY 从 shadow 切到 on；run_backtest_confirmation 先补回测确认，review_policy_actions 先复核调权治理项，manual_review_dynamic_on 才代表进入人工评审。'
+    : '治理器不会自动把 dynamic policy 从 shadow 切到 on；下一步动作以中文状态为准，底层枚举只用于排查追证据。'
   const policyMode = execution?.funnel_dynamic_policy || '未知'
   const horizon = execution?.horizon || '-'
   const promotion = execution?.promotion_status || governor?.promotion_status
   const formalStatus = formatFormalDynamicStatus(execution)
+  const nextAction = formatNextAction(execution?.next_action || governor?.next_action)
   return (
     <Panel title="调权执行状态">
       <div className="grid gap-3 md:grid-cols-4">
@@ -511,8 +511,9 @@ function PolicyExecutionState({
         {attributionExecutionImpactText({ execution, actionCount, targetText })}
       </p>
       <p className="mt-2 text-xs text-muted-foreground">
-        漏斗动态策略 `{policyMode}`，晋级状态 `{promotion || 'unknown'}`。{formatFormalDynamicReason(execution)}{modeText} Web 读盘室可通过 `query_attribution` 查看运营摘要、执行态和晋级检查；
-        CLI 可通过 `query_history(source="attribution")` 查看 latest_source / remote_error / latest_operator_summary / next_action / latest_execution_state / latest_operations。
+        漏斗动态策略 {formatExecutionMode(policyMode)}，晋级状态 {formatPromotionStatus(promotion)}，下一步 {nextAction}。{formatFormalDynamicReason(execution)}{modeText}
+        Web 读盘室可通过 query_attribution 查看运营摘要、执行态和晋级检查；
+        CLI 可通过 query_history(source=&quot;attribution&quot;) 查看 latest_source、remote_error、latest_operator_summary、next_action、latest_execution_state 和 latest_operations。
         {stats.otherCount > 0 ? ` 另有 ${stats.otherCount} 条非升降权建议保留为观察项。` : ''}
       </p>
     </Panel>

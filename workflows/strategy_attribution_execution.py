@@ -8,7 +8,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from core.strategy_policy_display import format_policy_signal_label, policy_formal_dynamic_label, safe_policy_weight
+from core.strategy_policy_display import (
+    format_policy_signal_label,
+    policy_formal_dynamic_label,
+    policy_next_action_label,
+    safe_policy_weight,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FUNNEL_WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "wyckoff_funnel.yml"
@@ -410,22 +415,11 @@ def _auto_apply_note(summary: str, governor: dict[str, Any]) -> str:
     if governor.get("auto_apply"):
         return summary
     next_action = str(governor.get("next_action") or "").strip()
-    if next_action == "run_backtest_confirmation":
-        return (
-            summary
-            + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；"
-            + "run_backtest_confirmation 表示先补齐结构化回测确认。"
-        )
-    if next_action == "keep_shadow_backtest_failed":
-        return (
-            summary
-            + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；"
-            + "keep_shadow_backtest_failed 表示回测确认未通过。"
-        )
+    label = policy_next_action_label(next_action)
     return (
         summary
         + " 策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；"
-        + "manual_review_dynamic_on 只是人工复核入口。"
+        + f"下一步是{label}（追证据字段: {next_action or '无'}）。"
     )
 
 

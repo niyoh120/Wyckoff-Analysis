@@ -518,7 +518,8 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
             "formal_dynamic": "未进正式漏斗(人工复核未完成)",
             "summary": (
                 "h=5 信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。 "
-                "策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；manual_review_dynamic_on 只是人工复核入口。"
+                "策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；"
+                "下一步是进入人工晋级评审（非正式生效）（追证据字段: manual_review_dynamic_on）。"
             ),
         },
         "formal_dynamic_allowed": False,
@@ -598,7 +599,7 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     assert "- 当前生效范围: `尾盘+漏斗shadow`" in markdown
     assert "- 底层范围: 尾盘+漏斗shadow (`tail_buy_and_funnel_shadow`)" in markdown
     assert "- 可执行调权: `1`" in markdown
-    assert "manual_review_dynamic_on 只是人工复核入口" in markdown
+    assert "下一步是进入人工晋级评审（非正式生效）（追证据字段: manual_review_dynamic_on）" in markdown
     assert "## 运营复盘" in markdown
     assert "- 操作摘要: 下一步=shadow 新增组已跑赢移除组" in markdown
     assert "作用范围=尾盘+漏斗shadow" in markdown
