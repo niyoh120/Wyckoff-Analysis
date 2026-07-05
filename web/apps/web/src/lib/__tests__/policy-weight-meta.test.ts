@@ -47,7 +47,7 @@ describe('formatPolicyWeightMetaText', () => {
       source: '远端',
       formal_dynamic_allowed: false,
       formal_dynamic_block_reason: 'promotion_checklist=shadow_sample:review',
-    })).toBe('（远端, 正式dynamic=未进正式漏斗(晋级清单未通过(shadow_sample:review))）')
+    })).toBe('（远端, 正式dynamic=未进正式漏斗(晋级清单未通过(样本:待复核))）')
   })
 
   it('labels selection action review blocker without leaking raw gate codes', () => {

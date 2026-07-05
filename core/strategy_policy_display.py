@@ -235,8 +235,43 @@ def _formal_dynamic_reason_label(reason: str) -> str:
         return f"下一步={policy_next_action_label(reason.split('=', 1)[1])}"
     if reason.startswith("promotion_checklist="):
         details = reason.split("=", 1)[1]
-        return f"晋级清单未通过({details})" if details else "晋级清单未通过"
+        return f"晋级清单未通过({_promotion_checklist_detail_label(details)})" if details else "晋级清单未通过"
     return reason
+
+
+def _promotion_checklist_detail_label(details: str) -> str:
+    parts = []
+    for item in [x.strip() for x in details.split(",") if x.strip()]:
+        key, _, status = item.partition(":")
+        if status:
+            parts.append(f"{_promotion_check_key_label(key)}:{_promotion_check_status_label(status)}")
+        else:
+            parts.append(_promotion_check_key_label(key))
+    return "，".join(parts) if parts else details
+
+
+def _promotion_check_key_label(raw: str) -> str:
+    labels = {
+        "shadow_sample": "样本",
+        "shadow_performance": "Shadow表现",
+        "shadow_added_outperforms_removed": "新增跑赢",
+        "selection_actions": "候选源治理",
+        "signal_actions": "信号调权",
+        "backtest_confirmation": "回测",
+    }
+    return labels.get(raw.strip(), raw.strip() or "-")
+
+
+def _promotion_check_status_label(raw: str) -> str:
+    labels = {
+        "pass": "通过",
+        "fail": "失败",
+        "review": "待复核",
+        "missing": "缺失",
+        "not_required": "不需要",
+        "unknown": "未知",
+    }
+    return labels.get(raw.strip(), raw.strip() or "未知")
 
 
 def policy_governor_display(governor: dict[str, Any] | None) -> dict[str, str]:

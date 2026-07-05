@@ -9,7 +9,10 @@ describe('attributionFormalDynamicReasonLabel', () => {
   it('formats formal gate blocker reasons for UI surfaces', () => {
     expect(attributionFormalDynamicReasonLabel('manual_review_required')).toBe('人工复核未完成')
     expect(attributionFormalDynamicReasonLabel('promotion_checklist=shadow_sample:review')).toBe(
-      '晋级清单未通过(shadow_sample:review)',
+      '晋级清单未通过(样本:待复核)',
+    )
+    expect(attributionFormalDynamicReasonLabel('promotion_checklist=selection_actions:review,backtest_confirmation:fail')).toBe(
+      '晋级清单未通过(候选源治理:待复核，回测:失败)',
     )
     expect(attributionFormalDynamicReasonLabel('selection_actions_review_required')).toBe('候选源治理待复核')
     expect(attributionFormalDynamicReasonLabel('execution_state=missing')).toBe('缺少后端执行态')
@@ -127,7 +130,7 @@ describe('attributionOperatorSummary', () => {
         formal_dynamic_block_reason: 'promotion_checklist=shadow_sample:review',
       },
       actions: [{ target: 'sos', weight_multiplier: 1.15 }],
-    })).toContain('正式dynamic=未进正式漏斗(晋级清单未通过(shadow_sample:review))')
+    })).toContain('正式dynamic=未进正式漏斗(晋级清单未通过(样本:待复核))')
   })
 
   it('labels a missing backend execution state as a formal blocker', () => {

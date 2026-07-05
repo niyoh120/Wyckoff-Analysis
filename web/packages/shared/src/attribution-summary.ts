@@ -127,9 +127,41 @@ export function attributionFormalDynamicReasonLabel(reason: unknown): string {
   }
   if (text.startsWith('promotion_checklist=')) {
     const details = text.slice('promotion_checklist='.length)
-    return details ? `晋级清单未通过(${details})` : '晋级清单未通过'
+    return details ? `晋级清单未通过(${promotionChecklistDetailLabel(details)})` : '晋级清单未通过'
   }
   return text
+}
+
+function promotionChecklistDetailLabel(details: string): string {
+  const parts = details.split(',').map((item) => item.trim()).filter(Boolean).map((item) => {
+    const [key, status] = item.split(':', 2)
+    return status ? `${promotionCheckKeyLabel(key)}:${promotionCheckStatusLabel(status)}` : promotionCheckKeyLabel(key)
+  })
+  return parts.length ? parts.join('，') : details
+}
+
+function promotionCheckKeyLabel(raw: string): string {
+  const labels: Record<string, string> = {
+    shadow_sample: '样本',
+    shadow_performance: 'Shadow表现',
+    shadow_added_outperforms_removed: '新增跑赢',
+    selection_actions: '候选源治理',
+    signal_actions: '信号调权',
+    backtest_confirmation: '回测',
+  }
+  return labels[raw.trim()] || raw.trim() || '-'
+}
+
+function promotionCheckStatusLabel(raw: string): string {
+  const labels: Record<string, string> = {
+    pass: '通过',
+    fail: '失败',
+    review: '待复核',
+    missing: '缺失',
+    not_required: '不需要',
+    unknown: '未知',
+  }
+  return labels[raw.trim()] || raw.trim() || '未知'
 }
 
 export function attributionOperatorSummary(input: AttributionOperatorSummaryInput): string {
