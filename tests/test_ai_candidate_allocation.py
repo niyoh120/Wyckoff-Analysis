@@ -94,8 +94,9 @@ class TestAllocateAiCandidates:
                 assert int(env[f"FUNNEL_AI_{family}_ACCUM"]) == accum_quota
             assert float(env["FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET"]) == default_policy.risk_on_pre5_ret
             assert "tradeable_l4" in str(env["FUNNEL_AI_SELECTION_MODE"])
-            if path.endswith("wyckoff_funnel.yml"):
-                assert "shadow" in str(env["FUNNEL_DYNAMIC_POLICY"])
+            assert "shadow" in str(env["FUNNEL_DYNAMIC_POLICY"])
+            assert int(env["FUNNEL_DYNAMIC_POLICY_HORIZON"]) == 5
+            assert int(env["STRATEGY_ATTRIBUTION_MAX_AGE_DAYS"]) == 7
 
     def test_evr_and_compression_only_hits_enter_quota_tracks(self):
         result = FunnelResult(
@@ -494,4 +495,4 @@ class TestAllocateAiCandidates:
 
 def _workflow_job_env(path: str, job_name: str) -> dict[str, str]:
     workflow = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
-    return workflow["jobs"][job_name]["env"]
+    return {**(workflow.get("env") or {}), **(workflow["jobs"][job_name].get("env") or {})}

@@ -45,6 +45,10 @@ env:
   BT_COMMISSION_RATE: "0.0002"
   BT_SMALL_TRADE_THRESHOLD: "10000"
   BT_SMALL_TRADE_FEE: "5"
+  # off=静态策略；shadow=应用归因调权做回测验证；on=仅正式批准后进入正式调权。
+  FUNNEL_DYNAMIC_POLICY: ${{ vars.FUNNEL_DYNAMIC_POLICY || secrets.FUNNEL_DYNAMIC_POLICY || 'shadow' }}
+  FUNNEL_DYNAMIC_POLICY_HORIZON: "5"
+  STRATEGY_ATTRIBUTION_MAX_AGE_DAYS: "7"
 
 jobs:
   # ────────────────────────────────────────────────
