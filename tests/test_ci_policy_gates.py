@@ -95,3 +95,14 @@ jobs:
     )
 
     assert _check_workflow(workflow) == []
+
+
+def test_signal_feedback_manual_dynamic_approval_is_explicit():
+    workflow = Path(".github/workflows/signal_feedback.yml").read_text(encoding="utf-8")
+
+    assert "formal_dynamic_approved:" in workflow
+    assert "type: boolean" in workflow
+    assert "formal_dynamic_approval_reason:" in workflow
+    assert "formal_dynamic_approval_reason is required" in workflow
+    assert '"approved_by": os.environ.get("GITHUB_ACTOR", "")' in workflow
+    assert "--formal-dynamic-approval-json formal_dynamic_approval.json" in workflow

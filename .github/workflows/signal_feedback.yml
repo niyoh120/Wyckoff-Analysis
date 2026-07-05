@@ -5,6 +5,17 @@ on:
     # 北京时间周一到周五 23:30，GitHub Actions 使用 UTC。
     - cron: "30 15 * * 1-5"
   workflow_dispatch:
+    inputs:
+      formal_dynamic_approved:
+        description: "人工批准本轮策略归因进入正式 dynamic（仍需归因/回测/治理清单通过）"
+        required: false
+        default: false
+        type: boolean
+      formal_dynamic_approval_reason:
+        description: "批准原因；勾选 formal_dynamic_approved 时必填"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: signal-feedback-${{ github.ref }}
@@ -77,10 +88,40 @@ jobs:
             echo "[attribution] failed to download backtest confirmation; continue without confirmation"
           fi
 
+      - name: Build formal dynamic approval
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.formal_dynamic_approved }}
+        env:
+          APPROVAL_REASON: ${{ inputs.formal_dynamic_approval_reason }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPROVAL_REASON}" ]; then
+            echo "::error::formal_dynamic_approval_reason is required when formal_dynamic_approved=true"
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          import os
+          from datetime import UTC, datetime
+
+          payload = {
+              "approved": True,
+              "approved_by": os.environ.get("GITHUB_ACTOR", ""),
+              "reason": os.environ["APPROVAL_REASON"],
+              "approved_at": datetime.now(UTC).isoformat(),
+              "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+              "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+          }
+          with open("formal_dynamic_approval.json", "w", encoding="utf-8") as fh:
+              json.dump(payload, fh, ensure_ascii=False, indent=2)
+          PY
+
       - name: Build strategy attribution report
         run: |
           args=(--market cn --days 60 --horizons 1,3,5,10,20)
           if [ -s backtest_confirmation.json ]; then
             args+=(--backtest-confirmation-json backtest_confirmation.json)
+          fi
+          if [ -s formal_dynamic_approval.json ]; then
+            args+=(--formal-dynamic-approval-json formal_dynamic_approval.json)
           fi
           python -u scripts/strategy_attribution_report.py "${args[@]}"
