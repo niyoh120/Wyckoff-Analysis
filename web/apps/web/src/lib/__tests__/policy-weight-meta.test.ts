@@ -50,6 +50,14 @@ describe('formatPolicyWeightMetaText', () => {
     })).toBe('（远端, 正式dynamic=未进正式漏斗(晋级清单未通过(shadow_sample:review))）')
   })
 
+  it('labels selection action review blocker without leaking raw gate codes', () => {
+    expect(formatPolicyWeightMetaText({
+      source: '远端',
+      formal_dynamic_allowed: false,
+      formal_dynamic_block_reason: 'selection_actions_review_required',
+    })).toBe('（远端, 正式dynamic=未进正式漏斗(候选源治理待复核)）')
+  })
+
   it('labels missing backend execution state as a formal blocker', () => {
     expect(formatPolicyWeightMetaText({
       source: '远端',

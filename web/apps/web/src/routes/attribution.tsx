@@ -1084,6 +1084,7 @@ function formatPromotionCheckKey(raw: string | undefined) {
   const labels: Record<string, string> = {
     shadow_sample: 'Shadow 样本',
     shadow_performance: 'Shadow 表现',
+    selection_actions: '候选源治理',
     signal_actions: '信号调权',
     backtest_confirmation: '回测确认',
   }

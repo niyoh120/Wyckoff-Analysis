@@ -118,6 +118,7 @@ export function attributionFormalDynamicReasonLabel(reason: unknown): string {
     manual_review_required: '人工复核未完成',
     'promotion_checklist=missing': '晋级清单缺失',
     shadow_only: '仅 shadow 观察',
+    selection_actions_review_required: '候选源治理待复核',
     signal_actions_review_required: '信号调权待复核',
   }
   if (labels[text]) return labels[text]

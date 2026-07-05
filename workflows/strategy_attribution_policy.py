@@ -327,6 +327,7 @@ def _checklist_label(key: str) -> str:
     labels = {
         "shadow_sample": "样本",
         "shadow_added_outperforms_removed": "新增跑赢",
+        "selection_actions": "候选源治理",
         "signal_actions": "信号调权",
         "backtest_confirmation": "回测",
     }

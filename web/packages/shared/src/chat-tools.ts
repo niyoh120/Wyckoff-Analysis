@@ -785,7 +785,30 @@ function truthValue(value: unknown): boolean | null {
 function promotionChecklistLine(raw: unknown): string {
   const rows = arrayValues(raw).filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
   if (rows.length === 0) return '晋级检查：暂无'
-  return `晋级检查：${rows.map((row) => `${String(row.key || '-')}:${String(row.status || '-')}`).join('；')}`
+  return `晋级检查：${rows.map((row) => `${checklistKeyLabel(row.key)}:${checklistStatusLabel(row.status)}`).join('；')}`
+}
+
+function checklistKeyLabel(raw: unknown): string {
+  const labels: Record<string, string> = {
+    shadow_sample: '样本',
+    shadow_performance: 'Shadow表现',
+    selection_actions: '候选源治理',
+    signal_actions: '信号调权',
+    backtest_confirmation: '回测',
+  }
+  return labels[String(raw || '').trim()] || String(raw || '-')
+}
+
+function checklistStatusLabel(raw: unknown): string {
+  const labels: Record<string, string> = {
+    pass: '通过',
+    fail: '失败',
+    review: '待复核',
+    missing: '缺失',
+    not_required: '不需要',
+    unknown: '未知',
+  }
+  return labels[String(raw || '').trim()] || String(raw || '未知')
 }
 
 function latestShadowLine(latest: Record<string, unknown>): string {

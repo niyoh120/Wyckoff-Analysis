@@ -29,7 +29,9 @@ def build_strategy_policy_governor(
     context_actions = _context_actions(signal_context_stats_json or {})
     selection_actions = _selection_actions(score_bucket_stats_json or {})
     all_actions = signal_actions + context_actions
-    promotion_checklist = _promotion_checklist(shadow_gate, all_actions, backtest_confirmation_json or {})
+    promotion_checklist = _promotion_checklist(
+        shadow_gate, all_actions, selection_actions, backtest_confirmation_json or {}
+    )
     next_action = _next_action(shadow_gate, all_actions, promotion_checklist)
     return {
         "version": VERSION,
@@ -495,12 +497,14 @@ def _formal_dynamic_block_reason(shadow_gate: dict[str, Any], checklist: list[di
 def _promotion_checklist(
     shadow_gate: dict[str, Any],
     actions: list[dict[str, Any]],
+    selection_actions: list[dict[str, Any]],
     backtest_confirmation: dict[str, Any],
 ) -> list[dict[str, str]]:
     return [
         _shadow_sample_check(shadow_gate),
         _shadow_performance_check(shadow_gate),
         _signal_action_check(actions),
+        _selection_action_check(selection_actions),
         _backtest_confirmation_check(shadow_gate, backtest_confirmation),
     ]
 
@@ -545,6 +549,15 @@ def _signal_action_check(actions: list[dict[str, Any]]) -> dict[str, str]:
         "key": "signal_actions",
         "status": "review" if active else "pass",
         "summary": f"{len(active)} 个 scoped 信号调权需要一致性复核",
+    }
+
+
+def _selection_action_check(actions: list[dict[str, Any]]) -> dict[str, str]:
+    active = [item for item in actions if item.get("action") in {"selection_downweight", "selection_upweight"}]
+    return {
+        "key": "selection_actions",
+        "status": "review" if active else "pass",
+        "summary": f"{len(active)} 个候选源治理动作需要一致性复核",
     }
 
 

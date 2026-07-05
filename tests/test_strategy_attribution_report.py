@@ -221,6 +221,7 @@ def test_attribution_policy_governor_promotes_shadow_review_and_signal_actions()
         "shadow_sample": "pass",
         "shadow_performance": "pass",
         "signal_actions": "review",
+        "selection_actions": "pass",
         "backtest_confirmation": "review",
     }
     assert {row["type"] for row in rows} >= {"policy_governor", "downweight", "upweight"}
@@ -399,6 +400,56 @@ def test_attribution_policy_governor_emits_selection_source_actions():
     assert execution["selection_action_count"] == 4
     assert "candidate_lane=trend_pullback" in operations["selection_action_summary"]
     assert "候选源治理 4 项" in operations["operator_summary"]
+
+
+def test_attribution_policy_governor_blocks_formal_dynamic_on_selection_actions():
+    from core.strategy_policy_governor import build_strategy_policy_governor
+
+    governor = build_strategy_policy_governor(
+        signal_stats_json={},
+        score_bucket_stats_json={
+            "_candidate_lane": {
+                "5": {
+                    "trend_pullback": {
+                        "count": 5,
+                        "avg_return_pct": -2.0,
+                        "win_rate_pct": 20.0,
+                        "big_loss_rate_pct": 40.0,
+                        "avg_drawdown_pct": -11.0,
+                    }
+                }
+            }
+        },
+        shadow_diff_stats_json={
+            "count": 10,
+            "outcome_stats": {
+                "5": {
+                    "added": {
+                        "matched_outcomes": 3,
+                        "avg_return_pct": 3.0,
+                        "win_rate_pct": 70.0,
+                        "avg_drawdown_pct": -5.0,
+                    },
+                    "removed": {
+                        "matched_outcomes": 3,
+                        "avg_return_pct": -1.0,
+                        "win_rate_pct": 40.0,
+                        "avg_drawdown_pct": -8.0,
+                    },
+                }
+            },
+        },
+        backtest_confirmation_json={"status": "pass", "summary": "回测确认通过。"},
+        horizons=[5],
+    )
+
+    checklist = {row["key"]: row for row in governor["promotion_checklist"]}
+    assert governor["status"] == "candidate"
+    assert governor["formal_dynamic_allowed"] is False
+    assert governor["formal_dynamic_approval"] == "selection_actions_review_required"
+    assert governor["formal_dynamic_block_reason"] == "selection_actions_review_required"
+    assert checklist["selection_actions"]["status"] == "review"
+    assert checklist["backtest_confirmation"]["status"] == "pass"
 
 
 def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):

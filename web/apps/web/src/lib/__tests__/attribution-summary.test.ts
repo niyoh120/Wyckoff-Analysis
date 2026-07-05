@@ -11,6 +11,7 @@ describe('attributionFormalDynamicReasonLabel', () => {
     expect(attributionFormalDynamicReasonLabel('promotion_checklist=shadow_sample:review')).toBe(
       '晋级清单未通过(shadow_sample:review)',
     )
+    expect(attributionFormalDynamicReasonLabel('selection_actions_review_required')).toBe('候选源治理待复核')
     expect(attributionFormalDynamicReasonLabel('execution_state=missing')).toBe('缺少后端执行态')
   })
 })
