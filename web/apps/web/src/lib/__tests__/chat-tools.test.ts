@@ -13,6 +13,7 @@ import {
   execScreenStocks,
   execAnalyzeStock,
   execMarketHistory,
+  SCREEN_RESULT_OUTPUT_SCHEMA,
 } from '@wyckoff/shared'
 
 function createMockChain(resolvedData: unknown = null, error: unknown = null) {
@@ -540,6 +541,24 @@ describe('execScreenStocks', () => {
     const result = await execScreenStocks(deps)
     expect(result.stocks).toEqual([])
     expect(result.meta.ai_count).toBe(0)
+  })
+
+  it('keeps optional strategy policy evidence in the output schema', () => {
+    const result = SCREEN_RESULT_OUTPUT_SCHEMA.parse({
+      date: '2026-07-05',
+      stocks: [],
+      meta: { ai_count: 0 },
+      strategy_policy: {
+        dynamic_mode: 'shadow',
+        policy_weight_active_scope: '尾盘+漏斗shadow',
+        selection_action_count: 1,
+        selection_action_summary: '候选源治理 1 项：candidate_lane=trend_pullback 降级到 shadow/人工复核×0.75',
+        attribution_signal_weights: { lps: 0.5 },
+      },
+    })
+
+    expect(result.strategy_policy?.selection_action_count).toBe(1)
+    expect(result.strategy_policy?.selection_action_summary).toContain('candidate_lane=trend_pullback')
   })
 })
 

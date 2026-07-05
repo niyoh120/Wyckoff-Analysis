@@ -903,10 +903,23 @@ export interface ScreenStockItem {
   entry_type: string | null
 }
 
+export interface ScreenStrategyPolicy {
+  dynamic_mode?: string | null
+  execution_policy?: string | null
+  policy_weight_active_scope?: string | null
+  selection_action_count?: number | null
+  selection_action_summary?: string | null
+  formal_dynamic_allowed?: boolean | null
+  next_action?: string | null
+  signal_weights?: Record<string, number> | null
+  attribution_signal_weights?: Record<string, number> | null
+}
+
 export interface ScreenResult {
   date: string
   stocks: ScreenStockItem[]
   meta: { ai_count: number }
+  strategy_policy?: ScreenStrategyPolicy | null
 }
 
 export const SCREEN_RESULT_OUTPUT_SCHEMA = z.object({
@@ -921,6 +934,17 @@ export const SCREEN_RESULT_OUTPUT_SCHEMA = z.object({
     entry_type: z.string().nullable(),
   })),
   meta: z.object({ ai_count: z.number() }),
+  strategy_policy: z.object({
+    dynamic_mode: z.string().nullable().optional(),
+    execution_policy: z.string().nullable().optional(),
+    policy_weight_active_scope: z.string().nullable().optional(),
+    selection_action_count: z.number().nullable().optional(),
+    selection_action_summary: z.string().nullable().optional(),
+    formal_dynamic_allowed: z.boolean().nullable().optional(),
+    next_action: z.string().nullable().optional(),
+    signal_weights: z.record(z.number()).nullable().optional(),
+    attribution_signal_weights: z.record(z.number()).nullable().optional(),
+  }).nullable().optional(),
 })
 
 export async function execScreenStocks(deps: ToolDeps): Promise<ScreenResult> {

@@ -4,6 +4,8 @@ import { BellPlus, ChevronRight } from 'lucide-react'
 import type { ScreenResult, ScreenStockItem } from '@wyckoff/shared'
 import { financialValueClass } from '@/lib/financial-colors'
 
+type ScreenStrategyPolicy = NonNullable<ScreenResult['strategy_policy']>
+
 function StockRow({ s, onPinStock }: { s: ScreenStockItem; onPinStock?: (stock: ScreenStockItem) => void }) {
   const chgColor = financialValueClass(s.change_pct)
   return (
@@ -60,6 +62,7 @@ export const ScreenResultCard = memo(function ScreenResultCard({ data, onPinStoc
           {data.meta.ai_count} 只入选
         </span>
       </div>
+      <StrategyPolicyLine policy={data.strategy_policy} />
       <div className="mb-1 flex gap-4 text-[10px] text-muted-foreground px-2">
         <span className="w-14">代码</span>
         <span className="flex-1">名称</span>
@@ -71,3 +74,33 @@ export const ScreenResultCard = memo(function ScreenResultCard({ data, onPinStoc
     </div>
   )
 })
+
+function StrategyPolicyLine({ policy }: { policy?: ScreenStrategyPolicy | null }) {
+  const text = strategyPolicyText(policy)
+  if (!text) return null
+  return (
+    <div className="mb-2 px-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-200">
+      <span className="font-medium">策略治理：</span>
+      <span className="break-words">{text}</span>
+    </div>
+  )
+}
+
+function strategyPolicyText(policy?: ScreenStrategyPolicy | null): string {
+  if (!policy) return ''
+  const summary = (policy.selection_action_summary || '').trim()
+  if (summary && summary !== '候选源治理=无') return summary
+  const weights = policy.attribution_signal_weights || policy.signal_weights
+  if (weights && Object.keys(weights).length > 0) return `归因调权 ${formatPolicyWeights(weights)}`
+  const scope = (policy.policy_weight_active_scope || '').trim()
+  const mode = (policy.execution_policy || policy.dynamic_mode || '').trim()
+  return [mode, scope].filter(Boolean).join(' / ')
+}
+
+function formatPolicyWeights(weights: Record<string, number>): string {
+  return Object.entries(weights)
+    .filter(([, value]) => Number.isFinite(value))
+    .slice(0, 6)
+    .map(([key, value]) => `${key}×${value.toFixed(2)}`)
+    .join('，')
+}
