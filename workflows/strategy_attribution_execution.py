@@ -66,8 +66,10 @@ def attribution_execution_state(
 
 def attribution_formal_dynamic_allowed(governor: dict[str, Any]) -> bool:
     explicit = _bool_value(governor.get("formal_dynamic_allowed"))
-    if explicit is not None:
-        return explicit
+    if explicit is False:
+        return False
+    if explicit is True:
+        return _promotion_checklist_ready(governor)
     approval = str(governor.get("formal_dynamic_approval") or governor.get("approval_status") or "").strip().lower()
     if approval in {"approved", "manual_approved", "dynamic_on_approved", "formal_dynamic_approved"}:
         return _promotion_checklist_ready(governor)
@@ -434,6 +436,8 @@ def _formal_dynamic_block_reason(governor: dict[str, Any], allowed: bool) -> str
     if explicit_reason:
         return explicit_reason
     explicit = _bool_value(governor.get("formal_dynamic_allowed"))
+    if explicit is True:
+        return _promotion_checklist_block_reason(governor) or "formal_dynamic_checklist_not_ready"
     if explicit is False:
         return "formal_dynamic_allowed=false"
     next_action = str(governor.get("next_action") or "").strip()

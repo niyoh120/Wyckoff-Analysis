@@ -619,7 +619,7 @@ def test_attribution_execution_state_blocks_formal_on_without_governor_approval(
     assert "未批准进入漏斗正式 dynamic" in state["summary"]
 
 
-def test_attribution_execution_state_allows_formal_on_with_explicit_approval(monkeypatch):
+def test_attribution_execution_state_blocks_explicit_formal_on_without_checklist(monkeypatch):
     from workflows.strategy_attribution_execution import attribution_execution_state
 
     monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
@@ -629,6 +629,36 @@ def test_attribution_execution_state_allows_formal_on_with_explicit_approval(mon
         "promotion_status": "manual_review_required",
         "formal_dynamic_allowed": True,
         "auto_apply": False,
+    }
+
+    state = attribution_execution_state(
+        governor,
+        [{"type": "upweight", "target": "sos", "horizon": "5", "reason": '{"weight_multiplier":1.15}'}],
+    )
+
+    assert state["scope"] == "tail_buy_and_funnel_shadow"
+    assert state["formal_dynamic_allowed"] is False
+    assert state["formal_dynamic_block_reason"] == "promotion_checklist=missing"
+    assert state["active_scope"] == "尾盘+漏斗shadow"
+    assert state["funnel_formal_weights_active"] is False
+
+
+def test_attribution_execution_state_allows_formal_on_with_explicit_approval_and_passed_checklist(monkeypatch):
+    from workflows.strategy_attribution_execution import attribution_execution_state
+
+    monkeypatch.setenv("FUNNEL_DYNAMIC_POLICY", "on")
+    governor = {
+        "horizon": "5",
+        "next_action": "manual_review_dynamic_on",
+        "promotion_status": "manual_review_required",
+        "formal_dynamic_allowed": True,
+        "auto_apply": False,
+        "promotion_checklist": [
+            {"key": "shadow_sample", "status": "pass", "summary": "sample ok"},
+            {"key": "shadow_performance", "status": "pass", "summary": "performance ok"},
+            {"key": "signal_actions", "status": "pass", "summary": "signals ok"},
+            {"key": "backtest_confirmation", "status": "pass", "summary": "backtest ok"},
+        ],
     }
 
     state = attribution_execution_state(
