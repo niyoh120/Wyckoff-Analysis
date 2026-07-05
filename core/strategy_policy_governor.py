@@ -597,13 +597,29 @@ def _backtest_confirmation_summary(confirmation: dict[str, Any], status: str) ->
 
 
 def _formal_dynamic_checklist_block(checklist: list[dict[str, str]]) -> str:
-    backtest_status = _check_status(checklist, "backtest_confirmation")
-    if backtest_status == "fail":
-        return "backtest_confirmation_failed"
-    if backtest_status == "review":
-        return "backtest_confirmation_required"
-    if backtest_status in {"", "unknown"}:
-        return "backtest_confirmation_missing"
+    backtest_block = _checklist_row_block(checklist, "backtest_confirmation")
+    if backtest_block:
+        return backtest_block
+    for row in checklist:
+        key = str(row.get("key") or "").strip()
+        if key == "backtest_confirmation":
+            continue
+        block = _checklist_row_block(checklist, key)
+        if block:
+            return block
+    return ""
+
+
+def _checklist_row_block(checklist: list[dict[str, str]], key: str) -> str:
+    status = _check_status(checklist, key)
+    if status == "fail":
+        return f"{key}_failed"
+    if status == "review":
+        if key == "backtest_confirmation":
+            return "backtest_confirmation_required"
+        return f"{key}_review_required"
+    if status in {"", "missing", "unknown"}:
+        return f"{key}_missing"
     return ""
 
 

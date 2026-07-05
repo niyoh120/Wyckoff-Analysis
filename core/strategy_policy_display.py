@@ -210,10 +210,17 @@ def policy_formal_dynamic_label(execution: dict[str, Any] | None) -> str:
         return "允许正式生效"
     if row.get("formal_dynamic_allowed") is False:
         reason = str(row.get("formal_dynamic_block_reason") or "").strip()
-        return f"未进正式漏斗({reason})" if reason else "未进正式漏斗"
+        return f"未进正式漏斗({_formal_dynamic_reason_label(reason)})" if reason else "未进正式漏斗"
     if str(row.get("next_action") or "").strip() == "manual_review_dynamic_on":
         return "未进正式漏斗(manual_review_required)"
     return "未知"
+
+
+def _formal_dynamic_reason_label(reason: str) -> str:
+    labels = {
+        "signal_actions_review_required": "信号调权待复核",
+    }
+    return labels.get(reason, reason)
 
 
 def policy_governor_display(governor: dict[str, Any] | None) -> dict[str, str]:

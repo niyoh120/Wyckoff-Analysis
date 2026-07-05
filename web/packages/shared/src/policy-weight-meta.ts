@@ -48,9 +48,16 @@ function policyFormalDynamicLabel(meta: Record<string, unknown>): string {
   if (allowed === true) return '允许正式生效'
   if (allowed === false) {
     const reason = textMeta(meta, 'formal_dynamic_block_reason')
-    return reason ? `未进正式漏斗(${reason})` : '未进正式漏斗'
+    return reason ? `未进正式漏斗(${formalDynamicReasonLabel(reason)})` : '未进正式漏斗'
   }
   return '未知'
+}
+
+function formalDynamicReasonLabel(reason: string): string {
+  const labels: Record<string, string> = {
+    signal_actions_review_required: '信号调权待复核',
+  }
+  return labels[reason] || reason
 }
 
 function policyActiveScope(meta: Record<string, unknown>): string {

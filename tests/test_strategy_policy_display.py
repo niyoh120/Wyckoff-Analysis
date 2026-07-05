@@ -128,3 +128,12 @@ def test_policy_execution_display_distinguishes_formal_gate() -> None:
         "formal_dynamic": "未进正式漏斗(auto_apply=false)",
         "summary": "只进入 shadow",
     }
+
+
+def test_policy_execution_display_labels_signal_action_review_gate() -> None:
+    execution = {
+        "formal_dynamic_allowed": False,
+        "formal_dynamic_block_reason": "signal_actions_review_required",
+    }
+
+    assert policy_formal_dynamic_label(execution) == "未进正式漏斗(信号调权待复核)"

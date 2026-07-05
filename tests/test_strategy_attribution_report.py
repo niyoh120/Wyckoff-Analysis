@@ -279,8 +279,8 @@ def test_attribution_policy_governor_accepts_structured_backtest_confirmation():
 
     assert governor["formal_dynamic_allowed"] is False
     assert governor["next_action"] == "manual_review_dynamic_on"
-    assert governor["formal_dynamic_approval"] == "manual_review_required"
-    assert governor["formal_dynamic_block_reason"] == "manual_review_required"
+    assert governor["formal_dynamic_approval"] == "signal_actions_review_required"
+    assert governor["formal_dynamic_block_reason"] == "signal_actions_review_required"
     assert checklist["backtest_confirmation"]["status"] == "pass"
     assert checklist["backtest_confirmation"]["summary"] == "三周期回测确认正收益，允许进入人工晋级评审。"
 

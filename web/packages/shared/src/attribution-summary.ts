@@ -93,7 +93,7 @@ export function attributionFormalDynamicLabel(
   if (execution?.formal_dynamic_allowed === true) return '允许正式生效'
   if (execution?.formal_dynamic_allowed === false) {
     const reason = optionalText(execution.formal_dynamic_block_reason)
-    return reason ? `未进正式漏斗(${reason})` : '未进正式漏斗'
+    return reason ? `未进正式漏斗(${formalDynamicReasonLabel(reason)})` : '未进正式漏斗'
   }
   if (optionalText(execution?.next_action) === 'manual_review_dynamic_on') {
     return '未进正式漏斗(manual_review_required)'
@@ -105,6 +105,13 @@ export function attributionFormalDynamicLabel(
     return '未进正式漏斗(backtest_confirmation_failed)'
   }
   return '未知'
+}
+
+function formalDynamicReasonLabel(reason: string): string {
+  const labels: Record<string, string> = {
+    signal_actions_review_required: '信号调权待复核',
+  }
+  return labels[reason] || reason
 }
 
 export function attributionOperatorSummary(input: AttributionOperatorSummaryInput): string {
