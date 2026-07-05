@@ -220,10 +220,13 @@ def test_apply_policy_weight_adjustments_downgrades_weak_signal_buy():
     assert result[0].features["policy_weight_report_date"] == "2026-07-04"
     assert result[0].features["policy_weight_horizon"] == "5"
     assert result[0].features["policy_weight_execution_policy"] == "shadow"
+    assert result[0].features["policy_weight_execution_policy_label"] == "shadow 对照(shadow)"
     assert result[0].features["policy_weight_execution_scope"] == "tail_buy_and_funnel_shadow"
     assert result[0].features["policy_weight_active_scope"] == "尾盘+漏斗shadow"
     assert result[0].features["policy_weight_next_action"] == "manual_review_dynamic_on"
+    assert result[0].features["policy_weight_next_action_label"] == "进入人工晋级评审（非正式生效）"
     assert result[0].features["policy_weight_formal_dynamic_allowed"] is True
+    assert result[0].features["policy_weight_formal_dynamic_label"] == "允许正式生效"
     assert result[0].features["policy_weight_tail_buy_weights_active"] is True
     assert result[0].features["policy_weight_funnel_shadow_weights_active"] is True
     assert result[0].features["policy_weight_funnel_formal_weights_active"] is False

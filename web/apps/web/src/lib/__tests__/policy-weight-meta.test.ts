@@ -65,6 +65,21 @@ describe('formatPolicyWeightMetaText', () => {
     })).toBe('（远端, 下一步=先复核调权治理项）')
   })
 
+  it('prefers persisted display labels over raw policy codes', () => {
+    expect(formatPolicyWeightMetaText({
+      policy_weight_source: '远端',
+      policy_weight_execution_policy: 'shadow',
+      policy_weight_execution_policy_label: 'shadow 对照(shadow)',
+      policy_weight_next_action: 'manual_review_dynamic_on',
+      policy_weight_next_action_label: '进入人工晋级评审（非正式生效）',
+      policy_weight_formal_dynamic_allowed: false,
+      policy_weight_formal_dynamic_block_reason: 'shadow_only',
+      policy_weight_formal_dynamic_label: '未进正式漏斗(仅 shadow 观察)',
+    })).toBe(
+      '（远端, 策略=shadow 对照(shadow), 下一步=进入人工晋级评审（非正式生效）, 正式dynamic=未进正式漏斗(仅 shadow 观察)）',
+    )
+  })
+
   it('labels missing backend execution state as a formal blocker', () => {
     expect(formatPolicyWeightMetaText({
       source: '远端',

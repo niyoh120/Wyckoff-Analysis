@@ -21,14 +21,20 @@ function policySourceTokens(meta: Record<string, unknown>): string[] {
   const horizon = textMeta(meta, 'horizon')
   const ageDays = rawMeta(meta, 'age_days')
   const executionPolicy = textMeta(meta, 'execution_policy')
+  const executionPolicyLabel = textMeta(meta, 'execution_policy_label')
   const nextAction = textMeta(meta, 'next_action')
+  const nextActionLabel = textMeta(meta, 'next_action_label')
 
   if (source) tokens.push(source)
   if (reportDate) tokens.push(`报告=${reportDate}`)
   if (horizon) tokens.push(`周期=h${horizon}`)
   if (ageDays !== undefined && ageDays !== null && String(ageDays) !== '') tokens.push(`距今=${ageDays}天`)
-  if (executionPolicy) tokens.push(`策略=${policyExecutionModeLabel(executionPolicy)}`)
-  if (nextAction) tokens.push(`下一步=${attributionNextActionLabel(nextAction)}`)
+  if (executionPolicyLabel || executionPolicy) {
+    tokens.push(`策略=${executionPolicyLabel || policyExecutionModeLabel(executionPolicy)}`)
+  }
+  if (nextActionLabel || nextAction) {
+    tokens.push(`下一步=${nextActionLabel || attributionNextActionLabel(nextAction)}`)
+  }
   return tokens
 }
 
@@ -44,6 +50,8 @@ function policyExecutionModeLabel(raw: unknown): string {
 }
 
 function policyFormalDynamicLabel(meta: Record<string, unknown>): string {
+  const label = textMeta(meta, 'formal_dynamic_label')
+  if (label) return label
   const allowed = boolMeta(meta, 'formal_dynamic_allowed')
   if (allowed === true) return '允许正式生效'
   if (allowed === false) {

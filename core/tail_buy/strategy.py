@@ -23,6 +23,11 @@ from core.intraday_analysis import (
     ensure_intraday_df,
     infer_session_vwap,
 )
+from core.strategy_policy_display import (
+    policy_execution_mode_label,
+    policy_formal_dynamic_label,
+    policy_next_action_label,
+)
 from core.strategy_policy_governor import resolve_signal_weight_multiplier
 from core.tail_buy.guardrails import tail_candidate_veto_reasons, tail_entry_veto_reasons, tail_hard_veto_reasons
 from core.tail_buy.models import (
@@ -965,6 +970,10 @@ def apply_policy_weight_adjustments(
     if not candidates or not signal_weights:
         return candidates
     floor = max(safe_float(min_buy_score, 72.0), 0.0)
+    meta = policy_meta or {}
+    execution_policy = str(meta.get("execution_policy") or "").strip()
+    next_action = str(meta.get("next_action") or "").strip()
+    has_formal_dynamic = "formal_dynamic_allowed" in meta or "formal_dynamic_block_reason" in meta or bool(next_action)
     for item in candidates:
         multiplier = _policy_multiplier_for_signal(item, signal_weights)
         if multiplier == 1.0:
@@ -978,21 +987,24 @@ def apply_policy_weight_adjustments(
                 "policy_weight_multiplier": multiplier,
                 "policy_weight_old_score": old_score,
                 "policy_weight_new_score": new_score,
-                "policy_weight_source": str((policy_meta or {}).get("source") or ""),
-                "policy_weight_report_date": str((policy_meta or {}).get("report_date") or ""),
-                "policy_weight_horizon": str((policy_meta or {}).get("horizon") or ""),
-                "policy_weight_age_days": (policy_meta or {}).get("age_days"),
-                "policy_weight_execution_policy": str((policy_meta or {}).get("execution_policy") or ""),
-                "policy_weight_execution_scope": str((policy_meta or {}).get("execution_scope") or ""),
-                "policy_weight_active_scope": str((policy_meta or {}).get("active_scope") or ""),
-                "policy_weight_next_action": str((policy_meta or {}).get("next_action") or ""),
-                "policy_weight_formal_dynamic_allowed": (policy_meta or {}).get("formal_dynamic_allowed"),
-                "policy_weight_tail_buy_weights_active": (policy_meta or {}).get("tail_buy_weights_active"),
-                "policy_weight_funnel_shadow_weights_active": (policy_meta or {}).get("funnel_shadow_weights_active"),
-                "policy_weight_funnel_formal_weights_active": (policy_meta or {}).get("funnel_formal_weights_active"),
-                "policy_weight_formal_dynamic_block_reason": str(
-                    (policy_meta or {}).get("formal_dynamic_block_reason") or ""
+                "policy_weight_source": str(meta.get("source") or ""),
+                "policy_weight_report_date": str(meta.get("report_date") or ""),
+                "policy_weight_horizon": str(meta.get("horizon") or ""),
+                "policy_weight_age_days": meta.get("age_days"),
+                "policy_weight_execution_policy": execution_policy,
+                "policy_weight_execution_policy_label": (
+                    policy_execution_mode_label(execution_policy) if execution_policy else ""
                 ),
+                "policy_weight_execution_scope": str(meta.get("execution_scope") or ""),
+                "policy_weight_active_scope": str(meta.get("active_scope") or ""),
+                "policy_weight_next_action": next_action,
+                "policy_weight_next_action_label": policy_next_action_label(next_action) if next_action else "",
+                "policy_weight_formal_dynamic_allowed": meta.get("formal_dynamic_allowed"),
+                "policy_weight_formal_dynamic_label": policy_formal_dynamic_label(meta) if has_formal_dynamic else "",
+                "policy_weight_tail_buy_weights_active": meta.get("tail_buy_weights_active"),
+                "policy_weight_funnel_shadow_weights_active": meta.get("funnel_shadow_weights_active"),
+                "policy_weight_funnel_formal_weights_active": meta.get("funnel_formal_weights_active"),
+                "policy_weight_formal_dynamic_block_reason": str(meta.get("formal_dynamic_block_reason") or ""),
             }
         )
         if item.priority_score > 0:
