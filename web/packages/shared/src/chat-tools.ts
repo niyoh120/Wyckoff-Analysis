@@ -1111,9 +1111,7 @@ export async function execAnalyzeStock(
 
   const digest = buildKlineDigest(kline)
   const valueDigest = buildValueAgentDigest(valueSnapshot)
-  const result = await deps.generateText({
-    model: model as Parameters<typeof GenerateTextFn>[0]['model'],
-    system: `你是威科夫分析大师。基于以下K线数据和价值面摘要，对 ${code} ${name || ''} 进行深度诊断。主框架仍是量价与威科夫阶段判断，价值面只作为质量、风险和仓位置信度校准：技术面负责时机，价值面负责是否值得提高/降低结论置信度。
+  const systemPrompt = `你是威科夫分析大师。基于以下K线数据和价值面摘要，对 ${code} ${name || ''} 进行深度诊断。主框架仍是量价与威科夫阶段判断，价值面只作为质量、风险和仓位置信度校准：技术面负责时机，价值面负责是否值得提高/降低结论置信度。
 1. 当前威科夫阶段（积累/上涨/派发/下跌），Phase A-E 定位
 2. 量价关系分析（供需力量对比，近期量比变化）
 3. 均线形态（多头/空头排列，金叉/死叉）
@@ -1122,12 +1120,24 @@ export async function execAnalyzeStock(
 6. 主力行为判断（是否有吸筹/出货迹象）
 7. 操作建议与风险提示（含建议止损位）
 
-按结构化 schema 输出。markdown 字段保留一段简洁专业的 Markdown 诊断正文。`,
-    prompt: `${valueDigest}\n\n${digest}`,
-    output: Output.object({ schema: ANALYZE_STOCK_OUTPUT_SCHEMA }),
-  })
-
-  return normalizeAnalyzeOutput(result.output, result.text)
+按结构化 schema 输出。markdown 字段保留一段简洁专业的 Markdown 诊断正文。`
+  const userPrompt = `${valueDigest}\n\n${digest}`
+  try {
+    const result = await deps.generateText({
+      model: model as Parameters<typeof GenerateTextFn>[0]['model'],
+      system: systemPrompt,
+      prompt: userPrompt,
+      output: Output.object({ schema: ANALYZE_STOCK_OUTPUT_SCHEMA }),
+    })
+    return normalizeAnalyzeOutput(result.output, result.text)
+  } catch {
+    const fallback = await deps.generateText({
+      model: model as Parameters<typeof GenerateTextFn>[0]['model'],
+      system: systemPrompt + '\n\n请用纯 JSON 输出，字段: summary, phase, confidence, support, resistance, action, risk, markdown。',
+      prompt: userPrompt,
+    })
+    return parseAnalyzeFallback(fallback.text, code, name)
+  }
 }
 
 function buildAnalyzeError(code: string, name: string | null, message: string): AnalyzeStockResult {
@@ -1145,15 +1155,37 @@ function buildAnalyzeError(code: string, name: string | null, message: string): 
 
 function normalizeAnalyzeOutput(output: AnalyzeStockResult | undefined, text: string): AnalyzeStockResult {
   if (output) return output
+  return parseAnalyzeFallback(text, '', null)
+}
+
+function parseAnalyzeFallback(text: string, code: string, name: string | null): AnalyzeStockResult {
+  const raw = text || ''
+  const jsonMatch = raw.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0])
+      return {
+        summary: String(parsed.summary || parsed.markdown || raw).slice(0, 2000),
+        phase: String(parsed.phase || '未知'),
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : null,
+        support: parsed.support != null ? String(parsed.support) : null,
+        resistance: parsed.resistance != null ? String(parsed.resistance) : null,
+        action: String(parsed.action || '详见正文'),
+        risk: String(parsed.risk || '请结合实时行情与自身风险承受能力。'),
+        markdown: String(parsed.markdown || parsed.summary || raw),
+      }
+    } catch { /* fall through */ }
+  }
+  const label = [code, name].filter(Boolean).join(' ')
   return {
-    summary: text || '分析完成但无输出',
+    summary: raw || '分析完成但无结构化输出',
     phase: '未结构化',
     confidence: null,
     support: null,
     resistance: null,
     action: '详见正文',
     risk: '请结合实时行情与自身风险承受能力。',
-    markdown: text || '分析完成但无输出',
+    markdown: label ? `## ${label}\n${raw}` : raw || '分析完成但无输出',
   }
 }
 
@@ -1221,21 +1253,49 @@ export async function execStrategyDecision(deps: ToolDeps, userId: string, model
     ? `大盘状态: ${signal.benchmark_regime || '未知'}, 上证: ${signal.main_index_close || '--'}, A50涨幅: ${signal.a50_pct_chg || '--'}%, VIX: ${signal.vix_close || '--'}`
     : '暂无市场数据'
   const policyInfo = formatStrategyPolicyDigest(strategyPolicy)
+  const sysPrompt = '你是威科夫大师。基于用户的持仓和当前市场环境，为每只持仓股给出操作建议（买入加仓/持有/减仓/卖出），并给出整体仓位管理建议。按结构化 schema 输出，必须附带风险提示。'
+  const userPrompt = `当前持仓:\n${posInfo}\n\n市场环境:\n${marketInfo}\n\n策略治理:\n${policyInfo}`
+  const defaultRegime = signal?.benchmark_regime || '未知'
+  try {
+    const result = await deps.generateText({
+      model: model as Parameters<typeof GenerateTextFn>[0]['model'],
+      system: sysPrompt,
+      prompt: userPrompt,
+      output: Output.object({ schema: STRATEGY_DECISION_OUTPUT_SCHEMA }),
+    })
+    return withStrategyPolicy(result.output || strategyDecisionFallback(result.text, defaultRegime), strategyPolicy)
+  } catch {
+    const fallback = await deps.generateText({
+      model: model as Parameters<typeof GenerateTextFn>[0]['model'],
+      system: sysPrompt + '\n\n请用纯 JSON 输出，字段: summary, market_regime, overall_position, risk, position_actions。',
+      prompt: userPrompt,
+    })
+    return withStrategyPolicy(strategyDecisionFallback(fallback.text, defaultRegime), strategyPolicy)
+  }
+}
 
-  const result = await deps.generateText({
-    model: model as Parameters<typeof GenerateTextFn>[0]['model'],
-    system: '你是威科夫大师。基于用户的持仓和当前市场环境，为每只持仓股给出操作建议（买入加仓/持有/减仓/卖出），并给出整体仓位管理建议。按结构化 schema 输出，必须附带风险提示。',
-    prompt: `当前持仓:\n${posInfo}\n\n市场环境:\n${marketInfo}\n\n策略治理:\n${policyInfo}`,
-    output: Output.object({ schema: STRATEGY_DECISION_OUTPUT_SCHEMA }),
-  })
-
-  return withStrategyPolicy(result.output || {
-    summary: result.text || '无法生成建议',
-    market_regime: signal?.benchmark_regime || '未知',
+function strategyDecisionFallback(text: string, regime: string): StrategyDecisionResult {
+  const raw = text || ''
+  const jsonMatch = raw.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0])
+      return {
+        summary: String(parsed.summary || raw),
+        market_regime: String(parsed.market_regime || regime),
+        overall_position: String(parsed.overall_position || '详见摘要'),
+        risk: String(parsed.risk || '请结合实时行情与自身风险承受能力。'),
+        position_actions: Array.isArray(parsed.position_actions) ? parsed.position_actions : [],
+      }
+    } catch { /* fall through */ }
+  }
+  return {
+    summary: raw || '无法生成建议',
+    market_regime: regime,
     overall_position: '详见摘要',
     risk: '请结合实时行情与自身风险承受能力。',
     position_actions: [],
-  }, strategyPolicy)
+  }
 }
 
 function withStrategyPolicy(result: StrategyDecisionResult, policy: ScreenStrategyPolicy | null): StrategyDecisionResult {

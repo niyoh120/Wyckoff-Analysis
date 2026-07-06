@@ -72,6 +72,7 @@ chatRoutes.post('/', async (c) => {
     stopWhen: stepCountIs(10),
     abortSignal: c.req.raw.signal,
     experimental_toolApprovalSecret: c.env.CHAT_TOOL_APPROVAL_SECRET || c.env.SUPABASE_SERVICE_ROLE_KEY,
+    providerOptions: { openai: { parallelToolCalls: false } },
   })
 
   return result.toUIMessageStreamResponse({
