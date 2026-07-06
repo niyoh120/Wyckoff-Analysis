@@ -512,7 +512,8 @@ def upsert_market_signal_daily(trade_date: date | str, patch: dict[str, Any]) ->
                 on_conflict="trade_date",
             ).execute()
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning("[supabase_market_signal] upsert_market_signal_daily failed: %s", e)
         return False
 
 
@@ -523,7 +524,8 @@ def load_market_signal_daily(trade_date: date | str, client: Client | None = Non
             row = _load_market_signal_by_trade_date(sb, trade_date_text)
             if row:
                 return row
-        except Exception:
+        except Exception as e:
+            logger.debug("[supabase_market_signal] load_market_signal_daily failed for client: %s", e)
             continue
     return None
 
@@ -536,6 +538,7 @@ def load_latest_market_signal_daily(client: Client | None = None) -> dict[str, A
             merged = _merge_latest_market_signal_rows(_latest_market_signal_rows(sb))
             if merged:
                 return merged
-        except Exception:
+        except Exception as e:
+            logger.debug("[supabase_market_signal] load_latest_market_signal_daily failed for client: %s", e)
             continue
     return None

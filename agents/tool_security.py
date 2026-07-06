@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import pathlib
 import re
 import shlex
 import socket
 from typing import Any
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 SENSITIVE_KEY_RE = re.compile(
     r"(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret|credential|authorization|cookie|session)",
@@ -117,14 +120,20 @@ def redact_sensitive_text(text: str) -> str:
 
 
 def redact_sensitive_columns(df: Any) -> Any:
+    """Redact columns whose name looks sensitive; never leak the original frame on failure."""
     try:
         out = df.copy()
-        for col in out.columns:
+    except Exception:
+        logger.warning("redact_sensitive_columns: failed to copy frame; refusing to return unredacted data")
+        raise
+    for col in out.columns:
+        try:
             if SENSITIVE_KEY_RE.search(str(col)):
                 out[col] = "***REDACTED***"
-        return out
-    except Exception:
-        return df
+        except Exception:
+            logger.warning("redact_sensitive_columns: failed to inspect column %r; redacting defensively", col)
+            out[col] = "***REDACTED***"
+    return out
 
 
 def _path_parts_lower(path: pathlib.Path) -> list[str]:

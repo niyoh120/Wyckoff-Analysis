@@ -51,6 +51,20 @@ def _top_level_env_accesses(path: Path) -> list[str]:
     return hits
 
 
+def _top_level_import_names(path: Path) -> list[str]:
+    """Module-level import targets only; skips imports nested inside function bodies,
+    which are the sanctioned way to break a layering dependency at call time.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.append(node.module)
+    return names
+
+
 def _print_calls(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     hits: list[str] = []
@@ -1894,6 +1908,22 @@ def test_workflows_do_not_depend_on_agents_or_script_entrypoints():
             continue
         for name in _import_names(path):
             if name.split(".", 1)[0] in forbidden:
+                violations.append(f"{path.relative_to(ROOT)} -> {name}")
+
+    assert violations == []
+
+
+def test_agents_do_not_import_workflows_at_module_scope():
+    """agents/ is a tool-layer library; it must not hard-depend on workflows/ at import
+    time. Reaching into a workflow for a specific helper is only allowed via a
+    function-local import at the call site (see agents/history_tools.py).
+    """
+    violations: list[str] = []
+    for path in sorted((ROOT / "agents").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        for name in _top_level_import_names(path):
+            if name == "workflows" or name.startswith("workflows."):
                 violations.append(f"{path.relative_to(ROOT)} -> {name}")
 
     assert violations == []

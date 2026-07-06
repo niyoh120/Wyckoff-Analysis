@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
@@ -11,6 +12,8 @@ import requests
 
 from core.theme_radar import infer_event_themes
 from utils.env import env_flag
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_GDELT_QUERIES = (
     "semiconductor OR chip OR foundry",
@@ -52,7 +55,8 @@ def _collect_rss_events(urls: list[str], *, timeout: int) -> list[dict[str, Any]
             resp = requests.get(url, timeout=timeout, headers={"User-Agent": "WyckoffThemeRadar/1.0"})
             resp.raise_for_status()
             events.extend(_parse_rss(resp.content, source=url))
-        except Exception:
+        except Exception as e:
+            logger.debug("[theme_news] rss fetch failed for %s: %s", url, e)
             continue
     return events
 
@@ -98,7 +102,8 @@ def _collect_gdelt_events(queries: list[str], *, timeout: int, per_query: int) -
             resp = requests.get("https://api.gdeltproject.org/api/v2/doc/doc", params=params, timeout=timeout)
             resp.raise_for_status()
             events.extend(_normalize_gdelt_articles(resp.json().get("articles", []), query))
-        except Exception:
+        except Exception as e:
+            logger.debug("[theme_news] gdelt fetch failed for query %r: %s", query, e)
             continue
     return events
 

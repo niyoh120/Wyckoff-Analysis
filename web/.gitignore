@@ -5,3 +5,7 @@ dist/
 .env
 .env.local
 *.log
+.turbo/
+.vite/
+playwright-report/
+test-results/

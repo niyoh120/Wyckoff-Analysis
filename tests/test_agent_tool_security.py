@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import socket
 
+import pandas as pd
+import pytest
+
 from agents.local_tools import exec_command, read_file, web_fetch, write_file
-from agents.tool_security import validate_public_http_url
+from agents.tool_security import redact_sensitive_columns, validate_public_http_url
 from cli.tools import TOOL_SCHEMAS
 
 
@@ -188,3 +191,31 @@ def test_web_fetch_blocks_non_http_scheme():
 
     assert result["error"].startswith("安全拦截")
     assert "http/https" in result["error"]
+
+
+def test_redact_sensitive_columns_masks_columns_by_name():
+    df = pd.DataFrame({"code": ["000001"], "api_key": ["sk-secret"], "password": ["hunter2"]})
+
+    out = redact_sensitive_columns(df)
+
+    assert out["code"].iloc[0] == "000001"
+    assert out["api_key"].iloc[0] == "***REDACTED***"
+    assert out["password"].iloc[0] == "***REDACTED***"
+
+
+def test_redact_sensitive_columns_leaves_unrelated_columns_untouched():
+    df = pd.DataFrame({"code": ["000001"], "name": ["平安银行"]})
+
+    out = redact_sensitive_columns(df)
+
+    assert out["code"].iloc[0] == "000001"
+    assert out["name"].iloc[0] == "平安银行"
+
+
+def test_redact_sensitive_columns_raises_instead_of_leaking_original_frame_when_copy_fails():
+    class ExplodingFrame:
+        def copy(self):
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        redact_sensitive_columns(ExplodingFrame())

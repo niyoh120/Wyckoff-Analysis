@@ -11,7 +11,6 @@ from core.strategy_policy_display import (
     policy_governor_display,
 )
 from core.tail_buy.decision_semantics import tail_buy_execution_semantics
-from workflows.strategy_attribution_execution import attribution_execution_state, attribution_operations_brief
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +258,8 @@ def _attribution_sort_key(row: dict) -> tuple[str, int, str]:
 
 
 def _attribution_record(row: dict) -> dict:
+    from workflows.strategy_attribution_execution import attribution_operations_brief
+
     shadow = _json_map(row.get("shadow_diff_stats_json"))
     governor = _json_map(shadow.get("policy_governor"))
     actions = _attribution_actions(row.get("recommendations_json"))
@@ -305,6 +306,8 @@ def _policy_governor_record(governor: dict) -> dict:
 
 
 def _attribution_execution_state(governor: dict, actions: list[dict]) -> dict:
+    from workflows.strategy_attribution_execution import attribution_execution_state
+
     return attribution_execution_state(governor, actions)
 
 

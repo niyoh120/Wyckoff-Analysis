@@ -43,8 +43,8 @@ def load_user_settings_admin(user_id: str) -> dict[str, Any] | None:
         if not isinstance(row, dict):
             return None
         return row
-    except Exception:
-        logger.debug("[supabase_portfolio] load_user_settings_admin failed: {e}")
+    except Exception as e:
+        logger.warning("[supabase_portfolio] load_user_settings_admin failed: %s", e)
         return None
 
 
@@ -203,8 +203,8 @@ def list_step4_targets(target_user_id: str | None = None) -> list[dict[str, Any]
                 }
             )
         return targets
-    except Exception:
-        logger.debug("[supabase_portfolio] list_step4_targets failed: {e}")
+    except Exception as e:
+        logger.warning("[supabase_portfolio] list_step4_targets failed: %s", e)
         return []
 
 
@@ -238,8 +238,8 @@ def check_daily_run_exists(
         if not expected_sig:
             return True
         return any(extract_state_signature_from_run_id(row.get("run_id")) == expected_sig for row in active_rows)
-    except Exception:
-        logger.debug("[supabase_portfolio] check_daily_run_exists failed: {e}")
+    except Exception as e:
+        logger.warning("[supabase_portfolio] check_daily_run_exists failed: %s", e)
         return False
 
 
@@ -268,8 +268,8 @@ def update_position_stops(portfolio_id: str, updates: list[dict[str, Any]]) -> b
                 .execute()
             )
         return True
-    except Exception:
-        logger.debug("[supabase_portfolio] update_position_stops failed: {e}")
+    except Exception as e:
+        logger.warning("[supabase_portfolio] update_position_stops failed: %s", e)
         return False
 
 
@@ -386,8 +386,8 @@ def save_ai_trade_orders(
             )
         client.table(TABLE_TRADE_ORDERS).insert(payload).execute()
         return True
-    except Exception:
-        logger.debug("[supabase_portfolio] save_ai_trade_orders failed: {e}")
+    except Exception as e:
+        logger.warning("[supabase_portfolio] save_ai_trade_orders failed: %s", e)
         return False
 
 
@@ -416,8 +416,8 @@ def cancel_trade_orders(
         if active_ids:
             client.table(TABLE_TRADE_ORDERS).update({"status": "CANCELLED"}).in_("id", active_ids).execute()
         return len(active_ids)
-    except Exception:
-        logger.debug("[supabase_portfolio] cancel_trade_orders failed")
+    except Exception as e:
+        logger.warning("[supabase_portfolio] cancel_trade_orders failed: %s", e)
         return 0
 
 
@@ -447,6 +447,6 @@ def upsert_daily_nav(
             on_conflict="portfolio_id,trade_date",
         ).execute()
         return True
-    except Exception:
-        logger.debug("[supabase_portfolio] upsert_daily_nav failed: {e}")
+    except Exception as e:
+        logger.warning("[supabase_portfolio] upsert_daily_nav failed: %s", e)
         return False

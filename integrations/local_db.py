@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import threading
 from datetime import datetime, timedelta
@@ -362,9 +363,20 @@ def _candidate_sqlite_columns() -> dict[str, str]:
     } | {column: "TEXT DEFAULT ''" for column in json_columns}
 
 
+_SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    """Add missing columns to *table*. Identifiers are whitelist-validated before
+    being interpolated into DDL, since sqlite3 cannot bind table/column names as
+    parameters.
+    """
+    if not _SQL_IDENTIFIER_RE.match(table):
+        raise ValueError(f"unsafe table identifier: {table!r}")
     existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     for name, ddl in columns.items():
+        if not _SQL_IDENTIFIER_RE.match(name):
+            raise ValueError(f"unsafe column identifier: {name!r}")
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
