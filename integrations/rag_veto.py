@@ -14,8 +14,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from utils.env import env_bool
 
+logger = logging.getLogger(__name__)
 DEFAULT_NEGATIVE_KEYWORDS = [
     "立案",
     "调查",
@@ -42,12 +43,7 @@ DEFAULT_NEGATIVE_KEYWORDS = [
 
 RAG_MAX_WORKERS = int(os.getenv("RAG_MAX_WORKERS", "6"))
 RAG_NEWS_LOOKBACK_DAYS = int(os.getenv("RAG_NEWS_LOOKBACK_DAYS", "7"))
-RAG_SEMANTIC_VETO_ENABLED = os.getenv("RAG_SEMANTIC_VETO_ENABLED", "1").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+RAG_SEMANTIC_VETO_ENABLED = env_bool("RAG_SEMANTIC_VETO_ENABLED", True)
 RAG_SEMANTIC_TIMEOUT = int(os.getenv("RAG_SEMANTIC_TIMEOUT", "25"))
 RAG_SEMANTIC_API_KEY = os.getenv("RAG_SEMANTIC_API_KEY", "").strip()
 RAG_SEMANTIC_MODEL = os.getenv("RAG_SEMANTIC_MODEL", "").strip()

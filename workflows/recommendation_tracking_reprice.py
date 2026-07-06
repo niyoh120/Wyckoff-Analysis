@@ -10,13 +10,13 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from core.candidate_metadata import code6
 from integrations.recommendation_global import (
     fetch_global_recommendation_tracking_records,
     upsert_global_recommendation_tracking_updates,
 )
 from integrations.recommendation_tracking_common import (
     close_map_from_tickflow_hist,
-    code6,
     empty_tracking_refresh_summary,
     fetch_tickflow_tracking_market_data,
     parse_recommend_date,
@@ -32,6 +32,7 @@ from integrations.supabase_recommendation import (
     upsert_recommendation_tracking_price_updates,
     upsert_recommendation_tracking_updates,
 )
+from utils.env import env_flag
 
 logger = logging.getLogger(__name__)
 
@@ -289,7 +290,7 @@ def sync_all_tracking_prices(price_map: dict[str, float] | None = None) -> int:
 
 
 def _spot_fallback_enabled() -> bool:
-    return os.getenv("RECOMMENDATION_PRICE_ALLOW_SPOT_FALLBACK", "").strip().lower() in {"1", "true", "yes", "on"}
+    return env_flag("RECOMMENDATION_PRICE_ALLOW_SPOT_FALLBACK")
 
 
 def correct_tracking_initial_prices() -> int:

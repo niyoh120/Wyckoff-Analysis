@@ -1,39 +1,7 @@
-import {
-  TICKFLOW_PURCHASE,
-  detectMarket,
-  fetchValueSnapshotWithFetch,
-  isCnSymbol,
-  isSupportedKlineCode,
-  isTickFlowMarketSymbol,
-  normalizeCode,
-  normalizeTickFlowSymbol,
-  normalizeTushareCode,
-} from '@wyckoff/shared'
-import type { FundamentalMetric, ValueSnapshot, ValueSnapshotReason } from '@wyckoff/shared'
-
-export {
-  TICKFLOW_PURCHASE,
-  detectMarket,
-  fetchValueSnapshotWithFetch,
-  isCnSymbol,
-  isSupportedKlineCode,
-  isTickFlowMarketSymbol,
-  normalizeCode,
-  normalizeTickFlowSymbol,
-  normalizeTushareCode,
-}
-export type { FundamentalMetric, ValueSnapshot, ValueSnapshotReason }
+import { TICKFLOW_PURCHASE, isCnSymbol, normalizeTickFlowSymbol, normalizeTushareCode } from '@wyckoff/shared'
+import type { KlineRow } from '@wyckoff/shared'
 
 import { supabase } from './supabase'
-
-export interface KlineData {
-  date: string
-  open: number
-  high: number
-  low: number
-  close: number
-  volume: number
-}
 
 type Fetcher = typeof globalThis.fetch
 
@@ -48,7 +16,7 @@ function formatTimestampDate(value: unknown): string {
   return raw.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3').slice(0, 10)
 }
 
-function parseRowArray(rows: unknown[]): KlineData[] {
+function parseRowArray(rows: unknown[]): KlineRow[] {
   return (rows as Record<string, unknown>[])
     .map((r) => ({
       date: String(r.date || r.trade_date || '').replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'),
@@ -61,7 +29,7 @@ function parseRowArray(rows: unknown[]): KlineData[] {
     .filter((d) => d.date && d.close > 0)
 }
 
-function parseTickFlowTable(table: Record<string, unknown[]>): KlineData[] {
+function parseTickFlowTable(table: Record<string, unknown[]>): KlineRow[] {
   const timestamps = Array.isArray(table.timestamp) ? table.timestamp : []
   if (timestamps.length === 0) return []
   const open = table.open || [], high = table.high || [], low = table.low || []
@@ -96,7 +64,7 @@ function findTickFlowTable(data: unknown, symbol: string): Record<string, unknow
   return null
 }
 
-function parseKlinePayload(payload: unknown, symbol: string): KlineData[] {
+function parseKlinePayload(payload: unknown, symbol: string): KlineRow[] {
   if (!payload || typeof payload !== 'object') return []
   const root = payload as Record<string, unknown>
   const data = root.data
@@ -135,11 +103,7 @@ async function tusharePost(token: string, api_name: string, params: Record<strin
   return tusharePostWithFetch(globalThis.fetch, token, api_name, params, fields)
 }
 
-export async function fetchValueSnapshot(code: string, keys: { tickflow: string | null; tushare: string | null }): Promise<ValueSnapshot> {
-  return fetchValueSnapshotWithFetch(globalThis.fetch, code, keys)
-}
-
-export async function fetchKlineViaTushare(code: string, token: string, startDate: string, endDate: string): Promise<KlineData[]> {
+export async function fetchKlineViaTushare(code: string, token: string, startDate: string, endDate: string): Promise<KlineRow[]> {
   const tsCode = normalizeTushareCode(code)
   const [dailyJson, adjJson] = await Promise.all([
     tusharePost(token, 'daily', { ts_code: tsCode, start_date: startDate, end_date: endDate }, 'trade_date,open,high,low,close,vol'),
@@ -172,7 +136,7 @@ export async function fetchKlineViaTushare(code: string, token: string, startDat
   }).filter(d => d.date && d.close > 0)
 }
 
-export async function fetchKlineViaTickFlow(code: string, apiKey: string): Promise<KlineData[]> {
+export async function fetchKlineViaTickFlow(code: string, apiKey: string): Promise<KlineRow[]> {
   const symbol = normalizeTickFlowSymbol(code)
   const params = new URLSearchParams({
     symbol, period: '1d', count: '320', adjust: 'forward',
@@ -246,7 +210,7 @@ export async function fetchKline(
   code: string,
   keys: { tickflow: string | null; tushare: string | null },
   _userId: string,
-): Promise<KlineData[]> {
+): Promise<KlineRow[]> {
   const end = new Date(); end.setDate(end.getDate() - 1)
   const start = new Date(); start.setDate(start.getDate() - 500)
   const fmtCompact = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '')

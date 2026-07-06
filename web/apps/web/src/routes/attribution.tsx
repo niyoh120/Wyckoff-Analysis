@@ -10,6 +10,7 @@ import {
   attributionNextActionLabel,
   attributionOperatorSummary as buildAttributionOperatorSummary,
   attributionPromotionStatusLabel,
+  policyExecutionModeLabel,
 } from '@wyckoff/shared'
 import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
@@ -437,10 +438,10 @@ function PolicyGovernorBox({ governor }: { governor: PolicyGovernor | null }) {
   return (
     <Panel title="策略治理器">
       <div className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="治理状态" value={formatGovernorStatus(governor.status)} />
-        <MetricCard label="建议模式" value={formatModeRecommendation(governor.mode_recommendation)} />
-        <MetricCard label="下一步动作" value={formatNextAction(governor.next_action)} />
-        <MetricCard label="晋级状态" value={formatPromotionStatus(governor.promotion_status)} />
+        <MetricCard label="治理状态" value={attributionGovernorStatusLabel(governor.status)} />
+        <MetricCard label="建议模式" value={attributionModeRecommendationLabel(governor.mode_recommendation)} />
+        <MetricCard label="下一步动作" value={attributionNextActionLabel(governor.next_action)} />
+        <MetricCard label="晋级状态" value={attributionPromotionStatusLabel(governor.promotion_status)} />
         <MetricCard label="观察周期" value={`h=${governor.horizon || '-'}`} />
         <MetricCard label="自动切模式" value={governor.auto_apply ? '是' : '否'} />
       </div>
@@ -495,8 +496,7 @@ function PolicyExecutionState({
   const policyMode = execution?.funnel_dynamic_policy || '未知'
   const horizon = execution?.horizon || '-'
   const promotion = execution?.promotion_status || governor?.promotion_status
-  const formalStatus = formatFormalDynamicStatus(execution)
-  const nextAction = formatNextAction(execution?.next_action || governor?.next_action)
+  const nextAction = attributionNextActionLabel(execution?.next_action || governor?.next_action)
   return (
     <Panel title="调权执行状态">
       <div className="grid gap-3 md:grid-cols-4">
@@ -505,13 +505,13 @@ function PolicyExecutionState({
         <MetricCard label="建议升权" value={`${stats.upCount} 项`} />
         <MetricCard label="当前范围" value={`${scope} · h=${horizon}`} />
         <MetricCard label="实际生效" value={activeScope} />
-        <MetricCard label="正式 dynamic" value={formalStatus} />
+        <MetricCard label="正式 dynamic" value={attributionFormalDynamicLabel(execution)} />
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
         {attributionExecutionImpactText({ execution, actionCount, targetText })}
       </p>
       <p className="mt-2 text-xs text-muted-foreground">
-        漏斗动态策略 {formatExecutionMode(policyMode)}，晋级状态 {formatPromotionStatus(promotion)}，下一步 {nextAction}。{formatFormalDynamicReason(execution)}{modeText}
+        漏斗动态策略 {policyExecutionModeLabel(policyMode)}，晋级状态 {attributionPromotionStatusLabel(promotion)}，下一步 {nextAction}。{formatFormalDynamicReason(execution)}{modeText}
         Web 读盘室可通过 query_attribution 查看运营摘要、执行态和晋级检查；
         CLI 可通过 query_history(source=&quot;attribution&quot;) 查看 latest_source、remote_error、latest_operator_summary、next_action、latest_execution_state 和 latest_operations。
         {stats.otherCount > 0 ? ` 另有 ${stats.otherCount} 条非升降权建议保留为观察项。` : ''}
@@ -1065,22 +1065,6 @@ function formatPolicyAction(raw: string | undefined) {
   return labels[String(raw || '').trim()] || raw || '策略建议'
 }
 
-function formatGovernorStatus(raw: string | undefined) {
-  return attributionGovernorStatusLabel(raw)
-}
-
-function formatModeRecommendation(raw: string | undefined) {
-  return attributionModeRecommendationLabel(raw)
-}
-
-function formatNextAction(raw: string | undefined) {
-  return attributionNextActionLabel(raw)
-}
-
-function formatPromotionStatus(raw: string | undefined) {
-  return attributionPromotionStatusLabel(raw)
-}
-
 function formatPromotionCheckKey(raw: string | undefined) {
   const labels: Record<string, string> = {
     shadow_sample: 'Shadow 样本',
@@ -1100,10 +1084,6 @@ function formatPromotionCheckStatus(raw: string | undefined) {
     not_required: '无需',
   }
   return labels[String(raw || '').trim()] || raw || '-'
-}
-
-function formatFormalDynamicStatus(execution: PolicyExecutionPayload | null) {
-  return attributionFormalDynamicLabel(execution)
 }
 
 function formatExecutionActiveScope(execution: PolicyExecutionPayload | null, actionCount: number) {

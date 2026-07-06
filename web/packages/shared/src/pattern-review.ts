@@ -49,7 +49,9 @@ export function patternReviewRole(row: PatternReviewRow): string {
   return isAiRecommended(row.is_ai_recommended) ? 'AI推荐' : '观察/信号复盘'
 }
 
-function labelCandidateTerm(value: string): string {
+export function labelCandidateTerm(value: string): string | null {
+  const clean = value.trim()
+  if (!clean) return null
   const labels: Record<string, string> = {
     mainline: '主线买点',
     trend_breakout: '趋势突破',
@@ -61,8 +63,12 @@ function labelCandidateTerm(value: string): string {
     lps: 'LPS缩量回踩',
     spring: 'Spring震仓',
     Lane: '入选路径',
+    可买主线: '主线买点候选',
+    主线买点候选: '主线买点候选',
+    主线观察: '主线观察',
+    过热不追: '过热不追',
   }
-  return labels[value] || value
+  return labels[clean] || clean
 }
 
 export function formatPatternReviewLine(row: PatternReviewRow): string {
@@ -72,6 +78,7 @@ export function formatPatternReviewLine(row: PatternReviewRow): string {
     .map(item => String(item || '').trim())
     .filter(Boolean)
     .map(labelCandidateTerm)
+    .filter(Boolean)
     .join('/')
   const mainline = typeof row.mainline_score === 'number' ? `主线${Math.round(row.mainline_score * 100)}` : ''
   const dateLabel = row.source_type === 'signal_pending' ? '信号日' : '入选日'

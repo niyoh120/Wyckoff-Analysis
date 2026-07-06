@@ -11,6 +11,7 @@ from integrations.supabase_base import create_admin_client, is_admin_configured
 from integrations.supabase_portfolio import load_portfolio_state
 from utils.env import env_float as _env_float
 from utils.env import env_int as _env_int
+from utils.safe import safe_float
 from workflows.tail_buy_utils import current_time, log_line, normalize_code6
 
 
@@ -212,13 +213,13 @@ def _pick_review_bucket(rows: list[dict], *, kind: str, threshold: float) -> lis
     by_code = _dedupe_review_rows(filtered, kind)
     limit = _env_int("TAIL_BUY_REVIEW_MAX_PER_BUCKET", 20)
     reverse = kind == "momentum"
-    return sorted(by_code.values(), key=lambda row: _float(row.get("change_pct")), reverse=reverse)[: max(limit, 0)]
+    return sorted(by_code.values(), key=lambda row: safe_float(row.get("change_pct")), reverse=reverse)[: max(limit, 0)]
 
 
 def _is_review_bucket_match(row: dict, kind: str, threshold: float) -> bool:
-    if _truthy(row.get("rag_vetoed")) or _float(row.get("current_price")) <= 0:
+    if _truthy(row.get("rag_vetoed")) or safe_float(row.get("current_price")) <= 0:
         return False
-    change = _float(row.get("change_pct"))
+    change = safe_float(row.get("change_pct"))
     return change >= threshold if kind == "momentum" else change <= threshold
 
 
@@ -235,7 +236,7 @@ def _dedupe_review_rows(rows: list[dict], kind: str) -> dict[str, dict]:
 
 
 def _prefer_review_row(new: dict, old: dict, kind: str) -> bool:
-    new_change, old_change = _float(new.get("change_pct")), _float(old.get("change_pct"))
+    new_change, old_change = safe_float(new.get("change_pct")), safe_float(old.get("change_pct"))
     if kind == "momentum" and new_change != old_change:
         return new_change > old_change
     if kind != "momentum" and new_change != old_change:
@@ -248,8 +249,8 @@ def _map_recommendation_rows(rows: list[dict], target_signal_date: str, signal_t
 
 
 def _recommendation_candidate(row: dict, target_signal_date: str, signal_type: str) -> TailBuyCandidate:
-    change_pct = _float(row.get("change_pct"))
-    current_price = _float(row.get("current_price"))
+    change_pct = safe_float(row.get("change_pct"))
+    current_price = safe_float(row.get("current_price"))
     return TailBuyCandidate(
         code=normalize_code6(row.get("code")),
         name=str(row.get("name", "") or row.get("code") or "").strip(),
@@ -275,15 +276,6 @@ def _recommendation_signal_score(change_pct: float, signal_type: str) -> float:
     if signal_type == "rec_deep_pullback":
         return min(95.0, 60.0 + max(abs(change_pct) - 30.0, 0.0) * 1.5)
     return min(95.0, 60.0 + max(change_pct - 40.0, 0.0) * 0.8)
-
-
-def _float(value: object, default: float = 0.0) -> float:
-    try:
-        if value in (None, ""):
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _int(value: object, default: int = 0) -> int:

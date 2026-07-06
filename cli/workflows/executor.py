@@ -46,6 +46,7 @@ from core.candidate_actions import candidate_action_fields, candidate_action_lab
 from core.candidate_guards import candidate_guard_reason
 from core.candidate_ranker import TRIGGER_SHORT_LABELS
 from core.strategy_policy_display import policy_execution_mode_label, policy_next_action_label
+from utils.safe import drop_empty as _drop_empty
 from utils.tool_result_preview import tool_result_brief_lines
 
 _AGENTS: dict[str, SubAgent] = {
@@ -1379,10 +1380,6 @@ def _pick_fields(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:
 def _clip_text(value: Any, limit: int) -> str:
     text = str(value or "").strip()
     return text if len(text) <= limit else text[:limit] + "..."
-
-
-def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
 def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:

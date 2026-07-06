@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import date
 
+from utils.env import env_flag
 from utils.feishu import send_feishu_file, send_feishu_notification
 from utils.markdown_webhooks import send_dingtalk_notification, send_wecom_notification
 from workflows.step3_models import Step3RunOptions
@@ -77,7 +78,7 @@ def _build_input_preview_report(total_selected: int, system_prompt: str, preview
 
 
 def _preview_file_enabled() -> bool:
-    return os.getenv("FEISHU_INPUT_PREVIEW_AS_FILE", "").strip().lower() in {"1", "true", "yes", "on"}
+    return env_flag("FEISHU_INPUT_PREVIEW_AS_FILE")
 
 
 def _write_input_preview_artifact(report: str) -> str:

@@ -17,6 +17,7 @@ from integrations.fetch_a_share_csv import get_stocks_by_board, normalize_symbol
 from integrations.index_data_source import fetch_index_akshare, fetch_index_hist
 from integrations.market_metadata import fetch_concept_heat, fetch_concept_map, fetch_market_cap_map, fetch_sector_map
 from integrations.ths_hot_concept import fetch_ths_hot_events, merge_concept_heat, ths_hot_events_to_concept_heat
+from utils.env import env_flag
 
 
 @dataclass(frozen=True)
@@ -185,7 +186,7 @@ def _snapshot_range(args) -> SnapshotRange:
 
 
 def _tickflow_batch_enabled() -> bool:
-    tf_disabled = os.getenv("DATA_SOURCE_DISABLE_TICKFLOW", "").strip().lower() in {"1", "true", "yes", "on"}
+    tf_disabled = env_flag("DATA_SOURCE_DISABLE_TICKFLOW")
     return bool(os.getenv("TICKFLOW_API_KEY", "").strip()) and not tf_disabled
 
 

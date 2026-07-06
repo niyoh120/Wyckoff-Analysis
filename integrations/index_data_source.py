@@ -9,6 +9,7 @@ from datetime import date
 import pandas as pd
 
 from integrations.tickflow_notice import TICKFLOW_UPGRADE_URL
+from utils.env import env_flag
 
 logger = logging.getLogger(__name__)
 
@@ -92,5 +93,5 @@ def _index_failure_suffix() -> str:
 
 
 def _debug_index_fail(source: str, err: Exception) -> None:
-    if os.getenv("DATA_SOURCE_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if env_flag("DATA_SOURCE_DEBUG"):
         logger.debug("%s failed: %s: %s", source, type(err).__name__, err)

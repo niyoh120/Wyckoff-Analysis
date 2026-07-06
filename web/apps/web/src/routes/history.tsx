@@ -4,10 +4,10 @@ import { MarkdownContent } from '@/components/markdown'
 import { KlineChart } from '@/components/kline-chart'
 import { MultiStockChart, type ComparisonSeries } from '@/components/multi-stock-chart'
 import { clearAllAnalysisHistory, clearAnalysisHistory, deleteAnalysisHistory, listAllAnalysisHistory, type AnalysisHistoryKind, type AnalysisHistoryRecord } from '@/lib/local-history'
-import { formatValuePercent, sourceLabel } from '@/lib/value-analysis'
+import { formatValuePercent } from '@/lib/value-analysis'
 import { usePreferences, type Locale } from '@/lib/preferences'
 import { useAuthStore } from '@/stores/auth'
-import type { KlineData, ValueSnapshot } from '@/lib/kline'
+import { sourceLabel, type KlineRow, type ValueSnapshot } from '@wyckoff/shared'
 
 type FilterKey = 'all' | AnalysisHistoryKind
 type HistoryRecord = AnalysisHistoryRecord<HistoryPayload>
@@ -17,7 +17,7 @@ interface SinglePayload {
   report: string
   symbol: string
   name: string
-  klineData: KlineData[]
+  klineData: KlineRow[]
   valueSnapshot: ValueSnapshot
 }
 
@@ -28,13 +28,13 @@ interface BattlePayload {
   mode: string
   overlayLimit: number
   report: string
-  benchmark: KlineData[]
+  benchmark: KlineRow[]
 }
 
 interface BattleStockPayload {
   code: string
   name: string
-  data: KlineData[]
+  data: KlineRow[]
   stats: { ret20: number; ret60: number; ret120: number; drawdown60: number; volumeRatio: number; score: number }
   valueSnapshot: ValueSnapshot
 }

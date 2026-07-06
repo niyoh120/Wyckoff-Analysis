@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from integrations.tickflow_notice import TICKFLOW_LIMIT_HINT
+from utils.safe import safe_float
 
 TZ = ZoneInfo("Asia/Shanghai")
 TICKFLOW_UPGRADE_HINT = TICKFLOW_LIMIT_HINT
@@ -37,18 +38,6 @@ def remaining_seconds(deadline_at: datetime) -> float:
 def chunked(seq: list[Any], chunk_size: int) -> list[list[Any]]:
     size = max(int(chunk_size), 1)
     return [seq[i : i + size] for i in range(0, len(seq), size)]
-
-
-def safe_float(raw: Any, default: float = 0.0) -> float:
-    try:
-        if raw is None:
-            return default
-        text = str(raw).strip()
-        if not text:
-            return default
-        return float(text)
-    except Exception:
-        return default
 
 
 def normalize_code6(raw: Any) -> str:

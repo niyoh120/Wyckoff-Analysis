@@ -1,7 +1,7 @@
 import { memo, useState } from 'react'
 import { Link } from 'react-router'
 import { BellPlus, ChevronRight } from 'lucide-react'
-import { attributionNextActionLabel, type ScreenResult, type ScreenStockItem } from '@wyckoff/shared'
+import { attributionNextActionLabel, policyExecutionModeLabel, type ScreenResult, type ScreenStockItem } from '@wyckoff/shared'
 import { financialValueClass } from '@/lib/financial-colors'
 
 type ScreenStrategyPolicy = NonNullable<ScreenResult['strategy_policy']>
@@ -94,23 +94,12 @@ function strategyPolicyText(policy?: ScreenStrategyPolicy | null): string {
   const weights = policy.attribution_signal_weights || policy.signal_weights
   if (weights && Object.keys(weights).length > 0) parts.push(`归因调权 ${formatPolicyWeights(weights)}`)
   const scope = (policy.policy_weight_active_scope || '').trim()
-  const mode = policy.execution_policy_label || policy.dynamic_mode_label || executionModeLabel(policy.execution_policy || policy.dynamic_mode)
+  const mode = policy.execution_policy_label || policy.dynamic_mode_label || policyExecutionModeLabel(policy.execution_policy || policy.dynamic_mode)
   const action = policy.next_action_label || attributionNextActionLabel(policy.next_action)
   if (mode) parts.push(mode)
   if (scope) parts.push(scope)
   if (action && action !== '保持观察') parts.push(`下一步=${action}`)
   return parts.join(' / ')
-}
-
-function executionModeLabel(raw?: string | null): string {
-  const value = (raw || '').trim()
-  if (!value) return ''
-  const labels: Record<string, string> = {
-    on: '正式调权(on)',
-    shadow: 'shadow 对照(shadow)',
-    off: '静态策略(off)',
-  }
-  return labels[value] || `${value} 模式`
 }
 
 function formatPolicyWeights(weights: Record<string, number>): string {

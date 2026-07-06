@@ -6,6 +6,8 @@ from bisect import bisect_right
 from datetime import datetime
 from typing import Any
 
+from utils.safe import safe_float
+
 
 def build_horizon_event(
     row: dict[str, Any],
@@ -172,13 +174,6 @@ def _safe_optional_int(raw: Any) -> int | None:
         return int(raw)
     except (TypeError, ValueError):
         return None
-
-
-def safe_float(raw: Any, default: float = 0.0) -> float:
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return default
 
 
 def recommend_date_to_yyyymmdd(raw: Any) -> str:

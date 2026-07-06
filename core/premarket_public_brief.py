@@ -13,6 +13,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from utils.safe import finite_float
+
 ALLOWED_TONES = ("乐观", "谨慎乐观", "谨慎", "保守", "恶劣")
 _STOCK_CODE_RE = re.compile(r"(?<!\d)\d{6}(?!\d)")
 _PROHIBITED_TERMS = (
@@ -43,18 +45,8 @@ class PublicBriefLlmConfig:
     max_output_tokens: int = 512
 
 
-def _safe_float(raw: Any) -> float | None:
-    try:
-        if raw is None:
-            return None
-        text = str(raw).strip().replace(",", "")
-        return float(text) if text else None
-    except Exception:
-        return None
-
-
 def _fmt_pct(raw: Any) -> str:
-    value = _safe_float(raw)
+    value = finite_float(raw)
     if value is None:
         return "待更新"
     return f"{value:+.2f}%"
@@ -89,7 +81,7 @@ def build_public_premarket_payload(
         },
         "vix": {
             "date": vix.get("date"),
-            "close": _safe_float(vix.get("close")),
+            "close": finite_float(vix.get("close")),
             "pct_chg": _fmt_pct(vix.get("pct_chg")),
             "source": vix.get("source"),
             "ok": bool(vix.get("ok")),

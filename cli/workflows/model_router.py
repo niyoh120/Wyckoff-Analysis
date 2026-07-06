@@ -21,12 +21,12 @@ from cli.workflows._shared import (
     PORTFOLIO_REVIEW_SUBJECT_MARKERS,
     STOCK_STYLE_MARKERS,
     STOCK_STYLE_TARGETS,
-    collect_stream_text,
     compact_text,
     decision_confidence,
     has_stock_style_target,
     loads_json,
     looks_like_portfolio_review,
+    provider_chat_response,
 )
 from cli.workflows.models import WorkflowContext
 from cli.workflows.router import WORKFLOWS, route_resume_workflow, route_workflow
@@ -370,16 +370,9 @@ def _fallback_reason_label(reason: str) -> str:
 
 
 def _router_response(provider: Any, messages: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if hasattr(provider, "chat"):
-        try:
-            return provider.chat(messages, [], _ROUTER_SYSTEM_PROMPT)
-        except NotImplementedError:
-            if not getattr(provider, "use_chat_stream_for_routing", False):
-                return None
-    if not hasattr(provider, "chat_stream"):
-        return None
-    text = collect_stream_text(provider.chat_stream(messages, [], _ROUTER_SYSTEM_PROMPT))
-    return {"type": "text", "text": text} if text else None
+    return provider_chat_response(
+        provider, messages, _ROUTER_SYSTEM_PROMPT, stream_fallback_flag="use_chat_stream_for_routing"
+    )
 
 
 def _parse_decision(response: Any) -> dict[str, Any] | None:

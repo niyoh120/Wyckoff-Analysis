@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from utils.env import parse_bool
+
 
 def clean_text(value: object) -> str:
     if value is None:
@@ -21,4 +23,4 @@ def coerce_bool_like(value: object) -> bool:
         return value
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return False
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+    return parse_bool(str(value))

@@ -11,8 +11,10 @@ import {
   attributionNextActionLabel,
   attributionOperatorSummary as buildAttributionOperatorSummary,
   attributionPromotionStatusLabel,
+  checklistKeyLabel,
+  checklistStatusLabel,
 } from './attribution-summary'
-import { formatPatternReviewDigest, type PatternReviewRow } from './pattern-review'
+import { formatPatternReviewDigest, labelCandidateTerm, type PatternReviewRow } from './pattern-review'
 import { formatTailBuyPolicyWeightText } from './tail-buy-policy-weight'
 import { tailBuyExecutionSemantics } from './tail-buy-semantics'
 
@@ -401,6 +403,7 @@ export async function execMarketOverview(deps: ToolDeps): Promise<string> {
     }
   }
 
+  const tradeDate = String(data[0]!.trade_date || '')
   const regimeMap: Record<string, string> = {
     RISK_ON: '偏强', BEAR_REBOUND: '反抽', NEUTRAL: '中性', RISK_OFF: '偏弱', CRASH: '极弱', BLACK_SWAN: '恶劣',
   }
@@ -412,14 +415,17 @@ export async function execMarketOverview(deps: ToolDeps): Promise<string> {
   const vixClose = Number(merged.vix_close || 0)
   const title = String(merged.banner_title || '')
   const body = String(merged.banner_message || '')
+  const freshness = dataFreshnessNote(tradeDate, '市场信号')
 
   return [
+    tradeDate ? `数据日期：${tradeDate}` : '',
     `大盘状态：${regimeMap[regime] || regime}`,
     close ? `上证指数：${close.toFixed(0)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)` : '',
     a50Close ? `A50：${a50Close.toFixed(0)} (${a50Pct >= 0 ? '+' : ''}${a50Pct.toFixed(2)}%)` : '',
     vixClose ? `VIX：${vixClose.toFixed(1)}` : '',
     title ? `\n${title}` : '',
     body ? body : '',
+    freshness,
   ].filter(Boolean).join('\n')
 }
 
@@ -586,6 +592,8 @@ export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<s
 
   if (!data || data.length === 0) return '暂无尾盘买入记录'
 
+  const latestDate = String(data[0]!.run_date || '')
+  const freshness = dataFreshnessNote(latestDate, '尾盘记录')
   const lines = data.map((r) => {
     const code = String(r.code).padStart(6, '0')
     const entry = typeof r.initial_price === 'number' && r.initial_price > 0 ? r.initial_price : r.last_close
@@ -604,7 +612,10 @@ export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<s
     return `${code} ${r.name} | ${r.run_date} | ${r.signal_type} | ${execution.display} | ${price} | ${vwapGap} | 规则分${r.rule_score?.toFixed(1)}${policyWeight} | ${r.llm_decision || '-'} | ${r.llm_reason || ''} | 下一步:${execution.nextStep}`
   })
 
-  return `最近 ${data.length} 条尾盘记录：\n\n${lines.join('\n')}`
+  const header = freshness
+    ? `${freshness}\n\n最近 ${data.length} 条尾盘记录：`
+    : `最近 ${data.length} 条尾盘记录：`
+  return `${header}\n\n${lines.join('\n')}`
 }
 
 export async function execQueryAttribution(deps: ToolDeps, limit: number): Promise<string> {
@@ -618,7 +629,10 @@ export async function execQueryAttribution(deps: ToolDeps, limit: number): Promi
   if (!data || data.length === 0) {
     return '暂无策略归因报告；Web 只读取远端 strategy_attribution_reports，本地 --no-write 报告请用 CLI/MCP 的 query_history(source="attribution") 查看。'
   }
-  return data.map(formatAttributionReport).join('\n\n---\n\n')
+  const latestDate = String(data[0]!.report_date || '')
+  const freshness = dataFreshnessNote(latestDate, '策略归因')
+  const body = data.map(formatAttributionReport).join('\n\n---\n\n')
+  return freshness ? `${freshness}\n\n${body}` : body
 }
 
 function formatAttributionReport(row: Record<string, unknown>): string {
@@ -794,29 +808,6 @@ function promotionChecklistLine(raw: unknown): string {
   const rows = arrayValues(raw).filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
   if (rows.length === 0) return '晋级检查：暂无'
   return `晋级检查：${rows.map((row) => `${checklistKeyLabel(row.key)}:${checklistStatusLabel(row.status)}`).join('；')}`
-}
-
-function checklistKeyLabel(raw: unknown): string {
-  const labels: Record<string, string> = {
-    shadow_sample: '样本',
-    shadow_performance: 'Shadow表现',
-    selection_actions: '候选源治理',
-    signal_actions: '信号调权',
-    backtest_confirmation: '回测',
-  }
-  return labels[String(raw || '').trim()] || String(raw || '-')
-}
-
-function checklistStatusLabel(raw: unknown): string {
-  const labels: Record<string, string> = {
-    pass: '通过',
-    fail: '失败',
-    review: '待复核',
-    missing: '缺失',
-    not_required: '不需要',
-    unknown: '未知',
-  }
-  return labels[String(raw || '').trim()] || String(raw || '未知')
 }
 
 function latestShadowLine(latest: Record<string, unknown>): string {
@@ -1103,23 +1094,6 @@ function booleanValue(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
 }
 
-function labelCandidateTerm(value: string): string | null {
-  const clean = value.trim()
-  if (!clean) return null
-  const labels: Record<string, string> = {
-    mainline: '主线买点',
-    trend_breakout: '趋势突破',
-    trend_lane_pullback: '趋势回踩',
-    sector_strength: '板块强势',
-    wyckoff_structure: 'Wyckoff结构',
-    sos: 'SOS点火',
-    evr: 'EVR放量不跌',
-    lps: 'LPS缩量回踩',
-    spring: 'Spring震仓',
-  }
-  return labels[clean] || clean
-}
-
 export async function execAnalyzeStock(
   deps: ToolDeps, userId: string, _config: LLMToolConfig, model: unknown, code: string, name: string | null,
 ): Promise<AnalyzeStockResult> {
@@ -1377,4 +1351,25 @@ function computeStrength(vwap: number, closePos: number, m30: number, m15: numbe
   s += ts === 'up' ? 4 : ts === 'down' ? -4 : 0
   s += tm === 'up' ? 3 : tm === 'down' ? -3 : 0
   return Math.max(0, Math.min(100, s))
+}
+
+function todayDateString(): string {
+  return new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10)
+}
+
+const FRESHNESS_FALLBACK: Record<string, string> = {
+  尾盘记录: '建议改用 screen_stocks 获取最新候选池，对候选标的调用 intraday_analysis 获取实时盘中数据做尾盘判断。',
+  市场信号: '建议调用 market_history 获取实时大盘K线做判断。',
+  策略归因: '建议直接调用 query_attribution 读取远端报告，或用 screen_stocks 查看候选池。',
+}
+
+function dataFreshnessNote(dataDate: string, label: string): string {
+  const today = todayDateString()
+  const dStr = String(dataDate || '').replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3').slice(0, 10)
+  if (!dStr || dStr >= today) return ''
+  const diffMs = new Date(today).getTime() - new Date(dStr).getTime()
+  const diffDays = Math.round(diffMs / 86_400_000)
+  if (diffDays <= 3) return ''
+  const fallback = FRESHNESS_FALLBACK[label] || ''
+  return `⚠️ ${label}最新数据日期为 ${dStr}，距今已 ${diffDays} 天，数据可能已过期。${fallback}`.trim()
 }

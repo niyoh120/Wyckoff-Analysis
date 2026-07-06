@@ -10,6 +10,7 @@ from typing import Any
 import requests
 
 from core.theme_radar import infer_event_themes
+from utils.env import env_flag
 
 DEFAULT_GDELT_QUERIES = (
     "semiconductor OR chip OR foundry",
@@ -34,7 +35,7 @@ def collect_theme_events(
 
 
 def _default_gdelt_queries() -> list[str]:
-    if os.getenv("THEME_RADAR_GDELT_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if env_flag("THEME_RADAR_GDELT_DISABLED"):
         return []
     return _env_csv("THEME_RADAR_GDELT_QUERIES") or list(DEFAULT_GDELT_QUERIES)
 

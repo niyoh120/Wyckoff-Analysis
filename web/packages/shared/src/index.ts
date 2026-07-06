@@ -36,6 +36,7 @@ export type { ValueScore, ValueSignal, ValueTone } from './agent-value'
 export {
   formatPatternReviewDigest,
   formatPatternReviewLine,
+  labelCandidateTerm,
   patternReviewRole,
   PATTERN_REVIEW_EMPTY_MESSAGE,
   PATTERN_REVIEW_SCOPE_NOTE,
@@ -52,9 +53,11 @@ export {
   attributionNextActionLabel,
   attributionOperatorSummary,
   attributionPromotionStatusLabel,
+  checklistKeyLabel,
+  checklistStatusLabel,
 } from './attribution-summary'
 export type { AttributionExecutionImpactInput, AttributionOperatorAction, AttributionOperatorSummaryInput } from './attribution-summary'
-export { formatPolicyWeightMetaText } from './policy-weight-meta'
+export { formatPolicyWeightMetaText, policyExecutionModeLabel } from './policy-weight-meta'
 export type { PolicyWeightMetaInput } from './policy-weight-meta'
 export { formatTailBuyPolicyWeightText, tailBuyPolicyWeightMultiplier } from './tail-buy-policy-weight'
 export type { TailBuyPolicyWeightFormatOptions, TailBuyPolicyWeightInput } from './tail-buy-policy-weight'

@@ -7,8 +7,10 @@ from typing import Any
 import pandas as pd
 
 from core._price_math import clamp as _clamp
+from core._price_math import day_close_pos as _day_close_pos
 from core._price_math import dist_pct as _dist_pct
 from core._price_math import numeric_column as _num
+from core._price_math import range_pos
 from core._price_math import ret_pct as _ret_pct
 from core._price_math import upper_shadow_pct as _upper_shadow_pct
 from core._price_math import vol_ratio as _vol_ratio
@@ -205,9 +207,9 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
         "ret120": _ret_pct(close, 120),
         "dist_ma20": _dist_pct(last, ma20),
         "dist_ma50": _dist_pct(last, ma50),
-        "close_pos20": _range_pos(last, low.tail(20), high.tail(20), close.tail(20)),
-        "close_pos60": _range_pos(last, low.tail(60), high.tail(60), close.tail(60)),
-        "close_pos_day": _day_close_pos(ordered, high, low),
+        "close_pos20": range_pos(last, float(low.tail(20).min()), float(high.tail(20).max())),
+        "close_pos60": range_pos(last, float(low.tail(60).min()), float(high.tail(60).max())),
+        "close_pos_day": _day_close_pos(ordered["close"], high, low, use_tail=True),
         "upper_shadow_pct": _upper_shadow_pct(ordered, open_, high, close),
         "vol_ratio_5_20": _vol_ratio(volume),
         **analyze_main_force_signal(ordered).metrics,
@@ -278,15 +280,3 @@ def _entry_rank(item: dict[str, Any]) -> tuple[int, float, str]:
 
 def _rank_key(item: dict[str, Any], priority: dict[str, int]) -> str:
     return candidate_entry_key(item, priority.keys(), fields=("signal_key", "lane", "entry_type"))
-
-
-def _range_pos(value: float, lows: pd.Series, highs: pd.Series, fallback: pd.Series) -> float:
-    low = float(lows.min()) if not lows.empty else float(fallback.min())
-    high = float(highs.max()) if not highs.empty else float(fallback.max())
-    return 0.5 if high <= low else _clamp((value - low) / (high - low))
-
-
-def _day_close_pos(df: pd.DataFrame, high: pd.Series, low: pd.Series) -> float:
-    if high.empty or low.empty:
-        return 0.5
-    return _range_pos(float(df["close"].iloc[-1]), low.tail(1), high.tail(1), df["close"].tail(1))

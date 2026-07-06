@@ -9,18 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-
-def safe_float(raw: Any, default: float = 0.0) -> float:
-    try:
-        value = float(raw)
-    except Exception:
-        return default
-    return value if pd.notna(value) else default
-
-
-def code6(raw: Any) -> str:
-    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
-    return digits[-6:].zfill(6) if digits else ""
+from utils.safe import safe_float
 
 
 def chunked(items: list[Any], size: int) -> list[list[Any]]:

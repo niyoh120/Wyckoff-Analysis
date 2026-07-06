@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from core._price_math import ret_pct as _ret_pct
+from utils.safe import safe_float as _safe_float
 
 CN_TZ = ZoneInfo("Asia/Shanghai")
 
@@ -87,18 +88,6 @@ def infer_session_vwap(close: pd.Series, total_volume: float, total_amount: floa
     if best_err > 5.0:
         return last_close, 1.0
     return best_vwap, candidates[0][2]
-
-
-def _safe_float(raw: Any, default: float = 0.0) -> float:
-    try:
-        if raw is None:
-            return default
-        text = str(raw).strip()
-        if not text:
-            return default
-        return float(text)
-    except Exception:
-        return default
 
 
 def _compute_trend(df: pd.DataFrame, min_bars: int = 4) -> str:

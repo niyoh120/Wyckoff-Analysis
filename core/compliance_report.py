@@ -18,6 +18,8 @@ from typing import Any
 
 import pandas as pd
 
+from utils.safe import finite_float
+
 EFFICIENCY_PROVIDER = "efficiency"
 DEFAULT_MAX_OUTPUT_TOKENS = 2048
 logger = logging.getLogger(__name__)
@@ -73,7 +75,7 @@ class ComplianceValidation:
 
 
 def fmt_pct(value: Any) -> str:
-    num = _finite_float(value)
+    num = finite_float(value)
     if num is None:
         return "待更新"
     sign = "+" if num >= 0 else ""
@@ -81,18 +83,10 @@ def fmt_pct(value: Any) -> str:
 
 
 def _fmt_number(value: Any, digits: int = 2) -> str:
-    num = _finite_float(value)
+    num = finite_float(value)
     if num is None:
         return "待更新"
     return f"{num:.{digits}f}"
-
-
-def _finite_float(value: Any) -> float | None:
-    num = pd.to_numeric(value, errors="coerce")
-    if pd.isna(num):
-        return None
-    out = float(num)
-    return out if math.isfinite(out) else None
 
 
 def _fmt_trade_date(value: Any) -> str:

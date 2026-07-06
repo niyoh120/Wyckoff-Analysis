@@ -38,7 +38,7 @@ function policySourceTokens(meta: Record<string, unknown>): string[] {
   return tokens
 }
 
-function policyExecutionModeLabel(raw: unknown): string {
+export function policyExecutionModeLabel(raw: unknown): string {
   const value = String(raw || '').trim()
   const labels: Record<string, string> = {
     on: '正式调权(on)',

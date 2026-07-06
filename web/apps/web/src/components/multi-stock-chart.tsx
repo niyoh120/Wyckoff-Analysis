@@ -7,12 +7,12 @@ import {
   type LineData,
   type Time,
 } from 'lightweight-charts'
-import type { KlineData } from '@/lib/kline'
+import type { KlineRow } from '@wyckoff/shared'
 
 export interface ComparisonSeries {
   code: string
   name: string
-  data: KlineData[]
+  data: KlineRow[]
 }
 
 interface MultiStockChartProps {

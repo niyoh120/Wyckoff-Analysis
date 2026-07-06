@@ -1,24 +1,9 @@
-import type { FundamentalMetric, ValueSnapshot } from '@wyckoff/shared'
-import { buildValuePrompt as _sharedBuildValuePrompt, formatPromptPercent, sourceLabel } from '@wyckoff/shared'
+import type { FundamentalMetric, ValueScore, ValueSignal, ValueSnapshot, ValueTone } from '@wyckoff/shared'
+import { formatPromptPercent, sourceLabel } from '@wyckoff/shared'
 
-export { sourceLabel }
 import type { TranslationKey } from './preferences'
 
-export type ValueTone = 'good' | 'bad' | 'neutral'
 export type ValueView = 'quality' | 'risk'
-
-export interface ValueSignal {
-  label: string
-  tone: ValueTone
-}
-
-export interface ValueScore {
-  label: string
-  tone: ValueTone
-  score: number
-  strengths: ValueSignal[]
-  risks: ValueSignal[]
-}
 
 export type Translate = (key: TranslationKey, vars?: Record<string, string | number | null | undefined>) => string
 
@@ -110,10 +95,6 @@ export function signalClass(tone: ValueTone): string {
   if (tone === 'good') return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
   if (tone === 'bad') return 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200'
   return 'border-border text-muted-foreground'
-}
-
-export function buildValuePrompt(snapshot: ValueSnapshot): string {
-  return _sharedBuildValuePrompt(snapshot)
 }
 
 export function buildValueDigest(snapshot: ValueSnapshot): string {

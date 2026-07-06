@@ -8,13 +8,16 @@ from typing import Any
 import pandas as pd
 
 from core._price_math import clamp as _clamp
+from core._price_math import day_close_pos as _day_close_pos
 from core._price_math import drawdown_pct as _drawdown_pct
 from core._price_math import numeric_column as _numeric_series
+from core._price_math import range_pos as _range_pos
 from core._price_math import ret_pct as _ret_pct
 from core._price_math import upper_shadow_pct as _upper_shadow_pct
 from core._price_math import vol_ratio as _vol_ratio
 from core.main_force_signal import analyze_main_force_signal
 from core.theme_radar import normalize_theme_name
+from utils.safe import safe_float as _safe_float
 
 MAINLINE_BUY_STATUS = "主线买点候选"
 MAINLINE_DIVERGENCE_STATUS = "强主线分歧"
@@ -343,7 +346,7 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
         "dist_ma50": (last / ma50 - 1.0) * 100.0 if ma50 > 0 else 0.0,
         "drawdown60": _drawdown_pct(close, 60),
         "close_pos20": _range_pos(last, low20, high20),
-        "close_pos_day": _day_close_pos(ordered, high, low),
+        "close_pos_day": _day_close_pos(ordered["close"], high, low),
         "upper_shadow_pct": _upper_shadow_pct(ordered, open_, high, close),
         "vol_ratio_5_20": _vol_ratio(volume),
         "amount20_wan": _amount20_wan(amount),
@@ -639,16 +642,6 @@ def _lookup_financial(financial_map: dict[str, dict], code: str) -> dict | None:
     return financial_map.get(code) or financial_map.get(f"{code}{suffix}")
 
 
-def _range_pos(value: float, low: float, high: float) -> float:
-    return 0.5 if high <= low else _clamp((value - low) / (high - low))
-
-
-def _day_close_pos(df: pd.DataFrame, high: pd.Series, low: pd.Series) -> float:
-    if high.empty or low.empty:
-        return 0.5
-    return _range_pos(float(df["close"].iloc[-1]), float(low.iloc[-1]), float(high.iloc[-1]))
-
-
 def _amount20_wan(amount: pd.Series) -> float:
     if len(amount) < 20:
         return 0.0
@@ -670,11 +663,3 @@ def _heat_score(item: dict[str, Any], rank: int) -> float:
     pct = _safe_float(item.get("pct"))
     flow = max(_safe_float(item.get("net_inflow")) / 1e8, 0.0)
     return _clamp(0.45 * ((pct + 2.0) / 10.0) + 0.35 * min(flow / 8.0, 1.0) + 0.20 * (1.0 - rank / 40.0))
-
-
-def _safe_float(value: Any, default: float | None = 0.0) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return default
-    return default if pd.isna(result) else result

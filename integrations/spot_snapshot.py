@@ -13,6 +13,8 @@ from typing import Any
 
 import pandas as pd
 
+from utils.env import env_flag
+
 logger = logging.getLogger(__name__)
 
 SPOT_SNAPSHOT_TTL_SECONDS = int(os.getenv("SPOT_SNAPSHOT_TTL_SECONDS", "20"))
@@ -194,5 +196,5 @@ def _pick_first(row: pd.Series, candidates: tuple[str, ...]) -> Any:
 
 
 def _debug_spot_fail(source: str, err: Exception) -> None:
-    if os.getenv("DATA_SOURCE_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if env_flag("DATA_SOURCE_DEBUG"):
         logger.debug("%s failed: %s: %s", source, type(err).__name__, err)

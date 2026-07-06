@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from utils.safe import finite_float
+
 TZ = ZoneInfo("Asia/Shanghai")
 US_TZ = ZoneInfo("America/New_York")
 
@@ -145,25 +147,15 @@ def judge_regime(
     cfg = config or premarket_risk_config_from_env()
     reasons: list[str] = []
     regime = "NORMAL"
-    a50_pct = safe_float(a50.get("pct_chg"))
-    vix_close = safe_float(vix.get("close"))
-    vix_pct = safe_float(vix.get("pct_chg"))
+    a50_pct = finite_float(a50.get("pct_chg"))
+    vix_close = finite_float(vix.get("close"))
+    vix_pct = finite_float(vix.get("pct_chg"))
     regime = _judge_crash_or_caution(regime, reasons, a50_pct, vix_close, vix_pct, cfg)
     if regime != "BLACK_SWAN":
         regime = _judge_risk_off(regime, reasons, a50_pct, vix_close, vix_pct, cfg)
     if not reasons:
         reasons.append("A50/VIX 未触发风险阈值")
     return regime, reasons
-
-
-def safe_float(raw) -> float | None:
-    try:
-        if raw is None:
-            return None
-        text = str(raw).strip().replace(",", "")
-        return float(text) if text else None
-    except Exception:
-        return None
 
 
 def latest_expected_us_trade_date(config: PremarketRiskConfig, now: datetime | None = None) -> date:
@@ -265,8 +257,8 @@ def _a50_from_history(df, out: dict) -> dict:
         {
             "ok": True,
             "date": str(last.get("日期")),
-            "close": safe_float(last.get("最新价")),
-            "pct_chg": safe_float(last.get("涨幅")),
+            "close": finite_float(last.get("最新价")),
+            "pct_chg": finite_float(last.get("涨幅")),
         }
     )
     return out
@@ -284,8 +276,8 @@ def _a50_from_spot(spot, out: dict) -> dict:
             "ok": True,
             "source": "akshare:futures_global_spot_em(CN00Y)",
             "date": datetime.now(TZ).strftime("%Y-%m-%d"),
-            "close": safe_float(row.get("最新价") or row.get("昨结")),
-            "pct_chg": safe_float(row.get("涨跌幅")),
+            "close": finite_float(row.get("最新价") or row.get("昨结")),
+            "pct_chg": finite_float(row.get("涨跌幅")),
         }
     )
     return out
@@ -306,8 +298,8 @@ def _parse_trade_date(raw: object) -> date | None:
 def _vix_from_close_rows(
     out: dict, raw_date: object, close_raw: object, previous_raw: object, config: PremarketRiskConfig
 ) -> dict:
-    close = safe_float(close_raw)
-    previous = safe_float(previous_raw)
+    close = finite_float(close_raw)
+    previous = finite_float(previous_raw)
     if close is None or previous is None or previous == 0:
         raise RuntimeError(f"{out['source']} close invalid")
     trade_date = ensure_vix_fresh(raw_date, out["source"], config)
@@ -320,7 +312,7 @@ def _vix_from_close_rows(
 def _cboe_valid_rows(rows: list[dict]) -> list[tuple[str, float]]:
     valid: list[tuple[str, float]] = []
     for row in reversed(rows):
-        close = safe_float(row.get("CLOSE"))
+        close = finite_float(row.get("CLOSE"))
         raw_date = str(row.get("DATE", "")).strip()
         if close is not None and raw_date:
             valid.append((raw_date, close))
@@ -333,7 +325,7 @@ def _yahoo_valid_rows(payload: dict) -> list[tuple[int, float]]:
     result = payload.get("chart", {}).get("result", [{}])[0]
     timestamps = result.get("timestamp") or []
     closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
-    return [(int(ts), value) for ts, close in zip(timestamps, closes) if (value := safe_float(close)) is not None]
+    return [(int(ts), value) for ts, close in zip(timestamps, closes) if (value := finite_float(close)) is not None]
 
 
 def _log_vix_retry(logger: Callable[[str], None], attempt: int, config: PremarketRiskConfig, vix: dict) -> None:

@@ -77,6 +77,22 @@ def collect_stream_text(chunks: Any) -> str:
     return "".join(parts).strip()
 
 
+def provider_chat_response(
+    provider: Any, messages: list[dict[str, Any]], system_prompt: str, *, stream_fallback_flag: str
+) -> dict[str, Any] | None:
+    """Call a provider for a one-shot JSON decision, falling back to streaming if needed."""
+    if hasattr(provider, "chat"):
+        try:
+            return provider.chat(messages, [], system_prompt)
+        except NotImplementedError:
+            if not getattr(provider, stream_fallback_flag, False):
+                return None
+    if not hasattr(provider, "chat_stream"):
+        return None
+    text = collect_stream_text(provider.chat_stream(messages, [], system_prompt))
+    return {"type": "text", "text": text} if text else None
+
+
 # ── JSON helpers ──
 
 

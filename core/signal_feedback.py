@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import re
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -11,6 +10,7 @@ from typing import Any
 
 from core.candidate_metadata import code6
 from core.candidate_selection_score import score_candidate_shadow
+from utils.safe import finite_float, safe_float
 
 SIGNAL_TRACK: dict[str, str] = {
     "sos": "Trend",
@@ -43,25 +43,6 @@ def _code(raw: Any) -> str:
     return str(raw or "").strip()
 
 
-def _float(raw: Any, default: float = 0.0) -> float:
-    try:
-        if raw is None or str(raw).strip() == "":
-            return default
-        return float(raw)
-    except (TypeError, ValueError):
-        return default
-
-
-def _finite_float(raw: Any) -> float | None:
-    try:
-        if raw is None or str(raw).strip() == "":
-            return None
-        value = float(raw)
-    except (TypeError, ValueError):
-        return None
-    return value if math.isfinite(value) else None
-
-
 def _text_list(raw: Any) -> list[str]:
     if raw in (None, ""):
         return []
@@ -82,7 +63,7 @@ def _iter_trigger_rows(triggers: dict[str, list[tuple[str, float]]]):
         for code, score in hits or []:
             code_s = _code(code)
             if code_s and sig:
-                yield sig, code_s, _float(score)
+                yield sig, code_s, safe_float(score)
 
 
 def _springboard_observation_fields(
@@ -346,7 +327,7 @@ def _features_json(
 def _entry_quality_fields(raw: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw, dict) or not raw:
         return {}
-    score = _finite_float(raw.get("score", raw.get("entry_quality_score")))
+    score = finite_float(raw.get("score", raw.get("entry_quality_score")))
     grade = str(raw.get("grade") or raw.get("entry_quality_grade") or "").strip()
     tag = str(raw.get("tag") or raw.get("entry_quality_tag") or "").strip()
     risk_flags = _text_list(raw.get("risk_flags", raw.get("entry_risk_flags")))
@@ -359,7 +340,7 @@ def _entry_quality_fields(raw: dict[str, Any] | None) -> dict[str, Any]:
         out["tag"] = tag
     if risk_flags:
         out["risk_flags"] = risk_flags
-    bucket = _finite_float(raw.get("priority_bucket", raw.get("entry_priority_bucket")))
+    bucket = finite_float(raw.get("priority_bucket", raw.get("entry_priority_bucket")))
     if bucket is not None:
         out["priority_bucket"] = int(bucket)
     return out if len(out) > 1 else {}
@@ -389,7 +370,7 @@ def _observation_feature_inputs(
     entry_quality = _entry_quality_fields(
         ctx["entry_quality_map"].get(code6(code)) or ctx["entry_quality_map"].get(code)
     )
-    priority_score = _float(ctx["score_map"].get(code))
+    priority_score = safe_float(ctx["score_map"].get(code))
     selected_for_ai = code in ctx["selected"]
     ai_recommended = code in ctx["recommended"]
     candidate_rank = ctx["rank_map"].get(code)
@@ -453,7 +434,7 @@ def _signal_observation_row(
         "candidate_rank": ctx["rank_map"].get(code),
         "trigger_score": trigger_score,
         "priority_score": priority_score,
-        "entry_price": _float(ctx["latest_close_map"].get(code), default=0.0),
+        "entry_price": safe_float(ctx["latest_close_map"].get(code), default=0.0),
         "selected_for_ai": code in ctx["selected"],
         "ai_recommended": code in ctx["recommended"],
         "source": ctx["source_map"].get(code, "funnel"),
@@ -554,7 +535,7 @@ def _done_return(row: dict[str, Any]) -> float | None:
     if str(row.get("status", "")).strip().lower() != "done":
         return None
     raw = row.get("return_pct")
-    return None if raw is None else _float(raw)
+    return None if raw is None else safe_float(raw)
 
 
 def _health_row(
@@ -566,7 +547,7 @@ def _health_row(
 ) -> dict[str, Any]:
     signal_type, track, regime, horizon = key
     returns = [r for r in (_done_return(row) for row in rows) if r is not None]
-    drawdowns = [_float(row.get("max_drawdown_pct")) for row in rows if row.get("max_drawdown_pct") is not None]
+    drawdowns = [safe_float(row.get("max_drawdown_pct")) for row in rows if row.get("max_drawdown_pct") is not None]
     win_rate = float(sum(1 for r in returns if r > 0) / len(returns) * 100.0) if returns else None
     avg_ret = float(mean(returns)) if returns else None
     state, weight, reason = classify_health(len(returns), win_rate, avg_ret, min_samples=min_samples)

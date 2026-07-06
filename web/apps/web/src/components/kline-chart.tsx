@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { avg, rsi as calcRSI, macd as calcMACD, bollinger as calcBollinger } from '@/lib/math'
+import type { KlineRow } from '@wyckoff/shared'
 import {
   createChart,
   CandlestickSeries,
@@ -17,15 +18,6 @@ import {
   type Time,
 } from 'lightweight-charts'
 
-interface KlineData {
-  date: string
-  open: number
-  high: number
-  low: number
-  close: number
-  volume: number
-}
-
 interface WyckoffMarkerInput {
   date: string
   type: 'spring' | 'sos' | 'lps' | 'evr'
@@ -34,7 +26,7 @@ interface WyckoffMarkerInput {
 }
 
 interface KlineChartProps {
-  data: KlineData[]
+  data: KlineRow[]
   height?: number
   wyckoffMarkers?: WyckoffMarkerInput[]
   tradingRange?: { support: number; resistance: number }
@@ -136,7 +128,7 @@ function useChartInit(
 function useChartData(
   chartRefs: React.MutableRefObject<ChartRefs | null>,
   themeRef: React.MutableRefObject<ChartTheme>,
-  data: KlineData[],
+  data: KlineRow[],
   wyckoffMarkers: WyckoffMarkerInput[] | undefined,
   tradingRange: { support: number; resistance: number } | undefined,
 ) {
@@ -162,7 +154,7 @@ function useChartData(
   }, [chartRefs, themeRef, data, wyckoffMarkers, tradingRange])
 }
 
-function useBollingerOverlay(chartRefs: React.MutableRefObject<ChartRefs | null>, data: KlineData[], active: boolean) {
+function useBollingerOverlay(chartRefs: React.MutableRefObject<ChartRefs | null>, data: KlineRow[], active: boolean) {
   useEffect(() => {
     const refs = chartRefs.current
     if (!refs || data.length === 0) return
@@ -352,7 +344,7 @@ function readChartTheme() {
   }
 }
 
-function movingAverage(data: KlineData[], period: number): LineData<Time>[] {
+function movingAverage(data: KlineRow[], period: number): LineData<Time>[] {
   if (data.length < period) return []
   const points: LineData<Time>[] = []
   let sum = 0
@@ -379,7 +371,7 @@ function toSeriesMarkers(markers: WyckoffMarkerInput[]): SeriesMarker<Time>[] {
   })
 }
 
-function buildMarkers(data: KlineData[]): SeriesMarker<Time>[] {
+function buildMarkers(data: KlineRow[]): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = []
   const start = Math.max(20, data.length - 150)
 
@@ -421,7 +413,7 @@ function buildMarkers(data: KlineData[]): SeriesMarker<Time>[] {
 }
 
 function buildStructureSnapshot(
-  data: KlineData[],
+  data: KlineRow[],
   trOverride?: { support: number; resistance: number },
   stageOverride?: string,
 ): StructureSnapshot | null {
@@ -451,7 +443,7 @@ function buildStructureSnapshot(
   return { changePct, latestClose: latest.close, ma20, ma50, volumeRatio, ...levels, phase: '区间观察', tone: 'watch' }
 }
 
-function buildPriceLevels(data: KlineData[]) {
+function buildPriceLevels(data: KlineRow[]) {
   const recent = data.slice(-60)
   return {
     support: Math.min(...recent.map((d) => d.low)),

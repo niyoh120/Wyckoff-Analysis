@@ -12,20 +12,12 @@ import os
 import re
 from datetime import datetime
 
+from utils.env import env_flag
+
 logger = logging.getLogger(__name__)
 
-DEBUG_MODEL_IO: bool = os.getenv("DEBUG_MODEL_IO", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-DEBUG_MODEL_IO_FULL: bool = os.getenv("DEBUG_MODEL_IO_FULL", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+DEBUG_MODEL_IO: bool = env_flag("DEBUG_MODEL_IO")
+DEBUG_MODEL_IO_FULL: bool = env_flag("DEBUG_MODEL_IO_FULL")
 
 
 def dump_model_input(

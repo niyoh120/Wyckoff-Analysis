@@ -13,6 +13,11 @@ def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, float(value)))
 
 
+def range_pos(value: float, low: float, high: float) -> float:
+    """Position of *value* in [low, high]; returns 0.5 when range is empty."""
+    return 0.5 if high <= low else clamp((value - low) / (high - low))
+
+
 def to_numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 
@@ -49,6 +54,19 @@ def upper_shadow_pct(df: pd.DataFrame, open_: pd.Series, high: pd.Series, close:
     base = float(close.iloc[-1])
     body_top = max(base, float(open_.iloc[-1]) if not open_.empty else base)
     return 0.0 if base <= 0 else max(float(high.iloc[-1]) - body_top, 0.0) / base * 100.0
+
+
+def day_close_pos(close: pd.Series, high: pd.Series, low: pd.Series, *, use_tail: bool = False) -> float:
+    if high.empty or low.empty:
+        return 0.5
+    last_close = float(close.iloc[-1])
+    if use_tail:
+        lo = float(low.tail(1).min()) if not low.empty else float(close.tail(1).min())
+        hi = float(high.tail(1).max()) if not high.empty else float(close.tail(1).max())
+    else:
+        lo = float(low.iloc[-1])
+        hi = float(high.iloc[-1])
+    return range_pos(last_close, lo, hi)
 
 
 def vol_ratio(volume: pd.Series) -> float:

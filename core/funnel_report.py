@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from utils.safe import safe_float
+
 
 @dataclass(frozen=True)
 class FunnelReportMaps:
@@ -47,7 +49,7 @@ def build_symbol_report_row(
         "priority_rank": rank,
         "selection_source": selection_source,
         "selection_is_fill": bool(selection_is_fill),
-        "layer3_quality_score": _safe_float(maps.layer3_score_map.get(code)),
+        "layer3_quality_score": safe_float(maps.layer3_score_map.get(code)),
         "initial_price": float(maps.latest_close_map.get(code, 0.0) or 0.0),
         "industry": _industry(code, maps.sector_map),
     }
@@ -71,15 +73,15 @@ def theme_report_fields(code: str, candidate_map: dict[str, dict], bonus_map: di
     item = candidate_map.get(code) or {}
     return {
         "strategic_theme": str(item.get("theme", "") or "").strip(),
-        "strategic_theme_score": _safe_float(item.get("theme_score")),
-        "strategic_stock_score": _safe_float(item.get("stock_score")),
+        "strategic_theme_score": safe_float(item.get("theme_score")),
+        "strategic_stock_score": safe_float(item.get("stock_score")),
         "strategic_theme_state": str(item.get("state", "") or "").strip(),
-        "strategic_theme_bonus": _safe_float(bonus_map.get(code)),
+        "strategic_theme_bonus": safe_float(bonus_map.get(code)),
     }
 
 
 def capital_migration_report_fields(code: str, bonus_map: dict[str, float]) -> dict[str, float]:
-    return {"capital_migration_bonus": _safe_float(bonus_map.get(code))}
+    return {"capital_migration_bonus": safe_float(bonus_map.get(code))}
 
 
 def signal_report_fields(
@@ -96,7 +98,7 @@ def signal_report_fields(
         "signal_types": signal_types,
         "signal_track": str(track or "").strip(),
         "market_regime": str(regime or "NEUTRAL").strip().upper() or "NEUTRAL",
-        "trigger_score": _safe_float(trigger_score),
+        "trigger_score": safe_float(trigger_score),
     }
 
 
@@ -130,10 +132,3 @@ def _signal_types(raw_keys: list[str]) -> list[str]:
 
 def _industry(code: str, sector_map: dict[str, str]) -> str:
     return str(sector_map.get(code, "") or "未知行业")
-
-
-def _safe_float(value: object, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default

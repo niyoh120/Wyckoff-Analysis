@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
 
 from core.compliance_report import ComplianceLLMConfig, fmt_pct
+from utils.safe import finite_float
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ def _candidate_row(row: pd.Series, ops_set: set[str], code_name: dict[str, str])
         "tag": str(row.get("tag") or ""),
         "track": str(row.get("track") or ""),
         "stage": str(row.get("stage") or ""),
-        "score": _finite_float(row.get("_rank_score")),
+        "score": finite_float(row.get("_rank_score")),
         "confirmed": code in ops_set,
         "confirm_reason": str(row.get("confirm_reason") or ""),
     }
@@ -179,13 +179,5 @@ def _candidate_label(item: dict[str, Any]) -> str:
 
 
 def _fmt_number(value: Any) -> str:
-    num = _finite_float(value)
+    num = finite_float(value)
     return "待更新" if num is None else f"{num:.2f}"
-
-
-def _finite_float(value: Any) -> float | None:
-    num = pd.to_numeric(value, errors="coerce")
-    if pd.isna(num):
-        return None
-    out = float(num)
-    return out if math.isfinite(out) else None

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
+
+from utils.env import env_flag
 
 
 def write_tracking_candidates_if_enabled(candidates: list[dict[str, Any]], market: str) -> None:
-    if os.getenv("MARKET_FUNNEL_WRITE_DB", "").strip().lower() in {"1", "true", "yes"}:
+    if env_flag("MARKET_FUNNEL_WRITE_DB"):
         upsert_funnel_to_tracking(candidates, market)
 
 

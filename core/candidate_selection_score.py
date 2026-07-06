@@ -7,8 +7,9 @@ selection until outcome data proves that it helps.
 
 from __future__ import annotations
 
-import math
 from typing import Any
+
+from utils.safe import parse_cn_num
 
 CANDIDATE_SHADOW_SCORE_VERSION = "candidate_shadow_score_v1"
 
@@ -16,30 +17,8 @@ _ACCUM_SIGNALS = {"spring", "lps", "compression"}
 
 
 def _num(raw: Any, default: float = 0.0) -> float:
-    value = _finite_num(raw)
+    value = parse_cn_num(raw)
     return default if value is None else value
-
-
-def _finite_num(raw: Any) -> float | None:
-    if raw is None or isinstance(raw, bool):
-        return None
-    if isinstance(raw, int | float):
-        value = float(raw)
-        return value if math.isfinite(value) else None
-    text = str(raw).strip().replace(",", "")
-    if text.lower() in {"", "-", "--", "nan", "none"}:
-        return None
-    multiplier = 1.0
-    if "亿" in text:
-        multiplier = 100_000_000.0
-    elif "万" in text:
-        multiplier = 10_000.0
-    text = text.replace("%", "").replace("亿", "").replace("万", "")
-    try:
-        value = float(text) * multiplier
-    except ValueError:
-        return None
-    return value if math.isfinite(value) else None
 
 
 def _bounded100(raw: Any) -> float:
@@ -159,7 +138,7 @@ def _tail_component(intraday_tail: dict[str, Any]) -> tuple[float, list[str], li
     elif decision == "SKIP":
         negative.append("tail_skip")
     if "dist_vwap_pct" in intraday_tail:
-        dist_vwap = _finite_num(intraday_tail.get("dist_vwap_pct"))
+        dist_vwap = parse_cn_num(intraday_tail.get("dist_vwap_pct"))
         if dist_vwap is not None:
             if dist_vwap >= 0:
                 tags.append("above_vwap")
@@ -176,7 +155,7 @@ def _external_capital_component(source_context: dict[str, Any]) -> tuple[float, 
     negative = []
 
     lhb = source_context.get("lhb") or {}
-    lhb_net = _finite_num(lhb.get("net_buy")) if isinstance(lhb, dict) else None
+    lhb_net = parse_cn_num(lhb.get("net_buy")) if isinstance(lhb, dict) else None
     if lhb_net is not None and lhb_net > 0:
         score += 3.0
         positive.append("lhb_net_buy")
@@ -185,22 +164,22 @@ def _external_capital_component(source_context: dict[str, Any]) -> tuple[float, 
 
     margin = source_context.get("margin") or {}
     if isinstance(margin, dict):
-        margin_buy = _finite_num(margin.get("margin_buy"))
-        margin_repay = _finite_num(margin.get("margin_repay")) or 0.0
+        margin_buy = parse_cn_num(margin.get("margin_buy"))
+        margin_repay = parse_cn_num(margin.get("margin_repay")) or 0.0
         if margin_buy is not None and margin_buy > 0 and margin_buy > margin_repay:
             score += 1.5
             positive.append("margin_buying")
-        short_sell = _finite_num(margin.get("short_sell"))
-        short_repay = _finite_num(margin.get("short_repay"))
+        short_sell = parse_cn_num(margin.get("short_sell"))
+        short_repay = parse_cn_num(margin.get("short_repay"))
         if short_sell is not None and short_repay is not None and short_sell > short_repay > 0:
             negative.append("short_selling_pressure")
 
     block_trade = source_context.get("block_trade") or {}
-    total_amount = _finite_num(block_trade.get("total_amount")) if isinstance(block_trade, dict) else None
+    total_amount = parse_cn_num(block_trade.get("total_amount")) if isinstance(block_trade, dict) else None
     if total_amount is not None and total_amount > 0:
         score += 1.0
         if "avg_discount_pct" in block_trade:
-            discount = _finite_num(block_trade.get("avg_discount_pct"))
+            discount = parse_cn_num(block_trade.get("avg_discount_pct"))
             if discount is not None and discount >= 0:
                 score += 0.5
                 positive.append("block_trade_premium")
@@ -208,7 +187,7 @@ def _external_capital_component(source_context: dict[str, Any]) -> tuple[float, 
                 negative.append("block_trade_discount")
 
     tick = source_context.get("tick_large_order") or {}
-    tick_net = _finite_num(tick.get("large_net_amount_yuan")) if isinstance(tick, dict) else None
+    tick_net = parse_cn_num(tick.get("large_net_amount_yuan")) if isinstance(tick, dict) else None
     if tick_net is not None and tick_net > 0:
         score += 2.0
         positive.append("large_order_net_buy")

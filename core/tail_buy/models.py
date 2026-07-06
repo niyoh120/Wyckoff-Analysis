@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.candidate_metadata import code6 as normalize_cn_code  # noqa: F401 re-export
+from utils.safe import safe_float  # noqa: F401 re-export
+
 DECISION_BUY = "BUY"
 DECISION_WATCH = "WATCH"
 DECISION_SKIP = "SKIP"
@@ -37,15 +40,6 @@ class TailBuyCandidate:
     summary_5m: str = ""
 
 
-def normalize_cn_code(raw: Any) -> str:
-    digits = "".join(ch for ch in str(raw or "").strip() if ch.isdigit())
-    if not digits:
-        return ""
-    if len(digits) > 6:
-        digits = digits[-6:]
-    return digits.zfill(6)
-
-
 def normalize_status(raw: Any) -> str:
     text = str(raw or "").strip().lower()
     return text if text else "pending"
@@ -53,15 +47,3 @@ def normalize_status(raw: Any) -> str:
 
 def normalize_regime(raw: Any) -> str:
     return str(raw or "").strip().upper()
-
-
-def safe_float(raw: Any, default: float = 0.0) -> float:
-    try:
-        if raw is None:
-            return default
-        text = str(raw).strip()
-        if not text:
-            return default
-        return float(text)
-    except Exception:
-        return default

@@ -12,6 +12,27 @@ from core.candidate_actions import candidate_action_fields
 from core.candidate_guards import candidate_guard_summary
 from core.candidate_metadata import build_candidate_metadata_map, code6
 from core.candidate_policy import candidate_score_value
+from core.candidate_preference import (
+    candidate_matches_preference as _candidate_matches_preference,
+)
+from core.candidate_preference import (
+    candidate_style_match_styles as _candidate_style_match_styles,
+)
+from core.candidate_preference import (
+    has_style_preference as _has_style_preference,
+)
+from core.candidate_preference import (
+    has_theme_preference as _has_theme_preference,
+)
+from core.candidate_preference import (
+    missing_style_preference_labels as _candidate_missing_style_preference_labels,
+)
+from core.candidate_preference import (
+    preference_match_status as _preference_match_status,
+)
+from core.candidate_preference import (
+    style_preference_match_status as _style_preference_match_status,
+)
 from core.candidate_quality import (
     ai_review_quality_gate_reason,
     candidate_ai_review_label,
@@ -320,7 +341,6 @@ _STYLE_ALIASES = {
     ),
 }
 
-_STYLE_LABELS = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
 _STYLE_TEXT_COMPACT_RE = re.compile(r"[\s。！!,.，、？?；;：:（）()【】\[\]\"'`]+")
 _STYLE_TEXT_REPLACEMENTS = (
     ("强事", "强势"),
@@ -1782,79 +1802,6 @@ def _candidate_preference_miss_risk_factors(
         theme = str(theme_preference.get("theme") or theme_preference.get("raw") or "").strip()
         risks.append(f"主题偏好未命中: {theme}" if theme else "主题偏好未命中")
     return risks
-
-
-def _style_preference_labels(style_preference: dict[str, Any]) -> list[str]:
-    return [_STYLE_LABELS.get(str(item), str(item)) for item in _style_preference_styles(style_preference)]
-
-
-def _style_preference_styles(style_preference: dict[str, Any]) -> list[str]:
-    return [str(item) for item in style_preference.get("styles") or [] if str(item)]
-
-
-def _style_preference_match_status(candidates: list[dict], style_preference: dict[str, Any]) -> str:
-    requested = _style_preference_styles(style_preference)
-    if not requested:
-        return _preference_match_status(candidates, "style")
-    if any(not _candidate_missing_style_preference_labels(row, style_preference) for row in candidates):
-        return "hit"
-    if any(_candidate_style_match_styles(row, requested) for row in candidates):
-        return "partial"
-    return "miss"
-
-
-def _candidate_missing_style_preference_labels(row: dict, style_preference: dict[str, Any]) -> list[str]:
-    requested = _style_preference_styles(style_preference)
-    if not requested:
-        return []
-    matched = set(_candidate_style_match_styles(row, requested))
-    return [_STYLE_LABELS.get(style, style) for style in requested if style not in matched]
-
-
-def _candidate_style_match_styles(row: dict, requested: list[str]) -> list[str]:
-    styles = [str(item) for item in row.get("style_match_styles") or [] if str(item)]
-    if not styles:
-        styles = _infer_style_match_styles(row)
-    if not styles and row.get("style_match") is True:
-        styles = requested
-    return list(dict.fromkeys(style for style in styles if style in requested))
-
-
-def _infer_style_match_styles(row: dict) -> list[str]:
-    reasons = [str(item) for item in row.get("style_match_reasons") or []]
-    styles: list[str] = []
-    if any(reason.startswith("趋势偏好") for reason in reasons):
-        styles.append("trend")
-    if any(reason.startswith("低吸偏好") for reason in reasons):
-        styles.append("pullback")
-    if any(reason.startswith("稳健偏好") for reason in reasons):
-        styles.append("quality")
-    return styles
-
-
-def _preference_match_status(candidates: list[dict], prefix: str) -> str:
-    if any(_candidate_matches_preference(row, prefix) for row in candidates):
-        return "hit"
-    return "miss"
-
-
-def _candidate_matches_preference(row: dict, prefix: str) -> bool:
-    if row.get(f"{prefix}_match") is True:
-        return True
-    try:
-        if int(row.get(f"{prefix}_match_score") or 0) > 0:
-            return True
-    except (TypeError, ValueError):
-        pass
-    return bool(row.get(f"{prefix}_match_reasons"))
-
-
-def _has_style_preference(value: dict[str, Any]) -> bool:
-    return bool(value.get("styles") or str(value.get("raw") or "").strip())
-
-
-def _has_theme_preference(value: dict[str, Any]) -> bool:
-    return bool(value.get("theme") or str(value.get("raw") or "").strip())
 
 
 def _annotate_candidate_theme_match(row: dict, preference: dict[str, Any]) -> dict:

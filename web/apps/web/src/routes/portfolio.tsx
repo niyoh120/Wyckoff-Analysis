@@ -10,19 +10,13 @@ import { streamLLMResponse } from '@/lib/llm-stream'
 import { MarkdownContent } from '@/components/markdown'
 import { UpgradeNotice } from '@/components/upgrade-notice'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
-import {
-  checkWhitelist,
-  fetchKlineViaTickFlow,
-  fetchValueSnapshot,
-  getUserDataKeys,
-  normalizeCode,
-  TICKFLOW_PURCHASE,
-  type KlineData,
-  type ValueSnapshot,
-} from '@/lib/kline'
+import { TICKFLOW_PURCHASE, fetchValueSnapshotWithFetch, normalizeCode } from '@wyckoff/shared'
+import type { KlineRow, ValueSnapshot } from '@wyckoff/shared'
+import { checkWhitelist, fetchKlineViaTickFlow, getUserDataKeys } from '@/lib/kline'
 import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
-import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueScore, type ValueTone, type ValueView } from '@/lib/value-analysis'
+import { sourceLabel, type ValueScore, type ValueTone } from '@wyckoff/shared'
+import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
 
 interface Position {
   code: string | number
@@ -254,7 +248,7 @@ function scheduleStreamingReportFlush(buf: MutableRefObject<string>, raf: Mutabl
   })
 }
 
-type PositionEntry = { position: Position; kline: KlineData[]; valueSnapshot: ValueSnapshot }
+type PositionEntry = { position: Position; kline: KlineRow[]; valueSnapshot: ValueSnapshot }
 
 async function fetchAllPositionKlines(positions: Position[], keys: Awaited<ReturnType<typeof getUserDataKeys>>, onProgress: (n: number) => void): Promise<PositionEntry[]> {
   if (!keys.tickflow) throw new Error(`触发数据源并发请求限制，请升级数据源：${TICKFLOW_PURCHASE}`)
@@ -267,7 +261,7 @@ async function fetchAllPositionKlines(positions: Position[], keys: Awaited<Retur
         const code = normalizeCode(p.code)
         const [kline, valueSnapshot] = await Promise.all([
           fetchKlineViaTickFlow(code, keys.tickflow!),
-          fetchValueSnapshot(code, keys).catch((): ValueSnapshot => ({ symbol: code, source: 'none', metrics: null, reason: 'not-found' })),
+          fetchValueSnapshotWithFetch(globalThis.fetch, code, keys).catch((): ValueSnapshot => ({ symbol: code, source: 'none', metrics: null, reason: 'not-found' })),
         ])
         if (kline.length > 0) entries.push({ position: positions[i]!, kline, valueSnapshot })
         else errors.push(normalizeCode(p.code))

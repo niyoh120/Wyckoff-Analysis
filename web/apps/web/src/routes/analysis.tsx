@@ -10,17 +10,20 @@ import { KlineChart } from '@/components/kline-chart'
 import { usePreferences } from '@/lib/preferences'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
 import { detectWyckoffAnnotations } from '@/lib/wyckoff-detect'
-import { TICKFLOW_PURCHASE, fetchKline, fetchValueSnapshot, getUserDataKeys, checkWhitelist, isCnSymbol, isSupportedKlineCode, type KlineData, type ValueSnapshot } from '@/lib/kline'
+import { TICKFLOW_PURCHASE, fetchValueSnapshotWithFetch, isCnSymbol, isSupportedKlineCode } from '@wyckoff/shared'
+import type { KlineRow, ValueSnapshot } from '@wyckoff/shared'
+import { fetchKline, getUserDataKeys, checkWhitelist } from '@/lib/kline'
 import { avg } from '@/lib/math'
 import { marketLabel, resolveStockQuery, searchStocks, type StockSearchResult } from '@/lib/market-search'
-import { buildValuePrompt, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
+import { buildValuePrompt, sourceLabel } from '@wyckoff/shared'
+import { buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
 import { saveAnalysisHistory } from '@/lib/local-history'
 
 interface AnalysisResult {
   report: string
   symbol: string
   name: string
-  klineData: KlineData[]
+  klineData: KlineRow[]
   valueSnapshot: ValueSnapshot
 }
 
@@ -177,7 +180,7 @@ interface AnalysisRunnerState {
   error: string
   step: AnalysisStep | null
   streamingReport: string
-  earlyKline: { data: KlineData[]; symbol: string; name: string; valueSnapshot: ValueSnapshot } | null
+  earlyKline: { data: KlineRow[]; symbol: string; name: string; valueSnapshot: ValueSnapshot } | null
   setError: Dispatch<SetStateAction<string>>
   handleAnalyze: () => void
 }
@@ -190,7 +193,7 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
   const [error, setError] = useState('')
   const [step, setStep] = useState<AnalysisStep | null>(null)
   const [streamingReport, setStreamingReport] = useState('')
-  const [earlyKline, setEarlyKline] = useState<{ data: KlineData[]; symbol: string; name: string; valueSnapshot: ValueSnapshot } | null>(null)
+  const [earlyKline, setEarlyKline] = useState<{ data: KlineRow[]; symbol: string; name: string; valueSnapshot: ValueSnapshot } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const streamBuf = useRef('')
   const rafRef = useRef(0)
@@ -210,7 +213,7 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
       const [stockInfoResult, klineData, valueSnapshot] = await Promise.all([
         fetchStockName(resolved.code),
         fetchKline(resolved.code, dataKeys, userId),
-        fetchValueSnapshot(resolved.code, dataKeys).catch((): ValueSnapshot => ({ symbol: resolved.code, source: 'none', metrics: null, reason: 'not-found' })),
+        fetchValueSnapshotWithFetch(globalThis.fetch, resolved.code, dataKeys).catch((): ValueSnapshot => ({ symbol: resolved.code, source: 'none', metrics: null, reason: 'not-found' })),
       ])
       if (klineData.length === 0) throw new Error(t('analysis.noKlineData'))
       const name = resolved.stock?.name || stockInfoResult.data?.name || resolved.code
@@ -405,7 +408,7 @@ function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
   )
 }
 
-function KlineSection({ klineData, compact = false }: { klineData: KlineData[]; compact?: boolean }) {
+function KlineSection({ klineData, compact = false }: { klineData: KlineRow[]; compact?: boolean }) {
   const { t } = usePreferences()
   const wyckoff = useMemo(() => detectWyckoffAnnotations(klineData), [klineData])
   return (
@@ -582,7 +585,7 @@ async function fetchStockName(code: string): Promise<{ data: { name?: string } |
   return { data }
 }
 
-function buildKlinePayload(data: KlineData[]): string {
+function buildKlinePayload(data: KlineRow[]): string {
   const last = data[data.length - 1]!
   const prev20 = data.slice(-20)
   const ma5 = avg(data.slice(-5).map((d) => d.close))

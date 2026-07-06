@@ -8,6 +8,7 @@ from typing import Any
 
 from core.ai_candidate_allocation import fit_ai_candidate_quotas
 from core.signal_feedback import BLOCKED_REGISTRY_STATUSES, normalize_signal_type, signal_track
+from utils.safe import safe_float
 
 
 @dataclass(frozen=True)
@@ -36,15 +37,6 @@ def dynamic_policy_mode(config: DynamicPolicyConfig | None = None) -> str:
 
 def dynamic_policy_horizon(config: DynamicPolicyConfig | None = None) -> int:
     return (config or DEFAULT_DYNAMIC_POLICY_CONFIG).normalized_horizon()
-
-
-def _float(raw: Any, default: float = 1.0) -> float:
-    try:
-        if raw is None or str(raw).strip() == "":
-            return default
-        return float(raw)
-    except (TypeError, ValueError):
-        return default
 
 
 def _registry_status_map(registry_rows: list[dict[str, Any]]) -> dict[str, str]:
@@ -102,13 +94,13 @@ def build_signal_weight_map(
     weights: dict[str, float] = {}
     horizon = dynamic_policy_horizon(config) if horizon_days is None else max(int(horizon_days), 1)
     for signal_type, row in _latest_health_by_signal(health_rows, regime, horizon).items():
-        weights[signal_type] = max(_float(row.get("weight_multiplier")), 0.0)
+        weights[signal_type] = max(safe_float(row.get("weight_multiplier")), 0.0)
     for row in registry_rows or []:
         signal_type = normalize_signal_type(row.get("signal_type"))
         if not signal_type:
             continue
         status = str(row.get("status") or "ACTIVE").strip().upper()
-        reg_weight = max(_float(row.get("weight_multiplier")), 0.0)
+        reg_weight = max(safe_float(row.get("weight_multiplier")), 0.0)
         weights[signal_type] = (
             0.0 if status in BLOCKED_REGISTRY_STATUSES else min(weights.get(signal_type, 1.0), reg_weight)
         )
@@ -119,7 +111,7 @@ def merge_signal_weight_maps(*maps: dict[str, float] | None) -> dict[str, float]
     merged: dict[str, float] = {}
     signals = sorted({signal for item in maps if item for signal in item})
     for signal in signals:
-        weights = [_float(item.get(signal)) for item in maps if item and signal in item]
+        weights = [safe_float(item.get(signal)) for item in maps if item and signal in item]
         downweights = [weight for weight in weights if weight < 1.0]
         merged[signal] = min(downweights) if downweights else max(weights)
     return merged
@@ -139,7 +131,7 @@ def _apply_breadth_bias(trend_weight: float, accum_weight: float, breadth: dict 
     delta = breadth.get("delta_pct") if breadth else None
     if delta is None:
         return trend_weight, accum_weight
-    delta_f = _float(delta, default=0.0)
+    delta_f = safe_float(delta, default=0.0)
     if delta_f >= 5.0:
         return trend_weight * 1.1, accum_weight * 0.95
     if delta_f <= -5.0:

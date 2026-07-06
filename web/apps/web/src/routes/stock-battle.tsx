@@ -9,11 +9,14 @@ import { KlineChart } from '@/components/kline-chart'
 import { MultiStockChart, type ComparisonSeries } from '@/components/multi-stock-chart'
 import { UpgradeNotice } from '@/components/upgrade-notice'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
-import { TICKFLOW_PURCHASE, fetchKlineViaTickFlow, fetchValueSnapshot, getUserDataKeys, isSupportedKlineCode, type KlineData, type ValueSnapshot } from '@/lib/kline'
+import { TICKFLOW_PURCHASE, fetchValueSnapshotWithFetch, isSupportedKlineCode } from '@wyckoff/shared'
+import type { KlineRow, ValueSnapshot } from '@wyckoff/shared'
+import { fetchKlineViaTickFlow, getUserDataKeys } from '@/lib/kline'
 import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
 import { resolveStockQuery } from '@/lib/market-search'
-import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueScore, type ValueTone, type ValueView } from '@/lib/value-analysis'
+import { sourceLabel, type ValueScore, type ValueTone } from '@wyckoff/shared'
+import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
 
 interface BattleTarget {
   code: string
@@ -21,7 +24,7 @@ interface BattleTarget {
 }
 
 interface BattleStock extends BattleTarget {
-  data: KlineData[]
+  data: KlineRow[]
   stats: StrengthStats
   valueSnapshot: ValueSnapshot
 }
@@ -45,7 +48,7 @@ interface BattleHistoryPayload {
   mode: ChartMode
   overlayLimit: number
   report: string
-  benchmark: KlineData[]
+  benchmark: KlineRow[]
 }
 
 const DEFAULT_INPUT = '中国平安\n贵州茅台\nAAPL\nNVDA\n腾讯'
@@ -87,7 +90,7 @@ function useBattleRunner() {
   const [report, setReport] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const streamBuf = useRef(''), rafRef = useRef(0)
-  const [benchmark, setBenchmark] = useState<KlineData[]>([])
+  const [benchmark, setBenchmark] = useState<KlineRow[]>([])
 
   async function run(input: string) {
     if (!user) return
@@ -102,7 +105,7 @@ function useBattleRunner() {
       if (!keys.tickflow) throw new Error(upgradeMessage())
       const [fetched, bench] = await Promise.all([
         fetchBattleStocks(targets, keys),
-        fetchKlineViaTickFlow('399300', keys.tickflow).catch(() => [] as KlineData[]),
+        fetchKlineViaTickFlow('399300', keys.tickflow).catch(() => [] as KlineRow[]),
       ])
       if (abort.signal.aborted) return
       setStocks(fetched)
@@ -138,7 +141,7 @@ function useBattleHistory(
   mode: ChartMode,
   overlayLimit: number,
   report: string,
-  benchmark: KlineData[],
+  benchmark: KlineRow[],
 ) {
   const savedKey = useRef('')
 
@@ -166,7 +169,7 @@ function buildBattleHistoryPayload(
   mode: ChartMode,
   overlayLimit: number,
   report: string,
-  benchmark: KlineData[],
+  benchmark: KlineRow[],
 ): BattleHistoryPayload {
   return {
     input,
@@ -264,7 +267,7 @@ function SelectionGrid({ stocks, selected, setSelected }: { stocks: BattleStock[
   )
 }
 
-function BattleCharts({ mode, limit, stocks, benchmark }: { mode: ChartMode; limit: number; stocks: BattleStock[]; benchmark: KlineData[] }) {
+function BattleCharts({ mode, limit, stocks, benchmark }: { mode: ChartMode; limit: number; stocks: BattleStock[]; benchmark: KlineRow[] }) {
   if (stocks.length === 0) return null
   const benchSeries: ComparisonSeries | null = benchmark.length > 0 ? { code: '399300', name: '沪深300', data: benchmark } : null
   if (mode === 'overlay') {
@@ -491,13 +494,13 @@ async function fetchOneBattleStock(target: BattleTarget, keys: { tickflow: strin
   if (!keys.tickflow) return null
   const [data, valueSnapshot] = await Promise.all([
     fetchKlineViaTickFlow(target.code, keys.tickflow),
-    fetchValueSnapshot(target.code, keys).catch((): ValueSnapshot => ({ symbol: target.code, source: 'none', metrics: null, reason: 'not-found' })),
+    fetchValueSnapshotWithFetch(globalThis.fetch, target.code, keys).catch((): ValueSnapshot => ({ symbol: target.code, source: 'none', metrics: null, reason: 'not-found' })),
   ])
   if (data.length === 0) return null
   return { ...target, data, stats: computeStrengthStats(data), valueSnapshot }
 }
 
-function computeStrengthStats(data: KlineData[]): StrengthStats {
+function computeStrengthStats(data: KlineRow[]): StrengthStats {
   const latest = data[data.length - 1]!
   const ret20 = periodReturn(data, 20), ret60 = periodReturn(data, 60), ret120 = periodReturn(data, 120)
   const recent60 = data.slice(-60), high60 = Math.max(...recent60.map((row) => row.high))
@@ -508,7 +511,7 @@ function computeStrengthStats(data: KlineData[]): StrengthStats {
   return { latestClose: latest.close, ret20, ret60, ret120, drawdown60, volumeRatio, score }
 }
 
-function periodReturn(data: KlineData[], days: number): number {
+function periodReturn(data: KlineRow[], days: number): number {
   const latest = data[data.length - 1]?.close || 0
   const base = data[Math.max(0, data.length - days - 1)]?.close || latest
   return base > 0 ? (latest / base - 1) * 100 : 0

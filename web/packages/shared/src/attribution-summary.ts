@@ -148,13 +148,13 @@ export function attributionFormalDynamicReasonLabel(reason: unknown): string {
 
 function promotionChecklistDetailLabel(details: string): string {
   const parts = details.split(',').map((item) => item.trim()).filter(Boolean).map((item) => {
-    const [key, status] = item.split(':', 2)
-    return status ? `${promotionCheckKeyLabel(key)}:${promotionCheckStatusLabel(status)}` : promotionCheckKeyLabel(key)
+    const [key = '', status] = item.split(':', 2)
+    return status ? `${checklistKeyLabel(key)}:${checklistStatusLabel(status)}` : checklistKeyLabel(key)
   })
   return parts.length ? parts.join('，') : details
 }
 
-function promotionCheckKeyLabel(raw: string): string {
+export function checklistKeyLabel(raw: unknown): string {
   const labels: Record<string, string> = {
     shadow_sample: '样本',
     shadow_performance: 'Shadow表现',
@@ -163,10 +163,10 @@ function promotionCheckKeyLabel(raw: string): string {
     signal_actions: '信号调权',
     backtest_confirmation: '回测',
   }
-  return labels[raw.trim()] || raw.trim() || '-'
+  return labels[String(raw || '').trim()] || String(raw || '-')
 }
 
-function promotionCheckStatusLabel(raw: string): string {
+export function checklistStatusLabel(raw: unknown): string {
   const labels: Record<string, string> = {
     pass: '通过',
     fail: '失败',
@@ -175,7 +175,7 @@ function promotionCheckStatusLabel(raw: string): string {
     not_required: '不需要',
     unknown: '未知',
   }
-  return labels[raw.trim()] || raw.trim() || '未知'
+  return labels[String(raw || '').trim()] || String(raw || '-')
 }
 
 export function attributionOperatorSummary(input: AttributionOperatorSummaryInput): string {

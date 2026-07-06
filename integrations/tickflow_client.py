@@ -21,6 +21,7 @@ from integrations.tickflow_notice import (
     is_tickflow_rate_limited_error,
     record_tickflow_limit_event,
 )
+from utils.env import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +50,7 @@ _ADJUST_SET = {"none", "forward", "backward", "forward_additive", "backward_addi
 _RATE_LIMIT_WAIT_RE = re.compile(r"请\s*(\d+(?:\.\d+)?)\s*(ms|毫秒|s|秒)?\s*后重试", re.IGNORECASE)
 _KLINE_CALL_TIMES: deque[float] = deque()
 _KLINE_RATE_LOCK = threading.Lock()
-_TICKFLOW_LOG_VERBOSE = os.getenv("TICKFLOW_LOG_VERBOSE", "0").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+_TICKFLOW_LOG_VERBOSE = env_bool("TICKFLOW_LOG_VERBOSE", False)
 
 
 def _tf_log(msg: str, *, always: bool = False) -> None:

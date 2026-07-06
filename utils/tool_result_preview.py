@@ -8,6 +8,30 @@ from typing import Any
 
 from core.candidate_actions import candidate_action_fields, candidate_action_label, candidate_action_role
 from core.candidate_guards import candidate_guard_reason
+from core.candidate_preference import (
+    candidate_matches_preference as _candidate_matches_preference,
+)
+from core.candidate_preference import (
+    has_style_preference as _has_style_preference,
+)
+from core.candidate_preference import (
+    has_theme_preference as _has_theme_preference,
+)
+from core.candidate_preference import (
+    missing_style_preference_labels as _candidate_missing_style_preference_labels,
+)
+from core.candidate_preference import (
+    preference_match_status as _preference_match_status,
+)
+from core.candidate_preference import (
+    style_preference_match_status as _screen_style_preference_match_status,
+)
+from core.candidate_preference import (
+    style_preference_text as _style_preference_text,
+)
+from core.candidate_preference import (
+    theme_preference_text as _theme_preference_text,
+)
 from core.strategy_policy_display import policy_execution_mode_label, policy_next_action_label
 from utils.safe import drop_empty as _drop_empty_preview_fields
 
@@ -1146,31 +1170,13 @@ def _screen_candidate_preference_miss_risk_texts(row: dict[str, Any], result: di
 def _screen_missing_style_preference_text(row: dict[str, Any], value: Any) -> str:
     if not isinstance(value, dict):
         return ""
-    requested = [str(item) for item in _preview_list(value.get("styles"), 4) if str(item)]
-    if not requested:
+    if not _style_preference_styles(value):
         return (
             ""
             if not _has_style_preference(value) or _candidate_matches_preference(row, "style")
             else _style_preference_text(value)
         )
-    matched = set(_screen_candidate_style_match_styles(row, requested))
-    labels = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
-    missing = [labels.get(style, style) for style in requested if style not in matched]
-    return "/".join(missing)
-
-
-def _screen_candidate_style_match_styles(row: dict[str, Any], requested: list[str]) -> list[str]:
-    styles = [str(item) for item in _preview_list(row.get("style_match_styles"), 4) if str(item)]
-    if not styles:
-        reasons = [str(item) for item in _preview_list(row.get("style_match_reasons"), 8)]
-        styles = [
-            *("trend" for reason in reasons if reason.startswith("趋势偏好")),
-            *("pullback" for reason in reasons if reason.startswith("低吸偏好")),
-            *("quality" for reason in reasons if reason.startswith("稳健偏好")),
-        ]
-    if not styles and row.get("style_match") is True:
-        styles = requested
-    return list(dict.fromkeys(style for style in styles if style in requested))
+    return "/".join(_candidate_missing_style_preference_labels(row, value))
 
 
 def _preference_miss_risk(label: str, value: str) -> str:
@@ -1696,62 +1702,8 @@ def _screen_preference_match_preview(result: dict[str, Any]) -> dict[str, str]:
     )
 
 
-def _screen_style_preference_match_status(rows: list[dict[str, Any]], preference: Any) -> str:
-    if not _has_style_preference(preference):
-        return ""
-    requested = _style_preference_styles(preference)
-    if not requested:
-        return _preference_match_status(rows, "style")
-    if any(not _screen_missing_style_preference_text(row, preference) for row in rows):
-        return "hit"
-    if any(_screen_candidate_style_match_styles(row, requested) for row in rows):
-        return "partial"
-    return "miss"
-
-
 def _style_preference_styles(value: Any) -> list[str]:
     return [str(item) for item in _preview_list(value.get("styles"), 4) if str(item)] if isinstance(value, dict) else []
-
-
-def _preference_match_status(rows: list[dict[str, Any]], prefix: str) -> str:
-    if any(_candidate_matches_preference(row, prefix) for row in rows):
-        return "hit"
-    return "miss"
-
-
-def _candidate_matches_preference(row: dict[str, Any], prefix: str) -> bool:
-    if row.get(f"{prefix}_match") is True:
-        return True
-    try:
-        if int(row.get(f"{prefix}_match_score") or 0) > 0:
-            return True
-    except (TypeError, ValueError):
-        pass
-    return bool(_preview_list(row.get(f"{prefix}_match_reasons"), 1))
-
-
-def _has_style_preference(value: Any) -> bool:
-    return isinstance(value, dict) and bool(value.get("styles") or str(value.get("raw") or "").strip())
-
-
-def _has_theme_preference(value: Any) -> bool:
-    return isinstance(value, dict) and bool(value.get("theme") or str(value.get("raw") or "").strip())
-
-
-def _style_preference_text(value: Any) -> str:
-    if not isinstance(value, dict):
-        return ""
-    labels = {"trend": "趋势", "pullback": "低吸", "quality": "质量"}
-    styles = [labels.get(str(item), str(item)) for item in _preview_list(value.get("styles"), 3)]
-    if styles:
-        return ",".join(dict.fromkeys(style for style in styles if style))
-    return _text_excerpt(value.get("raw"), 40)
-
-
-def _theme_preference_text(value: Any) -> str:
-    if not isinstance(value, dict):
-        return ""
-    return _text_excerpt(value.get("theme") or value.get("raw"), 40)
 
 
 def _screen_decision_state_preview(value: Any) -> dict[str, Any]:

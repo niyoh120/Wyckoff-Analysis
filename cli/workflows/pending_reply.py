@@ -8,9 +8,9 @@ import re
 from typing import Any
 
 from cli.workflows._shared import (
-    collect_stream_text,
     decision_confidence,
     loads_json,
+    provider_chat_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -242,16 +242,9 @@ def _step_summary(step: dict[str, Any]) -> dict[str, Any]:
 
 
 def _provider_response(provider: Any, messages: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if hasattr(provider, "chat"):
-        try:
-            return provider.chat(messages, [], _PENDING_REPLY_SYSTEM_PROMPT)
-        except NotImplementedError:
-            if not getattr(provider, "use_chat_stream_for_pending_reply", False):
-                return None
-    if not hasattr(provider, "chat_stream"):
-        return None
-    text = collect_stream_text(provider.chat_stream(messages, [], _PENDING_REPLY_SYSTEM_PROMPT))
-    return {"type": "text", "text": text} if text else None
+    return provider_chat_response(
+        provider, messages, _PENDING_REPLY_SYSTEM_PROMPT, stream_fallback_flag="use_chat_stream_for_pending_reply"
+    )
 
 
 def _parse_decision(response: Any) -> dict[str, Any] | None:

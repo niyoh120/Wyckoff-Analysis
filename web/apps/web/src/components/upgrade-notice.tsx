@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
-import { TICKFLOW_PURCHASE } from '@/lib/kline'
+import { TICKFLOW_PURCHASE } from '@wyckoff/shared'
 import { usePreferences } from '@/lib/preferences'
 
 export function UpgradeNotice({ message }: { message: string }) {

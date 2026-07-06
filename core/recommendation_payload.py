@@ -11,6 +11,7 @@ import pandas as pd
 
 from core.candidate_metadata import CANDIDATE_ATTRIBUTION_COLUMNS, STRATEGY_VERSION_CANDIDATE_LANE_V1
 from core.constants import TABLE_RECOMMENDATION_TRACKING
+from utils.safe import safe_float
 
 RECOMMENDATION_ATTRIBUTION_COLUMNS = (
     "primary_signal",
@@ -108,14 +109,14 @@ def merge_recommendation_payload_row(existing: dict[str, Any], row: dict[str, An
         existing["name"] = row["name"]
     old_score = existing.get("funnel_score")
     new_score = row.get("funnel_score")
-    if new_score is not None and (old_score is None or _finite_float(new_score) > _finite_float(old_score)):
+    if new_score is not None and (old_score is None or safe_float(new_score) > safe_float(old_score)):
         existing["funnel_score"] = new_score
         existing["recommend_reason"] = row.get("recommend_reason", "")
         _copy_recommendation_attribution(existing, row)
     else:
         _fill_missing_attribution(existing, row)
-    old_price = _safe_float(existing.get("initial_price"), 0.0)
-    new_price = _safe_float(row.get("initial_price"), 0.0)
+    old_price = safe_float(existing.get("initial_price"), 0.0)
+    new_price = safe_float(row.get("initial_price"), 0.0)
     if old_price <= 0 < new_price:
         existing["initial_price"] = new_price
         existing["current_price"] = new_price
@@ -413,23 +414,6 @@ def _sql_literal(value: Any) -> str:
     if isinstance(value, int | float):
         return str(value)
     return "'" + str(value).replace("'", "''") + "'"
-
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        if value is None or value == "":
-            return default
-        return _finite_float(value, default)
-    except Exception:
-        return default
-
-
-def _finite_float(value: Any, default: float = 0.0) -> float:
-    try:
-        parsed = float(value)
-    except Exception:
-        return default
-    return parsed if math.isfinite(parsed) else default
 
 
 def _code6(raw: Any) -> str:

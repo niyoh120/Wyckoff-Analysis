@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.candidate_actions import (
+    _is_false,
     candidate_action_blocks_direct_buy,
     candidate_action_fields,
 )
@@ -78,14 +79,6 @@ def candidate_guard_reason(row: dict[str, Any]) -> str:
     if status and candidate_action_blocks_direct_buy(status):
         return f"候选状态 {status} 不允许直接买入"
     return ""
-
-
-def _is_false(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value is False
-    if isinstance(value, str):
-        return value.strip().lower() in {"false", "0", "no", "n"}
-    return value == 0
 
 
 def _candidate_guard_risks(row: dict[str, Any]) -> list[str]:

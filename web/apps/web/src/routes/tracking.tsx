@@ -4,6 +4,7 @@ import { ArrowRight, CheckCircle2, ExternalLink, ShieldCheck } from 'lucide-reac
 import { createChart, HistogramSeries, type Time } from 'lightweight-charts'
 import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
+import { labelCandidateTerm } from '@wyckoff/shared'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
 import { financialValueClass } from '@/lib/financial-colors'
@@ -850,26 +851,6 @@ function trackingColumnCount(market: MarketTab): number {
 function cleanText(value: string | null | undefined): string {
   const text = String(value || '').trim()
   return text && text !== 'none' ? text : ''
-}
-
-function labelCandidateTerm(value: string): string {
-  const labels: Record<string, string> = {
-    mainline: '主线买点',
-    trend_breakout: '趋势突破',
-    trend_lane_pullback: '趋势回踩',
-    sector_strength: '板块强势',
-    wyckoff_structure: 'Wyckoff结构',
-    sos: 'SOS点火',
-    evr: 'EVR放量不跌',
-    lps: 'LPS缩量回踩',
-    spring: 'Spring震仓',
-    Lane: '入选路径',
-    可买主线: '主线买点候选',
-    主线买点候选: '主线买点候选',
-    主线观察: '主线观察',
-    过热不追: '过热不追',
-  }
-  return labels[value] || value
 }
 
 function resolveActionStatus(row: Recommendation): { label: string; cls: string; title: string } {

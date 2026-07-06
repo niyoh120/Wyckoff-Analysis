@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from core.concept_filters import is_actionable_theme_name
+from utils.env import env_flag
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +243,7 @@ def atomic_write_json(path: Path, payload: object) -> None:
 
 
 def debug_metadata_fail(source: str, err: Exception) -> None:
-    if os.getenv("DATA_SOURCE_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if env_flag("DATA_SOURCE_DEBUG"):
         logger.debug("%s failed: %s: %s", source, type(err).__name__, err)
 
 

@@ -1,15 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import type { FundamentalMetric, ValueSnapshot } from '../kline'
+import type { FundamentalMetric, ValueSnapshot } from '@wyckoff/shared'
+import { buildValuePrompt, sourceLabel } from '@wyckoff/shared'
 import type { TranslationKey } from '../preferences'
 import type { Translate } from '../value-analysis'
 import {
   buildValueDigest,
-  buildValuePrompt,
   buildValueScore,
   formatValuePercent,
   numberTone,
   reverseNumberTone,
-  sourceLabel,
   valueUnavailableText,
 } from '../value-analysis'
 
