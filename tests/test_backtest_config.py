@@ -87,6 +87,13 @@ def test_build_backtest_run_config_normalizes_and_expands(tmp_path) -> None:
     ]
 
 
+def test_build_backtest_run_config_accepts_close_entry_price_mode() -> None:
+    config = _build_config(entry_price_mode="CLOSE")
+
+    assert config.entry_price_mode == "close"
+    assert config.replay.entry_price_mode == "close"
+
+
 def test_build_backtest_run_config_preserves_signal_weight_map() -> None:
     meta = {"source": "远端", "active_scope": "尾盘+正式漏斗", "report_date": "2026-07-04"}
     config = _build_config(signal_weight_map={"lps": 0.5, "sos": 1.15}, signal_weight_meta=meta)
@@ -99,7 +106,7 @@ def test_build_backtest_run_config_preserves_signal_weight_map() -> None:
     ("overrides", "message"),
     [
         ({"metrics_engine": "bad"}, "metrics_engine 必须是 legacy / auto / both / wbt"),
-        ({"entry_price_mode": "close"}, "entry_price_mode 必须是 open 或 tail_1455"),
+        ({"entry_price_mode": "bad"}, "entry_price_mode 必须是 open / close / tail_1455"),
         ({"entry_price_fallback": "bad"}, "entry_price_fallback 必须是 close / skip / error"),
         ({"pending_mode": "bad"}, "pending_mode 必须是 off / only / both"),
         ({"hold_days": 0}, "hold_days 必须 >= 1"),

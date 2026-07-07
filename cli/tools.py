@@ -306,6 +306,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "board": {"type": "string", "description": "股票池：'all'/'main'/'chinext'/'star'"},
                 "stop_loss_pct": {"type": "number", "description": "止损百分比（负数），默认 -8.0"},
                 "take_profit_pct": {"type": "number", "description": "止盈百分比，默认 0.0"},
+                "entry_price_mode": {
+                    "type": "string",
+                    "description": "入场成交价：'open'=T+1开盘价（默认）；'close'=T+1收盘价；'tail_1455'=T+1 14:55分钟线价",
+                },
             },
         },
     },

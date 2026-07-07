@@ -26,6 +26,53 @@ def test_price_at_or_before_uses_last_minute_before_target() -> None:
     assert price_at_or_before(df, day, "14:55") == 10.2
 
 
+def test_close_mode_uses_next_day_closing_price() -> None:
+    day = datetime(2026, 1, 5).date()
+    df = pd.DataFrame({"date": [day], "open": [10.0], "high": [10.8], "low": [9.8], "close": [10.5]})
+
+    price, entry_date, source = entry_on_or_after(
+        df,
+        "000001",
+        day,
+        mode="close",
+        entry_time="",
+        fallback="close",
+        intraday_cache={},
+    )
+
+    assert price == 10.5
+    assert entry_date == day
+    assert source == "daily_close"
+
+
+def test_close_mode_skips_limit_up_locked_day() -> None:
+    d1 = datetime(2026, 1, 5).date()
+    d2 = datetime(2026, 1, 6).date()
+    df = pd.DataFrame(
+        {
+            "date": [d1, d2],
+            "open": [10.0, 11.5],
+            "high": [10.0, 12.0],
+            "low": [10.0, 11.0],
+            "close": [10.0, 11.8],
+        }
+    )
+
+    price, entry_date, source = entry_on_or_after(
+        df,
+        "000001",
+        d1,
+        mode="close",
+        entry_time="",
+        fallback="close",
+        intraday_cache={},
+    )
+
+    assert price == 11.8
+    assert entry_date == d2
+    assert source == "daily_close"
+
+
 def test_tail_1455_fallback_close_uses_daily_close() -> None:
     day = datetime(2026, 1, 5).date()
     df = pd.DataFrame({"date": [day], "open": [10.0], "high": [10.8], "low": [9.8], "close": [10.5]})

@@ -19,11 +19,15 @@ def tickflow_entry_price_fetcher_from_env() -> IntradayPriceFetcher | None:
 
     def _fetch(code: str, day: date, entry_time: str, _cache: dict) -> tuple[float | None, str]:
         start_ms, end_ms = intraday_ms_window(day, entry_time)
+        # intraday=True hits /v1/klines/intraday, which only serves the *current* trading
+        # day's minute bars and ignores start/end time filters. Backtests need historical
+        # trading days, so use the plain /v1/klines endpoint (intraday=False) with period=1m,
+        # which does honor start_time_ms/end_time_ms for any past session.
         df = client.get_klines(
             code,
             period="1m",
             count=500,
-            intraday=True,
+            intraday=False,
             start_time_ms=start_ms,
             end_time_ms=end_ms,
         )

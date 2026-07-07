@@ -154,12 +154,14 @@ def run_backtest(
     board: str = "all",
     stop_loss_pct: float = -7.0,
     take_profit_pct: float = 18.0,
+    entry_price_mode: str = "open",
 ) -> dict:
     """回测威科夫五层漏斗策略的历史表现。
 
     **调用时机**：用户说"回测一下"、"看看历史表现"时调用。
     **注意**：耗时 3-10 分钟，请提前告知用户。
     **结果处理**：返回胜率、收益率、最大回撤等指标，请对比基准解读。
+    **entry_price_mode**：open=信号次日开盘价买入（默认）；close=信号次日收盘价买入；tail_1455=次日14:55分钟线价。
     """
     return _run_backtest(
         start=start,
@@ -169,6 +171,7 @@ def run_backtest(
         board=board,
         stop_loss_pct=stop_loss_pct,
         take_profit_pct=take_profit_pct,
+        entry_price_mode=entry_price_mode,
         tool_context=_ctx,
     )
 

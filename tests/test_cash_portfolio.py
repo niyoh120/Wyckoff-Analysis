@@ -273,6 +273,42 @@ def test_portfolio_style_concentrated_swap_sanitizes_nonfinite_scores() -> None:
     assert set(closed["score"]) == {0.0, 2.0}
 
 
+def test_cash_portfolio_releases_position_on_its_own_exit_date() -> None:
+    """A position must be marked closed on its own exit_date, not deferred to the next
+    signal day. Otherwise the NAV curve reports a stale (still-open) position and cash
+    balance for every day in between, which would corrupt any point-in-time cash/slot
+    availability check that runs during that gap."""
+    rows = [
+        {
+            "code": "000001",
+            "name": "A",
+            "signal_date": "2026-01-02",
+            "entry_date": "2026-01-05",
+            "exit_date": "2026-01-08",
+            "entry_close": 10.0,
+            "exit_close": 9.0,
+        },
+        {
+            "code": "000002",
+            "name": "B",
+            "signal_date": "2026-01-19",
+            "entry_date": "2026-01-20",
+            "exit_date": "2026-01-25",
+            "entry_close": 10.0,
+            "exit_close": 11.0,
+        },
+    ]
+
+    _closed, nav, _summary = simulate_cash_portfolio(
+        pd.DataFrame(rows),
+        CashPortfolioConfig(initial_cash=100_000, max_positions=1),
+    )
+
+    exit_row = nav[nav["date"] == date(2026, 1, 8)].iloc[0]
+    assert exit_row["positions"] == 0
+    assert exit_row["cash"] == exit_row["equity"]
+
+
 def test_expand_portfolio_styles_preset() -> None:
     assert expand_portfolio_styles("all_core") == [
         "slot_equal_4",

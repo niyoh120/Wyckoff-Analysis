@@ -26,6 +26,12 @@ def test_backtest_parser_keeps_core_defaults() -> None:
     assert args.cash_portfolio is False
 
 
+def test_backtest_parser_accepts_close_entry_price_mode() -> None:
+    args = build_backtest_parser().parse_args(["--entry-price-mode", "close"])
+
+    assert args.entry_price_mode == "close"
+
+
 def test_backtest_parser_help_renders_percent_text() -> None:
     help_text = build_backtest_parser().format_help()
 

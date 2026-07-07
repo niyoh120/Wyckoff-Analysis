@@ -85,3 +85,27 @@ def test_portfolio_admin_fallback_rejects_cli_context(monkeypatch):
 
     assert ok is False
     assert "server_job" in msg
+
+
+def test_update_portfolio_rejects_negative_shares():
+    from agents.portfolio_tools import update_portfolio
+
+    result = update_portfolio(action="add", code="000001", name="平安银行", shares=-100, cost_price=10.0)
+
+    assert result["error"] == "shares 不能为负数"
+
+
+def test_update_portfolio_rejects_negative_cost_price():
+    from agents.portfolio_tools import update_portfolio
+
+    result = update_portfolio(action="add", code="000001", name="平安银行", shares=100, cost_price=-1.0)
+
+    assert result["error"] == "cost_price 不能为负数"
+
+
+def test_update_portfolio_rejects_negative_free_cash():
+    from agents.portfolio_tools import update_portfolio
+
+    result = update_portfolio(action="set_cash", free_cash=-500.0)
+
+    assert result["error"] == "free_cash 不能为负数"

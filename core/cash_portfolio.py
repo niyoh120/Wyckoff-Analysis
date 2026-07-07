@@ -132,6 +132,15 @@ def _shares_for_budget(price: float, cash: float, budget: float, config: CashPor
     return 0
 
 
+def _trade_calendar(df: pd.DataFrame) -> list[date]:
+    """Union of entry/exit dates so a position's exit is never released late.
+
+    Iterating only over signal (entry) days would delay releasing cash from positions whose
+    exit_date falls in a gap between signals, understating available cash/slots for later entries.
+    """
+    return sorted(set(df["entry_date"].tolist()) | set(df["exit_date"].tolist()))
+
+
 def _normalize_trade_dates(trades_df: pd.DataFrame) -> pd.DataFrame:
     required_cols = {"entry_date", "exit_date", "entry_close", "exit_close"}
     if trades_df is None or trades_df.empty or not required_cols.issubset(trades_df.columns):
@@ -515,22 +524,13 @@ def simulate_cash_portfolio(
     observations: dict[str, date] = {}
     skipped = _new_skipped()
     ordered = df.assign(_order=range(len(df))).sort_values(["entry_date", "_order"])
-    for _, row in ordered.iterrows():
-        day = row["entry_date"]
+    signals_by_day = {day: rows for day, rows in ordered.groupby("entry_date")}
+
+    for day in _trade_calendar(ordered):
         cash = _close_due_positions(active, cash, day, closed)
         _expire_observations(observations, day, cfg, skipped)
-        cash = _apply_style(row, cash, active, closed, observations, cfg, skipped, mark_price_fn)
-        equity_rows.append(
-            {
-                "date": day,
-                "equity": _portfolio_equity(cash, active, day, mark_price_fn),
-                "cash": cash,
-                "positions": len(_active_codes(active)),
-            }
-        )
-
-    for day in sorted({pos["exit_date"] for pos in active}):
-        cash = _close_due_positions(active, cash, day, closed)
+        for _, row in signals_by_day.get(day, pd.DataFrame()).iterrows():
+            cash = _apply_style(row, cash, active, closed, observations, cfg, skipped, mark_price_fn)
         equity_rows.append(
             {
                 "date": day,

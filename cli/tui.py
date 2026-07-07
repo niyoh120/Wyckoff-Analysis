@@ -15,7 +15,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from rich.highlighter import Highlighter
@@ -1493,6 +1493,18 @@ class SelectorScreen(ModalScreen):
 
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_SCHEDULE_CHECK_MAX_CATCHUP_MINUTES = 15
+
+
+def _pending_schedule_check_minutes(last_check_at: datetime | None, now: datetime) -> list[datetime]:
+    """Minutes to evaluate since the last check, so a delayed timer tick (e.g. blocked by a
+    long-running task) doesn't silently skip a cron minute that fell in the gap."""
+    if last_check_at is None or last_check_at >= now:
+        return [now]
+    gap_minutes = min(int((now - last_check_at).total_seconds() // 60), _SCHEDULE_CHECK_MAX_CATCHUP_MINUTES)
+    return [now - timedelta(minutes=offset) for offset in range(gap_minutes - 1, -1, -1)]
+
+
 _DEFAULT_MODEL_BY_PROVIDER = {
     "gemini": "gemini-2.0-flash",
     "openai": "gpt-4o",
@@ -1765,6 +1777,7 @@ class WyckoffTUI(App):
         from cli.scheduler import load_schedules
 
         self._schedules = load_schedules()
+        self._last_schedule_check_at: datetime | None = None
 
     def compose(self) -> ComposeResult:
         from textual.containers import Horizontal
@@ -3498,19 +3511,20 @@ class WyckoffTUI(App):
             logger.debug("auto resume check failed", exc_info=True)
 
     def _check_schedules(self) -> None:
-        from datetime import datetime
-
         from cli.scheduler import cron_matches_now, save_schedules
 
-        now_min = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        now = datetime.now()
         fired = False
-        for s in self._schedules:
-            if not s.enabled or s.last_fired.startswith(now_min):
-                continue
-            if cron_matches_now(s.cron):
-                s.last_fired = now_min
-                fired = True
-                self._fire_schedule(s)
+        for minute in _pending_schedule_check_minutes(self._last_schedule_check_at, now):
+            minute_key = minute.strftime("%Y-%m-%dT%H:%M")
+            for s in self._schedules:
+                if not s.enabled or s.last_fired.startswith(minute_key):
+                    continue
+                if cron_matches_now(s.cron, at=minute):
+                    s.last_fired = minute_key
+                    fired = True
+                    self._fire_schedule(s)
+        self._last_schedule_check_at = now
         if fired:
             save_schedules(self._schedules)
 

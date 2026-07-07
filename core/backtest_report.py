@@ -336,7 +336,10 @@ def _notes(summary: dict) -> list[str]:
 
 
 def _entry_price_note(summary: dict) -> str:
-    if str(summary.get("entry_price_mode") or "open") != "tail_1455":
+    mode = str(summary.get("entry_price_mode") or "open")
+    if mode == "close":
+        return "- 入场口径：信号日收盘后出信号，T+1 收盘价买入（跳过一字涨停日）。"
+    if mode != "tail_1455":
         return "- 入场口径：信号日收盘后出信号，T+1 开盘价买入（跳过一字涨停日）。"
     counts = summary.get("entry_price_source_counts") or {}
     parts = [f"{k}={v}" for k, v in sorted(counts.items())]

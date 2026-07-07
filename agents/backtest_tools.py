@@ -16,11 +16,14 @@ def run_backtest(
     board: str = "all",
     stop_loss_pct: float = -8.0,
     take_profit_pct: float = 0.0,
+    entry_price_mode: str = "open",
     tool_context: ToolContext | None = None,
 ) -> dict:
     try:
         ensure_tushare_token(tool_context)
-        params = _resolve_backtest_params(start, end, hold_days, top_n, board, stop_loss_pct, take_profit_pct)
+        params = _resolve_backtest_params(
+            start, end, hold_days, top_n, board, stop_loss_pct, take_profit_pct, entry_price_mode
+        )
         from workflows.backtest import BacktestWorkflowRequest, run_backtest_request
 
         _trades_df, summary = run_backtest_request(BacktestWorkflowRequest(**params, **_portfolio_defaults()))
@@ -38,7 +41,11 @@ def _resolve_backtest_params(
     board: str,
     stop_loss_pct: float,
     take_profit_pct: float,
+    entry_price_mode: str = "open",
 ) -> dict:
+    normalized_entry_mode = str(entry_price_mode or "open").strip().lower()
+    if normalized_entry_mode not in {"open", "close", "tail_1455"}:
+        normalized_entry_mode = "open"
     return {
         "start_dt": _parse_start_date(start),
         "end_dt": _parse_end_date(end),
@@ -51,6 +58,7 @@ def _resolve_backtest_params(
         "exit_mode": "sltp",
         "stop_loss_pct": min(0.0, float(stop_loss_pct)),
         "take_profit_pct": max(0.0, float(take_profit_pct)),
+        "entry_price_mode": normalized_entry_mode,
     }
 
 
@@ -79,6 +87,7 @@ def _backtest_summary(params: dict, summary: dict) -> dict:
         "board": params["board"],
         "stop_loss_pct": params["stop_loss_pct"],
         "take_profit_pct": params["take_profit_pct"],
+        "entry_price_mode": params["entry_price_mode"],
         "trades": summary.get("trades", 0),
         "win_rate_pct": summary.get("win_rate_pct"),
         "avg_ret_pct": summary.get("avg_ret_pct"),

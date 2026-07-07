@@ -85,6 +85,12 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
     assert "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=正式调权(on), 范围=尾盘+正式漏斗）" in md
 
 
+def test_build_summary_md_notes_close_entry_price_mode() -> None:
+    md = build_summary_md({"entry_price_mode": "close"})
+
+    assert "- 入场口径：信号日收盘后出信号，T+1 收盘价买入（跳过一字涨停日）。" in md
+
+
 def test_generate_strategy_advice_returns_default_when_no_warning() -> None:
     assert generate_strategy_advice({}) == ["🟢 当前参数组合表现尚可，暂无强烈调整建议"]
 

@@ -51,6 +51,54 @@ def test_run_backtest_normalizes_params_and_returns_compact_summary(monkeypatch)
     assert calls[0]["take_profit_pct"] == 0.0
     assert calls[0]["cash_portfolio"] is True
     assert calls[0]["portfolio_styles"] == "confirmation_only"
+    assert calls[0]["entry_price_mode"] == "open"
     assert result["period"] == "2026-01-01 ~ 2026-01-31"
     assert result["cash_final"] == 123456.0
     assert result["cash_return_pct"] == 23.456
+    assert result["entry_price_mode"] == "open"
+
+
+def test_run_backtest_passes_close_entry_price_mode(monkeypatch):
+    calls: list[dict] = []
+    fake_module = types.ModuleType("workflows.backtest")
+
+    class FakeBacktestWorkflowRequest:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    def fake_run_backtest_request(request):
+        calls.append(request.__dict__)
+        return None, {}
+
+    fake_module.BacktestWorkflowRequest = FakeBacktestWorkflowRequest
+    fake_module.run_backtest_request = fake_run_backtest_request
+    monkeypatch.setitem(sys.modules, "workflows.backtest", fake_module)
+    monkeypatch.setattr(backtest_tools, "ensure_tushare_token", lambda _ctx: None)
+
+    result = backtest_tools.run_backtest(entry_price_mode=" CLOSE ")
+
+    assert calls[0]["entry_price_mode"] == "close"
+    assert result["entry_price_mode"] == "close"
+
+
+def test_run_backtest_rejects_unknown_entry_price_mode(monkeypatch):
+    calls: list[dict] = []
+    fake_module = types.ModuleType("workflows.backtest")
+
+    class FakeBacktestWorkflowRequest:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    def fake_run_backtest_request(request):
+        calls.append(request.__dict__)
+        return None, {}
+
+    fake_module.BacktestWorkflowRequest = FakeBacktestWorkflowRequest
+    fake_module.run_backtest_request = fake_run_backtest_request
+    monkeypatch.setitem(sys.modules, "workflows.backtest", fake_module)
+    monkeypatch.setattr(backtest_tools, "ensure_tushare_token", lambda _ctx: None)
+
+    result = backtest_tools.run_backtest(entry_price_mode="bogus")
+
+    assert calls[0]["entry_price_mode"] == "open"
+    assert result["entry_price_mode"] == "open"

@@ -204,6 +204,9 @@ def entry_on_or_after(
             return _tail_entry_price(
                 code, hit_date, row_s, entry_time, fallback, intraday_cache, intraday_price_fetcher
             )
+        if mode == "close":
+            price, entry_date = close_on_or_after(df, hit_date)
+            return price, entry_date, "daily_close"
         price, entry_date = open_on_or_after(df, hit_date, skip_limit_up=False)
         return price, entry_date, "daily_open"
     return None, None, ""

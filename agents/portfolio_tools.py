@@ -264,6 +264,14 @@ def _apply_portfolio_action(
     return {"error": f"未知操作: {action}，支持 add/update/remove/set_cash/delete_records"}
 
 
+def _validate_position_amounts(shares: int, cost_price: float) -> dict | None:
+    if float(shares) < 0:
+        return {"error": "shares 不能为负数"}
+    if float(cost_price) < 0:
+        return {"error": "cost_price 不能为负数"}
+    return None
+
+
 def _upsert_position(
     portfolio_id: str,
     code: str,
@@ -276,6 +284,9 @@ def _upsert_position(
 ) -> str | dict:
     if not code:
         return {"error": "add/update 操作需要提供股票代码 code"}
+    amount_error = _validate_position_amounts(shares, cost_price)
+    if amount_error:
+        return amount_error
     code = code.strip()
     resolved_name = code_to_name(code)
     if resolved_name and name and resolved_name != name:
@@ -318,6 +329,8 @@ def _remove_position(portfolio_id: str, code: str, cloud: bool, tool_context: To
 
 
 def _set_cash(portfolio_id: str, free_cash: float, cloud: bool, tool_context: ToolContext | None) -> str | dict:
+    if float(free_cash) < 0:
+        return {"error": "free_cash 不能为负数"}
     if cloud:
         from integrations.supabase_portfolio import update_free_cash
 

@@ -64,8 +64,8 @@ def save_schedules(schedules: list[Schedule]) -> None:
     )
 
 
-def cron_matches_now(cron: str) -> bool:
-    now = datetime.now()
+def cron_matches_now(cron: str, at: datetime | None = None) -> bool:
+    now = at or datetime.now()
     fields = cron.strip().split()
     if len(fields) != 5:
         return False

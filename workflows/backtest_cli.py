@@ -184,9 +184,9 @@ def _add_signal_args(parser: argparse.ArgumentParser) -> None:
 def _add_entry_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--entry-price-mode",
-        choices=["open", "tail_1455"],
+        choices=["open", "close", "tail_1455"],
         default="open",
-        help="入场成交价: open=T+1开盘；tail_1455=T+1 14:55 分钟线价",
+        help="入场成交价: open=T+1开盘；close=T+1收盘；tail_1455=T+1 14:55 分钟线价",
     )
     parser.add_argument(
         "--entry-price-time",

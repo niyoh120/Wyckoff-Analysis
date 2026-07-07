@@ -481,36 +481,70 @@ def _iter_market_signal_clients(client: Client | None = None) -> list[Client]:
     return clients
 
 
+_UPSERT_MAX_RETRIES = 3
+
+
+def _build_merged_row(existing: dict[str, Any], trade_date_text: str, patch: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    merged.update(_normalize_row_for_upsert(dict(patch or {})))
+    merged["trade_date"] = trade_date_text
+    merged["source_jobs"] = _deep_merge_source_jobs(
+        existing.get("source_jobs"),
+        patch.get("source_jobs") if isinstance(patch, dict) else None,
+    )
+    custom_banner = _custom_banner_fields(patch)
+    merged.update(compose_market_banner(merged))
+    merged.update(custom_banner)
+    merged["updated_at"] = datetime.now(UTC).isoformat()
+    return merged
+
+
+def _write_merged_row(client: Client, merged: dict[str, Any]) -> None:
+    try:
+        client.table(TABLE_MARKET_SIGNAL_DAILY).upsert(
+            _normalize_row_for_upsert(merged),
+            on_conflict="trade_date",
+        ).execute()
+    except Exception:
+        fallback = {k: v for k, v in merged.items() if k not in STRUCTURED_MARKET_SIGNAL_FIELDS}
+        client.table(TABLE_MARKET_SIGNAL_DAILY).upsert(
+            _normalize_row_for_upsert(fallback),
+            on_conflict="trade_date",
+        ).execute()
+
+
+def _row_unchanged_since_read(client: Client, trade_date_text: str, expected_updated_at: Any) -> bool:
+    """Best-effort optimistic-lock check: re-read the row right before writing and bail out
+    (to retry with a fresh snapshot) if another writer already updated it concurrently."""
+    latest = _load_market_signal_by_trade_date(client, trade_date_text)
+    if latest is None:
+        return expected_updated_at is None
+    return latest.get("updated_at") == expected_updated_at
+
+
 def upsert_market_signal_daily(trade_date: date | str, patch: dict[str, Any]) -> bool:
     if not is_supabase_admin_configured():
         return False
     require_server_write_context("upsert market_signal_daily")
+    trade_date_text = _normalize_trade_date(trade_date)
     try:
         client = _get_supabase_admin_client()
-        trade_date_text = _normalize_trade_date(trade_date)
+        for attempt in range(_UPSERT_MAX_RETRIES):
+            existing = _load_market_signal_by_trade_date(client, trade_date_text) or {}
+            merged = _build_merged_row(existing, trade_date_text, patch)
+            if _row_unchanged_since_read(client, trade_date_text, existing.get("updated_at")):
+                _write_merged_row(client, merged)
+                return True
+            logger.debug(
+                "[supabase_market_signal] concurrent update detected for %s, retrying (%d/%d)",
+                trade_date_text,
+                attempt + 1,
+                _UPSERT_MAX_RETRIES,
+            )
+        # Retries exhausted: write anyway so the job's own data isn't silently dropped, but a
+        # concurrent writer may have raced us between the last check and this final write.
         existing = _load_market_signal_by_trade_date(client, trade_date_text) or {}
-        merged = dict(existing)
-        merged.update(_normalize_row_for_upsert(dict(patch or {})))
-        merged["trade_date"] = trade_date_text
-        merged["source_jobs"] = _deep_merge_source_jobs(
-            existing.get("source_jobs"),
-            patch.get("source_jobs") if isinstance(patch, dict) else None,
-        )
-        custom_banner = _custom_banner_fields(patch)
-        merged.update(compose_market_banner(merged))
-        merged.update(custom_banner)
-        merged["updated_at"] = datetime.now(UTC).isoformat()
-        try:
-            client.table(TABLE_MARKET_SIGNAL_DAILY).upsert(
-                _normalize_row_for_upsert(merged),
-                on_conflict="trade_date",
-            ).execute()
-        except Exception:
-            fallback = {k: v for k, v in merged.items() if k not in STRUCTURED_MARKET_SIGNAL_FIELDS}
-            client.table(TABLE_MARKET_SIGNAL_DAILY).upsert(
-                _normalize_row_for_upsert(fallback),
-                on_conflict="trade_date",
-            ).execute()
+        _write_merged_row(client, _build_merged_row(existing, trade_date_text, patch))
         return True
     except Exception as e:
         logger.warning("[supabase_market_signal] upsert_market_signal_daily failed: %s", e)

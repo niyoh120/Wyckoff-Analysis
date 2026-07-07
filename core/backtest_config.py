@@ -161,8 +161,8 @@ def _validate_modes(
 ) -> None:
     if metrics_engine not in {"legacy", "auto", "both", "wbt"}:
         raise ValueError("metrics_engine 必须是 legacy / auto / both / wbt")
-    if entry_price_mode not in {"open", "tail_1455"}:
-        raise ValueError("entry_price_mode 必须是 open 或 tail_1455")
+    if entry_price_mode not in {"open", "close", "tail_1455"}:
+        raise ValueError("entry_price_mode 必须是 open / close / tail_1455")
     if entry_price_fallback not in {"close", "skip", "error"}:
         raise ValueError("entry_price_fallback 必须是 close / skip / error")
     if pending_mode not in {"off", "only", "both"}:

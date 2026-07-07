@@ -67,6 +67,22 @@ def test_exec_command_blocks_inline_code():
     assert "内联代码" in result["error"]
 
 
+def test_exec_command_blocks_interpreter_running_script_file(tmp_path):
+    target = tmp_path / "payload.txt"
+    target.write_text("print('hi')", encoding="utf-8")
+
+    result = exec_command(f"python {target}")
+
+    assert result["error"].startswith("安全拦截")
+    assert "脚本文件" in result["error"]
+
+
+def test_exec_command_allows_interpreter_flag_only_invocation():
+    result = exec_command("python3 --version")
+
+    assert result["returncode"] == 0
+
+
 def test_exec_command_blocks_environment_dump():
     result = exec_command("printenv")
 

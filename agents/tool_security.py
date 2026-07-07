@@ -190,6 +190,21 @@ def validate_agent_path(path: str, *, for_write: bool = False) -> pathlib.Path |
     return p
 
 
+def _check_inline_interpreter_args(executable: str, rest_args: list[str]) -> dict | None:
+    """Block interpreters from running arbitrary code, whether inline (-c/-e) or via a script file.
+
+    Interpreters ignore file extensions, so allowing e.g. ``python notes.txt`` would let an
+    agent bypass the write_file suffix allowlist by writing code into a "safe" text file and
+    then executing it as a script. Only flag-only invocations (e.g. ``python --version``) pass.
+    """
+    if any(arg in {"-c", "-e"} for arg in rest_args):
+        return security_error("禁止通过 Agent 执行内联代码")
+    for arg in rest_args:
+        if not arg.startswith("-"):
+            return security_error(f"禁止通过 Agent 使用 {executable} 执行脚本文件")
+    return None
+
+
 def validate_agent_command(command: str) -> list[str] | dict:
     raw = str(command or "").strip()
     if not raw:
@@ -209,8 +224,10 @@ def validate_agent_command(command: str) -> list[str] | dict:
     executable = pathlib.Path(args[0]).name.lower()
     if executable in _BLOCKED_COMMANDS:
         return security_error(f"禁止通过 Agent 执行高风险命令: {executable}")
-    if executable in _INLINE_CODE_COMMANDS and any(arg in {"-c", "-e"} for arg in args[1:]):
-        return security_error("禁止通过 Agent 执行内联代码")
+    if executable in _INLINE_CODE_COMMANDS:
+        inline_error = _check_inline_interpreter_args(executable, args[1:])
+        if inline_error is not None:
+            return inline_error
     for arg in args[1:]:
         lowered = arg.lower()
         touches_wyckoff_config = ".wyckoff" in lowered and not any(
