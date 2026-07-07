@@ -23,6 +23,15 @@ on:
         description: "自定义结束日期 (YYYY-MM-DD)，仅 period=custom 时生效"
         required: false
         default: ""
+      entry_price_mode:
+        description: "入场成交价：open=T+1开盘；close=T+1收盘；tail_1455=T+1 14:55分钟线价"
+        required: true
+        type: choice
+        options:
+          - "open"
+          - "close"
+          - "tail_1455"
+        default: "open"
 
 concurrency:
   group: backtest-grid-${{ github.ref }}
@@ -38,7 +47,7 @@ env:
   BT_BOARD: "all"
   BT_SAMPLE_SIZE: "0"
   BT_TRADING_DAYS: "320"
-  BT_ENTRY_PRICE_MODE: "open"
+  BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'open' }}
   BT_INITIAL_CASH: "100000"
   BT_MAX_POSITIONS: "4"
   BT_PORTFOLIO_STYLES: "all_core"
@@ -460,6 +469,7 @@ jobs:
         shell: bash
         env:
           BT_TOP_N: "4"
+          BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'open' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 -u - <<'PYEOF'
@@ -900,6 +910,9 @@ jobs:
           bt_start = os.environ.get('BT_START', '?')
           bt_end = os.environ.get('BT_END', '?')
           bt_topn = os.environ.get('BT_TOP_N', '?')
+          bt_entry_mode = os.environ.get('BT_ENTRY_PRICE_MODE', 'open')
+          entry_mode_labels = {'open': 'T+1开盘价', 'close': 'T+1收盘价', 'tail_1455': 'T+1 14:55价'}
+          entry_mode_text = entry_mode_labels.get(bt_entry_mode, bt_entry_mode)
           periods = sorted(set(c.get('period', '') for c in cells if c.get('period')), key=period_sort_key)
           styles = sorted(set(c.get('style', '') for c in cells if c.get('style')), key=style_sort_key)
           param_shapes = sorted(set((c.get('hold'), c.get('sl'), c.get('tp'), c.get('tr')) for c in cells))
@@ -929,7 +942,7 @@ jobs:
               unit_text = '共 0 单元'
 
           elements.append({'tag': 'div', 'text': {'tag': 'lark_md',
-              'content': f'**周期** {period_text}  ·  **风格** {style_text}  ·  **区间** {range_text}  ·  **TopN** {bt_topn}  ·  **{unit_text}**\n[查看详情]({run_url})'}})
+              'content': f'**周期** {period_text}  ·  **风格** {style_text}  ·  **区间** {range_text}  ·  **TopN** {bt_topn}  ·  **入场价** {entry_mode_text}  ·  **{unit_text}**\n[查看详情]({run_url})'}})
 
           best = None
           if not cells:
