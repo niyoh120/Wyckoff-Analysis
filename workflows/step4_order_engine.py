@@ -567,8 +567,25 @@ class WyckoffOrderEngine:
         if ctx.action == "TRIM":
             return self._process_trim(ctx)
         if ctx.action == "HOLD":
-            return self._hold_from_context(ctx)
+            return self._process_hold(ctx)
         return self._process_buy(ctx)
+
+    def _process_hold(self, ctx: OrderContext) -> ExecutionTicket:
+        """HOLD 前做结构止损兜底：若现价已跌破系统止损线，模型误判也要强制离场。
+
+        止损价的自动上移（ATR 跟踪止损/持仓止损继承）只在这里之前完成计算，
+        若只是记录而不强制执行，一旦模型误判给出 HOLD，系统就没有最后一道
+        防线。这里在 HOLD 分支收口，将其降级为强制卖出。
+        """
+        if ctx.held_shares >= 100 and ctx.effective_stop_loss and ctx.current_price <= ctx.effective_stop_loss:
+            ctx.dec.reason = (
+                f"系统强制止损: 现价{ctx.current_price:.2f}已跌破止损线{ctx.effective_stop_loss:.2f}，"
+                f"覆盖模型HOLD建议；原建议: {ctx.dec.reason}"
+            )
+            ctx.action = "EXIT"
+            ctx.audit_parts.append(f"system_stop_breach_override(price={ctx.current_price:.2f})")
+            return self._sell_ticket(ctx, int(ctx.held_shares), ctx.audit_parts + ["forced_exit_stop_breach"])
+        return self._hold_from_context(ctx)
 
     def _no_trade(self, dec: DecisionItem, name: str, reason: str) -> ExecutionTicket:
         return ExecutionTicket(

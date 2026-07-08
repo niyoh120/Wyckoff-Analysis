@@ -111,6 +111,81 @@ def test_existing_position_probe_is_treated_as_add_on_and_requires_profit():
     assert "当前未浮盈" in tickets[0].reason
 
 
+def _hold_decision(*, stop_loss: float | None = 8.9) -> DecisionItem:
+    return DecisionItem(
+        code="000001",
+        name="平安银行",
+        action="HOLD",
+        entry_zone_min=None,
+        entry_zone_max=None,
+        stop_loss=stop_loss,
+        trim_ratio=None,
+        tape_condition="放量站回VWAP",
+        invalidate_condition="跌破VWAP",
+        is_add_on=False,
+        reason="模型建议继续持有",
+        confidence=0.6,
+    )
+
+
+def test_hold_is_forced_to_exit_when_price_breaches_stop_loss():
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={
+            "000001": PositionItem(
+                code="000001",
+                name="平安银行",
+                cost=10.0,
+                buy_dt="2026-05-10",
+                shares=1000,
+                stop_loss=8.9,
+            )
+        },
+        latest_price_map={"000001": 8.8},
+        market_regime="NEUTRAL",
+    )
+
+    tickets, cash = engine.process([_hold_decision(stop_loss=8.9)])
+
+    ticket = tickets[0]
+    assert ticket.action == "EXIT"
+    assert ticket.status == "APPROVED"
+    assert ticket.shares == 1000
+    assert "system_stop_breach_override" in ticket.audit
+    assert "forced_exit_stop_breach" in ticket.audit
+    assert "系统强制止损" in ticket.reason
+    assert cash > 50000
+
+
+def test_hold_is_kept_when_price_has_not_breached_stop_loss():
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={
+            "000001": PositionItem(
+                code="000001",
+                name="平安银行",
+                cost=10.0,
+                buy_dt="2026-05-10",
+                shares=1000,
+                stop_loss=8.9,
+            )
+        },
+        latest_price_map={"000001": 9.5},
+        market_regime="NEUTRAL",
+    )
+
+    tickets, cash = engine.process([_hold_decision(stop_loss=8.9)])
+
+    ticket = tickets[0]
+    assert ticket.action == "HOLD"
+    assert ticket.status == "APPROVED"
+    assert ticket.shares == 0
+    assert "system_stop_breach_override" not in ticket.audit
+    assert cash == 50000
+
+
 def test_order_engine_uses_explicit_buy_block_config():
     engine = WyckoffOrderEngine(
         total_equity=100000,
