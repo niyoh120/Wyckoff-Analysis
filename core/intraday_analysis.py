@@ -42,6 +42,60 @@ class IntradayProfile:
         return asdict(self)
 
 
+def _normalize_volume_lot_unit(volume: pd.Series, amount: pd.Series, close: pd.Series) -> pd.Series:
+    """修正 volume 的股/手单位混淆。
+
+    A 股法定最小交易单位是"手"（100股），部分数据源的分钟线 volume 字段
+    以"手"计数而非"股"，此时 amount(元)/volume 会systematically偏大约100倍。
+    这里在数据清洗层一次性识别并换算，而不是让每个下游特征各自猜测——
+    否则 volume 本身、amount/volume 派生的所有特征（VWAP、量比、尾盘份额）
+    会出现不一致的单位口径。
+    只在 amount 与 close*volume 的量级差恰好落在 100 倍附近时才换算，
+    避免误伤本就自洽的数据。
+    """
+    valid = (volume > 0) & (close > 0) & amount.notna() & (amount > 0)
+    if valid.sum() < 5:
+        return volume
+    implied_price = (amount[valid] / volume[valid]).median()
+    ref_price = close[valid].median()
+    if not (implied_price > 0 and ref_price > 0):
+        return volume
+    ratio = implied_price / ref_price
+    if 60.0 <= ratio <= 160.0:
+        return volume * 100.0
+    return volume
+
+
+_TAIL_AUCTION_START = (14, 57)  # A 股尾盘集合竞价起点（含）
+_TAIL_AUCTION_FILTER_MAX_INTERVAL_MIN = 5.0  # 仅对分钟级细粒度K线生效，避免误伤30/60分钟等粗粒度K线
+
+
+def _is_minute_grain(df: pd.DataFrame) -> bool:
+    if len(df) < 2:
+        return False
+    deltas = df["datetime"].diff().dropna().dt.total_seconds() / 60.0
+    if deltas.empty:
+        return False
+    return bool(deltas.median() <= _TAIL_AUCTION_FILTER_MAX_INTERVAL_MIN)
+
+
+def strip_tail_auction_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """剔除 14:57-15:00 尾盘集合竞价分钟线（仅对分钟级细粒度K线生效）。
+
+    集合竞价是全天挂单在收盘瞬间一次性撮合，单根"1分钟K线"的成交量会脉冲式
+    放大、价格也可能与前一刻连续竞价出现跳跃，直接计入"尾盘N分钟"类特征
+    （尾盘缩量/放量占比、尾盘涨跌幅）会产生与真实盘口行为无关的假信号。
+    30/60分钟等粗粒度K线本身已横跨集合竞价窗口，整根剔除没有意义，故跳过。
+    """
+    if df.empty or "datetime" not in df.columns or not _is_minute_grain(df):
+        return df
+    minute_of_day = df["datetime"].dt.hour * 60 + df["datetime"].dt.minute
+    auction_cutoff = _TAIL_AUCTION_START[0] * 60 + _TAIL_AUCTION_START[1]
+    kept = df[minute_of_day < auction_cutoff]
+    # 若当天数据本身就只覆盖到集合竞价（如数据源提前截断），保留原始数据，避免误清空。
+    return kept.reset_index(drop=True) if not kept.empty else df
+
+
 def ensure_intraday_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -64,30 +118,31 @@ def ensure_intraday_df(df: pd.DataFrame) -> pd.DataFrame:
     out = out.dropna(subset=["datetime", "close"]).sort_values("datetime").reset_index(drop=True)
     if out.empty:
         return out
+    out = strip_tail_auction_bars(out)
     if out["amount"].isna().all():
         out["amount"] = out["close"] * out["volume"].fillna(0.0)
+    else:
+        out["volume"] = _normalize_volume_lot_unit(out["volume"], out["amount"], out["close"])
     return out
 
 
 def infer_session_vwap(close: pd.Series, total_volume: float, total_amount: float) -> tuple[float, float]:
+    """全天成交额加权均价（VWAP）。
+
+    TickFlow 分钟线自带的 amount 已是真实成交额（元），与 volume 同源、单位自洽，
+    直接相除即为真实 VWAP，无需猜测 volume 的股/手换算比例。
+    仅当 amount 缺失/异常（相对价格中位数偏离过大，说明取数或单位有问题）时，
+    才退化为用收盘价中位数近似，此时该值只应作为粗粒度参考，不用于精细阈值判断。
+    """
     last_close = _safe_float(close.iloc[-1]) if len(close) else 0.0
-    if total_volume <= 0 or total_amount <= 0:
-        return last_close, 1.0
     ref_price = _safe_float(close.tail(min(len(close), 30)).median(), last_close)
-    candidates: list[tuple[float, float, float]] = []
-    for scale in (1.0, 10.0, 100.0, 1000.0):
-        v = total_amount / max(total_volume * scale, 1e-9)
-        if v <= 0:
-            continue
-        rel_err = abs(v - ref_price) / max(ref_price, 1e-8)
-        candidates.append((rel_err, float(v), float(scale)))
-    if not candidates:
-        return last_close, 1.0
-    candidates.sort(key=lambda x: x[0])
-    best_err, best_vwap, _ = candidates[0]
-    if best_err > 5.0:
-        return last_close, 1.0
-    return best_vwap, candidates[0][2]
+    if total_volume <= 0 or total_amount <= 0:
+        return ref_price, 1.0
+    vwap = total_amount / total_volume
+    rel_err = abs(vwap - ref_price) / max(ref_price, 1e-8)
+    if vwap <= 0 or rel_err > 0.5:
+        return ref_price, 1.0
+    return float(vwap), 1.0
 
 
 def _compute_trend(df: pd.DataFrame, min_bars: int = 4) -> str:

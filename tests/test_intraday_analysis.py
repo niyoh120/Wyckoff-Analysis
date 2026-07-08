@@ -8,6 +8,7 @@ from core.intraday_analysis import (
     analyze_intraday,
     ensure_intraday_df,
     infer_session_vwap,
+    strip_tail_auction_bars,
 )
 
 
@@ -69,17 +70,92 @@ class TestEnsureIntradayDf:
         result = ensure_intraday_df(df)
         assert len(result) == 60
 
+    def test_strips_tail_auction_bars(self):
+        idx = pd.date_range(start=datetime(2026, 5, 27, 14, 55), periods=6, freq="1min", tz="Asia/Shanghai")
+        df = pd.DataFrame(
+            {
+                "datetime": idx,
+                "open": [10.0] * 6,
+                "high": [10.0] * 6,
+                "low": [10.0] * 6,
+                "close": [10.0] * 6,
+                "volume": [100.0] * 6,
+                "amount": [1000.0] * 6,
+            }
+        )
+        result = ensure_intraday_df(df)
+        # 14:55, 14:56 保留；14:57/58/59, 15:00 属于集合竞价，应被剔除。
+        assert list(result["datetime"].dt.strftime("%H:%M")) == ["14:55", "14:56"]
+
+    def test_keeps_data_when_entirely_within_auction_window(self):
+        idx = pd.date_range(start=datetime(2026, 5, 27, 14, 58), periods=2, freq="1min", tz="Asia/Shanghai")
+        df = pd.DataFrame(
+            {
+                "datetime": idx,
+                "open": [10.0] * 2,
+                "high": [10.0] * 2,
+                "low": [10.0] * 2,
+                "close": [10.0] * 2,
+                "volume": [100.0] * 2,
+                "amount": [1000.0] * 2,
+            }
+        )
+        result = ensure_intraday_df(df)
+        assert len(result) == 2
+
+    def test_normalizes_lot_volume_when_amount_implies_100x(self):
+        df = _make_1m_df(bars=60, start=10.0, end=10.5)
+        df["amount"] = df["close"] * df["volume"] * 100.0  # volume 实为"手"
+        result = ensure_intraday_df(df)
+        assert abs(float(result["volume"].iloc[0]) - 1000.0 * 100.0) < 1e-6
+
+    def test_does_not_touch_volume_when_already_consistent(self):
+        df = _make_1m_df(bars=60, start=10.0, end=10.5)  # amount = close*volume，已自洽
+        result = ensure_intraday_df(df)
+        assert abs(float(result["volume"].iloc[0]) - 1000.0) < 1e-6
+
+
+class TestStripTailAuctionBars:
+    def test_no_datetime_column_passthrough(self):
+        df = pd.DataFrame({"close": [10.0]})
+        assert strip_tail_auction_bars(df) is df
+
+    def test_empty_df_passthrough(self):
+        df = pd.DataFrame()
+        assert strip_tail_auction_bars(df) is df
+
+    def test_coarse_grain_bars_are_not_filtered(self):
+        """60分钟等粗粒度K线本身横跨集合竞价窗口，不应被整根剔除（避免跨天数据被误伤）。"""
+        idx = pd.date_range(start=datetime(2026, 5, 20, 9, 30), periods=10, freq="60min", tz="Asia/Shanghai")
+        df = pd.DataFrame({"datetime": idx, "close": [10.0] * 10})
+        result = strip_tail_auction_bars(df)
+        assert len(result) == 10
+
 
 class TestInferSessionVwap:
     def test_zero_volume(self):
         close = pd.Series([10.0, 10.1, 10.2])
         vwap, scale = infer_session_vwap(close, 0.0, 0.0)
-        assert vwap == 10.2
+        assert vwap == close.median()
 
     def test_normal_vwap(self):
         close = pd.Series([10.0] * 30)
         vwap, scale = infer_session_vwap(close, 100000.0, 1000000.0)
         assert abs(vwap - 10.0) < 0.5
+
+    def test_uses_real_amount_directly_without_scale_guessing(self):
+        # amount/volume 已是真实 VWAP，不应再按 10/100/1000 猜测换算比例。
+        close = pd.Series([10.0] * 30)
+        vwap, scale = infer_session_vwap(close, total_volume=1000.0, total_amount=10050.0)
+        assert abs(vwap - 10.05) < 1e-6
+        assert scale == 1.0
+
+    def test_falls_back_to_median_when_amount_inconsistent(self):
+        # amount 与价格明显不自洽（如单位错乱）时，退化为近似值而不是硬算出离谱的 VWAP。
+        close = pd.Series([10.0] * 30)
+        vwap, scale = infer_session_vwap(close, total_volume=1000.0, total_amount=1_000_000_000.0)
+        assert vwap == close.median()
+        assert scale == 1.0
 
 
 class TestAnalyzeIntraday:
