@@ -1,0 +1,125 @@
+"""A股涨跌停识别（纯计算层）。
+
+Wyckoff 的 Effort vs Result 假设"跌幅"和"缩量/放量"能反映买卖力量对比，
+但 A 股涨跌停制度会截断价格发现：一字跌停当天几乎没有真实换手，
+"跌停"本身不代表出货或走弱确认，也不能被当作有效的 Spring 支撑测试。
+
+本模块只做定性识别，不做买卖决策：
+- limit_pct: 该股票的涨跌停幅度（主板/创业板/科创板/北交所/ST）
+- classify_limit_move: 结合当日 OHLC + 昨收，判断是否触及涨跌停、是否一字板/烂板/炸板
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from core.cn_boards import cn_board
+
+_REGISTRATION_BOARDS = {"chinext", "star", "bse"}
+_LIMIT_TOUCH_TOLERANCE_PCT = 0.15  # 价格与理论涨跌停价的容差（挂钩四舍五入误差）
+
+
+def is_st_name(name: str) -> bool:
+    """粗略判断是否 ST/*ST（仅基于股票名称前缀，无需额外数据源）。"""
+    text = str(name or "").strip().upper()
+    return text.startswith("ST") or text.startswith("*ST")
+
+
+def limit_pct(code: str, name: str = "") -> float:
+    """返回该股票的涨跌停幅度（如 10.0 表示 ±10%）。"""
+    if is_st_name(name):
+        return 5.0
+    board = cn_board(code)
+    if board in _REGISTRATION_BOARDS:
+        return 20.0
+    return 10.0
+
+
+@dataclass(frozen=True)
+class LimitMoveState:
+    """单日涨跌停状态快照。"""
+
+    limit_pct: float
+    limit_up_price: float
+    limit_down_price: float
+    touched_limit_up: bool
+    touched_limit_down: bool
+    closed_limit_up: bool
+    closed_limit_down: bool
+    one_word_board: bool  # 开盘即封死涨跌停、全天几乎无波动（真一字板）
+    opened_then_broke: bool  # 开盘未涨跌停，盘中触及后未能封住（炸板/烂板）
+
+
+def _round2(value: float) -> float:
+    return round(float(value), 2)
+
+
+def classify_limit_move(
+    *,
+    code: str,
+    name: str,
+    prev_close: float,
+    open_: float,
+    high: float,
+    low: float,
+    close: float,
+) -> LimitMoveState | None:
+    """基于前收盘 + 当日 OHLC 判断涨跌停状态。数据不足时返回 None。"""
+    if prev_close <= 0:
+        return None
+    pct = limit_pct(code, name)
+    limit_up = _round2(prev_close * (1 + pct / 100.0))
+    limit_down = _round2(prev_close * (1 - pct / 100.0))
+    tol = pct * _LIMIT_TOUCH_TOLERANCE_PCT / 100.0 * prev_close
+
+    touched_up = high >= limit_up - tol
+    touched_down = low <= limit_down + tol
+    closed_up = close >= limit_up - tol
+    closed_down = close <= limit_down + tol
+
+    day_range = max(high - low, 0.0)
+    near_zero_range = day_range <= tol * 2
+    one_word_up = closed_up and open_ >= limit_up - tol and near_zero_range
+    one_word_down = closed_down and open_ <= limit_down + tol and near_zero_range
+
+    opened_then_broke = (touched_up or touched_down) and not (closed_up or closed_down)
+
+    return LimitMoveState(
+        limit_pct=pct,
+        limit_up_price=limit_up,
+        limit_down_price=limit_down,
+        touched_limit_up=touched_up,
+        touched_limit_down=touched_down,
+        closed_limit_up=closed_up,
+        closed_limit_down=closed_down,
+        one_word_board=bool(one_word_up or one_word_down),
+        opened_then_broke=bool(opened_then_broke),
+    )
+
+
+def describe_limit_move(state: LimitMoveState | None) -> str:
+    """生成人类可读的涨跌停状态描述，供诊断文本/LLM prompt 使用。"""
+    if state is None:
+        return ""
+    if state.one_word_board and state.closed_limit_down:
+        return f"一字跌停(±{state.limit_pct:.0f}%)，全天几乎无真实换手，不能视为有效缩量/放量信号"
+    if state.one_word_board and state.closed_limit_up:
+        return f"一字涨停(±{state.limit_pct:.0f}%)，封板惜售，量能参考意义有限"
+    if state.closed_limit_down:
+        return f"收盘跌停(±{state.limit_pct:.0f}%)，盘中曾打开过，有真实换手"
+    if state.closed_limit_up:
+        return f"收盘涨停(±{state.limit_pct:.0f}%)"
+    if state.touched_limit_down and state.opened_then_broke:
+        return "盘中触及跌停后打开（烂板），未能封住"
+    if state.touched_limit_up and state.opened_then_broke:
+        return "盘中触及涨停后炸板，未能封住"
+    return ""
+
+
+__all__ = [
+    "LimitMoveState",
+    "classify_limit_move",
+    "describe_limit_move",
+    "is_st_name",
+    "limit_pct",
+]
