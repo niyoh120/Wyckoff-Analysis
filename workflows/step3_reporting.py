@@ -175,11 +175,12 @@ def _build_final_content(
 
 
 def _ops_preview(ops_codes: list[str], code_name: dict[str, str]) -> str:
+    if not ops_codes:
+        return "## 🏹 处于起跳板速览（前置）\n今日无可执行买入候选，保持观望。\n\n---\n"
     ops_lines = [f"- {c} {code_name.get(c, c)}" for c in ops_codes]
-    body = "\n".join(ops_lines) if ops_lines else "- 无"
     return (
         "## 🏹 处于起跳板速览（前置）\n候选需经过 OMS 风控复核；只有 BUY-APPROVED 才是可执行买入。\n"
-        + body
+        + "\n".join(ops_lines)
         + "\n\n---\n"
     )
 
