@@ -12,6 +12,7 @@ from core.tail_buy.models import safe_float
 from core.tail_buy.strategy import DECISION_BUY, DECISION_WATCH, TailBuyCandidate, TailBuyStrategyConfig
 from integrations.llm_client import provider_fallbacks, provider_route_chain, resolve_provider_name
 from workflows.tail_buy_config import tail_buy_strategy_config_from_env
+from workflows.tail_buy_holding_models import HoldingStopConfig
 
 TRUE_TEXTS = {"1", "true", "yes", "on"}
 
@@ -58,7 +59,7 @@ class TailBuyRuntimeConfig:
     tickflow_task_retries: int
     use_batch_intraday: bool
     intraday_batch_size: int
-    holding_hard_stop_pct: float
+    holding_stop_config: HoldingStopConfig
     portfolio_id: str
     strategy_config: TailBuyStrategyConfig
 
@@ -149,9 +150,20 @@ def build_tail_buy_runtime_config(args: Any, started_at: datetime) -> TailBuyRun
         tickflow_task_retries=max(int(os.getenv("TAIL_BUY_TICKFLOW_MAX_RETRIES", "1")), 1),
         use_batch_intraday=env_flag("TAIL_BUY_USE_BATCH_INTRADAY", True),
         intraday_batch_size=max(min(int(os.getenv("TAIL_BUY_INTRADAY_BATCH_SIZE", "200")), 200), 1),
-        holding_hard_stop_pct=max(safe_float(os.getenv("TAIL_BUY_HOLDING_HARD_STOP_PCT", "8"), 8.0), 0.0),
+        holding_stop_config=holding_stop_config_from_env(),
         portfolio_id=str(args.portfolio_id or "USER_LIVE").strip() or "USER_LIVE",
         strategy_config=tail_buy_strategy_config_from_env(),
+    )
+
+
+def holding_stop_config_from_env() -> HoldingStopConfig:
+    """持仓止损参数：固定百分比兜底 + 可选 ATR 波动率放宽（避免正常洗盘被误杀）。"""
+    return HoldingStopConfig(
+        hard_stop_pct=max(safe_float(os.getenv("TAIL_BUY_HOLDING_HARD_STOP_PCT", "8"), 8.0), 0.0),
+        atr_enabled=env_flag("TAIL_BUY_HOLDING_ATR_STOP_ENABLED", False),
+        atr_period=max(int(safe_float(os.getenv("TAIL_BUY_HOLDING_ATR_PERIOD", "14"), 14.0)), 2),
+        atr_multiplier=max(safe_float(os.getenv("TAIL_BUY_HOLDING_ATR_MULTIPLIER", "2.0"), 2.0), 0.1),
+        atr_max_relax_pct=max(safe_float(os.getenv("TAIL_BUY_HOLDING_ATR_MAX_RELAX_PCT", "15"), 15.0), 0.0),
     )
 
 

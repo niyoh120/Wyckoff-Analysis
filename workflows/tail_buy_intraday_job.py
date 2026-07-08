@@ -144,7 +144,7 @@ def build_tail_buy_holdings_section(
         signal_map=signal_map,
         style=config.style,
         intraday_batch_size=config.intraday_batch_size,
-        hard_stop_pct=config.holding_hard_stop_pct,
+        stop_config=config.holding_stop_config,
         strategy_config=config.strategy_config,
         deadline_at=config.deadline_at,
         logs_path=config.logs_path,
@@ -339,7 +339,8 @@ def _runtime_config_line(config: TailBuyRuntimeConfig) -> str:
         f"fetch_concurrency={config.fetch_concurrency}, llm_concurrency={config.llm_concurrency}, "
         f"max_llm_symbols={config.max_llm_symbols}, llm_min_rule_score={config.llm_min_rule_score}, "
         f"llm_allowed_rule_decisions={','.join(config.llm_allowed_rule_decisions)}, deadline={config.deadline_min}m, "
-        f"portfolio_id={config.portfolio_id}, holding_hard_stop_pct={config.holding_hard_stop_pct}, "
+        f"portfolio_id={config.portfolio_id}, holding_hard_stop_pct={config.holding_stop_config.hard_stop_pct}, "
+        f"holding_atr_stop_enabled={config.holding_stop_config.atr_enabled}, "
         f"intraday_limit={config.intraday_limit_per_min}/min, max_over_limit={config.max_over_limit_symbols}, "
         f"force_over_limit={config.force_over_limit}, tickflow_retries={config.tickflow_task_retries}, "
         f"use_batch_intraday={config.use_batch_intraday}, intraday_batch_size={config.intraday_batch_size}, "

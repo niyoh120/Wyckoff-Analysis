@@ -18,6 +18,7 @@ def fetch_holding_market_data(
     intraday_batch_size: int,
     deadline_at: datetime,
     logs_path: str | None,
+    fetch_daily_history: bool = False,
 ) -> HoldingMarketData:
     quotes, quote_limit_hit = _fetch_holding_quotes(tickflow_client, symbol_set, logs_path)
     intraday_map, intraday_error_by_symbol, intraday_limit_hit = _fetch_holding_intraday(
@@ -26,12 +27,29 @@ def fetch_holding_market_data(
         intraday_batch_size=intraday_batch_size,
         deadline_at=deadline_at,
     )
+    daily_history_map = (
+        _fetch_holding_daily_history(tickflow_client, symbol_set, logs_path) if fetch_daily_history else {}
+    )
     return HoldingMarketData(
         quotes=quotes,
         intraday_map=intraday_map,
         intraday_error_by_symbol=intraday_error_by_symbol,
         tickflow_limit_hit=quote_limit_hit or intraday_limit_hit,
+        daily_history_map=daily_history_map,
     )
+
+
+def _fetch_holding_daily_history(
+    tickflow_client: TickFlowClient,
+    symbol_set: list[str],
+    logs_path: str | None,
+) -> dict[str, Any]:
+    """批量拉取日K供 ATR 止损计算；失败不阻断持仓分析主流程，直接回退固定百分比止损。"""
+    try:
+        return tickflow_client.get_klines_batch(symbol_set, period="1d", count=40, adjust="forward")
+    except Exception as e:
+        log_line(f"持仓动作分析: 日K批量拉取失败(ATR止损跳过): {e}", logs_path)
+        return {}
 
 
 def _fetch_holding_quotes(

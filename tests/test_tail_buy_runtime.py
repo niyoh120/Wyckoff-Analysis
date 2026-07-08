@@ -7,6 +7,7 @@ from workflows.tail_buy_runtime import (
     build_llm_routes,
     build_tail_buy_runtime_config,
     default_tail_buy_portfolio_id,
+    holding_stop_config_from_env,
     plan_intraday_scan_budget,
 )
 from workflows.tail_buy_utils import TZ
@@ -61,3 +62,30 @@ def test_build_tail_buy_runtime_config_uses_env_and_args(monkeypatch) -> None:
     assert config.max_llm_symbols == 3
     assert config.intraday_limit_per_min == 12
     assert config.portfolio_id == "USER_LIVE:test"
+
+
+def test_holding_stop_config_from_env_defaults_atr_disabled(monkeypatch) -> None:
+    monkeypatch.delenv("TAIL_BUY_HOLDING_ATR_STOP_ENABLED", raising=False)
+
+    stop_config = holding_stop_config_from_env()
+
+    assert stop_config.hard_stop_pct == 8.0
+    assert stop_config.atr_enabled is False
+    assert stop_config.atr_multiplier == 2.0
+    assert stop_config.atr_max_relax_pct == 15.0
+
+
+def test_holding_stop_config_from_env_reads_atr_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("TAIL_BUY_HOLDING_HARD_STOP_PCT", "10")
+    monkeypatch.setenv("TAIL_BUY_HOLDING_ATR_STOP_ENABLED", "true")
+    monkeypatch.setenv("TAIL_BUY_HOLDING_ATR_PERIOD", "20")
+    monkeypatch.setenv("TAIL_BUY_HOLDING_ATR_MULTIPLIER", "2.5")
+    monkeypatch.setenv("TAIL_BUY_HOLDING_ATR_MAX_RELAX_PCT", "18")
+
+    stop_config = holding_stop_config_from_env()
+
+    assert stop_config.hard_stop_pct == 10.0
+    assert stop_config.atr_enabled is True
+    assert stop_config.atr_period == 20
+    assert stop_config.atr_multiplier == 2.5
+    assert stop_config.atr_max_relax_pct == 18.0

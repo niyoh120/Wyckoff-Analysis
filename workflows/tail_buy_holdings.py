@@ -7,16 +7,19 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
+from core.limit_move import classify_limit_move, describe_limit_move
 from core.tail_buy.strategy import (
     DECISION_BUY,
     DECISION_SKIP,
     DECISION_WATCH,
     TailBuyCandidate,
     TailBuyStrategyConfig,
+    board_scaled_strategy_config,
     compute_tail_features,
     score_tail_features,
 )
 from integrations.tickflow_client import TickFlowClient, normalize_cn_symbol
+from workflows.step4_payload import calc_atr
 from workflows.tail_buy_holding_data import fetch_holding_market_data
 from workflows.tail_buy_holding_models import (
     HOLDING_ACTION_ADD,
@@ -24,6 +27,7 @@ from workflows.tail_buy_holding_models import (
     HOLDING_ACTION_TRIM,
     HoldingAdvice,
     HoldingMarketData,
+    HoldingStopConfig,
 )
 from workflows.tail_buy_holding_portfolio import (
     holding_no_position_meta,
@@ -37,16 +41,48 @@ TAIL_BUY_WASHOUT_CLOSE_POS_MIN = float(os.getenv("TAIL_BUY_WASHOUT_CLOSE_POS_MIN
 TAIL_BUY_WASHOUT_TAIL_VOLUME_MAX = float(os.getenv("TAIL_BUY_WASHOUT_TAIL_VOLUME_MAX", "0.55"))
 
 
-def _resolve_effective_stop(cost: float, stop_loss: Any, hard_stop_pct: float) -> float:
+def _resolve_effective_stop(
+    cost: float,
+    stop_loss: Any,
+    stop_config: HoldingStopConfig,
+    *,
+    current_price: float = 0.0,
+    daily_history: Any = None,
+) -> float:
     stops = []
     explicit_stop = safe_float(stop_loss, 0.0)
     if explicit_stop > 0:
         stops.append(explicit_stop)
-    if cost > 0 and hard_stop_pct > 0:
-        stops.append(cost * (1 - hard_stop_pct / 100.0))
+    if cost > 0 and stop_config.hard_stop_pct > 0:
+        stops.append(cost * (1 - stop_config.hard_stop_pct / 100.0))
     if not stops:
         return 0.0
-    return max(stops)
+    base_stop = max(stops)
+    return _relax_stop_with_atr(base_stop, cost, current_price, daily_history, stop_config)
+
+
+def _relax_stop_with_atr(
+    base_stop: float,
+    cost: float,
+    current_price: float,
+    daily_history: Any,
+    stop_config: HoldingStopConfig,
+) -> float:
+    """ATR 波动率止损只用于放宽 base_stop，避免正常洗盘被固定百分比误杀。
+
+    放宽幅度受 atr_max_relax_pct 上限约束，不会因为波动率大就完全不设防；
+    也绝不会让止损线比 base_stop 更严格——收紧止损仍由固定百分比/手动设置负责。
+    """
+    if not stop_config.atr_enabled or current_price <= 0 or cost <= 0:
+        return base_stop
+    atr14 = calc_atr(daily_history, stop_config.atr_period) if daily_history is not None else None
+    if not atr14 or atr14 <= 0:
+        return base_stop
+    atr_stop = current_price - stop_config.atr_multiplier * atr14
+    if atr_stop >= base_stop:
+        return base_stop
+    relax_floor = cost * (1 - stop_config.atr_max_relax_pct / 100.0)
+    return max(atr_stop, relax_floor)
 
 
 def _dedupe_texts(values: list[str], limit: int = 3) -> list[str]:
@@ -66,7 +102,8 @@ def _dedupe_texts(values: list[str], limit: int = 3) -> list[str]:
 def _base_holding_advice(
     position: dict[str, Any],
     quotes: dict[str, dict[str, Any]],
-    hard_stop_pct: float,
+    stop_config: HoldingStopConfig,
+    daily_history_map: dict[str, Any] | None = None,
 ) -> tuple[HoldingAdvice, str, float]:
     code = position["code"]
     sym = normalize_cn_symbol(code)
@@ -82,7 +119,14 @@ def _base_holding_advice(
         current_price=price,
         pnl_pct=pnl_pct,
     )
-    effective_stop = _resolve_effective_stop(cost, position.get("stop_loss"), hard_stop_pct)
+    daily_history = (daily_history_map or {}).get(sym)
+    effective_stop = _resolve_effective_stop(
+        cost,
+        position.get("stop_loss"),
+        stop_config,
+        current_price=price,
+        daily_history=daily_history,
+    )
     return advice, sym, effective_stop
 
 
@@ -105,10 +149,28 @@ def _signal_is_actionable(signal_item: TailBuyCandidate | None, signal_type: str
     return signal_item is not None and signal_type.strip().lower() not in {"", "holding", "unknown"}
 
 
+def _limit_move_desc_from_intraday(df_1m: Any, quote: dict[str, Any], code: str, name: str) -> str:
+    """一字涨跌停当天分钟线毫无真实换手意义，先于 VWAP 细分规则识别出来。"""
+    prev_close = safe_float(quote.get("prev_close"), 0.0)
+    if prev_close <= 0 or df_1m is None or getattr(df_1m, "empty", True):
+        return ""
+    close = df_1m["close"].ffill()
+    if close.empty:
+        return ""
+    open_ = safe_float(df_1m["open"].iloc[0] if "open" in df_1m.columns else close.iloc[0], close.iloc[0])
+    high = safe_float(df_1m["high"].max() if "high" in df_1m.columns else close.max(), close.iloc[-1])
+    low = safe_float(df_1m["low"].min() if "low" in df_1m.columns else close.min(), close.iloc[-1])
+    state = classify_limit_move(
+        code=code, name=name, prev_close=prev_close, open_=open_, high=high, low=low, close=safe_float(close.iloc[-1])
+    )
+    return describe_limit_move(state) if state and state.one_word_board else ""
+
+
 def _apply_scored_holding_advice(
     *,
     advice: HoldingAdvice,
     df_1m: Any,
+    quote: dict[str, Any],
     signal_item: TailBuyCandidate | None,
     style: str,
     effective_stop: float,
@@ -117,14 +179,15 @@ def _apply_scored_holding_advice(
     signal_score = safe_float(signal_item.signal_score, 0.0) if signal_item else 0.0
     signal_type = str(signal_item.signal_type if signal_item else "")
     status = str(signal_item.status if signal_item else "pending")
-    features = compute_tail_features(df_1m, daily_context=_signal_daily_context(signal_item), config=strategy_config)
+    policy = board_scaled_strategy_config(strategy_config, advice.code)
+    features = compute_tail_features(df_1m, daily_context=_signal_daily_context(signal_item), config=policy)
     score, decision, reasons = score_tail_features(
         features,
         signal_score=signal_score,
         signal_type=signal_type,
         status=status,
         style=style,
-        config=strategy_config,
+        config=policy,
     )
     if advice.current_price <= 0:
         advice.current_price = safe_float(features.get("last_close"), 0.0)
@@ -134,6 +197,7 @@ def _apply_scored_holding_advice(
     advice.rule_score = score
     advice.rule_decision = decision
     advice.features = features
+    advice.limit_move_desc = _limit_move_desc_from_intraday(df_1m, quote, advice.code, advice.name)
     _resolve_scored_holding_action(advice, features, decision, reasons, signal_item, signal_type, effective_stop)
 
 
@@ -159,6 +223,12 @@ def _resolve_scored_holding_action(
         advice.reasons = _dedupe_texts(
             [f"现价{advice.current_price:.2f}跌破风控位{effective_stop:.2f}", *base_reasons], limit=3
         )
+    elif advice.limit_move_desc and decision != DECISION_BUY:
+        # 一字涨跌停当天分钟线几乎无真实换手，VWAP/尾盘细分规则在此失真，
+        # 除硬止损外一律先转为观察，不做洗盘/破位的精细区分。
+        advice.action = HOLDING_ACTION_HOLD
+        advice.risk_tag = "washout"
+        advice.reasons = _dedupe_texts([advice.limit_move_desc, *base_reasons], limit=3)
     elif (
         decision == DECISION_BUY
         and _signal_is_actionable(signal_item, signal_type)
@@ -253,10 +323,12 @@ def _build_holding_advice(
     market_data: HoldingMarketData,
     signal_map: dict[str, TailBuyCandidate],
     style: str,
-    hard_stop_pct: float,
+    stop_config: HoldingStopConfig,
     strategy_config: TailBuyStrategyConfig,
 ) -> HoldingAdvice:
-    advice, sym, effective_stop = _base_holding_advice(position, market_data.quotes, hard_stop_pct)
+    advice, sym, effective_stop = _base_holding_advice(
+        position, market_data.quotes, stop_config, market_data.daily_history_map
+    )
     df_1m = market_data.intraday_map.get(sym)
     fetch_error = str(market_data.intraday_error_by_symbol.get(sym, "") or "").strip()
     if df_1m is None or getattr(df_1m, "empty", True):
@@ -265,6 +337,7 @@ def _build_holding_advice(
     _apply_scored_holding_advice(
         advice=advice,
         df_1m=df_1m,
+        quote=market_data.quotes.get(sym) or {},
         signal_item=signal_map.get(advice.code),
         style=style,
         effective_stop=effective_stop,
@@ -279,7 +352,7 @@ def _build_holding_advices(
     market_data: HoldingMarketData,
     signal_map: dict[str, TailBuyCandidate],
     style: str,
-    hard_stop_pct: float,
+    stop_config: HoldingStopConfig,
     strategy_config: TailBuyStrategyConfig,
 ) -> list[HoldingAdvice]:
     out = [
@@ -288,7 +361,7 @@ def _build_holding_advices(
             market_data=market_data,
             signal_map=signal_map,
             style=style,
-            hard_stop_pct=hard_stop_pct,
+            stop_config=stop_config,
             strategy_config=strategy_config,
         )
         for position in positions
@@ -316,7 +389,7 @@ def analyze_holdings_actions(
     signal_map: dict[str, TailBuyCandidate],
     style: str,
     intraday_batch_size: int,
-    hard_stop_pct: float,
+    stop_config: HoldingStopConfig,
     strategy_config: TailBuyStrategyConfig,
     deadline_at: datetime,
     logs_path: str | None = None,
@@ -341,13 +414,14 @@ def analyze_holdings_actions(
         intraday_batch_size=intraday_batch_size,
         deadline_at=deadline_at,
         logs_path=logs_path,
+        fetch_daily_history=stop_config.atr_enabled,
     )
     out = _build_holding_advices(
         positions=context.positions,
         market_data=market_data,
         signal_map=signal_map,
         style=style,
-        hard_stop_pct=hard_stop_pct,
+        stop_config=stop_config,
         strategy_config=strategy_config,
     )
     add_count = sum(1 for advice in out if advice.action == HOLDING_ACTION_ADD)

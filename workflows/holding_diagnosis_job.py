@@ -13,6 +13,7 @@ from utils.telegram import send_to_telegram
 from workflows.holding_diagnosis_llm import run_holding_llm_report
 from workflows.tail_buy_config import tail_buy_strategy_config_from_env
 from workflows.tail_buy_holdings import analyze_holdings_actions, build_holdings_markdown
+from workflows.tail_buy_runtime import holding_stop_config_from_env
 
 TZ = ZoneInfo("Asia/Shanghai")
 
@@ -53,7 +54,7 @@ def run_holding_diagnosis_job(runtime: HoldingDiagnosisRuntime | None = None) ->
         signal_map={},
         style="conservative",
         intraday_batch_size=200,
-        hard_stop_pct=8.0,
+        stop_config=holding_stop_config_from_env(),
         strategy_config=tail_buy_strategy_config_from_env(),
         deadline_at=deadline_at,
         logs_path=None,
