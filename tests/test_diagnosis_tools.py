@@ -41,6 +41,10 @@ def _diagnostic(**overrides):
         "ret_20d_pct": 16.7,
         "from_year_high_pct": -22.4,
         "from_year_low_pct": 124.7,
+        "day_change_pct": 0.0,
+        "limit_move_desc": "",
+        "intraday_path": "",
+        "intraday_path_desc": "",
         "health_reasons": [],
     }
     defaults.update(overrides)

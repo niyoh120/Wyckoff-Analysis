@@ -23,6 +23,14 @@ from dataclasses import dataclass, field, replace
 import pandas as pd
 
 from core.candidate_lanes import build_l1_candidate_lane_entries
+from core.intraday_shakeout import (
+    PATH_DISTRIBUTION,
+    PATH_WASHOUT,
+    IntradayPathResult,
+    classify_intraday_path,
+    describe_intraday_path,
+)
+from core.limit_move import classify_limit_move, describe_limit_move
 from core.wyckoff_engine import (
     FunnelConfig,
     _detect_evr,
@@ -36,6 +44,8 @@ from core.wyckoff_engine import (
 )
 
 logger = logging.getLogger(__name__)
+
+_LIMIT_MOVE_DAY_CHANGE_PCT = -5.0  # 当日跌幅达到此阈值才触发涨跌停/日内路径核查
 
 
 @dataclass
@@ -81,6 +91,12 @@ class HoldingDiagnostic:
     ret_20d_pct: float = 0.0
     from_year_high_pct: float = 0.0
     from_year_low_pct: float = 0.0
+
+    # 极端当日行情识别（涨跌停/日内路径），仅当日跌幅显著且提供分钟线时才会填充
+    day_change_pct: float = 0.0
+    limit_move_desc: str = ""
+    intraday_path: str = ""  # washout / distribution / strong / neutral / insufficient_data / ""(未核查)
+    intraday_path_desc: str = ""
 
     # 综合评级
     health: str = "🟢健康"
@@ -207,16 +223,16 @@ def _accum_stage(df: pd.DataFrame, cfg: FunnelConfig) -> str | None:
         return None
 
 
-def _l4_triggers(df: pd.DataFrame, cfg: FunnelConfig) -> list[str]:
+def _l4_triggers(code: str, df: pd.DataFrame, cfg: FunnelConfig) -> list[str]:
     try:
         triggers = []
-        if _detect_sos(df, cfg) is not None:
+        if _detect_sos(df, cfg, code=code) is not None:
             triggers.append("SOS")
-        if _detect_spring(df, cfg) is not None:
+        if _detect_spring(df, cfg, code=code) is not None:
             triggers.append("Spring")
-        if _detect_lps(df, cfg) is not None:
+        if _detect_lps(df, cfg, code=code) is not None:
             triggers.append("LPS")
-        if _detect_evr(df, cfg) is not None:
+        if _detect_evr(df, cfg, code=code) is not None:
             triggers.append("EVR")
         return triggers
     except Exception:
@@ -251,7 +267,7 @@ def _wyckoff_snapshot(
         l2_channel=l2_channel,
         track=_classify_track(l2_channel),
         accum_stage=accum_stage,
-        l4_triggers=_l4_triggers(series.df, cfg),
+        l4_triggers=_l4_triggers(code, series.df, cfg),
         exit_signal=exit_signal,
         exit_price=exit_price,
         exit_reason=exit_reason,
@@ -290,11 +306,51 @@ def _risk_snapshot(series: _SeriesSnapshot, cost: float) -> _RiskSnapshot:
     )
 
 
+def _extreme_day_snapshot(
+    code: str,
+    name: str,
+    series: _SeriesSnapshot,
+    intraday_df: pd.DataFrame | None,
+) -> tuple[float, str, IntradayPathResult | None]:
+    """当日涨跌幅显著时，识别涨跌停状态 + 日内路径（洗盘/出货）。
+
+    数据不足或跌幅未达阈值时静默跳过，不影响原有诊断流程。
+    """
+    if len(series.close) < 2:
+        return 0.0, "", None
+    prev_close = float(series.close.iloc[-2])
+    if prev_close <= 0:
+        return 0.0, "", None
+    day_change_pct = (series.latest_close / prev_close - 1.0) * 100.0
+    if day_change_pct > _LIMIT_MOVE_DAY_CHANGE_PCT:
+        return day_change_pct, "", None
+
+    last_row = series.df.iloc[-1]
+    limit_state = classify_limit_move(
+        code=code,
+        name=name,
+        prev_close=prev_close,
+        open_=float(last_row.get("open", series.latest_close)),
+        high=float(series.high.iloc[-1]),
+        low=float(series.low.iloc[-1]),
+        close=series.latest_close,
+    )
+    limit_desc = describe_limit_move(limit_state)
+
+    path_result: IntradayPathResult | None = None
+    if intraday_df is not None and not intraday_df.empty:
+        support = float(series.close.tail(20).min()) if len(series.close) >= 20 else 0.0
+        path_result = classify_intraday_path(intraday_df, support_level=support, day_change_pct=day_change_pct)
+
+    return day_change_pct, limit_desc, path_result
+
+
 def _health_rating(
     ma: _MaSnapshot,
     wyckoff: _WyckoffSnapshot,
     risk: _RiskSnapshot,
     pnl_pct: float,
+    intraday_path: IntradayPathResult | None = None,
 ) -> tuple[str, list[str]]:
     reasons: list[str] = []
     if risk.stop_status == "已穿止损":
@@ -305,7 +361,7 @@ def _health_rating(
         reasons.append("均线空头排列")
     if risk.range_60d > 50:
         reasons.append(f"60日振幅过大(>{risk.range_60d:.0f}%)")
-    if risk.ret_10d < -15:
+    if risk.ret_10d < -15 and not (intraday_path and intraday_path.path_type == PATH_WASHOUT):
         reasons.append(f"近10日暴跌({risk.ret_10d:+.1f}%)")
 
     if wyckoff.exit_signal == "distribution_warning":
@@ -318,9 +374,15 @@ def _health_rating(
         reasons.append("均线偏弱且浮亏")
     if risk.vol_ratio < 0.5:
         reasons.append("量能严重萎缩")
+    if intraday_path and intraday_path.path_type == PATH_DISTRIBUTION:
+        reasons.append("当日盘中路径确认出货/破位（非单纯洗盘）")
+    elif intraday_path and intraday_path.path_type == PATH_WASHOUT:
+        # 洗盘结论必须始终可见，不能被其他常规 warning 挤掉，
+        # 否则用户看到的仍是"跌了就是走弱"的归因。
+        reasons.append(f"当日{describe_intraday_path(intraday_path)}，跌幅不必等同走弱")
 
     positive = _positive_reasons(ma, wyckoff)
-    danger_count = sum(1 for r in reasons if any(k in r for k in ["已穿", "暴跌", "空头排列", "结构止损"]))
+    danger_count = sum(1 for r in reasons if any(k in r for k in ["已穿", "暴跌", "空头排列", "结构止损", "出货"]))
     warn_count = len(reasons) - danger_count
     if danger_count >= 1:
         return "🔴危险", reasons
@@ -361,6 +423,7 @@ def diagnose_one_stock(
     df: pd.DataFrame,
     bench_df: pd.DataFrame | None = None,
     cfg: FunnelConfig | None = None,
+    intraday_df: pd.DataFrame | None = None,
 ) -> HoldingDiagnostic:
     """
     对单只股票执行全面 Wyckoff 健康诊断。
@@ -373,6 +436,8 @@ def diagnose_one_stock(
     df   : 该股 320 日 OHLCV（需包含 date/open/high/low/close/volume 列）
     bench_df : 大盘基准 OHLCV（用于 L2 通道 RS 计算，可选）
     cfg  : FunnelConfig，默认使用全局默认值
+    intraday_df : 当日 1 分钟 K 线（可选）。当日跌幅显著时，用于区分"洗盘"与"出货/
+        确认破位"，避免把跌停/暴力回踩直接等同于走弱确认。
     """
     if cfg is None:
         cfg = FunnelConfig()
@@ -382,8 +447,25 @@ def diagnose_one_stock(
     wyckoff = _wyckoff_snapshot(code, series, bench_df, cfg)
     candidate_entry = _candidate_lane_entry(code, series, wyckoff)
     risk = _risk_snapshot(series, cost)
-    health, reasons = _health_rating(ma, wyckoff, risk, series.pnl_pct)
+    extreme = _extreme_day_snapshot(code, name, series, intraday_df)
+    health, reasons = _health_rating(ma, wyckoff, risk, series.pnl_pct, extreme[2])
+    return _build_diagnostic(code, name, cost, series, ma, wyckoff, candidate_entry, risk, extreme, health, reasons)
 
+
+def _build_diagnostic(
+    code: str,
+    name: str,
+    cost: float,
+    series: _SeriesSnapshot,
+    ma: _MaSnapshot,
+    wyckoff: _WyckoffSnapshot,
+    candidate_entry: dict,
+    risk: _RiskSnapshot,
+    extreme: tuple[float, str, IntradayPathResult | None],
+    health: str,
+    reasons: list[str],
+) -> HoldingDiagnostic:
+    day_change_pct, limit_desc, path_result = extreme
     return HoldingDiagnostic(
         code=code,
         name=name,
@@ -414,6 +496,10 @@ def diagnose_one_stock(
         ret_20d_pct=risk.ret_20d,
         from_year_high_pct=risk.from_year_high,
         from_year_low_pct=risk.from_year_low,
+        day_change_pct=day_change_pct,
+        limit_move_desc=limit_desc,
+        intraday_path=path_result.path_type if path_result else "",
+        intraday_path_desc=describe_intraday_path(path_result) if path_result else "",
         health=health,
         health_reasons=reasons,
     )
@@ -424,6 +510,7 @@ def diagnose_holdings(
     df_map: dict[str, pd.DataFrame],
     bench_df: pd.DataFrame | None = None,
     cfg: FunnelConfig | None = None,
+    intraday_df_map: dict[str, pd.DataFrame] | None = None,
 ) -> list[HoldingDiagnostic]:
     """
     批量诊断持仓。
@@ -434,8 +521,10 @@ def diagnose_holdings(
     df_map   : {code: DataFrame} 每只股票的 OHLCV 数据
     bench_df : 大盘基准 OHLCV
     cfg      : FunnelConfig
+    intraday_df_map : {code: DataFrame} 当日 1 分钟 K 线（可选），用于洗盘/出货识别
     """
     results = []
+    intraday_map = intraday_df_map or {}
     for code, name, cost in holdings:
         df = df_map.get(code)
         if df is None or df.empty:
@@ -452,7 +541,7 @@ def diagnose_holdings(
                 )
             )
             continue
-        results.append(diagnose_one_stock(code, name, cost, df, bench_df, cfg))
+        results.append(diagnose_one_stock(code, name, cost, df, bench_df, cfg, intraday_map.get(code)))
     return results
 
 
@@ -497,6 +586,15 @@ def format_diagnostic_text(d: HoldingDiagnostic) -> str:
         f"近10日: {d.ret_10d_pct:+.1f}% | 近20日: {d.ret_20d_pct:+.1f}%"
     )
 
+    # 当日极端行情（涨跌停/日内路径）
+    if d.limit_move_desc or d.intraday_path_desc:
+        extreme_parts = [f"当日: {d.day_change_pct:+.1f}%"]
+        if d.limit_move_desc:
+            extreme_parts.append(d.limit_move_desc)
+        if d.intraday_path_desc:
+            extreme_parts.append(f"盘中路径: {d.intraday_path_desc}")
+        lines.append("  " + " | ".join(extreme_parts))
+
     # 评级理由
     if d.health_reasons:
         lines.append(f"  理由: {', '.join(d.health_reasons)}")
@@ -525,6 +623,8 @@ def format_diagnostic_for_llm(d: HoldingDiagnostic) -> str:
             parts.append(f"触发价:{d.exit_price:.2f}")
     parts.append(f"止损状态:{d.stop_loss_status}")
     parts.append(f"量比:{d.vol_ratio_20_60:.2f} 振幅:{d.range_60d_pct:.0f}%")
+    if d.intraday_path_desc:
+        parts.append(f"当日{d.day_change_pct:+.1f}%/{d.intraday_path_desc}")
     if d.health_reasons:
         parts.append(f"原因:{','.join(d.health_reasons[:3])}")
     return " | ".join(parts)

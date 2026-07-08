@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, timedelta
+from typing import Any
 
 from agents.stock_data_helpers import (
     code_to_name,
@@ -170,6 +172,9 @@ def _portfolio_diagnosis(portfolio_id: str, state: dict, tool_context: ToolConte
     return out
 
 
+_EXTREME_DAY_CHANGE_PCT = -5.0  # 与 core.holding_diagnostic 的阈值保持一致，避免无谓拉取分时线
+
+
 def _diagnose_position(position: dict, start_date: date, end_date: date, hints: list[str]) -> dict:
     from core.holding_diagnostic import diagnose_one_stock
     from integrations.stock_hist_repository import get_stock_hist, normalize_hist_df
@@ -185,10 +190,36 @@ def _diagnose_position(position: dict, start_date: date, end_date: date, hints: 
         _append_unique_hints(hints, collect_tickflow_limit_hints_from_df(df))
         normalized_df = normalize_hist_df(df)
         latest_date = latest_hist_date(df, "日期") or latest_hist_date(normalized_df)
-        diagnostic = diagnose_one_stock(code, name, cost, normalized_df)
+        intraday_df = _fetch_intraday_if_extreme_day(code, normalized_df)
+        diagnostic = diagnose_one_stock(code, name, cost, normalized_df, intraday_df=intraday_df)
         return _diagnostic_payload(diagnostic, latest_date, metadata)
     except Exception as e:
         return {"code": code, "name": name, "error": str(e)}
+
+
+def _fetch_intraday_if_extreme_day(code: str, normalized_df) -> Any:
+    """仅当日跌幅显著时才按需拉取当日分钟线，用于洗盘/出货识别，避免无谓 API 消耗。"""
+    close = normalized_df.get("close") if normalized_df is not None else None
+    if close is None or len(close) < 2:
+        return None
+    try:
+        prev_close = float(close.iloc[-2])
+        latest_close = float(close.iloc[-1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if prev_close <= 0 or (latest_close / prev_close - 1.0) * 100.0 > _EXTREME_DAY_CHANGE_PCT:
+        return None
+
+    api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
+    if not api_key:
+        return None
+    try:
+        from integrations.tickflow_client import TickFlowClient
+
+        return TickFlowClient(api_key=api_key).get_intraday(code, period="1m", count=500)
+    except Exception:
+        logger.warning("failed to fetch intraday data for extreme-day diagnosis: %s", code, exc_info=True)
+        return None
 
 
 def _append_unique_hints(target: list[str], hints: list[str]) -> None:
@@ -201,7 +232,7 @@ def _diagnostic_payload(diagnostic, latest_date: str, metadata: dict) -> dict:
     from agents.diagnosis_tools import diagnosis_brief_from_diagnostic
     from core.holding_diagnostic import format_diagnostic_text
 
-    return {
+    payload = {
         "code": diagnostic.code,
         "name": diagnostic.name,
         "health": diagnostic.health,
@@ -222,6 +253,12 @@ def _diagnostic_payload(diagnostic, latest_date: str, metadata: dict) -> dict:
         "latest_date": latest_date,
         **metadata,
     }
+    if diagnostic.intraday_path_desc:
+        payload["day_change_pct"] = round(diagnostic.day_change_pct, 2)
+        payload["limit_move_desc"] = diagnostic.limit_move_desc
+        payload["intraday_path"] = diagnostic.intraday_path
+        payload["intraday_path_desc"] = diagnostic.intraday_path_desc
+    return payload
 
 
 def _delete_tracking_records(table: str, codes: list[str] | None) -> dict:
