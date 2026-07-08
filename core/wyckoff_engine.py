@@ -20,7 +20,7 @@ import pandas as pd
 
 from core.candidate_lanes import build_l1_candidate_lane_entries, merge_candidate_entries
 from core.candidate_tracks import candidate_entry_sort_key
-from core.cn_boards import is_supported_cn_board
+from core.cn_boards import cn_board, is_supported_cn_board
 from core.layer2_strength import (
     build_benchmark_context,
     build_rps_context,
@@ -843,7 +843,35 @@ def _is_trading_range_context(zone: pd.DataFrame, cfg: FunnelConfig, df_full: pd
     return not drift_pct > cfg.spring_tr_max_drift_pct
 
 
-def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
+def _is_frozen_board_day(row: pd.Series) -> bool:
+    """判断某交易日是否为一字板（开=高=低=收，全天几乎无波动）。
+
+    A 股涨跌停制度下，一字板当天几乎没有真实换手：价格被封死，
+    "放量"和"收盘收回"这类量价确认在物理上不具备意义，不能作为
+    有效的 Spring 支撑测试，否则会把"洗出所有筹码的一字跌停"误判为洗盘信号。
+    """
+    o, h, low_, c = (float(row.get(k, 0.0) or 0.0) for k in ("open", "high", "low", "close"))
+    if c <= 0:
+        return False
+    day_range_pct = (h - low_) / c * 100.0
+    return day_range_pct <= 1.0 and abs(o - c) / c * 100.0 <= 1.0
+
+
+# 20% 涨跌停板块（创业板/科创板）相对 10% 主板/北交所的量能阈值放大系数。
+# 用 sqrt(20/10) 而非线性 2 倍：涨跌停幅度翻倍不代表"有效换手"的量能门槛也要翻倍，
+# 否则门槛会形同虚设；同一套绝对阈值（如放量3倍）套用在两类板块上，对20%板块
+# 明显过松——它们的日常波动率本就更高，"放量"更容易被正常噪音触发。
+_REGISTRATION_BOARD_VOL_SCALE = 1.41
+
+
+def _board_vol_ratio_scale(code: str) -> float:
+    """按涨跌停幅度返回量能阈值缩放系数：主板/北交所=1.0，创业板/科创板放大。"""
+    return _REGISTRATION_BOARD_VOL_SCALE if cn_board(code) in {"chinext", "star"} else 1.0
+
+
+def _detect_spring(
+    df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None, code: str = ""
+) -> float | None:
     """
     Spring（终极震仓）：允许"前一日或当日盘中"跌破近 N 日支撑位，且当日收盘收回并放量。
     返回 score（收回幅度%）或 None。
@@ -860,6 +888,10 @@ def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | No
     prev = df_s.iloc[-2]
     last = df_s.iloc[-1]
 
+    # 一字跌停/涨停日几乎没有真实换手，排除在有效 Spring 测试之外。
+    if _is_frozen_board_day(prev) or _is_frozen_board_day(last):
+        return None
+
     if _bias_200_exceeds_limit(pd.to_numeric(df_s["close"], errors="coerce"), cfg, max_bias_200):
         return None
 
@@ -868,8 +900,9 @@ def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | No
         return None
     if last["close"] <= support_level:
         return None
+    vol_scale = _board_vol_ratio_scale(code)
     vol_avg = df_s["volume"].tail(5).iloc[:-1].mean()
-    if vol_avg <= 0 or last["volume"] < vol_avg * cfg.spring_vol_ratio:
+    if vol_avg <= 0 or last["volume"] < vol_avg * cfg.spring_vol_ratio * vol_scale:
         return None
 
     prev_vol = float(prev["volume"]) if pd.notna(prev["volume"]) else 0
@@ -881,7 +914,7 @@ def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | No
     return float(recovery)
 
 
-def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
+def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None, code: str = "") -> float | None:
     """
     LPS（最后支撑点缩量）：近 N 日回踩 MA20 且缩量。
     返回 score（缩量比）或 None。
@@ -919,7 +952,8 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     if ref_max_vol <= 0:
         return None
     vol_ratio = recent_max_vol / ref_max_vol
-    if vol_ratio > cfg.lps_vol_dry_ratio:
+    # 20%涨跌停板块日常波动更大，缩量比的合格线相应放宽，避免正常噪音误杀有效信号。
+    if vol_ratio > cfg.lps_vol_dry_ratio * _board_vol_ratio_scale(code):
         return None
     return float(vol_ratio)
 
@@ -991,7 +1025,7 @@ def _evr_confirmation_ok(series: _EvrSeries, idx: int, confirm_days: int, cfg: F
     return bool(float(confirm_close.min()) >= float(event_low) * (1.0 - allow_break))
 
 
-def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
+def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None, code: str = "") -> float | None:
     """
     Effort vs Result（努力无结果）：
     仅识别"相对低位的巨量滞涨/抗跌"，排除高位派发。
@@ -1012,6 +1046,11 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     if vol_ref_avg is None:
         return None
 
+    # 20%涨跌停板块日常波动更大：量比门槛、"滞涨"允许的日内波幅都需同步放宽，
+    # 否则该信号在这些板块上几乎永远无法触发（正常波动就超过主板的滞涨阈值）。
+    vol_scale = _board_vol_ratio_scale(code)
+    max_drop = cfg.evr_max_drop * vol_scale
+    max_rise = cfg.evr_max_rise * vol_scale
     confirm_days = max(int(cfg.evr_confirm_days), 0)
     for idx in _evr_candidate_indexes(confirm_days):
         vol_ratio = float(series.volume.iloc[idx] / vol_ref_avg) if vol_ref_avg > 0 else 0.0
@@ -1022,7 +1061,7 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
         if pd.isna(day_pct):
             continue
 
-        if float(day_pct) < -cfg.evr_max_drop or float(day_pct) > cfg.evr_max_rise:
+        if float(day_pct) < -max_drop or float(day_pct) > max_rise:
             continue
 
         if not _evr_turnover_ok(series.frame, idx, cfg):
@@ -1056,7 +1095,7 @@ def _sos_series(df: pd.DataFrame) -> _SosSeries | None:
     return series
 
 
-def _sos_volume_ratio(volume: pd.Series, cfg: FunnelConfig) -> float | None:
+def _sos_volume_ratio(volume: pd.Series, cfg: FunnelConfig, vol_scale: float = 1.0) -> float | None:
     vol_window = getattr(cfg, "sos_vol_quantile_window", 60)
     vol_ref = volume.tail(vol_window + 1).iloc[:-1]
     if vol_ref.empty:
@@ -1065,7 +1104,8 @@ def _sos_volume_ratio(volume: pd.Series, cfg: FunnelConfig) -> float | None:
     if vol_ref_avg <= 0:
         return None
     vol_ratio = float(volume.iloc[-1]) / vol_ref_avg
-    return vol_ratio if vol_ratio >= float(getattr(cfg, "sos_vol_ratio", 2.0)) else None
+    threshold = float(getattr(cfg, "sos_vol_ratio", 2.0)) * vol_scale
+    return vol_ratio if vol_ratio >= threshold else None
 
 
 def _sos_breakout_or_ma_cross(series: _SosSeries, cfg: FunnelConfig) -> bool:
@@ -1085,7 +1125,7 @@ def _sos_breakout_or_ma_cross(series: _SosSeries, cfg: FunnelConfig) -> bool:
     return bool(is_breakout or is_ma_crossover)
 
 
-def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
+def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None, code: str = "") -> float | None:
     """
     Sign of Strength (SOS) / Jump Across the Creek (JAC):
     点火标志。特征为低位脱盘、放量大阳线，破除重要阻力或近期高点。
@@ -1106,11 +1146,13 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     if _bias_200_exceeds_limit(series.close, cfg, max_bias_200):
         return None
 
+    # 20%涨跌停板块日常大涨幅度更常见，点火最小涨幅门槛同步放宽，避免过度宽松触发。
+    vol_scale = _board_vol_ratio_scale(code)
     day_pct = float(series.pct_chg.iloc[-1])
-    if pd.isna(day_pct) or day_pct < cfg.sos_pct_min:
+    if pd.isna(day_pct) or day_pct < cfg.sos_pct_min * vol_scale:
         return None
 
-    vol_ratio = _sos_volume_ratio(series.volume, cfg)
+    vol_ratio = _sos_volume_ratio(series.volume, cfg, vol_scale=vol_scale)
     if vol_ratio is None:
         return None
 
@@ -1316,21 +1358,21 @@ def layer4_triggers(
             continue
         channel = channel_map.get(sym, "")
         max_bias_200 = _effective_entry_max_bias_200(sym, channel, cfg)
-        score = _detect_spring(df, cfg, max_bias_200=max_bias_200)
+        score = _detect_spring(df, cfg, max_bias_200=max_bias_200, code=sym)
         if score is not None:
             results["spring"].append((sym, score))
-        score = _detect_lps(df, cfg, max_bias_200=max_bias_200)
+        score = _detect_lps(df, cfg, max_bias_200=max_bias_200, code=sym)
         if score is not None:
             results["lps"].append((sym, score))
         if cfg.enable_evr_trigger:
-            score = _detect_evr(df, cfg, max_bias_200=max_bias_200)
+            score = _detect_evr(df, cfg, max_bias_200=max_bias_200, code=sym)
             if score is not None:
                 results["evr"].append((sym, score))
         if cfg.enable_compression_trigger:
             score = _detect_compression(df, cfg, max_bias_200=max_bias_200)
             if score is not None:
                 results["compression"].append((sym, score))
-        score = _detect_sos(df, cfg, max_bias_200=max_bias_200)
+        score = _detect_sos(df, cfg, max_bias_200=max_bias_200, code=sym)
         if score is not None:
             results["sos"].append((sym, score))
         if cfg.enable_trend_pullback_trigger:

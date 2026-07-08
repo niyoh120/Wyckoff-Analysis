@@ -6,8 +6,13 @@ import pandas as pd
 
 from core.wyckoff_engine import (
     FunnelConfig,
+    _board_vol_ratio_scale,
     _compute_stop_loss,
     _detect_compression,
+    _detect_evr,
+    _detect_lps,
+    _detect_sos,
+    _detect_spring,
     _effective_entry_max_bias_200,
     _is_holiday_grace,
     _latest_trade_date,
@@ -19,6 +24,10 @@ from core.wyckoff_engine import (
     layer3_sector_resonance,
     sort_by_date_if_needed,
 )
+
+MAIN_BOARD_CODE = "600001"
+CHINEXT_CODE = "300001"
+STAR_CODE = "688001"
 
 
 def _make_df(dates, closes, volumes=None, amounts=None) -> pd.DataFrame:
@@ -562,3 +571,243 @@ class TestSectorHeatBypass:
 
         assert top == ["银行"]
         assert "A1" in result
+
+
+def _flat_board_history(n: int, base: float) -> pd.DataFrame:
+    """构造一段窄幅横盘历史（用于满足 Spring 的交易区间上下文要求）。"""
+    dates = pd.date_range("2024-01-01", periods=n, freq="B")
+    closes = [base + ((i % 5) - 2) * 0.01 * base for i in range(n)]
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "open": closes,
+            "high": [c * 1.003 for c in closes],
+            "low": [c * 0.997 for c in closes],
+            "close": closes,
+            "volume": [1_000_000.0] * n,
+            "pct_chg": [0.0] * n,
+        }
+    )
+
+
+def _append_board_row(df: pd.DataFrame, *, open_, high, low, close, volume, pct_chg=0.0) -> pd.DataFrame:
+    next_date = df["date"].iloc[-1] + pd.tseries.offsets.BDay(1)
+    row = pd.DataFrame(
+        {
+            "date": [next_date],
+            "open": [open_],
+            "high": [high],
+            "low": [low],
+            "close": [close],
+            "volume": [volume],
+            "pct_chg": [pct_chg],
+        }
+    )
+    return pd.concat([df, row], ignore_index=True)
+
+
+class TestBoardVolRatioScale:
+    """20% 涨跌停板块（创业板/科创板）的量能阈值应比 10% 主板/北交所更宽松。"""
+
+    def test_main_board_scale_is_one(self):
+        assert _board_vol_ratio_scale(MAIN_BOARD_CODE) == 1.0
+
+    def test_bse_scale_is_one(self):
+        assert _board_vol_ratio_scale("430001") == 1.0
+
+    def test_chinext_scale_is_amplified(self):
+        assert _board_vol_ratio_scale(CHINEXT_CODE) > 1.0
+
+    def test_star_scale_is_amplified(self):
+        assert _board_vol_ratio_scale(STAR_CODE) > 1.0
+
+    def test_unknown_code_defaults_to_one(self):
+        assert _board_vol_ratio_scale("") == 1.0
+
+
+def _spring_setup_by_board(base: float = 10.0) -> tuple[pd.DataFrame, float, float]:
+    """构造一个满足 Spring 支撑测试基础条件的历史：横盘 + 前一日跌破支撑。"""
+    cfg = FunnelConfig()
+    history = _flat_board_history(cfg.spring_support_window + 5, base)
+    support_level = float(history["close"].tail(cfg.spring_support_window).min())
+    vol_avg = float(history["volume"].tail(5).mean())
+    history = _append_board_row(
+        history,
+        open_=support_level * 1.01,
+        high=support_level * 1.02,
+        low=support_level * 0.97,
+        close=support_level * 1.005,
+        volume=vol_avg,
+    )
+    return history, support_level, vol_avg
+
+
+class TestSpringVolScaleByBoard:
+    def test_volume_between_main_and_registration_threshold_only_passes_main_board(self):
+        """量能刚好越过主板门槛、但不足以越过创业板/科创板放大后门槛时，仅主板应判定为 Spring。"""
+        cfg = FunnelConfig()
+        history, support_level, vol_avg = _spring_setup_by_board()
+        # 主板门槛：vol_avg * spring_vol_ratio；放大后门槛：* _board_vol_ratio_scale (~1.41)
+        borderline_volume = vol_avg * cfg.spring_vol_ratio * 1.15
+        df = _append_board_row(
+            history,
+            open_=support_level * 0.99,
+            high=support_level * 1.06,
+            low=support_level * 0.96,
+            close=support_level * 1.05,
+            volume=borderline_volume,
+        )
+        assert _detect_spring(df, cfg, code=MAIN_BOARD_CODE) is not None
+        assert _detect_spring(df, cfg, code=CHINEXT_CODE) is None
+        assert _detect_spring(df, cfg, code=STAR_CODE) is None
+
+
+class TestLpsVolScaleByBoard:
+    def test_vol_ratio_between_main_and_registration_threshold(self):
+        cfg = FunnelConfig()
+        n = max(cfg.lps_vol_ref_window, cfg.lps_ma) + cfg.lps_lookback + cfg.lps_ma_rising_window + 5
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        base = 10.0
+        # 缓慢上升的均线，制造 MA20 抬升 + 价格回踩 MA20 的场景。
+        closes = [base + i * 0.01 for i in range(n)]
+        volumes = [1_000_000.0] * (n - cfg.lps_lookback)
+        # 参考窗口最大量能为 1_000_000；近 lookback 日最大量能设为主板门槛和创业板门槛之间。
+        borderline_vol = 1_000_000.0 * (cfg.lps_vol_dry_ratio + 0.10)
+        volumes += [borderline_vol] * cfg.lps_lookback
+        df = pd.DataFrame(
+            {
+                "date": dates,
+                "open": closes,
+                "high": [c * 1.001 for c in closes],
+                "low": closes,  # low 紧贴 MA20，满足 lps_ma_tolerance
+                "close": closes,
+                "volume": volumes,
+                "pct_chg": [0.0] * n,
+            }
+        )
+        # 确保最后几日 low 恰好等于当时的 MA20（人为对齐），否则 lps 会因为 tolerance 被拒绝。
+        ma20 = df["close"].rolling(cfg.lps_ma).mean()
+        for idx in df.index[-cfg.lps_lookback :]:
+            df.loc[idx, "low"] = float(ma20.loc[idx])
+
+        # borderline_vol/1_000_000 = 0.6，介于主板阈值 0.5 与创业板放宽阈值 0.705 之间。
+        assert _detect_lps(df, cfg, code=MAIN_BOARD_CODE) is None
+        assert _detect_lps(df, cfg, code=CHINEXT_CODE) is not None
+        assert _detect_lps(df, cfg, code=STAR_CODE) is not None
+
+
+class TestEvrVolScaleByBoard:
+    def test_day_pct_between_main_and_registration_threshold(self):
+        cfg = FunnelConfig()
+        n = cfg.evr_vol_window + 10
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        base = 10.0
+        # 事件日是候选索引 -2（confirm_days=1），随后一日（-1）需确认收盘不跌破事件日最低价。
+        closes = [base] * (n - 2) + [base, base]
+        volumes = [1_000_000.0] * (n - 2) + [1_000_000.0 * (cfg.evr_vol_ratio + 0.5), 1_000_000.0]
+        # 当日涨幅刚好越过主板 evr_max_rise，但小于放大后的科创板门槛。
+        borderline_pct = cfg.evr_max_rise * 1.15
+        pct_chg = [0.0] * (n - 2) + [borderline_pct, 0.0]
+        lows = closes
+        df = pd.DataFrame(
+            {
+                "date": dates,
+                "open": closes,
+                "high": closes,
+                "low": lows,
+                "close": closes,
+                "volume": volumes,
+                "pct_chg": pct_chg,
+            }
+        )
+        assert _detect_evr(df, cfg, code=MAIN_BOARD_CODE) is None
+        assert _detect_evr(df, cfg, code=STAR_CODE) is not None
+
+
+class TestSosVolScaleByBoard:
+    def test_day_pct_between_main_and_registration_threshold(self):
+        cfg = FunnelConfig()
+        n = max(cfg.sos_vol_window, cfg.sos_breakout_window, 200) + 5
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        base = 10.0
+        closes = [base] * (n - 1)
+        # 当日涨幅刚好越过主板 sos_pct_min，但不足以越过放大后的科创板门槛。
+        borderline_pct = cfg.sos_pct_min * 1.15
+        last_close = base * (1 + borderline_pct / 100.0)
+        closes.append(last_close)
+        volumes = [1_000_000.0] * (n - 1) + [1_000_000.0 * (cfg.sos_vol_ratio + 1.0)]
+        pct_chg = [0.0] * (n - 1) + [borderline_pct]
+        highs = list(closes)
+        df = pd.DataFrame(
+            {
+                "date": dates,
+                "open": closes,
+                "high": highs,
+                "low": closes,
+                "close": closes,
+                "volume": volumes,
+                "pct_chg": pct_chg,
+            }
+        )
+        # 6.9% 涨幅越过主板门槛(6.0%)，但达不到创业板/科创板放大后的门槛(6.0%*1.41≈8.46%)，
+        # 说明同样的涨幅"含金量"在20%涨跌停板块更低，点火判定理应更严格。
+        assert _detect_sos(df, cfg, code=MAIN_BOARD_CODE) is not None
+        assert _detect_sos(df, cfg, code=STAR_CODE) is None
+
+
+class TestFrozenBoardExcludedFromSpring:
+    """一字涨跌停日不应被误判为有效 Spring 支撑。"""
+
+    def test_normal_recovery_day_detects_spring(self):
+        """非一字板的正常收回日，应能检测出有效 Spring。"""
+        history, support_level, _ = _spring_setup_by_board()
+        cfg = FunnelConfig()
+        vol_avg = float(history["volume"].tail(5).iloc[:-1].mean())
+        # last day: recovers with a real trading range and expanded volume (valid Spring).
+        df = _append_board_row(
+            history,
+            open_=support_level * 0.99,
+            high=support_level * 1.06,
+            low=support_level * 0.96,
+            close=support_level * 1.05,
+            volume=vol_avg * (cfg.spring_vol_ratio + 0.5),
+        )
+        score = _detect_spring(df, cfg)
+        assert score is not None
+        assert score > 0
+
+    def test_frozen_limit_down_day_returns_none(self):
+        """最后一天若是一字跌停（开=高=低=收，无真实波动），不能算有效 Spring 收回。"""
+        history, support_level, _ = _spring_setup_by_board()
+        cfg = FunnelConfig()
+        vol_avg = float(history["volume"].tail(5).iloc[:-1].mean())
+        frozen_price = support_level * 1.05
+        df = _append_board_row(
+            history,
+            open_=frozen_price,
+            high=frozen_price,
+            low=frozen_price,
+            close=frozen_price,
+            volume=vol_avg * (cfg.spring_vol_ratio + 0.5),
+        )
+        assert _detect_spring(df, cfg) is None
+
+    def test_frozen_prev_day_also_excluded(self):
+        """若"跌破支撑"那一天（prev）本身就是一字板（无真实换手的跌停），同样排除。"""
+        cfg = FunnelConfig()
+        history = _flat_board_history(cfg.spring_support_window + 5, base=10.0)
+        support_level = float(history["close"].tail(cfg.spring_support_window).min())
+        vol_avg = float(history["volume"].tail(5).mean())
+        frozen_price = support_level * 0.97
+        history = _append_board_row(
+            history, open_=frozen_price, high=frozen_price, low=frozen_price, close=frozen_price, volume=vol_avg
+        )
+        df = _append_board_row(
+            history,
+            open_=support_level * 0.99,
+            high=support_level * 1.06,
+            low=support_level * 0.96,
+            close=support_level * 1.05,
+            volume=vol_avg * (cfg.spring_vol_ratio + 0.5),
+        )
+        assert _detect_spring(df, cfg) is None
