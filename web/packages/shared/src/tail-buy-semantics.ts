@@ -1,5 +1,9 @@
 const HIGH_RISK_MOMENTUM_SIGNALS = new Set(['rec_momentum_continuation'])
 
+function isLimitUpCandidate(features: Record<string, unknown>): boolean {
+  return Boolean(features.limit_up_touched) || Boolean(features.limit_up_closed)
+}
+
 export interface TailBuyExecutionInput {
   finalDecision?: unknown
   signalType?: unknown
@@ -23,7 +27,7 @@ export function tailBuyExecutionSemantics(input: TailBuyExecutionInput): TailBuy
   const explicitStatus = String(features.execution_status || '').trim()
   const explicitNextStep = String(features.execution_next_step || '').trim()
   const explicitOrderable = typeof features.orderable === 'boolean' ? features.orderable : undefined
-  const fallback = fallbackTailBuyExecution(rawDecision, String(input.signalType || '').trim())
+  const fallback = fallbackTailBuyExecution(rawDecision, String(input.signalType || '').trim(), features)
   const label = explicitLabel || fallback.label
   const status = explicitStatus || fallback.status
   const orderable = explicitOrderable ?? fallback.orderable
@@ -39,7 +43,15 @@ export function tailBuyExecutionSemantics(input: TailBuyExecutionInput): TailBuy
   }
 }
 
-function fallbackTailBuyExecution(decision: string, signalType: string) {
+function fallbackTailBuyExecution(decision: string, signalType: string, features: Record<string, unknown>) {
+  if (decision === 'BUY' && isLimitUpCandidate(features)) {
+    return {
+      label: '观察买入',
+      status: 'watch_buy',
+      orderable: false,
+      nextStep: '当日已触及/收于涨停，现价无法按挂单价买入；只保留人工复核。',
+    }
+  }
   if (decision === 'BUY' && HIGH_RISK_MOMENTUM_SIGNALS.has(signalType)) {
     return { label: '观察买入', status: 'watch_buy', orderable: false, nextStep: '高位动能默认不买；只保留人工复核。' }
   }

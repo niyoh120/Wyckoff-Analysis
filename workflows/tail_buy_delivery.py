@@ -114,7 +114,9 @@ def _tail_buy_report_title(started_at: datetime, report_mode: str) -> str:
 def tail_buy_persist_row(candidate: TailBuyCandidate, started_at: datetime) -> dict:
     initial_price = safe_float(candidate.features.get("last_close"), 0.0)
     features = dict(candidate.features or {})
-    features.update(tail_buy_execution_semantics(candidate.final_decision, candidate.signal_type))
+    features.update(
+        tail_buy_execution_semantics(candidate.final_decision, candidate.signal_type, features=candidate.features)
+    )
     return {
         "code": candidate.code,
         "name": candidate.name,

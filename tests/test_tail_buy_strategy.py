@@ -3,16 +3,19 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pandas as pd
+import pytest
 
 from core.tail_buy.reporting import build_tail_buy_markdown
 from core.tail_buy.strategy import (
     DECISION_BUY,
     DECISION_SKIP,
     DECISION_WATCH,
+    DEFAULT_TAIL_BUY_STRATEGY_CONFIG,
     TailBuyCandidate,
     TailBuyStrategyConfig,
     _normalize_signal_score,
     apply_policy_weight_adjustments,
+    board_scaled_strategy_config,
     build_5m_summary,
     build_llm_prompt,
     compute_tail_features,
@@ -69,6 +72,26 @@ def _make_intraday_df(
     )
 
 
+def _make_daily_history_with_prev_close(prev_close: float) -> pd.DataFrame:
+    """构造仅用于提供昨收的日K：倒数第二行=昨天收盘价，供涨停判断使用。"""
+    dates = pd.date_range(start=datetime(2026, 3, 1), periods=21, freq="D")
+    close = pd.Series([prev_close] * 21, dtype="float64")
+    open_ = close * 0.999
+    high = close * 1.001
+    low = close * 0.999
+    volume = pd.Series([1000.0] * 21)
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "open": open_.values,
+            "high": high.values,
+            "low": low.values,
+            "close": close.values,
+            "volume": volume.values,
+        }
+    )
+
+
 def _make_daily_trap_df() -> pd.DataFrame:
     dates = pd.date_range(start=datetime(2026, 3, 20), periods=25, freq="D")
     close = pd.Series([8.0 + i * 0.04 for i in range(25)], dtype="float64")
@@ -85,6 +108,26 @@ def _make_daily_trap_df() -> pd.DataFrame:
         {
             "date": dates,
             "open": open_.values,
+            "high": high.values,
+            "low": low.values,
+            "close": close.values,
+            "volume": volume.values,
+        }
+    )
+
+
+def _make_atr_daily_history(atr_value: float, close_base: float = 10.0, periods: int = 20) -> pd.DataFrame:
+    """构造 close 恒定、每日 high-low=atr_value 的日K，使 calc_atr(df, 14) 精确等于 atr_value。"""
+    dates = pd.date_range(start=datetime(2026, 3, 1), periods=periods, freq="D")
+    close = pd.Series([close_base] * periods, dtype="float64")
+    half = atr_value / 2.0
+    high = close + half
+    low = close - half
+    volume = pd.Series([1000.0] * periods)
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "open": close.values,
             "high": high.values,
             "low": low.values,
             "close": close.values,
@@ -375,8 +418,8 @@ def test_old_confirmed_signal_can_buy_when_current_tail_confirms():
 
 def test_intraday_chase_is_watch_not_buy():
     candidate = TailBuyCandidate(
-        code="688620",
-        name="安凯微",
+        code="600620",
+        name="沪杭甬",
         signal_date="2026-04-20",
         status="confirmed",
         signal_type="evr",
@@ -389,6 +432,61 @@ def test_intraday_chase_is_watch_not_buy():
 
     assert out.rule_decision == DECISION_WATCH
     assert "日内涨幅过大" in "；".join(out.rule_reasons)
+
+
+def test_intraday_chase_threshold_relaxed_for_chinext_board():
+    """同样14%日内涨幅，创业板/科创板的追高门槛应比主板更宽松，不应被误杀。"""
+    candidate = TailBuyCandidate(
+        code="300620",
+        name="创业板测试股",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="evr",
+        signal_score=3.5,
+        snap={"snap_support": 9.8},
+    )
+    df = _make_intraday_df(start=10.0, end=11.4, tail_boost=0.1, tail_volume_mult=1.3)
+
+    out = evaluate_rule_decision(candidate, df, style="trend")
+
+    assert "日内涨幅过大" not in "；".join(out.rule_reasons)
+
+
+class TestBoardScaledStrategyConfig:
+    def test_main_board_returns_unchanged_config(self):
+        base = TailBuyStrategyConfig()
+        scaled = board_scaled_strategy_config(base, "600001")
+        assert scaled == base
+
+    def test_bse_board_returns_unchanged_config(self):
+        base = TailBuyStrategyConfig()
+        scaled = board_scaled_strategy_config(base, "430001")
+        assert scaled == base
+
+    def test_chinext_board_doubles_ret_pct_fields(self):
+        base = TailBuyStrategyConfig()
+        scaled = board_scaled_strategy_config(base, "300620")
+        assert scaled.chase_day_ret_pct == base.chase_day_ret_pct * 2.0
+        assert scaled.chase_high_ret_pct == base.chase_high_ret_pct * 2.0
+        assert scaled.blowoff_high_ret_pct == base.blowoff_high_ret_pct * 2.0
+        assert scaled.naked_support_extension_pct == base.naked_support_extension_pct * 2.0
+        assert scaled.daily_trap_ma20_extension_pct == base.daily_trap_ma20_extension_pct * 2.0
+
+    def test_star_board_doubles_ret_pct_fields(self):
+        base = TailBuyStrategyConfig()
+        scaled = board_scaled_strategy_config(base, "688620")
+        assert scaled.chase_day_ret_pct == base.chase_day_ret_pct * 2.0
+
+    def test_unrelated_fields_stay_unchanged(self):
+        base = TailBuyStrategyConfig()
+        scaled = board_scaled_strategy_config(base, "300620")
+        assert scaled.weak_naked_day_ret_pct == base.weak_naked_day_ret_pct
+        assert scaled.weak_naked_tail30_ret_pct == base.weak_naked_tail30_ret_pct
+        assert scaled.blowoff_tail_volume_share == base.blowoff_tail_volume_share
+
+    def test_none_config_defaults_before_scaling(self):
+        scaled = board_scaled_strategy_config(None, "300620")
+        assert scaled.chase_day_ret_pct == DEFAULT_TAIL_BUY_STRATEGY_CONFIG.chase_day_ret_pct * 2.0
 
 
 def test_naked_evr_far_from_support_is_watch_not_buy():
@@ -631,6 +729,68 @@ def test_daily_trap_pressure_downgrades_tail_buy_to_watch():
     assert gated.rule_decision == DECISION_WATCH
     assert gated.features["daily_trap_pressure"] is True
     assert "日线" in "；".join(gated.rule_reasons)
+
+
+def test_evaluate_rule_decision_flags_limit_up_touched():
+    # 昨收10.0，主板涨停价=11.0；分钟线最高触及11.0，判定为触及涨停。
+    intraday = _make_intraday_df(start=10.9, end=11.0)
+    candidate = evaluate_rule_decision(
+        TailBuyCandidate(
+            code="603928",
+            name="兴业股份",
+            signal_date="2026-07-07",
+            status="confirmed",
+            signal_type="spring",
+            signal_score=6.0,
+            snap={"snap_support": 10.5},
+        ),
+        intraday,
+        style="trend",
+        daily_history=_make_daily_history_with_prev_close(10.0),
+    )
+
+    assert candidate.features["limit_up_touched"] is True
+
+
+def test_evaluate_rule_decision_does_not_flag_normal_pullback():
+    # 昨收10.0，涨幅约2.5%，远未触及涨停线。
+    intraday = _make_intraday_df(start=9.9, end=10.25)
+    candidate = evaluate_rule_decision(
+        TailBuyCandidate(
+            code="300649",
+            name="杭州园林",
+            signal_date="2026-07-07",
+            status="confirmed",
+            signal_type="trend_lane_pullback",
+            signal_score=6.0,
+            snap={"snap_support": 9.5},
+        ),
+        intraday,
+        style="trend",
+        daily_history=_make_daily_history_with_prev_close(10.0),
+    )
+
+    assert candidate.features.get("limit_up_touched", False) is False
+    assert candidate.features.get("limit_up_closed", False) is False
+
+
+def test_evaluate_rule_decision_skips_limit_up_check_without_daily_history():
+    intraday = _make_intraday_df(start=10.9, end=11.0)
+    candidate = evaluate_rule_decision(
+        TailBuyCandidate(
+            code="603928",
+            name="兴业股份",
+            signal_date="2026-07-07",
+            status="confirmed",
+            signal_type="spring",
+            signal_score=6.0,
+            snap={"snap_support": 10.5},
+        ),
+        intraday,
+        style="trend",
+    )
+
+    assert "limit_up_touched" not in candidate.features
 
 
 def test_llm_prompt_surfaces_daily_trap_pressure_gate():
@@ -931,13 +1091,14 @@ def test_merge_rule_and_llm_cannot_override_daily_trap_gate():
 
 def test_compute_tail_features_handles_volume_lot_unit_for_vwap():
     df = _make_intraday_df(start=10.0, end=10.6, tail_boost=0.3, tail_volume_mult=1.3)
-    # 模拟 TickFlow: volume 为“手”，amount 为“元”（需 /100 才接近真实价格）
+    # 模拟 TickFlow: volume 为"手"，amount 为"元"（需 volume*100 才接近真实股数换算）
     df["amount"] = df["close"] * df["volume"] * 100.0
     feats = compute_tail_features(df)
     assert feats["bars"] >= 60
-    assert feats["vwap_volume_scale"] == 100.0
-    assert 8.0 < feats["vwap"] < 20.0
-    assert feats["dist_vwap_pct"] > -20.0
+    # 手→股换算发生在数据清洗层（ensure_intraday_df），VWAP 不再需要单独猜测缩放。
+    assert feats["vwap_volume_scale"] == 1.0
+    assert 9.5 < feats["vwap"] < 11.0
+    assert feats["dist_vwap_pct"] > -10.0
 
 
 def test_select_llm_overlay_candidates_prefilters_skip_and_low_score():
@@ -1236,6 +1397,52 @@ def test_build_tail_buy_markdown_splits_high_risk_momentum_buy():
     assert "高位动能票，仅观察买入，默认不买" in md
 
 
+def test_build_tail_buy_markdown_splits_limit_up_buy():
+    """涨停股无法按现价挂单，即便信号类型正常也应降级到观察买入分区，而非可执行买入。"""
+    executable = TailBuyCandidate(
+        code="300649",
+        name="杭州园林",
+        signal_date="2026-07-07",
+        status="confirmed",
+        signal_type="trend_lane_pullback",
+        signal_score=6.0,
+        rule_score=97.8,
+        rule_decision=DECISION_BUY,
+        final_decision=DECISION_BUY,
+        priority_score=100.0,
+        rule_reasons=["回踩再企稳"],
+    )
+    limit_up = TailBuyCandidate(
+        code="603928",
+        name="兴业股份",
+        signal_date="2026-07-07",
+        status="confirmed",
+        signal_type="spring",
+        signal_score=6.0,
+        rule_score=88.6,
+        rule_decision=DECISION_BUY,
+        final_decision=DECISION_BUY,
+        priority_score=100.0,
+        rule_reasons=["弹簧确认"],
+        features={"limit_up_touched": True, "limit_up_closed": True},
+    )
+
+    md = build_tail_buy_markdown(
+        now_text="2026-07-08 14:44:00",
+        target_signal_date="2026-07-07",
+        market_reminder="NORMAL/NORMAL",
+        candidates=[executable, limit_up],
+        llm_total=2,
+        llm_success=2,
+        elapsed_seconds=10.0,
+    )
+
+    assert "BUY=2（可执行买入1 / 观察买入1）" in md
+    assert md.find("300649 杭州园林") < md.find("BUY（观察买入：高位动能默认不买）")
+    assert "603928 兴业股份" in md
+    assert "当日已涨停，无法按现价挂单，仅观察买入" in md
+
+
 def test_build_tail_buy_markdown_post_close_review_labels_next_day_plan():
     c = TailBuyCandidate(
         code="301090",
@@ -1369,13 +1576,95 @@ def test_holding_tail_action_adds_clear_signal_even_if_losing(monkeypatch):
         signal_map={"000001": signal},
         style="auto",
         intraday_batch_size=20,
-        hard_stop_pct=8.0,
+        stop_config=holdings_workflow.HoldingStopConfig(hard_stop_pct=8.0),
         strategy_config=TailBuyStrategyConfig(),
         deadline_at=datetime.now(tail_buy_utils.TZ) + timedelta(seconds=60),
     )
 
     assert holdings[0].action == holdings_workflow.HOLDING_ACTION_ADD
     assert "尾盘结构延续走强" in "；".join(holdings[0].reasons)
+
+
+def test_analyze_holdings_actions_skips_daily_history_fetch_when_atr_disabled(monkeypatch):
+    from workflows import tail_buy_holding_portfolio
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingStopConfig
+
+    class FakeTickFlow:
+        def get_quotes(self, symbols):
+            return {symbol: {"last_price": 9.0} for symbol in symbols}
+
+        def get_intraday_batch(self, chunk, *, period, count):
+            df = _make_intraday_df(start=9.5, end=9.0, tail_boost=-0.2, tail_volume_mult=1.5)
+            return {symbol: df for symbol in chunk}
+
+        def get_klines_batch(self, *_args, **_kwargs):
+            raise AssertionError("daily history should not be fetched when ATR stop is disabled")
+
+    monkeypatch.setattr(
+        tail_buy_holding_portfolio,
+        "load_portfolio_state",
+        lambda _portfolio_id: {
+            "state_signature": "sig",
+            "positions": [{"code": "000001", "name": "平安银行", "shares": 1000, "cost": 10.0}],
+        },
+    )
+
+    holdings, _limit_hit, _meta = holdings_workflow.analyze_holdings_actions(
+        tickflow_client=FakeTickFlow(),
+        portfolio_id="USER_LIVE:test",
+        signal_map={},
+        style="conservative",
+        intraday_batch_size=20,
+        stop_config=HoldingStopConfig(hard_stop_pct=8.0, atr_enabled=False),
+        strategy_config=TailBuyStrategyConfig(),
+        deadline_at=datetime.now(TZ) + timedelta(seconds=60),
+    )
+
+    assert holdings[0].code == "000001"
+
+
+def test_analyze_holdings_actions_uses_atr_stop_to_avoid_hard_stop_trim(monkeypatch):
+    from workflows import tail_buy_holding_portfolio
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingStopConfig
+
+    # 现价9.0，固定止损=10*(1-8%)=9.2 会被触发（现价<止损线）；
+    # 开启ATR后（ATR=1.0*2.0=2.0跌幅缓冲）应放宽止损线到7.5，现价9.0不再触发硬止损。
+    class FakeTickFlow:
+        def get_quotes(self, symbols):
+            return {symbol: {"last_price": 9.0} for symbol in symbols}
+
+        def get_intraday_batch(self, chunk, *, period, count):
+            df = _make_intraday_df(start=9.0, end=9.0, bars=10, tail_boost=0.0, tail_volume_mult=1.0)
+            return {symbol: df for symbol in chunk}
+
+        def get_klines_batch(self, symbols, *, period, count, adjust):
+            assert period == "1d"
+            assert adjust == "forward"
+            return {symbol: _make_atr_daily_history(atr_value=1.0) for symbol in symbols}
+
+    monkeypatch.setattr(
+        tail_buy_holding_portfolio,
+        "load_portfolio_state",
+        lambda _portfolio_id: {
+            "state_signature": "sig",
+            "positions": [{"code": "000001", "name": "平安银行", "shares": 1000, "cost": 10.0}],
+        },
+    )
+
+    holdings, _limit_hit, _meta = holdings_workflow.analyze_holdings_actions(
+        tickflow_client=FakeTickFlow(),
+        portfolio_id="USER_LIVE:test",
+        signal_map={},
+        style="conservative",
+        intraday_batch_size=20,
+        stop_config=HoldingStopConfig(hard_stop_pct=8.0, atr_enabled=True, atr_multiplier=2.0, atr_max_relax_pct=15.0),
+        strategy_config=TailBuyStrategyConfig(),
+        deadline_at=datetime.now(TZ) + timedelta(seconds=60),
+    )
+
+    assert holdings[0].risk_tag != "hard_stop"
 
 
 def test_holding_weak_tail_washout_stays_hold():
@@ -1438,6 +1727,176 @@ def test_holding_confirmed_breakdown_trims():
 
     assert advice.action == holdings_workflow.HOLDING_ACTION_TRIM
     assert advice.risk_tag == "confirmed_breakdown"
+
+
+def _make_frozen_board_df(price: float, bars: int = 180) -> pd.DataFrame:
+    """构造一字涨跌停当天的分钟线：开=高=低=收，全天几乎无波动。"""
+    idx = pd.date_range(start=datetime(2026, 4, 21, 9, 30), periods=bars, freq="1min", tz="Asia/Shanghai")
+    flat = pd.Series([price] * bars)
+    return pd.DataFrame(
+        {
+            "datetime": idx,
+            "open": flat.values,
+            "high": flat.values,
+            "low": flat.values,
+            "close": flat.values,
+            "volume": pd.Series([50.0] * bars).values,
+            "amount": (flat * 50.0).values,
+        }
+    )
+
+
+def test_holding_one_word_limit_down_short_circuits_to_washout():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingAdvice
+
+    prev_close = 10.0
+    limit_down_price = round(prev_close * 0.9, 2)
+    advice = HoldingAdvice(code="000001", name="平安银行", cost=10.5)
+    df_1m = _make_frozen_board_df(limit_down_price)
+
+    holdings_workflow._apply_scored_holding_advice(
+        advice=advice,
+        df_1m=df_1m,
+        quote={"prev_close": prev_close},
+        signal_item=None,
+        style="conservative",
+        effective_stop=0.0,
+        strategy_config=tail_buy_strategy_config_from_env(),
+    )
+
+    assert advice.limit_move_desc
+    assert "一字跌停" in advice.limit_move_desc
+    assert advice.action == holdings_workflow.HOLDING_ACTION_HOLD
+    assert advice.risk_tag == "washout"
+    assert advice.limit_move_desc in "；".join(advice.reasons)
+
+
+def test_holding_hard_stop_takes_priority_over_limit_move():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingAdvice
+
+    prev_close = 10.0
+    limit_down_price = round(prev_close * 0.9, 2)
+    advice = HoldingAdvice(code="000001", name="平安银行", cost=12.0)
+    df_1m = _make_frozen_board_df(limit_down_price)
+
+    holdings_workflow._apply_scored_holding_advice(
+        advice=advice,
+        df_1m=df_1m,
+        quote={"prev_close": prev_close},
+        signal_item=None,
+        style="conservative",
+        effective_stop=9.5,
+        strategy_config=tail_buy_strategy_config_from_env(),
+    )
+
+    assert advice.action == holdings_workflow.HOLDING_ACTION_TRIM
+    assert advice.risk_tag == "hard_stop"
+
+
+def test_resolve_effective_stop_atr_disabled_uses_hard_pct_only():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingStopConfig
+
+    stop = holdings_workflow._resolve_effective_stop(
+        10.0,
+        None,
+        HoldingStopConfig(hard_stop_pct=8.0, atr_enabled=False),
+        current_price=9.0,
+        daily_history=_make_daily_trap_df(),
+    )
+
+    assert stop == pytest.approx(9.2)
+
+
+def test_resolve_effective_stop_atr_relaxes_when_wider_than_hard_pct():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingStopConfig
+
+    # 固定止损=10*(1-8%)=9.2；current_price=9.5, ATR=1.0, multiplier=2.0 => atr_stop=7.5，比固定线更宽松，
+    # 且放宽上限设为30%（floor=7.0）足够容纳 atr_stop，最终采用 atr_stop=7.5。
+    daily_history = _make_atr_daily_history(atr_value=1.0)
+    stop = holdings_workflow._resolve_effective_stop(
+        10.0,
+        None,
+        HoldingStopConfig(hard_stop_pct=8.0, atr_enabled=True, atr_multiplier=2.0, atr_max_relax_pct=30.0),
+        current_price=9.5,
+        daily_history=daily_history,
+    )
+
+    assert stop == pytest.approx(7.5)
+    assert stop < 9.2
+
+
+def test_resolve_effective_stop_atr_relax_capped_by_max_relax_pct():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingStopConfig
+
+    # ATR 波动率极大 => atr_stop 远低于放宽上限；应被夹到 cost*(1-15%)=8.5，而不是无限放宽。
+    daily_history = _make_atr_daily_history(atr_value=5.0)
+    stop = holdings_workflow._resolve_effective_stop(
+        10.0,
+        None,
+        HoldingStopConfig(hard_stop_pct=8.0, atr_enabled=True, atr_multiplier=2.0, atr_max_relax_pct=15.0),
+        current_price=9.5,
+        daily_history=daily_history,
+    )
+
+    assert stop == pytest.approx(8.5)
+
+
+def test_resolve_effective_stop_atr_never_tightens_base_stop():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingStopConfig
+
+    # ATR 很小 => atr_stop 比固定止损线更严格；此时应维持固定止损线（不收紧）。
+    daily_history = _make_atr_daily_history(atr_value=0.05)
+    stop = holdings_workflow._resolve_effective_stop(
+        10.0,
+        None,
+        HoldingStopConfig(hard_stop_pct=8.0, atr_enabled=True, atr_multiplier=2.0, atr_max_relax_pct=15.0),
+        current_price=9.5,
+        daily_history=daily_history,
+    )
+
+    assert stop == pytest.approx(9.2)
+
+
+def test_resolve_effective_stop_atr_falls_back_without_daily_history():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingStopConfig
+
+    stop = holdings_workflow._resolve_effective_stop(
+        10.0,
+        None,
+        HoldingStopConfig(hard_stop_pct=8.0, atr_enabled=True, atr_multiplier=2.0, atr_max_relax_pct=15.0),
+        current_price=9.5,
+        daily_history=None,
+    )
+
+    assert stop == pytest.approx(9.2)
+
+
+def test_holding_normal_volatile_day_not_flagged_as_limit_move():
+    from workflows import tail_buy_holdings as holdings_workflow
+    from workflows.tail_buy_holding_models import HoldingAdvice
+
+    advice = HoldingAdvice(code="000001", name="平安银行", cost=10.0)
+    df_1m = _make_intraday_df(start=9.6, end=9.45)
+
+    holdings_workflow._apply_scored_holding_advice(
+        advice=advice,
+        df_1m=df_1m,
+        quote={"prev_close": 10.0},
+        signal_item=None,
+        style="conservative",
+        effective_stop=0.0,
+        strategy_config=tail_buy_strategy_config_from_env(),
+    )
+
+    assert advice.limit_move_desc == ""
+    assert advice.risk_tag != "washout" or advice.limit_move_desc == ""
 
 
 def test_holding_markdown_splits_washout_from_trim():

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from core.strategy_policy_display import format_policy_meta_text, format_policy_weight_text
-from core.tail_buy.decision_semantics import HIGH_RISK_MOMENTUM_SIGNALS
+from core.tail_buy.decision_semantics import HIGH_RISK_MOMENTUM_SIGNALS, is_limit_up_candidate
 from core.tail_buy.models import DECISION_BUY, DECISION_SKIP, DECISION_WATCH, TailBuyCandidate
 
 
@@ -76,7 +76,9 @@ def _item_reason_text(item: TailBuyCandidate) -> str:
     policy_reason = _item_policy_weight_reason(item)
     if policy_reason and all(policy_reason not in reason for reason in reasons):
         reasons.append(policy_reason)
-    if _is_high_risk_momentum_buy(item):
+    if _is_limit_up_buy(item):
+        reasons.append("当日已涨停，无法按现价挂单，仅观察买入")
+    elif _is_high_risk_momentum_buy(item):
         reasons.append("高位动能票，仅观察买入，默认不买")
     trap_reason = str(item.features.get("daily_trap_reason") or "").strip()
     if trap_reason and all(trap_reason not in reason for reason in reasons):
@@ -106,10 +108,18 @@ def _is_high_risk_momentum_buy(item: TailBuyCandidate) -> bool:
     return item.final_decision == DECISION_BUY and str(item.signal_type or "").strip() in HIGH_RISK_MOMENTUM_SIGNALS
 
 
+def _is_limit_up_buy(item: TailBuyCandidate) -> bool:
+    return item.final_decision == DECISION_BUY and is_limit_up_candidate(item.features)
+
+
+def _is_watch_only_buy(item: TailBuyCandidate) -> bool:
+    return _is_high_risk_momentum_buy(item) or _is_limit_up_buy(item)
+
+
 def _high_risk_buy_count(candidates: list[TailBuyCandidate], report_mode: str) -> int:
     if report_mode == "post_close_review":
         return 0
-    return sum(1 for item in candidates if _is_high_risk_momentum_buy(item))
+    return sum(1 for item in candidates if _is_watch_only_buy(item))
 
 
 def _decision_block(
@@ -123,9 +133,9 @@ def _decision_block(
 ) -> list[str]:
     block = [x for x in candidates if x.final_decision == decision]
     if exclude_high_risk_momentum:
-        block = [x for x in block if not _is_high_risk_momentum_buy(x)]
+        block = [x for x in block if not _is_watch_only_buy(x)]
     if only_high_risk_momentum:
-        block = [x for x in block if _is_high_risk_momentum_buy(x)]
+        block = [x for x in block if _is_watch_only_buy(x)]
     lines = [f"## {title}"]
     if not block:
         return lines + ["- 无", ""]

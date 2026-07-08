@@ -55,6 +55,19 @@ def test_tail_buy_persist_row_serializes_reasons_and_features() -> None:
     assert features["orderable"] is True
 
 
+def test_tail_buy_persist_row_downgrades_limit_up_candidate_to_watch_only() -> None:
+    started_at = datetime(2026, 7, 8, 14, 44, tzinfo=TZ)
+    candidate = _candidate()
+    candidate.features["limit_up_touched"] = True
+
+    row = delivery.tail_buy_persist_row(candidate, started_at)
+
+    features = json.loads(row["features_json"])
+    assert features["execution_label"] == "观察买入"
+    assert features["execution_status"] == "watch_buy"
+    assert features["orderable"] is False
+
+
 def test_send_tail_buy_notifications_falls_back_from_rich_card(monkeypatch) -> None:
     calls: list[str] = []
     monkeypatch.setenv("FEISHU_TAIL_BUY_RICH_CARD", "1")

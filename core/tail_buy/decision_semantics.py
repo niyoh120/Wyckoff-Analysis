@@ -7,6 +7,12 @@ from core.tail_buy.models import DECISION_BUY, DECISION_SKIP, DECISION_WATCH
 HIGH_RISK_MOMENTUM_SIGNALS = {"rec_momentum_continuation"}
 
 
+def is_limit_up_candidate(features: dict[str, Any] | None) -> bool:
+    """当日触及/收于涨停：现价无法按挂单价买入，需与普通可挂单信号区分展示。"""
+    row = features or {}
+    return bool(row.get("limit_up_touched")) or bool(row.get("limit_up_closed"))
+
+
 def tail_buy_execution_semantics(
     final_decision: Any,
     signal_type: Any = "",
@@ -17,7 +23,9 @@ def tail_buy_execution_semantics(
     decision = str(final_decision or "").strip().upper()
     signal = str(signal_type or "").strip()
     fallback = (
-        _post_close_semantics(decision) if report_mode == "post_close_review" else _intraday_semantics(decision, signal)
+        _post_close_semantics(decision)
+        if report_mode == "post_close_review"
+        else _intraday_semantics(decision, signal, features)
     )
     row = features or {}
     return {
@@ -28,7 +36,9 @@ def tail_buy_execution_semantics(
     }
 
 
-def _intraday_semantics(decision: str, signal: str) -> dict[str, Any]:
+def _intraday_semantics(decision: str, signal: str, features: dict[str, Any] | None = None) -> dict[str, Any]:
+    if decision == DECISION_BUY and is_limit_up_candidate(features):
+        return _semantics("观察买入", "watch_buy", False, "当日已触及/收于涨停，现价无法按挂单价买入；只保留人工复核。")
     if decision == DECISION_BUY and signal in HIGH_RISK_MOMENTUM_SIGNALS:
         return _semantics("观察买入", "watch_buy", False, "高位动能默认不买；只保留人工复核。")
     if decision == DECISION_BUY:

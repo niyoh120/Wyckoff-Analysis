@@ -8,13 +8,14 @@ import json
 import logging
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
 
 from core._price_math import ret_pct as _ret_pct
+from core.cn_boards import cn_board
 from core.intraday_analysis import (
     compute_effort_vs_result,
     compute_smart_money_score,
@@ -23,6 +24,7 @@ from core.intraday_analysis import (
     ensure_intraday_df,
     infer_session_vwap,
 )
+from core.limit_move import classify_limit_move
 from core.strategy_policy_display import (
     policy_execution_mode_label,
     policy_formal_dynamic_label,
@@ -65,6 +67,27 @@ class TailBuyStrategyConfig:
 
 
 DEFAULT_TAIL_BUY_STRATEGY_CONFIG = TailBuyStrategyConfig()
+
+# 创业板/科创板日常涨跌幅上限为主板的 2 倍（20% vs 10%），"日内冲高/追高"这类
+# 直接以百分比涨幅为门槛的判断，理应按同样比例放宽，否则这些板块的正常波动
+# 会被系统性误判为"追高/冲高滞涨"，导致该买的票被尾盘策略拦在门外。
+_REGISTRATION_BOARD_RET_SCALE = 2.0
+_RET_SCALED_FIELDS = (
+    "blowoff_high_ret_pct",
+    "chase_day_ret_pct",
+    "chase_high_ret_pct",
+    "naked_support_extension_pct",
+    "daily_trap_ma20_extension_pct",
+)
+
+
+def board_scaled_strategy_config(config: TailBuyStrategyConfig | None, code: str) -> TailBuyStrategyConfig:
+    """按股票所属板块（主板/北交所 vs 创业板/科创板）缩放涨跌幅类阈值。"""
+    base = _strategy_config(config)
+    if cn_board(code) not in {"chinext", "star"}:
+        return base
+    updates = {field: getattr(base, field) * _REGISTRATION_BOARD_RET_SCALE for field in _RET_SCALED_FIELDS}
+    return replace(base, **updates)
 
 
 def _strategy_config(config: TailBuyStrategyConfig | None) -> TailBuyStrategyConfig:
@@ -215,6 +238,41 @@ def _daily_trap_features(daily_history: pd.DataFrame | None, config: TailBuyStra
         "daily_close_pos": daily["close_pos"],
         "daily_trap_pressure": bool(reasons),
         "daily_trap_reason": "；".join(reasons),
+    }
+
+
+def _limit_up_features(
+    candidate: TailBuyCandidate,
+    daily_history: pd.DataFrame | None,
+    day_high: float,
+    day_low: float,
+    last_close: float,
+) -> dict[str, Any]:
+    """基于日K倒数第二行（昨收）+ 当日分钟线高低点，判断是否触及/收于涨停。
+
+    涨停时无法按现价挂单买入，若不识别会与普通可挂单信号混在同一个 BUY 分类里，
+    误导为"现在可执行"。
+    """
+    work = _daily_ohlcv(daily_history) if daily_history is not None else pd.DataFrame()
+    if len(work) < 2:
+        return {}
+    prev_close = safe_float(work["close"].iloc[-2], 0.0)
+    if prev_close <= 0:
+        return {}
+    state = classify_limit_move(
+        code=candidate.code,
+        name=candidate.name,
+        prev_close=prev_close,
+        open_=day_high,
+        high=day_high,
+        low=day_low,
+        close=last_close,
+    )
+    if state is None:
+        return {}
+    return {
+        "limit_up_touched": bool(state.touched_limit_up),
+        "limit_up_closed": bool(state.closed_limit_up),
     }
 
 
@@ -780,10 +838,19 @@ def evaluate_rule_decision(
     daily_history: pd.DataFrame | None = None,
 ) -> TailBuyCandidate:
     daily_context = _build_daily_context(candidate.snap) if candidate.snap else None
-    policy = _strategy_config(config)
+    policy = board_scaled_strategy_config(config, candidate.code)
     features = compute_tail_features(df_1m, daily_context, config=policy)
     features.update(_daily_trap_features(daily_history, policy))
     features.update(_candidate_context_features(candidate, _latest_intraday_session(ensure_intraday_df(df_1m))))
+    features.update(
+        _limit_up_features(
+            candidate,
+            daily_history,
+            features.get("day_high", 0.0),
+            features.get("day_low", 0.0),
+            features.get("last_close", 0.0),
+        )
+    )
     if candidate.market_regime:
         features["market_regime"] = candidate.market_regime
     score, decision, reasons = score_tail_features(
