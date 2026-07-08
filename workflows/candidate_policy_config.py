@@ -7,6 +7,7 @@ import os
 from core.candidate_policy import CandidatePolicyConfig
 from utils.env import env_bool as _env_bool
 from utils.env import env_float as _env_float
+from utils.env import env_int as _env_int
 
 
 def candidate_policy_config_from_env() -> CandidatePolicyConfig:
@@ -24,6 +25,8 @@ def candidate_policy_config_from_env() -> CandidatePolicyConfig:
         pure_evr_observe_only=_env_bool("FUNNEL_LOSS_GUARD_PURE_EVR_OBSERVE_ONLY", True),
         pure_evr_min_score_default=evr_min_score if evr_min_score is not None else 3.0,
         pure_evr_min_score_hot=evr_min_score if evr_min_score is not None else 5.0,
+        weak_confirmation_min_abc=_env_int("FUNNEL_LOSS_GUARD_WEAK_CONFIRMATION_MIN_ABC", 2, minimum=0),
+        pure_sos_min_abc=_env_int("FUNNEL_LOSS_GUARD_PURE_SOS_MIN_ABC", 3, minimum=0),
         risk_on_pre5_ret=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET", 35.0),
         risk_on_range_pos=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_RANGE_POS", 85.0),
         risk_on_vol_ratio=_env_float("FUNNEL_LOSS_GUARD_RISK_ON_VOL_RATIO", 1.8),

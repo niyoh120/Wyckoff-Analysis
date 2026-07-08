@@ -557,19 +557,17 @@ def _track_alignment_bonus(
     weights: dict[str, float],
     regime: str,
 ) -> float:
-    if is_trend_side and (code in hit_sets["sos"] or code in hit_sets["evr"] or code in hit_sets["trend_pullback"]):
-        return 10.0 * max(
-            _signal_weight(weights, "sos", regime),
-            _signal_weight(weights, "evr", regime),
-            _signal_weight(weights, "trend_pullback", regime),
-        )
-    if not is_trend_side and (code in hit_sets["spring"] or code in hit_sets["lps"] or code in hit_sets["compression"]):
-        return 10.0 * max(
-            _signal_weight(weights, "spring", regime),
-            _signal_weight(weights, "lps", regime),
-            _signal_weight(weights, "compression", regime),
-        )
-    return 0.0
+    """赛道对齐奖励：只对候选实际命中的信号类型取权重最大值。
+
+    此前会无条件对整条赛道的全部信号类型取全局权重 max()，导致一个仅由
+    已 DECAYED 信号（如 evr）命中的候选，因为同赛道里另一个健康信号（如
+    sos）的全局权重高，而拿到未降权的满额奖励——精细降权被稀释成了粗粒度。
+    """
+    trend_keys = ("sos", "evr", "trend_pullback")
+    accum_keys = ("spring", "lps", "compression")
+    keys = trend_keys if is_trend_side else accum_keys
+    hit_weights = [_signal_weight(weights, key, regime) for key in keys if code in hit_sets[key]]
+    return 10.0 * max(hit_weights) if hit_weights else 0.0
 
 
 def _stage_score(stage_name: str, is_trend_side: bool) -> float:

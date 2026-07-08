@@ -10,6 +10,7 @@ import yaml
 from core.ai_candidate_allocation import (
     DEFAULT_AI_QUOTA_BY_FAMILY,
     AiCandidateAllocationConfig,
+    _track_alignment_bonus,
     allocate_ai_candidates,
     resolve_ai_candidate_policy,
 )
@@ -491,6 +492,88 @@ class TestAllocateAiCandidates:
 
         assert trend == []
         assert accum == []
+
+
+class TestTrackAlignmentBonus:
+    """一个候选被降权信号命中时，赛道对齐奖励必须按该候选实际命中的信号取权重，
+    不能被同赛道里另一个健康信号的全局权重掩盖（否则精细降权会被稀释成粗粒度）。
+    """
+
+    def test_bonus_uses_hit_signal_weight_not_global_track_max(self):
+        weights = {"sos": 1.0, "evr": 0.4, "trend_pullback": 1.0}
+        hit_sets = {
+            "sos": set(),
+            "evr": {"X001"},
+            "trend_pullback": set(),
+            "spring": set(),
+            "lps": set(),
+            "compression": set(),
+        }
+
+        bonus = _track_alignment_bonus("X001", True, hit_sets, weights, "NEUTRAL")
+
+        assert bonus == 4.0
+
+    def test_bonus_stays_full_when_candidate_hit_by_healthy_signal(self):
+        weights = {"sos": 1.0, "evr": 0.4, "trend_pullback": 1.0}
+        hit_sets = {
+            "sos": {"X002"},
+            "evr": set(),
+            "trend_pullback": set(),
+            "spring": set(),
+            "lps": set(),
+            "compression": set(),
+        }
+
+        bonus = _track_alignment_bonus("X002", True, hit_sets, weights, "NEUTRAL")
+
+        assert bonus == 10.0
+
+    def test_bonus_uses_best_of_multiple_hit_signals(self):
+        weights = {"sos": 1.0, "evr": 0.4, "trend_pullback": 1.0}
+        hit_sets = {
+            "sos": {"X003"},
+            "evr": {"X003"},
+            "trend_pullback": set(),
+            "spring": set(),
+            "lps": set(),
+            "compression": set(),
+        }
+
+        bonus = _track_alignment_bonus("X003", True, hit_sets, weights, "NEUTRAL")
+
+        assert bonus == 10.0
+
+    def test_decayed_evr_candidate_scores_lower_than_healthy_sos_candidate(self):
+        result = FunnelResult(
+            layer1_symbols=["EVR001", "SOS001"],
+            layer2_symbols=["EVR001", "SOS001"],
+            layer3_symbols=["EVR001", "SOS001"],
+            top_sectors=[],
+            triggers={"evr": [("EVR001", 10.0)], "sos": [("SOS001", 10.0)]},
+            stage_map={},
+            markup_symbols=[],
+            exit_signals={},
+            channel_map={"EVR001": "趋势延续", "SOS001": "趋势延续"},
+            leader_radar_symbols=[],
+            leader_radar_rows=[],
+        )
+
+        _trend, _accum, scores = allocate_ai_candidates(
+            result,
+            [],
+            "NEUTRAL",
+            policy_override={
+                "total_cap": 2,
+                "trend_quota": 2,
+                "accum_quota": 0,
+                "max_trend_l3_fill": 0,
+                "max_accum_l3_fill": 0,
+            },
+            signal_weight_map={"sos": 1.0, "evr": 0.4},
+        )
+
+        assert scores["SOS001"] > scores["EVR001"]
 
 
 def _workflow_job_env(path: str, job_name: str) -> dict[str, str]:

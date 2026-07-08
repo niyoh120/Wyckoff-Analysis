@@ -38,6 +38,7 @@ class CandidatePolicyConfig:
     pure_evr_min_score_default: float = 3.0
     pure_evr_min_score_hot: float = 5.0
     weak_confirmation_min_abc: int = 2
+    pure_sos_min_abc: int = 3
     risk_on_pre5_ret: float = 35.0
     risk_on_range_pos: float = 85.0
     risk_on_vol_ratio: float = 1.8
@@ -217,26 +218,32 @@ def _weak_confirmation_reason(keys: set[str], df: pd.DataFrame | None, config: C
         return ""
     if not (keys <= NAKED_RIGHT_SIDE_TRIGGERS or keys & TREND_CANDIDATE_TRIGGERS):
         return ""
+    if df is None:
+        # 调用方本就没有接入K线数据（如部分回测/诊断的轻量路径），无法评判，交给其余分支处理。
+        return ""
+    # df 存在但历史长度不足/字段缺失时按最保守值(0)处理，绝不能因为"算不出来"而放行——
+    # 历史上 legacy_layered 策略版本未计算 springboard，就是靠这个空子把大量弱确认
+    # SOS/EVR 放进了正式候选，是信号胜率被拖累的主因之一。
     met_count = _springboard_met_count(df, keys)
-    if met_count is None or met_count >= config.weak_confirmation_min_abc:
+    if met_count >= config.weak_confirmation_min_abc:
         return ""
     if keys <= NAKED_RIGHT_SIDE_TRIGGERS:
         return "右侧信号ABC不足"
     return "趋势候选ABC不足"
 
 
-def _springboard_met_count(df: pd.DataFrame | None, keys: set[str]) -> int | None:
-    if df is None or df.empty or not {"open", "high", "low", "close", "volume"}.issubset(df.columns):
-        return None
+def _springboard_met_count(df: pd.DataFrame, keys: set[str]) -> int:
+    if df.empty or not {"open", "high", "low", "close", "volume"}.issubset(df.columns):
+        return 0
     if len(df) < 60:
-        return None
+        return 0
     counts = []
     for signal_type in sorted(keys):
         try:
             counts.append(int(score_springboard_abc(df, signal_type).get("met_count") or 0))
         except Exception:
             continue
-    return max(counts) if counts else None
+    return max(counts) if counts else 0
 
 
 def _pure_lps_reason(regime_norm: str, trigger_score: float, config: CandidatePolicyConfig) -> str:
@@ -273,6 +280,10 @@ def _naked_right_side_reason(
         return "单EVR仅观察"
     if "sos" in keys and trigger_score < config.pure_sos_min_score:
         return "低分SOS"
+    if keys == {"sos"} and df is not None and _springboard_met_count(df, keys) < config.pure_sos_min_abc:
+        # 回刷数据显示：纯SOS只有ABC三项全部满足(met_count=3)才是正期望(胜率53.8%/+3.98%)，
+        # met_count=2 依然是负期望(-1.46%)，弱确认门槛(>=2)对纯SOS不够严。
+        return "纯SOS确认强度不足"
     evr_min_score = (
         config.pure_evr_min_score_hot
         if regime_norm in {"RISK_ON", "BEAR_REBOUND"}

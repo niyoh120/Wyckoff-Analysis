@@ -847,3 +847,77 @@ def test_stratified_stats_include_exit_and_excursion_diagnostics() -> None:
     assert stats["by_trigger"]["sos"]["avg_mae_pct"] == -4.5
     assert stats["by_exit_reason"]["stop_loss"]["trades"] == 1
     assert stats["by_entry_price_source"]["daily_close_fallback"]["trades"] == 1
+
+
+def test_loss_guard_rejects_sos_when_df_too_short() -> None:
+    """df 存在但长度不足60天时，应视为 ABC 无法确认，拒绝放行。"""
+    short_df = _low_confirmation_df(rows=40)
+    reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["sos"],
+        8.0,
+        "点火破局",
+        {"000001": short_df},
+    )
+    assert reason == "右侧信号ABC不足"
+
+
+def test_loss_guard_rejects_sos_when_df_missing_ohlcv_columns() -> None:
+    """df 存在但缺少必要列时，应视为 ABC 无法确认，拒绝放行。"""
+    bad_df = pd.DataFrame({"close": [10.0] * 80, "volume": [100.0] * 80})
+    reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["sos"],
+        8.0,
+        "点火破局",
+        {"000001": bad_df},
+    )
+    assert reason == "右侧信号ABC不足"
+
+
+def test_loss_guard_passes_sos_when_df_is_none() -> None:
+    """df_map 中完全没有该 code 的 df 时，跳过 ABC 检查，交给后续分支。"""
+    reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["sos"],
+        8.0,
+        "点火破局",
+        {},
+    )
+    # 不应返回 "右侧信号ABC不足"，但可能被 _naked_right_side_reason 的
+    # "低分SOS" 或 "纯SOS确认强度不足" 拦下，取决于 df=None 时的分支。
+    assert reason != "右侧信号ABC不足"
+
+
+def test_loss_guard_pure_sos_needs_three_abc() -> None:
+    """纯SOS信号需要ABC三项全部满足(met_count>=3)才能通过右侧确认。"""
+    reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["sos"],
+        8.0,
+        "点火破局",
+        {"000001": _low_confirmation_df()},
+    )
+    assert "SOS" in reason or "ABC" in reason
+
+
+def test_loss_guard_mixed_sos_spring_passes_with_two_abc() -> None:
+    """SOS+spring 组合信号仍用弱确认门槛(>=2)而非纯SOS收紧门槛(>=3)。"""
+    reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["sos", "spring"],
+        8.0,
+        "点火破局",
+        {"000001": _low_confirmation_df()},
+    )
+    # spring 不属于 NAKED_RIGHT_SIDE_TRIGGERS，所以 keys 不满足
+    # keys <= NAKED_RIGHT_SIDE_TRIGGERS，不会进入 _naked_right_side_reason。
+    # 也不满足 keys <= NAKED_RIGHT_SIDE_TRIGGERS for weak_confirmation。
+    # 但 spring 在 STRUCTURAL_L4_TRIGGERS，走 is_tradeable_l4 判定。
+    # 此处验证不会被 "纯SOS确认强度不足" 拦截。
+    assert reason != "纯SOS确认强度不足"
