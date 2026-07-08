@@ -620,25 +620,40 @@ def build_signal_registry_updates(
     horizon_days: int = 10,
     registry_rows: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    rows = [r for r in health_rows if r.get("regime") == "ALL" and int(r.get("horizon_days") or 0) == horizon_days]
+    target_horizon = horizon_days
     status_by_signal = _registry_status_by_signal(registry_rows)
+    # 按regime拆分存储：每个 (signal_type, regime) 都有独立行，
+    # resolve_signal_weight_multiplier 会优先命中带regime的精确行，
+    # 避免像 launchpad 这样"允许买入市况下正期望、但被全局统计拖累"的信号被误降权。
     updates = []
-    for row in rows:
-        state = str(row.get("health_state") or "INSUFFICIENT")
+    for row in health_rows:
+        if int(row.get("horizon_days") or 0) != target_horizon:
+            continue
+        regime = str(row.get("regime") or "ALL").strip().upper() or "ALL"
         signal_type = normalize_signal_type(row.get("signal_type"))
+        if not signal_type:
+            continue
+        # 信号级 status 只取 regime=ALL 的全局行来判定（保持向后兼容）；
+        # regime 拆分行只用于精确权重查询，status 跟随全局行。
+        state = str(row.get("health_state") or "INSUFFICIENT")
         current_status = status_by_signal.get(signal_type, "ACTIVE")
-        status = _next_registry_status(signal_type, state, current_status)
+        status = (
+            _next_registry_status(signal_type, state, current_status)
+            if regime == "ALL"
+            else status_by_signal.get(signal_type, "ACTIVE")
+        )
         updates.append(
             {
                 "market": market,
                 "signal_type": signal_type,
                 "track": row.get("track") or signal_track(signal_type),
+                "regime": "" if regime == "ALL" else regime,
                 "status": status,
                 "weight_multiplier": row.get("weight_multiplier") or 1.0,
                 "sample_count": row.get("sample_count") or 0,
                 "win_rate_pct": row.get("win_rate_pct"),
                 "avg_return_pct": row.get("avg_return_pct"),
-                "horizon_days": horizon_days,
+                "horizon_days": target_horizon,
                 "reason": row.get("reason") or "",
                 "updated_at": datetime.now(UTC).isoformat(),
             }

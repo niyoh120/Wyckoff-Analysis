@@ -53,7 +53,7 @@ def build_symbol_report_row(
         "initial_price": float(maps.latest_close_map.get(code, 0.0) or 0.0),
         "industry": _industry(code, maps.sector_map),
     }
-    row.update(signal_report_fields(code, maps.code_to_trigger_keys, track, market_regime, score))
+    row.update(signal_report_fields(code, maps.code_to_trigger_keys, track, market_regime, score, selection_source))
     row.update(_sector_fields(row["industry"], maps.sector_rotation_map))
     row.update(_exit_fields(code, maps.exit_signals))
     row.update(theme_report_fields(code, maps.theme_candidate_map, maps.theme_bonus_map))
@@ -90,9 +90,10 @@ def signal_report_fields(
     track: str,
     regime: str,
     trigger_score: float,
+    selection_source: str = "",
 ) -> dict[str, Any]:
     signal_types = _signal_types(trigger_key_map.get(code, []) or [])
-    primary_signal = signal_types[0] if signal_types else ("strategic_review" if str(track or "").strip() else "")
+    primary_signal = signal_types[0] if signal_types else _fallback_primary_signal(selection_source, track)
     return {
         "primary_signal": primary_signal,
         "signal_types": signal_types,
@@ -100,6 +101,14 @@ def signal_report_fields(
         "market_regime": str(regime or "NEUTRAL").strip().upper() or "NEUTRAL",
         "trigger_score": safe_float(trigger_score),
     }
+
+
+def _fallback_primary_signal(selection_source: str, track: str) -> str:
+    """无 L4 trigger key 时，用候选来源代替，避免归因样本里 primary_signal 大面积为空。"""
+    source = str(selection_source or "").strip()
+    if source:
+        return source
+    return "strategic_review" if str(track or "").strip() else ""
 
 
 def _sector_fields(industry: str, sector_rotation_map: dict[str, dict]) -> dict[str, str]:

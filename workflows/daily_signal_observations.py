@@ -334,6 +334,7 @@ def _fetch_intraday_tail_payloads(
         support = springboard.get("springboard_support")
         payload = _intraday_tail_payload(
             df_1m,
+            code=code,
             signal_type=sig,
             trigger_score=trigger_score,
             daily_context={"support_level": support} if support else None,
@@ -346,18 +347,21 @@ def _fetch_intraday_tail_payloads(
 def _intraday_tail_payload(
     df_1m: Any,
     *,
+    code: str,
     signal_type: str,
     trigger_score: float,
     daily_context: dict | None,
 ) -> dict:
-    from core.tail_buy.strategy import compute_tail_features, score_tail_features
+    from core.tail_buy.strategy import board_scaled_strategy_config, compute_tail_features, score_tail_features
 
-    features = compute_tail_features(df_1m, daily_context=daily_context)
+    policy = board_scaled_strategy_config(None, code)
+    features = compute_tail_features(df_1m, daily_context=daily_context, config=policy)
     tail_score, tail_decision, reasons = score_tail_features(
         features,
         signal_score=trigger_score,
         signal_type=signal_type,
         status="pending",
+        config=policy,
     )
     return {
         "version": "intraday_tail_confirmation_v1",

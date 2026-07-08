@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from workflows.funnel_ai_selection import FunnelAiSelection
+
 
 def test_execution_decision_line_makes_observe_only_action_explicit() -> None:
     from workflows.funnel_render import _execution_decision_line
@@ -90,6 +92,70 @@ def test_policy_governance_line_sanitizes_invalid_weights() -> None:
     assert "bad×1.00" in line
     assert "nan×1.00" in line
     assert "inf×1.00" in line
+
+
+def _make_selection(codes: list[str]) -> FunnelAiSelection:
+    return FunnelAiSelection(
+        selected_for_ai=codes,
+        trend_selected=codes,
+        accum_selected=[],
+        score_map={code: 10.0 for code in codes},
+        ai_policy={},
+        theme_promoted_count=0,
+    )
+
+
+def test_top_candidate_list_lists_every_selected_code_with_buy_gate_note(monkeypatch) -> None:
+    import workflows.funnel_render_context as render_context
+    from workflows.funnel_render import _top_candidate_list_lines
+
+    monkeypatch.setattr(render_context, "load_stock_name_map", lambda: {"000001": "平安银行"})
+    monkeypatch.setattr(render_context, "fetch_sector_map", lambda: {})
+
+    ctx = render_context.build_render_context(
+        {"sos": [("000001", 10.0)]},
+        {"benchmark_context": {"regime": "RISK_ON"}},
+    )
+    selection = _make_selection(["000001"])
+
+    lines = _top_candidate_list_lines(ctx, selection)
+
+    assert lines[0] == "**【✅ 今日候选清单】1 只**"
+    assert "BUY-APPROVED" in lines[1]
+    assert any("000001 平安银行" in line for line in lines)
+
+
+def test_top_candidate_list_marks_observe_only_when_recommendation_write_blocked(monkeypatch) -> None:
+    import workflows.funnel_render_context as render_context
+    from workflows.funnel_render import _top_candidate_list_lines
+
+    monkeypatch.setattr(render_context, "load_stock_name_map", lambda: {})
+    monkeypatch.setattr(render_context, "fetch_sector_map", lambda: {})
+
+    ctx = render_context.build_render_context(
+        {"sos": [("000001", 10.0)]}, {"benchmark_context": {"regime": "PANIC_REPAIR"}}
+    )
+    selection = _make_selection(["000001"])
+
+    lines = _top_candidate_list_lines(ctx, selection)
+
+    assert "观察买入" in lines[1]
+
+
+def test_top_candidate_list_shows_empty_placeholder_when_no_candidates(monkeypatch) -> None:
+    import workflows.funnel_render_context as render_context
+    from workflows.funnel_render import _top_candidate_list_lines
+
+    monkeypatch.setattr(render_context, "load_stock_name_map", lambda: {})
+    monkeypatch.setattr(render_context, "fetch_sector_map", lambda: {})
+
+    ctx = render_context.build_render_context({}, {"benchmark_context": {"regime": "RISK_ON"}})
+    selection = _make_selection([])
+
+    lines = _top_candidate_list_lines(ctx, selection)
+
+    assert lines[0] == "**【✅ 今日候选清单】0 只**"
+    assert "  无" in lines
 
 
 def test_render_context_treats_event_reversal_mainline_as_tradeable(monkeypatch) -> None:

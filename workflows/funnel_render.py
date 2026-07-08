@@ -20,6 +20,7 @@ from workflows.funnel_report_payload import (
     funnel_run_details,
     legacy_symbol_rows,
     modern_symbol_rows,
+    selected_track,
     stage_name,
 )
 from workflows.funnel_settings import (
@@ -302,6 +303,36 @@ def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[s
     ]
 
 
+def _candidate_list_note(mode) -> str:
+    if not mode.allow_ai_review:
+        return "今日禁止新仓，以下候选仅供观察，不构成买入依据。"
+    if not mode.allow_recommendation_write:
+        return "观察买入：以下候选仅供观察，需等 Step3 研报与尾盘二次确认后才可能买入。"
+    return "以下候选将送 Step3 AI 复核，只有研报给出 BUY-APPROVED 才是可执行买入。"
+
+
+def _candidate_list_row(ctx: Any, selection: FunnelAiSelection, code: str) -> str:
+    name = ctx.name_map.get(code, code)
+    track = selected_track(selection, code)
+    track_badge = f"[{track}] " if track else ""
+    score = display_score(ctx, selection, code)
+    theme_badge = f"  {ctx.theme_badge_map[code]}" if code in ctx.theme_badge_map else ""
+    return f"  {track_badge}{code} {name}  {score:.2f}{_confirmation_suffix(ctx, code)}{theme_badge}"
+
+
+def _top_candidate_list_lines(ctx: Any, selection: FunnelAiSelection) -> list[str]:
+    selected_for_ai = selection.selected_for_ai
+    mode = resolve_market_trade_mode(ctx.regime)
+    lines = [f"**【✅ 今日候选清单】{len(selected_for_ai)} 只**", _candidate_list_note(mode)]
+    if not selected_for_ai:
+        lines.append("  无")
+    else:
+        ranked = sorted(selected_for_ai, key=lambda c: -display_score(ctx, selection, c))
+        lines.extend(_candidate_list_row(ctx, selection, code) for code in ranked)
+    lines.append("")
+    return lines
+
+
 def _funnel_card_title() -> str:
     return f"🔬 Wyckoff Funnel {date.today().strftime('%Y-%m-%d')}"
 
@@ -475,7 +506,9 @@ def _append_legacy_selected_sections(lines: list[str], ctx: Any, selected_for_ai
 def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str]:
     bench_line, money_line, amount_line, pv_line, pv_shadow_line = _market_report_lines(ctx.benchmark_context)
     selected_for_ai = selection.selected_for_ai
-    lines = _top_summary_lines(ctx, len(selected_for_ai), money_line) + [
+    lines = _top_summary_lines(ctx, len(selected_for_ai), money_line)
+    lines.extend(_top_candidate_list_lines(ctx, selection))
+    lines += [
         _pool_summary_line(ctx.metrics),
         f"**筛选概览**: {ctx.metrics['total_symbols']}只 → 基础准入:{ctx.metrics['layer1']} "
         f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → 买点确认事件:{ctx.metrics['total_hits']}",
@@ -664,6 +697,7 @@ def _build_modern_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     counts = _modern_selection_counts(ctx, selection)
     _print_modern_selection_summary(ctx, selection, counts)
     lines = _modern_header_lines(ctx, selection, counts)
+    lines.extend(_top_candidate_list_lines(ctx, selection))
     append_etf_section(lines, ctx.etf_metrics, ctx.etf_candidates, display_limit=FUNNEL_ETF_DISPLAY_LIMIT)
     if ctx.etf_metrics or ctx.etf_candidates:
         lines.append("")

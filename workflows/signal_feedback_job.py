@@ -13,8 +13,10 @@ import pandas as pd
 from core.signal_feedback import build_signal_registry_updates, summarize_signal_health
 from core.signal_lifecycle import evaluate_signal_lifecycle
 from integrations.supabase_signal_feedback import (
+    load_pending_outcome_observation_ids,
     load_recent_signal_observations,
     load_recent_signal_outcomes,
+    load_signal_observations_by_ids,
     load_signal_registry,
     upsert_signal_health,
     upsert_signal_outcomes,
@@ -60,7 +62,7 @@ def run_signal_feedback(config: SignalFeedbackConfig, log_fn: LogFn = print) -> 
 
 
 def refresh_outcomes(config: SignalFeedbackConfig, log_fn: LogFn = print) -> int:
-    observations = load_recent_signal_observations(config.observation_days, config.limit, config.market)
+    observations = _observations_to_settle(config)
     cache: dict[tuple[str, str, str], pd.DataFrame] = {}
     rows: list[dict[str, Any]] = []
     for obs in observations:
@@ -71,6 +73,21 @@ def refresh_outcomes(config: SignalFeedbackConfig, log_fn: LogFn = print) -> int
     written = upsert_signal_outcomes(rows)
     log_fn(f"[signal_feedback] outcomes: observations={len(observations)}, rows={len(rows)}, written={written}")
     return written
+
+
+def _observations_to_settle(config: SignalFeedbackConfig) -> list[dict[str, Any]]:
+    """滚动窗口内的最新观测 + 窗口外仍未结算完的补漏观测，按 id 去重。
+
+    outcome 结算依赖未来 K 线数据补齐；仅按 observation_days 滚动窗口拉取会让
+    触发时间较早、当时未结算成功的信号一旦滑出窗口就永久卡在 pending。
+    """
+    recent = load_recent_signal_observations(config.observation_days, config.limit, config.market)
+    seen_ids = {obs.get("id") for obs in recent}
+    pending_ids = [
+        oid for oid in load_pending_outcome_observation_ids(config.outcome_limit, config.market) if oid not in seen_ids
+    ]
+    backfill = load_signal_observations_by_ids(pending_ids, config.market)
+    return recent + backfill
 
 
 def refresh_health(config: SignalFeedbackConfig, log_fn: LogFn = print) -> int:

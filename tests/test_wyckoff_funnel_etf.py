@@ -790,3 +790,15 @@ def test_signal_report_fields_fallback_for_strategic_review():
 
     assert fields["primary_signal"] == "strategic_review"
     assert fields["signal_types"] == []
+
+
+def test_signal_report_fields_fallback_prefers_selection_source():
+    fields = signal_report_fields("000001", {}, "Trend", "crash", 0.0, "l2_bypass")
+
+    assert fields["primary_signal"] == "l2_bypass"
+
+
+def test_signal_report_fields_fallback_empty_without_track_or_source():
+    fields = signal_report_fields("000001", {}, "", "crash", 0.0)
+
+    assert fields["primary_signal"] == ""

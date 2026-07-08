@@ -650,6 +650,24 @@ def test_dynamic_policy_tracks_scoped_weight_by_base_signal():
     assert policy["trend_quota"] > policy["accum_quota"]
 
 
+def test_dynamic_policy_scoped_weight_does_not_double_count_same_signal():
+    """同一信号的全局 key 与 regime-scoped key 不应被当成两个样本重复计入轨道均值。"""
+    base = {
+        "quota_family": "NEUTRAL",
+        "total_cap": 10,
+        "requested_trend_quota": 5,
+        "requested_accum_quota": 5,
+        "trend_quota": 5,
+        "accum_quota": 5,
+    }
+    # sos 的全局权重是 1.0（健康），但 RISK_ON 下的精确评估是 0.4（已衰退）。
+    # 若重复计入均值，会把 Trend 权重错误算成 (1.0+0.4)/2=0.7；
+    # 正确做法是 scoped key 更精确，应完全覆盖全局值，得到 0.4。
+    policy = resolve_dynamic_candidate_policy(base, {"sos": 1.0, "sos|regime=RISK_ON": 0.4})
+
+    assert policy["trend_health_weight"] == 0.4
+
+
 def test_dynamic_policy_uses_configured_feedback_horizon():
     weights = build_signal_weight_map(
         [
@@ -917,3 +935,139 @@ def test_signal_feedback_job_builds_outcome_rows():
     assert rows[0]["horizon_days"] == 1
     assert rows[0]["status"] == "done"
     assert round(rows[0]["return_pct"], 2) == 9.09
+
+
+def test_observations_to_settle_backfills_pending_outcomes_outside_window(monkeypatch):
+    """滚动窗口外仍卡在 pending 的 observation 应被补进本次结算，而不是永久遗漏。"""
+    from workflows import signal_feedback_job as job
+
+    recent = [{"id": 5, "code": "000005"}]
+    stale_pending = [{"id": 1, "code": "000001"}]
+    monkeypatch.setattr(job, "load_recent_signal_observations", lambda *_a, **_k: recent)
+    monkeypatch.setattr(job, "load_pending_outcome_observation_ids", lambda *_a, **_k: [1, 5])
+    monkeypatch.setattr(
+        job, "load_signal_observations_by_ids", lambda ids, _market: stale_pending if ids == [1] else []
+    )
+
+    result = job._observations_to_settle(job.SignalFeedbackConfig())
+
+    assert result == [*recent, *stale_pending]
+
+
+def test_observations_to_settle_skips_ids_already_in_recent_window(monkeypatch):
+    """已在滚动窗口内的 observation 不应重复补拉。"""
+    from workflows import signal_feedback_job as job
+
+    recent = [{"id": 5, "code": "000005"}]
+    requested_ids: list[list[int]] = []
+    monkeypatch.setattr(job, "load_recent_signal_observations", lambda *_a, **_k: recent)
+    monkeypatch.setattr(job, "load_pending_outcome_observation_ids", lambda *_a, **_k: [5])
+    monkeypatch.setattr(job, "load_signal_observations_by_ids", lambda ids, _market: requested_ids.append(ids) or [])
+
+    result = job._observations_to_settle(job.SignalFeedbackConfig())
+
+    assert result == recent
+    assert requested_ids == [[]]
+
+
+def test_build_signal_weight_map_includes_regime_scoped_keys():
+    """build_signal_weight_map 应为 health 行生成带 regime 的 scoped key。"""
+    health_rows = [
+        {
+            "as_of_date": "2026-06-10",
+            "signal_type": "launchpad",
+            "regime": "RISK_ON",
+            "horizon_days": 5,
+            "weight_multiplier": 1.0,
+        },
+    ]
+    weights = build_signal_weight_map(health_rows, regime="RISK_ON")
+    assert "launchpad" in weights
+    assert weights["launchpad"] == 1.0
+    assert "launchpad|regime=RISK_ON" in weights
+    assert weights["launchpad|regime=RISK_ON"] == 1.0
+
+
+def test_build_signal_weight_map_regime_scoped_registry_overrides():
+    """registry 中带 regime 的精确行应生成 scoped key，且不影响全局权重。"""
+    health_rows = [
+        {
+            "as_of_date": "2026-06-10",
+            "signal_type": "launchpad",
+            "regime": "ALL",
+            "horizon_days": 5,
+            "weight_multiplier": 0.75,
+        },
+    ]
+    registry_rows = [
+        {"signal_type": "launchpad", "status": "WATCH", "weight_multiplier": 0.75, "regime": ""},
+        {"signal_type": "launchpad", "status": "ACTIVE", "weight_multiplier": 1.0, "regime": "RISK_ON"},
+        {"signal_type": "launchpad", "status": "ACTIVE", "weight_multiplier": 0.4, "regime": "PANIC_REPAIR"},
+    ]
+    weights = build_signal_weight_map(health_rows, registry_rows, regime="RISK_ON")
+    # 全局权重由 health + 全局 registry 行决定
+    assert weights["launchpad"] == 0.75
+    # RISK_ON 精确行不应覆盖全局权重
+    assert weights.get("launchpad|regime=RISK_ON") == 1.0
+    # PANIC_REPAIR 精确行也应有 scoped key
+    assert weights.get("launchpad|regime=PANIC_REPAIR") == 0.4
+
+
+def test_build_signal_weight_map_regime_scoped_health_overrides_global():
+    """health 行中精确匹配当前 regime 的行应优先于全局行。"""
+    health_rows = [
+        {
+            "as_of_date": "2026-06-10",
+            "signal_type": "launchpad",
+            "regime": "ALL",
+            "horizon_days": 5,
+            "weight_multiplier": 0.75,
+        },
+        {
+            "as_of_date": "2026-06-10",
+            "signal_type": "launchpad",
+            "regime": "RISK_ON",
+            "horizon_days": 5,
+            "weight_multiplier": 1.0,
+        },
+    ]
+    weights = build_signal_weight_map(health_rows, regime="RISK_ON")
+    # 精确匹配 RISK_ON 的 health 行应覆盖全局行
+    assert weights["launchpad"] == 1.0
+    assert weights.get("launchpad|regime=RISK_ON") == 1.0
+
+
+def test_build_signal_registry_updates_includes_regime_rows():
+    """build_signal_registry_updates 应同时输出全局行和按 regime 拆分的行。"""
+    health_rows = [
+        {
+            "regime": "ALL",
+            "horizon_days": 5,
+            "signal_type": "launchpad",
+            "track": "Trend",
+            "health_state": "WATCH",
+            "weight_multiplier": 0.75,
+            "sample_count": 370,
+            "win_rate_pct": 41.4,
+            "avg_return_pct": -0.86,
+            "reason": "win=41.4%, avg=-0.86%",
+        },
+        {
+            "regime": "RISK_ON",
+            "horizon_days": 5,
+            "signal_type": "launchpad",
+            "track": "Trend",
+            "health_state": "HEALTHY",
+            "weight_multiplier": 1.0,
+            "sample_count": 64,
+            "win_rate_pct": 67.2,
+            "avg_return_pct": 6.61,
+            "reason": "win=67.2%, avg=+6.61%",
+        },
+    ]
+    updates = build_signal_registry_updates(health_rows, market="cn", horizon_days=5)
+    regimes = {row["regime"] for row in updates}
+    assert "" in regimes  # 全局行 regime 为空字符串
+    assert "RISK_ON" in regimes
+    regime_row = next(r for r in updates if r["regime"] == "RISK_ON")
+    assert regime_row["weight_multiplier"] == 1.0

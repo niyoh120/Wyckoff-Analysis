@@ -40,6 +40,28 @@ def _recent_cutoff(days: int) -> str:
     return (date.today() - timedelta(days=max(int(days), 1))).isoformat()
 
 
+def _fetch_paginated(query_factory, limit: int, page_size: int = 1000) -> list[dict[str, Any]]:
+    """按 .range() 分页拉取，直到达到 limit 或数据取尽。
+
+    PostgREST 服务端对单次请求有硬性行数上限（常见默认 1000），客户端传更大的
+    ``.limit()`` 并不能突破它——超过上限时会被静默截断，且截断发生在按
+    trade_date 倒序排序之后，等价于"只看最近一批、其余全部丢失"。这会让
+    信号健康度统计长期基于失真的小样本，看不出信号已经变差。
+    """
+    page = max(min(int(page_size), 1000), 1)
+    rows: list[dict[str, Any]] = []
+    start = 0
+    while len(rows) < limit:
+        remaining = limit - len(rows)
+        stop = start + min(page, remaining) - 1
+        batch = query_factory().range(start, stop).execute().data or []
+        rows.extend(batch)
+        if len(batch) < min(page, remaining):
+            break
+        start += len(batch)
+    return rows
+
+
 def _looks_like_schema_miss(exc: Exception) -> bool:
     text = str(exc).lower()
     return "column" in text or "schema cache" in text or "could not find" in text
@@ -98,7 +120,7 @@ def upsert_signal_health(rows: list[dict[str, Any]]) -> int:
 
 
 def upsert_signal_registry(rows: list[dict[str, Any]]) -> int:
-    return _execute_upsert(TABLE_SIGNAL_REGISTRY, rows, "market,signal_type")
+    return _execute_upsert(TABLE_SIGNAL_REGISTRY, rows, "market,signal_type,regime")
 
 
 def upsert_policy_shadow_run(row: dict[str, Any]) -> int:
@@ -111,18 +133,79 @@ def load_recent_signal_observations(days: int = 90, limit: int = 5000, market: s
     client = None
     try:
         client = _admin()
-        resp = (
-            client.table(TABLE_SIGNAL_OBSERVATIONS)
-            .select("*")
-            .eq("market", market)
-            .gte("trade_date", _recent_cutoff(days))
-            .order("trade_date", desc=True)
-            .limit(max(int(limit), 1))
-            .execute()
-        )
-        return resp.data or []
+
+        def _query():
+            return (
+                client.table(TABLE_SIGNAL_OBSERVATIONS)
+                .select("*")
+                .eq("market", market)
+                .gte("trade_date", _recent_cutoff(days))
+                .order("trade_date", desc=True)
+                .order("id", desc=True)
+            )
+
+        return _fetch_paginated(_query, max(int(limit), 1))
     except Exception as exc:
         logger.warning("load observations failed: %s", exc)
+        return []
+    finally:
+        if client is not None:
+            _close(client)
+
+
+def load_pending_outcome_observation_ids(limit: int = 20000, market: str = "cn") -> list[int]:
+    """取出所有仍卡在 pending 的 observation_id，不受滚动时间窗限制。
+
+    outcome 结算依赖未来 K 线数据补齐，触发很久之前的信号一旦滑出
+    ``observation_days`` 窗口就再也不会被重新拉取结算，导致 pending 记录
+    永久卡死。这里单独按 outcome 表本身找出待结算的 observation，交给
+    refresh_outcomes 补跑。
+    """
+    if not _configured():
+        return []
+    client = None
+    try:
+        client = _admin()
+
+        def _query():
+            return (
+                client.table(TABLE_SIGNAL_OUTCOMES)
+                .select("observation_id")
+                .eq("market", market)
+                .eq("status", "pending")
+                .order("id", desc=True)
+            )
+
+        rows = _fetch_paginated(_query, max(int(limit), 1))
+        ids: set[int] = set()
+        for row in rows:
+            try:
+                ids.add(int(row.get("observation_id")))
+            except (TypeError, ValueError):
+                continue
+        return sorted(ids)
+    except Exception as exc:
+        logger.warning("load pending outcome ids failed: %s", exc)
+        return []
+    finally:
+        if client is not None:
+            _close(client)
+
+
+def load_signal_observations_by_ids(observation_ids: list[int], market: str = "cn") -> list[dict[str, Any]]:
+    if not _configured() or not observation_ids:
+        return []
+    client = None
+    try:
+        client = _admin()
+        rows: list[dict[str, Any]] = []
+        for chunk_start in range(0, len(observation_ids), 500):
+            chunk = observation_ids[chunk_start : chunk_start + 500]
+            resp = client.table(TABLE_SIGNAL_OBSERVATIONS).select("*").eq("market", market).in_("id", chunk).execute()
+            rows.extend(resp.data or [])
+        return rows
+    except Exception as exc:
+        logger.warning("load observations by ids failed: %s", exc)
         return []
     finally:
         if client is not None:
@@ -135,16 +218,18 @@ def load_recent_signal_outcomes(days: int = 180, limit: int = 20000, market: str
     client = None
     try:
         client = _admin()
-        resp = (
-            client.table(TABLE_SIGNAL_OUTCOMES)
-            .select("*")
-            .eq("market", market)
-            .gte("trade_date", _recent_cutoff(days))
-            .order("trade_date", desc=True)
-            .limit(max(int(limit), 1))
-            .execute()
-        )
-        return resp.data or []
+
+        def _query():
+            return (
+                client.table(TABLE_SIGNAL_OUTCOMES)
+                .select("*")
+                .eq("market", market)
+                .gte("trade_date", _recent_cutoff(days))
+                .order("trade_date", desc=True)
+                .order("id", desc=True)
+            )
+
+        return _fetch_paginated(_query, max(int(limit), 1))
     except Exception as exc:
         logger.warning("load outcomes failed: %s", exc)
         return []
