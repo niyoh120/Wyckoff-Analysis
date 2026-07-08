@@ -628,7 +628,7 @@ flowchart LR
 
 `core/tail_buy/` + `workflows/tail_buy_config.py` + `scripts/tail_buy_intraday_job.py`
 
-策略设计用于尾盘执行，从已确认候选中筛选买入标的；当前 GitHub Actions 工作流只保留 `workflow_dispatch`，日常 14:45 触发由外部自动化负责。
+策略设计用于尾盘执行，从已确认候选中筛选买入标的；当前 GitHub Actions 工作流只保留 `workflow_dispatch`，日常 14:40 触发由外部自动化负责。
 
 ### 两阶段评估
 
@@ -679,7 +679,7 @@ signal_pending (pending/confirmed)
 
 | 工作流 | 说明 |
 |-------|------|
-| **尾盘策略** (`tail_buy_1420.yml`) | `tail_buy_intraday_job.py`，当前只手动触发 |
+| **尾盘策略** (`tail_buy_1440.yml`) | `tail_buy_intraday_job.py`，当前只手动触发 |
 | **持仓诊断** (`holding_diagnosis.yml`) | `holding_diagnosis_job.py` |
 | **板块连续性报告** (`sector_continuity.yml`) | 也可手动补跑概念 / 行业热度 |
 | **Step4 From Supabase** (`step4_from_supabase.yml`) | 从 Supabase 推荐记录补跑 Step4 |

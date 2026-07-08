@@ -14,7 +14,7 @@ on:
           - post_close_review
 
 concurrency:
-  group: tail-buy-1350-${{ github.ref }}
+  group: tail-buy-1440-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -84,14 +84,14 @@ jobs:
             --mode "${{ inputs.mode || 'auto' }}" \
             --max-llm-symbols "${TAIL_BUY_LLM_TOP_N}" \
             --deadline-minute "${TAIL_BUY_TASK_TIMEOUT_MIN}" \
-            --logs "${{ github.workspace }}/logs/tail_buy_1350.log" \
-            2>&1 | tee -a "${{ github.workspace }}/logs/tail_buy_1350.console.log"
+            --logs "${{ github.workspace }}/logs/tail_buy_1440.log" \
+            2>&1 | tee -a "${{ github.workspace }}/logs/tail_buy_1440.console.log"
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tail-buy-1350-logs-${{ github.run_number }}
+          name: tail-buy-1440-logs-${{ github.run_number }}
           path: logs/*
           retention-days: 7
           if-no-files-found: warn

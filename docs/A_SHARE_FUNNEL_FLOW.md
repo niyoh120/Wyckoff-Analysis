@@ -334,7 +334,7 @@ shadow 新增表现、scoped 信号调权和回测确认。
 | **23:00 周一-周五** | `recommendation_tracking_reprice.yml` | 下游：复盘重定价 |
 | **次日 06:20 周二-周六** | `db_maintenance.yml` | 下游：清理过期数据 |
 | **23:30 周一-周五** | `signal_feedback.yml` | **下游反馈**：刷新 health / registry |
-| **次日尾盘** | `tail_buy_1420.yml` | **下游执行**：手动或外部自动化触发，读 `signal_pending` 尾盘策略；pending 只观察，confirmed 才可 BUY |
+| **次日尾盘** | `tail_buy_1440.yml` | **下游执行**：手动或外部自动化触发，读 `signal_pending` 尾盘策略；pending 只观察，confirmed 才可 BUY |
 
 ---
 
