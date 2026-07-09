@@ -34,6 +34,7 @@ from core.candidate_preference import (
 )
 from core.strategy_policy_display import policy_execution_mode_label, policy_next_action_label
 from utils.safe import drop_empty as _drop_empty_preview_fields
+from utils.safe import finite_float as _score_float
 
 PREVIEW_CHARS = 2_000
 
@@ -1250,13 +1251,6 @@ def _candidate_best_score(row: dict[str, Any]) -> float:
     )
     values = [_score_float(value) for value in scores]
     return max((value for value in values if value is not None), default=0.0)
-
-
-def _score_float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _candidate_conclusion_line(row: dict[str, Any], result: dict[str, Any]) -> str:

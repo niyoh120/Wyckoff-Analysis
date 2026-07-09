@@ -13,6 +13,7 @@ from core._price_math import clamp as _clamp
 from core._price_math import drawdown_pct as _drawdown_pct
 from core._price_math import ret_pct as _ret_pct
 from core.concept_filters import is_actionable_theme_name
+from utils.safe import finite_float as _as_float
 
 THEME_ALIASES: dict[str, tuple[str, ...]] = {
     "国产CPU": ("国产CPU", "CPU", "处理器", "龙芯", "海光", "飞腾", "鲲鹏", "x86", "risc-v", "riscv"),
@@ -546,13 +547,3 @@ def _days_since_high(close: pd.Series, lookback: int) -> int:
     if recent.empty:
         return 999
     return int(len(recent) - 1 - int(recent.idxmax()))
-
-
-def _as_float(value: Any) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    if pd.isna(result):
-        return None
-    return result

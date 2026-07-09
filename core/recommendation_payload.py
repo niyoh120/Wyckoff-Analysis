@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from core.candidate_metadata import CANDIDATE_ATTRIBUTION_COLUMNS, STRATEGY_VERSION_CANDIDATE_LANE_V1
+from core.candidate_metadata import code6 as _code6
 from core.constants import TABLE_RECOMMENDATION_TRACKING
 from utils.safe import safe_float
 
@@ -414,8 +415,3 @@ def _sql_literal(value: Any) -> str:
     if isinstance(value, int | float):
         return str(value)
     return "'" + str(value).replace("'", "''") + "'"
-
-
-def _code6(raw: Any) -> str:
-    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
-    return digits[-6:].zfill(6) if digits else ""

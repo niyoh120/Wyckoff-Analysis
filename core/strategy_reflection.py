@@ -5,13 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any
 
-
-def _safe_float(raw: Any, default: float = 0.0) -> float:
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return default
-    return value if value == value else default
+from utils.safe import safe_float as _safe_float
 
 
 def _done_rows(outcomes: list[dict[str, Any]], horizon_days: int) -> list[dict[str, Any]]:

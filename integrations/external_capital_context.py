@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import math
 from datetime import UTC, datetime
 from typing import Any
+
+from utils.safe import parse_cn_num as _num
 
 CAPITAL_CONTEXT_VERSION = "external_capital_context_v1"
 _CONTEXT_KEYS = ("lhb", "margin", "block_trade", "tick_large_order")
@@ -38,29 +39,6 @@ def _unique_codes(codes: list[str]) -> list[str]:
 def _yyyymmdd(trade_date: str) -> str:
     digits = "".join(ch for ch in str(trade_date or "") if ch.isdigit())
     return digits[:8]
-
-
-def _num(raw: Any) -> float | None:
-    if raw is None:
-        return None
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, int | float):
-        value = float(raw)
-        return None if math.isnan(value) else value
-    text = str(raw).strip().replace(",", "")
-    if text.lower() in {"", "-", "--", "nan", "none"}:
-        return None
-    multiplier = 1.0
-    if "亿" in text:
-        multiplier = 100_000_000.0
-    elif "万" in text:
-        multiplier = 10_000.0
-    text = text.replace("%", "").replace("亿", "").replace("万", "")
-    try:
-        return float(text) * multiplier
-    except ValueError:
-        return None
 
 
 def _records(df: Any) -> list[dict[str, Any]]:

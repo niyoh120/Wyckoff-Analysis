@@ -12,6 +12,7 @@ from core.candidate_tracks import (
     normalize_candidate_entry_key,
     stronger_candidate_entry,
 )
+from utils.safe import drop_empty as _without_empty
 
 STRATEGY_VERSION_CANDIDATE_LANE_V1 = "candidate_lane_v1"
 
@@ -210,7 +211,3 @@ def _json_object(raw: Any) -> dict[str, Any]:
             return {"text": raw.strip()}
         return parsed if isinstance(parsed, dict) else {"items": parsed}
     return {}
-
-
-def _without_empty(meta: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in meta.items() if value not in (None, "", [], {})}

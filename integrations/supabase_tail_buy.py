@@ -8,11 +8,13 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
+from core.candidate_metadata import code6 as _code6
 from core.constants import TABLE_TAIL_BUY_HISTORY
 from integrations.supabase_base import create_admin_client as _admin
 from integrations.supabase_base import create_read_client as _read
 from integrations.supabase_base import is_admin_configured as _configured
 from integrations.supabase_base import require_server_write_context
+from utils.safe import safe_float as _safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -92,19 +94,6 @@ def _legacy_row(row: dict[str, Any]) -> dict[str, Any]:
 def _looks_like_schema_miss(exc: Exception) -> bool:
     text = str(exc).lower()
     return "column" in text or "schema cache" in text or "could not find" in text
-
-
-def _safe_float(raw: Any, default: float = 0.0) -> float:
-    try:
-        value = float(raw)
-    except Exception:
-        return default
-    return value if value == value else default
-
-
-def _code6(raw: Any) -> str:
-    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
-    return digits[-6:].zfill(6) if digits else ""
 
 
 def _chunked(items: list[Any], size: int) -> list[list[Any]]:

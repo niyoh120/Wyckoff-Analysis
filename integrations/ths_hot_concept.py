@@ -10,8 +10,10 @@ from typing import Any
 
 import requests
 
+from core.candidate_metadata import code6 as _code6
 from core.concept_filters import is_actionable_theme_name
 from core.theme_radar import normalize_theme_name
+from utils.safe import safe_float as _as_float
 
 logger = logging.getLogger(__name__)
 
@@ -313,15 +315,3 @@ def _write_cache(payload: dict[str, Any]) -> None:
 
 def _heat_text(value: float) -> str:
     return f"{value / 10000:.1f}万" if value >= 10_000 else f"{value:.0f}"
-
-
-def _code6(raw: Any) -> str:
-    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
-    return digits[-6:].zfill(6) if digits else ""
-
-
-def _as_float(raw: Any) -> float:
-    try:
-        return float(raw or 0.0)
-    except (TypeError, ValueError):
-        return 0.0

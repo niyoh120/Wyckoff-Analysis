@@ -9,6 +9,7 @@ from core.candidate_actions import (
     candidate_action_blocks_direct_buy,
     candidate_action_fields,
 )
+from utils.safe import drop_empty as _compact_guard_item
 
 
 def candidate_guard_summary(candidate_meta: list[dict]) -> dict[str, Any]:
@@ -86,7 +87,3 @@ def _candidate_guard_risks(row: dict[str, Any]) -> list[str]:
     if not isinstance(risks, list):
         return []
     return [str(item).strip() for item in risks[:3] if str(item).strip()]
-
-
-def _compact_guard_item(row: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in row.items() if value not in (None, "", [], {})}

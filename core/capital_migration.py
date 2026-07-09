@@ -9,6 +9,7 @@ from typing import Any
 from core._price_math import clamp as _clamp
 from core.concept_filters import is_actionable_theme_name
 from core.theme_radar import normalize_theme_name
+from utils.safe import safe_float as _num
 
 
 @dataclass(frozen=True)
@@ -275,13 +276,6 @@ def _date_key(raw: Any) -> str:
 
 def _names(rows: list[dict[str, Any]]) -> str:
     return "、".join(str(x["theme"]) for x in rows[:3])
-
-
-def _num(raw: Any) -> float:
-    try:
-        return float(raw or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _amount_yi(raw: Any) -> float:
