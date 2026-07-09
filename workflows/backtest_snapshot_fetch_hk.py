@@ -16,7 +16,13 @@ from integrations.tickflow_client import TickFlowClient
 
 BATCH_SIZE = int(os.getenv("BACKTEST_HK_KLINE_BATCH_SIZE", "100"))
 BATCH_SLEEP = float(os.getenv("BACKTEST_HK_KLINE_BATCH_SLEEP", "2.0"))
-BENCHMARK_SYMBOL = os.getenv("BACKTEST_HK_BENCHMARK", "800000.HK")
+# 恒生指数在 TickFlow 上的可用代码不确定，依次尝试直到取到有效数据；
+# 与 workflows/market_funnel_runtime.py 的港股 benchmark_symbols 候选列表保持一致。
+_DEFAULT_BENCHMARK_CANDIDATES = ("800000.HK", "HSI.HK", "^HSI", "HSI")
+BENCHMARK_SYMBOL_CANDIDATES = (
+    tuple(s.strip() for s in os.getenv("BACKTEST_HK_BENCHMARK", "").split(",") if s.strip())
+    or _DEFAULT_BENCHMARK_CANDIDATES
+)
 
 
 def _fetch_klines_batched(
@@ -52,24 +58,27 @@ def _fetch_klines_batched(
     return all_dfs
 
 
-def _fetch_benchmark(client: TickFlowClient, count: int, start_ms: int, end_ms: int) -> pd.DataFrame | None:
-    print(f"[hk-snapshot] fetching benchmark: {BENCHMARK_SYMBOL}")
-    try:
-        bench_map = client.get_klines_batch(
-            [BENCHMARK_SYMBOL], period="1d", count=count, start_time_ms=start_ms, end_time_ms=end_ms, adjust="forward"
-        )
-        raw = bench_map.get(BENCHMARK_SYMBOL)
-        if raw is not None and not raw.empty:
-            return normalize_hist_from_fetch(raw)
-    except Exception as e:
-        print(f"[hk-snapshot] benchmark fetch failed: {e}")
-    return None
+def _fetch_benchmark(client: TickFlowClient, count: int, start_ms: int, end_ms: int) -> tuple[pd.DataFrame | None, str]:
+    for symbol in BENCHMARK_SYMBOL_CANDIDATES:
+        print(f"[hk-snapshot] fetching benchmark: {symbol}")
+        try:
+            bench_map = client.get_klines_batch(
+                [symbol], period="1d", count=count, start_time_ms=start_ms, end_time_ms=end_ms, adjust="forward"
+            )
+            raw = bench_map.get(symbol)
+            norm = normalize_hist_from_fetch(raw) if raw is not None and not raw.empty else None
+            if norm is not None and not norm.empty:
+                return norm, symbol
+        except Exception as e:
+            print(f"[hk-snapshot] benchmark fetch failed: {symbol}: {e}")
+    return None, ""
 
 
 def _save_snapshot(
     out_dir: Path,
     full_df: pd.DataFrame,
     bench_df: pd.DataFrame | None,
+    bench_symbol: str,
     symbols: list[str],
     ok_count: int,
     name_map: dict[str, str],
@@ -96,7 +105,7 @@ def _save_snapshot(
         "fail": len(symbols) - ok_count,
         "start": prefetch_start.strftime("%Y%m%d"),
         "end": end_dt.strftime("%Y%m%d"),
-        "benchmark": BENCHMARK_SYMBOL,
+        "benchmark": bench_symbol,
     }
     (out_dir / "metadata.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     print(f"[hk-snapshot] Done! {ok_count}/{len(symbols)} ({100 * ok_count / len(symbols):.1f}%)")
@@ -142,6 +151,8 @@ def run_hk_snapshot_fetch(args) -> int:
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    bench_df = _fetch_benchmark(client, count, start_ms, end_ms)
+    bench_df, bench_symbol = _fetch_benchmark(client, count, start_ms, end_ms)
     full_df = pd.concat(frames, ignore_index=True)
-    return _save_snapshot(out_dir, full_df, bench_df, symbols, len(df_map), name_map, prefetch_start, end_dt)
+    return _save_snapshot(
+        out_dir, full_df, bench_df, bench_symbol, symbols, len(df_map), name_map, prefetch_start, end_dt
+    )
