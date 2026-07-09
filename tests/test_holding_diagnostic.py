@@ -78,6 +78,24 @@ class TestDiagnoseOneStock:
         assert result.health in ("🟡警戒", "🔴危险")
         assert len(result.health_reasons) > 0
 
+    def test_take_profit_target_reached(self):
+        df = make_ohlcv(n=250, trend="up", base=10.0, volatility=0.008, seed=1)
+        latest = float(df["close"].iloc[-1])
+        cost = latest / 1.20  # pnl comfortably clears the +18% take-profit target
+        result = diagnose_one_stock("600519", "贵州茅台", cost=cost, df=df)
+
+        assert result.take_profit_status == "已达标"
+        assert result.take_profit_18pct == cost * 1.18
+        assert any("TP+18%" in r for r in result.health_reasons)
+
+    def test_take_profit_not_reached_for_small_gain(self):
+        df = make_ohlcv(n=250, trend="up", base=10.0, volatility=0.008, seed=1)
+        latest = float(df["close"].iloc[-1])
+        cost = latest / 1.02  # small gain, well below +18% target
+        result = diagnose_one_stock("600519", "贵州茅台", cost=cost, df=df)
+
+        assert result.take_profit_status == "未达标"
+
     def test_short_dataframe_no_crash(self):
         df = make_ohlcv(n=10, trend="flat", base=12.0, seed=4)
         result = diagnose_one_stock("300750", "宁德时代", cost=12.0, df=df)

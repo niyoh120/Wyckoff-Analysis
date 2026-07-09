@@ -35,6 +35,8 @@ def _diagnostic(**overrides):
         "exit_reason": "",
         "stop_loss_7pct": 18.6,
         "stop_loss_status": "",
+        "take_profit_18pct": 23.6,
+        "take_profit_status": "",
         "vol_ratio_20_60": 1.26,
         "range_60d_pct": 39.0,
         "ret_10d_pct": 10.4,

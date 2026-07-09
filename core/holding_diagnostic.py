@@ -80,9 +80,11 @@ class HoldingDiagnostic:
     exit_price: float | None = None
     exit_reason: str = ""
 
-    # 止损参考
+    # 止损/止盈参考（回测网格验证的最优组合：SL-7% / TP+18%，夏普2.493）
     stop_loss_7pct: float = 0.0  # 成本 × 0.93
     stop_loss_status: str = "安全"  # 已穿止损 / 逼近止损 / 安全
+    take_profit_18pct: float = 0.0  # 成本 × 1.18
+    take_profit_status: str = "未达标"  # 已达标 / 接近目标 / 未达标
 
     # 量能与振幅
     vol_ratio_20_60: float = 0.0
@@ -139,6 +141,8 @@ class _WyckoffSnapshot:
 class _RiskSnapshot:
     stop_loss_7pct: float
     stop_status: str
+    take_profit_18pct: float
+    take_profit_status: str
     vol_ratio: float
     range_60d: float
     ret_10d: float
@@ -285,8 +289,22 @@ def _stop_status(cost: float, latest_close: float) -> tuple[float, str]:
     return stop_loss_7pct, "安全"
 
 
+def _take_profit_status(cost: float, latest_close: float) -> tuple[float, str]:
+    # 回测网格验证：SL-7%/TP+18% 是各周期最稳健参数组合（夏普2.493），
+    # 实盘持仓诊断只提醒止损、不提醒止盈是纪律缺口的来源之一。
+    take_profit_18pct = cost * 1.18
+    if take_profit_18pct <= 0:
+        return take_profit_18pct, "无成本价"
+    if latest_close >= take_profit_18pct:
+        return take_profit_18pct, "已达标"
+    if (take_profit_18pct - latest_close) / take_profit_18pct < 0.02:
+        return take_profit_18pct, "接近目标(<2%)"
+    return take_profit_18pct, "未达标"
+
+
 def _risk_snapshot(series: _SeriesSnapshot, cost: float) -> _RiskSnapshot:
     stop_loss_7pct, stop_status = _stop_status(cost, series.latest_close)
+    take_profit_18pct, take_profit_status = _take_profit_status(cost, series.latest_close)
     vol_20 = float(series.volume.tail(20).mean()) if len(series.volume) >= 20 else 0
     vol_60 = float(series.volume.tail(60).mean()) if len(series.volume) >= 60 else 0
     h60 = float(series.high.tail(60).max()) if len(series.high) >= 60 else float(series.high.max())
@@ -297,6 +315,8 @@ def _risk_snapshot(series: _SeriesSnapshot, cost: float) -> _RiskSnapshot:
     return _RiskSnapshot(
         stop_loss_7pct=stop_loss_7pct,
         stop_status=stop_status,
+        take_profit_18pct=take_profit_18pct,
+        take_profit_status=take_profit_status,
         vol_ratio=vol_20 / vol_60 if vol_60 > 0 else 0,
         range_60d=(h60 - l60) / l60 * 100 if l60 > 0 else 0,
         ret_10d=(series.latest_close / float(series.close.iloc[-11]) - 1) * 100 if len(series.close) >= 11 else 0,
@@ -381,7 +401,7 @@ def _health_rating(
         # 否则用户看到的仍是"跌了就是走弱"的归因。
         reasons.append(f"当日{describe_intraday_path(intraday_path)}，跌幅不必等同走弱")
 
-    positive = _positive_reasons(ma, wyckoff)
+    positive = _positive_reasons(ma, wyckoff, risk)
     danger_count = sum(1 for r in reasons if any(k in r for k in ["已穿", "暴跌", "空头排列", "结构止损", "出货"]))
     warn_count = len(reasons) - danger_count
     if danger_count >= 1:
@@ -391,8 +411,12 @@ def _health_rating(
     return "🟢健康", positive if positive and not reasons else reasons
 
 
-def _positive_reasons(ma: _MaSnapshot, wyckoff: _WyckoffSnapshot) -> list[str]:
+def _positive_reasons(ma: _MaSnapshot, wyckoff: _WyckoffSnapshot, risk: _RiskSnapshot | None = None) -> list[str]:
     positive = []
+    if risk is not None and risk.take_profit_status == "已达标":
+        # 回测验证 SL-7%/TP+18% 最稳健，止盈达标不算风险，但必须显式提醒，
+        # 避免"只提示止损、不提示止盈"导致落袋纪律缺失。
+        positive.append(f"已达TP+18%目标({risk.take_profit_18pct:.2f})，建议分批止盈")
     if ma.pattern == "多头排列":
         positive.append("多头排列")
     if any(t in wyckoff.l2_channel for t in _TREND_CHANNELS):
@@ -490,6 +514,8 @@ def _build_diagnostic(
         exit_reason=wyckoff.exit_reason,
         stop_loss_7pct=risk.stop_loss_7pct,
         stop_loss_status=risk.stop_status,
+        take_profit_18pct=risk.take_profit_18pct,
+        take_profit_status=risk.take_profit_status,
         vol_ratio_20_60=risk.vol_ratio,
         range_60d_pct=risk.range_60d,
         ret_10d_pct=risk.ret_10d,
@@ -577,8 +603,9 @@ def format_diagnostic_text(d: HoldingDiagnostic) -> str:
             exit_parts.append(d.exit_reason)
         lines.append("  " + " | ".join(exit_parts))
 
-    # 止损
+    # 止损 / 止盈
     lines.append(f"  止损(-7%): {d.stop_loss_7pct:.2f} → {d.stop_loss_status}")
+    lines.append(f"  止盈(+18%): {d.take_profit_18pct:.2f} → {d.take_profit_status}")
 
     # 量能
     lines.append(
@@ -622,6 +649,7 @@ def format_diagnostic_for_llm(d: HoldingDiagnostic) -> str:
         if d.exit_price is not None:
             parts.append(f"触发价:{d.exit_price:.2f}")
     parts.append(f"止损状态:{d.stop_loss_status}")
+    parts.append(f"止盈状态:{d.take_profit_status}")
     parts.append(f"量比:{d.vol_ratio_20_60:.2f} 振幅:{d.range_60d_pct:.0f}%")
     if d.intraday_path_desc:
         parts.append(f"当日{d.day_change_pct:+.1f}%/{d.intraday_path_desc}")
