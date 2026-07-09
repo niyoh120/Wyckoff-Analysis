@@ -1,17 +1,30 @@
-"""Replay US backtest trades with explicit entry and partial-exit rules."""
+"""Replay HK/US backtest trades with explicit entry and partial-exit rules.
+
+港股没有涨跌停，价格不连续风险主要来自合股/拆股/供股（而非美股的极端单日暴涨暴跌），
+且仙股/流动性陷阱是港股特有的信号污染源，因此复用 core.hk_risk_filter 做统一风控；
+美股改用基于单日涨跌幅与开高收比例的 splitlike 启发式判定。策略规则本身（Wyckoff
+SOS/EVR/LPS 触发 + 分批止盈）与市场无关，两地共用同一份六策略矩阵，
+市场特定行为集中在 MarketRules，便于跨市场横向对比。
+"""
 
 from __future__ import annotations
 
 import csv
 import json
 import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from statistics import mean, median, stdev
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
+
+from core.wyckoff_engine import dollar_volume_series
+from utils.safe import safe_float as _safe_float
+
+Market = Literal["hk", "us"]
 
 
 @dataclass(frozen=True)
@@ -109,11 +122,89 @@ STRATEGIES = (
 
 
 MIN_LOOKBACK_ROWS = 80
-MIN_PRICE = 1.0
-MAX_PRICE = 1_000.0
-MIN_DOLLAR_VOLUME = 1_000_000.0
-MAX_SPLITLIKE_DAILY_PCT = 120.0
-MAX_SPLITLIKE_PRICE_RATIO = 4.0
+
+
+@dataclass(frozen=True)
+class MarketRules:
+    """市场特定的风控口径与信号触发阈值，主回放流程完全共享。"""
+
+    market: Market
+    min_price: float
+    max_price: float
+    min_dollar_volume: float
+    sos_pct: float
+    sos_vol_ratio: float
+    is_row_blocked: Callable[[pd.DataFrame, int], bool]
+
+
+def _hk_risk_blocked(candles: pd.DataFrame, idx: int) -> bool:
+    """基于 core.hk_risk_filter 判定该交易日是否触发港股风险（仙股/流动性/极端波幅/价格跳变）。
+
+    TickFlow 港股历史 K 线的 amount 字段恒为 0（数据源限制），dollar_volume_series
+    会回退为 close*volume 口径，否则所有交易日都会被误判为流动性不足。
+    """
+    from core.hk_risk_filter import classify_hk_risk
+
+    if idx <= 0 or idx >= len(candles):
+        return False
+    row = candles.iloc[idx]
+    prev_close = _safe_float(candles.iloc[idx - 1].get("close"))
+    window = candles.iloc[max(0, idx - 20) : idx]
+    turnover = dollar_volume_series(window)
+    avg_turnover = float(turnover.mean()) if not turnover.empty else math.inf
+    flags = classify_hk_risk(
+        close=_safe_float(row.get("close")),
+        open_=_safe_float(row.get("open")),
+        prev_close=prev_close,
+        pct_chg=_safe_float(row.get("pct_chg")),
+        avg_turnover_hkd=avg_turnover,
+    )
+    return flags.blocked
+
+
+_MAX_SPLITLIKE_DAILY_PCT = 120.0
+_MAX_SPLITLIKE_PRICE_RATIO = 4.0
+
+
+def _us_splitlike_blocked(candles: pd.DataFrame, idx: int) -> bool:
+    """美股无统一风控 API，改用单日涨跌幅与开高收对前收比例识别拆股/合股导致的价格跳变。"""
+    row = candles.iloc[idx]
+    prev_close = _safe_float(candles.iloc[idx - 1].get("close"))
+    open_px = _safe_float(row.get("open"))
+    close_px = _safe_float(row.get("close"))
+    pct = _safe_float(row.get("pct_chg"))
+    if abs(pct) > _MAX_SPLITLIKE_DAILY_PCT or prev_close <= 0:
+        return abs(pct) > _MAX_SPLITLIKE_DAILY_PCT
+    open_ratio = open_px / prev_close if open_px > 0 else 1.0
+    close_ratio = close_px / prev_close if close_px > 0 else 1.0
+    return (
+        open_ratio > _MAX_SPLITLIKE_PRICE_RATIO
+        or close_ratio > _MAX_SPLITLIKE_PRICE_RATIO
+        or open_ratio < 1.0 / _MAX_SPLITLIKE_PRICE_RATIO
+        or close_ratio < 1.0 / _MAX_SPLITLIKE_PRICE_RATIO
+    )
+
+
+MARKET_RULES: dict[Market, MarketRules] = {
+    "hk": MarketRules(
+        market="hk",
+        min_price=1.0,  # 港股仙股门槛：低于此价的走势容易被供股/合股操纵
+        max_price=10_000.0,
+        min_dollar_volume=2_000_000.0,  # 港股日均成交额门槛，与漏斗侧 hk_risk_filter 保持一致
+        sos_pct=7.0,
+        sos_vol_ratio=3.0,
+        is_row_blocked=_hk_risk_blocked,
+    ),
+    "us": MarketRules(
+        market="us",
+        min_price=1.0,
+        max_price=1_000.0,
+        min_dollar_volume=1_000_000.0,
+        sos_pct=5.0,
+        sos_vol_ratio=1.8,
+        is_row_blocked=_us_splitlike_blocked,
+    ),
+}
 
 
 def _parse_date(value: Any) -> date | None:
@@ -121,14 +212,6 @@ def _parse_date(value: Any) -> date | None:
         return pd.to_datetime(value).date()
     except Exception:
         return None
-
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        val = float(value)
-    except (TypeError, ValueError):
-        return default
-    return default if math.isnan(val) or math.isinf(val) else val
 
 
 def _load_hist_map(snapshot_dir: Path) -> dict[str, pd.DataFrame]:
@@ -168,21 +251,10 @@ def _find_idx(candles: pd.DataFrame, target: date) -> int | None:
     return None
 
 
-def _volume(row: pd.Series) -> float:
-    return _safe_float(row.get("volume"))
-
-
-def _dollar_volume(row: pd.Series) -> float:
-    amount = _safe_float(row.get("amount"))
-    if amount > 0:
-        return amount
-    return _safe_float(row.get("close")) * _volume(row)
-
-
-def _signal_triggers(stats: dict[str, float]) -> tuple[list[str], float]:
+def _signal_triggers(stats: dict[str, float], rules: MarketRules) -> tuple[list[str], float]:
     triggers: list[str] = []
     score = stats["pct"] * 1.2 + min(stats["vol_ratio"], 8.0) * 5.0 + stats["range_pos"] * 18.0
-    if stats["pct"] >= 5.0 and stats["vol_ratio"] >= 1.8 and stats["breakout_ratio"] >= 0.98:
+    if stats["pct"] >= rules.sos_pct and stats["vol_ratio"] >= rules.sos_vol_ratio and stats["breakout_ratio"] >= 0.98:
         triggers.append("SOS")
         score += 30.0
     if stats["vol_ratio"] >= 2.0 and stats["pct"] >= -2.0 and stats["range_pos"] >= 0.55:
@@ -206,28 +278,9 @@ def _is_lps_like(stats: dict[str, float]) -> bool:
     )
 
 
-def _has_price_discontinuity(candles: pd.DataFrame, start_idx: int, end_idx: int) -> bool:
-    for pos in range(max(1, start_idx), min(end_idx, len(candles) - 1) + 1):
-        row = candles.iloc[pos]
-        prev_close = _safe_float(candles.iloc[pos - 1].get("close"))
-        if _is_splitlike_row(row, prev_close):
-            return True
-    return False
-
-
-def _is_splitlike_row(row: pd.Series, prev_close: float) -> bool:
-    open_px = _safe_float(row.get("open"))
-    close_px = _safe_float(row.get("close"))
-    pct = _safe_float(row.get("pct_chg"))
-    if abs(pct) > MAX_SPLITLIKE_DAILY_PCT or prev_close <= 0:
-        return abs(pct) > MAX_SPLITLIKE_DAILY_PCT
-    open_ratio = open_px / prev_close if open_px > 0 else 1.0
-    close_ratio = close_px / prev_close if close_px > 0 else 1.0
-    return (
-        open_ratio > MAX_SPLITLIKE_PRICE_RATIO
-        or close_ratio > MAX_SPLITLIKE_PRICE_RATIO
-        or open_ratio < 1.0 / MAX_SPLITLIKE_PRICE_RATIO
-        or close_ratio < 1.0 / MAX_SPLITLIKE_PRICE_RATIO
+def _has_risk_blocked_window(candles: pd.DataFrame, start_idx: int, end_idx: int, rules: MarketRules) -> bool:
+    return any(
+        rules.is_row_blocked(candles, pos) for pos in range(max(1, start_idx), min(end_idx, len(candles) - 1) + 1)
     )
 
 
@@ -237,33 +290,18 @@ def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
 
 
-def _splitlike_mask(open_px: pd.Series, close: pd.Series, prev_close: pd.Series, pct: pd.Series) -> pd.Series:
-    valid = prev_close > 0
-    open_ratio = open_px.where(open_px > 0, prev_close) / prev_close.where(valid, 1.0)
-    close_ratio = close.where(close > 0, prev_close) / prev_close.where(valid, 1.0)
-    return (pct.abs() > MAX_SPLITLIKE_DAILY_PCT) | (
-        valid
-        & (
-            (open_ratio > MAX_SPLITLIKE_PRICE_RATIO)
-            | (close_ratio > MAX_SPLITLIKE_PRICE_RATIO)
-            | (open_ratio < 1.0 / MAX_SPLITLIKE_PRICE_RATIO)
-            | (close_ratio < 1.0 / MAX_SPLITLIKE_PRICE_RATIO)
-        )
-    )
-
-
 def _symbol_feature_frame(candles: pd.DataFrame) -> pd.DataFrame:
     close = _numeric_series(candles, "close")
     high = _numeric_series(candles, "high")
     low = _numeric_series(candles, "low")
     volume = _numeric_series(candles, "volume")
-    amount = _numeric_series(candles, "amount")
     prev_close = close.shift(1)
     high_20 = high.shift(1).rolling(20, min_periods=20).max()
     low_20 = low.rolling(20, min_periods=20).min()
     vol_mean = volume.shift(1).rolling(20, min_periods=20).mean()
     range_width = pd.concat([(high_20 - low_20), close * 0.01], axis=1).max(axis=1)
     pct = (close / prev_close - 1.0) * 100.0
+    dollar_volume = dollar_volume_series(candles).reindex(candles.index)
     return pd.DataFrame(
         {
             "date": candles["date"],
@@ -275,8 +313,7 @@ def _symbol_feature_frame(candles: pd.DataFrame) -> pd.DataFrame:
             "ma20": close.rolling(20, min_periods=20).mean(),
             "ma50": close.rolling(50, min_periods=50).mean(),
             "pullback_from_high": (high_20 - close) / high_20,
-            "dollar_volume": amount.where(amount > 0, close * volume),
-            "splitlike": _splitlike_mask(_numeric_series(candles, "open"), close, prev_close, pct),
+            "dollar_volume": dollar_volume,
         }
     )
 
@@ -288,11 +325,12 @@ def _generate_signal_rows(
     start: date,
     end: date,
     top_n: int,
+    rules: MarketRules,
 ) -> list[dict[str, Any]]:
     next_by_date = {day: calendar[idx + 1] for idx, day in enumerate(calendar[:-1])}
     by_day: dict[date, list[SignalCandidate]] = {}
     for code, candles in hist_map.items():
-        _collect_symbol_candidates(code, candles, name_map.get(code, code), next_by_date, start, end, by_day)
+        _collect_symbol_candidates(code, candles, name_map.get(code, code), next_by_date, start, end, by_day, rules)
 
     rows: list[dict[str, Any]] = []
     for signal_date in calendar:
@@ -311,23 +349,25 @@ def _collect_symbol_candidates(
     start: date,
     end: date,
     by_day: dict[date, list[SignalCandidate]],
+    rules: MarketRules,
 ) -> None:
     features = _symbol_feature_frame(candles)
     mask = (
         (features.index >= MIN_LOOKBACK_ROWS - 1)
         & (features["date"] >= start)
         & (features["date"] < end)
-        & features["close"].between(MIN_PRICE, MAX_PRICE)
-        & (features["dollar_volume"] >= MIN_DOLLAR_VOLUME)
-        & ~features["splitlike"]
+        & features["close"].between(rules.min_price, rules.max_price)
+        & (features["dollar_volume"] >= rules.min_dollar_volume)
     )
-    for _, row in features[mask].dropna().iterrows():
+    for row_idx, row in features[mask].dropna().iterrows():
+        if rules.is_row_blocked(candles, int(row_idx)):
+            continue
         signal_date = row["date"]
         entry_date = next_by_date.get(signal_date)
         if entry_date is None or entry_date > end:
             continue
         stats = _stats_from_feature_row(row)
-        triggers, score = _signal_triggers(stats)
+        triggers, score = _signal_triggers(stats, rules)
         if triggers:
             by_day.setdefault(signal_date, []).append(
                 SignalCandidate(
@@ -408,7 +448,9 @@ def _target_hit_idx(candles: pd.DataFrame, start_idx: int, end_idx: int, target:
     return None
 
 
-def _replay_one(row: dict[str, Any], hist_map: dict[str, pd.DataFrame], strategy: StrategySpec) -> ReplayTrade | None:
+def _replay_one(
+    row: dict[str, Any], hist_map: dict[str, pd.DataFrame], strategy: StrategySpec, rules: MarketRules
+) -> ReplayTrade | None:
     code = str(row.get("code") or "").strip()
     entry_date = _parse_date(row.get("entry_date"))
     base_price = _safe_float(row.get("entry_close"))
@@ -420,11 +462,11 @@ def _replay_one(row: dict[str, Any], hist_map: dict[str, pd.DataFrame], strategy
         return None
     entry = _entry(strategy, candles, idx, base_price)
     if entry is None:
-        if _has_price_discontinuity(candles, idx + 1, min(idx + strategy.max_days, len(candles) - 1)):
+        if _has_risk_blocked_window(candles, idx + 1, min(idx + strategy.max_days, len(candles) - 1), rules):
             return None
         return _unfilled_trade(row, candles, idx, strategy, base_price)
     buy_idx, buy_price = entry
-    if _has_price_discontinuity(candles, idx + 1, min(buy_idx + strategy.max_days, len(candles) - 1)):
+    if _has_risk_blocked_window(candles, idx + 1, min(buy_idx + strategy.max_days, len(candles) - 1), rules):
         return None
     exit_result = _exit(strategy, candles, buy_idx, buy_price)
     if exit_result is None or buy_price <= 0:
@@ -472,6 +514,7 @@ def _load_input_rows(
     start: str,
     end: str,
     top_n: str,
+    rules: MarketRules,
 ) -> list[dict[str, Any]]:
     if trades_csv:
         path = Path(trades_csv)
@@ -493,6 +536,7 @@ def _load_input_rows(
         start_date,
         end_date,
         int(top_n),
+        rules,
     )
 
 
@@ -526,19 +570,21 @@ def _max_drawdown(returns: list[float]) -> float | None:
     return mdd * 100.0
 
 
-def _summary(strategy: StrategySpec, trades: list[ReplayTrade], period: dict[str, str], top_n: str) -> dict[str, Any]:
+def _summary(
+    strategy: StrategySpec, trades: list[ReplayTrade], period: dict[str, str], top_n: str, market: Market
+) -> dict[str, Any]:
     returns = [t.ret_pct for t in trades]
     std = stdev(returns) if len(returns) > 1 else 0.0
     sharpe = mean(returns) / std if std > 0 else None
     total = (math.prod(1.0 + r / 100.0 for r in returns) - 1.0) * 100.0 if returns else None
     return {
-        "source": "local_us_strategy_replay",
+        "source": f"local_{market}_strategy_replay",
         "period_key": period["key"],
         "period_label": period["label"],
         "start": period["start"],
         "end": period["end"],
         "top_n": int(top_n),
-        "board": "us",
+        "board": market,
         "execution_strategy": asdict(strategy) | {"sell_after_buy_only": True, "target_scan_start": "after_entry"},
         "strategy_id": strategy.id,
         "strategy_name": strategy.name,
@@ -563,7 +609,8 @@ def _write_outputs(out_dir: Path, strategy: StrategySpec, summary: dict[str, Any
         writer.writerows(asdict(t) for t in trades)
 
 
-def run_us_strategy_replay(args) -> int:
+def run_strategy_replay(args, *, market: Market) -> int:
+    rules = MARKET_RULES[market]
     snapshot_dir = Path(args.snapshot_dir)
     hist_map = _load_hist_map(snapshot_dir)
     rows = _load_input_rows(
@@ -573,12 +620,13 @@ def run_us_strategy_replay(args) -> int:
         start=args.start,
         end=args.end,
         top_n=args.top_n,
+        rules=rules,
     )
-    print(f"[us-replay] input signals={len(rows)}")
+    print(f"[{market}-replay] input signals={len(rows)}")
     period = {"key": args.period_key, "label": args.period_label, "start": args.start, "end": args.end}
     for strategy in STRATEGIES:
-        trades = [t for row in rows if (t := _replay_one(row, hist_map, strategy)) is not None]
-        summary = _summary(strategy, trades, period, str(args.top_n))
+        trades = [t for row in rows if (t := _replay_one(row, hist_map, strategy, rules)) is not None]
+        summary = _summary(strategy, trades, period, str(args.top_n), market)
         _write_outputs(Path(args.output_dir), strategy, summary, trades)
-        print(f"[us-replay] {strategy.name}: trades={len(trades)}, sharpe={summary.get('sharpe_ratio')}")
+        print(f"[{market}-replay] {strategy.name}: trades={len(trades)}, sharpe={summary.get('sharpe_ratio')}")
     return 0

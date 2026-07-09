@@ -3,10 +3,11 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from workflows import hk_backtest_strategy_replay as replay
+from workflows import backtest_strategy_replay as replay
 
 
-def test_pullback_strategy_enters_at_target_when_low_touches() -> None:
+@pytest.mark.parametrize("market", ["hk", "us"])
+def test_pullback_strategy_enters_at_target_when_low_touches(market) -> None:
     candles = pd.DataFrame(
         [
             {"date": pd.Timestamp("2026-01-02").date(), "open": 10.0, "high": 10.5, "low": 9.5, "close": 10.0},
@@ -20,7 +21,8 @@ def test_pullback_strategy_enters_at_target_when_low_touches() -> None:
     assert entry == (1, 9.0)
 
 
-def test_replay_one_returns_trade_after_target_hit() -> None:
+@pytest.mark.parametrize("market,code", [("hk", "00700.HK"), ("us", "ABC.US")])
+def test_replay_one_returns_trade_after_target_hit(market, code) -> None:
     candles = pd.DataFrame(
         [
             {
@@ -57,13 +59,13 @@ def test_replay_one_returns_trade_after_target_hit() -> None:
         "signal_date": "2026-01-01",
         "entry_date": "2026-01-02",
         "entry_close": 10.0,
-        "code": "00700.HK",
-        "name": "Tencent",
+        "code": code,
+        "name": "Test Co",
         "trigger": "SOS",
         "score": 80.0,
     }
 
-    trade = replay._replay_one(row, {"00700.HK": candles}, strategy)
+    trade = replay._replay_one(row, {code: candles}, strategy, replay.MARKET_RULES[market])
 
     assert trade is not None
     assert trade.ret_pct == 35.0
@@ -113,7 +115,7 @@ def test_replay_one_blocked_by_penny_stock_risk_returns_none() -> None:
         "score": 80.0,
     }
 
-    trade = replay._replay_one(row, {"08001.HK": candles}, strategy)
+    trade = replay._replay_one(row, {"08001.HK": candles}, strategy, replay.MARKET_RULES["hk"])
 
     assert trade is None
 
@@ -140,17 +142,18 @@ def test_hk_risk_blocked_falls_back_to_close_times_volume_when_amount_zero() -> 
     assert replay._hk_risk_blocked(candles, 21) is False
 
 
-def test_summary_reports_strategy_metrics() -> None:
+@pytest.mark.parametrize("market", ["hk", "us"])
+def test_summary_reports_strategy_metrics(market) -> None:
     trades = [
-        replay.ReplayTrade("2026-01-01", "2026-01-02", "2026-01-03", "A.HK", "A", 10, 12, 20.0, "SOS", 10),
-        replay.ReplayTrade("2026-01-02", "2026-01-03", "2026-01-04", "B.HK", "B", 10, 9, -10.0, "EVR", 8),
+        replay.ReplayTrade("2026-01-01", "2026-01-02", "2026-01-03", "A", "A", 10, 12, 20.0, "SOS", 10),
+        replay.ReplayTrade("2026-01-02", "2026-01-03", "2026-01-04", "B", "B", 10, 9, -10.0, "EVR", 8),
     ]
     strategy = replay.STRATEGIES[0]
 
-    summary = replay._summary(strategy, trades, {"key": "p", "label": "P", "start": "s", "end": "e"}, "2")
+    summary = replay._summary(strategy, trades, {"key": "p", "label": "P", "start": "s", "end": "e"}, "2", market)
 
     assert summary["strategy_id"] == strategy.id
-    assert summary["board"] == "hk"
+    assert summary["board"] == market
     assert summary["trades"] == 2
     assert summary["win_rate_pct"] == 50.0
     assert summary["portfolio_total_ret_pct"] == pytest.approx(8.0)

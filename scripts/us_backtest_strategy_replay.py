@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from workflows.us_backtest_strategy_replay import run_us_strategy_replay
+from workflows.backtest_strategy_replay import run_strategy_replay
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    return run_us_strategy_replay(parse_args())
+    return run_strategy_replay(parse_args(), market="us")
 
 
 if __name__ == "__main__":

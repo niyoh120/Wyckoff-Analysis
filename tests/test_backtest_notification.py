@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import json
 
-from workflows.hk_backtest_notification import (
-    HkBacktestNotifyRequest,
+import pytest
+
+from workflows.backtest_notification import (
+    BacktestNotifyRequest,
     build_card,
     load_cells,
-    run_hk_backtest_notification,
+    run_backtest_notification,
     write_report,
 )
+
+_MARKET_TITLE = {"hk": "HK Backtest Grid 港股回测完成", "us": "US Backtest Grid 美股回测完成"}
+_MARKET_HEADING = {"hk": "# HK Backtest Strategy Comparison", "us": "# US Backtest Strategy Comparison"}
 
 
 def test_load_cells_reads_summary_json(tmp_path) -> None:
@@ -42,39 +47,43 @@ def test_load_cells_reads_summary_json(tmp_path) -> None:
     assert cells[0].sharpe == 0.8
 
 
-def test_build_card_includes_best_strategy() -> None:
+@pytest.mark.parametrize("market", ["hk", "us"])
+def test_build_card_includes_best_strategy(market) -> None:
     cells = load_cells(_summary_fixture())
 
-    card = build_card(cells, run_url="https://github.example/run", top_n="2")
+    card = build_card(cells, market=market, run_url="https://github.example/run", top_n="2")
 
     content = json.dumps(card, ensure_ascii=False)
-    assert "HK Backtest Grid 港股回测完成" in content
+    assert _MARKET_TITLE[market] in content
     assert "最优策略" in content
     assert "策略2" in content
 
 
-def test_write_report_outputs_strategy_table(tmp_path) -> None:
+@pytest.mark.parametrize("market", ["hk", "us"])
+def test_write_report_outputs_strategy_table(market, tmp_path) -> None:
     cells = load_cells(_summary_fixture())
     output = tmp_path / "report.md"
 
-    write_report(output, cells, run_url="run", top_n="2")
+    write_report(output, cells, market=market, run_url="run", top_n="2")
 
     report = output.read_text(encoding="utf-8")
-    assert "# HK Backtest Strategy Comparison" in report
+    assert _MARKET_HEADING[market] in report
     assert "| 策略 | 说明 | 夏普 | 胜率 | 均收 | 回撤 | 样本 |" in report
     assert "策略2" in report
 
 
-def test_run_hk_backtest_notification_writes_report_and_sends_card(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("market", ["hk", "us"])
+def test_run_backtest_notification_writes_report_and_sends_card(market, monkeypatch, tmp_path) -> None:
     sent: list[dict] = []
     output = tmp_path / "report.md"
     monkeypatch.setattr(
-        "workflows.hk_backtest_notification.send_feishu",
+        "workflows.backtest_notification.send_feishu",
         lambda webhook, payload: sent.append({"webhook": webhook, "payload": payload}),
     )
 
-    result = run_hk_backtest_notification(
-        HkBacktestNotifyRequest(
+    result = run_backtest_notification(
+        BacktestNotifyRequest(
+            market=market,
             artifacts_dir=str(_summary_fixture()),
             output=str(output),
             run_url="run",
@@ -86,7 +95,7 @@ def test_run_hk_backtest_notification_writes_report_and_sends_card(monkeypatch, 
     assert result == 0
     assert output.exists()
     assert sent[0]["webhook"] == "https://feishu.example"
-    assert "HK Backtest Grid 港股回测完成" in json.dumps(sent[0]["payload"], ensure_ascii=False)
+    assert _MARKET_TITLE[market] in json.dumps(sent[0]["payload"], ensure_ascii=False)
 
 
 def _summary_fixture():

@@ -7,7 +7,7 @@ import os
 
 import _bootstrap  # noqa: F401
 
-from workflows.backtest_snapshot_fetch_us import run_us_snapshot_fetch
+from workflows.backtest_snapshot_fetch_hk_us import run_snapshot_fetch
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    return run_us_snapshot_fetch(parse_args())
+    return run_snapshot_fetch(parse_args(), market="us")
 
 
 if __name__ == "__main__":

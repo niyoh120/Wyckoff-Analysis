@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from workflows.hk_backtest_notification import HkBacktestNotifyRequest, run_hk_backtest_notification
+from workflows.backtest_notification import BacktestNotifyRequest, run_backtest_notification
 
 
 def parse_args() -> argparse.Namespace:
@@ -16,8 +16,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def request_from_args(args: argparse.Namespace) -> HkBacktestNotifyRequest:
-    return HkBacktestNotifyRequest(
+def request_from_args(args: argparse.Namespace) -> BacktestNotifyRequest:
+    return BacktestNotifyRequest(
+        market="hk",
         artifacts_dir=args.artifacts_dir,
         output=args.output,
         run_url=args.run_url,
@@ -26,7 +27,7 @@ def request_from_args(args: argparse.Namespace) -> HkBacktestNotifyRequest:
 
 
 def main() -> int:
-    return run_hk_backtest_notification(request_from_args(parse_args()))
+    return run_backtest_notification(request_from_args(parse_args()))
 
 
 if __name__ == "__main__":
