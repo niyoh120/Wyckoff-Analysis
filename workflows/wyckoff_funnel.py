@@ -27,6 +27,7 @@ from core.wyckoff_engine import (
     layer4_triggers,
 )
 from integrations.ths_hot_concept import merge_concept_heat, summarize_ths_hot_events
+from utils.progress import report_progress as _report_progress
 from workflows.candidate_policy_config import candidate_policy_config_from_env
 from workflows.funnel_ai_selection import (
     FunnelAiSelection,
@@ -139,12 +140,6 @@ def _build_external_seed_review(
     )
     watch = [c for c in review_codes if c not in set(confirmed)]
     return {"triggers": triggers, "confirmed": confirmed, "watch": watch, "rows": rows}
-
-
-def _report_progress(stage: str, message: str, progress: float) -> None:
-    from utils.progress import report_progress
-
-    report_progress(stage, message, progress)
 
 
 def _log_external_seed_review(seed_cfg: ExternalSeedConfig, review: dict) -> None:

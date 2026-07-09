@@ -7,6 +7,8 @@ from typing import Any
 
 import pandas as pd
 
+from utils.safe import finite_float as _num
+
 
 def annotate_entry_quality(df: pd.DataFrame) -> pd.DataFrame:
     """Attach deterministic entry-quality fields to Step3 candidates."""
@@ -143,16 +145,6 @@ def _finite_series(raw: Any, index: pd.Index) -> pd.Series:
     series = converted if isinstance(converted, pd.Series) else pd.Series(converted, index=index)
     series = series.reindex(index)
     return series.where(series.map(lambda value: _num(value) is not None))
-
-
-def _num(raw: Any) -> float | None:
-    if raw is None or isinstance(raw, bool):
-        return None
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return None
-    return value if math.isfinite(value) else None
 
 
 def _clean(value: Any) -> str:

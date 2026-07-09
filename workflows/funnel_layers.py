@@ -25,6 +25,8 @@ from core.wyckoff_engine import (
 from integrations.market_metadata import CONCEPT_HEAT_HISTORY
 from integrations.ths_hot_concept import merge_concept_heat
 from tools.mainline_config import load_mainline_engine_config
+from utils.progress import report_progress as _report_progress
+from utils.safe import safe_float as _safe_float
 from workflows.funnel_data import FunnelReferenceData
 from workflows.funnel_settings import (
     FUNNEL_THEME_RADAR_ENABLED,
@@ -213,13 +215,6 @@ def _activity_hot_concepts(theme_activity: dict) -> list[str]:
     return rows[:8]
 
 
-def _safe_float(raw) -> float:
-    try:
-        return float(raw or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def _build_theme_context(
     window,
     ref_data: FunnelReferenceData,
@@ -311,9 +306,3 @@ def _l2_channel_counts(channel_map: dict[str, str]) -> dict[str, int]:
         "trend_cont": sum(1 for v in channel_map.values() if "趋势延续" in v),
         "sos": sum(1 for v in channel_map.values() if "点火破局" in v),
     }
-
-
-def _report_progress(stage: str, message: str, progress: float) -> None:
-    from utils.progress import report_progress
-
-    report_progress(stage, message, progress)

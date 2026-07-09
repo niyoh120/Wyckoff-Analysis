@@ -12,7 +12,7 @@ from core.funnel_etf import append_etf_section
 from core.funnel_sections import append_formal_l4_sections, score_star
 from core.market_trade_mode import resolve_market_trade_mode
 from core.signal_confirmation import score_springboard_abc
-from core.strategy_policy_display import format_policy_meta_text, format_policy_weight_text, safe_policy_weight
+from core.strategy_policy_display import format_policy_meta_text, format_policy_weight_text
 from core.theme_radar import summarize_theme_radar
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_report_payload import (
@@ -287,10 +287,6 @@ def _policy_selection_summary(meta: dict | None) -> str:
 
 def _policy_weight_text(weights: dict) -> str:
     return format_policy_weight_text(weights, limit=8, delimiter="，")
-
-
-def _weight_value(raw: Any) -> float:
-    return safe_policy_weight(raw)
 
 
 def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[str]:

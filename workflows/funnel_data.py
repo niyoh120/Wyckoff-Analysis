@@ -41,6 +41,7 @@ from tools.market_liquidity import calc_amount_distribution_health, calc_market_
 from tools.market_regime import analyze_benchmark_and_tune_cfg
 from tools.symbol_pool import load_stock_name_map, resolve_symbol_pool, resolve_symbol_pool_from_env
 from utils.env import env_flag, parse_int_env
+from utils.progress import report_progress as _report_progress
 from utils.trading_clock import resolve_end_calendar_day
 from workflows.fetch_runtime_config import fetch_runtime_config_from_env
 from workflows.funnel_config_overrides import apply_funnel_cfg_overrides
@@ -502,9 +503,3 @@ def _print_benchmark_gate(benchmark_context: dict) -> None:
         f"repair_triggered={benchmark_context.get('repair_triggered')}, "
         f"repair_reasons={benchmark_context.get('repair_reasons')}, tuned={benchmark_context['tuned']}"
     )
-
-
-def _report_progress(stage: str, message: str, progress: float) -> None:
-    from utils.progress import report_progress
-
-    report_progress(stage, message, progress)

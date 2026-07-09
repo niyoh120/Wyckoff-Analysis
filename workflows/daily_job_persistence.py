@@ -17,6 +17,7 @@ from integrations.recommendation_payload import (
     write_recommendation_backup_artifact,
 )
 from integrations.supabase_market_signal import upsert_market_signal_daily
+from utils.safe import safe_float as _safe_float
 from workflows.step4_pipeline import TZ, is_confirmed_step4_candidate
 
 RECOMMENDATION_MAINLINE_STATUSES = TRADEABLE_MAINLINE_STATUSES
@@ -313,13 +314,6 @@ def _tracking_rank(row: dict) -> tuple[int, float]:
 
 def _clean_text(value: object) -> str:
     return str(value or "").strip()
-
-
-def _safe_float(value: object, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def write_recommendation_backup(

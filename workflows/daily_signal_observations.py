@@ -7,10 +7,12 @@ from collections.abc import Callable
 from typing import Any
 
 from core.candidate_metadata import build_candidate_metadata_map, candidate_signal_triggers, merge_trigger_maps
+from core.candidate_metadata import code6 as _last_six_digits
 from core.candidate_policy import candidate_score_value
 from utils.env import env_flag as _env_flag
 from utils.env import env_float as _env_float
 from utils.env import env_int as _env_int
+from utils.safe import safe_float as _safe_float
 
 LogFn = Callable[[str, str | None], None]
 
@@ -561,18 +563,6 @@ def _springboard_fields(result: dict) -> dict:
         "springboard_evidence": result.get("evidence") or {},
         "springboard_scored": True,
     }
-
-
-def _last_six_digits(value: object) -> str:
-    digits = "".join(ch for ch in str(value) if ch.isdigit())
-    return digits[-6:].zfill(6) if digits else ""
-
-
-def _safe_float(value: object) -> float:
-    try:
-        return float(value or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _log(log_fn: LogFn | None, message: str, logs_path: str | None) -> None:
