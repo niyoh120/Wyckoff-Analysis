@@ -1152,7 +1152,7 @@ def test_us_backtest_strategy_replay_entrypoint_delegates_runtime_workflow():
     imports = set(_import_names(path))
     text = path.read_text(encoding="utf-8")
 
-    assert "workflows.us_backtest_strategy_replay" in imports
+    assert "workflows.backtest_strategy_replay" in imports
     forbidden_imports = {"csv", "json", "math", "dataclasses", "pandas", "statistics"}
     assert imports.isdisjoint(forbidden_imports)
     for token in (
@@ -1176,7 +1176,7 @@ def test_us_backtest_snapshot_fetch_entrypoint_delegates_runtime_workflow():
     imports = set(_import_names(path))
     text = path.read_text(encoding="utf-8")
 
-    assert "workflows.backtest_snapshot_fetch_us" in imports
+    assert "workflows.backtest_snapshot_fetch_hk_us" in imports
     forbidden_imports = {
         "json",
         "time",
@@ -1203,7 +1203,7 @@ def test_hk_backtest_strategy_replay_entrypoint_delegates_runtime_workflow():
     imports = set(_import_names(path))
     text = path.read_text(encoding="utf-8")
 
-    assert "workflows.hk_backtest_strategy_replay" in imports
+    assert "workflows.backtest_strategy_replay" in imports
     forbidden_imports = {"csv", "json", "math", "dataclasses", "pandas", "statistics", "core.hk_risk_filter"}
     assert imports.isdisjoint(forbidden_imports)
     for token in (
@@ -1228,7 +1228,7 @@ def test_hk_backtest_snapshot_fetch_entrypoint_delegates_runtime_workflow():
     imports = set(_import_names(path))
     text = path.read_text(encoding="utf-8")
 
-    assert "workflows.backtest_snapshot_fetch_hk" in imports
+    assert "workflows.backtest_snapshot_fetch_hk_us" in imports
     forbidden_imports = {
         "json",
         "time",
@@ -1255,11 +1255,11 @@ def test_hk_backtest_notify_entrypoint_delegates_report_builders():
     imports = set(_import_names(path))
     text = path.read_text(encoding="utf-8")
 
-    assert "workflows.hk_backtest_notification" in imports
+    assert "workflows.backtest_notification" in imports
     forbidden_imports = {"json", "math", "collections", "dataclasses", "pathlib", "requests", "typing"}
     assert imports.isdisjoint(forbidden_imports)
     for token in (
-        "HkBacktestCell",
+        "BacktestCell",
         "send_feishu",
         "def _cell_from_summary",
         "def _group_by_period",
@@ -1301,11 +1301,11 @@ def test_us_backtest_notify_entrypoint_delegates_report_builders():
     imports = set(_import_names(path))
     text = path.read_text(encoding="utf-8")
 
-    assert "workflows.us_backtest_notification" in imports
+    assert "workflows.backtest_notification" in imports
     forbidden_imports = {"json", "math", "collections", "dataclasses", "pathlib", "requests", "typing"}
     assert imports.isdisjoint(forbidden_imports)
     for token in (
-        "UsBacktestCell",
+        "BacktestCell",
         "send_feishu",
         "def _cell_from_summary",
         "def _group_by_period",
