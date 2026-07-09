@@ -38,7 +38,7 @@ class SignalFeedbackConfig:
     pre_days: int = 10
     limit: int = 5000
     outcome_limit: int = 20000
-    min_samples: int = 20
+    min_samples: int = 30
     registry_horizon: int = 5
     health_only: bool = False
 

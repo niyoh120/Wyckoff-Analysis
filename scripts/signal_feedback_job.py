@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pre-days", type=int, default=10)
     parser.add_argument("--limit", type=int, default=5000)
     parser.add_argument("--outcome-limit", type=int, default=20000)
-    parser.add_argument("--min-samples", type=int, default=20)
+    parser.add_argument("--min-samples", type=int, default=30)
     parser.add_argument("--registry-horizon", type=int, default=default_registry_horizon())
     parser.add_argument("--health-only", action="store_true")
     return parser.parse_args()

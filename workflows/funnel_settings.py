@@ -89,8 +89,12 @@ FUNNEL_STRATEGIC_L2_BYPASS_MIN_STOCK_SCORE = _float_env(
     min_value=0.0,
 )
 FUNNEL_STRATEGIC_L2_BYPASS_RESCUE_ENABLED = _bool_env("FUNNEL_STRATEGIC_L2_BYPASS_RESCUE_ENABLED", True)
+# K线复算 623 条 recommendation_tracking 实盘样本（2026-05-21~07-08）显示：
+# 60分档 11 样本胜率 18.2%/均收-21.52%，65分档 26 样本胜率 26.9%/均收-10.21%，
+# 75分档才转正（25 样本胜率 64.0%/均收+4.55%）。<75 分是清晰的亏损区，
+# 门槛从 55 提到 75 直接砍掉这批低质量旁路救援。
 FUNNEL_STRATEGIC_L2_BYPASS_RESCUE_MIN_SCORE = _float_env(
     "FUNNEL_STRATEGIC_L2_BYPASS_RESCUE_MIN_SCORE",
-    55.0,
+    75.0,
     min_value=0.0,
 )

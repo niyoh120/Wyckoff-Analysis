@@ -48,14 +48,25 @@ def check_confirmation(
 
 
 def _confirm_sos(snap: dict, today: dict, days_elapsed: int) -> tuple[str, str]:
+    # 实盘K线复算：SOS/EVR 点火类信号胜率仅 10-20%（trend_pullback/LPS(确认) 44-47%），
+    # 根因是"低乖离处的放量假突破"——仅"不跌破+缩量"就放行过于宽松，还需确认日
+    # 站稳 MA20 附近，验证点火后确有资金承接而非一日游脉冲。
     snap_low, snap_close, snap_vol = snap.get("snap_low", 0), snap.get("snap_close", 0), snap.get("snap_volume", 0)
+    ma20 = today.get("ma20", 0)
     if today["low"] < snap_low:
         return "expired", f"跌破信号日低点 {snap_low:.2f}"
     if snap_vol > 0 and today["volume"] > snap_vol * 0.8 and today["close"] < snap_close * 0.97:
         return "expired", "放量回落，非缩量确认"
-    if snap_vol > 0 and today["volume"] < snap_vol * 0.8 and today["low"] >= snap_low and today["close"] >= snap_close:
-        return "confirmed", f"缩量确认，收盘 {today['close']:.2f} 守住信号日收盘 {snap_close:.2f}"
-    return "pending", "等待缩量确认"
+    holds_ma20 = ma20 <= 0 or today["close"] >= ma20 * 0.99
+    if (
+        snap_vol > 0
+        and today["volume"] < snap_vol * 0.8
+        and today["low"] >= snap_low
+        and today["close"] >= snap_close
+        and holds_ma20
+    ):
+        return "confirmed", f"缩量确认，收盘 {today['close']:.2f} 守住信号日收盘且站稳MA20"
+    return "pending", "等待缩量+站稳MA20确认"
 
 
 def _confirm_spring(snap: dict, today: dict, days_elapsed: int) -> tuple[str, str]:
@@ -79,12 +90,16 @@ def _confirm_lps(snap: dict, today: dict, days_elapsed: int) -> tuple[str, str]:
 
 
 def _confirm_evr(snap: dict, today: dict, days_elapsed: int) -> tuple[str, str]:
+    # 同 _confirm_sos：EVR(二次确认) 实盘胜率仅 9.7%，比未确认样本更差，说明单纯
+    # "收盘不跌破事件低点"不足以过滤滞涨假企稳，补充站稳 MA20 的结构性要求。
     event_low, snap_close = snap.get("snap_support", 0), snap.get("snap_close", 0)
+    ma20 = today.get("ma20", 0)
     if today["close"] < event_low:
         return "expired", f"跌破事件日低点 {event_low:.2f}"
-    if today["close"] >= event_low and today["close"] >= snap_close * 0.98:
-        return "confirmed", f"守住 {event_low:.2f}，收盘 {today['close']:.2f}"
-    return "pending", "等待企稳确认"
+    holds_ma20 = ma20 <= 0 or today["close"] >= ma20 * 0.99
+    if today["close"] >= event_low and today["close"] >= snap_close * 0.98 and holds_ma20:
+        return "confirmed", f"守住 {event_low:.2f} 且站稳MA20，收盘 {today['close']:.2f}"
+    return "pending", "等待企稳+站稳MA20确认"
 
 
 def _confirm_compression(snap: dict, today: dict, days_elapsed: int) -> tuple[str, str]:

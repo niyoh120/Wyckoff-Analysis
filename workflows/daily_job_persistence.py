@@ -280,7 +280,10 @@ def _candidate_metadata(step2_details: dict) -> dict[str, dict[str, Any]]:
 def _tracking_status(row: dict, trade_mode: MarketTradeMode, *, springboard: bool = False) -> str:
     existing = _clean_text(row.get("candidate_status"))
     if not trade_mode.allow_recommendation_write:
-        return "市场拦截观察"
+        # allow_ai_review=False (RISK_OFF/CRASH/BLACK_SWAN) 与 repair_review
+        # (BEAR_REBOUND/PANIC_REPAIR) 拦截强度不同，标签需区分，避免复盘/信号
+        # 反馈闭环把"完全禁新仓的影子观察"和"允许复核但禁写正式推荐"混为一谈。
+        return "禁新仓-影子观察" if not trade_mode.allow_ai_review else "市场拦截观察"
     if existing:
         return existing
     return "二次确认观察" if springboard else "AI复核候选"

@@ -518,10 +518,13 @@ def classify_health(
     win_rate_pct: float | None,
     avg_return_pct: float | None,
     *,
-    min_samples: int = 20,
+    min_samples: int = 30,
 ) -> tuple[str, float, str]:
+    # K线复算实盘样本显示 149 组信号在 min_samples=20/权重0.8 下近似满权参与打分，
+    # 样本不足却几乎不打折扣地影响候选排序。min_samples 提到 30、权重降到 0.6，
+    # 让统计意义不足的信号在动态策略中的话语权明显收窄。
     if sample_count < min_samples:
-        return "INSUFFICIENT", 0.8, f"samples {sample_count}<{min_samples}"
+        return "INSUFFICIENT", 0.6, f"samples {sample_count}<{min_samples}"
     win = float(win_rate_pct or 0.0)
     avg = float(avg_return_pct or 0.0)
     if win < 35.0 and avg < 0.0:
@@ -596,7 +599,7 @@ def summarize_signal_health(
     *,
     as_of_date: str,
     market: str = "cn",
-    min_samples: int = 20,
+    min_samples: int = 30,
 ) -> list[dict[str, Any]]:
     groups: dict[tuple[str, str, str, int], list[dict[str, Any]]] = defaultdict(list)
     for row in outcomes:

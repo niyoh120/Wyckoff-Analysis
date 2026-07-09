@@ -553,6 +553,7 @@ def test_promote_l2_bypass_for_ai_blocks_defensive_regime():
 def test_defensive_regime_forces_quota_selection():
     assert should_force_quota_selection("CRASH", True, defensive_force_quota=True) is True
     assert should_force_quota_selection("BEAR_REBOUND", True, defensive_force_quota=True) is True
+    assert should_force_quota_selection("PANIC_REPAIR", True, defensive_force_quota=True) is True
     assert should_force_quota_selection("RISK_ON", True, defensive_force_quota=True) is False
 
 

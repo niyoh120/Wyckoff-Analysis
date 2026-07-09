@@ -16,7 +16,7 @@ def test_sos_confirmation_requires_reclaiming_signal_close():
     )
 
     assert status == "pending"
-    assert "等待缩量确认" in reason
+    assert "等待缩量" in reason
 
 
 def test_sos_confirmation_accepts_shrinkage_above_signal_close():
@@ -31,6 +31,34 @@ def test_sos_confirmation_accepts_shrinkage_above_signal_close():
 
     assert status == "confirmed"
     assert "信号日收盘" in reason
+
+
+def test_sos_confirmation_rejects_close_below_ma20():
+    snap = {"snap_low": 9.2, "snap_close": 10.0, "snap_volume": 1_000_000}
+
+    status, reason = check_confirmation(
+        "sos",
+        snap,
+        {"low": 9.4, "close": 10.05, "volume": 700_000, "ma20": 10.5},
+        days_elapsed=1,
+    )
+
+    assert status == "pending"
+    assert "站稳MA20" in reason
+
+
+def test_evr_confirmation_rejects_close_below_ma20():
+    snap = {"snap_support": 9.5, "snap_close": 9.8}
+
+    status, reason = check_confirmation(
+        "evr",
+        snap,
+        {"low": 9.4, "close": 9.6, "volume": 500_000, "ma20": 10.2},
+        days_elapsed=1,
+    )
+
+    assert status == "pending"
+    assert "站稳MA20" in reason
 
 
 def test_confirmation_cycle_marks_confirmed_source_for_step3():
