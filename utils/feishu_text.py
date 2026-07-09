@@ -49,24 +49,62 @@ def annotate_financial_terms(content: str) -> str:
     return out
 
 
+_TABLE_SEPARATOR_RE = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$")
+
+
+def _is_table_row(stripped: str) -> bool:
+    return stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2
+
+
+def _split_table_row(stripped: str) -> list[str]:
+    return [cell.strip() for cell in stripped.strip("|").split("|")]
+
+
+def _table_block_to_lines(header: list[str], rows: list[list[str]]) -> list[str]:
+    out: list[str] = []
+    for row in rows:
+        cells = [f"{name}: {row[idx]}" if idx < len(row) else f"{name}: -" for idx, name in enumerate(header)]
+        out.append("- " + "，".join(cells))
+    return out
+
+
+def _consume_table(lines: list[str], start: int) -> tuple[list[str], int]:
+    header = _split_table_row(lines[start].strip())
+    rows: list[list[str]] = []
+    idx = start + 2
+    while idx < len(lines) and _is_table_row(lines[idx].strip()):
+        rows.append(_split_table_row(lines[idx].strip()))
+        idx += 1
+    return _table_block_to_lines(header, rows), idx
+
+
 def normalize_lark_md(content: str) -> str:
     safe_content = content.replace("<", "&lt;").replace(">", "&gt;")
     lines = safe_content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     out: list[str] = []
-    for raw in lines:
-        line = raw.rstrip()
+    i = 0
+    while i < len(lines):
+        line = lines[i].rstrip()
         stripped = line.strip()
         if not stripped:
             out.append("")
+            i += 1
             continue
         if stripped.startswith("#"):
             title = stripped.lstrip("#").strip()
             out.append(f"**{title}**" if title else "")
+            i += 1
             continue
         if stripped in {"---", "***", "___"}:
             out.append("")
+            i += 1
+            continue
+        if _is_table_row(stripped) and i + 1 < len(lines) and _TABLE_SEPARATOR_RE.match(lines[i + 1].strip()):
+            table_lines, i = _consume_table(lines, i)
+            out.extend(table_lines)
             continue
         out.append(line)
+        i += 1
     return "\n".join(out).strip()
 
 
