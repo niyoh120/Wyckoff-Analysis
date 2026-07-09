@@ -66,7 +66,8 @@ def _normalize_volume_lot_unit(volume: pd.Series, amount: pd.Series, close: pd.S
     return volume
 
 
-_TAIL_AUCTION_START = (14, 57)  # A 股尾盘集合竞价起点（含）
+_TAIL_AUCTION_START_CN = (14, 57)  # A 股尾盘集合竞价起点（含）
+_TAIL_AUCTION_START_HK = (16, 0)  # 港股收盘集合竞价起点（含），16:00-16:10
 _TAIL_AUCTION_FILTER_MAX_INTERVAL_MIN = 5.0  # 仅对分钟级细粒度K线生效，避免误伤30/60分钟等粗粒度K线
 
 
@@ -79,9 +80,10 @@ def _is_minute_grain(df: pd.DataFrame) -> bool:
     return bool(deltas.median() <= _TAIL_AUCTION_FILTER_MAX_INTERVAL_MIN)
 
 
-def strip_tail_auction_bars(df: pd.DataFrame) -> pd.DataFrame:
-    """剔除 14:57-15:00 尾盘集合竞价分钟线（仅对分钟级细粒度K线生效）。
+def strip_tail_auction_bars(df: pd.DataFrame, *, market: str = "cn") -> pd.DataFrame:
+    """剔除尾盘集合竞价分钟线（仅对分钟级细粒度K线生效）。
 
+    A 股 14:57-15:00 集合竞价；港股 16:00-16:10 收盘竞价。
     集合竞价是全天挂单在收盘瞬间一次性撮合，单根"1分钟K线"的成交量会脉冲式
     放大、价格也可能与前一刻连续竞价出现跳跃，直接计入"尾盘N分钟"类特征
     （尾盘缩量/放量占比、尾盘涨跌幅）会产生与真实盘口行为无关的假信号。
@@ -89,10 +91,10 @@ def strip_tail_auction_bars(df: pd.DataFrame) -> pd.DataFrame:
     """
     if df.empty or "datetime" not in df.columns or not _is_minute_grain(df):
         return df
+    start = _TAIL_AUCTION_START_HK if market == "hk" else _TAIL_AUCTION_START_CN
     minute_of_day = df["datetime"].dt.hour * 60 + df["datetime"].dt.minute
-    auction_cutoff = _TAIL_AUCTION_START[0] * 60 + _TAIL_AUCTION_START[1]
+    auction_cutoff = start[0] * 60 + start[1]
     kept = df[minute_of_day < auction_cutoff]
-    # 若当天数据本身就只覆盖到集合竞价（如数据源提前截断），保留原始数据，避免误清空。
     return kept.reset_index(drop=True) if not kept.empty else df
 
 
@@ -118,7 +120,8 @@ def ensure_intraday_df(df: pd.DataFrame) -> pd.DataFrame:
     out = out.dropna(subset=["datetime", "close"]).sort_values("datetime").reset_index(drop=True)
     if out.empty:
         return out
-    out = strip_tail_auction_bars(out)
+    market = getattr(df, "attrs", {}).get("market", "cn")
+    out = strip_tail_auction_bars(out, market=market)
     if out["amount"].isna().all():
         out["amount"] = out["close"] * out["volume"].fillna(0.0)
     else:

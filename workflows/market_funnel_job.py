@@ -25,10 +25,12 @@ from core.wyckoff_engine import (
 )
 from integrations.tickflow_client import TickFlowClient
 from integrations.tickflow_notice import TICKFLOW_UPGRADE_URL
+from workflows.hk_risk_gate import apply_hk_risk_gate
 from workflows.market_funnel_config import funnel_config_for_market
 from workflows.market_funnel_data import fetch_market_inputs, load_market_symbols
 from workflows.market_funnel_report import (
     market_funnel_report_path,
+    send_market_funnel_notification,
     write_market_funnel_output,
     write_market_funnel_report,
 )
@@ -38,7 +40,7 @@ from workflows.market_funnel_tracking import write_tracking_candidates_if_enable
 MARKET_CHOICES = tuple(sorted(MARKET_SPECS))
 
 
-def _market_regime_context(bench_df: pd.DataFrame | None, cfg: FunnelConfig) -> dict[str, Any]:
+def _market_regime_context(bench_df: pd.DataFrame | None, cfg: FunnelConfig, *, is_hk: bool = False) -> dict[str, Any]:
     context: dict[str, Any] = {"available": False, "regime": "UNKNOWN", "candidate_cap": None}
     if bench_df is None or bench_df.empty or len(bench_df) < 60:
         return context
@@ -52,8 +54,8 @@ def _market_regime_context(bench_df: pd.DataFrame | None, cfg: FunnelConfig) -> 
     recent3 = pct.dropna().tail(3)
     today_pct = float(recent3.iloc[-1]) if not recent3.empty else None
     recent3_cum = float(((recent3 / 100.0 + 1.0).prod() - 1.0) * 100.0) if not recent3.empty else None
-    regime = _classify_benchmark_regime(float(close.iloc[-1]), ma50, ma200, today_pct, recent3_cum)
-    _tune_funnel_for_regime(cfg, regime)
+    regime = _classify_benchmark_regime(float(close.iloc[-1]), ma50, ma200, today_pct, recent3_cum, is_hk=is_hk)
+    _tune_funnel_for_regime(cfg, regime, is_hk=is_hk)
     context.update(
         {
             "available": True,
@@ -75,28 +77,42 @@ def _classify_benchmark_regime(
     ma200: float,
     today_pct: float | None,
     recent3_cum: float | None,
+    *,
+    is_hk: bool = False,
 ) -> str:
-    if today_pct is not None and today_pct <= -3.5:
+    # 港股恒指单日波幅大于 A 股，CRASH 阈值需放宽
+    crash_today = -5.0 if is_hk else -3.5
+    crash_cum = -9.0 if is_hk else -6.0
+    risk_off_cum = -4.0 if is_hk else -2.0
+    if today_pct is not None and today_pct <= crash_today:
         return "CRASH"
-    if recent3_cum is not None and recent3_cum <= -6.0:
+    if recent3_cum is not None and recent3_cum <= crash_cum:
         return "CRASH"
-    if pd.notna(ma200) and pd.notna(ma50) and close < ma200 and ma50 < ma200 and (recent3_cum or 0.0) <= -2.0:
+    if pd.notna(ma200) and pd.notna(ma50) and close < ma200 and ma50 < ma200 and (recent3_cum or 0.0) <= risk_off_cum:
         return "RISK_OFF"
     if pd.notna(ma200) and pd.notna(ma50) and close > ma50 > ma200 and (recent3_cum or 0.0) >= 0.0:
         return "RISK_ON"
     return "NEUTRAL"
 
 
-def _tune_funnel_for_regime(cfg: FunnelConfig, regime: str) -> None:
+def _tune_funnel_for_regime(cfg: FunnelConfig, regime: str, *, is_hk: bool = False) -> None:
+    # 港股 CRASH 场景下 RPS 提升幅度更温和：港股本身 RPS 门槛已降低，
+    # 空头回补反弹可能很快推高 RPS 但不意味着趋势真正好转。
+    crash_rps_fast = 75.0 if is_hk else 85.0
+    crash_rps_slow = 72.0 if is_hk else 80.0
+    crash_rs_long = 3.0 if is_hk else 4.0
+    riskoff_rps_fast = 68.0 if is_hk else 80.0
+    riskoff_rps_slow = 65.0 if is_hk else 75.0
+    riskoff_rs_long = 2.5 if is_hk else 3.0
     if regime == "CRASH":
-        cfg.rps_fast_min = max(cfg.rps_fast_min, 85.0)
-        cfg.rps_slow_min = max(cfg.rps_slow_min, 80.0)
-        cfg.rs_min_long = max(cfg.rs_min_long, 4.0)
+        cfg.rps_fast_min = max(cfg.rps_fast_min, crash_rps_fast)
+        cfg.rps_slow_min = max(cfg.rps_slow_min, crash_rps_slow)
+        cfg.rs_min_long = max(cfg.rs_min_long, crash_rs_long)
         cfg.rs_min_short = max(cfg.rs_min_short, 1.0)
     elif regime == "RISK_OFF":
-        cfg.rps_fast_min = max(cfg.rps_fast_min, 80.0)
-        cfg.rps_slow_min = max(cfg.rps_slow_min, 75.0)
-        cfg.rs_min_long = max(cfg.rs_min_long, 3.0)
+        cfg.rps_fast_min = max(cfg.rps_fast_min, riskoff_rps_fast)
+        cfg.rps_slow_min = max(cfg.rps_slow_min, riskoff_rps_slow)
+        cfg.rs_min_long = max(cfg.rs_min_long, riskoff_rs_long)
         cfg.rs_min_short = max(cfg.rs_min_short, 1.0)
 
 
@@ -117,7 +133,7 @@ def _run_layers(
     sector_map: dict[str, str] | None = None,
 ) -> tuple[dict[str, list[tuple[str, float]]], dict[str, Any]]:
     funnel_cfg = _funnel_config(cfg)
-    benchmark_context = _market_regime_context(bench_df, funnel_cfg)
+    benchmark_context = _market_regime_context(bench_df, funnel_cfg, is_hk=cfg.spec.key == "hk")
     layer1 = layer1_filter(symbols, name_map, {}, df_map, funnel_cfg)
     layer2, channel_map, _ = layer2_strength_detailed(layer1, df_map, bench_df, funnel_cfg, rps_universe=symbols)
     sector_map = sector_map or {}
@@ -253,6 +269,9 @@ def _run_funnel_for_ranked(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     symbols = [str(item["symbol"]) for item in ranked]
     fetched_symbols = [symbol for symbol in symbols if symbol in df_map]
+    hk_risk_blocked: dict[str, str] = {}
+    if runtime.spec.key == "hk":
+        fetched_symbols, hk_risk_blocked = apply_hk_risk_gate(fetched_symbols, df_map)
     name_map = {str(item["symbol"]): str(item["name"]) for item in ranked}
     sector_map = _sector_map_from_ranked(ranked)
     print(f"[market-funnel] {runtime.spec.label} 漏斗筛选 L1~L4 symbols={len(fetched_symbols)}")
@@ -263,6 +282,8 @@ def _run_funnel_for_ranked(
     )
     if metrics and bench_symbol:
         metrics["benchmark_symbol"] = bench_symbol
+    if hk_risk_blocked:
+        metrics["hk_risk_blocked"] = hk_risk_blocked
     raw_candidates = _candidate_rows(triggers, name_map=name_map, df_map=df_map)
     candidates = _cap_candidates_for_regime(raw_candidates, metrics)
     if len(candidates) < len(raw_candidates):
@@ -304,6 +325,8 @@ def run_market_funnel(
     write_market_funnel_output(runtime.output_path, result)
     write_market_funnel_report(report_path, result)
     write_tracking_candidates_if_enabled(candidates, runtime.spec.key)
+    if runtime.spec.key == "hk":
+        send_market_funnel_notification(os.getenv("FEISHU_WEBHOOK_URL", ""), result)
     print(
         f"[market-funnel] done ok={result['ok']} market={runtime.spec.key} "
         f"quotes={len(quotes)} selected={len(symbols)} fetched={len(df_map)} "

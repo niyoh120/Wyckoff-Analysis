@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core.hk_boards import apply_hk_funnel_cfg
 from core.wyckoff_engine import FunnelConfig
 
 
@@ -20,12 +21,7 @@ def funnel_config_for_market(market: str, *, trading_days: int = 320, min_avg_am
         funnel_cfg.spring_vol_ratio = 1.3
         funnel_cfg.evr_max_rise = 3.0
     elif market == "hk":
-        funnel_cfg.sos_pct_min = 7.0
-        funnel_cfg.sos_vol_ratio = 3.0
-        funnel_cfg.spring_tr_max_range_pct = 25.0
-        funnel_cfg.global_entry_max_bias_200 = 25.0
-        funnel_cfg.accum_price_from_low_max = 0.40
-        funnel_cfg.evr_min_turnover = 0.3
+        apply_hk_funnel_cfg(funnel_cfg, min_avg_amount=min_avg_amount)
     elif market == "etf":
         funnel_cfg.sos_pct_min = 3.5
         funnel_cfg.sos_vol_ratio = 2.0

@@ -1198,6 +1198,80 @@ def test_us_backtest_snapshot_fetch_entrypoint_delegates_runtime_workflow():
         assert token not in text
 
 
+def test_hk_backtest_strategy_replay_entrypoint_delegates_runtime_workflow():
+    path = ROOT / "scripts" / "hk_backtest_strategy_replay.py"
+    imports = set(_import_names(path))
+    text = path.read_text(encoding="utf-8")
+
+    assert "workflows.hk_backtest_strategy_replay" in imports
+    forbidden_imports = {"csv", "json", "math", "dataclasses", "pandas", "statistics", "core.hk_risk_filter"}
+    assert imports.isdisjoint(forbidden_imports)
+    for token in (
+        "StrategySpec",
+        "ReplayTrade",
+        "SignalCandidate",
+        "STRATEGIES",
+        "def _load_hist_map",
+        "def _generate_signal_rows",
+        "def _entry",
+        "def _exit",
+        "def _replay_one",
+        "def _summary",
+        "def _write_outputs",
+        "classify_hk_risk",
+    ):
+        assert token not in text
+
+
+def test_hk_backtest_snapshot_fetch_entrypoint_delegates_runtime_workflow():
+    path = ROOT / "scripts" / "backtest_snapshot_fetch_hk.py"
+    imports = set(_import_names(path))
+    text = path.read_text(encoding="utf-8")
+
+    assert "workflows.backtest_snapshot_fetch_hk" in imports
+    forbidden_imports = {
+        "json",
+        "time",
+        "datetime",
+        "pandas",
+        "core.wyckoff_engine",
+        "integrations.market_universe",
+        "integrations.tickflow_client",
+    }
+    assert imports.isdisjoint(forbidden_imports)
+    for token in (
+        "TickFlowClient",
+        "normalize_hist_from_fetch",
+        "load_hk_symbols",
+        "def _fetch_klines_batched",
+        "def _fetch_benchmark",
+        "def _save_snapshot",
+    ):
+        assert token not in text
+
+
+def test_hk_backtest_notify_entrypoint_delegates_report_builders():
+    path = ROOT / "scripts" / "notify_hk_backtest.py"
+    imports = set(_import_names(path))
+    text = path.read_text(encoding="utf-8")
+
+    assert "workflows.hk_backtest_notification" in imports
+    forbidden_imports = {"json", "math", "collections", "dataclasses", "pathlib", "requests", "typing"}
+    assert imports.isdisjoint(forbidden_imports)
+    for token in (
+        "HkBacktestCell",
+        "send_feishu",
+        "def _cell_from_summary",
+        "def _group_by_period",
+        "def _period_elements",
+        "def _strategy_row",
+        "def build_card",
+        "def write_report",
+        "lark_md",
+    ):
+        assert token not in text
+
+
 def test_web_background_entrypoint_delegates_runtime_workflow():
     path = ROOT / "scripts" / "web_background_job.py"
     imports = set(_import_names(path))

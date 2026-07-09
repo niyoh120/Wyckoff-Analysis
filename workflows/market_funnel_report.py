@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core.candidate_ranker import TRIGGER_LABELS
+from utils.feishu import send_feishu_notification
 
 
 def market_funnel_report_path(output_path: Path | None) -> Path | None:
@@ -27,9 +28,22 @@ def render_market_funnel_report(result: dict[str, Any]) -> str:
         *_trigger_block(metrics),
         *_candidate_block(candidates),
         *_trend_watch_block(metrics),
+        *_risk_blocked_block(metrics),
         *_runtime_block(result),
     ]
     return "\n".join(blocks).rstrip() + "\n"
+
+
+def send_market_funnel_notification(webhook_url: str, result: dict[str, Any]) -> bool:
+    if not webhook_url or not webhook_url.strip():
+        print("[market-funnel] FEISHU_WEBHOOK_URL 未配置，跳过飞书通知")
+        return False
+    label = result.get("label", result.get("market", ""))
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    hit_count = int(metrics.get("total_hits") or 0)
+    icon = "✅" if hit_count > 0 else "⚪"
+    title = f"{icon} Wyckoff Funnel {label} 漏斗完成"
+    return send_feishu_notification(webhook_url, title, render_market_funnel_report(result))
 
 
 def write_market_funnel_output(path: Path | None, payload: dict[str, Any]) -> None:
@@ -120,6 +134,21 @@ def _trend_watch_block(metrics: dict[str, Any]) -> list[str]:
         "| # | 代码 | 分数 | 20日 | 60日 | 120日 | 风险 |",
         "| ---: | --- | ---: | ---: | ---: | ---: | --- |",
         *(rows or ["| - | - | - | - | - | - | 本次无趋势观察候选 |"]),
+        "",
+    ]
+
+
+def _risk_blocked_block(metrics: dict[str, Any]) -> list[str]:
+    blocked = metrics.get("hk_risk_blocked") if isinstance(metrics.get("hk_risk_blocked"), dict) else {}
+    if not blocked:
+        return []
+    rows = [f"| {symbol} | {reason} |" for symbol, reason in list(blocked.items())[:20]]
+    return [
+        "## 港股风险剔除",
+        f"以下 {len(blocked)} 只标的因仙股/流动性不足/极端波幅等风险被剔除，不进入候选打分。",
+        "| 代码 | 剔除原因 |",
+        "| --- | --- |",
+        *rows,
         "",
     ]
 

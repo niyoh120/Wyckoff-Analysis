@@ -1,12 +1,12 @@
-"""A股涨跌停识别（纯计算层）。
+"""涨跌停识别（纯计算层）。
 
 Wyckoff 的 Effort vs Result 假设"跌幅"和"缩量/放量"能反映买卖力量对比，
 但 A 股涨跌停制度会截断价格发现：一字跌停当天几乎没有真实换手，
 "跌停"本身不代表出货或走弱确认，也不能被当作有效的 Spring 支撑测试。
 
 本模块只做定性识别，不做买卖决策：
-- limit_pct: 该股票的涨跌停幅度（主板/创业板/科创板/北交所/ST）
-- classify_limit_move: 结合当日 OHLC + 昨收，判断是否触及涨跌停、是否一字板/烂板/炸板
+- limit_pct: 该股票的涨跌停幅度（A股主板/创业板/科创板/北交所/ST）；港股无涨跌停，返回 None
+- classify_limit_move: 结合当日 OHLC + 昨收，判断是否触及涨跌停、是否一字板/烂板/炸板；港股返回 None
 """
 
 from __future__ import annotations
@@ -25,8 +25,13 @@ def is_st_name(name: str) -> bool:
     return text.startswith("ST") or text.startswith("*ST")
 
 
-def limit_pct(code: str, name: str = "") -> float:
-    """返回该股票的涨跌停幅度（如 10.0 表示 ±10%）。"""
+def limit_pct(code: str, name: str = "", *, market: str = "cn") -> float | None:
+    """返回该股票的涨跌停幅度（如 10.0 表示 ±10%）。
+
+    港股无涨跌停制度，market="hk" 时返回 None。
+    """
+    if market == "hk":
+        return None
     if is_st_name(name):
         return 5.0
     board = cn_board(code)
@@ -63,11 +68,17 @@ def classify_limit_move(
     high: float,
     low: float,
     close: float,
+    market: str = "cn",
 ) -> LimitMoveState | None:
-    """基于前收盘 + 当日 OHLC 判断涨跌停状态。数据不足时返回 None。"""
+    """基于前收盘 + 当日 OHLC 判断涨跌停状态。数据不足时返回 None。
+
+    港股无涨跌停制度，market="hk" 时直接返回 None。
+    """
     if prev_close <= 0:
         return None
-    pct = limit_pct(code, name)
+    pct = limit_pct(code, name, market=market)
+    if pct is None:
+        return None
     limit_up = _round2(prev_close * (1 + pct / 100.0))
     limit_down = _round2(prev_close * (1 - pct / 100.0))
     tol = pct * _LIMIT_TOUCH_TOLERANCE_PCT / 100.0 * prev_close

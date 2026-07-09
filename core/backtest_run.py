@@ -11,6 +11,7 @@ import pandas as pd
 from core.backtest_config import BacktestRunConfig
 from core.backtest_performance import enrich_backtest_summary
 from core.backtest_replay import BacktestReplayResult, replay_backtest
+from core.hk_boards import apply_hk_funnel_cfg
 from core.wyckoff_engine import FunnelConfig
 
 ProgressReporter = Callable[[str, str, float], None]
@@ -98,6 +99,8 @@ def _base_funnel_config(config: BacktestRunConfig) -> FunnelConfig:
     base_cfg = FunnelConfig(trading_days=config.replay.trading_days)
     if config.replay.board == "us":
         _apply_us_cfg(base_cfg)
+    elif config.replay.board == "hk":
+        apply_hk_funnel_cfg(base_cfg)
     _apply_funnel_config_overrides(base_cfg, config.funnel_config_overrides)
     return base_cfg
 

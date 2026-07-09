@@ -7,9 +7,17 @@ from pathlib import Path
 
 
 def load_us_symbols() -> tuple[list[str], dict[str, str]]:
-    universe_path = Path(__file__).resolve().parent.parent / "data" / "market_universes" / "us.txt"
-    symbols = _load_symbol_lines(universe_path)
-    name_map = _load_us_name_map(universe_path.with_name("us_meta.json"))
+    return _load_market_symbols("us.txt", "us_meta.json")
+
+
+def load_hk_symbols() -> tuple[list[str], dict[str, str]]:
+    return _load_market_symbols("hk.txt", "hk_meta.json")
+
+
+def _load_market_symbols(symbol_file: str, meta_file: str) -> tuple[list[str], dict[str, str]]:
+    base_dir = Path(__file__).resolve().parent.parent / "data" / "market_universes"
+    symbols = _load_symbol_lines(base_dir / symbol_file)
+    name_map = _load_name_map(base_dir / meta_file)
     if not symbols and name_map:
         symbols = sorted(name_map.keys())
     return symbols, name_map
@@ -21,17 +29,17 @@ def _load_symbol_lines(path: Path) -> list[str]:
     return [line.strip() for line in path.read_text().splitlines() if line.strip()]
 
 
-def _load_us_name_map(path: Path) -> dict[str, str]:
+def _load_name_map(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
     try:
         meta = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    return _us_name_map_from_meta(meta)
+    return _name_map_from_meta(meta)
 
 
-def _us_name_map_from_meta(meta: object) -> dict[str, str]:
+def _name_map_from_meta(meta: object) -> dict[str, str]:
     if not isinstance(meta, list):
         return {}
     out: dict[str, str] = {}

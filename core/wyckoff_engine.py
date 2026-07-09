@@ -843,13 +843,16 @@ def _is_trading_range_context(zone: pd.DataFrame, cfg: FunnelConfig, df_full: pd
     return not drift_pct > cfg.spring_tr_max_drift_pct
 
 
-def _is_frozen_board_day(row: pd.Series) -> bool:
+def _is_frozen_board_day(row: pd.Series, *, market: str = "cn") -> bool:
     """判断某交易日是否为一字板（开=高=低=收，全天几乎无波动）。
 
     A 股涨跌停制度下，一字板当天几乎没有真实换手：价格被封死，
     "放量"和"收盘收回"这类量价确认在物理上不具备意义，不能作为
     有效的 Spring 支撑测试，否则会把"洗出所有筹码的一字跌停"误判为洗盘信号。
+    港股无涨跌停制度，技术上不存在一字板，直接返回 False。
     """
+    if market == "hk":
+        return False
     o, h, low_, c = (float(row.get(k, 0.0) or 0.0) for k in ("open", "high", "low", "close"))
     if c <= 0:
         return False
@@ -864,8 +867,10 @@ def _is_frozen_board_day(row: pd.Series) -> bool:
 _REGISTRATION_BOARD_VOL_SCALE = 1.41
 
 
-def _board_vol_ratio_scale(code: str) -> float:
-    """按涨跌停幅度返回量能阈值缩放系数：主板/北交所=1.0，创业板/科创板放大。"""
+def _board_vol_ratio_scale(code: str, *, market: str = "cn") -> float:
+    """按涨跌停幅度返回量能阈值缩放系数：A股主板/北交所=1.0，创业板/科创板放大；港股=1.0。"""
+    if market == "hk":
+        return 1.0
     return _REGISTRATION_BOARD_VOL_SCALE if cn_board(code) in {"chinext", "star"} else 1.0
 
 
@@ -889,7 +894,9 @@ def _detect_spring(
     last = df_s.iloc[-1]
 
     # 一字跌停/涨停日几乎没有真实换手，排除在有效 Spring 测试之外。
-    if _is_frozen_board_day(prev) or _is_frozen_board_day(last):
+    is_hk = code.strip().upper().endswith(".HK")
+    mkt = "hk" if is_hk else "cn"
+    if _is_frozen_board_day(prev, market=mkt) or _is_frozen_board_day(last, market=mkt):
         return None
 
     if _bias_200_exceeds_limit(pd.to_numeric(df_s["close"], errors="coerce"), cfg, max_bias_200):
@@ -900,7 +907,7 @@ def _detect_spring(
         return None
     if last["close"] <= support_level:
         return None
-    vol_scale = _board_vol_ratio_scale(code)
+    vol_scale = _board_vol_ratio_scale(code, market=mkt)
     vol_avg = df_s["volume"].tail(5).iloc[:-1].mean()
     if vol_avg <= 0 or last["volume"] < vol_avg * cfg.spring_vol_ratio * vol_scale:
         return None
@@ -953,7 +960,8 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
         return None
     vol_ratio = recent_max_vol / ref_max_vol
     # 20%涨跌停板块日常波动更大，缩量比的合格线相应放宽，避免正常噪音误杀有效信号。
-    if vol_ratio > cfg.lps_vol_dry_ratio * _board_vol_ratio_scale(code):
+    mkt = "hk" if code.strip().upper().endswith(".HK") else "cn"
+    if vol_ratio > cfg.lps_vol_dry_ratio * _board_vol_ratio_scale(code, market=mkt):
         return None
     return float(vol_ratio)
 
@@ -1048,7 +1056,8 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
 
     # 20%涨跌停板块日常波动更大：量比门槛、"滞涨"允许的日内波幅都需同步放宽，
     # 否则该信号在这些板块上几乎永远无法触发（正常波动就超过主板的滞涨阈值）。
-    vol_scale = _board_vol_ratio_scale(code)
+    mkt = "hk" if code.strip().upper().endswith(".HK") else "cn"
+    vol_scale = _board_vol_ratio_scale(code, market=mkt)
     max_drop = cfg.evr_max_drop * vol_scale
     max_rise = cfg.evr_max_rise * vol_scale
     confirm_days = max(int(cfg.evr_confirm_days), 0)
@@ -1147,7 +1156,8 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
         return None
 
     # 20%涨跌停板块日常大涨幅度更常见，点火最小涨幅门槛同步放宽，避免过度宽松触发。
-    vol_scale = _board_vol_ratio_scale(code)
+    mkt = "hk" if code.strip().upper().endswith(".HK") else "cn"
+    vol_scale = _board_vol_ratio_scale(code, market=mkt)
     day_pct = float(series.pct_chg.iloc[-1])
     if pd.isna(day_pct) or day_pct < cfg.sos_pct_min * vol_scale:
         return None
