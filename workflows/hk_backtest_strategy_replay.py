@@ -20,6 +20,7 @@ from typing import Any
 import pandas as pd
 
 from core.hk_risk_filter import classify_hk_risk
+from core.wyckoff_engine import dollar_volume_series
 
 
 @dataclass(frozen=True)
@@ -175,13 +176,6 @@ def _find_idx(candles: pd.DataFrame, target: date) -> int | None:
     return None
 
 
-def _dollar_volume(row: pd.Series) -> float:
-    amount = _safe_float(row.get("amount"))
-    if amount > 0:
-        return amount
-    return _safe_float(row.get("close")) * _safe_float(row.get("volume"))
-
-
 def _signal_triggers(stats: dict[str, float]) -> tuple[list[str], float]:
     triggers: list[str] = []
     score = stats["pct"] * 1.2 + min(stats["vol_ratio"], 8.0) * 5.0 + stats["range_pos"] * 18.0
@@ -210,13 +204,18 @@ def _is_lps_like(stats: dict[str, float]) -> bool:
 
 
 def _hk_risk_blocked(candles: pd.DataFrame, idx: int) -> bool:
-    """基于 core.hk_risk_filter 判定该交易日是否触发港股风险（仙股/流动性/极端波幅/价格跳变）。"""
+    """基于 core.hk_risk_filter 判定该交易日是否触发港股风险（仙股/流动性/极端波幅/价格跳变）。
+
+    TickFlow 港股历史 K 线的 amount 字段恒为 0（数据源限制），dollar_volume_series
+    会回退为 close*volume 口径，否则所有交易日都会被误判为流动性不足。
+    """
     if idx <= 0 or idx >= len(candles):
         return False
     row = candles.iloc[idx]
     prev_close = _safe_float(candles.iloc[idx - 1].get("close"))
     window = candles.iloc[max(0, idx - AVG_TURNOVER_LOOKBACK_DAYS) : idx]
-    avg_turnover = float(window["amount"].apply(_safe_float).mean()) if not window.empty else math.inf
+    turnover = dollar_volume_series(window)
+    avg_turnover = float(turnover.mean()) if not turnover.empty else math.inf
     flags = classify_hk_risk(
         close=_safe_float(row.get("close")),
         open_=_safe_float(row.get("open")),
@@ -242,13 +241,13 @@ def _symbol_feature_frame(candles: pd.DataFrame) -> pd.DataFrame:
     high = _numeric_series(candles, "high")
     low = _numeric_series(candles, "low")
     volume = _numeric_series(candles, "volume")
-    amount = _numeric_series(candles, "amount")
     prev_close = close.shift(1)
     high_20 = high.shift(1).rolling(20, min_periods=20).max()
     low_20 = low.rolling(20, min_periods=20).min()
     vol_mean = volume.shift(1).rolling(20, min_periods=20).mean()
     range_width = pd.concat([(high_20 - low_20), close * 0.01], axis=1).max(axis=1)
     pct = (close / prev_close - 1.0) * 100.0
+    dollar_volume = dollar_volume_series(candles).reindex(candles.index)
     return pd.DataFrame(
         {
             "date": candles["date"],
@@ -260,7 +259,7 @@ def _symbol_feature_frame(candles: pd.DataFrame) -> pd.DataFrame:
             "ma20": close.rolling(20, min_periods=20).mean(),
             "ma50": close.rolling(50, min_periods=50).mean(),
             "pullback_from_high": (high_20 - close) / high_20,
-            "dollar_volume": amount.where(amount > 0, close * volume),
+            "dollar_volume": dollar_volume,
         }
     )
 

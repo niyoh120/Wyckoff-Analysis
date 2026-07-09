@@ -118,6 +118,28 @@ def test_replay_one_blocked_by_penny_stock_risk_returns_none() -> None:
     assert trade is None
 
 
+def test_hk_risk_blocked_falls_back_to_close_times_volume_when_amount_zero() -> None:
+    """TickFlow 港股历史 K 线 amount 字段恒为 0，_hk_risk_blocked 必须回退为 close*volume
+    计算日均成交额，否则所有交易日都会被误判为流动性不足（真实生产回归 bug）。"""
+    candles = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp(f"2026-01-{2 + i:02d}").date(),
+                "open": 10.0,
+                "high": 10.2,
+                "low": 9.8,
+                "close": 10.0,
+                "volume": 1_000_000.0,
+                "amount": 0.0,
+                "pct_chg": 0.0,
+            }
+            for i in range(25)
+        ]
+    )
+
+    assert replay._hk_risk_blocked(candles, 21) is False
+
+
 def test_summary_reports_strategy_metrics() -> None:
     trades = [
         replay.ReplayTrade("2026-01-01", "2026-01-02", "2026-01-03", "A.HK", "A", 10, 12, 20.0, "SOS", 10),

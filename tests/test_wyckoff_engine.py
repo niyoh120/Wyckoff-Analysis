@@ -19,6 +19,7 @@ from core.wyckoff_engine import (
     build_candidate_entries,
     detect_accum_stage,
     detect_leader_radar,
+    dollar_volume_series,
     layer1_filter,
     layer2_strength_detailed,
     layer3_sector_resonance,
@@ -60,6 +61,23 @@ class TestSortedIfNeeded:
         df = _make_df(["2024-01-03", "2024-01-02", "2024-01-01"], [12, 11, 10])
         result = sort_by_date_if_needed(df)
         assert list(result["close"]) == [10, 11, 12]
+
+
+class TestDollarVolumeSeries:
+    def test_uses_amount_when_available(self):
+        df = _make_df(["2024-01-01", "2024-01-02"], [10.0, 11.0], volumes=[100, 200], amounts=[1000.0, 2200.0])
+        result = dollar_volume_series(df)
+        assert list(result) == [1000.0, 2200.0]
+
+    def test_falls_back_to_close_times_volume_when_amount_all_zero(self):
+        df = _make_df(["2024-01-01", "2024-01-02"], [10.0, 11.0], volumes=[100, 200], amounts=[0.0, 0.0])
+        result = dollar_volume_series(df)
+        assert list(result) == [1000.0, 2200.0]
+
+    def test_falls_back_when_amount_column_missing(self):
+        df = _make_df(["2024-01-01", "2024-01-02"], [10.0, 11.0], volumes=[100, 200]).drop(columns=["amount"])
+        result = dollar_volume_series(df)
+        assert list(result) == [1000.0, 2200.0]
 
 
 class TestLatestTradeDate:
@@ -138,6 +156,28 @@ class TestLayer1Filter:
         )
 
         assert result == ["000001"]
+
+    def test_amount_all_zero_falls_back_to_close_times_volume(self):
+        """TickFlow 港股/美股历史 K 线 amount 字段恒为 0，L1 流动性过滤必须回退为 close*volume，
+        否则所有标的都会被误判为流动性不足而全部剔除（真实生产回归 bug）。
+
+        require_cn_main_or_chinext=False 跳过板块限制，聚焦测试 _amount_liquidity_ok
+        本身的回退逻辑（该函数是港股/美股/A股共用的 L1 硬过滤）。
+        """
+        cfg = FunnelConfig(min_avg_amount_wan=800.0, require_cn_main_or_chinext=False)
+        dates = pd.date_range("2024-01-01", periods=100, freq="B")
+        closes = [10.0] * 100
+        # amount 全 0 模拟 TickFlow 港股数据源限制；volume 足够大，close*volume 应能通过门槛
+        df = _make_df(
+            dates.strftime("%Y-%m-%d").tolist(),
+            closes,
+            volumes=[2_000_000] * 100,
+            amounts=[0.0] * 100,
+        )
+
+        result = layer1_filter(["00700.HK"], {"00700.HK": "腾讯"}, {}, {"00700.HK": df}, cfg)
+
+        assert result == ["00700.HK"]
 
     def test_rejects_low_price_and_hard_market_cap_floor(self):
         cfg = FunnelConfig()

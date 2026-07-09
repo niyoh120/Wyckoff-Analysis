@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from core.hk_risk_filter import classify_hk_risk, describe_hk_risk
+from core.wyckoff_engine import dollar_volume_series
 
 AVG_TURNOVER_LOOKBACK_DAYS = 20
 
@@ -49,9 +50,8 @@ def _hk_block_reason(df: pd.DataFrame | None) -> str:
 
 
 def _avg_turnover(work: pd.DataFrame) -> float:
-    if "amount" not in work.columns:
-        return float("inf")
-    tail = pd.to_numeric(work["amount"], errors="coerce").dropna().tail(AVG_TURNOVER_LOOKBACK_DAYS)
+    """计算近期日均成交额；TickFlow 港股 amount 字段恒为 0 时由 dollar_volume_series 回退为 close*volume。"""
+    tail = dollar_volume_series(work).tail(AVG_TURNOVER_LOOKBACK_DAYS)
     return float(tail.mean()) if not tail.empty else float("inf")
 
 

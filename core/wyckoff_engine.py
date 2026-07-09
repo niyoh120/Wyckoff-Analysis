@@ -379,16 +379,34 @@ class _FunnelStageState(NamedTuple):
 # Layer 1: 剥离垃圾
 
 
+def dollar_volume_series(df_sorted: pd.DataFrame) -> pd.Series:
+    """成交额序列：amount 字段缺失/恒为 0（如 TickFlow 港股/美股数据源限制）时回退为 close*volume。
+
+    供 core 层 L1 流动性过滤与 workflows 层港股风险门禁/回测共用，
+    确保同一份历史数据在不同调用方下的"成交额"口径一致。
+    """
+    if "amount" not in df_sorted.columns:
+        if {"close", "volume"}.issubset(df_sorted.columns):
+            close = pd.to_numeric(df_sorted["close"], errors="coerce")
+            volume = pd.to_numeric(df_sorted["volume"], errors="coerce")
+            return (close * volume).dropna()
+        return pd.Series(dtype=float)
+    amount = pd.to_numeric(df_sorted["amount"], errors="coerce")
+    if (amount.fillna(0.0) <= 0).all() and {"close", "volume"}.issubset(df_sorted.columns):
+        close = pd.to_numeric(df_sorted["close"], errors="coerce")
+        volume = pd.to_numeric(df_sorted["volume"], errors="coerce")
+        amount = close * volume
+    return amount.dropna()
+
+
 def _amount_liquidity_ok(
     df_sorted: pd.DataFrame,
     cfg: FunnelConfig,
     *,
     min_avg_amount_wan: float | None = None,
 ) -> bool:
-    if "amount" not in df_sorted.columns:
-        return True
     window = max(int(cfg.amount_avg_window), 1)
-    amount = pd.to_numeric(df_sorted["amount"], errors="coerce").dropna().tail(window)
+    amount = dollar_volume_series(df_sorted).tail(window)
     if amount.empty:
         return True
     threshold = float(cfg.min_avg_amount_wan if min_avg_amount_wan is None else min_avg_amount_wan) * 10000
