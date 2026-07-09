@@ -16,7 +16,7 @@ def test_save_hk_snapshot_outputs_required_artifacts(tmp_path) -> None:
         tmp_path,
         full_df,
         bench_df,
-        "HSI.HK",
+        "02800.HK",
         ["00700.HK"],
         1,
         {"00700.HK": "Tencent"},
@@ -30,7 +30,7 @@ def test_save_hk_snapshot_outputs_required_artifacts(tmp_path) -> None:
     assert json.loads((tmp_path / "name_map.json").read_text(encoding="utf-8")) == {"00700.HK": "Tencent"}
     meta = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
     assert meta["market"] == "hk"
-    assert meta["benchmark"] == "HSI.HK"
+    assert meta["benchmark"] == "02800.HK"
 
 
 def test_save_hk_snapshot_fails_without_benchmark(tmp_path) -> None:
@@ -67,14 +67,14 @@ class _FakeBenchmarkClient:
 
 
 def test_fetch_benchmark_falls_back_to_next_candidate() -> None:
-    client = _FakeBenchmarkClient(valid_symbol="HSI.HK")
+    client = _FakeBenchmarkClient(valid_symbol="03033.HK")
 
     bench_df, bench_symbol = _fetch_benchmark(client, count=60, start_ms=0, end_ms=1)
 
-    assert bench_symbol == "HSI.HK"
+    assert bench_symbol == "03033.HK"
     assert bench_df is not None and not bench_df.empty
-    assert client.requested[0] != "HSI.HK"
-    assert "HSI.HK" in client.requested
+    assert client.requested[0] != "03033.HK"
+    assert "03033.HK" in client.requested
 
 
 def test_fetch_benchmark_returns_none_when_all_candidates_fail() -> None:

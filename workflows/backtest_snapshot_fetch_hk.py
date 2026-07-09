@@ -16,9 +16,10 @@ from integrations.tickflow_client import TickFlowClient
 
 BATCH_SIZE = int(os.getenv("BACKTEST_HK_KLINE_BATCH_SIZE", "100"))
 BATCH_SLEEP = float(os.getenv("BACKTEST_HK_KLINE_BATCH_SLEEP", "2.0"))
-# 恒生指数在 TickFlow 上的可用代码不确定，依次尝试直到取到有效数据；
-# 与 workflows/market_funnel_runtime.py 的港股 benchmark_symbols 候选列表保持一致。
-_DEFAULT_BENCHMARK_CANDIDATES = ("800000.HK", "HSI.HK", "^HSI", "HSI")
+# 实测 TickFlow 不支持任何形式的恒生指数代码（800000.HK/HSI.HK/^HSI/HSI 均返回空），
+# 改用 02800.HK（盈富基金 Tracker Fund，追踪恒生指数的港股 ETF）作为基准代理，
+# 历史数据完整覆盖 2020 年至今；03033.HK（南方恒生科技）作为科技股行情的备选代理。
+_DEFAULT_BENCHMARK_CANDIDATES = ("02800.HK", "03033.HK")
 BENCHMARK_SYMBOL_CANDIDATES = (
     tuple(s.strip() for s in os.getenv("BACKTEST_HK_BENCHMARK", "").split(",") if s.strip())
     or _DEFAULT_BENCHMARK_CANDIDATES

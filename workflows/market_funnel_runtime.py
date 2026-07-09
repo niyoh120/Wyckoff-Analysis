@@ -43,7 +43,9 @@ MARKET_SPECS = {
         label="港股",
         universe="HK_Equity",
         symbol_file="hk.txt",
-        benchmark_symbols=("800000.HK", "HSI.HK", "^HSI", "HSI"),
+        # TickFlow 不支持任何形式的恒生指数代码（800000.HK/HSI.HK/^HSI/HSI 均无数据），
+        # 用 02800.HK（盈富基金）代理恒指、03033.HK（南方恒生科技）代理科技股行情。
+        benchmark_symbols=("02800.HK", "03033.HK"),
         default_max_symbols=600,
         default_min_quote_amount=2_000_000.0,
         default_min_quote_price=1.0,
