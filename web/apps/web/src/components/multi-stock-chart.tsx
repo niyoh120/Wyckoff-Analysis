@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, type RefObject } from 'react'
+import { watchChartResize } from '@/lib/chart-resize'
 import {
   createChart,
   LineSeries,
@@ -66,13 +67,9 @@ function useChartShell(
       localization: { priceFormatter: (value: number) => `${value.toFixed(1)}%` },
     })
     chartRef.current = chart
-    const resize = () => {
-      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth })
-    }
-    window.addEventListener('resize', resize)
-    resize()
+    const stopResize = watchChartResize(containerRef.current, chart)
     return () => {
-      window.removeEventListener('resize', resize)
+      stopResize()
       chart.remove()
       chartRef.current = null
       seriesRefs.current = []

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { checkWhitelist } from '@/lib/kline'
+import { useWhitelistGate } from '@/lib/whitelist-gate'
 import { WyckoffLoading } from '@/components/loading'
+import { SortableHeader, type SortOrder } from '@/components/sortable-header'
 import { usePreferences } from '@/lib/preferences'
 import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
@@ -47,8 +48,6 @@ type TailBuySortKey =
   | 'priorityScore'
   | 'llmDecision'
   | 'reason'
-
-type SortOrder = 'desc' | 'asc'
 
 async function fetchTailBuy(): Promise<TailBuyRecord[]> {
   const { data } = await supabase
@@ -165,11 +164,7 @@ function executionToneClass(tone: 'buy' | 'watch' | 'skip' | 'unknown'): string 
 export function TailBuyPage() {
   const user = useAuthStore((s) => s.user)
   const userId = user?.id
-  const whitelist = useQuery({
-    queryKey: ['whitelist', userId],
-    queryFn: () => checkWhitelist(userId || ''),
-    enabled: !!userId,
-  })
+  const whitelist = useWhitelistGate(userId)
   const tailBuy = useQuery({
     queryKey: ['tail-buy'],
     queryFn: fetchTailBuy,
@@ -272,32 +267,6 @@ function TailBuyTableHead({
         <SortableHeader align="left" active={sortBy === 'reason'} label={t('tailBuy.reason')} order={sortOrder} onClick={() => onSortChange('reason')} />
       </tr>
     </thead>
-  )
-}
-
-function SortableHeader({
-  active,
-  align,
-  label,
-  order,
-  onClick,
-}: {
-  active: boolean
-  align: 'left' | 'right' | 'center'
-  label: string
-  order: SortOrder
-  onClick: () => void
-}) {
-  const alignClass = align === 'right' ? 'justify-end text-right' : align === 'center' ? 'justify-center text-center' : 'justify-start text-left'
-  return (
-    <th className={`px-3 py-2.5 font-medium ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'}`}>
-      <button type="button" onClick={onClick} className={`inline-flex w-full items-center gap-1 rounded px-1 py-0.5 hover:bg-muted ${alignClass}`}>
-        <span>{label}</span>
-        <span className={`min-w-3 text-[10px] ${active ? 'text-primary' : 'text-muted-foreground'}`}>
-          {active ? (order === 'desc' ? '↓' : '↑') : '--'}
-        </span>
-      </button>
-    </th>
   )
 }
 

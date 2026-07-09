@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { watchChartResize } from '@/lib/chart-resize'
 import { avg, rsi as calcRSI, macd as calcMACD, bollinger as calcBollinger } from '@/lib/math'
 import type { KlineRow } from '@wyckoff/shared'
 import {
@@ -118,10 +119,8 @@ function useChartInit(
     const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'volume' })
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } })
     chartRefs.current = { chart, candle, ma5, ma20, ma50, volume, markers: null }
-    const handleResize = () => { if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }) }
-    window.addEventListener('resize', handleResize)
-    handleResize()
-    return () => { window.removeEventListener('resize', handleResize); chartRefs.current?.markers?.detach(); chart.remove(); chartRefs.current = null }
+    const stopResize = watchChartResize(containerRef.current, chart)
+    return () => { stopResize(); chartRefs.current?.markers?.detach(); chart.remove(); chartRefs.current = null }
   }, [containerRef, chartRefs, themeRef, height])
 }
 
@@ -253,10 +252,8 @@ function RSISubChart({ closes, dates }: { closes: number[]; dates: string[] }) {
     line.createPriceLine({ price: 70, color: '#ef4444', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false })
     line.createPriceLine({ price: 30, color: '#10b981', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false })
     chart.timeScale().fitContent()
-    const resize = () => { if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }) }
-    window.addEventListener('resize', resize)
-    resize()
-    return () => { window.removeEventListener('resize', resize); chart.remove() }
+    const stopResize = watchChartResize(containerRef.current, chart)
+    return () => { stopResize(); chart.remove() }
   }, [closes, dates])
   return <div ref={containerRef} className="w-full overflow-hidden rounded-lg border border-border bg-background" />
 }
@@ -287,10 +284,8 @@ function MACDSubChart({ closes, dates }: { closes: number[]; dates: string[] }) 
         .filter(Boolean) as HistogramData<Time>[],
     )
     chart.timeScale().fitContent()
-    const resize = () => { if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }) }
-    window.addEventListener('resize', resize)
-    resize()
-    return () => { window.removeEventListener('resize', resize); chart.remove() }
+    const stopResize = watchChartResize(containerRef.current, chart)
+    return () => { stopResize(); chart.remove() }
   }, [closes, dates])
   return <div ref={containerRef} className="w-full overflow-hidden rounded-lg border border-border bg-background" />
 }

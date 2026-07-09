@@ -3,7 +3,9 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, CheckCircle2, ExternalLink, ShieldCheck } from 'lucide-react'
 import { createChart, HistogramSeries, type Time } from 'lightweight-charts'
 import { supabase } from '@/lib/supabase'
-import { checkWhitelist } from '@/lib/kline'
+import { watchChartResize } from '@/lib/chart-resize'
+import { useWhitelistGate } from '@/lib/whitelist-gate'
+import { SortableHeader, type SortOrder } from '@/components/sortable-header'
 import { labelCandidateTerm } from '@wyckoff/shared'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
@@ -122,7 +124,6 @@ const TRACKING_PAGE_SIZE = 1000
 const AVG_WINDOWS = [5, 10, 15, 20, 25, 30] as const
 type RecommendationWindow = (typeof AVG_WINDOWS)[number]
 type SortBy = 'date' | 'change' | 'score' | 'count' | 'mfe' | 'mae'
-type SortOrder = 'desc' | 'asc'
 
 const LOCKED_BENEFITS = [
   {
@@ -234,11 +235,7 @@ export function TrackingPage() {
 
   const user = useAuthStore((s) => s.user)
   const userId = user?.id
-  const whitelist = useQuery({
-    queryKey: ['whitelist', userId],
-    queryFn: () => checkWhitelist(userId || ''),
-    enabled: !!userId,
-  })
+  const whitelist = useWhitelistGate(userId)
 
   const isWhitelisted = whitelist.data === true
 
@@ -664,12 +661,12 @@ function TrackingTableHead({
       <tr>
         <th className="px-3 py-2 text-left font-medium">{t('common.code')}</th>
         <th className="px-3 py-2 text-left font-medium">{t('common.name')}</th>
-        <SortableHeader align="right" active={sortBy === 'date'} label={t('tracking.recommendDate')} order={sortOrder} onClick={() => onSortChange('date')} />
-        <SortableHeader align="right" active={sortBy === 'count'} label={t('tracking.recommendCount')} order={sortOrder} onClick={() => onSortChange('count')} />
+        <SortableHeader variant="compact" align="right" active={sortBy === 'date'} label={t('tracking.recommendDate')} order={sortOrder} onClick={() => onSortChange('date')} />
+        <SortableHeader variant="compact" align="right" active={sortBy === 'count'} label={t('tracking.recommendCount')} order={sortOrder} onClick={() => onSortChange('count')} />
         <th className="px-3 py-2 text-right font-medium">{t('tracking.initialPrice')}</th>
         <th className="px-3 py-2 text-right font-medium">{t('tracking.currentPrice')}</th>
-        <SortableHeader align="right" active={sortBy === 'change'} label={t('tracking.changePct')} order={sortOrder} onClick={() => onSortChange('change')} />
-        <SortableHeader align="right" active={sortBy === 'score'} label={t('tracking.score')} order={sortOrder} onClick={() => onSortChange('score')} />
+        <SortableHeader variant="compact" align="right" active={sortBy === 'change'} label={t('tracking.changePct')} order={sortOrder} onClick={() => onSortChange('change')} />
+        <SortableHeader variant="compact" align="right" active={sortBy === 'score'} label={t('tracking.score')} order={sortOrder} onClick={() => onSortChange('score')} />
         <th className="px-3 py-2 text-left font-medium">入选路径</th>
         {market === 'us' && <UsPerformanceHeaders sortBy={sortBy} sortOrder={sortOrder} onSortChange={onSortChange} />}
         <th className="px-3 py-2 text-center font-medium">{t('tracking.springboard')}</th>
@@ -691,39 +688,10 @@ function UsPerformanceHeaders({
   const { t } = usePreferences()
   return (
     <>
-      <SortableHeader align="right" active={sortBy === 'mfe'} label={t('tracking.mfePct')} order={sortOrder} onClick={() => onSortChange('mfe')} />
-      <SortableHeader align="right" active={sortBy === 'mae'} label={t('tracking.maePct')} order={sortOrder} onClick={() => onSortChange('mae')} />
+      <SortableHeader variant="compact" align="right" active={sortBy === 'mfe'} label={t('tracking.mfePct')} order={sortOrder} onClick={() => onSortChange('mfe')} />
+      <SortableHeader variant="compact" align="right" active={sortBy === 'mae'} label={t('tracking.maePct')} order={sortOrder} onClick={() => onSortChange('mae')} />
       <th className="px-3 py-2 text-right font-medium">{t('tracking.rangeAmpPct')}</th>
     </>
-  )
-}
-
-function SortableHeader({
-  active,
-  align,
-  label,
-  order,
-  onClick,
-}: {
-  active: boolean
-  align: 'left' | 'right'
-  label: string
-  order: SortOrder
-  onClick: () => void
-}) {
-  return (
-    <th className={`px-3 py-2 font-medium ${align === 'right' ? 'text-right' : 'text-left'}`}>
-      <button
-        type="button"
-        onClick={onClick}
-        className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted"
-      >
-        <span>{label}</span>
-        <span className={`text-[10px] ${active ? 'text-primary' : 'text-muted-foreground'}`}>
-          {active ? order.toUpperCase() : '--'}
-        </span>
-      </button>
-    </th>
   )
 }
 
@@ -986,10 +954,8 @@ function ReturnHistogram({ values }: { values: number[] }) {
       buckets.map((b, i) => ({ time: (2020 * 10000 + 101 + i) as unknown as Time, value: b.count, color: b.midPct >= 0 ? '#ef4444a0' : '#10b981a0' })),
     )
     chart.timeScale().fitContent()
-    const resize = () => { if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }) }
-    window.addEventListener('resize', resize)
-    resize()
-    return () => { window.removeEventListener('resize', resize); chart.remove() }
+    const stopResize = watchChartResize(containerRef.current, chart)
+    return () => { stopResize(); chart.remove() }
   }, [buckets])
   return (
     <div>

@@ -12,7 +12,8 @@ import { UpgradeNotice } from '@/components/upgrade-notice'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
 import { TICKFLOW_PURCHASE, fetchValueSnapshotWithFetch, normalizeCode } from '@wyckoff/shared'
 import type { KlineRow, ValueSnapshot } from '@wyckoff/shared'
-import { checkWhitelist, fetchKlineViaTickFlow, getUserDataKeys } from '@/lib/kline'
+import { fetchKlineViaTickFlow, getUserDataKeys } from '@/lib/kline'
+import { useWhitelistGate } from '@/lib/whitelist-gate'
 import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
 import { sourceLabel, type ValueScore, type ValueTone } from '@wyckoff/shared'
@@ -102,11 +103,7 @@ export function PortfolioPage() {
 }
 
 function usePortfolioData(userId: string | undefined) {
-  const whitelist = useQuery({
-    queryKey: ['whitelist', userId],
-    queryFn: () => checkWhitelist(userId!),
-    enabled: !!userId,
-  })
+  const whitelist = useWhitelistGate(userId)
   const portfolio = useQuery({
     queryKey: ['portfolio', userId],
     queryFn: () => fetchPortfolio(userId!),

@@ -13,7 +13,7 @@ import {
   policyExecutionModeLabel,
 } from '@wyckoff/shared'
 import { supabase } from '@/lib/supabase'
-import { checkWhitelist } from '@/lib/kline'
+import { useWhitelistGate } from '@/lib/whitelist-gate'
 import { WyckoffLoading } from '@/components/loading'
 import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
@@ -176,11 +176,7 @@ async function fetchLatestReport(): Promise<AttributionReport | null> {
 export function AttributionPage() {
   const user = useAuthStore((s) => s.user)
   const userId = user?.id
-  const whitelist = useQuery({
-    queryKey: ['whitelist', userId],
-    queryFn: () => checkWhitelist(userId || ''),
-    enabled: !!userId,
-  })
+  const whitelist = useWhitelistGate(userId)
   const report = useQuery({
     queryKey: ['strategy-attribution-report'],
     queryFn: fetchLatestReport,
