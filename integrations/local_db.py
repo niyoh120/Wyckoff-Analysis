@@ -17,6 +17,7 @@ from typing import Any
 
 from core import constants as core_constants
 from core.candidate_metadata import CANDIDATE_ATTRIBUTION_COLUMNS
+from utils.safe import finite_float, safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -381,46 +382,82 @@ def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
+def _bulk_upsert(
+    conn: sqlite3.Connection,
+    table: str,
+    columns: list[str],
+    rows: list[dict],
+    value_fn: Any,
+    *,
+    timestamp_column: str = "synced_at",
+) -> int:
+    """INSERT OR REPLACE *rows* into *table*, appending `datetime('now')` as the last column."""
+    if not rows:
+        return 0
+    if not _SQL_IDENTIFIER_RE.match(table):
+        raise ValueError(f"unsafe table identifier: {table!r}")
+    placeholders = ", ".join("?" for _ in columns)
+    with conn:
+        conn.executemany(
+            f"""INSERT OR REPLACE INTO {table}
+               ({", ".join(columns)}, {timestamp_column})
+               VALUES ({placeholders}, datetime('now'))""",
+            [value_fn(r) for r in rows],
+        )
+    return len(rows)
+
+
+def _bulk_delete_by_codes(conn: sqlite3.Connection, table: str, codes: list[str]) -> int:
+    if not codes:
+        return 0
+    if not _SQL_IDENTIFIER_RE.match(table):
+        raise ValueError(f"unsafe table identifier: {table!r}")
+    placeholders = ",".join("?" for _ in codes)
+    with conn:
+        cur = conn.execute(f"DELETE FROM {table} WHERE code IN ({placeholders})", codes)
+    return cur.rowcount
+
+
 def _ensure_agent_memory_columns(conn: sqlite3.Connection) -> None:
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(agent_memory)").fetchall()}
-    columns = {
-        "memory_level": "TEXT DEFAULT 'L1'",
-        "source_ref": "TEXT DEFAULT ''",
-        "confidence": "REAL DEFAULT 1.0",
-        "metadata": "TEXT DEFAULT ''",
-    }
-    for name, ddl in columns.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE agent_memory ADD COLUMN {name} {ddl}")
+    _ensure_columns(
+        conn,
+        "agent_memory",
+        {
+            "memory_level": "TEXT DEFAULT 'L1'",
+            "source_ref": "TEXT DEFAULT ''",
+            "confidence": "REAL DEFAULT 1.0",
+            "metadata": "TEXT DEFAULT ''",
+        },
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_level ON agent_memory(memory_level)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_source ON agent_memory(source_ref)")
 
 
 def _ensure_tail_buy_history_columns(conn: sqlite3.Connection) -> None:
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(tail_buy_history)").fetchall()}
-    columns = {
-        "rule_decision": "TEXT DEFAULT ''",
-        "llm_confidence": "REAL",
-        "llm_model_used": "TEXT DEFAULT ''",
-        "initial_price": "REAL DEFAULT 0",
-        "current_price": "REAL DEFAULT 0",
-        "change_pct": "REAL DEFAULT 0",
-        "price_updated_at": "TEXT DEFAULT ''",
-        "last_close": "REAL DEFAULT 0",
-        "vwap": "REAL DEFAULT 0",
-        "dist_vwap_pct": "REAL DEFAULT 0",
-        "close_pos": "REAL DEFAULT 0",
-        "day_ret_pct": "REAL DEFAULT 0",
-        "last30_ret_pct": "REAL DEFAULT 0",
-        "last15_ret_pct": "REAL DEFAULT 0",
-        "tail30_volume_share": "REAL DEFAULT 0",
-        "drop_from_high_pct": "REAL DEFAULT 0",
-        "fetch_error": "TEXT DEFAULT ''",
-        "features_json": "TEXT DEFAULT ''",
-    }
-    for name, ddl in columns.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE tail_buy_history ADD COLUMN {name} {ddl}")
+    _ensure_columns(
+        conn,
+        "tail_buy_history",
+        {
+            "rule_decision": "TEXT DEFAULT ''",
+            "llm_confidence": "REAL",
+            "llm_model_used": "TEXT DEFAULT ''",
+            "initial_price": "REAL DEFAULT 0",
+            "current_price": "REAL DEFAULT 0",
+            "change_pct": "REAL DEFAULT 0",
+            "price_updated_at": "TEXT DEFAULT ''",
+            "last_close": "REAL DEFAULT 0",
+            "vwap": "REAL DEFAULT 0",
+            "dist_vwap_pct": "REAL DEFAULT 0",
+            "close_pos": "REAL DEFAULT 0",
+            "day_ret_pct": "REAL DEFAULT 0",
+            "last30_ret_pct": "REAL DEFAULT 0",
+            "last15_ret_pct": "REAL DEFAULT 0",
+            "tail30_volume_share": "REAL DEFAULT 0",
+            "drop_from_high_pct": "REAL DEFAULT 0",
+            "fetch_error": "TEXT DEFAULT ''",
+            "features_json": "TEXT DEFAULT ''",
+        },
+    )
 
 
 def _backfill_background_tasks_from_chat_log(conn: sqlite3.Connection) -> None:
@@ -501,18 +538,18 @@ def _recommendation_local_values(row: dict) -> tuple:
         str(row.get("name", "")).strip(),
         int(row.get("recommend_date", 0) or 0),
         str(row.get("recommend_reason", "")).strip(),
-        _float_value(row.get("initial_price")),
-        _float_value(row.get("current_price")),
-        _float_value(row.get("change_pct")),
-        _nullable_float(row.get("funnel_score")),
+        safe_float(row.get("initial_price")),
+        safe_float(row.get("current_price")),
+        safe_float(row.get("change_pct")),
+        finite_float(row.get("funnel_score")),
         int(row.get("recommend_count", 0) or 0),
         1 if row.get("is_ai_recommended") else 0,
         str(row.get("camp", "")).strip(),
         str(row.get("selection_source", "")).strip(),
         _nullable_int(row.get("selection_rank")),
-        _nullable_float(row.get("priority_score")),
-        _nullable_float(row.get("trigger_score")),
-        _nullable_float(row.get("capital_migration_bonus")),
+        finite_float(row.get("priority_score")),
+        finite_float(row.get("trigger_score")),
+        finite_float(row.get("capital_migration_bonus")),
         str(row.get("stage", "")).strip(),
         str(row.get("industry", "")).strip(),
     )
@@ -526,12 +563,12 @@ def _signal_local_values(row: dict) -> tuple:
         str(row.get("signal_type", "")).strip(),
         str(row.get("signal_date", "")).strip(),
         str(row.get("status", "pending")).strip(),
-        _float_value(row.get("signal_score")),
+        safe_float(row.get("signal_score")),
         int(row.get("days_elapsed", 0) or 0),
         str(row.get("regime", "")).strip(),
         str(row.get("industry", "")).strip(),
-        _nullable_float(row.get("snap_support")),
-        _nullable_float(row.get("snap_ma20")),
+        finite_float(row.get("snap_support")),
+        finite_float(row.get("snap_ma20")),
     )
     return base + _candidate_local_values(row)
 
@@ -544,7 +581,7 @@ def _candidate_local_value(column: str, value: Any) -> Any:
     if column in {"candidate_reasons", "candidate_metrics"}:
         return _json_text(value)
     if column in {"mainline_score", "theme_score", "stock_role_score", "quality_score", "timing_score"}:
-        return _nullable_float(value)
+        return finite_float(value)
     return str(value or "").strip()
 
 
@@ -554,22 +591,6 @@ def _json_text(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False, default=str)
-
-
-def _float_value(value: Any) -> float:
-    try:
-        return float(value or 0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _nullable_float(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _nullable_int(value: Any) -> int | None:
@@ -611,15 +632,7 @@ def save_recommendations(rows: list[dict]) -> int:
         "industry",
         *CANDIDATE_ATTRIBUTION_COLUMNS,
     ]
-    placeholders = ", ".join("?" for _ in columns)
-    with conn:
-        conn.executemany(
-            f"""INSERT OR REPLACE INTO recommendation_tracking
-               ({", ".join(columns)}, synced_at)
-               VALUES ({placeholders}, datetime('now'))""",
-            [_recommendation_local_values(r) for r in rows],
-        )
-    return len(rows)
+    return _bulk_upsert(conn, "recommendation_tracking", columns, rows, _recommendation_local_values)
 
 
 def load_recommendations(*, limit: int = 100) -> list[dict]:
@@ -654,28 +667,11 @@ def save_signals(rows: list[dict]) -> int:
         "snap_ma20",
         *CANDIDATE_ATTRIBUTION_COLUMNS,
     ]
-    placeholders = ", ".join("?" for _ in columns)
-    with conn:
-        conn.executemany(
-            f"""INSERT OR REPLACE INTO signal_pending
-               ({", ".join(columns)}, synced_at)
-               VALUES ({placeholders}, datetime('now'))""",
-            [_signal_local_values(r) for r in rows],
-        )
-    return len(rows)
+    return _bulk_upsert(conn, "signal_pending", columns, rows, _signal_local_values)
 
 
 def delete_recommendations(codes: list[str]) -> int:
-    if not codes:
-        return 0
-    conn = get_db()
-    placeholders = ",".join("?" for _ in codes)
-    with conn:
-        cur = conn.execute(
-            f"DELETE FROM recommendation_tracking WHERE code IN ({placeholders})",
-            codes,
-        )
-    return cur.rowcount
+    return _bulk_delete_by_codes(get_db(), "recommendation_tracking", codes)
 
 
 def load_signals(*, status: str | None = None, limit: int = 200) -> list[dict]:
@@ -724,16 +720,7 @@ def load_signals_by_codes(codes: list[str]) -> dict[str, dict]:
 
 
 def delete_signals(codes: list[str]) -> int:
-    if not codes:
-        return 0
-    conn = get_db()
-    placeholders = ",".join("?" for _ in codes)
-    with conn:
-        cur = conn.execute(
-            f"DELETE FROM signal_pending WHERE code IN ({placeholders})",
-            codes,
-        )
-    return cur.rowcount
+    return _bulk_delete_by_codes(get_db(), "signal_pending", codes)
 
 
 # ---------------------------------------------------------------------------
@@ -1407,24 +1394,49 @@ def get_session_preview(session_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+_TAIL_BUY_COLUMNS = [
+    "code",
+    "name",
+    "run_date",
+    "signal_date",
+    "signal_type",
+    "status",
+    "final_decision",
+    "rule_decision",
+    "rule_score",
+    "priority_score",
+    "rule_reasons",
+    "llm_decision",
+    "llm_reason",
+    "llm_confidence",
+    "llm_model_used",
+    "initial_price",
+    "current_price",
+    "change_pct",
+    "price_updated_at",
+    "last_close",
+    "vwap",
+    "dist_vwap_pct",
+    "close_pos",
+    "day_ret_pct",
+    "last30_ret_pct",
+    "last15_ret_pct",
+    "tail30_volume_share",
+    "drop_from_high_pct",
+    "fetch_error",
+    "features_json",
+]
+
+
 def save_tail_buy_results(rows: list[dict]) -> int:
-    if not rows:
-        return 0
-    conn = get_db()
-    with conn:
-        conn.executemany(
-            """INSERT OR REPLACE INTO tail_buy_history
-               (code, name, run_date, signal_date, signal_type, status,
-                final_decision, rule_decision, rule_score, priority_score, rule_reasons,
-                llm_decision, llm_reason, llm_confidence, llm_model_used,
-                initial_price, current_price, change_pct, price_updated_at,
-                last_close, vwap, dist_vwap_pct, close_pos, day_ret_pct,
-                last30_ret_pct, last15_ret_pct, tail30_volume_share, drop_from_high_pct,
-                fetch_error, features_json, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-            [_tail_buy_insert_values(r) for r in rows],
-        )
-    return len(rows)
+    return _bulk_upsert(
+        get_db(),
+        "tail_buy_history",
+        _TAIL_BUY_COLUMNS,
+        rows,
+        _tail_buy_insert_values,
+        timestamp_column="created_at",
+    )
 
 
 def _tail_buy_insert_values(r: dict) -> tuple[Any, ...]:

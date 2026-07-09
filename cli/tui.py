@@ -2713,29 +2713,23 @@ class WyckoffTUI(App):
         append_workflow_event(target_id, "workflow_denied", {"type": "workflow_denied", "run_id": target_id})
         log.write(Text.from_markup(f"[yellow]已取消 workflow[/yellow] [dim]{escape(target_id)}[/dim]"))
 
-    def _pause_workflow(self, run_id: str, log) -> None:
-        target_id = self._resolve_active_workflow_id(run_id, log)
-        if not target_id:
-            return
-        from cli.workflows.control import get_workflow_control
-        from cli.workflows.models import PAUSED
-        from cli.workflows.store import append_workflow_event, set_workflow_status
-
-        control = get_workflow_control(target_id)
-        if not control:
-            log.write(Text.from_markup(f"[yellow]workflow 不在运行中: {escape(target_id)}[/yellow]"))
-            return
-        control.pause()
-        set_workflow_status(target_id, PAUSED)
-        append_workflow_event(target_id, "workflow_paused", {"type": "workflow_paused", "run_id": target_id})
-        log.write(Text.from_markup(f"[yellow]已暂停 workflow[/yellow] [dim]{escape(target_id)}[/dim]"))
-
-    def _resume_running_workflow(self, run_id: str, log, *, quiet_missing: bool = False) -> bool:
+    def _apply_workflow_control_action(
+        self,
+        run_id: str,
+        log,
+        *,
+        control_method: str,
+        new_status: str,
+        status_reason: str,
+        event_type: str,
+        verb: str,
+        color: str,
+        quiet_missing: bool = False,
+    ) -> bool:
         target_id = self._resolve_active_workflow_id(run_id, log if not quiet_missing else None)
         if not target_id:
             return False
         from cli.workflows.control import get_workflow_control
-        from cli.workflows.models import RUNNING
         from cli.workflows.store import append_workflow_event, set_workflow_status
 
         control = get_workflow_control(target_id)
@@ -2743,30 +2737,57 @@ class WyckoffTUI(App):
             if not quiet_missing:
                 log.write(Text.from_markup(f"[yellow]workflow 不在运行中: {escape(target_id)}[/yellow]"))
             return False
-        control.resume()
-        set_workflow_status(target_id, RUNNING)
-        append_workflow_event(target_id, "workflow_resumed", {"type": "workflow_resumed", "run_id": target_id})
-        log.write(Text.from_markup(f"[green]已恢复 workflow[/green] [dim]{escape(target_id)}[/dim]"))
+        getattr(control, control_method)()
+        if status_reason:
+            set_workflow_status(target_id, new_status, status_reason)
+        else:
+            set_workflow_status(target_id, new_status)
+        append_workflow_event(target_id, event_type, {"type": event_type, "run_id": target_id})
+        log.write(Text.from_markup(f"[{color}]{verb} workflow[/{color}] [dim]{escape(target_id)}[/dim]"))
         return True
 
-    def _stop_workflow(self, run_id: str, log) -> None:
-        target_id = self._resolve_active_workflow_id(run_id, log)
-        if not target_id:
-            return
-        from cli.workflows.control import get_workflow_control
-        from cli.workflows.models import STOPPED
-        from cli.workflows.store import append_workflow_event, set_workflow_status
+    def _pause_workflow(self, run_id: str, log) -> None:
+        from cli.workflows.models import PAUSED
 
-        control = get_workflow_control(target_id)
-        if not control:
-            log.write(Text.from_markup(f"[yellow]workflow 不在运行中: {escape(target_id)}[/yellow]"))
-            return
-        control.stop()
-        set_workflow_status(target_id, STOPPED, "用户停止 workflow")
-        append_workflow_event(
-            target_id, "workflow_stop_requested", {"type": "workflow_stop_requested", "run_id": target_id}
+        self._apply_workflow_control_action(
+            run_id,
+            log,
+            control_method="pause",
+            new_status=PAUSED,
+            status_reason="",
+            event_type="workflow_paused",
+            verb="已暂停",
+            color="yellow",
         )
-        log.write(Text.from_markup(f"[red]已请求停止 workflow[/red] [dim]{escape(target_id)}[/dim]"))
+
+    def _resume_running_workflow(self, run_id: str, log, *, quiet_missing: bool = False) -> bool:
+        from cli.workflows.models import RUNNING
+
+        return self._apply_workflow_control_action(
+            run_id,
+            log,
+            control_method="resume",
+            new_status=RUNNING,
+            status_reason="",
+            event_type="workflow_resumed",
+            verb="已恢复",
+            color="green",
+            quiet_missing=quiet_missing,
+        )
+
+    def _stop_workflow(self, run_id: str, log) -> None:
+        from cli.workflows.models import STOPPED
+
+        self._apply_workflow_control_action(
+            run_id,
+            log,
+            control_method="stop",
+            new_status=STOPPED,
+            status_reason="用户停止 workflow",
+            event_type="workflow_stop_requested",
+            verb="已请求停止",
+            color="red",
+        )
 
     def _reload_pending_workflow_script(self, run_id: str, log) -> None:
         target_id = self._resolve_pending_workflow_id(run_id, log)
@@ -4305,10 +4326,3 @@ try:
     WyckoffTUI.COMMANDS = {WyckoffCommands}
 except ImportError:
     pass
-
-
-def _brief_args(args: dict) -> str:
-    if not args:
-        return ""
-    s = ", ".join(f"{k}={v}" for k, v in args.items())
-    return s[:60] + ("..." if len(s) > 60 else "")
