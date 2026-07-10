@@ -31,6 +31,7 @@ from core.intraday_shakeout import (
     describe_intraday_path,
 )
 from core.limit_move import classify_limit_move, describe_limit_move
+from core.price_targets import PriceTargets, compute_price_targets
 from core.wyckoff_engine import (
     FunnelConfig,
     _detect_evr,
@@ -85,6 +86,10 @@ class HoldingDiagnostic:
     stop_loss_status: str = "安全"  # 已穿止损 / 逼近止损 / 安全
     take_profit_18pct: float = 0.0  # 成本 × 1.18
     take_profit_status: str = "未达标"  # 已达标 / 接近目标 / 未达标
+
+    # 技术位目标价（量度运动/前高/ATR倍数，供参考，不是盈利预测）
+    target_conservative: float | None = None  # 三个技术位中最保守的一个
+    target_aggressive: float | None = None  # 三个技术位中最乐观的一个
 
     # 量能与振幅
     vol_ratio_20_60: float = 0.0
@@ -471,9 +476,12 @@ def diagnose_one_stock(
     wyckoff = _wyckoff_snapshot(code, series, bench_df, cfg)
     candidate_entry = _candidate_lane_entry(code, series, wyckoff)
     risk = _risk_snapshot(series, cost)
+    targets = compute_price_targets(series.close, series.high, series.low)
     extreme = _extreme_day_snapshot(code, name, series, intraday_df)
     health, reasons = _health_rating(ma, wyckoff, risk, series.pnl_pct, extreme[2])
-    return _build_diagnostic(code, name, cost, series, ma, wyckoff, candidate_entry, risk, extreme, health, reasons)
+    return _build_diagnostic(
+        code, name, cost, series, ma, wyckoff, candidate_entry, risk, targets, extreme, health, reasons
+    )
 
 
 def _build_diagnostic(
@@ -485,6 +493,7 @@ def _build_diagnostic(
     wyckoff: _WyckoffSnapshot,
     candidate_entry: dict,
     risk: _RiskSnapshot,
+    targets: PriceTargets | None,
     extreme: tuple[float, str, IntradayPathResult | None],
     health: str,
     reasons: list[str],
@@ -516,6 +525,8 @@ def _build_diagnostic(
         stop_loss_status=risk.stop_status,
         take_profit_18pct=risk.take_profit_18pct,
         take_profit_status=risk.take_profit_status,
+        target_conservative=targets.conservative if targets else None,
+        target_aggressive=targets.aggressive if targets else None,
         vol_ratio_20_60=risk.vol_ratio,
         range_60d_pct=risk.range_60d,
         ret_10d_pct=risk.ret_10d,
@@ -606,6 +617,15 @@ def format_diagnostic_text(d: HoldingDiagnostic) -> str:
     # 止损 / 止盈
     lines.append(f"  止损(-7%): {d.stop_loss_7pct:.2f} → {d.stop_loss_status}")
     lines.append(f"  止盈(+18%): {d.take_profit_18pct:.2f} → {d.take_profit_status}")
+
+    # 技术位目标价（量度运动/前高/ATR倍数，仅供参考）
+    if d.target_conservative is not None or d.target_aggressive is not None:
+        target_parts = []
+        if d.target_conservative is not None:
+            target_parts.append(f"保守{d.target_conservative:.2f}")
+        if d.target_aggressive is not None:
+            target_parts.append(f"乐观{d.target_aggressive:.2f}")
+        lines.append(f"  目标价(技术位参考): {' / '.join(target_parts)}")
 
     # 量能
     lines.append(

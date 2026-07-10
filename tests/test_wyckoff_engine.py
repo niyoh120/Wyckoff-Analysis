@@ -6,6 +6,7 @@ import pandas as pd
 
 from core.wyckoff_engine import (
     FunnelConfig,
+    _attach_price_targets,
     _board_vol_ratio_scale,
     _build_sector_groups,
     _compute_stop_loss,
@@ -874,3 +875,42 @@ class TestFrozenBoardExcludedFromSpring:
             volume=vol_avg * (cfg.spring_vol_ratio + 0.5),
         )
         assert _detect_spring(df, cfg) is None
+
+
+class TestAttachPriceTargets:
+    """给候选条目原地补充技术位目标价。"""
+
+    def test_attaches_price_targets_and_metrics_for_matching_code(self):
+        dates = pd.date_range("2024-01-01", periods=260, freq="B")
+        # 前259天在[10, 12]箱体内震荡，最后一天放量突破至13。
+        closes = [10.0 + (i % 5) * 0.4 for i in range(259)] + [13.0]
+        df = _make_df(dates, closes)
+        entries = [{"code": MAIN_BOARD_CODE, "score": 80.0}]
+
+        _attach_price_targets(entries, {MAIN_BOARD_CODE: df})
+
+        entry = entries[0]
+        assert "price_targets" in entry
+        assert entry["price_targets"]["last_close"] == 13.0
+        assert entry["metrics"]["target_last_close"] == 13.0
+        # 原有字段不应被覆盖
+        assert entry["score"] == 80.0
+
+    def test_missing_df_leaves_entry_untouched(self):
+        entries = [{"code": "999999", "score": 50.0}]
+
+        _attach_price_targets(entries, {})
+
+        assert "price_targets" not in entries[0]
+        assert entries[0] == {"code": "999999", "score": 50.0}
+
+    def test_preserves_existing_metrics(self):
+        dates = pd.date_range("2024-01-01", periods=260, freq="B")
+        closes = [10.0 + (i % 5) * 0.4 for i in range(259)] + [13.0]
+        df = _make_df(dates, closes)
+        entries = [{"code": MAIN_BOARD_CODE, "metrics": {"existing_key": 1.23}}]
+
+        _attach_price_targets(entries, {MAIN_BOARD_CODE: df})
+
+        assert entries[0]["metrics"]["existing_key"] == 1.23
+        assert "target_last_close" in entries[0]["metrics"]

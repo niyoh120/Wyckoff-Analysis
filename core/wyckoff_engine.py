@@ -27,6 +27,7 @@ from core.layer2_strength import (
     evaluate_layer2_symbol,
 )
 from core.mainline_engine import MainlineEngineConfig, build_mainline_candidates, mainline_candidate_entries
+from core.price_targets import compute_price_targets
 from core.theme_activity import build_theme_activity_snapshot
 from core.theme_radar import normalize_theme_name
 
@@ -2635,7 +2636,37 @@ def _candidate_entries_for_result(
         name_map=name_map,
         mainline_config=mainline_config,
     )
-    return merge_candidate_entries(wyckoff_entries, lane_entries, mainline_entries)
+    merged = merge_candidate_entries(wyckoff_entries, lane_entries, mainline_entries)
+    _attach_price_targets(merged, df_map)
+    return merged
+
+
+def _attach_price_targets(entries: list[dict[str, Any]], df_map: dict[str, pd.DataFrame]) -> None:
+    """给候选条目原地补充技术位目标价（量度运动/前高/ATR倍数），仅供参考，不做盈利预测。
+
+    同时写入独立的 price_targets 字段（方便直接消费）和 metrics 字段（复用
+    candidate_metadata.py 既有的透传通道，落到下游 candidate_metrics 列）。
+    """
+    for entry in entries:
+        df = df_map.get(str(entry.get("code", "")))
+        if df is None or df.empty:
+            continue
+        df_s = sort_by_date_if_needed(df)
+        targets = compute_price_targets(df_s["close"], df_s.get("high", df_s["close"]), df_s.get("low", df_s["close"]))
+        if targets is None:
+            continue
+        payload = {
+            "last_close": round(targets.last_close, 2),
+            "measured_move": None if targets.measured_move is None else round(targets.measured_move, 2),
+            "prior_high": None if targets.prior_high is None else round(targets.prior_high, 2),
+            "atr_multiple": None if targets.atr_multiple is None else round(targets.atr_multiple, 2),
+            "conservative": None if targets.conservative is None else round(targets.conservative, 2),
+            "aggressive": None if targets.aggressive is None else round(targets.aggressive, 2),
+        }
+        entry["price_targets"] = payload
+        metrics = dict(entry.get("metrics") or {})
+        metrics.update({f"target_{k}": v for k, v in payload.items() if v is not None})
+        entry["metrics"] = metrics
 
 
 def _mainline_entries_for_result(
