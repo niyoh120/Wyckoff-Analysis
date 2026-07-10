@@ -88,6 +88,18 @@ def test_modern_symbol_rows_use_display_score_as_priority_score():
     assert rows[0]["layer3_quality_score"] == 0.82
 
 
+def test_symbol_rows_mark_degraded_run_as_observe_only():
+    metrics = {
+        "layer3_score_map": {},
+        "data_quality": {"status": "degraded", "trade_readiness": "observe_only"},
+    }
+
+    rows = modern_symbol_rows(_ctx(metrics=metrics), _selection())
+
+    assert rows[0]["trade_readiness"] == "observe_only"
+    assert rows[0]["data_quality_status"] == "degraded"
+
+
 def test_legacy_symbol_rows_infer_candidate_track_from_entry_type():
     ctx = _ctx(candidate_entry_map={"000001": {"entry_type": "spring", "score": 80.0}})
 
@@ -140,6 +152,19 @@ def test_funnel_run_details_keeps_report_payload_fields():
     assert details["shadow_added"] == ["000001"]
     assert details["name_map"] == {"000001": "平安银行"}
     assert details["priority_score_map"] == {"000001": 3.5}
+
+
+def test_funnel_run_details_overrides_trade_mode_when_data_quality_is_degraded():
+    metrics = {
+        "layer3_score_map": {},
+        "data_quality": {"status": "degraded", "trade_readiness": "observe_only"},
+    }
+
+    details = funnel_run_details(_ctx(metrics=metrics), _selection(), content="内容", title="标题", symbols=[])
+
+    assert details["trade_mode"]["mode"] == "observe_only"
+    assert details["trade_mode"]["allow_ai_review"] is True
+    assert details["trade_mode"]["allow_recommendation_write"] is False
 
 
 def test_funnel_run_details_carries_strategy_policy_evidence():

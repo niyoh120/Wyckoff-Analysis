@@ -90,8 +90,8 @@ class FunnelConfig:
     # Layer 1
     require_cn_main_or_chinext: bool = True  # 兼容旧字段名：限制为 A 股交易板块；默认含北交所
     include_bse_board: bool = True
-    min_market_cap_yi: float = 35.0
-    min_avg_amount_wan: float = 5000.0
+    min_market_cap_yi: float = 25.0
+    min_avg_amount_wan: float = 4000.0
     l1_min_close_price: float = 2.0
     l1_delist_risk_cap_floor_yi: float = 10.0
     l1_cap_bypass_amount_wan: float = 8000.0  # 市值不足但日均额 >= 此值可放行
@@ -630,7 +630,7 @@ def _build_sector_groups(
     for sym in symbols:
         sectors: list[str] = []
         if use_concept and concept_map:
-            sectors = concept_map.get(sym, [])
+            sectors = list(dict.fromkeys(str(item).strip() for item in concept_map.get(sym, []) if str(item).strip()))
         if not sectors:
             industry = sector_map.get(sym, "")
             if industry:

@@ -33,22 +33,25 @@ def legacy_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
         return "Accum" if code in spring_hit_set or code in lps_hit_set else "Trend"
 
     return [
-        _with_candidate_metadata(
-            build_symbol_report_row(
+        _with_run_readiness(
+            _with_candidate_metadata(
+                build_symbol_report_row(
+                    code,
+                    rank=idx + 1,
+                    tag=candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map),
+                    track=infer_track(code),
+                    stage=stage_name(ctx, code),
+                    score=legacy_display_score(ctx, code),
+                    priority_score=float(ctx.code_to_total_score.get(code, 0.0)),
+                    selection_source=legacy_selection_source(ctx, code),
+                    selection_is_fill=False,
+                    market_regime=context_regime(ctx),
+                    maps=ctx.report_maps,
+                ),
                 code,
-                rank=idx + 1,
-                tag=candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map),
-                track=infer_track(code),
-                stage=stage_name(ctx, code),
-                score=legacy_display_score(ctx, code),
-                priority_score=float(ctx.code_to_total_score.get(code, 0.0)),
-                selection_source=legacy_selection_source(ctx, code),
-                selection_is_fill=False,
-                market_regime=context_regime(ctx),
-                maps=ctx.report_maps,
+                metadata_map,
             ),
-            code,
-            metadata_map,
+            ctx,
         )
         for idx, code in enumerate(selection.selected_for_ai)
     ]
@@ -57,22 +60,25 @@ def legacy_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
 def modern_symbol_rows(ctx: Any, selection: FunnelAiSelection) -> list[dict]:
     metadata_map = _candidate_metadata_map(ctx)
     return [
-        _with_candidate_metadata(
-            build_symbol_report_row(
+        _with_run_readiness(
+            _with_candidate_metadata(
+                build_symbol_report_row(
+                    code,
+                    rank=idx + 1,
+                    tag=f"{_source_tag(ctx, code)} | {candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map)}",
+                    track=selected_track(selection, code),
+                    stage=stage_name(ctx, code),
+                    score=display_score(ctx, selection, code),
+                    priority_score=display_score(ctx, selection, code),
+                    selection_source=selection_source(ctx, code),
+                    selection_is_fill=selection_source(ctx, code) == "l3_fill",
+                    market_regime=context_regime(ctx),
+                    maps=ctx.report_maps,
+                ),
                 code,
-                rank=idx + 1,
-                tag=f"{_source_tag(ctx, code)} | {candidate_reason_text(code, ctx.code_to_reasons, ctx.theme_badge_map)}",
-                track=selected_track(selection, code),
-                stage=stage_name(ctx, code),
-                score=display_score(ctx, selection, code),
-                priority_score=display_score(ctx, selection, code),
-                selection_source=selection_source(ctx, code),
-                selection_is_fill=selection_source(ctx, code) == "l3_fill",
-                market_regime=context_regime(ctx),
-                maps=ctx.report_maps,
+                metadata_map,
             ),
-            code,
-            metadata_map,
+            ctx,
         )
         for idx, code in enumerate(selection.selected_for_ai)
     ]
@@ -87,6 +93,13 @@ def _candidate_metadata_map(ctx: Any) -> dict[str, dict[str, Any]]:
 
 def _with_candidate_metadata(row: dict[str, Any], code: str, metadata_map: dict[str, dict[str, Any]]) -> dict[str, Any]:
     row.update(metadata_map.get(code6(code), {}))
+    return row
+
+
+def _with_run_readiness(row: dict[str, Any], ctx: Any) -> dict[str, Any]:
+    quality = (getattr(ctx, "metrics", {}) or {}).get("data_quality") or {}
+    row["trade_readiness"] = str(quality.get("trade_readiness") or "ready")
+    row["data_quality_status"] = str(quality.get("status") or "normal")
     return row
 
 
@@ -109,17 +122,10 @@ def funnel_run_details(
     symbols: list[dict],
 ) -> dict:
     trade_mode = resolve_market_trade_mode(context_regime(ctx))
+    trade_mode_payload = _trade_mode_payload(ctx, trade_mode)
     return {
         "metrics": ctx.metrics,
-        "trade_mode": {
-            "regime": trade_mode.regime,
-            "mode": trade_mode.mode,
-            "label": trade_mode.label,
-            "action": trade_mode.action,
-            "reason": trade_mode.reason,
-            "allow_ai_review": trade_mode.allow_ai_review,
-            "allow_recommendation_write": trade_mode.allow_recommendation_write,
-        },
+        "trade_mode": trade_mode_payload,
         "strategy_policy": _strategy_policy_payload(selection.ai_policy),
         "triggers": ctx.review_triggers,
         "review_triggers": ctx.review_triggers,
@@ -158,6 +164,29 @@ def funnel_run_details(
         "sector_map": ctx.sector_map,
         "all_df_map": ctx.all_df_map,
     }
+
+
+def _trade_mode_payload(ctx: Any, trade_mode: Any) -> dict[str, Any]:
+    payload = {
+        "regime": trade_mode.regime,
+        "mode": trade_mode.mode,
+        "label": trade_mode.label,
+        "action": trade_mode.action,
+        "reason": trade_mode.reason,
+        "allow_ai_review": trade_mode.allow_ai_review,
+        "allow_recommendation_write": trade_mode.allow_recommendation_write,
+    }
+    quality = (getattr(ctx, "metrics", {}) or {}).get("data_quality") or {}
+    if quality.get("trade_readiness") == "observe_only":
+        payload.update(
+            mode="observe_only",
+            label="数据质量降级观察",
+            action="仅保留 AI/shadow 观察，禁止正式推荐和新开仓",
+            reason=", ".join(quality.get("reasons") or []) or "data_quality_degraded",
+            allow_ai_review=True,
+            allow_recommendation_write=False,
+        )
+    return payload
 
 
 def _strategy_policy_payload(policy: dict) -> dict[str, Any]:

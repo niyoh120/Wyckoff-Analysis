@@ -11,7 +11,7 @@ Layer 4: 威科夫狙击（Spring / SOS / LPS / Effort vs Result）
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pandas as pd
 
@@ -48,6 +48,7 @@ from workflows.funnel_data import (
     FunnelSymbolPool,
     prepare_funnel_job_data,
 )
+from workflows.funnel_data_quality import build_funnel_data_quality, build_layer_rejections
 from workflows.funnel_delivery import deliver_funnel_selection
 from workflows.funnel_layers import FunnelLayerOutputs, run_base_funnel_layers
 from workflows.funnel_render_context import FunnelRenderContext, build_render_context
@@ -200,6 +201,18 @@ def _selection_mode_flags() -> tuple[bool, bool, bool]:
     legacy_selection = FUNNEL_AI_SELECTION_MODE in {"legacy_full_hits", "legacy_hits", "all_hits", "classic"}
     legacy_card = FUNNEL_CARD_STYLE in {"legacy", "legacy_compact", "classic", "v1"}
     return full_formal, legacy_selection, legacy_card
+
+
+def _apply_data_quality_mode(selection: FunnelAiSelection, metrics: dict) -> FunnelAiSelection:
+    quality = metrics.get("data_quality") or {}
+    if quality.get("trade_readiness") != "observe_only":
+        return selection
+    policy = {
+        **selection.ai_policy,
+        "data_quality_status": str(quality.get("status") or "degraded"),
+        "trade_readiness": "observe_only",
+    }
+    return replace(selection, ai_policy=policy)
 
 
 def _select_run_ai_candidates(
@@ -480,7 +493,8 @@ def _build_funnel_metrics(inputs: FunnelMetricsInputs) -> dict:
     ranked_l3_symbols = inputs.candidates.ranked_l3_symbols or inputs.layers.l3_passed
     metrics = {
         **_pool_fetch_metrics(inputs),
-        **_layer_metrics(inputs.layers),
+        **_data_quality_metrics(inputs),
+        **_layer_metrics(inputs.layers, total_symbols=inputs.layers.rps_universe_count),
         **_theme_metrics(inputs, ranked_l3_symbols),
         **_etf_metrics(inputs),
         **_candidate_metrics(inputs, ranked_l3_symbols),
@@ -522,7 +536,28 @@ def _pool_fetch_metrics(inputs: FunnelMetricsInputs) -> dict:
     }
 
 
-def _layer_metrics(layers: FunnelLayerOutputs) -> dict:
+def _data_quality_metrics(inputs: FunnelMetricsInputs) -> dict:
+    quality = build_funnel_data_quality(
+        inputs.pool.symbols,
+        inputs.all_df_map,
+        inputs.ref_data.market_cap_map,
+        inputs.financial_map,
+        financial_requested=inputs.financial_metrics_requested,
+    )
+    coverage = quality["coverage"]
+    return {
+        "data_quality": quality,
+        "data_quality_status": quality["status"],
+        "trade_readiness": quality["trade_readiness"],
+        "ohlcv_coverage": coverage["ohlcv"],
+        "market_cap_coverage": coverage["market_cap"],
+        "financial_coverage": coverage["financial"],
+        "ohlcv_source_counts": quality["ohlcv_source_counts"],
+        "ohlcv_source_ratios": quality["ohlcv_source_ratios"],
+    }
+
+
+def _layer_metrics(layers: FunnelLayerOutputs, *, total_symbols: int) -> dict:
     return {
         "layer1": len(layers.l1_passed),
         "layer2": len(layers.l2_passed),
@@ -543,6 +578,14 @@ def _layer_metrics(layers: FunnelLayerOutputs) -> dict:
         "mainline_candidates": layers.mainline_candidates,
         "mainline_ai_cap": layers.mainline_ai_cap,
         "by_trigger": {k: len(v) for k, v in layers.triggers.items()},
+        "rps_universe_count": layers.rps_universe_count,
+        "layer_rejections": build_layer_rejections(
+            total_symbols=total_symbols,
+            l1_symbols=layers.l1_passed,
+            l2_symbols=layers.l2_passed,
+            l3_symbols=layers.l3_passed,
+            triggers=layers.triggers,
+        ),
     }
 
 
@@ -814,6 +857,7 @@ def run(
     full_formal, legacy_selection, legacy_card = _selection_mode_flags()
     l3_ranked_symbols = [str(c).strip() for c in (metrics.get("layer3_symbols", []) or []) if str(c).strip()]
     ai_selection = _select_run_ai_candidates(render_ctx, l3_ranked_symbols, full_formal or legacy_selection)
+    ai_selection = _apply_data_quality_mode(ai_selection, metrics)
     return deliver_funnel_selection(
         render_ctx,
         ai_selection,

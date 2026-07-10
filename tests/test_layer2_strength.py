@@ -87,6 +87,6 @@ def test_rps_filter_flags_allow_accel_bypass() -> None:
     assert ambush_ok is False
 
 
-def test_channel_labels_preserve_order_and_fallback() -> None:
+def test_channel_labels_preserve_order_and_return_empty_without_hits() -> None:
     assert channel_labels({"ambush": True, "sos": True}) == ["潜伏通道", "点火破局"]
-    assert channel_labels({}) == ["点火破局"]
+    assert channel_labels({}) == []

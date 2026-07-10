@@ -175,7 +175,9 @@ def _trade_mode_report_line(regime: str) -> str:
     return f"{mode.label} | {mode.action} | {mode.reason}"
 
 
-def _execution_decision_line(regime: str, selected_count: int) -> str:
+def _execution_decision_line(regime: str, selected_count: int, data_quality: dict | None = None) -> str:
+    if (data_quality or {}).get("trade_readiness") == "observe_only":
+        return "数据质量降级；候选仅供 shadow 观察，禁止正式推荐、写入执行清单或新开仓。"
     mode = resolve_market_trade_mode(regime)
     if not mode.allow_ai_review:
         return "禁止新仓；候选仅影子观察，优先处理持仓风控；不从本报告选择买入标的。"
@@ -193,7 +195,9 @@ def _execution_decision_line(regime: str, selected_count: int) -> str:
 
 def _today_conclusion_line(ctx: Any, selected_count: int) -> str:
     mode = resolve_market_trade_mode(ctx.regime)
-    if not mode.allow_ai_review or mode.mode == "overheat_shadow":
+    if _data_quality_observe_only(getattr(ctx, "metrics", None)):
+        conclusion = "数据质量降级，仅观察"
+    elif not mode.allow_ai_review or mode.mode == "overheat_shadow":
         conclusion = "禁止新仓"
     elif not mode.allow_recommendation_write:
         conclusion = "观察买入"
@@ -226,7 +230,9 @@ def _first_non_empty_reason_group(*groups: object) -> list[str]:
 
 def _tomorrow_action_line(ctx: Any, selected_count: int) -> str:
     mode = resolve_market_trade_mode(ctx.regime)
-    if not mode.allow_ai_review:
+    if _data_quality_observe_only(getattr(ctx, "metrics", None)):
+        action = "禁止正式推荐和新仓；修复数据覆盖后重新运行漏斗，不使用本次候选下单。"
+    elif not mode.allow_ai_review:
         action = "禁止新仓；不用旧报告下单，只处理持仓风控，观察主线修复是否延续。"
     elif mode.mode == "overheat_shadow":
         action = "禁止新仓；AI/shadow 可对照，不写推荐、不执行新买，只处理持仓风控。"
@@ -257,6 +263,40 @@ def _pool_summary_line(metrics: dict) -> str:
         f"-> 去ST{metrics['pool_st_excluded']} = {metrics['total_symbols']} "
         f"(共{metrics['pool_batches']}批{limit_part})"
     )
+
+
+def _data_quality_observe_only(metrics: dict | None) -> bool:
+    return ((metrics or {}).get("data_quality") or {}).get("trade_readiness") == "observe_only"
+
+
+def _data_quality_report_lines(metrics: dict) -> list[str]:
+    quality = metrics.get("data_quality") or {}
+    coverage = quality.get("coverage") or {}
+    status = str(quality.get("status") or "unknown")
+    readiness = str(quality.get("trade_readiness") or "unknown")
+    reasons = ", ".join(quality.get("reasons") or []) or "无"
+    source_counts = quality.get("ohlcv_source_counts") or {}
+    sources = ", ".join(f"{source}={count}" for source, count in source_counts.items()) or "unknown=0"
+    rejection_parts = []
+    for layer, item in (metrics.get("layer_rejections") or {}).items():
+        label = str(layer).replace("layer", "L")
+        rejection_parts.append(
+            f"{label}:{item.get('input', 0)}→{item.get('passed', 0)}"
+            f"(淘汰{item.get('rejected', 0)}:{item.get('reason', '')})"
+        )
+    return [
+        f"**数据质量**: {status}/{readiness} | OHLCV {_percent(coverage.get('ohlcv'))} | "
+        f"市值 {_percent(coverage.get('market_cap'))} | 财务 {_percent(coverage.get('financial'))} | 原因 {reasons}",
+        f"**样本与来源**: RPS universe={int(metrics.get('rps_universe_count') or 0)} | OHLCV {sources}",
+        f"**逐层淘汰**: {'；'.join(rejection_parts) or '无'}",
+    ]
+
+
+def _percent(value: object) -> str:
+    try:
+        return f"{float(value or 0.0):.1%}"
+    except (TypeError, ValueError):
+        return "0.0%"
 
 
 def _market_mix_policy_line(policy: dict) -> str:
@@ -311,7 +351,9 @@ def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[s
     return lines
 
 
-def _candidate_list_note(mode) -> str:
+def _candidate_list_note(mode, *, data_quality_observe_only: bool = False) -> str:
+    if data_quality_observe_only:
+        return "数据质量降级：以下仅供 shadow 观察，不是买入或正式推荐清单。"
     if not mode.allow_ai_review:
         return "今日禁止新仓：以下只供观察，不是买入清单。"
     if mode.mode == "overheat_shadow":
@@ -333,7 +375,13 @@ def _candidate_list_row(ctx: Any, selection: FunnelAiSelection, code: str) -> st
 def _top_candidate_list_lines(ctx: Any, selection: FunnelAiSelection) -> list[str]:
     selected_for_ai = selection.selected_for_ai
     mode = resolve_market_trade_mode(ctx.regime)
-    lines = [f"**【✅ 今日候选清单】{len(selected_for_ai)} 只**", _candidate_list_note(mode)]
+    lines = [
+        f"**【✅ 今日候选清单】{len(selected_for_ai)} 只**",
+        _candidate_list_note(
+            mode,
+            data_quality_observe_only=_data_quality_observe_only(getattr(ctx, "metrics", None)),
+        ),
+    ]
     if not selected_for_ai:
         lines.append("  无")
     else:
@@ -524,7 +572,8 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → 买点确认事件:{ctx.metrics['total_hits']}",
         f"**大盘水温**: {bench_line}",
         f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
-        f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selected_for_ai))}",
+        f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selected_for_ai), ctx.metrics.get('data_quality'))}",
+        *_data_quality_report_lines(ctx.metrics),
         f"**大盘资金趋势**: {money_line}",
         *_capital_migration_report_lines(ctx.metrics),
         _hot_events_report_line(ctx.metrics),
@@ -610,7 +659,8 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → 买点确认:{ctx.unique_hit_count}",
         f"**大盘水温**: {bench_line}",
         f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
-        f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selection.selected_for_ai))}",
+        f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selection.selected_for_ai), ctx.metrics.get('data_quality'))}",
+        *_data_quality_report_lines(ctx.metrics),
         f"**大盘资金趋势**: {money_line}",
         *_capital_migration_report_lines(ctx.metrics),
         _hot_events_report_line(ctx.metrics),

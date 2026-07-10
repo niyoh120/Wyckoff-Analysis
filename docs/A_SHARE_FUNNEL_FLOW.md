@@ -140,7 +140,7 @@ flowchart TD
     end
 
     subgraph LAYERS["主漏斗与候选车道"]
-        L1["L1 layer1_filter<br/>主板/创业板 · 非 ST · 市值≥35亿<br/>成交额≥5000万 · 财务过滤"]
+        L1["L1 layer1_filter<br/>A股支持板块 · 非 ST · 市值≥25亿<br/>成交额≥4000万 · 财务过滤"]
         ML["Mainline Engine<br/>动态主线发现<br/>概念热度 + 主题雷达 + 财务质量"]
         L2["L2 layer2_strength_detailed<br/>八通道并行"]
         L2A["主升 Markup"]
@@ -182,6 +182,8 @@ flowchart TD
         R12["候选车道 / 主线候选<br/>按配额加权送审"]
         R15["统一损失护栏<br/>纯SOS ABC=3/3<br/>单EVR/LPS/TrendPB默认观察"]
         R14["Shadow 观察<br/>只验证不入 AI"]
+        R16{"数据质量门禁<br/>OHLCV/市值≥95%<br/>财务≥90%（请求时）"}
+        R17["degraded / observe_only<br/>保留 AI/shadow 观察<br/>禁止正式推荐与新开仓"]
         R13["飞书推送漏斗报告"]
     end
 
@@ -201,6 +203,9 @@ flowchart TD
     BYPASS --> POST
     P8 --> POST
     L5 --> POST
+    POST --> R16
+    R16 -->|覆盖达标| R13
+    R16 -->|覆盖不足| R17 --> R13
 ```
 
 ### 正式候选来源
@@ -213,6 +218,13 @@ flowchart TD
 | Shadow 旁路 | L2 未过但有复盘价值，或外部观察名单 | 不进入正式 AI，除非显式打开开关 |
 
 正式候选在送入 Step3 前还会经过 `core/candidate_policy.py` 的统一损失护栏。纯 SOS 必须通过 Springboard ABC 3/3；单 EVR、单 LPS 与单 Trend Pullback 默认仅观察；弱确认、过热和高位追涨样本会被剪除。L2 的八通道原始命中数会写入诊断日志，但不参与评分。
+
+### 数据质量与诊断口径
+
+- OHLCV 和市值覆盖率均不得低于 95%；请求财务指标时，财务覆盖率不得低于 90%。
+- 任一必需覆盖率不足，运行状态标记为 `degraded`，交易就绪度强制为 `observe_only`。候选仍可进入 AI/shadow 对照，但报告、结构化详情和候选行都会禁止正式推荐、写入执行清单或新开仓。
+- 报告展示三个覆盖率、OHLCV 数据源数量与占比、RPS universe 数量，以及 L1 到 L4 的输入、通过、淘汰数量和该层筛选原因。
+- L2 保留多标签；没有通道命中时返回空标签，不再兜底伪装成“点火破局”。概念聚合按股票稳定去重，同一股票不会对同一概念重复计数。
 
 ### L4 触发信号
 

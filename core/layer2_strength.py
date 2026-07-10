@@ -209,7 +209,7 @@ def channel_labels(channels: dict[str, bool]) -> list[str]:
         )
         if channels.get(key)
     ]
-    return labels or ["点火破局"]
+    return labels
 
 
 def pre_ignition_ok(

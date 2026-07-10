@@ -12,6 +12,47 @@ def test_execution_decision_line_makes_observe_only_action_explicit() -> None:
     assert "不从本报告选择买入标的" in line
 
 
+def test_execution_decision_line_blocks_formal_action_when_data_quality_is_degraded() -> None:
+    from workflows.funnel_render import _execution_decision_line
+
+    line = _execution_decision_line(
+        "RISK_ON",
+        3,
+        {"status": "degraded", "trade_readiness": "observe_only", "reasons": ["ohlcv_coverage<95%"]},
+    )
+
+    assert "数据质量降级" in line
+    assert "禁止正式推荐" in line
+
+
+def test_data_quality_report_lines_show_coverages_sources_rps_and_rejections() -> None:
+    from workflows.funnel_render import _data_quality_report_lines
+
+    lines = _data_quality_report_lines(
+        {
+            "data_quality": {
+                "status": "degraded",
+                "trade_readiness": "observe_only",
+                "reasons": ["financial_coverage<90%"],
+                "coverage": {"ohlcv": 0.98, "market_cap": 0.96, "financial": 0.75},
+                "ohlcv_source_counts": {"tickflow": 70, "tushare": 28},
+            },
+            "rps_universe_count": 98,
+            "layer_rejections": {
+                "layer1": {"input": 100, "passed": 80, "rejected": 20, "reason": "基础准入"},
+                "layer2": {"input": 80, "passed": 30, "rejected": 50, "reason": "强度条件"},
+            },
+        }
+    )
+
+    assert "OHLCV 98.0%" in lines[0]
+    assert "财务 75.0%" in lines[0]
+    assert "observe_only" in lines[0]
+    assert "tickflow=70" in lines[1]
+    assert "RPS universe=98" in lines[1]
+    assert "L1:100→80" in lines[2]
+
+
 def test_execution_decision_line_waits_for_ai_and_oms_confirmation() -> None:
     from workflows.funnel_render import _execution_decision_line
 

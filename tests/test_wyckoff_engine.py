@@ -7,6 +7,7 @@ import pandas as pd
 from core.wyckoff_engine import (
     FunnelConfig,
     _board_vol_ratio_scale,
+    _build_sector_groups,
     _compute_stop_loss,
     _detect_compression,
     _detect_evr,
@@ -93,6 +94,12 @@ class TestLatestTradeDate:
 
 
 class TestLayer1Filter:
+    def test_production_defaults_use_broader_cap_and_liquidity_thresholds(self):
+        cfg = FunnelConfig()
+
+        assert cfg.min_market_cap_yi == 25.0
+        assert cfg.min_avg_amount_wan == 4000.0
+
     def test_filters_st_stocks(self):
         """L1 应剔除 ST 股票（名称含 ST）。"""
         cfg = FunnelConfig()
@@ -156,6 +163,18 @@ class TestLayer1Filter:
         )
 
         assert result == ["000001"]
+
+
+def test_sector_groups_stably_deduplicate_concepts_per_symbol() -> None:
+    counts, sym_sectors = _build_sector_groups(
+        ["000001"],
+        {},
+        {"000001": ["机器人", "人工智能", "机器人", "", "人工智能"]},
+        True,
+    )
+
+    assert sym_sectors == {"000001": ["机器人", "人工智能"]}
+    assert counts == {"机器人": 1, "人工智能": 1}
 
     def test_amount_all_zero_falls_back_to_close_times_volume(self):
         """TickFlow 港股/美股历史 K 线 amount 字段恒为 0，L1 流动性过滤必须回退为 close*volume，

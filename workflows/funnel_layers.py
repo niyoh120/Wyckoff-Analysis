@@ -56,6 +56,7 @@ class FunnelLayerOutputs:
     theme_candidate_map: dict
     mainline_candidates: list[dict]
     mainline_ai_cap: int
+    rps_universe_count: int
 
 
 def run_base_funnel_layers(
@@ -124,6 +125,7 @@ def run_base_funnel_layers(
         theme_candidate_map=build_theme_candidate_map(theme_radar),
         mainline_candidates=mainline_candidates,
         mainline_ai_cap=mainline_cfg.max_ai_candidates,
+        rps_universe_count=len(l1_input),
     )
 
 
