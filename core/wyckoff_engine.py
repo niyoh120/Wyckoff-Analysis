@@ -515,6 +515,7 @@ def layer2_strength_detailed(
     cfg: FunnelConfig,
     *,
     rps_universe: list[str] | None = None,
+    channel_hit_counter: dict[str, int] | None = None,
 ) -> tuple[list[str], dict[str, str], list[str]]:
     """
     Layer2 多通道强弱甄别。
@@ -523,6 +524,9 @@ def layer2_strength_detailed(
     - passed: 通过 Layer2 的股票
     - channel_map: code -> 通道标签
     - pre_ignition_list: 预点火观察池（未通过八通道但结构接近）
+
+    channel_hit_counter（可选）: 传入空 dict 原地累加每个通道的原始命中次数
+    （不受"是否已被其他通道命中"影响），用于诊断某通道是否长期 0 触发。
     """
     bench_ctx = build_benchmark_context(
         bench_df,
@@ -560,6 +564,10 @@ def layer2_strength_detailed(
             rps_ctx=rps_ctx,
             detect_sos=_detect_sos,
         )
+        if channel_hit_counter is not None:
+            for name, hit in result.channels.items():
+                if hit:
+                    channel_hit_counter[name] = channel_hit_counter.get(name, 0) + 1
         if result.passed:
             passed.append(sym)
             channel_map[sym] = result.channel
@@ -2407,6 +2415,27 @@ def run_funnel(
     )
 
 
+_CHANNEL_HIT_LABELS = {
+    "momentum": "主升",
+    "ambush": "潜伏",
+    "accum": "吸筹",
+    "dry_vol": "地量蓄势",
+    "rs_div": "暗中护盘",
+    "trend_cont": "趋势延续",
+    "breakout_accel": "加速突破",
+    "sos": "点火破局",
+}
+
+
+def _log_layer2_channel_hits(channel_hits: dict[str, int], l1_count: int) -> None:
+    # 诊断日志：记录每个通道的原始命中次数（含被其他通道抢先归类的重叠情况），
+    # 用于观察左侧通道（潜伏/暗中护盘等）是长期真实 0 命中，还是仅样本窗口不足。
+    if l1_count <= 0:
+        return
+    parts = [f"{_CHANNEL_HIT_LABELS.get(name, name)}={channel_hits.get(name, 0)}" for name in _CHANNEL_HIT_LABELS]
+    logger.info("L2通道命中统计(基数L1=%d): %s", l1_count, ", ".join(parts))
+
+
 def _run_funnel_layers(
     all_symbols: list[str],
     df_map: dict[str, pd.DataFrame],
@@ -2422,13 +2451,16 @@ def _run_funnel_layers(
 ) -> _FunnelLayerState:
     prepared_df_map = _prepare_df_map(df_map)
     l1 = layer1_filter(all_symbols, name_map, market_cap_map, prepared_df_map, cfg, financial_map=financial_map)
+    channel_hits: dict[str, int] = {}
     l2, channel_map, _pre_ign = layer2_strength_detailed(
         l1,
         prepared_df_map,
         bench_df,
         cfg,
         rps_universe=list(prepared_df_map.keys()),
+        channel_hit_counter=channel_hits,
     )
+    _log_layer2_channel_hits(channel_hits, len(l1))
     l3, top_sectors = layer3_sector_resonance(
         l2,
         sector_map,

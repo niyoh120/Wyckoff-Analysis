@@ -55,6 +55,7 @@ class Layer2SymbolResult:
     passed: bool
     channel: str
     pre_ignition: bool
+    channels: dict[str, bool]
 
 
 def close_return_pct(close_series: pd.Series, lookback: int) -> float | None:
@@ -145,7 +146,7 @@ def evaluate_layer2_symbol(
         df_sorted, state, cfg, bench_ctx, rps_ctx, rps_state, momentum_rs_ok, ambush_rs_ok, detect_sos
     )
     if any(channels.values()):
-        return Layer2SymbolResult(True, "+".join(channel_labels(channels)), False)
+        return Layer2SymbolResult(True, "+".join(channel_labels(channels)), False, channels)
     pre_ignition = cfg.enable_pre_ignition_watch and pre_ignition_ok(
         cfg=cfg,
         close=state.close,
@@ -156,7 +157,7 @@ def evaluate_layer2_symbol(
         holding_ma20=state.holding_ma20,
         rps_slow=rps_state.slow,
     )
-    return Layer2SymbolResult(False, "", pre_ignition)
+    return Layer2SymbolResult(False, "", pre_ignition, channels)
 
 
 def rps_slope_state(close_series: pd.Series, cfg: Any, *, active: bool, row_count: int) -> tuple[bool, float]:
