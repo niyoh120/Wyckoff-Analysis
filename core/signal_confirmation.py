@@ -12,13 +12,14 @@ SIGNAL_TTL_DAYS: dict[str, int] = {
     "lps": 3,
     "evr": 2,
     "compression": 3,
-    "trend_pullback": 3,
+    # 趋势/主线缩短确认窗口，避免 3–5 日 alpha 被确认链吃掉。
+    "trend_pullback": 2,
     "trend_breakout": 2,
-    "trend_lane_pullback": 3,
-    "main_force_entry": 3,
+    "trend_lane_pullback": 2,
+    "main_force_entry": 2,
     "sector_strength": 2,
-    "wyckoff_structure": 3,
-    "mainline": 3,
+    "wyckoff_structure": 2,
+    "mainline": 2,
 }
 TREND_CONFIRM_SIGNALS = {
     "trend_pullback",
@@ -121,11 +122,18 @@ def _confirm_trend_candidate(snap: dict, today: dict, days_elapsed: int) -> tupl
     support = snap.get("snap_support", 0) or snap.get("snap_ma20", 0) or snap.get("snap_low", 0)
     snap_close = snap.get("snap_close", 0)
     snap_vol = snap.get("snap_volume", 0)
+    snap_low = snap.get("snap_low", 0) or support
     ma20 = today.get("ma20", 0) or snap.get("snap_ma20", 0)
     if support > 0 and today["low"] < support * 0.985:
         return "expired", f"跌破确认支撑 {support:.2f}"
     if snap_vol > 0 and today["volume"] > snap_vol * 1.8 and today["close"] < max(support, snap_close) * 0.985:
         return "expired", "放量跌破确认区，趋势候选失效"
+    # 0–1 日快速确认：守住信号低点 +（缩量或阳线），不必死等 MA20。
+    if days_elapsed <= 1 and snap_low > 0 and today["close"] >= snap_low and today["close"] >= snap_close * 0.985:
+        dry = snap_vol <= 0 or today["volume"] <= snap_vol * 1.05
+        bullish = today["close"] >= today.get("open", today["close"])
+        if dry or bullish:
+            return "confirmed", f"快速确认：守住信号区，收盘 {today['close']:.2f}"
     if ma20 > 0 and today["close"] >= ma20 * 0.995 and today["close"] >= snap_close * 0.985:
         return "confirmed", f"守住MA20/信号收盘，收盘 {today['close']:.2f}"
     if support > 0 and today["close"] >= support and today["close"] >= snap_close:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from core.execution_playbook import tail_buy_playbook_lines
 from core.strategy_policy_display import format_policy_meta_text, format_policy_weight_text
 from core.tail_buy.decision_semantics import HIGH_RISK_MOMENTUM_SIGNALS, is_limit_up_candidate
 from core.tail_buy.models import DECISION_BUY, DECISION_SKIP, DECISION_WATCH, TailBuyCandidate
@@ -57,6 +58,7 @@ def _header_lines(
         f"⚠️ 风险提醒: {market_reminder} | {guard_line}",
         "",
     ]
+    lines.extend(tail_buy_playbook_lines(report_mode=report_mode))
     return lines
 
 

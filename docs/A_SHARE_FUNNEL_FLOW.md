@@ -1,6 +1,7 @@
 # A 股主漏斗执行流程
 
-> 本文描述 A 股 Wyckoff 主漏斗从 GitHub Actions 触发到 Supabase 写库、跨日反馈闭环的完整执行链路。策略逻辑详见 [`../README_STRATEGY.md`](../README_STRATEGY.md)，架构与数据表详见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+> 本文描述 A 股 Wyckoff 主漏斗从 GitHub Actions 触发到 Supabase 写库、跨日反馈闭环的完整执行链路。
+> **实盘操作口径**见 [`OPERATOR_PLAYBOOK.md`](OPERATOR_PLAYBOOK.md)。策略逻辑见 [`../README_STRATEGY.md`](../README_STRATEGY.md)，架构见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
 **主入口**：`.github/workflows/wyckoff_funnel.yml` → `scripts/daily_job.py`（周日到周四 **17:17** 北京时间；周日正常为周一实盘准备候选，仅在次日不是 A 股交易日时跳过）
 
@@ -132,10 +133,10 @@ flowchart TD
         G1["calc_market_breadth<br/>市场广度"]
         G2["analyze_benchmark_and_tune_cfg<br/>regime 判定"]
         G3{"水温 regime"}
-        G3 -->|NEUTRAL| T1["默认门槛"]
-        G3 -->|RISK_ON| T2["适度放宽"]
-        G3 -->|RISK_OFF| T3["提高门槛"]
-        G3 -->|CRASH| T4["极限门槛 + 悬崖检测"]
+        G3 -->|NEUTRAL| T1["主战场 mainline_active<br/>Trend5/Accum1"]
+        G3 -->|RISK_ON| T2["禁止正式新开 overheat_shadow<br/>研究配额 5/1"]
+        G3 -->|RISK_OFF| T3["提高门槛 + 禁新开"]
+        G3 -->|CRASH| T4["极限门槛 + 禁新开"]
     end
 
     subgraph LAYERS["主漏斗与候选车道"]
@@ -179,6 +180,7 @@ flowchart TD
         R8 -->|shadow| R10["静态出结果 + shadow 差异写库"]
         R8 -->|on| R11["读 signal_health/registry 动态配额"]
         R12["候选车道 / 主线候选<br/>按配额加权送审"]
+        R15["统一损失护栏<br/>纯SOS ABC=3/3<br/>单EVR/LPS/TrendPB默认观察"]
         R14["Shadow 观察<br/>只验证不入 AI"]
         R13["飞书推送漏斗报告"]
     end
@@ -195,7 +197,7 @@ flowchart TD
     LN --> POST
     L1 --> BYPASS
     L4 --> L5
-    L4 --> POST
+    L4 --> R15 --> POST
     BYPASS --> POST
     P8 --> POST
     L5 --> POST
@@ -209,6 +211,8 @@ flowchart TD
 | 主线候选 | `mainline_score` 达标，且 timing gate 过关 | 不直接买，仍需 AI/尾盘确认 |
 | 候选车道 | 趋势回踩、平台突破、强承接等结构接近 | 默认观察，质量足够才按配额送审 |
 | Shadow 旁路 | L2 未过但有复盘价值，或外部观察名单 | 不进入正式 AI，除非显式打开开关 |
+
+正式候选在送入 Step3 前还会经过 `core/candidate_policy.py` 的统一损失护栏。纯 SOS 必须通过 Springboard ABC 3/3；单 EVR、单 LPS 与单 Trend Pullback 默认仅观察；弱确认、过热和高位追涨样本会被剪除。L2 的八通道原始命中数会写入诊断日志，但不参与评分。
 
 ### L4 触发信号
 
@@ -244,12 +248,14 @@ flowchart LR
     RAG --> OUT["extract_operation_pool_codes<br/>提取起跳板代码"]
     OUT --> PUSH["飞书/企微/钉钉推送研报"]
     OUT --> MARK["mark_ai_recommendations<br/>recommendation_tracking"]
+    OUT --> CONF["跨日信号确认<br/>SOS/EVR需守支撑+站稳MA20"]
 ```
 
 **LLM 配置**（workflow 默认）：
 
 - Step3：`STEP3_LLM_PROVIDER=gemini`，fallback `efficiency`
 - 输入不是原始 K 线，而是压缩后的结构特征
+- 空候选仍发送空集报告、合规摘要和明日执行结论；主 provider 失败时按配置回退，不会在 daily-job 包装层静默跳过
 
 ---
 
@@ -268,17 +274,36 @@ flowchart TD
     IDEM -->|否| LLM["LLM 决策<br/>EXIT > TRIM > HOLD > PROBE/ATTACK"]
 
     LLM --> RISK{"风控门控"}
-    RISK -->|BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["冻结买入<br/>STEP4_BUY_BLOCK_REGIMES"]
-    RISK -->|RISK_ON / NEUTRAL / CAUTION| ALLOW["允许按交易模式限额执行"]
+    RISK -->|RISK_ON / BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["冻结新开仓<br/>STEP4_BUY_BLOCK_REGIMES"]
+    RISK -->|NEUTRAL / CAUTION| ALLOW["按交易模式限额执行"]
 
-    ALLOW --> OMS["硬止损 -9%<br/>PROBE≤10% / ATTACK≤20%"]
-    OMS --> TG["Telegram 推送决策"]
+    ALLOW --> OMS["灾难止损地板 -12%<br/>PROBE≤10% / ATTACK≤20%<br/>ATR/结构/时间管理优先"]
+    OMS --> TG["推送工单（含执行纪律）"]
     OMS --> DB["trade_orders 写库"]
 ```
 
+### 报告执行纪律
+
+日漏斗、Step3、尾盘、OMS 推送正文顶部固定附带 `core/execution_playbook.py` 的 **「🧭 执行纪律」**（闸门、主线优先、5 日持有、-12% 灾难地板）。操作解读见 [`OPERATOR_PLAYBOOK.md`](OPERATOR_PLAYBOOK.md)。
+
 ---
 
-## 六、跨日反馈闭环
+## 六、尾盘执行层（与日漏斗串联）
+
+| 项 | 说明 |
+|----|------|
+| 入口 | `tail_buy_1440.yml` → `scripts/tail_buy_intraday_job.py` |
+| 候选 | 读 `signal_pending`；**confirmed 才可 BUY** |
+| 排序 | confirmed → 主线/趋势 → 信号分 |
+| 禁新开 | `RISK_ON` 与弱市/修复期与 Step4 对齐，新票不买 |
+| 持仓 | 硬止损约 12%；非主线满 5 日建议时间止盈 |
+| 读法 | 只执行 **BUY（可执行）**；WATCH/SKIP 不下手 |
+
+**日漏斗 = 候选池；尾盘 = 今天买不买。缺一不可。**
+
+---
+
+## 七、跨日反馈闭环
 
 漏斗与 feedback 是**错峰运行**的反馈系统：漏斗先产出观察样本，feedback 盘后验收，下一轮漏斗再读取新的策略状态。详见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)。
 
@@ -323,7 +348,7 @@ shadow 新增表现、scoped 信号调权和回测确认。
 
 ---
 
-## 七、并行下游任务时间线
+## 八、并行下游任务时间线
 
 | 时间（北京） | 工作流 | 与漏斗关系 |
 |-------------|--------|-----------|
@@ -338,7 +363,7 @@ shadow 新增表现、scoped 信号调权和回测确认。
 
 ---
 
-## 八、Supabase 数据流
+## 九、Supabase 数据流
 
 ```mermaid
 flowchart LR
@@ -373,7 +398,7 @@ flowchart LR
 
 ---
 
-## 九、数据源降级链（OHLCV）
+## 十、数据源降级链（OHLCV）
 
 ```
 TickFlow (优先, qfq 前复权)
@@ -392,7 +417,7 @@ efinance
 
 ---
 
-## 十、当前生产配置要点
+## 十一、当前生产配置要点
 
 来源：`.github/workflows/wyckoff_funnel.yml`
 
@@ -401,12 +426,14 @@ efinance
 | `FUNNEL_AI_SELECTION_MODE` | `tradeable_l4` | 只把可交易 L4 结构送入 Step3，减少裸 SOS/EVR 追高噪声 |
 | `FUNNEL_AI_TOTAL_CAP` | `8` | AI 总量硬上限；战略/主题补位也受此限制 |
 | `FUNNEL_DYNAMIC_POLICY` | `shadow` | 主流程用静态配额，同时记录动态策略差异 |
-| `FUNNEL_AI_NEUTRAL_TREND` / `FUNNEL_AI_NEUTRAL_ACCUM` | `2` / `3` | 中性市场保留更多 Accum 槽位给 Spring/LPS/Compression |
+| `FUNNEL_AI_NEUTRAL_TREND` / `FUNNEL_AI_NEUTRAL_ACCUM` | `5` / `1` | 中性市主线/趋势主导，Accum 仅残量 |
+| `FUNNEL_AI_RISK_ON_TREND` / `FUNNEL_AI_RISK_ON_ACCUM` | `5` / `1` | 过热市 AI/shadow 研究配额；正式推荐与新开仓由市场闸门禁止 |
 | `FUNNEL_EXTERNAL_SEED_SYMBOLS` / `FUNNEL_EXTRA_SYMBOLS` | 空 | 临时追加外部观察名单；存在时自动启用 external seed shadow |
-| `STEP4_BUY_HARD_STOP_PCT` | `10.0` | 新开仓灾难止损地板；ATR/结构止损优先 |
+| `STEP4_BUY_HARD_STOP_PCT` | `12.0` | 新开仓灾难止损地板；ATR/结构/时间管理优先 |
 | `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` | `1` | Step4 新开仓只允许二次确认候选；未确认候选只观察 |
 | `TAIL_BUY_CONFIRMED_ONLY_BUY` | `1` | 尾盘买入只对二次确认候选输出 BUY |
-| `STEP4_BUY_BLOCK_REGIMES` | `BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN` | 弱市冻结新开仓 |
+| `TAIL_BUY_HOLDING_HARD_STOP_PCT` | `12` | 持仓尾盘诊断的固定止损兜底；ATR 放宽需显式开启且受上限约束 |
+| `STEP4_BUY_BLOCK_REGIMES` | `RISK_ON,BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN` | 过热与弱市冻结新开仓 |
 
 ---
 
@@ -414,7 +441,8 @@ efinance
 
 | 文档 | 内容 |
 |------|------|
-| [`README_STRATEGY.md`](../README_STRATEGY.md) | 策略逻辑、L1–L5 条件、AI 研报与 OMS 规则 |
+| [`OPERATOR_PLAYBOOK.md`](OPERATOR_PLAYBOOK.md) | **实盘怎么用**：日漏斗 × 尾盘串联纪律 |
+| [`README_STRATEGY.md`](../README_STRATEGY.md) | 策略逻辑、L1–L5、配额、尾盘与 OMS |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | 架构、Actions 全表、Supabase 表结构 |
 | [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md) | 信号反馈闭环详解 |
 | [`GLOSSARY.md`](../GLOSSARY.md) | 术语速查 |

@@ -455,6 +455,10 @@ class TestDetectCompression:
         assert _effective_entry_max_bias_200("000001", "", cfg) == 25.0
         assert _effective_entry_max_bias_200("688001", "", cfg) == 40.0
         assert _effective_entry_max_bias_200("000001", "趋势延续", cfg) == 35.0
+        # 仅有高 RPS 无绝对收益地板时，不得放宽。
+        assert _effective_entry_max_bias_200("000001", "趋势延续", cfg, rps_slow=95.0) == 35.0
+        assert _effective_entry_max_bias_200("000001", "趋势延续", cfg, rps_slow=95.0, ret120_pct=45.0) == 60.0
+        assert _effective_entry_max_bias_200("688001", "趋势延续", cfg, rps_slow=95.0, ret120_pct=45.0) == 80.0
 
     def test_sos_bypass_requires_minimum_slow_rps(self):
         cfg = FunnelConfig()

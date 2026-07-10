@@ -168,11 +168,12 @@ wyckoff dashboard
 ## 功能亮点
 
 - **对话式 Agent** — 用自然语言触发诊断、筛选、研报；CLI、Web、MCP 各自按权限编排多工具
-- **主线漏斗筛选** — A 股全市场约 5000 股动态发现概念主线、八通道强度、候选车道和买点确认，港股 / 美股独立 universe 扫描并写入跟踪复盘表
+- **主线漏斗筛选** — A 股全市场约 5000 股动态发现概念主线、八通道强度、候选车道和买点确认；NEUTRAL 主线优先，RISK_ON 禁新开
+- **日漏斗 × 尾盘串联** — 漏斗定候选与环境，尾盘 confirmed + BUY 才执行；报告顶部固定「执行纪律」
 - **跨市场** — A 股 / 港股 / 美股漏斗独立 workflow
 - **AI 三阵营研报** — 逻辑破产 / 储备营地 / 起跳板，LLM 独立审判
 - **信号反馈闭环** — 漏斗记录 observations，盘后 feedback 聚合 health / registry，支持 shadow 动态策略验证
-- **持仓诊断 & 私人决断** — 批量体检 + EXIT/TRIM/HOLD/PROBE/ATTACK 指令
+- **持仓诊断 & 私人决断** — EXIT/TRIM/HOLD/PROBE/ATTACK；非主线 5 日时间管理；灾难地板约 -12%
 - **Agent 分层记忆** — L1 原子记忆 + L2 场景 + L3 画像，FTS5/代码/关键词混合召回并保留来源追溯
 - **Skills 扩展** — 内置 `/screen`、`/checkup`、`/report`、`/backtest`，用户可自定义
 - **Prompt 模板** — 内置 `/daily`、`/review-l4`、`/step3-audit` 等高频投研模板，也支持 `~/.wyckoff/prompts/*.md`
@@ -214,6 +215,8 @@ wyckoff dashboard
 | 系统迭代策略与落地状态 | [docs/ITERATION_STRATEGY.md](docs/ITERATION_STRATEGY.md) |
 | 运营成本、规模化预算 | [docs/COST_MODEL.md](docs/COST_MODEL.md) |
 | 漏斗、AI 研报、OMS、回测 | [README_STRATEGY.md](README_STRATEGY.md) |
+| **实盘操作（日漏斗×尾盘）** | [docs/OPERATOR_PLAYBOOK.md](docs/OPERATOR_PLAYBOOK.md) |
+| A 股漏斗执行链路 | [docs/A_SHARE_FUNNEL_FLOW.md](docs/A_SHARE_FUNNEL_FLOW.md) |
 | 术语速查 | [GLOSSARY.md](GLOSSARY.md) |
 | MCP Server 配置 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#mcp-server) |
 | 密钥、Actions Secrets 与本地配置 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#云端存储supabase) |

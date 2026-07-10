@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# 硬防守：不送 AI、不写推荐、不新开（与历史 RISK_OFF/CRASH 一致）。
 NO_NEW_BUY_REGIMES = frozenset({"RISK_OFF", "CRASH", "BLACK_SWAN"})
+# 过热：禁止正式推荐与执行新开，但保留 AI/shadow 对照。
+OVERHEAT_SHADOW_REGIMES = frozenset({"RISK_ON"})
 REPAIR_REVIEW_REGIMES = frozenset({"BEAR_REBOUND", "PANIC_REPAIR"})
-CAUTION_REGIMES = frozenset({"NEUTRAL", "CAUTION"})
+CAUTION_ONLY_REGIMES = frozenset({"CAUTION"})
+# 尾盘/OMS 禁止新开仓的水温并集。
+EXECUTE_BLOCK_NEW_BUY_REGIMES = frozenset(NO_NEW_BUY_REGIMES | OVERHEAT_SHADOW_REGIMES | REPAIR_REVIEW_REGIMES)
 
 
 @dataclass(frozen=True)
@@ -42,12 +47,25 @@ def resolve_market_trade_mode(regime: str | None) -> MarketTradeMode:
             allow_bypass_review=False,
             allow_theme_promotion=False,
         )
+    if regime_norm in OVERHEAT_SHADOW_REGIMES:
+        return MarketTradeMode(
+            regime=regime_norm,
+            mode="overheat_shadow",
+            label="禁止新仓",
+            action="禁止新仓：可送AI/shadow 对照，不写正式推荐、不执行新买入",
+            reason="RISK_ON 过热追新历史负期望；保留研究样本，禁止正式下单",
+            allow_ai_review=True,
+            allow_recommendation_write=False,
+            allow_full_l4=False,
+            allow_bypass_review=False,
+            allow_theme_promotion=False,
+        )
     if regime_norm in REPAIR_REVIEW_REGIMES:
         return MarketTradeMode(
             regime=regime_norm,
             mode="repair_review",
             label="观察买入",
-            action="观察买入：允许少量二次确认候选进入AI复核；不写正式推荐，尾盘人工确认",
+            action="观察买入：允许少量候选进入AI复核；不写正式推荐，尾盘人工确认",
             reason=f"{regime_norm} 只适合验证修复强度，禁止自动开仓",
             allow_ai_review=True,
             allow_recommendation_write=False,
@@ -55,13 +73,13 @@ def resolve_market_trade_mode(regime: str | None) -> MarketTradeMode:
             allow_bypass_review=False,
             allow_theme_promotion=False,
         )
-    if regime_norm in CAUTION_REGIMES:
+    if regime_norm in CAUTION_ONLY_REGIMES:
         return MarketTradeMode(
             regime=regime_norm,
             mode="confirmation_only",
             label="观察买入",
             action="观察买入：只允许二次确认候选，关闭形态旁路和战略主题送审",
-            reason="震荡市优先控制误触发，候选必须经过确认支撑",
+            reason="情绪扰动期优先控制误触发，候选必须经过确认支撑",
             allow_ai_review=True,
             allow_recommendation_write=True,
             allow_full_l4=False,
@@ -70,13 +88,13 @@ def resolve_market_trade_mode(regime: str | None) -> MarketTradeMode:
         )
     return MarketTradeMode(
         regime=regime_norm,
-        mode="risk_on",
+        mode="mainline_active",
         label="可执行买入",
-        action="可执行买入：允许买点确认、主题加权与强势旁路进入AI复核",
-        reason="市场水温支持交易，优先二次确认并允许强势延续",
+        action="可执行买入：主线/趋势买点确认优先，允许主题晋级；关闭噪声旁路",
+        reason="中性水温是主战场：主线趋势主导，结构票仅轻量配额",
         allow_ai_review=True,
         allow_recommendation_write=True,
         allow_full_l4=True,
-        allow_bypass_review=True,
+        allow_bypass_review=False,
         allow_theme_promotion=True,
     )

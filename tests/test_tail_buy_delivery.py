@@ -35,7 +35,7 @@ def test_resolve_market_reminder_prefers_trade_date_row(monkeypatch) -> None:
     )
     monkeypatch.setattr(delivery, "load_latest_market_signal_daily", lambda: None)
 
-    assert delivery.resolve_market_reminder("2026-06-22") == "RISK_ON/NEUTRAL | 强势 震荡"
+    assert delivery.resolve_market_reminder("2026-06-22") == "RISK_ON/NEUTRAL | 禁止新开仓（尾盘不买新票） | 强势 震荡"
 
 
 def test_tail_buy_persist_row_serializes_reasons_and_features() -> None:

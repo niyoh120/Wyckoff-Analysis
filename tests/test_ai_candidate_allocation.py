@@ -42,7 +42,7 @@ class TestAllocateAiCandidates:
         assert policy["trend_quota"] == 0
         assert policy["accum_quota"] == 0
 
-    def test_risk_on_default_quota_matches_current_production_style(self, monkeypatch):
+    def test_risk_on_default_quota_keeps_research_candidates(self, monkeypatch):
         monkeypatch.delenv("FUNNEL_AI_RISK_ON_TREND", raising=False)
         monkeypatch.delenv("FUNNEL_AI_RISK_ON_ACCUM", raising=False)
 
@@ -50,9 +50,21 @@ class TestAllocateAiCandidates:
         policy = resolve_ai_candidate_policy("RISK_ON", config=config)
 
         assert policy["requested_trend_quota"] == 5
-        assert policy["requested_accum_quota"] == 3
+        assert policy["requested_accum_quota"] == 1
         assert policy["trend_quota"] == 5
-        assert policy["accum_quota"] == 3
+        assert policy["accum_quota"] == 1
+
+    def test_neutral_default_quota_is_trend_dominant(self, monkeypatch):
+        monkeypatch.delenv("FUNNEL_AI_NEUTRAL_TREND", raising=False)
+        monkeypatch.delenv("FUNNEL_AI_NEUTRAL_ACCUM", raising=False)
+
+        config = ai_candidate_allocation_config_from_env()
+        policy = resolve_ai_candidate_policy("NEUTRAL", config=config)
+
+        assert policy["requested_trend_quota"] == 5
+        assert policy["requested_accum_quota"] == 1
+        assert policy["trend_quota"] == 5
+        assert policy["accum_quota"] == 1
 
     def test_allocation_env_loader_stays_in_workflow_layer(self, monkeypatch):
         monkeypatch.setenv("FUNNEL_AI_TOTAL_CAP", "6")

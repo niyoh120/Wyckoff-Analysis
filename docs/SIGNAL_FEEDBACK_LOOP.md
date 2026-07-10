@@ -4,6 +4,9 @@
 
 这份文档说明 A 股定时漏斗、信号反馈任务、动态配额和 shadow run 的真实执行关系。它也可以作为 GitHub Wiki 的技术架构页素材。
 
+> 实盘操作（日漏斗 × 尾盘）见 [`OPERATOR_PLAYBOOK.md`](OPERATOR_PLAYBOOK.md)。
+> 静态配额生产默认：NEUTRAL Trend5/Accum1；RISK_ON 保留 Trend5/Accum1 研究配额，但市场闸门禁止正式推荐和新开仓。dynamic 仍建议先 `shadow`。
+
 ## 一句话
 
 漏斗负责**发现机会并生产信号样本**，feedback 负责**盘后验收信号表现并更新策略状态**，动态策略在**下一轮漏斗**读取这些状态。外部观察名单只进入同一套观察闭环，不作为正式候选来源。默认不是强同步链路，而是错峰运行的反馈闭环。

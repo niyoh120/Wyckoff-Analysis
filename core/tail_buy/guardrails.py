@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES
 from core.tail_buy.models import TailBuyCandidate, normalize_regime, safe_float
 
+# 与执行闸门对齐：过热/弱市/修复期尾盘不新开（持仓管理仍走 holding）。
+TAIL_BLOCK_NEW_BUY_REGIMES = frozenset(EXECUTE_BLOCK_NEW_BUY_REGIMES | {"CRASH_INTRADAY"})
 DEFENSIVE_TAIL_REGIMES = {"RISK_OFF", "PANIC_REPAIR", "CRASH", "BLACK_SWAN", "CRASH_INTRADAY"}
 REPAIR_TAIL_REGIMES = {"PANIC_REPAIR_INTRADAY"}
 NAKED_MOMENTUM_SIGNALS = {"sos", "evr"}
@@ -26,6 +29,8 @@ def tail_entry_veto_reasons(features: dict[str, Any], signal_type: str, market_r
     st_lower = str(signal_type or "").strip().lower()
     support = safe_float(features.get("support_level"), 0.0)
     regime = normalize_regime(market_regime or features.get("market_regime"))
+    if st_lower != "holding" and regime in TAIL_BLOCK_NEW_BUY_REGIMES:
+        reasons.append(f"{regime}禁止新开仓，尾盘不买")
     if st_lower != "holding" and support <= 0:
         reasons.append("缺少确认支撑位，尾盘不买")
     if st_lower == "evr" and regime in DEFENSIVE_TAIL_REGIMES:

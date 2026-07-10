@@ -132,11 +132,16 @@ class FunnelConfig:
     rps_accel_fast_min: float = 50.0  # 加速旁路下 RPS50 最低要求
     rps_accel_slow_min: float = 55.0  # 加速旁路下 RPS120 最低要求
     require_bench_latest_alignment: bool = False
-    momentum_bias_200_max: float = 0.25  # 防止主升通道选出离 200 日线太远的鱼尾老妖股
-    # Global Anti-Overfitting Restriction
-    global_entry_max_bias_200: float = 25.0  # 全局统一：凡偏离年线超 25% 的股票，一律拒绝买入（防高位接盘）
-    star_entry_max_bias_200: float = 40.0  # 科创板波动天然更高，保留独立上限
-    trend_entry_max_bias_200: float = 35.0  # 趋势/点火通道可接受更高乖离，但仍防止鱼尾追高
+    momentum_bias_200_max: float = 0.25
+    # Global Anti-Overfitting Restriction（L4 用百分数）
+    global_entry_max_bias_200: float = 25.0
+    star_entry_max_bias_200: float = 40.0
+    trend_entry_max_bias_200: float = 35.0
+    strong_rps_slow_min: float = 90.0
+    strong_rps_trend_bias_cap: float = 60.0
+    strong_rps_star_bias_cap: float = 80.0
+    # 绝对 120 日收益地板，防止无全市场 RPS 时用局部排名误放宽。
+    strong_ret120_min_pct: float = 40.0
 
     # Layer 2 预点火观察池
     enable_pre_ignition_watch: bool = True
@@ -789,13 +794,96 @@ def _is_star_board(code: str) -> bool:
     return str(code).startswith(("688", "689"))
 
 
-def _effective_entry_max_bias_200(code: str, channel: str, cfg: FunnelConfig) -> float:
+def _effective_entry_max_bias_200(
+    code: str,
+    channel: str,
+    cfg: FunnelConfig,
+    *,
+    rps_slow: float | None = None,
+    ret120_pct: float | None = None,
+) -> float:
     limit = float(cfg.global_entry_max_bias_200)
-    if _is_star_board(code):
+    is_star = _is_star_board(code)
+    if is_star:
         limit = max(limit, float(getattr(cfg, "star_entry_max_bias_200", limit)))
-    if any(tag in str(channel or "") for tag in TREND_CHANNEL_TAGS):
+    is_trend = any(tag in str(channel or "") for tag in TREND_CHANNEL_TAGS)
+    if is_trend:
         limit = max(limit, float(getattr(cfg, "trend_entry_max_bias_200", limit)))
+        limit = _boost_bias_for_strong_rps(
+            limit,
+            cfg,
+            rps_slow=rps_slow,
+            ret120_pct=ret120_pct,
+            is_star=is_star,
+        )
     return limit
+
+
+def _boost_bias_for_strong_rps(
+    limit: float,
+    cfg: FunnelConfig,
+    *,
+    rps_slow: float | None,
+    ret120_pct: float | None = None,
+    is_star: bool = False,
+) -> float:
+    if rps_slow is None:
+        return limit
+    min_rps = float(getattr(cfg, "strong_rps_slow_min", 90.0))
+    if float(rps_slow) < min_rps:
+        return limit
+    min_ret = float(getattr(cfg, "strong_ret120_min_pct", 40.0))
+    if ret120_pct is None or float(ret120_pct) < min_ret:
+        return limit
+    cap_name = "strong_rps_star_bias_cap" if is_star else "strong_rps_trend_bias_cap"
+    return max(limit, float(getattr(cfg, cap_name, limit)))
+
+
+def _universe_rps_slow_map(
+    df_map: dict[str, pd.DataFrame],
+    cfg: FunnelConfig,
+) -> dict[str, float]:
+    """在 df_map 全宇宙上计算 120 日收益百分位（RPS120 近似）。
+
+    必须用全量/近似全量 universe，禁止用 L3 小集合排名冒充全市场 RPS。
+    """
+    window = max(int(getattr(cfg, "rps_window_slow", 120)), 1)
+    rets = _close_return_map(df_map, window)
+    if len(rets) < 30:
+        # 样本过少时不输出伪 RPS，避免诊断/旁路入口误放宽。
+        return {}
+    series = pd.Series(rets, dtype=float)
+    ranks = series.rank(pct=True, method="average") * 100.0
+    return {str(k): float(v) for k, v in ranks.items()}
+
+
+def _close_return_map(df_map: dict[str, pd.DataFrame], window: int) -> dict[str, float]:
+    rets: dict[str, float] = {}
+    for sym, df in df_map.items():
+        if df is None or getattr(df, "empty", True) or "close" not in df.columns:
+            continue
+        close = pd.to_numeric(df["close"], errors="coerce").dropna()
+        if len(close) <= window:
+            continue
+        start = float(close.iloc[-window - 1])
+        end = float(close.iloc[-1])
+        if start > 0:
+            rets[str(sym)] = (end / start - 1.0) * 100.0
+    return rets
+
+
+def _ret120_pct(df: pd.DataFrame | None, cfg: FunnelConfig) -> float | None:
+    if df is None or df.empty or "close" not in df.columns:
+        return None
+    window = max(int(getattr(cfg, "rps_window_slow", 120)), 1)
+    close = pd.to_numeric(df["close"], errors="coerce").dropna()
+    if len(close) <= window:
+        return None
+    start = float(close.iloc[-window - 1])
+    end = float(close.iloc[-1])
+    if start <= 0:
+        return None
+    return (end / start - 1.0) * 100.0
 
 
 def _entry_bias_limit(cfg: FunnelConfig, max_bias_200: float | None) -> float:
@@ -1374,6 +1462,7 @@ def layer4_triggers(
     cfg: FunnelConfig,
     channel_map: dict[str, str] | None = None,
     market_cap_map: dict[str, float] | None = None,
+    rps_slow_map: dict[str, float] | None = None,
 ) -> dict[str, list[tuple[str, float]]]:
     """在最终候选集上运行 Spring / LPS / EVR / Compression / SOS / TrendPullback 检测。"""
     results: dict[str, list[tuple[str, float]]] = {
@@ -1387,13 +1476,21 @@ def layer4_triggers(
     if channel_map is None:
         channel_map = {}
     cap_map = market_cap_map or {}
+    # 默认在 df_map 全宇宙上算 RPS，禁止用 L3 小集合局部排名冒充全市场。
+    universe_rps = rps_slow_map if rps_slow_map is not None else _universe_rps_slow_map(df_map, cfg)
 
     for sym in symbols:
         df = df_map.get(sym)
         if df is None or df.empty:
             continue
         channel = channel_map.get(sym, "")
-        max_bias_200 = _effective_entry_max_bias_200(sym, channel, cfg)
+        max_bias_200 = _effective_entry_max_bias_200(
+            sym,
+            channel,
+            cfg,
+            rps_slow=universe_rps.get(sym),
+            ret120_pct=_ret120_pct(df, cfg),
+        )
         score = _detect_spring(df, cfg, max_bias_200=max_bias_200, code=sym)
         if score is not None:
             results["spring"].append((sym, score))

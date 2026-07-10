@@ -333,6 +333,8 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
     low = _numeric_series(ordered, "low")
     open_ = _numeric_series(ordered, "open")
     last = float(close.iloc[-1])
+    ma5 = float(close.tail(5).mean()) if len(close) >= 5 else last
+    ma10 = float(close.tail(10).mean()) if len(close) >= 10 else last
     ma20 = float(close.tail(20).mean())
     ma50 = float(close.tail(50).mean())
     high20 = float(high.tail(20).max()) if not high.empty else float(close.tail(20).max())
@@ -342,6 +344,8 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
         "ret20": _ret_pct(close, 20),
         "ret60": _ret_pct(close, 60),
         "ret120": _ret_pct(close, 120),
+        "dist_ma5": (last / ma5 - 1.0) * 100.0 if ma5 > 0 else 0.0,
+        "dist_ma10": (last / ma10 - 1.0) * 100.0 if ma10 > 0 else 0.0,
         "dist_ma20": (last / ma20 - 1.0) * 100.0 if ma20 > 0 else 0.0,
         "dist_ma50": (last / ma50 - 1.0) * 100.0 if ma50 > 0 else 0.0,
         "drawdown60": _drawdown_pct(close, 60),
@@ -365,7 +369,7 @@ def _timing_risks(metrics: dict[str, float]) -> list[str]:
     risks: list[str] = []
     if _fish_tail_risk(metrics):
         risks.append("鱼尾加速")
-    elif metrics["dist_ma20"] > 16 or metrics["ret20"] > 42:
+    elif metrics["dist_ma20"] > 22 or metrics["ret20"] > 50:
         risks.append("高位抱团")
     if metrics["upper_shadow_pct"] > 5 and metrics["vol_ratio_5_20"] > 1.8 and metrics["close_pos_day"] < 0.45:
         risks.append("放量长上影")
@@ -390,13 +394,35 @@ def _entry_types(metrics: dict[str, float], risk_flags: list[str]) -> list[str]:
         entries.append("主力资金进场确认")
     if _main_force_absorption_ok(metrics, risk_flags):
         entries.append("主力缩量承接")
-    if -2 <= metrics["dist_ma20"] <= 8 and metrics["dist_ma50"] >= -2 and metrics["ret60"] >= 8:
-        entries.append("主线回踩MA20")
+    entries.extend(_mainline_pullback_entries(metrics))
     if metrics["close_pos20"] >= 0.86 and 4 <= metrics["ret20"] <= 36 and 0.75 <= metrics["vol_ratio_5_20"] <= 2.2:
         entries.append("主线平台再突破")
     if metrics["dist_ma20"] >= -1 and metrics["vol_ratio_5_20"] <= 0.90 and -6 <= metrics["ret5"] <= 6:
         entries.append("主线缩量强承接")
     entries.extend(_extended_mainline_entries(metrics, risk_flags))
+    return entries
+
+
+def _mainline_pullback_entries(metrics: dict[str, float]) -> list[str]:
+    """A 股主升段优先认 MA5/MA10 回踩，再认 MA20。"""
+    entries: list[str] = []
+    vol = metrics["vol_ratio_5_20"]
+    if (
+        -1.0 <= metrics.get("dist_ma5", 99.0) <= 4.0
+        and metrics["dist_ma20"] >= -2.0
+        and metrics["ret20"] >= 0.0
+        and vol <= 1.8
+    ):
+        entries.append("主线回踩MA5")
+    if (
+        -2.0 <= metrics.get("dist_ma10", 99.0) <= 5.0
+        and metrics["dist_ma20"] >= -4.0
+        and metrics["ret60"] >= 5.0
+        and vol <= 1.9
+    ):
+        entries.append("主线回踩MA10")
+    if -2 <= metrics["dist_ma20"] <= 8 and metrics["dist_ma50"] >= -2 and metrics["ret60"] >= 8:
+        entries.append("主线回踩MA20")
     return entries
 
 
@@ -412,9 +438,10 @@ def _extended_mainline_entries(metrics: dict[str, float], risk_flags: list[str])
 
 
 def _timing_score(metrics: dict[str, float], risk_flags: list[str]) -> float:
-    trend = 0.25 * float(metrics["dist_ma20"] >= -2) + 0.20 * float(metrics["dist_ma50"] >= -3)
+    near_short_ma = float(metrics.get("dist_ma5", 99.0) <= 4.0 or metrics.get("dist_ma10", 99.0) <= 5.0)
+    trend = 0.16 * float(metrics["dist_ma20"] >= -2) + 0.12 * float(metrics["dist_ma50"] >= -3) + 0.12 * near_short_ma
     strength = 0.20 * _clamp((metrics["ret60"] - 5) / 45) + 0.15 * _clamp(metrics["close_pos20"])
-    distance = 0.10 * _clamp(1.0 - max(metrics["dist_ma20"] - 8, 0.0) / 14.0)
+    distance = 0.10 * _clamp(1.0 - max(metrics["dist_ma20"] - 12.0, 0.0) / 18.0)
     volume = 0.10 * _clamp(1.0 - max(metrics["vol_ratio_5_20"] - 1.6, 0.0) / 1.4)
     extension = 0.12 * float(_high_mainline_support(metrics))
     event_reversal = 0.16 * float(_event_reversal_entry_ok(metrics, risk_flags))
@@ -428,7 +455,7 @@ def _main_force_entry_ok(metrics: dict[str, float], risk_flags: list[str]) -> bo
     return (
         metrics.get("main_force_score", 0.0) >= 0.66
         and metrics.get("demand_supply_ratio", 0.0) >= 1.15
-        and metrics["dist_ma20"] <= 16
+        and metrics["dist_ma20"] <= 22
         and metrics["close_pos_day"] >= 0.55
     )
 
@@ -460,9 +487,9 @@ def _event_reversal_entry_ok(metrics: dict[str, float], risk_flags: list[str]) -
 
 def _fish_tail_risk(metrics: dict[str, float]) -> bool:
     return (
-        metrics["dist_ma20"] > 30
-        or metrics["ret20"] > 68
-        or (metrics["ret20"] > 50 and metrics["vol_ratio_5_20"] > 2.0)
+        metrics["dist_ma20"] > 35
+        or metrics["ret20"] > 70
+        or (metrics["ret20"] > 55 and metrics["vol_ratio_5_20"] > 2.0)
         or (metrics["upper_shadow_pct"] > 5 and metrics["vol_ratio_5_20"] > 1.8 and metrics["close_pos_day"] < 0.45)
     )
 

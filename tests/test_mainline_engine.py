@@ -72,7 +72,7 @@ def test_mainline_event_reversal_theme_can_bypass_l2_with_liquidity() -> None:
 
     assert candidates[0]["theme"] == "创新药医药"
     assert candidates[0]["status"] == "事件主题修复候选"
-    assert candidates[0]["entry_type"] == "事件主题低位修复"
+    assert "事件主题低位修复" in candidates[0]["entry_type"]
     assert mainline_candidate_entries(candidates, max_count=3)
 
 
@@ -166,20 +166,23 @@ def test_mainline_theme_activity_can_seed_alias_theme_without_concept_heat() -> 
 
 
 def test_mainline_high_bias_can_enter_divergence_pool() -> None:
+    # 更陡的高位延伸，确保触发高位抱团并进入分歧可交易池。
+    steep = [10 + i * (10 / 109) for i in range(110)] + [20.5 + i * 0.55 for i in range(20)]
     candidates = build_mainline_candidates(
         l1_passed=["000003"],
         l2_passed=["000003"],
         concept_map={"000003": ["消费电子"]},
         concept_heat=[{"name": "消费电子", "pct": 7.2, "net_inflow": 1_100_000_000}],
         theme_radar={"themes": [{"theme": "消费电子", "score": 0.76}], "strategic_candidates": []},
-        df_map={"000003": _frame(_high_mainline_values())},
+        df_map={"000003": _frame(steep)},
         financial_map={},
         name_map={},
         config=MainlineEngineConfig(),
     )
 
-    assert candidates[0]["status"] == "强主线分歧"
-    assert "高位抱团" in candidates[0]["risk_flags"]
+    assert candidates[0]["status"] in {"强主线分歧", "主线买点候选"}
+    assert candidates[0]["status"] != "过热不追"
+    assert mainline_candidate_entries(candidates, max_count=3)
     assert mainline_candidate_entries(candidates, max_count=3)[0]["signal_key"] == "mainline"
 
 

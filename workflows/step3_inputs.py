@@ -181,15 +181,21 @@ def _wyckoff_tag(row: pd.Series, source_label: str) -> str:
 
 
 def _benchmark_header_lines(benchmark_context: dict) -> list[str]:
-    return [
-        "[宏观水温 / Benchmark Context]",
-        f"regime={benchmark_context.get('regime')}, "
-        f"close={benchmark_context.get('close')}, "
-        f"ma50={benchmark_context.get('ma50')}, "
-        f"ma200={benchmark_context.get('ma200')}, "
-        f"ma50_slope_5d={benchmark_context.get('ma50_slope_5d')}",
-        f"recent3_cum_pct={benchmark_context.get('recent3_cum_pct')}",
-    ]
+    from core.execution_playbook import step3_playbook_lines
+
+    lines = step3_playbook_lines(benchmark_context.get("regime"))
+    lines.extend(
+        [
+            "[宏观水温 / Benchmark Context]",
+            f"regime={benchmark_context.get('regime')}, "
+            f"close={benchmark_context.get('close')}, "
+            f"ma50={benchmark_context.get('ma50')}, "
+            f"ma200={benchmark_context.get('ma200')}, "
+            f"ma50_slope_5d={benchmark_context.get('ma50_slope_5d')}",
+            f"recent3_cum_pct={benchmark_context.get('recent3_cum_pct')}",
+        ]
+    )
+    return lines
 
 
 def _extend_price_volume_lines(benchmark_lines: list[str], benchmark_context: dict) -> None:

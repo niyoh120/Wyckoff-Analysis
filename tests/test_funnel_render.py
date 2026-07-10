@@ -15,10 +15,18 @@ def test_execution_decision_line_makes_observe_only_action_explicit() -> None:
 def test_execution_decision_line_waits_for_ai_and_oms_confirmation() -> None:
     from workflows.funnel_render import _execution_decision_line
 
-    line = _execution_decision_line("RISK_ON", 3)
+    line = _execution_decision_line("NEUTRAL", 3)
 
     assert "可执行买入候选 3 只" in line
     assert "OMS 风控同时确认" in line
+
+
+def test_execution_decision_line_blocks_risk_on_new_buys() -> None:
+    from workflows.funnel_render import _execution_decision_line
+
+    line = _execution_decision_line("RISK_ON", 3)
+
+    assert "禁止新仓" in line
 
 
 def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> None:
@@ -114,14 +122,14 @@ def test_top_candidate_list_lists_every_selected_code_with_buy_gate_note(monkeyp
 
     ctx = render_context.build_render_context(
         {"sos": [("000001", 10.0)]},
-        {"benchmark_context": {"regime": "RISK_ON"}},
+        {"benchmark_context": {"regime": "NEUTRAL"}},
     )
     selection = _make_selection(["000001"])
 
     lines = _top_candidate_list_lines(ctx, selection)
 
     assert lines[0] == "**【✅ 今日候选清单】1 只**"
-    assert "BUY-APPROVED" in lines[1]
+    assert "起跳板" in lines[1] or "confirmed" in lines[1] or "可送审" in lines[1]
     assert any("000001 平安银行" in line for line in lines)
 
 

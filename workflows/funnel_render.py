@@ -8,6 +8,7 @@ from typing import Any
 
 from core.candidate_ranker import TRIGGER_GROUP_ORDER, TRIGGER_GROUP_TITLES, TRIGGER_LABELS, TRIGGER_SHORT_LABELS
 from core.candidate_tracks import candidate_entry_key
+from core.execution_playbook import funnel_playbook_lines
 from core.funnel_etf import append_etf_section
 from core.funnel_sections import append_formal_l4_sections, score_star
 from core.market_trade_mode import resolve_market_trade_mode
@@ -178,6 +179,11 @@ def _execution_decision_line(regime: str, selected_count: int) -> str:
     mode = resolve_market_trade_mode(regime)
     if not mode.allow_ai_review:
         return "禁止新仓；候选仅影子观察，优先处理持仓风控；不从本报告选择买入标的。"
+    if mode.mode == "overheat_shadow" or (
+        not mode.allow_recommendation_write and mode.mode not in {"repair_review", "confirmation_only"}
+    ):
+        if mode.mode == "overheat_shadow":
+            return "禁止新仓；可送AI/shadow对照，不写正式推荐、不执行新买入；优先处理持仓风控。"
     if not mode.allow_recommendation_write:
         return "观察买入；允许少量候选进入AI研报，但不写正式推荐，尾盘任务和人工二次确认后再决定。"
     if selected_count <= 0:
@@ -187,7 +193,7 @@ def _execution_decision_line(regime: str, selected_count: int) -> str:
 
 def _today_conclusion_line(ctx: Any, selected_count: int) -> str:
     mode = resolve_market_trade_mode(ctx.regime)
-    if not mode.allow_ai_review:
+    if not mode.allow_ai_review or mode.mode == "overheat_shadow":
         conclusion = "禁止新仓"
     elif not mode.allow_recommendation_write:
         conclusion = "观察买入"
@@ -222,6 +228,8 @@ def _tomorrow_action_line(ctx: Any, selected_count: int) -> str:
     mode = resolve_market_trade_mode(ctx.regime)
     if not mode.allow_ai_review:
         action = "禁止新仓；不用旧报告下单，只处理持仓风控，观察主线修复是否延续。"
+    elif mode.mode == "overheat_shadow":
+        action = "禁止新仓；AI/shadow 可对照，不写推荐、不执行新买，只处理持仓风控。"
     elif not mode.allow_recommendation_write:
         action = "观察买入；看 Step3 与尾盘任务的二次确认，不自动写推荐，不自动开仓。"
     elif selected_count > 0:
@@ -290,21 +298,27 @@ def _policy_weight_text(weights: dict) -> str:
 
 
 def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[str]:
-    return [
-        _today_conclusion_line(ctx, selected_count),
-        _trigger_reason_line(ctx, money_line),
-        _tomorrow_action_line(ctx, selected_count),
-        _candidate_brief_line(ctx, selected_count),
-        "",
-    ]
+    lines = funnel_playbook_lines(ctx.regime, selected_count)
+    lines.extend(
+        [
+            _today_conclusion_line(ctx, selected_count),
+            _trigger_reason_line(ctx, money_line),
+            _tomorrow_action_line(ctx, selected_count),
+            _candidate_brief_line(ctx, selected_count),
+            "",
+        ]
+    )
+    return lines
 
 
 def _candidate_list_note(mode) -> str:
     if not mode.allow_ai_review:
-        return "今日禁止新仓，以下候选仅供观察，不构成买入依据。"
+        return "今日禁止新仓：以下只供观察，不是买入清单。"
+    if mode.mode == "overheat_shadow":
+        return "过热市禁止新开：以下仅供 AI/shadow 对照，不可写正式推荐或下单。"
     if not mode.allow_recommendation_write:
-        return "观察买入：以下候选仅供观察，需等 Step3 研报与尾盘二次确认后才可能买入。"
-    return "以下候选将送 Step3 AI 复核，只有研报给出 BUY-APPROVED 才是可执行买入。"
+        return "观察买入：以下需 Step3 + 尾盘二次确认，当前不可直接下单。"
+    return "可送审清单：优先 [主线]；再等 Step3 起跳板 + confirmed + 尾盘 BUY 才执行。"
 
 
 def _candidate_list_row(ctx: Any, selection: FunnelAiSelection, code: str) -> str:

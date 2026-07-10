@@ -69,7 +69,7 @@ def test_holding_stop_config_from_env_defaults_atr_disabled(monkeypatch) -> None
 
     stop_config = holding_stop_config_from_env()
 
-    assert stop_config.hard_stop_pct == 8.0
+    assert stop_config.hard_stop_pct == 12.0
     assert stop_config.atr_enabled is False
     assert stop_config.atr_multiplier == 2.0
     assert stop_config.atr_max_relax_pct == 15.0

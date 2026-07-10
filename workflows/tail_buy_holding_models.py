@@ -56,7 +56,7 @@ class HoldingStopConfig:
     hard_stop_pct/手动设置更严格，也不会无限放宽（受 atr_max_relax_pct 上限约束）。
     """
 
-    hard_stop_pct: float = 8.0
+    hard_stop_pct: float = 12.0
     atr_enabled: bool = False
     atr_period: int = 14
     atr_multiplier: float = 2.0

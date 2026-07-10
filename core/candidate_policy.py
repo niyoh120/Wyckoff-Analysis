@@ -32,7 +32,7 @@ class CandidatePolicyConfig:
     pure_lps_observe_only: bool = True
     pure_lps_min_score: float = 6.0
     pure_trendpb_observe_only: bool = True
-    pure_trendpb_min_score: float = 14.0
+    pure_trendpb_min_score: float = 10.0
     pure_sos_min_score: float = 6.0
     pure_evr_observe_only: bool = True
     pure_evr_min_score_default: float = 3.0
@@ -44,8 +44,9 @@ class CandidatePolicyConfig:
     risk_on_vol_ratio: float = 1.8
     defensive_high_range_pos: float = 78.0
     defensive_high_20d_ret: float = 18.0
-    neutral_high_range_pos: float = 90.0
-    neutral_high_20d_ret: float = 35.0
+    # NEUTRAL 放宽高位中继误杀，主升段常见 20 日涨幅 >35%。
+    neutral_high_range_pos: float = 95.0
+    neutral_high_20d_ret: float = 45.0
 
 
 DEFAULT_CANDIDATE_POLICY_CONFIG = CandidatePolicyConfig()

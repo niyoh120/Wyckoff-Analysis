@@ -686,7 +686,7 @@ def test_promote_review_candidates_caps_repair_mainline_review(monkeypatch):
     assert selected == ["000001", "000002"]
 
 
-def test_promote_review_candidates_blocks_neutral_bypass(monkeypatch):
+def test_promote_review_candidates_blocks_neutral_bypass_but_allows_theme(monkeypatch):
     monkeypatch.setattr(funnel_ai_selection, "FUNNEL_L2_BYPASS_AI_ENABLED", True)
     monkeypatch.setattr(funnel_ai_selection, "FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED", True)
     monkeypatch.setattr(funnel_ai_selection, "FUNNEL_THEME_RADAR_PROMOTE_CAP", 2)
@@ -714,9 +714,9 @@ def test_promote_review_candidates_blocks_neutral_bypass(monkeypatch):
         regime="NEUTRAL",
     )
 
-    assert (bypass_added, strategic_added, theme_added, mainline_added) == (0, 0, 0, 1)
-    assert selected == ["000001", "000005"]
-    assert trend == ["000001", "000005"]
+    assert (bypass_added, strategic_added, theme_added, mainline_added) == (0, 0, 1, 1)
+    assert selected == ["000001", "000004", "000005"]
+    assert trend == ["000001", "000004", "000005"]
     assert accum == []
 
 

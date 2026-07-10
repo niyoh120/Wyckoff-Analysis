@@ -15,10 +15,12 @@ ACCUM_CHANNEL_TAGS = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护
 HIT_KEYS = ("sos", "spring", "lps", "evr", "compression", "trend_pullback")
 BLOCKED_EXIT_SIGNALS = {"stop_loss", "distribution_warning"}
 DEFAULT_AI_QUOTA_BY_FAMILY: dict[str, tuple[int, int]] = {
-    "RISK_ON": (5, 3),
+    # RISK_ON 保留研究/shadow 候选；正式推荐和下单由市场闸门禁止。
+    "RISK_ON": (5, 1),
     "BEAR_REBOUND": (0, 0),
     "RISK_OFF": (0, 0),
-    "NEUTRAL": (2, 3),
+    # NEUTRAL: 主线/趋势主导，Accum 仅保留观察残量。
+    "NEUTRAL": (5, 1),
 }
 
 

@@ -31,6 +31,8 @@ Project homepage: **[youngcan-wang.github.io/wyckoff-homepage](https://youngcan-
 | Usage, deployment, configuration | This README |
 | Architecture, Actions, data tables, cache policy | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Funnel, AI reports, OMS, backtesting logic | [../README_STRATEGY.md](../README_STRATEGY.md) |
+| **Operator playbook (funnel × tail-buy)** | [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md) |
+| A-share funnel execution flow | [A_SHARE_FUNNEL_FLOW.md](A_SHARE_FUNNEL_FLOW.md) |
 | Terms and concepts | [../GLOSSARY.md](../GLOSSARY.md) |
 | Research notes and operations | [../wiki_repo_new/Home.md](../wiki_repo_new/Home.md) |
 
@@ -74,11 +76,11 @@ Modern React SPA with AI Agent chat, portfolio management, funnel screening, rec
 |---|---|
 | Conversational Agent | Trigger diagnosis, screening, and reports in plain language; the LLM orchestrates tools autonomously; also reads/writes files, executes commands, and fetches web pages |
 | Skills | Built-in slash commands (`/screen`, `/checkup`, `/report`, `/strategy`, `/backtest`) for one-tap complex workflows; user-extensible via `~/.wyckoff/skills/*.md` |
-| Mainline Funnel | A-share full-market scan plus independent Hong Kong / US universes via dynamic themes, eight strength channels, candidate lanes, and timing confirmation |
+| Mainline Funnel | A-share full-market scan; mainline-first on NEUTRAL; RISK_ON blocks new buys; HK/US independent universes |
 | AI Three-Camp Report | Logic Bankrupt / Reserve Camp / Springboard — LLM renders an independent verdict |
 | Portfolio Diagnosis | Batch health check: MA structure, accumulation phase, trigger signals, stop-loss status |
-| Private Rebalance | Synthesizes holdings + candidates, outputs EXIT / TRIM / HOLD / PROBE / ATTACK orders, pushes to Telegram |
-| Tail-Buy Strategy | Triggered manually or by external automation near the close; two-stage evaluation (rule scoring + LLM review) for end-of-day entries |
+| Private Rebalance | EXIT / TRIM / HOLD / PROBE / ATTACK; ~5-day swing time management; ~-12% disaster floor |
+| Tail-Buy Strategy | Confirmed-only BUY; regime blocks for RISK_ON/weak markets; holding time management |
 | Signal Confirmation Pool | L4 trigger signals must pass 1-3 day price confirmation before becoming actionable |
 | Wyckoff Pattern Replay | Historical picks auto-sync closing prices and compute cumulative returns |
 | Daily-Bar Backtest | Replays post-funnel N-day returns; reports win rate / Sharpe / max drawdown |
@@ -226,6 +228,9 @@ Tool call order and frequency are decided by the LLM at runtime — no pre-chore
 | L4 | Micro Triggers | Spring / LPS / SOS / EVR / Compression / Trend Pullback |
 | L5 | AI + OMS Verdict | LLM review, signal confirmation, tail-buy confirmation, and OMS risk gates before action |
 
+**How to trade:** Daily funnel = candidates + market gate; tail-buy = only **BUY (executable)** after `confirmed`.
+NEUTRAL is the main battleground (mainline-first quotas); **RISK_ON blocks new buys**. See [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
+
 ## Daily Automation
 
 Built-in GitHub Actions cron jobs:
@@ -233,7 +238,7 @@ Built-in GitHub Actions cron jobs:
 | Task | Schedule (Beijing Time) | Description |
 |---|---|---|
 | Funnel + AI Report + Rebalance | Sun–Thu 17:17 | Fully automated; results pushed to Feishu / Telegram |
-| Tail-Buy Strategy | Manual / external automation | Rule scoring + LLM review, end-of-day entry screening |
+| Tail-Buy Strategy | Manual / external automation | Confirmed-only BUY; RISK_ON/weak regimes block new entries; holding time management |
 | Pre-Market Risk | Mon–Fri 08:20 | A50 + VIX alert |
 | Limit-Up Review | Mon–Fri 19:25 | Review stocks that rose >= 8% today |
 | Recommendation Reprice | Mon–Fri 23:00 | Sync closing prices |

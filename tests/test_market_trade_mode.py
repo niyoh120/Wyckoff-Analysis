@@ -26,22 +26,34 @@ def test_trade_mode_allows_repair_review_without_write() -> None:
     assert mode.allow_bypass_review is False
 
 
-def test_trade_mode_keeps_neutral_confirmation_only() -> None:
+def test_trade_mode_keeps_neutral_mainline_active() -> None:
     mode = resolve_market_trade_mode("NEUTRAL")
+
+    assert mode.mode == "mainline_active"
+    assert mode.allow_ai_review is True
+    assert mode.allow_full_l4 is True
+    assert mode.allow_theme_promotion is True
+    assert mode.allow_bypass_review is False
+
+
+def test_trade_mode_caution_stays_confirmation_only() -> None:
+    mode = resolve_market_trade_mode("CAUTION")
 
     assert mode.mode == "confirmation_only"
     assert mode.allow_ai_review is True
     assert mode.allow_full_l4 is False
-    assert mode.allow_bypass_review is False
+    assert mode.allow_theme_promotion is False
 
 
-def test_trade_mode_allows_risk_on_promotions() -> None:
+def test_trade_mode_blocks_risk_on_execution_but_keeps_ai_shadow() -> None:
     mode = resolve_market_trade_mode("RISK_ON")
 
-    assert mode.mode == "risk_on"
+    assert mode.mode == "overheat_shadow"
     assert mode.allow_ai_review is True
-    assert mode.allow_full_l4 is True
-    assert mode.allow_theme_promotion is True
+    assert mode.allow_recommendation_write is False
+    assert mode.allow_full_l4 is False
+    assert mode.allow_theme_promotion is False
+    assert mode.allow_bypass_review is False
 
 
 def test_steady_bull_rebound_does_not_trigger_panic_repair() -> None:

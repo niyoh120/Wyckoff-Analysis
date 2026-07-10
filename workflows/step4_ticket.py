@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from core.execution_playbook import oms_playbook_lines
 from utils.trading_clock import CN_TZ
 from workflows.step4_models import ExecutionTicket
 
@@ -31,6 +32,7 @@ def render_trade_ticket(
     if market_view:
         lines.append(f"📌 市场视图：{market_view}")
     lines.append("")
+    lines.extend(oms_playbook_lines(market_view))
     lines.extend(_render_sell_ticket_lines(sells, atr_period=atr_period))
     lines.extend(_render_hold_ticket_lines(holds, atr_period=atr_period))
     lines.extend(_render_buy_ticket_lines(approved_buy, atr_period=atr_period))

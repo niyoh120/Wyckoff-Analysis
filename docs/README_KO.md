@@ -31,6 +31,7 @@ Web + CLI + MCP 트리플 채널, Gemini / Claude / OpenAI / DeepSeek 멀티 모
 | 사용, 배포, 설정 | 이 README |
 | 아키텍처, Actions, 데이터 테이블, 캐시 정책 | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 퍼널, AI 리포트, OMS, 백테스트 로직 | [../README_STRATEGY.md](../README_STRATEGY.md) |
+| **운영 플레이북** | [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md) |
 | 용어집 | [../GLOSSARY.md](../GLOSSARY.md) |
 | 연구 노트와 운영 | [../wiki_repo_new/Home.md](../wiki_repo_new/Home.md) |
 
@@ -225,6 +226,9 @@ Web App: **[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
 | L3 | 섹터/컨셉 공명 | 약한 섹터를 걸러내고 강한 개별주와 확인된 테마는 고정 Top-N 제한을 우회 |
 | L4 | 미시 저격 | Spring / LPS / SOS / EVR / Compression / Trend Pullback |
 | L5 | AI + OMS 심판 | LLM 검토, 시그널 확인, 장 마감 확인, OMS 리스크 게이트를 통과해야 실행 |
+
+
+**운용:** 일일 퍼널=후보+환경, 테일=confirmed 후 **BUY**만. NEUTRAL 주전장, RISK_ON 신규 금지. 상세 [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
 
 ## 일일 자동화
 

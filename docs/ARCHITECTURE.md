@@ -2,7 +2,8 @@
 
 [← 返回 README](../README.md)
 
-> 本文是当前架构、数据表、Actions 与缓存口径的事实文档。策略逻辑详见 [`../README_STRATEGY.md`](../README_STRATEGY.md)。
+> 本文是当前架构、数据表、Actions 与缓存口径的事实文档。
+> 策略逻辑见 [`../README_STRATEGY.md`](../README_STRATEGY.md)；**实盘操作**见 [`OPERATOR_PLAYBOOK.md`](OPERATOR_PLAYBOOK.md)；A 股链路见 [`A_SHARE_FUNNEL_FLOW.md`](A_SHARE_FUNNEL_FLOW.md)。
 
 ## 系统全景
 
@@ -613,7 +614,7 @@ flowchart LR
 
 | 模式 | 行为 |
 |------|------|
-| `off` | 默认静态 Trend / Accum 配额，不读取反馈权重。 |
+| `off` | 默认静态 Trend / Accum 配额（NEUTRAL 5/1；RISK_ON 5/1 仅研究，禁止正式执行），不读取反馈权重。 |
 | `shadow` | 主流程保持静态配额，同时把读取 health / registry / 归因调权后的动态策略候选差异写入 `signal_policy_shadow_runs`。 |
 | `on` | 正式使用 `signal_health_daily` 权重、`signal_registry` 启停状态和归因调权。 |
 

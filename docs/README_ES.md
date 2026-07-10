@@ -31,6 +31,7 @@ Pagina del proyecto: **[youngcan-wang.github.io/wyckoff-homepage](https://youngc
 | Uso, despliegue, configuracion | Este README |
 | Arquitectura, Actions, tablas de datos, cache | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Embudo, reportes IA, OMS, backtesting | [../README_STRATEGY.md](../README_STRATEGY.md) |
+| **Manual de operador** | [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md) |
 | Glosario | [../GLOSSARY.md](../GLOSSARY.md) |
 | Notas de investigacion y operaciones | [../wiki_repo_new/Home.md](../wiki_repo_new/Home.md) |
 
@@ -225,6 +226,9 @@ El orden y la frecuencia de las llamadas los decide el LLM en tiempo real, sin o
 | L3 | Resonancia sectorial y conceptual | Filtra sectores debiles y permite excepciones para acciones fuertes y temas confirmados |
 | L4 | Micro-disparo | Spring / LPS / SOS / EVR / Compression / Retroceso de tendencia |
 | L5 | IA + OMS | Revision LLM, confirmacion de senales, confirmacion de cierre y compuertas de riesgo OMS |
+
+
+**Cómo operar:** embudo diario = candidatos + régimen; cola = solo **BUY** tras confirmed. NEUTRAL principal; **RISK_ON bloquea entradas nuevas**. Ver [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
 
 ## Automatizacion diaria
 

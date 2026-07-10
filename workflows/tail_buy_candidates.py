@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from core.constants import TABLE_RECOMMENDATION_TRACKING, TABLE_SIGNAL_PENDING
+from core.holding_time_policy import is_mainline_track
 from core.tail_buy.strategy import TailBuyCandidate, pick_tail_candidates
 from integrations.fetch_a_share_csv import resolve_trading_window
 from integrations.supabase_base import create_admin_client, is_admin_configured
@@ -13,6 +14,16 @@ from utils.env import env_float as _env_float
 from utils.env import env_int as _env_int
 from utils.safe import safe_float
 from workflows.tail_buy_utils import current_time, log_line, normalize_code6
+
+
+def _candidate_priority_key(item: TailBuyCandidate) -> tuple:
+    """confirmed 优先，主线/趋势次之，再按信号分。"""
+    mainline = is_mainline_track(
+        item.candidate_lane or item.signal_type,
+        item.entry_type,
+        item.candidate_status or item.signal_key,
+    )
+    return (item.status != "confirmed", 0 if mainline else 1, -float(item.signal_score or 0.0), item.code)
 
 
 def resolve_tail_buy_trade_dates(logs_path: str | None = None) -> tuple[str, str]:
@@ -54,7 +65,7 @@ def load_tail_candidates(
         review_supplement = [candidate for candidate in reviews if candidate.code not in occupied_codes]
 
     merged = pending + holding_supplement + review_supplement
-    merged.sort(key=lambda x: (x.status != "confirmed", -x.signal_score, x.code))
+    merged.sort(key=_candidate_priority_key)
     source_name = "signal_pending_exact" if strict_signal_date else "signal_pending_15d"
     holding_text = f" + holding={len(holding_supplement)}" if include_holdings else ""
     review_text = f" + rec_review={len(review_supplement)}" if review_supplement else ""

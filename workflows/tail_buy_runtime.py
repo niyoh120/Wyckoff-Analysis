@@ -159,7 +159,7 @@ def build_tail_buy_runtime_config(args: Any, started_at: datetime) -> TailBuyRun
 def holding_stop_config_from_env() -> HoldingStopConfig:
     """持仓止损参数：固定百分比兜底 + 可选 ATR 波动率放宽（避免正常洗盘被误杀）。"""
     return HoldingStopConfig(
-        hard_stop_pct=max(safe_float(os.getenv("TAIL_BUY_HOLDING_HARD_STOP_PCT", "8"), 8.0), 0.0),
+        hard_stop_pct=max(safe_float(os.getenv("TAIL_BUY_HOLDING_HARD_STOP_PCT", "12"), 12.0), 0.0),
         atr_enabled=env_flag("TAIL_BUY_HOLDING_ATR_STOP_ENABLED", False),
         atr_period=max(int(safe_float(os.getenv("TAIL_BUY_HOLDING_ATR_PERIOD", "14"), 14.0)), 2),
         atr_multiplier=max(safe_float(os.getenv("TAIL_BUY_HOLDING_ATR_MULTIPLIER", "2.0"), 2.0), 0.1),

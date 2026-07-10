@@ -26,7 +26,7 @@ flowchart LR
 | 方向 | 目标 | 当前实现 | 状态 |
 |------|------|----------|------|
 | 方向一：信号衰减监控 | 追踪 SOS / Spring / LPS / EVR / Compression 的后续表现 | `signal_observations` 记录样本和 price-action footprint，`signal_outcomes` 计算收益 / 回撤，`signal_health_daily` 聚合健康度 | 已落地一期 |
-| 方向二：多策略动态分配 | AI 候选配额从静态规则变为数据驱动 | `dynamic_policy.py` 根据信号权重调整 Trend / Accum 配额，支持 `off` / `shadow` / `on` | 已落地框架，待 shadow 复盘 |
+| 方向二：多策略动态分配 | AI 候选配额从静态规则变为数据驱动 | `dynamic_policy.py` 根据信号权重调整 Trend / Accum 配额，支持 `off` / `shadow` / `on`；**NEUTRAL 默认 5/1，RISK_ON 保留 5/1 研究配额但禁止正式执行** | 已落地框架，待 shadow 复盘 |
 | 方向三：信号生命周期管理 | 新信号孵化、正式上线、观察、退役 | `signal_registry` 维护 `ACTIVE` / `WATCH` / `EXPERIMENTAL` / `RETIRED` | 已落地骨架，阈值待样本校准 |
 | 方向四：外部观察验证 | 验证人工/社区/其它系统关注的股票是否真有结构优势 | `external_seed_observations` 记录 L1/L2/L4 位置，L4 确认样本补写 `signal_observations` | 已落地 shadow 观察 |
 | 方向五：候选影子评分 | 验证“好候选”是否能被更稳定地识别 | `features_json.candidate_shadow_score` 合成漏斗优先级、量价痕迹、起跳板、尾盘确认、外部资金和风险扣分 | 已落地 shadow 特征，待 outcome 校准 |

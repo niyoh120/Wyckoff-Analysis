@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import os
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
+import pandas as pd
+
+from core.holding_time_policy import holding_time_action, is_mainline_track
 from core.limit_move import classify_limit_move, describe_limit_move
 from core.tail_buy.strategy import (
     DECISION_BUY,
@@ -175,6 +178,7 @@ def _apply_scored_holding_advice(
     style: str,
     effective_stop: float,
     strategy_config: TailBuyStrategyConfig,
+    position: dict[str, Any] | None = None,
 ) -> None:
     signal_score = safe_float(signal_item.signal_score, 0.0) if signal_item else 0.0
     signal_type = str(signal_item.signal_type if signal_item else "")
@@ -199,6 +203,12 @@ def _apply_scored_holding_advice(
     advice.features = features
     advice.limit_move_desc = _limit_move_desc_from_intraday(df_1m, quote, advice.code, advice.name)
     _resolve_scored_holding_action(advice, features, decision, reasons, signal_item, signal_type, effective_stop)
+    _apply_holding_time_management(
+        advice,
+        position or {},
+        signal_item,
+        daily_history=(position or {}).get("_daily_history"),
+    )
 
 
 def _resolve_scored_holding_action(
@@ -317,6 +327,79 @@ def _is_confirmed_breakdown(features: dict[str, Any]) -> bool:
     return close_pos < 0.38 and (dist_vwap_pct <= -1.0 or last30_ret_pct <= -0.8 or drop_from_high_pct <= -2.8)
 
 
+def _apply_holding_time_management(
+    advice: HoldingAdvice,
+    position: dict[str, Any],
+    signal_item: TailBuyCandidate | None,
+    *,
+    daily_history: Any = None,
+    as_of: date | None = None,
+) -> None:
+    """非主线满 5 日建议时间止盈；主线破位/过期复核。不覆盖硬止损/确认破位。
+
+    持有天数必须用日K交易日序列，禁止自然日（周末/节假日会误触发 TRIM）。
+    """
+    if advice.risk_tag in {"hard_stop", "confirmed_breakdown"}:
+        return
+    hold_days = _hold_trade_days(position.get("buy_dt"), daily_history, as_of=as_of)
+    if hold_days is None:
+        return
+    mainline = is_mainline_track(
+        (signal_item.signal_type if signal_item else "") or position.get("track"),
+        position.get("tag"),
+        (signal_item.entry_type if signal_item else "") or "",
+    )
+    below_ma20 = _price_below_ma20(advice.features)
+    theme_dry = bool(advice.features.get("daily_trap_pressure"))
+    guidance = holding_time_action(
+        hold_days,
+        is_mainline=mainline,
+        below_ma20=below_ma20,
+        theme_dry_down=theme_dry,
+    )
+    if guidance.action in {"TIME_EXIT", "REVIEW_TRIM"} and advice.action == HOLDING_ACTION_HOLD:
+        advice.action = HOLDING_ACTION_TRIM
+        advice.risk_tag = "time_exit" if guidance.action == "TIME_EXIT" else "time_review"
+        advice.reasons = _dedupe_texts([guidance.reason, *advice.reasons], limit=3)
+    else:
+        advice.reasons = _dedupe_texts([*advice.reasons, guidance.reason], limit=3)
+
+
+def _hold_trade_days(
+    buy_dt: Any,
+    daily_history: Any,
+    *,
+    as_of: date | None = None,
+) -> int | None:
+    """从日K交易日序列计算持有交易日数；无日K则不推断（避免自然日误判）。"""
+    if daily_history is None or getattr(daily_history, "empty", True):
+        return None
+    if "date" not in getattr(daily_history, "columns", []):
+        return None
+    buy_raw = str(buy_dt or "").strip()
+    if not buy_raw:
+        return None
+    buy_ts = pd.to_datetime(buy_raw, errors="coerce")
+    if pd.isna(buy_ts):
+        return None
+    buy_date = buy_ts.date()
+    end_date = as_of or date.today()
+    dates = pd.to_datetime(daily_history["date"], errors="coerce").dropna().dt.date.tolist()
+    dates = sorted({d for d in dates if d <= end_date})
+    if not dates:
+        return None
+    entry_trade_date = next((d for d in dates if d >= buy_date), None)
+    if entry_trade_date is None:
+        return None
+    return int(sum(1 for d in dates if d >= entry_trade_date))
+
+
+def _price_below_ma20(features: dict[str, Any]) -> bool:
+    last = safe_float(features.get("last_close"), 0.0)
+    ma20 = safe_float(features.get("snap_ma20") or features.get("ma20"), 0.0)
+    return last > 0 and ma20 > 0 and last < ma20 * 0.995
+
+
 def _build_holding_advice(
     *,
     position: dict[str, Any],
@@ -331,17 +414,22 @@ def _build_holding_advice(
     )
     df_1m = market_data.intraday_map.get(sym)
     fetch_error = str(market_data.intraday_error_by_symbol.get(sym, "") or "").strip()
+    signal_item = signal_map.get(advice.code)
+    daily_history = market_data.daily_history_map.get(sym)
     if df_1m is None or getattr(df_1m, "empty", True):
         _apply_missing_intraday_advice(advice, fetch_error, effective_stop)
+        _apply_holding_time_management(advice, position, signal_item, daily_history=daily_history)
         return advice
+    position_payload = {**position, "_daily_history": daily_history}
     _apply_scored_holding_advice(
         advice=advice,
         df_1m=df_1m,
         quote=market_data.quotes.get(sym) or {},
-        signal_item=signal_map.get(advice.code),
+        signal_item=signal_item,
         style=style,
         effective_stop=effective_stop,
         strategy_config=strategy_config,
+        position=position_payload,
     )
     return advice
 

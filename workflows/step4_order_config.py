@@ -15,14 +15,14 @@ def step4_order_config_from_env() -> Step4OrderConfig:
     return Step4OrderConfig(
         atr_multiplier=_env_float("STEP4_ATR_MULTIPLIER", 2.0),
         buy_hard_stop_enabled=_env_bool("STEP4_BUY_HARD_STOP_ENABLED", True),
-        buy_hard_stop_pct=max(_env_float("STEP4_BUY_HARD_STOP_PCT", 8.0), 0.0),
+        buy_hard_stop_pct=max(_env_float("STEP4_BUY_HARD_STOP_PCT", 12.0), 0.0),
         buy_stop_mode=_env_stop_mode("STEP4_BUY_STOP_MODE", "floor"),
         atr_slippage_factor=_env_float("STEP4_ATR_SLIPPAGE_FACTOR", 0.25),
         probe_budget_limit=_clamp01(_env_float("STEP4_PROBE_BUDGET_LIMIT", 0.10)),
         attack_budget_limit=_clamp01(_env_float("STEP4_ATTACK_BUDGET_LIMIT", 0.20)),
         buy_block_regimes=_env_regime_set(
             "STEP4_BUY_BLOCK_REGIMES",
-            "BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN",
+            "RISK_ON,BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN",
         ),
         chase_gap_pct_min=gap_min,
         chase_gap_pct_max=max(_env_float("STEP4_CHASE_GAP_PCT_MAX", 5.5), gap_min),

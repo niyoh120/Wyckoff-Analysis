@@ -12,6 +12,7 @@ import pandas as pd
 
 from core.hist_dates import latest_trade_date_from_hist
 from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_for_llm
+from core.holding_time_policy import holding_time_action, is_mainline_track
 from core.wyckoff_engine import FunnelConfig, normalize_hist_from_fetch
 from integrations.fetch_a_share_csv import TradingWindow, fetch_hist
 from tools.report_builder import generate_stock_payload
@@ -550,6 +551,7 @@ def _position_base_meta(
 ) -> str:
     pnl_pct = (latest_close - pos.cost) / pos.cost * 100.0 if pos.cost > 0 else 0.0
     stop_info = f"- 当前止损: {pos.stop_loss:.2f}\n" if pos.stop_loss is not None else "- 当前止损: 未设置\n"
+    time_line = _holding_time_meta_line(hold_trade_days, signal_info)
     return (
         f"### 持仓 {pos.code} {pos.name}\n"
         f"- 成本价: {pos.cost:.2f}\n"
@@ -559,11 +561,25 @@ def _position_base_meta(
         f"- ATR{atr_period}: {(f'{atr14:.3f}' if atr14 is not None else '-')}\n"
         f"- 持仓股数: {pos.shares}\n"
         f"- 持仓交易日: {(hold_trade_days if hold_trade_days is not None else '-')}\n"
+        f"{time_line}"
         f"- 买入日期: {pos.buy_dt or '-'}\n"
         f"- 信号类型: {signal_info.get('signal_type', '未记录') if signal_info else '未记录'}\n"
         f"- 信号状态: {signal_info.get('status', '未记录') if signal_info else '未记录'}\n"
         f"- 信号日期: {signal_info.get('signal_date', '-') if signal_info else '-'}\n"
     )
+
+
+def _holding_time_meta_line(hold_trade_days: int | None, signal_info: dict | None) -> str:
+    if hold_trade_days is None:
+        return ""
+    info = signal_info or {}
+    mainline = is_mainline_track(
+        info.get("wyckoff_track") or info.get("track"),
+        info.get("wyckoff_stage") or info.get("stage"),
+        info.get("signal_type") or info.get("wyckoff_tag"),
+    )
+    advice = holding_time_action(int(hold_trade_days), is_mainline=mainline)
+    return f"- 时间管理: {advice.action} — {advice.reason}\n"
 
 
 def _position_diagnostic_payload(pos: PositionItem, df_qfq: pd.DataFrame) -> tuple[str, str]:

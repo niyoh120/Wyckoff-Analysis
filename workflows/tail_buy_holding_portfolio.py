@@ -121,6 +121,9 @@ def _append_position(row: Any, positions: list[dict[str, Any]], stats: dict[str,
             "shares": shares,
             "cost": safe_float(row.get("cost"), 0.0),
             "stop_loss": row.get("stop_loss"),
+            "buy_dt": str(row.get("buy_dt") or row.get("buy_date") or "").strip(),
+            "tag": str(row.get("tag") or row.get("wyckoff_tag") or "").strip(),
+            "track": str(row.get("track") or row.get("wyckoff_track") or "").strip(),
         }
     )
 

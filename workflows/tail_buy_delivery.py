@@ -16,15 +16,19 @@ from workflows.tail_buy_utils import log_line, now_text, safe_float
 
 
 def resolve_market_reminder(today_trade_date: str) -> str:
+    from core.tail_buy.guardrails import TAIL_BLOCK_NEW_BUY_REGIMES
+
     row = load_market_signal_daily(today_trade_date) or load_latest_market_signal_daily()
     if not row:
-        return "market_signal_daily 暂无可用记录（仅提示，不拦截信号）"
+        return "market_signal_daily 暂无可用记录（闸门未知，仍按候选 regime 拦截）"
     benchmark = str(row.get("benchmark_regime", "UNKNOWN") or "UNKNOWN").strip().upper()
     premarket = str(row.get("premarket_regime", "UNKNOWN") or "UNKNOWN").strip().upper()
     message = str(row.get("banner_message", "") or "").strip()
+    blocked = benchmark in TAIL_BLOCK_NEW_BUY_REGIMES or premarket in TAIL_BLOCK_NEW_BUY_REGIMES
+    gate = "禁止新开仓（尾盘不买新票）" if blocked else "允许新开仓（仍需 confirmed + BUY）"
     if message:
-        return f"{benchmark}/{premarket} | {message.replace(chr(10), ' ')}"
-    return f"{benchmark}/{premarket}（仅风险提示，不拦截买入）"
+        return f"{benchmark}/{premarket} | {gate} | {message.replace(chr(10), ' ')}"
+    return f"{benchmark}/{premarket} | {gate}"
 
 
 def notify_tail_buy_non_trading_day(config: TailBuyRuntimeConfig) -> int:
