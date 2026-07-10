@@ -114,7 +114,7 @@ def funnel_dynamic_policy_mode(*, workflow_path: Path | None = None) -> str:
     if raw is not None:
         return _normalize_mode(raw)
     path = workflow_path or DEFAULT_FUNNEL_WORKFLOW_PATH
-    return _workflow_default_mode(path) or "off"
+    return _workflow_default_mode(path) or "shadow"
 
 
 def _workflow_default_mode(path: Path) -> str:

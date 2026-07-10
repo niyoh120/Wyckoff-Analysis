@@ -2295,9 +2295,9 @@ class WyckoffTUI(App):
             self._resume_session_selector()
 
     def _show_changelog(self, log) -> None:
-        from pathlib import Path
+        from utils.package_resources import runtime_resource
 
-        path = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
+        path = runtime_resource("CHANGELOG.md")
         if not path.exists():
             log.write(Text.from_markup("[dim]CHANGELOG.md 不存在[/dim]"))
             return

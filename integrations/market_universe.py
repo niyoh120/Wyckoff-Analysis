@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from utils.package_resources import market_universe_dir
+
 
 def load_us_symbols() -> tuple[list[str], dict[str, str]]:
     return _load_market_symbols("us.txt", "us_meta.json")
@@ -15,7 +17,7 @@ def load_hk_symbols() -> tuple[list[str], dict[str, str]]:
 
 
 def _load_market_symbols(symbol_file: str, meta_file: str) -> tuple[list[str], dict[str, str]]:
-    base_dir = Path(__file__).resolve().parent.parent / "data" / "market_universes"
+    base_dir = market_universe_dir(symbol_file, meta_file)
     symbols = _load_symbol_lines(base_dir / symbol_file)
     name_map = _load_name_map(base_dir / meta_file)
     if not symbols and name_map:

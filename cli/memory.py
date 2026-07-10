@@ -8,8 +8,9 @@ import logging
 import re
 from hashlib import sha256
 from json import dumps, loads
-from pathlib import Path
 from typing import Any
+
+from utils.package_resources import runtime_resource
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def _stock_name_code_map() -> dict[str, str]:
     global _STOCK_NAME_CODE_CACHE
     if _STOCK_NAME_CODE_CACHE is not None:
         return _STOCK_NAME_CODE_CACHE
-    path = Path(__file__).resolve().parent.parent / "data" / "stock_list_cache.json"
+    path = runtime_resource("data/stock_list_cache.json")
     result: dict[str, str] = {}
     try:
         data = loads(path.read_text(encoding="utf-8"))

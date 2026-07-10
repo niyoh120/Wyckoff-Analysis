@@ -12,9 +12,10 @@ from core.mainline_engine import MainlineEngineConfig
 from core.theme_radar import normalize_theme_name
 from integrations.fetch_a_share_csv import normalize_symbols
 from utils.env import parse_bool
+from utils.package_resources import PROJECT_ROOT, runtime_resource
 
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_PROFILE = ROOT / "config" / "profiles" / "a_share_prod.yml"
+ROOT = PROJECT_ROOT
+DEFAULT_PROFILE = runtime_resource("config/profiles/a_share_prod.yml")
 
 
 def load_mainline_engine_config() -> MainlineEngineConfig:
@@ -52,7 +53,7 @@ def _profile_path() -> Path:
     profile = os.getenv("WYCKOFF_CONFIG_PROFILE", "a_share_prod").strip() or "a_share_prod"
     if "/" in profile or profile.endswith((".yml", ".yaml")):
         return Path(profile).expanduser()
-    return ROOT / "config" / "profiles" / f"{profile}.yml"
+    return runtime_resource(f"config/profiles/{profile}.yml")
 
 
 def _load_section() -> dict[str, Any]:

@@ -53,10 +53,16 @@ wyckoff-mcp = "mcp_server:main"
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+py-modules = ["mcp_server"]
+
 [tool.setuptools.packages.find]
 include = ["agents*", "cli*", "core*", "integrations*", "tools*", "utils*", "scripts*", "workflows*"]
 
 [tool.setuptools.data-files]
+"share/youngcan-wyckoff-analysis" = ["CHANGELOG.md"]
+"share/youngcan-wyckoff-analysis/config/profiles" = ["config/profiles/a_share_prod.yml"]
+"share/youngcan-wyckoff-analysis/data" = ["data/stock_list_cache.json"]
 "share/youngcan-wyckoff-analysis/market_universes" = [
     "data/market_universes/*.json",
     "data/market_universes/*.txt",

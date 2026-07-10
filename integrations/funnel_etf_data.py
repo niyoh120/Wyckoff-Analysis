@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-DEFAULT_ETF_UNIVERSE_PATH = Path(__file__).resolve().parent.parent / "data" / "market_universes" / "etf_cn.txt"
+from utils.package_resources import market_universe_path
+
+DEFAULT_ETF_UNIVERSE_PATH = market_universe_path("etf_cn.txt")
 logger = logging.getLogger(__name__)
 
 

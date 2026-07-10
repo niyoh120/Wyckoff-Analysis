@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from utils.package_resources import market_universe_path
+
 
 @dataclass(frozen=True)
 class MarketSpec:
@@ -100,7 +102,7 @@ def market_symbol_path(market: str, spec: MarketSpec) -> Path:
     )
     if symbol_file:
         return Path(symbol_file)
-    return Path(__file__).resolve().parents[1] / "data" / "market_universes" / spec.symbol_file
+    return market_universe_path(spec.symbol_file)
 
 
 def benchmark_symbols_for_market(spec: MarketSpec) -> tuple[str, ...]:

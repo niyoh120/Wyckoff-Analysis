@@ -259,6 +259,14 @@ def test_query_history_attribution_uses_workflow_default_when_env_missing(monkey
     assert state["scope"] == "tail_buy_and_funnel_shadow"
 
 
+def test_dynamic_policy_defaults_to_shadow_without_repository_workflow(monkeypatch, tmp_path):
+    from workflows.strategy_attribution_execution import funnel_dynamic_policy_mode
+
+    monkeypatch.delenv("FUNNEL_DYNAMIC_POLICY", raising=False)
+
+    assert funnel_dynamic_policy_mode(workflow_path=tmp_path / "missing.yml") == "shadow"
+
+
 def test_query_history_attribution_falls_back_to_local_report(monkeypatch, tmp_path):
     import json
 
