@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -99,6 +100,58 @@ def test_day_env_forces_readonly_write_context(monkeypatch) -> None:
 
     assert os.environ["WYCKOFF_WRITE_CONTEXT"] == "server_job"
     assert os.environ["STEP3_SKIP_LLM"] == "original"
+
+
+def test_build_day_result_explicitly_disables_financial_metrics(monkeypatch) -> None:
+    import workflows.wyckoff_funnel as funnel
+
+    captured: dict = {}
+
+    def fake_run(*_args, **kwargs):
+        captured.update(kwargs)
+        return True, [], {"regime": "NEUTRAL"}, {"metrics": {}}
+
+    monkeypatch.setattr(funnel, "run", fake_run)
+    monkeypatch.setattr(
+        workflow, "_prepare_symbols_for_recommendation", lambda *_args: SimpleNamespace(allow_ai_review=False)
+    )
+    monkeypatch.setattr(workflow, "recommendation_write_symbols", lambda *_args, **_kwargs: [])
+
+    result = workflow._build_day_result(date(2026, 6, 1), skip_step3=True)
+
+    assert captured["include_financial_metrics"] is False
+    assert result["trade_date"] == "2026-06-01"
+
+
+def test_backfill_summary_declares_operational_replay_context() -> None:
+    result = workflow._summary(
+        (date(2026, 6, 1),),
+        [_day_result(date(2026, 6, 1))],
+        {20260601: [_payload_row(1, 20260601)]},
+        [],
+    )
+
+    assert result["replay_context"] == {
+        "purpose": "operational_candidate_refresh",
+        "price_data": "historical_as_of_trade_date",
+        "metadata": "current_snapshot",
+        "financial_metrics_requested": False,
+        "dynamic_policy": "off",
+        "point_in_time_backtest_safe": False,
+    }
+
+
+def test_recommendation_backfill_workflow_defaults_to_dry_run_and_uploads_artifacts() -> None:
+    workflow_text = Path(".github/workflows/recommendation_backfill.yml").read_text(encoding="utf-8")
+
+    assert "name: Recommendation Backfill" in workflow_text
+    assert "apply:" in workflow_text
+    assert "default: false" in workflow_text
+    assert 'if [ "${{ inputs.apply }}" = "true" ]; then' in workflow_text
+    assert "scripts/backfill_recommendation_tracking.py" in workflow_text
+    assert "--skip-step3" in workflow_text
+    assert "actions/upload-artifact@v4" in workflow_text
+    assert "if: always()" in workflow_text
 
 
 def test_backfill_rejects_empty_generated_dates_without_explicit_allow() -> None:

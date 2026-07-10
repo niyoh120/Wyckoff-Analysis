@@ -1,0 +1,104 @@
+name: Recommendation Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      latest:
+        description: "回刷最近 N 个交易日"
+        required: true
+        type: number
+        default: 15
+      anchor:
+        description: "可选锚点 YYYY-MM-DD；为空使用运行当天"
+        required: false
+        type: string
+        default: ""
+      apply:
+        description: "确认写库替换；默认仅生成 dry-run artifact"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: recommendation-backfill-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      PYTHONUNBUFFERED: "1"
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      WYCKOFF_WRITE_CONTEXT: "server_job"
+      TICKFLOW_API_KEY: ${{ secrets.TICKFLOW_API_KEY }}
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_USER_ID: ${{ secrets.SUPABASE_USER_ID }}
+      TICKFLOW_KLINE_RATE_LIMIT_PER_MIN: "110"
+      FUNNEL_EXECUTOR_MODE: "thread"
+      FUNNEL_MAX_WORKERS: "4"
+      FUNNEL_BATCH_SIZE: "200"
+      FUNNEL_BATCH_SLEEP: "0.55"
+      FUNNEL_EXPORT_FULL_FETCH: "0"
+      FUNNEL_AI_SELECTION_MODE: ${{ vars.FUNNEL_AI_SELECTION_MODE || 'tradeable_l4' }}
+      FUNNEL_AI_TOTAL_CAP: "8"
+      FUNNEL_DYNAMIC_POLICY: "off"
+      FUNNEL_DEFENSIVE_FORCE_QUOTA: "1"
+      FUNNEL_AI_RISK_ON_TREND: "5"
+      FUNNEL_AI_RISK_ON_ACCUM: "1"
+      FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET: "35.0"
+      FUNNEL_AI_RISK_OFF_TREND: "0"
+      FUNNEL_AI_RISK_OFF_ACCUM: "0"
+      FUNNEL_AI_NEUTRAL_TREND: "5"
+      FUNNEL_AI_NEUTRAL_ACCUM: "1"
+      FUNNEL_AI_BEAR_REBOUND_TREND: "0"
+      FUNNEL_AI_BEAR_REBOUND_ACCUM: "0"
+      FUNNEL_L2_BYPASS_AI_ENABLED: "0"
+      FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP: "2"
+      FUNNEL_THEME_RADAR_PROMOTE_CAP: "2"
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run recommendation backfill
+        shell: bash
+        run: |
+          args=(
+            --latest "${{ inputs.latest }}"
+            --skip-step3
+            --output-dir "${{ github.workspace }}/artifacts/recommendation_backfill"
+          )
+          if [ -n "${{ inputs.anchor }}" ]; then
+            args+=(--anchor "${{ inputs.anchor }}")
+          fi
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            args+=(--apply)
+          fi
+          python -u scripts/backfill_recommendation_tracking.py "${args[@]}"
+
+      - name: Upload audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recommendation-backfill-${{ inputs.apply && 'apply' || 'dry-run' }}-${{ github.run_number }}
+          path: artifacts/recommendation_backfill/**
+          retention-days: 30
+          if-no-files-found: warn

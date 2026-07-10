@@ -92,7 +92,12 @@ def _build_day_result(trade_day: date, skip_step3: bool) -> dict[str, Any]:
     with _day_env(trade_day, skip_step3):
         from workflows.wyckoff_funnel import run as run_funnel
 
-        ok, symbols_info, benchmark_context, details = run_funnel("", notify=False, return_details=True)
+        ok, symbols_info, benchmark_context, details = run_funnel(
+            "",
+            notify=False,
+            return_details=True,
+            include_financial_metrics=False,
+        )
         if not ok:
             raise RuntimeError(f"{trade_day.isoformat()} funnel run failed")
         trade_mode = _prepare_symbols_for_recommendation(symbols_info, details, benchmark_context)
@@ -533,6 +538,14 @@ def _summary(
             old_count_by_date[rec_date] = old_count_by_date.get(rec_date, 0) + 1
     return {
         "generated_at": datetime.now(UTC).isoformat(),
+        "replay_context": {
+            "purpose": "operational_candidate_refresh",
+            "price_data": "historical_as_of_trade_date",
+            "metadata": "current_snapshot",
+            "financial_metrics_requested": False,
+            "dynamic_policy": "off",
+            "point_in_time_backtest_safe": False,
+        },
         "target_dates": [day.isoformat() for day in target_dates],
         "days": [
             {
