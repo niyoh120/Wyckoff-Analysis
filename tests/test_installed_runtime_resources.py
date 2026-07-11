@@ -103,10 +103,10 @@ def test_installed_runtime_resources_load_from_share_directory(tmp_path: Path) -
         encoding="utf-8",
     )
 
-    dist_info = site_packages / "youngcan_wyckoff_analysis-0.9.156.dist-info"
+    dist_info = site_packages / "youngcan_wyckoff_analysis-0.9.157.dist-info"
     dist_info.mkdir()
     (dist_info / "METADATA").write_text(
-        "Metadata-Version: 2.1\nName: youngcan-wyckoff-analysis\nVersion: 0.9.156\n",
+        "Metadata-Version: 2.1\nName: youngcan-wyckoff-analysis\nVersion: 0.9.157\n",
         encoding="utf-8",
     )
     (dist_info / "RECORD").write_text(
