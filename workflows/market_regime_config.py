@@ -16,6 +16,8 @@ def market_regime_config_from_env() -> MarketRegimeConfig:
         breadth_risk_on_threshold=_float_env("FUNNEL_BREADTH_RISK_ON_PCT", 60.0),
         breadth_risk_on_min_delta=_float_env("FUNNEL_BREADTH_RISK_ON_DELTA", 0.0),
         breadth_cliff_drop_pct=_float_env("FUNNEL_BREADTH_CLIFF_DROP_PCT", -10.0),
+        daily_breadth_repair_threshold=_float_env("FUNNEL_DAILY_BREADTH_REPAIR_PCT", 60.0),
+        daily_breadth_weak_threshold=_float_env("FUNNEL_DAILY_BREADTH_WEAK_PCT", 35.0),
         smallcap_bench_code=os.getenv("FUNNEL_SMALLCAP_BENCH_CODE", "399006").strip() or "399006",
         crash_main_day_drop_pct=_float_env("FUNNEL_CRASH_MAIN_DAY_DROP_PCT", -1.3),
         crash_small_day_drop_pct=_float_env("FUNNEL_CRASH_SMALL_DAY_DROP_PCT", -2.5),

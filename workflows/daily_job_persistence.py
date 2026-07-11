@@ -390,6 +390,7 @@ def persist_theme_radar(step2_details: dict, logs_path: str | None, *, dry_run: 
 
 
 def benchmark_context_payload(benchmark_context: dict) -> dict:
+    breadth = dict(benchmark_context.get("breadth") or {})
     return {
         "benchmark_regime": str(benchmark_context.get("regime", "") or "").strip().upper() or None,
         "main_index_code": str(benchmark_context.get("main_code", "000001") or "000001").strip(),
@@ -401,5 +402,11 @@ def benchmark_context_payload(benchmark_context: dict) -> dict:
         "smallcap_index_code": str(benchmark_context.get("smallcap_code", "") or "").strip() or None,
         "smallcap_close": benchmark_context.get("smallcap_close"),
         "smallcap_recent3_cum_pct": benchmark_context.get("smallcap_recent3_cum_pct"),
-        "source_jobs": {"daily_job": {"updated_at": datetime.now(TZ).isoformat(), "writer": "step2_benchmark_context"}},
+        "source_jobs": {
+            "daily_job": {
+                "updated_at": datetime.now(TZ).isoformat(),
+                "writer": "step2_benchmark_context",
+                "breadth": breadth,
+            }
+        },
     }

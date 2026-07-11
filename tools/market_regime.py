@@ -38,6 +38,8 @@ class MarketRegimeConfig:
     breadth_risk_on_threshold: float = 60.0
     breadth_risk_on_min_delta: float = 0.0
     breadth_cliff_drop_pct: float = -10.0
+    daily_breadth_repair_threshold: float = 60.0
+    daily_breadth_weak_threshold: float = 35.0
     smallcap_bench_code: str = "399006"
     crash_main_day_drop_pct: float = -1.3
     crash_small_day_drop_pct: float = -2.5
@@ -60,6 +62,8 @@ class MarketRegimeConfig:
             breadth_risk_on_threshold=float(self.breadth_risk_on_threshold),
             breadth_risk_on_min_delta=float(self.breadth_risk_on_min_delta),
             breadth_cliff_drop_pct=float(self.breadth_cliff_drop_pct),
+            daily_breadth_repair_threshold=float(self.daily_breadth_repair_threshold),
+            daily_breadth_weak_threshold=float(self.daily_breadth_weak_threshold),
             smallcap_bench_code=str(self.smallcap_bench_code or "399006").strip() or "399006",
             crash_main_day_drop_pct=float(self.crash_main_day_drop_pct),
             crash_small_day_drop_pct=float(self.crash_small_day_drop_pct),
@@ -460,6 +464,28 @@ def _breadth_values(breadth: dict | None) -> tuple[float | None, float | None, f
     )
 
 
+def _daily_breadth_values(breadth: dict | None) -> tuple[float | None, float | None]:
+    if not breadth:
+        return None, None
+    return _safe_float(breadth.get("daily_up_ratio_pct")), _safe_float(breadth.get("daily_median_pct_chg"))
+
+
+def _apply_daily_breadth_regime(
+    regime: str,
+    daily_up_ratio: float | None,
+    daily_median_pct: float | None,
+    regime_config: MarketRegimeConfig,
+) -> tuple[str, list[str]]:
+    if daily_up_ratio is None:
+        return regime, []
+    if regime == "RISK_OFF" and daily_up_ratio >= regime_config.daily_breadth_repair_threshold:
+        if daily_median_pct is None or daily_median_pct > 0:
+            return "PANIC_REPAIR", [f"daily_breadth_repair={daily_up_ratio:.2f}%"]
+    if regime == "RISK_ON" and daily_up_ratio <= regime_config.daily_breadth_weak_threshold:
+        return "CAUTION", [f"daily_breadth_weak={daily_up_ratio:.2f}%"]
+    return regime, []
+
+
 def _apply_breadth_regime(
     regime: str,
     breadth_ratio: float | None,
@@ -705,6 +731,7 @@ def _final_breadth_context(
     breadth_prev: float | None,
     breadth_delta: float | None,
     breadth_sample: int,
+    breadth: dict | None,
     regime_config: MarketRegimeConfig,
 ) -> dict:
     return {
@@ -713,6 +740,13 @@ def _final_breadth_context(
         "delta_pct": breadth_delta,
         "sample_size": breadth_sample,
         "ma_window": regime_config.breadth_ma_window,
+        "daily_sample_size": int((breadth or {}).get("daily_sample_size") or 0),
+        "daily_up_count": int((breadth or {}).get("daily_up_count") or 0),
+        "daily_down_count": int((breadth or {}).get("daily_down_count") or 0),
+        "daily_flat_count": int((breadth or {}).get("daily_flat_count") or 0),
+        "daily_up_ratio_pct": (breadth or {}).get("daily_up_ratio_pct"),
+        "daily_median_pct_chg": (breadth or {}).get("daily_median_pct_chg"),
+        "daily_average_pct_chg": (breadth or {}).get("daily_average_pct_chg"),
     }
 
 
@@ -820,6 +854,7 @@ def analyze_benchmark_and_tune_cfg(
     main = _main_benchmark_metrics(bench_df)
     small = _smallcap_metrics(smallcap_df)
     breadth_ratio, breadth_prev, breadth_delta, breadth_sample = _breadth_values(breadth)
+    daily_up_ratio, daily_median_pct = _daily_breadth_values(breadth)
     regime = _apply_breadth_regime(_trend_regime(main), breadth_ratio, breadth_delta, runtime)
     regime = _apply_caution_regime(regime, breadth_ratio, runtime)
     regime, panic_reasons, repair_reasons = _apply_panic_repair_regime(
@@ -831,6 +866,9 @@ def analyze_benchmark_and_tune_cfg(
         money_flow_context,
         runtime,
     )
+    regime, daily_breadth_reasons = _apply_daily_breadth_regime(regime, daily_up_ratio, daily_median_pct, runtime)
+    if regime == "PANIC_REPAIR":
+        repair_reasons.extend(daily_breadth_reasons)
     regime, bear_rebound_reasons = _apply_bear_rebound_regime(regime, main)
     _apply_evr_policy(cfg, regime, runtime)
     _tune_cfg_for_regime(cfg, regime, main.recent3_cum, runtime)
@@ -842,6 +880,7 @@ def analyze_benchmark_and_tune_cfg(
         breadth_prev,
         breadth_delta,
         breadth_sample,
+        breadth,
         runtime,
     )
     context.update(

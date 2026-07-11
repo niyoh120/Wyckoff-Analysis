@@ -86,10 +86,19 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "get_market_overview",
-        "description": "获取 A 股大盘环境概览，返回上证、深证、创业板等主要指数的最新收盘和涨跌幅。",
+        "description": "获取 A 股市场截面。可查最新或指定历史日期；返回主要指数，include_breadth=true 时同时返回全市上涨、下跌、平盘家数及涨跌幅分布。用于验证“指数下跌但个股上涨占优”等市场宽度问题。",
         "parameters": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "trade_date": {
+                    "type": "string",
+                    "description": "可选的历史日期，YYYY-MM-DD 或 YYYYMMDD；留空取最新交易日",
+                },
+                "include_breadth": {
+                    "type": "boolean",
+                    "description": "是否返回全市个股涨跌家数和分布；查询市场宽度时必须为 true",
+                },
+            },
         },
     },
     {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from agents.tool_context import ToolContext, ensure_tushare_token, get_credential
@@ -42,12 +42,17 @@ MARKET_HISTORY_ALIASES = {
 }
 
 
-def get_market_overview(tool_context: ToolContext | None = None) -> dict:
+def get_market_overview(
+    trade_date: str = "", include_breadth: bool = False, tool_context: ToolContext | None = None
+) -> dict:
     try:
         errors: list[str] = []
-        tushare_result = _fetch_tushare_overview(tool_context, errors)
+        requested = _normalize_trade_date(trade_date)
+        tushare_result = _fetch_tushare_overview(tool_context, errors, requested, include_breadth or bool(requested))
         if tushare_result:
-            return {"indices": tushare_result, "source": "tushare"}
+            return tushare_result
+        if requested:
+            return {"error": "无法获取指定日期市场数据", "requested_date": requested, "details": "; ".join(errors)}
         akshare_result = _fetch_akshare_overview(errors)
         if akshare_result:
             return {"indices": akshare_result, "source": "akshare"}
@@ -57,7 +62,21 @@ def get_market_overview(tool_context: ToolContext | None = None) -> dict:
         return {"error": str(e)}
 
 
-def _fetch_tushare_overview(tool_context: ToolContext | None, errors: list[str]) -> dict[str, dict] | None:
+def _normalize_trade_date(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y%m%d")
+        except ValueError:
+            continue
+    raise ValueError("trade_date 必须是 YYYY-MM-DD 或 YYYYMMDD")
+
+
+def _fetch_tushare_overview(
+    tool_context: ToolContext | None, errors: list[str], requested: str, include_breadth: bool
+) -> dict | None:
     try:
         ensure_tushare_token(tool_context)
         from integrations.tushare_client import get_pro
@@ -66,12 +85,53 @@ def _fetch_tushare_overview(tool_context: ToolContext | None, errors: list[str])
         if pro is None:
             errors.append("tushare: token 未配置或 client 不可用")
             return None
-        end_date = date.today().strftime("%Y%m%d")
-        start_date = (date.today() - timedelta(days=10)).strftime("%Y%m%d")
-        return _tushare_index_rows(pro, start_date, end_date)
+        end = datetime.strptime(requested, "%Y%m%d").date() if requested else date.today()
+        end_date = end.strftime("%Y%m%d")
+        start_date = (end - timedelta(days=10)).strftime("%Y%m%d")
+        indices = _tushare_index_rows(pro, start_date, end_date)
+        if not indices:
+            return None
+        actual_dates = [str(row.get("trade_date") or "") for row in indices.values() if row.get("trade_date")]
+        if not actual_dates:
+            return None
+        actual_date = max(actual_dates)
+        result = {
+            "indices": indices,
+            "source": "tushare",
+            "requested_date": requested or end_date,
+            "trade_date": actual_date,
+        }
+        if include_breadth and actual_date:
+            result["breadth"] = _tushare_market_breadth(pro, actual_date)
+        return result
     except Exception as e:
         errors.append(f"tushare: {e}")
         return None
+
+
+def _tushare_market_breadth(pro, trade_date: str) -> dict:
+    df = pro.daily(trade_date=trade_date)
+    if df is None or df.empty or "pct_chg" not in df.columns:
+        return {"error": "指定交易日无全市日线截面", "trade_date": trade_date}
+    import pandas as pd
+
+    changes = pd.to_numeric(df["pct_chg"], errors="coerce").dropna()
+    up = int((changes > 0).sum())
+    down = int((changes < 0).sum())
+    flat = int((changes == 0).sum())
+    total = int(len(changes))
+    return {
+        "trade_date": trade_date,
+        "sample_size": total,
+        "up_count": up,
+        "down_count": down,
+        "flat_count": flat,
+        "up_ratio_pct": round(up / total * 100.0, 2) if total else None,
+        "median_pct_chg": round(float(changes.median()), 2) if total else None,
+        "average_pct_chg": round(float(changes.mean()), 2) if total else None,
+        "up_5pct_count": int((changes >= 5).sum()),
+        "down_5pct_count": int((changes <= -5).sum()),
+    }
 
 
 def _tushare_index_rows(pro, start_date: str, end_date: str) -> dict[str, dict]:

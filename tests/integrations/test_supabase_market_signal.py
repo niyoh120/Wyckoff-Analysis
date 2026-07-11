@@ -1,5 +1,16 @@
 import integrations.supabase_market_signal as market_signal_module
-from integrations.supabase_market_signal import _merge_latest_market_signal_rows, upsert_market_signal_daily
+from integrations.supabase_market_signal import (
+    _merge_latest_market_signal_rows,
+    compose_market_state,
+    upsert_market_signal_daily,
+)
+
+
+def test_missing_benchmark_is_unknown_instead_of_risk_off():
+    state = compose_market_state({"benchmark_regime": None, "premarket_regime": "NORMAL"})
+
+    assert state["benchmark_slot"] == "UNKNOWN"
+    assert state["market_posture_code"] != "DEFENSIVE"
 
 
 def test_merge_latest_market_signal_rows_uses_latest_available_source_blocks():

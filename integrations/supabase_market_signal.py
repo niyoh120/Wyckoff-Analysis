@@ -82,6 +82,8 @@ def _premarket_regime_desc(regime: str) -> str:
 
 def _normalize_benchmark_slot(regime: str) -> str:
     normalized = str(regime or "").strip().upper()
+    if not normalized:
+        return "UNKNOWN"
     if normalized == "RISK_ON":
         return "RISK_ON"
     if normalized == "NEUTRAL":
@@ -310,8 +312,9 @@ def compose_market_state(row: dict[str, Any] | None) -> dict[str, str]:
     premarket_regime = str(data.get("premarket_regime", "") or "").strip().upper()
     benchmark_slot = _normalize_benchmark_slot(benchmark_regime)
     premarket_slot = _normalize_premarket_slot(premarket_regime)
+    strategy_key = "NEUTRAL" if benchmark_slot == "UNKNOWN" else benchmark_slot
     strategy = (
-        MARKET_BANNER_MATRIX.get(premarket_slot, {}).get(benchmark_slot) or MARKET_BANNER_MATRIX["CAUTION"]["NEUTRAL"]
+        MARKET_BANNER_MATRIX.get(premarket_slot, {}).get(strategy_key) or MARKET_BANNER_MATRIX["CAUTION"]["NEUTRAL"]
     )
 
     return {

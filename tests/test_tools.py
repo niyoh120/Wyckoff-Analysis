@@ -1956,6 +1956,68 @@ class TestMarketRegime:
         assert result["ratio_pct"] is None
         assert result["sample_size"] == 0
 
+    def test_calc_market_breadth_includes_daily_cross_section(self):
+        from tools.market_regime import calc_market_breadth
+
+        dates = pd.date_range("2026-01-01", periods=21, freq="D").strftime("%Y-%m-%d")
+        result = calc_market_breadth(
+            {
+                "UP": pd.DataFrame({"date": dates, "close": [10.0] * 20 + [11.0]}),
+                "DOWN": pd.DataFrame({"date": dates, "close": [10.0] * 20 + [9.0]}),
+                "FLAT": pd.DataFrame({"date": dates, "close": [10.0] * 21}),
+            }
+        )
+
+        assert result["daily_sample_size"] == 3
+        assert result["daily_up_count"] == 1
+        assert result["daily_down_count"] == 1
+        assert result["daily_flat_count"] == 1
+        assert round(result["daily_up_ratio_pct"], 2) == 33.33
+
+    def test_daily_breadth_turns_structural_risk_off_into_repair(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+        closes = [100.0 - i * 0.2 for i in range(220)]
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_df(closes),
+            None,
+            FunnelConfig(),
+            breadth={
+                "ratio_pct": 10.0,
+                "prev_ratio_pct": 9.0,
+                "delta_pct": 1.0,
+                "sample_size": 100,
+                "daily_up_ratio_pct": 68.0,
+                "daily_median_pct_chg": 1.2,
+            },
+        )
+
+        assert result["regime"] == "PANIC_REPAIR"
+        assert result["repair_triggered"] is True
+
+    def test_weak_daily_breadth_downgrades_risk_on_to_caution(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+        closes = [100.0 + i * 0.2 for i in range(220)]
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_df(closes),
+            None,
+            FunnelConfig(),
+            breadth={
+                "ratio_pct": 70.0,
+                "delta_pct": 2.0,
+                "sample_size": 100,
+                "daily_up_ratio_pct": 25.0,
+                "daily_median_pct_chg": -1.0,
+            },
+        )
+
+        assert result["regime"] == "CAUTION"
+
     def test_calc_market_money_flow_detects_entry(self):
         from tools.market_regime import calc_market_money_flow
 

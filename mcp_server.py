@@ -119,13 +119,13 @@ def analyze_stock(
 
 
 @mcp.tool()
-def get_market_overview() -> dict:
-    """获取当前 A 股大盘环境概览。
+def get_market_overview(trade_date: str = "", include_breadth: bool = False) -> dict:
+    """获取最新或指定日期的 A 股市场截面。
 
-    **调用时机**：用户问"大盘怎么样"、"今天市场如何"、需要判断整体环境时调用。
-    返回上证、深证、创业板指数及涨跌幅。
+    **调用时机**：用户问大盘、历史某日市场或上涨/下跌家数时调用。
+    trade_date 支持 YYYY-MM-DD/ YYYYMMDD；查涨跌家数时设 include_breadth=true。
     """
-    return _get_market_overview(tool_context=_ctx)
+    return _get_market_overview(trade_date=trade_date, include_breadth=include_breadth, tool_context=_ctx)
 
 
 @mcp.tool()
