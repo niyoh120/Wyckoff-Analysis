@@ -26,6 +26,7 @@ from workflows.tail_buy_holdings import analyze_holdings_actions, build_holdings
 from workflows.tail_buy_llm_overlay import apply_tail_buy_depth_filter, run_llm_overlay
 from workflows.tail_buy_market_repair import (
     append_intraday_market_reminder,
+    apply_base_market_regime,
     apply_intraday_market_mode,
     resolve_intraday_market_mode,
 )
@@ -275,6 +276,7 @@ def _run_tail_buy_trading_day(request: TailBuyJobRequest, config: TailBuyRuntime
     pending_candidates, candidate_source_desc = inputs
     tickflow_client = TickFlowClient(api_key=config.tickflow_api_key, max_retries=config.tickflow_task_retries)
     market_reminder = resolve_market_reminder(plan.today_trade_date)
+    apply_base_market_regime(pending_candidates, market_reminder)
     market_mode, market_mode_reason = resolve_intraday_market_mode(
         tickflow_client,
         market_reminder=market_reminder,

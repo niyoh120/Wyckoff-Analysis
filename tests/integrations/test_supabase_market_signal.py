@@ -2,6 +2,7 @@ import integrations.supabase_market_signal as market_signal_module
 from integrations.supabase_market_signal import (
     _merge_latest_market_signal_rows,
     compose_market_state,
+    market_signal_readiness,
     upsert_market_signal_daily,
 )
 
@@ -11,6 +12,17 @@ def test_missing_benchmark_is_unknown_instead_of_risk_off():
 
     assert state["benchmark_slot"] == "UNKNOWN"
     assert state["market_posture_code"] != "DEFENSIVE"
+
+
+def test_market_signal_readiness_distinguishes_partial_and_stale():
+    assert market_signal_readiness({"trade_date": "2026-07-10"}, "2026-07-10")["status"] == "partial"
+    assert (
+        market_signal_readiness(
+            {"trade_date": "2026-07-09", "benchmark_regime": "NEUTRAL"},
+            "2026-07-10",
+        )["status"]
+        == "stale"
+    )
 
 
 def test_merge_latest_market_signal_rows_uses_latest_available_source_blocks():

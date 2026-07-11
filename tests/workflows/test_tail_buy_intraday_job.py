@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from core.tail_buy.models import TailBuyCandidate
 from workflows import tail_buy_intraday_job as job
 from workflows.strategy_attribution_policy import AttributionPolicySnapshot
-from workflows.tail_buy_market_repair import apply_intraday_market_mode
+from workflows.tail_buy_market_repair import apply_base_market_regime, apply_intraday_market_mode
 from workflows.tail_buy_utils import current_time
 
 
@@ -147,6 +147,18 @@ def test_apply_intraday_repair_mode_only_overrides_weak_candidates() -> None:
     assert changed == 1
     assert weak.market_regime == "PANIC_REPAIR_INTRADAY"
     assert neutral.market_regime == "NEUTRAL"
+
+
+def test_apply_base_market_regime_fills_missing_candidate_state() -> None:
+    missing = _candidate("000001")
+    existing = _candidate("000002")
+    existing.market_regime = "NEUTRAL"
+
+    changed = apply_base_market_regime([missing, existing], "UNKNOWN/NORMAL | 禁止新开仓")
+
+    assert changed == 1
+    assert missing.market_regime == "UNKNOWN"
+    assert existing.market_regime == "NEUTRAL"
 
 
 def test_auto_run_plan_uses_intraday_before_close(monkeypatch) -> None:

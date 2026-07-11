@@ -32,6 +32,19 @@ def _normalize_trade_date(raw: Any) -> str:
     return text
 
 
+def market_signal_readiness(row: dict[str, Any] | None, expected_trade_date: date | str) -> dict[str, str]:
+    expected = _normalize_trade_date(expected_trade_date)
+    if not row:
+        return {"status": "missing", "reason": "market_signal_daily 无当日记录"}
+    actual = _normalize_trade_date(row.get("trade_date"))
+    if not actual or actual != expected:
+        return {"status": "stale", "reason": f"市场信号日期 {actual or '-'} != {expected}"}
+    benchmark = str(row.get("benchmark_regime") or "").strip().upper()
+    if not benchmark:
+        return {"status": "partial", "reason": "当日盘后 benchmark 尚未就绪"}
+    return {"status": "ready", "reason": "当日盘后 benchmark 已就绪"}
+
+
 def _safe_float(raw: Any) -> float | None:
     try:
         if raw is None:

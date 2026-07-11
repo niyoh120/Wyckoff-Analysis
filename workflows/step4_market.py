@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 
-from integrations.supabase_market_signal import compose_market_banner, load_market_signal_daily
+from core.market_trade_mode import normalize_regime
+from integrations.supabase_market_signal import compose_market_banner, load_market_signal_daily, market_signal_readiness
 from workflows.step4_text import clean_text
 
 logger = logging.getLogger(__name__)
 
 BENCHMARK_REGIME_SEVERITY = {
+    "UNKNOWN": 3,
     "RISK_ON": 0,
     "NEUTRAL": 1,
     "BEAR_REBOUND": 2,
@@ -35,10 +37,7 @@ EFFECTIVE_REGIME_BY_SEVERITY = {
 
 
 def normalize_benchmark_regime(raw: object) -> str:
-    regime = clean_text(raw).upper()
-    if regime in BENCHMARK_REGIME_SEVERITY:
-        return regime
-    return "NEUTRAL"
+    return normalize_regime(clean_text(raw))
 
 
 def normalize_premarket_regime(raw: object) -> str:
@@ -51,6 +50,8 @@ def normalize_premarket_regime(raw: object) -> str:
 def resolve_effective_market_regime(benchmark_regime: object, premarket_regime: object) -> str:
     benchmark_norm = normalize_benchmark_regime(benchmark_regime)
     premarket_norm = normalize_premarket_regime(premarket_regime)
+    if benchmark_norm == "UNKNOWN" and premarket_norm == "NORMAL":
+        return "UNKNOWN"
     severity = max(
         BENCHMARK_REGIME_SEVERITY.get(benchmark_norm, 1),
         PREMARKET_REGIME_SEVERITY.get(premarket_norm, 0),
@@ -66,6 +67,17 @@ def load_market_signal_for_trade_date(trade_date: str) -> dict[str, object] | No
         return None
 
 
+def _benchmark_regime_and_readiness(
+    row: dict[str, object], benchmark_context: dict | None, trade_date: str
+) -> tuple[str, dict[str, str]]:
+    readiness = market_signal_readiness(row, trade_date)
+    context_regime = (benchmark_context or {}).get("regime")
+    regime = normalize_benchmark_regime(context_regime or row.get("benchmark_regime"))
+    if not context_regime and readiness["status"] != "ready":
+        regime = "UNKNOWN"
+    return regime, readiness
+
+
 def build_market_guardrail(
     *,
     trade_date: str,
@@ -74,9 +86,7 @@ def build_market_guardrail(
     buy_block_regimes: set[str],
 ) -> tuple[str, str, str]:
     row = dict(market_signal_row or {})
-    benchmark_regime = normalize_benchmark_regime(
-        row.get("benchmark_regime") or (benchmark_context or {}).get("regime")
-    )
+    benchmark_regime, readiness = _benchmark_regime_and_readiness(row, benchmark_context, trade_date)
     premarket_regime = normalize_premarket_regime(row.get("premarket_regime"))
     effective_regime = resolve_effective_market_regime(benchmark_regime, premarket_regime)
 
@@ -105,6 +115,7 @@ def build_market_guardrail(
         "[全局风控]",
         f"trade_date={trade_date}, effective_regime={effective_regime}, "
         f"benchmark_regime={benchmark_regime}, premarket_regime={premarket_regime}",
+        f"market_data_status={readiness['status']}, reason={readiness['reason']}",
     ]
     if benchmark_context:
         lines.append(

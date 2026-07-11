@@ -5,13 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # 硬防守：不送 AI、不写推荐、不新开（与历史 RISK_OFF/CRASH 一致）。
-NO_NEW_BUY_REGIMES = frozenset({"RISK_OFF", "CRASH", "BLACK_SWAN"})
+NO_NEW_BUY_REGIMES = frozenset({"UNKNOWN", "RISK_OFF", "CRASH", "BLACK_SWAN"})
 # 过热：禁止正式推荐与执行新开，但保留 AI/shadow 对照。
 OVERHEAT_SHADOW_REGIMES = frozenset({"RISK_ON"})
 REPAIR_REVIEW_REGIMES = frozenset({"BEAR_REBOUND", "PANIC_REPAIR"})
 CAUTION_ONLY_REGIMES = frozenset({"CAUTION"})
 # 尾盘/OMS 禁止新开仓的水温并集。
 EXECUTE_BLOCK_NEW_BUY_REGIMES = frozenset(NO_NEW_BUY_REGIMES | OVERHEAT_SHADOW_REGIMES | REPAIR_REVIEW_REGIMES)
+KNOWN_MARKET_REGIMES = frozenset(
+    {"RISK_ON", "NEUTRAL", "CAUTION", "BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF", "CRASH", "BLACK_SWAN"}
+)
 
 
 @dataclass(frozen=True)
@@ -29,7 +32,8 @@ class MarketTradeMode:
 
 
 def normalize_regime(regime: str | None) -> str:
-    return str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
+    normalized = str(regime or "").strip().upper()
+    return normalized if normalized in KNOWN_MARKET_REGIMES else "UNKNOWN"
 
 
 def resolve_market_trade_mode(regime: str | None) -> MarketTradeMode:

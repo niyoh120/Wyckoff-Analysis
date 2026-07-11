@@ -6,6 +6,7 @@ import json
 import logging
 import re
 
+from core.market_trade_mode import normalize_regime
 from utils.json_text import extract_json_block
 from workflows.step4_models import DecisionItem, NewBuyLimits
 from workflows.step4_text import clean_text
@@ -43,14 +44,14 @@ def parse_decisions(
 
 
 def max_new_buy_names(market_regime: str, limits: NewBuyLimits) -> int:
-    regime = clean_text(market_regime).upper() or "NEUTRAL"
+    regime = normalize_regime(clean_text(market_regime))
     if regime == "RISK_ON":
         return limits.risk_on
     if regime == "CAUTION":
         return limits.caution
     if regime in {"BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF"}:
         return limits.risk_off
-    if regime in {"CRASH", "BLACK_SWAN"}:
+    if regime in {"UNKNOWN", "CRASH", "BLACK_SWAN"}:
         return 0
     return limits.neutral
 

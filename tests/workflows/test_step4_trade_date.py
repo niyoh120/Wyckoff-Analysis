@@ -434,7 +434,36 @@ def test_step4_order_config_from_env_normalizes_values(monkeypatch):
     assert cfg.buy_stop_mode == "floor"
     assert cfg.probe_budget_limit == 0.0
     assert cfg.attack_budget_limit == 1.0
-    assert cfg.buy_block_regimes == frozenset({"CRASH", "NEUTRAL"})
+    assert cfg.buy_block_regimes == frozenset({"UNKNOWN", "CRASH", "NEUTRAL"})
+
+
+def test_missing_market_regime_blocks_new_order() -> None:
+    decision = DecisionItem(
+        code="000001",
+        name="平安银行",
+        action="PROBE",
+        entry_zone_min=9.8,
+        entry_zone_max=10.1,
+        stop_loss=9.0,
+        trim_ratio=None,
+        tape_condition="放量高收",
+        invalidate_condition="跌破9.0",
+        is_add_on=False,
+        reason="测试",
+        confidence=0.8,
+    )
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={"000001": 10.0},
+        market_regime=None,
+    )
+
+    tickets, _ = engine.process([decision])
+
+    assert tickets[0].status == "NO_TRADE"
+    assert "regime=UNKNOWN" in tickets[0].reason
 
 
 def test_step4_order_config_default_blocks_weak_market_regimes(monkeypatch):

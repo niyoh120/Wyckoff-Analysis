@@ -1,4 +1,14 @@
 from core.market_trade_mode import resolve_market_trade_mode
+
+
+def test_missing_regime_fails_closed() -> None:
+    mode = resolve_market_trade_mode(None)
+
+    assert mode.regime == "UNKNOWN"
+    assert mode.mode == "observe_only"
+    assert mode.allow_recommendation_write is False
+
+
 from tools.market_regime import (
     MainBenchmarkMetrics,
     MarketRegimeConfig,

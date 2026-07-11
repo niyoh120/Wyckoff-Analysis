@@ -15,6 +15,17 @@ _INDEX_SYMBOLS = ("000001.SH", "399006.SZ")
 _WEAK_REGIME_TOKENS = ("CRASH", "RISK_OFF", "PANIC_REPAIR", "BEAR_REBOUND", "BLACK_SWAN")
 
 
+def apply_base_market_regime(candidates: list[TailBuyCandidate], market_reminder: str) -> int:
+    prefix = str(market_reminder or "").split("/", 1)[0].strip().upper()
+    regime = prefix if prefix else "UNKNOWN"
+    changed = 0
+    for item in candidates:
+        if not str(item.market_regime or "").strip():
+            item.market_regime = regime
+            changed += 1
+    return changed
+
+
 def resolve_intraday_market_mode(
     tickflow_client: TickFlowClient,
     *,
@@ -64,7 +75,7 @@ def append_intraday_market_reminder(market_reminder: str, mode: str, reason: str
 
 def _previous_market_was_weak(market_reminder: str) -> bool:
     text = str(market_reminder or "").upper()
-    return any(token in text for token in _WEAK_REGIME_TOKENS)
+    return "UNKNOWN" in text or any(token in text for token in _WEAK_REGIME_TOKENS)
 
 
 def _index_metrics(data_map: dict[str, Any]) -> dict[str, dict[str, float]]:

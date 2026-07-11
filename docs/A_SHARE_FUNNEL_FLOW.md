@@ -288,7 +288,7 @@ flowchart TD
     IDEM -->|否| LLM["LLM 决策<br/>EXIT > TRIM > HOLD > PROBE/ATTACK"]
 
     LLM --> RISK{"风控门控"}
-    RISK -->|RISK_ON / BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["冻结新开仓<br/>STEP4_BUY_BLOCK_REGIMES"]
+    RISK -->|UNKNOWN / RISK_ON / BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["冻结新开仓<br/>STEP4_BUY_BLOCK_REGIMES"]
     RISK -->|NEUTRAL / CAUTION| ALLOW["按交易模式限额执行"]
 
     ALLOW --> OMS["灾难止损地板 -12%<br/>PROBE≤10% / ATTACK≤20%<br/>ATR/结构/时间管理优先"]
@@ -450,7 +450,7 @@ efinance
 | `STEP4_TOP_FUNNEL_CANDIDATES_COUNT` | `0` | 默认关闭，Step4 仍只接收 Step3 起跳板；大于 0 时额外允许二次确认漏斗中优先分最高的前 N 名进入 OMS 复核 |
 | `TAIL_BUY_CONFIRMED_ONLY_BUY` | `1` | 尾盘买入只对二次确认候选输出 BUY |
 | `TAIL_BUY_HOLDING_HARD_STOP_PCT` | `12` | 持仓尾盘诊断的固定止损兜底；ATR 放宽需显式开启且受上限约束 |
-| `STEP4_BUY_BLOCK_REGIMES` | `RISK_ON,BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN` | 过热与弱市冻结新开仓 |
+| `STEP4_BUY_BLOCK_REGIMES` | `UNKNOWN,RISK_ON,BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN` | 市场数据未就绪、过热与弱市均冻结新开仓 |
 
 ---
 

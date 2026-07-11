@@ -44,7 +44,7 @@ def _env_regime_set(name: str, default: str) -> frozenset[str]:
         for item in os.getenv(name, default).split(",")
         if item.strip() and item.strip().upper() != "COOLDOWN"
     }
-    return frozenset(values)
+    return frozenset(values | {"UNKNOWN"})
 
 
 def _clamp01(value: float) -> float:

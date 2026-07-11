@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+from core.market_trade_mode import normalize_regime
 from workflows.step4_models import DecisionItem, ExecutionTicket, OrderContext, PositionItem, Step4OrderConfig
 from workflows.step4_text import clean_text, contains_keyword, normalize_stage, normalize_track
 
@@ -48,7 +49,7 @@ def _resolve_chase_limits(
     market_regime: str,
     config: Step4OrderConfig,
 ) -> tuple[float, float, str, str]:
-    regime = clean_text(market_regime).upper() or "NEUTRAL"
+    regime = normalize_regime(clean_text(market_regime))
     track = normalize_track(dec.wyckoff_track) or normalize_track(dec.wyckoff_tag)
     stage = normalize_stage(dec.wyckoff_stage) or normalize_stage(dec.wyckoff_tag)
     tag = clean_text(dec.wyckoff_tag)
@@ -145,7 +146,7 @@ class WyckoffOrderEngine:
         self.position_map = position_map
         self.latest_price_map = latest_price_map
         self.atr_map = atr_map or {}
-        self.market_regime = str(market_regime or "NEUTRAL").strip().upper()
+        self.market_regime = normalize_regime(market_regime)
         self.config = config or DEFAULT_STEP4_ORDER_CONFIG
         self.budget_limits = {
             "PROBE": self.config.probe_budget_limit,
