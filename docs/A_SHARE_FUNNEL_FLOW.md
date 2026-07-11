@@ -217,7 +217,7 @@ flowchart TD
 | 候选车道 | 趋势回踩、平台突破、强承接等结构接近 | 默认观察，质量足够才按配额送审 |
 | Shadow 旁路 | L2 未过但有复盘价值，或外部观察名单 | 不进入正式 AI，除非显式打开开关 |
 
-正式候选在送入 Step3 前还会经过 `core/candidate_policy.py` 的统一损失护栏。纯 SOS 必须通过 Springboard ABC 3/3；单 EVR、单 LPS 与单 Trend Pullback 默认仅观察；弱确认、过热和高位追涨样本会被剪除。L2 的八通道原始命中数会写入诊断日志，但不参与评分。
+正式候选在送入 Step3 前还会经过 `core/candidate_policy.py` 的统一损失护栏。纯 SOS 必须通过 Springboard ABC 3/3；单 EVR、单 LPS 与单 Trend Pullback 默认仅观察。状态已是可交易的主线候选可跳过这三类“仅观察”限制，但仍必须通过最低分、市场环境、弱确认、过热和高位追涨检查；“主线观察”与“过热不追”不享受豁免。L2 的八通道原始命中数会写入诊断日志，但不参与评分。
 
 ### 数据质量与诊断口径
 
@@ -444,6 +444,7 @@ efinance
 | `FUNNEL_EXTERNAL_SEED_SYMBOLS` / `FUNNEL_EXTRA_SYMBOLS` | 空 | 临时追加外部观察名单；存在时自动启用 external seed shadow |
 | `STEP4_BUY_HARD_STOP_PCT` | `12.0` | 新开仓灾难止损地板；ATR/结构/时间管理优先 |
 | `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` | `1` | Step4 新开仓只允许二次确认候选；未确认候选只观察 |
+| `STEP4_TOP_FUNNEL_CANDIDATES_COUNT` | `0` | 默认关闭，Step4 仍只接收 Step3 起跳板；大于 0 时额外允许二次确认漏斗中优先分最高的前 N 名进入 OMS 复核 |
 | `TAIL_BUY_CONFIRMED_ONLY_BUY` | `1` | 尾盘买入只对二次确认候选输出 BUY |
 | `TAIL_BUY_HOLDING_HARD_STOP_PCT` | `12` | 持仓尾盘诊断的固定止损兜底；ATR 放宽需显式开启且受上限约束 |
 | `STEP4_BUY_BLOCK_REGIMES` | `RISK_ON,BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN` | 过热与弱市冻结新开仓 |

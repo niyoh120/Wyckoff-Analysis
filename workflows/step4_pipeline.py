@@ -73,9 +73,37 @@ def is_confirmed_step4_candidate(item: dict) -> bool:
 
 
 def _step4_candidate_meta(symbols_info: list, step3_springboard_codes: list[str]) -> tuple[list[dict], int]:
-    if not step3_springboard_codes:
+    confirmed_items = [
+        item for item in symbols_info or [] if isinstance(item, dict) and is_confirmed_step4_candidate(item)
+    ]
+
+    def get_item_score(item: dict) -> float:
+        val = item.get("priority_score")
+        if val is None or val == "":
+            val = item.get("score")
+        try:
+            return float(val) if val is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    confirmed_items.sort(key=get_item_score, reverse=True)
+
+    allowed_set = set(step3_springboard_codes or [])
+    top_n_raw = os.getenv("STEP4_TOP_FUNNEL_CANDIDATES_COUNT", "0").strip()
+    top_n = 0
+    try:
+        if top_n_raw:
+            top_n = max(0, int(float(top_n_raw)))
+    except (TypeError, ValueError):
+        top_n = 0
+
+    if top_n > 0:
+        top_confirmed = [str(item.get("code", "")).strip() for item in confirmed_items[:top_n]]
+        allowed_set.update(top_confirmed)
+
+    if not allowed_set:
         return [], 0
-    allowed_set = set(step3_springboard_codes)
+
     require_confirmed = env_bool("STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE", True)
     selected: list[dict] = []
     blocked = 0

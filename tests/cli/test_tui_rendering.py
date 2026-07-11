@@ -67,6 +67,9 @@ class _FakeLog:
     def scroll_end(self, *, animate: bool = False) -> None:
         self.scrolled = True
 
+    def call_after_refresh(self, callback, *args) -> None:
+        callback(*args)
+
 
 class _FakeInput:
     def __init__(self) -> None:
@@ -1883,3 +1886,21 @@ def test_system_notification_queue_item_is_not_user_chat_role():
     assert not _is_system_notification_message({"role": "user", "content": "后台任务完成"})
     assert _chatlog_role_for_turn(system_notification=True) == "system"
     assert _chatlog_role_for_turn(system_notification=False) == "user"
+
+
+def test_wyckoff_tui_spinner_start_stop_clears_label():
+    app = object.__new__(WyckoffTUI)
+    app._spinner_label = ""
+    app._spinner_idx = 0
+    updated = [False]
+    app._update_status = lambda: updated.pop() or updated.append(True)
+
+    WyckoffTUI._start_spinner(app, "thinking")
+    assert app._spinner_label == "thinking"
+    assert app._spinner_idx == 0
+    assert updated == [True]
+
+    updated = [False]
+    WyckoffTUI._stop_spinner(app)
+    assert app._spinner_label == ""
+    assert updated == [True]

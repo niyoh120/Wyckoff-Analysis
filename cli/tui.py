@@ -154,6 +154,8 @@ def _pop_lines(log_widget, n: int) -> None:
 
     if n > 0 and len(log_widget.lines) >= n:
         del log_widget.lines[-n:]
+        if hasattr(log_widget, "_line_cache"):
+            log_widget._line_cache.clear()
         log_widget.virtual_size = Size(log_widget._widest_line_width, len(log_widget.lines))
         log_widget.refresh()
 
@@ -194,7 +196,7 @@ def _replace_streamed_response(log_widget, strip_count: int, final_text: str) ->
     _get_agent_logger().info("TUI_STREAM_REPLACE: strip_count=%d text_len=%d", strip_count, len(final_text))
     _pop_lines(log_widget, strip_count)
     added = _write_counted(log_widget, Markdown(final_text))
-    _refresh_log_layout(log_widget)
+    log_widget.call_after_refresh(_settle_markdown_render, log_widget)
     return added
 
 
@@ -1348,6 +1350,10 @@ class StatusBar(Static):
     }
     """
 
+    def __init__(self, *args, **kwargs) -> None:
+        kwargs.setdefault("markup", True)
+        super().__init__(*args, **kwargs)
+
 
 class _PasteHighlighter(Highlighter):
     def highlight(self, text: Text) -> None:
@@ -1409,11 +1415,12 @@ class BackgroundTaskPanel(Static):
         background: $boost;
         color: $text;
         padding: 0 2;
-        border-bottom: solid $primary;
+        border-bottom: solid $border;
     }
     """
 
     def __init__(self, bg_manager, **kwargs):
+        kwargs.setdefault("markup", True)
         super().__init__("", **kwargs)
         self._bg_manager = bg_manager
         self.styles.display = "none"
@@ -1441,8 +1448,11 @@ class BackgroundTaskPanel(Static):
                 if t.tool_name == "dynamic_workflow"
                 else TOOL_DISPLAY_NAMES.get(t.tool_name, t.tool_name)
             )
+            time_str = f"{m}m{s:02d}s" if m else f"{s}s"
             lines.append(
-                f"  ⟳ {name}  {stage}{detail}    [{m}m{s:02d}s]" if m else f"  ⟳ {name}  {stage}{detail}    [{s}s]"
+                f"  [bold cyan]⟳[/bold cyan] [bold #8aa4ff]{name}[/bold #8aa4ff] · "
+                f"[yellow]{stage}[/yellow][dim]{detail}[/dim] "
+                f"[green]({time_str})[/green]"
             )
         self.update("\n".join(lines))
 
@@ -1760,6 +1770,8 @@ class WyckoffTUI(App):
         self._pending_workflows: dict[str, _PendingWorkflowLaunch] = {}
         self._pending_user_question: _PendingUserQuestion | None = None
         self._session_id = uuid.uuid4().hex[:12]
+        self._spinner_idx = 0
+        self._spinner_label = ""
         self._agent_log = _get_agent_logger()
         # 后台任务管理
         from cli.background import BackgroundTaskManager
@@ -1803,6 +1815,28 @@ class WyckoffTUI(App):
                 self.theme = saved_theme
         except Exception:
             logger.debug("load saved theme failed", exc_info=True)
+
+        # Override console theme to make Markdown clean and beautiful
+        from rich.style import Style
+        from rich.theme import Theme
+
+        custom_theme = Theme(
+            {
+                "markdown.h1": Style(color="#8aa4ff", bold=True),
+                "markdown.h2": Style(color="#8aa4ff", bold=True),
+                "markdown.h3": Style(color="#8aa4ff", bold=True),
+                "markdown.h4": Style(color="#8aa4ff", bold=True),
+                "markdown.h5": Style(color="#8aa4ff", bold=True),
+                "markdown.h6": Style(color="#8aa4ff", bold=True),
+                "markdown.link": Style(color="#58a6ff", underline=True),
+                "markdown.code": Style(color="#e06c75", bgcolor="#1e1e1e"),
+                "markdown.block_quote": Style(color="#8b949e", italic=True),
+                "markdown.hr": Style(color="#30363d"),
+                "markdown.item.bullet": Style(color="#8aa4ff"),
+            }
+        )
+        self.console.push_theme(custom_theme)
+        self.set_interval(0.1, self._tick_global_spinner)
 
         log = self.query_one("#chat-log", ChatLog)
         from importlib.metadata import version as _ver
@@ -1864,7 +1898,18 @@ class WyckoffTUI(App):
             ver = _ver("youngcan-wyckoff-analysis")
         except Exception:
             ver = "?"
-        parts = [f"Wyckoff CLI v{ver}"]
+        parts = []
+        active_tasks = self._bg_manager.active_tasks()
+        if active_tasks:
+            task = active_tasks[0]
+            stage = task.current_stage or "准备中"
+            elapsed = int(time.monotonic() - task.submitted_at)
+            parts.append(
+                f"[bold cyan]{_SPINNER[self._spinner_idx]} 后台任务: {task.tool_name} ({stage} · {elapsed}s)[/bold cyan]"
+            )
+        elif getattr(self, "_spinner_label", ""):
+            parts.append(f"[bold cyan]{_SPINNER[self._spinner_idx]} {self._spinner_label}[/bold cyan]")
+        parts.append(f"Wyckoff CLI v{ver}")
         prov = self._state.get("provider_name", "")
         model = self._state.get("model", "")
         if prov and model:
@@ -1879,6 +1924,13 @@ class WyckoffTUI(App):
 
     def _update_status(self) -> None:
         self.query_one("#status-bar", StatusBar).update(self._build_status_text())
+
+    def _tick_global_spinner(self) -> None:
+        active_tasks = self._bg_manager.active_tasks()
+        has_spinner = bool(getattr(self, "_spinner_label", "")) or bool(active_tasks)
+        if has_spinner:
+            self._spinner_idx = (self._spinner_idx + 1) % len(_SPINNER)
+            self._update_status()
 
     # ----- 工具确认 -----
 
@@ -2069,20 +2121,11 @@ class WyckoffTUI(App):
     def _start_spinner(self, label: str = "thinking") -> None:
         self._spinner_label = label
         self._spinner_idx = 0
-        log = self.query_one("#chat-log", ChatLog)
-        log.border_subtitle = f"{_SPINNER[0]} {label}"
-        if not hasattr(self, "_spinner_timer") or self._spinner_timer is None:
-            self._spinner_timer = self.set_interval(0.08, self._tick_spinner)
+        self._update_status()
 
     def _stop_spinner(self) -> None:
-        if hasattr(self, "_spinner_timer") and self._spinner_timer is not None:
-            self._spinner_timer.stop()
-            self._spinner_timer = None
-        self.query_one("#chat-log", ChatLog).border_subtitle = ""
-
-    def _tick_spinner(self) -> None:
-        self._spinner_idx = (self._spinner_idx + 1) % len(_SPINNER)
-        self.query_one("#chat-log", ChatLog).border_subtitle = f"{_SPINNER[self._spinner_idx]} {self._spinner_label}"
+        self._spinner_label = ""
+        self._update_status()
 
     # ----- 输入处理 -----
 

@@ -921,3 +921,71 @@ def test_loss_guard_mixed_sos_spring_passes_with_two_abc() -> None:
     # 但 spring 在 STRUCTURAL_L4_TRIGGERS，走 is_tradeable_l4 判定。
     # 此处验证不会被 "纯SOS确认强度不足" 拦截。
     assert reason != "纯SOS确认强度不足"
+
+
+def test_loss_guard_mainline_bypasses_observe_only() -> None:
+    """主线票(mainline_codes)应该绕过单LPS, 单TrendPB, 单EVR仅观察的限制。"""
+    # 1. 验证非主线票会被拦截为仅观察
+    lps_reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["lps"],
+        10.0,
+        "吸筹通道",
+        {},
+    )
+    assert lps_reason == "单LPS仅观察"
+
+    tpb_reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["trend_pullback"],
+        15.0,
+        "趋势延续",
+        {},
+    )
+    assert tpb_reason == "单TrendPB仅观察"
+
+    evr_reason = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["evr"],
+        6.0,
+        "主升通道",
+        {},
+    )
+    assert evr_reason == "单EVR仅观察"
+
+    # 2. 验证主线票能够成功绕过，不返回仅观察
+    lps_reason_mainline = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["lps"],
+        10.0,
+        "吸筹通道",
+        {},
+        mainline_codes={"000001"},
+    )
+    assert lps_reason_mainline != "单LPS仅观察"
+
+    tpb_reason_mainline = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["trend_pullback"],
+        15.0,
+        "趋势延续",
+        {},
+        mainline_codes={"000001"},
+    )
+    assert tpb_reason_mainline != "单TrendPB仅观察"
+
+    evr_reason_mainline = loss_guard_reason(
+        "000001",
+        "NEUTRAL",
+        ["evr"],
+        6.0,
+        "主升通道",
+        {},
+        mainline_codes={"000001"},
+    )
+    assert evr_reason_mainline != "单EVR仅观察"

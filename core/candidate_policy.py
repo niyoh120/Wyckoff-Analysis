@@ -185,6 +185,7 @@ def loss_guard_reason(
     df_map: dict[str, pd.DataFrame],
     *,
     config: CandidatePolicyConfig | None = None,
+    mainline_codes: set[str] | None = None,
 ) -> str:
     policy = _policy_config(config)
     if not policy.loss_guard_enabled:
@@ -200,15 +201,18 @@ def loss_guard_reason(
     weak_reason = _weak_confirmation_reason(keys, df_map.get(code), policy)
     if weak_reason:
         return weak_reason
+    is_mainline = bool(mainline_codes and code in mainline_codes)
     if "lps" in keys and not (keys & {"sos", "evr", "spring"}):
-        return _pure_lps_reason(regime_norm, trigger_score, policy)
+        return _pure_lps_reason(regime_norm, trigger_score, policy, is_mainline)
     if keys == {"trend_pullback"}:
-        return _pure_trend_pullback_reason(regime_norm, trigger_score, policy)
+        return _pure_trend_pullback_reason(regime_norm, trigger_score, policy, is_mainline)
     if "trend_pullback" in keys and regime_norm in WEAK_PULLBACK_REGIMES:
         if trigger_score < policy.mix_trendpb_min_score:
             return f"{regime_norm}弱趋势回踩"
     if keys and keys <= NAKED_RIGHT_SIDE_TRIGGERS:
-        reason = _naked_right_side_reason(regime_norm, keys, trigger_score, channel, df_map.get(code), policy)
+        reason = _naked_right_side_reason(
+            regime_norm, keys, trigger_score, channel, df_map.get(code), policy, is_mainline
+        )
         if reason:
             return reason
     return ""
@@ -247,8 +251,10 @@ def _springboard_met_count(df: pd.DataFrame, keys: set[str]) -> int:
     return max(counts) if counts else 0
 
 
-def _pure_lps_reason(regime_norm: str, trigger_score: float, config: CandidatePolicyConfig) -> str:
-    if config.pure_lps_observe_only:
+def _pure_lps_reason(
+    regime_norm: str, trigger_score: float, config: CandidatePolicyConfig, is_mainline: bool = False
+) -> str:
+    if config.pure_lps_observe_only and not is_mainline:
         return "单LPS仅观察"
     if trigger_score < config.pure_lps_min_score:
         return "低分LPS"
@@ -257,8 +263,10 @@ def _pure_lps_reason(regime_norm: str, trigger_score: float, config: CandidatePo
     return ""
 
 
-def _pure_trend_pullback_reason(regime_norm: str, trigger_score: float, config: CandidatePolicyConfig) -> str:
-    if config.pure_trendpb_observe_only:
+def _pure_trend_pullback_reason(
+    regime_norm: str, trigger_score: float, config: CandidatePolicyConfig, is_mainline: bool = False
+) -> str:
+    if config.pure_trendpb_observe_only and not is_mainline:
         return "单TrendPB仅观察"
     if trigger_score < config.pure_trendpb_min_score:
         return "低分TrendPB"
@@ -274,10 +282,11 @@ def _naked_right_side_reason(
     channel: str,
     df: pd.DataFrame | None,
     config: CandidatePolicyConfig,
+    is_mainline: bool = False,
 ) -> str:
     if regime_norm == "BEAR_REBOUND" and _is_pure_momentum_channel(channel):
         return f"{regime_norm}纯趋势追涨"
-    if keys == {"evr"} and config.pure_evr_observe_only:
+    if keys == {"evr"} and config.pure_evr_observe_only and not is_mainline:
         return "单EVR仅观察"
     if "sos" in keys and trigger_score < config.pure_sos_min_score:
         return "低分SOS"
@@ -308,6 +317,7 @@ def apply_loss_guard(
     channel_map: dict[str, str],
     df_map: dict[str, pd.DataFrame],
     config: CandidatePolicyConfig | None = None,
+    mainline_codes: set[str] | None = None,
 ) -> tuple[list[str], list[str], list[str], dict[str, int]]:
     kept: list[str] = []
     dropped: dict[str, int] = {}
@@ -320,6 +330,7 @@ def apply_loss_guard(
             str(channel_map.get(code, "") or ""),
             df_map,
             config=config,
+            mainline_codes=mainline_codes,
         )
         if reason:
             dropped[reason] = dropped.get(reason, 0) + 1

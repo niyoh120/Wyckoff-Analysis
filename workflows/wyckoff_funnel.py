@@ -292,6 +292,7 @@ def _apply_ai_post_filters(
     score_map: dict[str, float],
     ai_policy: dict,
 ) -> tuple[list[str], list[str], list[str]]:
+    mainline_codes = set(getattr(ctx, "mainline_tradeable_codes", None) or [])
     selected_for_ai, trend_selected, accum_selected, dropped = apply_loss_guard(
         selected_for_ai,
         trend_selected,
@@ -302,6 +303,7 @@ def _apply_ai_post_filters(
         channel_map=ctx.l2_channel_map,
         df_map=ctx.all_df_map,
         config=candidate_policy_config_from_env(),
+        mainline_codes=mainline_codes,
     )
     if dropped:
         ai_policy["loss_guard_dropped"] = dropped
