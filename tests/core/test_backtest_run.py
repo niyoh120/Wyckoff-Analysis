@@ -37,6 +37,7 @@ def _run_config():
             buy_friction_pct=0.5,
             sell_friction_pct=0.5,
             regime_filter=True,
+            execution_regime_gate="live",
             pending_mode="both",
             pending_merge_order="funnel_first",
             metrics_engine="legacy",
@@ -117,6 +118,7 @@ def test_execute_backtest_run_builds_summary_from_prepared_data(monkeypatch) -> 
     assert summary["concept_heat_loaded"] == 1
     assert summary["financial_map_loaded"] == 1
     assert summary["pending_confirmed_total"] == 3
+    assert summary["execution_regime_gate"] == "live"
     assert summary["cash_portfolio_styles_requested"] == "confirmation_only"
     assert len(calls["trade_dates"]) == 4
     assert calls["base_cfg"].trading_days == 320

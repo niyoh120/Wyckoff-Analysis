@@ -166,6 +166,12 @@ def _add_signal_args(parser: argparse.ArgumentParser) -> None:
         help="信号确认模式: off=直接用L4信号, only=仅用确认后信号, both=两者合并",
     )
     parser.add_argument(
+        "--execution-regime-gate",
+        choices=["live", "off", "neutral_only"],
+        default="live",
+        help="新开仓水温闸门: live=跟随实盘；off=仅研究对照；neutral_only=只允许NEUTRAL",
+    )
+    parser.add_argument(
         "--pending-merge-order",
         choices=["funnel_first", "confirmed_first"],
         default="funnel_first",

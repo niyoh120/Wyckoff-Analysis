@@ -88,6 +88,7 @@ class BacktestWorkflowRequest:
     buy_friction_pct: float = DEFAULT_BUY_FRICTION_PCT
     sell_friction_pct: float = DEFAULT_SELL_FRICTION_PCT
     regime_filter: bool = False
+    execution_regime_gate: str = "live"
     pending_mode: str = "both"
     pending_merge_order: str = "funnel_first"
     atr_period: int = DEFAULT_ATR_PERIOD
@@ -145,6 +146,7 @@ def _build_run_config(request: BacktestWorkflowRequest) -> BacktestRunConfig:
             buy_friction_pct=request.buy_friction_pct,
             sell_friction_pct=request.sell_friction_pct,
             regime_filter=request.regime_filter,
+            execution_regime_gate=request.execution_regime_gate,
             pending_mode=request.pending_mode,
             pending_merge_order=request.pending_merge_order,
             metrics_engine=request.metrics_engine,

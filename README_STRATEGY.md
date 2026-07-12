@@ -95,6 +95,10 @@ Backtest Grid 会随 `backtest-market-report-*` artifact 生成 `backtest_confir
 会自动尝试读取最近成功的 Backtest Grid 确认文件。确认口径偏保守：跨周期现金收益全正才 `pass`，
 存在弱周期全非正则 `fail`，其余保留 `review`。
 
+回测新开仓默认使用 `--execution-regime-gate live`，与尾盘/OMS 共用市场禁买集合；报告同时记录各水温
+交易日数量、被闸门拦截的信号日和候选数。研究闸门贡献时可显式使用 `off` 作为无执行闸门对照，或用
+`neutral_only` 验证只在 NEUTRAL 主战场开仓；对照模式只用于研究，不改变实盘漏斗。
+
 ### 外部观察验证
 
 人工关注、社区反馈或其它系统给出的股票可以通过 `external_seeds` 加入观察池。它们不属于正式候选来源，不会进入 AI 推荐池，只记录在 `external_seed_observations`：

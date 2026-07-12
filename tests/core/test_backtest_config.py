@@ -40,6 +40,7 @@ def _build_config(**overrides):
         "buy_friction_pct": 0.5,
         "sell_friction_pct": 0.5,
         "regime_filter": True,
+        "execution_regime_gate": "live",
         "pending_mode": "both",
         "pending_merge_order": "funnel_first",
         "metrics_engine": "legacy",
@@ -79,6 +80,7 @@ def test_build_backtest_run_config_normalizes_and_expands(tmp_path) -> None:
     assert config.replay.board == "main_chinext_star"
     assert config.replay.top_n == 4
     assert config.replay.regime_filter is False
+    assert config.replay.execution_regime_gate == "live"
     assert config.replay.exit.take_profit_pct == 18.0
     assert config.performance.cash_portfolio is True
     assert [c.portfolio_style for c in config.performance.cash_config_by_style] == [
@@ -109,6 +111,7 @@ def test_build_backtest_run_config_preserves_signal_weight_map() -> None:
         ({"entry_price_mode": "bad"}, "entry_price_mode 必须是 open / close / tail_1455"),
         ({"entry_price_fallback": "bad"}, "entry_price_fallback 必须是 close / skip / error"),
         ({"pending_mode": "bad"}, "pending_mode 必须是 off / only / both"),
+        ({"execution_regime_gate": "bad"}, "execution_regime_gate 必须是 live / off / neutral_only"),
         ({"hold_days": 0}, "hold_days 必须 >= 1"),
         ({"exit_config": _exit_config(stop_loss_pct=1.0)}, "stop_loss_pct 必须 <= 0，0 表示不设止损"),
         ({"buy_friction_pct": -0.1}, "buy_friction_pct / sell_friction_pct 必须 >= 0"),

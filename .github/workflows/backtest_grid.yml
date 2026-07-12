@@ -32,6 +32,15 @@ on:
           - "close"
           - "tail_1455"
         default: "open"
+      execution_regime_gate:
+        description: "新开仓水温闸门：live=实盘一致；off=研究对照；neutral_only=仅中性"
+        required: true
+        type: choice
+        options:
+          - "live"
+          - "off"
+          - "neutral_only"
+        default: "live"
 
 concurrency:
   group: backtest-grid-${{ github.ref }}
@@ -48,6 +57,7 @@ env:
   BT_SAMPLE_SIZE: "0"
   BT_TRADING_DAYS: "320"
   BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'open' }}
+  BT_EXECUTION_REGIME_GATE: ${{ inputs.execution_regime_gate || 'live' }}
   BT_INITIAL_CASH: "100000"
   BT_MAX_POSITIONS: "4"
   BT_PORTFOLIO_STYLES: "all_core"
@@ -368,6 +378,7 @@ jobs:
               --take-profit "${TP}" \
               --sltp-priority stop_first \
               --pending-mode both \
+              --execution-regime-gate "${BT_EXECUTION_REGIME_GATE}" \
               --pending-merge-order funnel_first \
               --trailing-stop "${TRAIL}" \
               --metrics-engine auto \

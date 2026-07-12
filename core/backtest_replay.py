@@ -24,6 +24,7 @@ from core.candidate_policy import CandidatePolicyConfig, candidate_score_value
 from core.candidate_tracks import candidate_entry_track
 from core.mainline_engine import MainlineEngineConfig
 from core.market_breadth import calc_market_breadth
+from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES, normalize_regime
 from core.signal_confirmation import PendingPool, score_springboard_abc
 from core.wyckoff_engine import FunnelConfig, FunnelResult, run_funnel
 
@@ -54,6 +55,7 @@ class BacktestReplayConfig:
     selection_mode: str
     full_formal_l4_max: int
     regime_filter: bool
+    execution_regime_gate: str
     pending_mode: str
     pending_merge_order: str
     abc_filter: bool
@@ -86,6 +88,9 @@ class BacktestReplayResult:
     pending_confirmed_total: int
     entry_price_missing_skipped: int
     ohlc_lookup_cache: dict[str, dict[date, tuple[float, float, float, float]]]
+    regime_day_counts: dict[str, int] = field(default_factory=dict)
+    regime_blocked_signal_days: int = 0
+    regime_blocked_candidates: int = 0
 
 
 @dataclass(frozen=True)
@@ -165,6 +170,8 @@ def replay_backtest(
     intraday_cache: dict = {}
     pending_pool = PendingPool() if config.pending_mode != "off" else None
     eval_days = signal_days = pending_total = missing_skipped = 0
+    blocked_signal_days = blocked_candidates = 0
+    regime_day_counts: dict[str, int] = {}
     max_idx = len(trade_dates) - config.hold_days - 1
     for idx in range(max_idx):
         ctx = _build_day_context(
@@ -173,15 +180,40 @@ def replay_backtest(
         if ctx is None:
             continue
         eval_days += 1
+        regime = normalize_regime(ctx.regime)
+        regime_day_counts[regime] = regime_day_counts.get(regime, 0) + 1
         selected, confirmed_count = _select_ranked_codes(ctx, pending_pool, sector_map, config)
         pending_total += confirmed_count
+        if selected is not None and not _execution_regime_allows(ctx.regime, config.execution_regime_gate):
+            blocked_signal_days += 1
+            blocked_candidates += len(selected.codes)
+            selected = None
         if selected is not None:
             signal_days += 1
             missing_skipped += _append_trade_records(
                 records, ctx, selected, all_df_map, trade_dates, name_map, ohlc_cache, intraday_cache, config
             )
         _report_progress(idx, max_idx, len(records), progress)
-    return BacktestReplayResult(records, eval_days, signal_days, pending_total, missing_skipped, ohlc_cache)
+    return BacktestReplayResult(
+        records,
+        eval_days,
+        signal_days,
+        pending_total,
+        missing_skipped,
+        ohlc_cache,
+        regime_day_counts,
+        blocked_signal_days,
+        blocked_candidates,
+    )
+
+
+def _execution_regime_allows(regime: str, mode: str) -> bool:
+    normalized = normalize_regime(regime)
+    if mode == "off":
+        return True
+    if mode == "neutral_only":
+        return normalized == "NEUTRAL"
+    return normalized not in EXECUTE_BLOCK_NEW_BUY_REGIMES
 
 
 def _build_day_context(

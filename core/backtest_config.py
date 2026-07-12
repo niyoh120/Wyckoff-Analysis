@@ -29,6 +29,7 @@ class BacktestRunInput:
     buy_friction_pct: float
     sell_friction_pct: float
     regime_filter: bool
+    execution_regime_gate: str
     pending_mode: str
     pending_merge_order: str
     metrics_engine: str
@@ -129,6 +130,8 @@ def _validate_run_input(
         pending_merge_order,
         params.exit_config,
     )
+    if str(params.execution_regime_gate or "live").strip().lower() not in {"live", "off", "neutral_only"}:
+        raise ValueError("execution_regime_gate 必须是 live / off / neutral_only")
     _validate_dates_and_trade_params(
         params.start_dt, params.end_dt, params.hold_days, params.exit_config, params.trailing_activate_pct
     )
@@ -236,6 +239,7 @@ def _replay_config(
         selection_mode=params.selection_mode,
         full_formal_l4_max=params.full_formal_l4_max,
         regime_filter=False,
+        execution_regime_gate=str(params.execution_regime_gate or "live").strip().lower(),
         pending_mode=pending_mode,
         pending_merge_order=pending_merge_order,
         abc_filter=bool(params.abc_filter),

@@ -53,6 +53,7 @@ def _config() -> BacktestReplayConfig:
         selection_mode="all_formal_l4",
         full_formal_l4_max=10,
         regime_filter=False,
+        execution_regime_gate="off",
         pending_mode="off",
         pending_merge_order="funnel_first",
         abc_filter=False,
@@ -158,6 +159,38 @@ def test_replay_backtest_ignores_deprecated_regime_filter(monkeypatch) -> None:
     )
 
     assert {record.code for record in replay.records} == {"000001", "000002"}
+
+
+def test_replay_backtest_live_execution_gate_blocks_risk_on(monkeypatch) -> None:
+    monkeypatch.setattr("core.backtest_replay.calc_market_breadth", lambda _df_map: {})
+    monkeypatch.setattr(
+        "core.backtest_replay.analyze_benchmark_and_tune_cfg", lambda *_args, **_kwargs: {"regime": "RISK_ON"}
+    )
+    monkeypatch.setattr("core.backtest_replay.run_funnel", lambda **_kwargs: _result())
+    cfg = FunnelConfig(trading_days=3)
+    cfg.ma_long = 2
+
+    replay = replay_backtest(
+        all_df_map={"000001": _hist()},
+        bench_df=_hist(),
+        trade_dates=[date(2026, 1, day) for day in range(1, 6)],
+        name_map={"000001": "平安银行"},
+        market_cap_map={},
+        sector_map={},
+        base_cfg=cfg,
+        config=replace(_config(), execution_regime_gate="live"),
+    )
+
+    assert replay.records == []
+    assert replay.regime_day_counts == {"RISK_ON": 2}
+    assert replay.regime_blocked_signal_days == 2
+    assert replay.regime_blocked_candidates == 2
+
+
+def test_replay_backtest_neutral_only_gate_blocks_caution(monkeypatch) -> None:
+    assert replay_mod._execution_regime_allows("NEUTRAL", "neutral_only") is True
+    assert replay_mod._execution_regime_allows("CAUTION", "neutral_only") is False
+    assert replay_mod._execution_regime_allows("RISK_ON", "off") is True
 
 
 def test_confirmed_signals_dedupes_code_and_keeps_best_score() -> None:

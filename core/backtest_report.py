@@ -60,6 +60,7 @@ def _overview_lines(summary: dict) -> list[str]:
         f"- 元数据口径: {_meta_mode(summary)}",
         f"- 信号确认模式: {summary.get('pending_mode')}",
         _regime_filter_line(summary),
+        _execution_regime_gate_line(summary),
         _entry_price_mode_line(summary),
         f"- 交易风格: {_style_text(summary)}",
         _metrics_engine_line(summary),
@@ -90,6 +91,14 @@ def _regime_filter_line(summary: dict) -> str:
     if summary.get("regime_filter_note") == "deprecated_live_aligned_noop":
         return "- 大盘水温仓控: 关闭（旧回测开关已废弃，跟随实盘漏斗候选口径）"
     return f"- 大盘水温仓控: {'开启' if summary.get('regime_filter') else '关闭'}"
+
+
+def _execution_regime_gate_line(summary: dict) -> str:
+    mode = str(summary.get("execution_regime_gate") or "live")
+    labels = {"live": "实盘一致", "off": "关闭（研究对照）", "neutral_only": "仅 NEUTRAL 可开仓"}
+    blocked_days = int(summary.get("regime_blocked_signal_days") or 0)
+    blocked_candidates = int(summary.get("regime_blocked_candidates") or 0)
+    return f"- 执行水温闸门: {labels.get(mode, mode)}；拦截 {blocked_days} 个信号日 / {blocked_candidates} 个候选"
 
 
 def _portfolio_risk_lines(summary: dict) -> list[str]:

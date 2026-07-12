@@ -67,6 +67,7 @@ def _args(tmp_path: Path, **overrides) -> Namespace:
         "buy_friction_pct": 0.0,
         "sell_friction_pct": 0.0,
         "regime_filter": False,
+        "execution_regime_gate": "live",
         "pending_mode": "both",
         "pending_merge_order": "funnel_first",
         "atr_period": 14,
