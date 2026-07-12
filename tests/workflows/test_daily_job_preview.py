@@ -21,10 +21,11 @@ def test_preview_only_skips_persistence_and_keeps_llm_input_path(monkeypatch, tm
     def forbidden_write(*_args, **_kwargs):
         raise AssertionError("preview-only job must not write persistence tables")
 
-    def fake_run_funnel(webhook_url, *, notify=True, return_details=False):
+    def fake_run_funnel(webhook_url, *, notify=True, return_details=False, include_financial_metrics=True):
         captured["step2_webhook"] = webhook_url
         captured["step2_notify"] = notify
         captured["step2_return_details"] = return_details
+        captured["step2_financial_metrics"] = include_financial_metrics
         return (
             True,
             [{"code": "000001", "name": "平安银行", "tag": "SOS"}],
@@ -76,6 +77,7 @@ def test_preview_only_skips_persistence_and_keeps_llm_input_path(monkeypatch, tm
     monkeypatch.setattr(signal_confirmation, "run_step2_5", fake_run_step2_5)
 
     assert daily_job.main() == 0
+    assert captured["step2_financial_metrics"] is False
     assert captured["step2_webhook"] == ""
     assert captured["step2_notify"] is False
     assert captured["step2_return_details"] is True

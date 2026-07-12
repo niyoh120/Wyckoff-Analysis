@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 from workflows.daily_job_common import log_line
 from workflows.daily_job_runtime import DailyJobConfig
 
@@ -10,7 +12,7 @@ def load_daily_job_steps() -> tuple[object, object]:
     from workflows.step3_batch_report import run as run_step3
     from workflows.wyckoff_funnel import run as run_step2
 
-    return run_step2, run_step3
+    return partial(run_step2, include_financial_metrics=False), run_step3
 
 
 def log_job_start(cfg: DailyJobConfig) -> None:

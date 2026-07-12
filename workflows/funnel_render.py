@@ -277,6 +277,7 @@ def _data_quality_report_lines(metrics: dict) -> list[str]:
     reasons = ", ".join(quality.get("reasons") or []) or "无"
     source_counts = quality.get("ohlcv_source_counts") or {}
     sources = ", ".join(f"{source}={count}" for source, count in source_counts.items()) or "unknown=0"
+    financial_coverage = _percent(coverage.get("financial")) if quality.get("financial_requested") else "未纳入量价漏斗"
     rejection_parts = []
     for layer, item in (metrics.get("layer_rejections") or {}).items():
         label = str(layer).replace("layer", "L")
@@ -286,7 +287,7 @@ def _data_quality_report_lines(metrics: dict) -> list[str]:
         )
     return [
         f"**数据质量**: {status}/{readiness} | OHLCV {_percent(coverage.get('ohlcv'))} | "
-        f"市值 {_percent(coverage.get('market_cap'))} | 财务 {_percent(coverage.get('financial'))} | 原因 {reasons}",
+        f"市值 {_percent(coverage.get('market_cap'))} | 财务 {financial_coverage} | 原因 {reasons}",
         f"**样本与来源**: RPS universe={int(metrics.get('rps_universe_count') or 0)} | OHLCV {sources}",
         f"**逐层淘汰**: {'；'.join(rejection_parts) or '无'}",
     ]

@@ -69,6 +69,8 @@ def test_x_summary_uses_llm_and_normalizes_title() -> None:
     assert calls[0]["provider"] == "efficiency"
     assert calls[0]["max_output_tokens"] == 1600
     assert "000001" in calls[0]["user_message"]
+    assert "正文 350-550 字" in calls[0]["user_message"]
+    assert "确认条件或主要风险" in calls[0]["user_message"]
 
 
 def test_x_summary_llm_failure_keeps_fallback() -> None:

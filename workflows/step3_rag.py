@@ -51,7 +51,14 @@ def _run_rag_veto(selected_df: pd.DataFrame, rag_status: dict) -> Step3RagResult
 def _collect_step3_rag_results(veto_map: dict) -> tuple[list[str], list[str], dict[str, int]]:
     vetoed_codes: list[str] = []
     rag_veto_lines: list[str] = []
-    stats = {"scanned": len(veto_map), "external_ok": 0, "relevant": 0, "semantic_checked": 0, "errors": 0}
+    stats = {
+        "scanned": len(veto_map),
+        "external_ok": 0,
+        "relevant": 0,
+        "keyword_hits": 0,
+        "semantic_checked": 0,
+        "errors": 0,
+    }
     for code, result in veto_map.items():
         _update_rag_stats(stats, result)
         hit_text = "、".join(result.hits[:5]) if result.hits else "-"
@@ -67,6 +74,8 @@ def _update_rag_stats(stats: dict[str, int], result) -> None:
         stats["external_ok"] += 1
     if int(result.relevant_result_count or 0) > 0:
         stats["relevant"] += 1
+    if result.hits:
+        stats["keyword_hits"] += 1
     if bool(result.semantic_checked):
         stats["semantic_checked"] += 1
     if result.error:
@@ -103,7 +112,8 @@ def _build_step3_rag_summary_lines(stats: dict[str, int], veto_count: int) -> li
         f"- 语义模型: {RAG_SEMANTIC_MODEL or '未配置'}",
         f"- 扫描股票: {scanned}",
         f"- 新闻拉取成功: {stats['external_ok']}/{scanned}" if scanned else "- 新闻拉取成功: 0/0",
-        f"- 命中负面关键词: {stats['relevant']}/{scanned}" if scanned else "- 命中负面关键词: 0/0",
+        f"- 相关新闻覆盖: {stats['relevant']}/{scanned}" if scanned else "- 相关新闻覆盖: 0/0",
+        f"- 命中负面关键词: {stats['keyword_hits']}/{scanned}" if scanned else "- 命中负面关键词: 0/0",
         f"- 语义二判执行: {stats['semantic_checked']}",
         f"- 拉取异常: {stats['errors']}",
         f"- veto 剔除: {veto_count}",

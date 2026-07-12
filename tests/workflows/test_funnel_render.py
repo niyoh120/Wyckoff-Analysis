@@ -34,6 +34,7 @@ def test_data_quality_report_lines_show_coverages_sources_rps_and_rejections() -
                 "status": "degraded",
                 "trade_readiness": "observe_only",
                 "reasons": ["financial_coverage<90%"],
+                "financial_requested": True,
                 "coverage": {"ohlcv": 0.98, "market_cap": 0.96, "financial": 0.75},
                 "ohlcv_source_counts": {"tickflow": 70, "tushare": 28},
             },
@@ -51,6 +52,25 @@ def test_data_quality_report_lines_show_coverages_sources_rps_and_rejections() -
     assert "tickflow=70" in lines[1]
     assert "RPS universe=98" in lines[1]
     assert "L1:100→80" in lines[2]
+
+
+def test_data_quality_report_marks_financials_not_applicable_for_price_volume_run() -> None:
+    from workflows.funnel_render import _data_quality_report_lines
+
+    lines = _data_quality_report_lines(
+        {
+            "data_quality": {
+                "status": "normal",
+                "trade_readiness": "ready",
+                "reasons": [],
+                "financial_requested": False,
+                "coverage": {"ohlcv": 1.0, "market_cap": 1.0, "financial": 0.0},
+            }
+        }
+    )
+
+    assert "财务 未纳入量价漏斗" in lines[0]
+    assert "财务 0.0%" not in lines[0]
 
 
 def test_execution_decision_line_waits_for_ai_and_oms_confirmation() -> None:

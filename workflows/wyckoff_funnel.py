@@ -496,7 +496,11 @@ def _build_funnel_metrics(inputs: FunnelMetricsInputs) -> dict:
     metrics = {
         **_pool_fetch_metrics(inputs),
         **_data_quality_metrics(inputs),
-        **_layer_metrics(inputs.layers, total_symbols=inputs.layers.rps_universe_count),
+        **_layer_metrics(
+            inputs.layers,
+            total_symbols=inputs.layers.rps_universe_count,
+            financial_requested=inputs.financial_metrics_requested,
+        ),
         **_theme_metrics(inputs, ranked_l3_symbols),
         **_etf_metrics(inputs),
         **_candidate_metrics(inputs, ranked_l3_symbols),
@@ -559,7 +563,7 @@ def _data_quality_metrics(inputs: FunnelMetricsInputs) -> dict:
     }
 
 
-def _layer_metrics(layers: FunnelLayerOutputs, *, total_symbols: int) -> dict:
+def _layer_metrics(layers: FunnelLayerOutputs, *, total_symbols: int, financial_requested: bool) -> dict:
     return {
         "layer1": len(layers.l1_passed),
         "layer2": len(layers.l2_passed),
@@ -587,6 +591,7 @@ def _layer_metrics(layers: FunnelLayerOutputs, *, total_symbols: int) -> dict:
             l2_symbols=layers.l2_passed,
             l3_symbols=layers.l3_passed,
             triggers=layers.triggers,
+            financial_requested=financial_requested,
         ),
     }
 

@@ -62,6 +62,7 @@ def build_layer_rejections(
     l2_symbols: list[str],
     l3_symbols: list[str],
     triggers: dict[str, list[tuple[str, float]]],
+    financial_requested: bool = True,
 ) -> dict[str, dict[str, int | str]]:
     trigger_symbols = {str(code).strip() for rows in triggers.values() for code, _score in rows if str(code).strip()}
     stage_counts = (
@@ -70,7 +71,7 @@ def build_layer_rejections(
         ("layer3", len(l2_symbols), len(l3_symbols)),
         ("layer4", len(l3_symbols), len(trigger_symbols)),
     )
-    return {
+    result = {
         layer: {
             "input": input_count,
             "passed": passed_count,
@@ -79,6 +80,9 @@ def build_layer_rejections(
         }
         for layer, input_count, passed_count in stage_counts
     }
+    if not financial_requested:
+        result["layer1"]["reason"] = "ST/板块/市值/价格/流动性准入"
+    return result
 
 
 def _quality_reasons(coverage: dict[str, float], financial_requested: bool) -> list[str]:
