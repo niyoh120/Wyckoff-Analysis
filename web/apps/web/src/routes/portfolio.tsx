@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Loader2, LayoutDashboard, Plus, Trash2 } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Loader2, LayoutDashboard, Plus, Save, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { WyckoffLoading } from '@/components/loading'
@@ -31,6 +31,8 @@ interface Portfolio {
   free_cash: number
   positions: Position[]
 }
+
+const EMPTY_PORTFOLIO: Portfolio = { free_cash: 0, positions: [] }
 
 interface PositionPnL {
   code: string
@@ -73,37 +75,59 @@ interface PortfolioHistoryPayload {
   }
 }
 
-async function fetchPortfolio(userId: string): Promise<Portfolio> {
-  const portfolioId = `USER_LIVE:${userId}`
-  const [{ data: pf }, { data: positions }] = await Promise.all([
-    supabase.from('portfolios').select('free_cash').eq('portfolio_id', portfolioId).single(),
-    supabase
-      .from('portfolio_positions')
-      .select('code, name, shares, cost_price, buy_dt')
-      .eq('portfolio_id', portfolioId)
-      .order('buy_dt', { ascending: false }),
-  ])
-  return { free_cash: Number(pf?.free_cash || 0), positions: positions || [] }
+async function portfolioApi(method: 'GET' | 'PUT', portfolio?: Portfolio): Promise<Portfolio> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) throw new Error('登录已失效，请重新登录')
+  const response = await fetch('/api/portfolio', {
+    method,
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      ...(portfolio ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(portfolio ? { body: JSON.stringify(portfolio) } : {}),
+  })
+  const payload = await response.json().catch(() => ({})) as Portfolio & { error?: string }
+  if (!response.ok) throw new Error(payload.error || '持仓保存失败')
+  return payload
 }
 
 export function PortfolioPage() {
+  const userId = useAuthStore((s) => s.user?.id)
+  return <PortfolioPageContent key={userId || 'anonymous'} />
+}
+
+function PortfolioPageContent() {
   const user = useAuthStore((s) => s.user)
   const portfolioData = usePortfolioData(user?.id)
   const fullDiag = useFullDiagnosisRunner()
-  const [manualPortfolio, setManualPortfolio] = useState<Portfolio>({ free_cash: 0, positions: [] })
+  const [manualPortfolio, setManualPortfolio] = useState<Portfolio>(EMPTY_PORTFOLIO)
+  const [databaseDraft, setDatabaseDraft] = useState<Portfolio>(EMPTY_PORTFOLIO)
   const source = portfolioData.isWhitelisted ? 'database' : 'manual'
   usePortfolioHistory(user?.id, fullDiag.result, source, fullDiag.model)
 
-  if (portfolioData.isLoading) return <WyckoffLoading />
+  useEffect(() => {
+    if (portfolioData.isWhitelisted && portfolioData.portfolio) setDatabaseDraft(portfolioData.portfolio)
+  }, [portfolioData.isWhitelisted, portfolioData.portfolio])
 
-  const portfolio = portfolioData.isWhitelisted ? portfolioData.portfolio : manualPortfolio
+  if (portfolioData.isLoading) return <WyckoffLoading />
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6">
       <PageHeader />
       {fullDiag.error && <UpgradeNotice message={fullDiag.error} />}
       {portfolioData.isWhitelisted ? (
-        <Holdings portfolio={portfolio} fullLoading={fullDiag.loading} progress={fullDiag.progress} onFullDiagnosis={() => fullDiag.run(portfolio)} />
+        <ManualInput
+          portfolio={databaseDraft}
+          fullLoading={fullDiag.loading}
+          progress={fullDiag.progress}
+          onChange={(draft) => { portfolioData.resetSave(); setDatabaseDraft(draft) }}
+          onDiagnosis={() => { void portfolioData.save(databaseDraft).then((saved) => fullDiag.run(saved)).catch(() => undefined) }}
+          onSave={() => { void portfolioData.save(databaseDraft).catch(() => undefined) }}
+          saving={portfolioData.isSaving}
+          saveError={portfolioData.saveError}
+          saveSuccess={portfolioData.saveSuccess}
+          databaseMode
+        />
       ) : (
         <ManualInput portfolio={manualPortfolio} fullLoading={fullDiag.loading} progress={fullDiag.progress} onChange={setManualPortfolio} onDiagnosis={() => fullDiag.run(manualPortfolio)} />
       )}
@@ -116,14 +140,23 @@ function usePortfolioData(userId: string | undefined) {
   const whitelist = useWhitelistGate(userId)
   const portfolio = useQuery({
     queryKey: ['portfolio', userId],
-    queryFn: () => fetchPortfolio(userId!),
+    queryFn: () => portfolioApi('GET'),
     enabled: !!userId && whitelist.data === true,
+  })
+  const saveMutation = useMutation({
+    mutationFn: (draft: Portfolio) => portfolioApi('PUT', draft),
+    onSuccess: (saved) => portfolio.refetch().then(() => saved),
   })
   const isWhitelisted = whitelist.data === true
   return {
     isWhitelisted,
     isLoading: whitelist.isLoading || (isWhitelisted && portfolio.isLoading),
-    portfolio: portfolio.data || { free_cash: 0, positions: [] },
+    portfolio: portfolio.data || EMPTY_PORTFOLIO,
+    save: (draft: Portfolio) => saveMutation.mutateAsync(draft),
+    isSaving: saveMutation.isPending,
+    saveError: saveMutation.error instanceof Error ? saveMutation.error.message : '',
+    saveSuccess: saveMutation.isSuccess,
+    resetSave: () => saveMutation.reset(),
   }
 }
 
@@ -346,54 +379,12 @@ function PageHeader() {
   )
 }
 
-function Holdings({
-  portfolio,
-  fullLoading,
-  progress,
-  onFullDiagnosis,
-}: {
-  portfolio: Portfolio
-  fullLoading: boolean
-  progress: DiagProgress | null
-  onFullDiagnosis: () => void
-}) {
-  const { t } = usePreferences()
-  const totalCost = portfolio.positions.reduce((sum, p) => sum + Number(p.shares || 0) * Number(p.cost_price || 0), 0)
-  if (portfolio.positions.length === 0) return <EmptyBox text={t('portfolio.emptyDb')} />
-
-  return (
-    <section className="rounded-lg border border-border">
-      <div className="flex items-center justify-between border-b border-border bg-muted/30 pr-4">
-        <div className="grid flex-1 grid-cols-3 text-sm">
-          <Metric label={t('portfolio.freeCash')} value={`¥${portfolio.free_cash.toLocaleString()}`} />
-          <Metric label={t('portfolio.positionCost')} value={`¥${totalCost.toLocaleString()}`} />
-          <Metric label={t('portfolio.positionCount')} value={String(portfolio.positions.length)} />
-        </div>
-        <button
-          type="button"
-          disabled={fullLoading}
-          onClick={onFullDiagnosis}
-          className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {fullLoading ? <Loader2 size={16} className="animate-spin" /> : <LayoutDashboard size={16} />}
-          {fullLoading ? t('portfolio.fullLoading') : t('portfolio.fullDiagnosis')}
-        </button>
-      </div>
-      {progress && <DiagProgressBar progress={progress} />}
-      <div className="divide-y divide-border">
-        {portfolio.positions.map((position) => (
-          <HoldingRow key={String(position.code)} position={position} />
-        ))}
-      </div>
-    </section>
-  )
-}
-
 function ManualInput({
-  portfolio, fullLoading, progress, onChange, onDiagnosis,
+  portfolio, fullLoading, progress, onChange, onDiagnosis, onSave, saving = false, saveError = '', saveSuccess = false, databaseMode = false,
 }: {
   portfolio: Portfolio; fullLoading: boolean; progress: DiagProgress | null
   onChange: (p: Portfolio) => void; onDiagnosis: () => void
+  onSave?: () => void; saving?: boolean; saveError?: string; saveSuccess?: boolean; databaseMode?: boolean
 }) {
   const { t } = usePreferences()
   const addPosition = () => onChange({ ...portfolio, positions: [...portfolio.positions, { code: '', name: null, shares: 0, cost_price: 0, buy_dt: null }] })
@@ -408,11 +399,21 @@ function ManualInput({
           <label className="text-sm font-medium">{t('portfolio.freeCash')}</label>
           <input type="number" min={0} value={portfolio.free_cash || ''} onChange={(e) => onChange({ ...portfolio, free_cash: Number(e.target.value) || 0 })} className="block w-40 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none" placeholder="0" />
         </div>
-        <button type="button" disabled={fullLoading || !canDiagnose} onClick={onDiagnosis} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
-          {fullLoading ? <Loader2 size={16} className="animate-spin" /> : <LayoutDashboard size={16} />}
-          {fullLoading ? t('portfolio.fullLoading') : t('portfolio.fullDiagnosis')}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {databaseMode && onSave && (
+            <button type="button" disabled={saving || fullLoading || !canDiagnose} onClick={onSave} className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50">
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+              {saving ? t('portfolio.saving') : t('portfolio.save')}
+            </button>
+          )}
+          <button type="button" disabled={fullLoading || saving || !canDiagnose} onClick={onDiagnosis} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+            {fullLoading || saving ? <Loader2 size={16} className="animate-spin" /> : <LayoutDashboard size={16} />}
+            {fullLoading ? t('portfolio.fullLoading') : databaseMode ? t('portfolio.saveAndDiagnose') : t('portfolio.fullDiagnosis')}
+          </button>
+        </div>
       </div>
+      {saveError && <div className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-sm text-destructive">{saveError}</div>}
+      {saveSuccess && !saveError && <div className="border-b border-emerald-500/30 bg-emerald-500/5 px-4 py-2 text-sm text-emerald-700 dark:text-emerald-300">{t('portfolio.saved')}</div>}
       {progress && <DiagProgressBar progress={progress} />}
       <div className="divide-y divide-border">
         {portfolio.positions.map((pos, i) => (
@@ -467,30 +468,6 @@ function DiagProgressBar({ progress }: { progress: DiagProgress }) {
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-border">
         <div className="h-full rounded-full bg-indigo-500 transition-all duration-300" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  )
-}
-
-function HoldingRow({ position }: { position: Position }) {
-  const { t } = usePreferences()
-  return (
-    <div className="grid grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr] items-center gap-3 px-4 py-3 text-sm">
-      <div className="min-w-0">
-        <div className="truncate font-medium">{position.name || normalizeCode(position.code)}</div>
-        <div className="mt-0.5 font-mono text-xs text-muted-foreground">{normalizeCode(position.code)}</div>
-      </div>
-      <div>
-        <div className="text-xs text-muted-foreground">{t('portfolio.shares')}</div>
-        <div>{Number(position.shares || 0).toLocaleString()}</div>
-      </div>
-      <div>
-        <div className="text-xs text-muted-foreground">{t('portfolio.costPrice')}</div>
-        <div>¥{Number(position.cost_price || 0).toFixed(2)}</div>
-      </div>
-      <div>
-        <div className="text-xs text-muted-foreground">{t('portfolio.buyDate')}</div>
-        <div>{position.buy_dt || '-'}</div>
       </div>
     </div>
   )
@@ -652,19 +629,6 @@ function PnLTable({ positions, stats }: { positions: PositionPnL[]; stats: FullD
       </table>
     </div>
   )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="px-4 py-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 font-semibold">{value}</div>
-    </div>
-  )
-}
-
-function EmptyBox({ text }: { text: string }) {
-  return <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">{text}</div>
 }
 
 function buildFullPortfolioPrompt(entries: PositionEntry[], freeCash: number): string {

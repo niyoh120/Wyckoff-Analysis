@@ -1,12 +1,164 @@
+import { createClient } from '@supabase/supabase-js'
 import { Hono } from 'hono'
-import { authMiddleware } from '../middleware/auth'
+import { z } from 'zod'
+import { authMiddleware, type AuthContext } from '../middleware/auth'
 import type { Env } from '../index'
 
-export const portfolioRoutes = new Hono<{ Bindings: Env }>()
+type PortfolioBindings = { Bindings: Env; Variables: { auth: AuthContext } }
+
+const POSITION_SCHEMA = z.object({
+  code: z.string().trim().min(1).max(24),
+  name: z.string().trim().max(80).nullable(),
+  shares: z.number().int().positive().finite(),
+  cost_price: z.number().positive().finite(),
+  buy_dt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+})
+
+const PORTFOLIO_SCHEMA = z.object({
+  free_cash: z.number().min(0).finite(),
+  positions: z.array(POSITION_SCHEMA).max(100),
+})
+
+export const portfolioRoutes = new Hono<PortfolioBindings>()
 
 portfolioRoutes.use('*', authMiddleware)
 
 portfolioRoutes.get('/', async (c) => {
-  // Phase 2: load portfolio from Supabase
-  return c.json({ message: 'Portfolio endpoint - Phase 2' })
+  const auth = c.get('auth')
+  const supabase = createUserSupabase(c.env, auth.accessToken)
+  if (!(await isActiveWhitelistUser(supabase, auth.userId))) return c.json({ error: 'Whitelist required' }, 403)
+  const result = await loadPortfolio(supabase, auth.userId)
+  return result.error ? c.json({ error: result.error }, 500) : c.json(result.portfolio)
 })
+
+portfolioRoutes.put('/', async (c) => {
+  const auth = c.get('auth')
+  const body = parsePortfolioInput(await c.req.json().catch(() => null))
+  if ('error' in body) return c.json(body, 400)
+
+  const supabase = createUserSupabase(c.env, auth.accessToken)
+  if (!(await isActiveWhitelistUser(supabase, auth.userId))) return c.json({ error: 'Whitelist required' }, 403)
+  const error = await savePortfolio(supabase, auth.userId, body.data)
+  if (error) return c.json({ error }, 500)
+  const result = await loadPortfolio(supabase, auth.userId)
+  return result.error ? c.json({ error: result.error }, 500) : c.json(result.portfolio)
+})
+
+export function parsePortfolioInput(raw: unknown):
+  | { data: z.infer<typeof PORTFOLIO_SCHEMA> }
+  | { error: string; details?: unknown } {
+  const parsed = PORTFOLIO_SCHEMA.safeParse(raw)
+  if (!parsed.success) return { error: 'Invalid portfolio', details: parsed.error.flatten() }
+  const codes = parsed.data.positions.map((item) => item.code.toUpperCase())
+  if (new Set(codes).size !== codes.length) return { error: 'Duplicate position code' }
+  return { data: parsed.data }
+}
+
+function createUserSupabase(env: Env, accessToken: string) {
+  const url = env.SUPABASE_URL || env.VITE_SUPABASE_URL
+  const key = env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY
+  if (!url || !key) throw new Error('Supabase env is missing')
+  return createClient(url, key, { global: { headers: { Authorization: `Bearer ${accessToken}` } } })
+}
+
+function compactToday(): string {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, '')
+}
+
+async function isActiveWhitelistUser(supabase: ReturnType<typeof createUserSupabase>, userId: string): Promise<boolean> {
+  const { data, error } = await supabase.from('whitelist').select('expire_date').eq('user_id', userId).limit(1)
+  if (error || !Array.isArray(data)) return false
+  return data.some((row) => {
+    const expiry = String(row.expire_date || '').trim()
+    return !expiry || (/^\d{8}$/.test(expiry) && expiry >= compactToday())
+  })
+}
+
+async function loadPortfolio(supabase: ReturnType<typeof createUserSupabase>, userId: string) {
+  const portfolioId = `USER_LIVE:${userId}`
+  const [portfolioResult, positionsResult] = await Promise.all([
+    supabase.from('portfolios').select('free_cash').eq('portfolio_id', portfolioId).maybeSingle(),
+    supabase.from('portfolio_positions').select('code, name, shares, cost_price, buy_dt').eq('portfolio_id', portfolioId).order('buy_dt', { ascending: false }),
+  ])
+  const error = portfolioResult.error?.message || positionsResult.error?.message || ''
+  return {
+    error,
+    portfolio: {
+      free_cash: Number(portfolioResult.data?.free_cash || 0),
+      positions: positionsResult.data || [],
+    },
+  }
+}
+
+async function savePortfolio(
+  supabase: ReturnType<typeof createUserSupabase>,
+  userId: string,
+  portfolio: z.infer<typeof PORTFOLIO_SCHEMA>,
+): Promise<string> {
+  const portfolioId = `USER_LIVE:${userId}`
+  const cashError = await saveFreeCash(supabase, portfolioId, portfolio.free_cash)
+  if (cashError) return cashError
+
+  const { data: existing, error: readError } = await supabase
+    .from('portfolio_positions')
+    .select('code')
+    .eq('portfolio_id', portfolioId)
+  if (readError) return readError.message
+  const wanted = new Set(portfolio.positions.map((item) => item.code.toUpperCase()))
+  const removed = (existing || []).map((item) => String(item.code)).filter((code) => !wanted.has(code.toUpperCase()))
+  const deleteError = await deleteRemovedPositions(supabase, portfolioId, removed)
+  if (deleteError) return deleteError
+
+  for (const position of portfolio.positions) {
+    const error = await savePosition(supabase, portfolioId, { ...position, code: position.code.toUpperCase() })
+    if (error) return error
+  }
+  return ''
+}
+
+async function saveFreeCash(
+  supabase: ReturnType<typeof createUserSupabase>,
+  portfolioId: string,
+  freeCash: number,
+): Promise<string> {
+  const updated = await supabase.from('portfolios').update({ free_cash: freeCash }).eq('portfolio_id', portfolioId).select('portfolio_id')
+  if (updated.error) return updated.error.message
+  if ((updated.data || []).length > 0) return ''
+  const inserted = await supabase.from('portfolios').insert({ portfolio_id: portfolioId, free_cash: freeCash })
+  return inserted.error?.message || ''
+}
+
+async function deleteRemovedPositions(
+  supabase: ReturnType<typeof createUserSupabase>,
+  portfolioId: string,
+  codes: string[],
+): Promise<string> {
+  for (const code of codes) {
+    const result = await supabase.from('portfolio_positions').delete().eq('portfolio_id', portfolioId).eq('code', code)
+    if (result.error) return result.error.message
+  }
+  return ''
+}
+
+async function savePosition(
+  supabase: ReturnType<typeof createUserSupabase>,
+  portfolioId: string,
+  position: z.infer<typeof POSITION_SCHEMA>,
+): Promise<string> {
+  const record = {
+    ...position,
+    name: position.name || position.code,
+    buy_dt: position.buy_dt || '',
+    portfolio_id: portfolioId,
+  }
+  const updated = await supabase
+    .from('portfolio_positions')
+    .update(record)
+    .eq('portfolio_id', portfolioId)
+    .eq('code', position.code)
+    .select('code')
+  if (updated.error) return updated.error.message
+  if ((updated.data || []).length > 0) return ''
+  const inserted = await supabase.from('portfolio_positions').insert(record)
+  return inserted.error?.message || ''
+}
