@@ -1404,59 +1404,6 @@ class ChatInput(Input):
         return text
 
 
-class BackgroundTaskPanel(Static):
-    """后台任务实时进度面板 — 仅有运行中任务时显示。"""
-
-    DEFAULT_CSS = """
-    BackgroundTaskPanel {
-        dock: top;
-        height: auto;
-        max-height: 5;
-        background: $boost;
-        color: $text;
-        padding: 0 2;
-        border-bottom: solid $border;
-    }
-    """
-
-    def __init__(self, bg_manager, **kwargs):
-        kwargs.setdefault("markup", True)
-        super().__init__("", **kwargs)
-        self._bg_manager = bg_manager
-        self.styles.display = "none"
-
-    def on_mount(self) -> None:
-        self.set_interval(1.0, self._tick)
-
-    def _tick(self) -> None:
-        tasks = self._bg_manager.active_tasks()
-        if not tasks:
-            if self.styles.display != "none":
-                self.styles.display = "none"
-            return
-        if self.styles.display == "none":
-            self.styles.display = "block"
-        from cli.tools import TOOL_DISPLAY_NAMES
-
-        lines = []
-        for t in tasks:
-            m, s = divmod(int(time.monotonic() - t.submitted_at), 60)
-            stage = t.current_stage or "准备中"
-            detail = f" · {t.current_detail}" if t.current_detail else ""
-            name = (
-                "dynamic workflow"
-                if t.tool_name == "dynamic_workflow"
-                else TOOL_DISPLAY_NAMES.get(t.tool_name, t.tool_name)
-            )
-            time_str = f"{m}m{s:02d}s" if m else f"{s}s"
-            lines.append(
-                f"  [bold cyan]⟳[/bold cyan] [bold #8aa4ff]{name}[/bold #8aa4ff] · "
-                f"[yellow]{stage}[/yellow][dim]{detail}[/dim] "
-                f"[green]({time_str})[/green]"
-            )
-        self.update("\n".join(lines))
-
-
 class SelectorScreen(ModalScreen):
     """模态选择器 — 上下键选择，Enter 确认，Esc 取消。"""
 
@@ -1794,7 +1741,6 @@ class WyckoffTUI(App):
     def compose(self) -> ComposeResult:
         from textual.containers import Horizontal
 
-        yield BackgroundTaskPanel(self._bg_manager, id="bg-panel")
         yield ChatLog(id="chat-log", highlight=True, markup=True, wrap=True)
         with Horizontal(id="input-container"):
             yield Static("❯", id="prompt-prefix")
@@ -1904,8 +1850,17 @@ class WyckoffTUI(App):
             task = active_tasks[0]
             stage = task.current_stage or "准备中"
             elapsed = int(time.monotonic() - task.submitted_at)
+
+            from cli.tools import TOOL_DISPLAY_NAMES
+
+            display_name = (
+                "dynamic workflow"
+                if task.tool_name == "dynamic_workflow"
+                else TOOL_DISPLAY_NAMES.get(task.tool_name, task.tool_name)
+            )
+            extra = f" (+{len(active_tasks) - 1})" if len(active_tasks) > 1 else ""
             parts.append(
-                f"[bold cyan]{_SPINNER[self._spinner_idx]} 后台任务: {task.tool_name} ({stage} · {elapsed}s)[/bold cyan]"
+                f"[bold cyan]{_SPINNER[self._spinner_idx]} 后台任务: {display_name}{extra} ({stage} · {elapsed}s)[/bold cyan]"
             )
         elif getattr(self, "_spinner_label", ""):
             parts.append(f"[bold cyan]{_SPINNER[self._spinner_idx]} {self._spinner_label}[/bold cyan]")
@@ -4141,14 +4096,11 @@ class WyckoffTUI(App):
     # ----- 后台任务回调 -----
 
     def _on_bg_progress(self, _task) -> None:
-        """后台线程报进度 → 刷新面板。"""
+        """后台线程报进度 → 刷新状态栏。"""
         try:
-            self.call_from_thread(self._refresh_bg_panel)
+            self.call_from_thread(self._update_status)
         except Exception:
-            logger.debug("background panel refresh failed", exc_info=True)
-
-    def _refresh_bg_panel(self) -> None:
-        self.query_one("#bg-panel", BackgroundTaskPanel)._tick()
+            logger.debug("background status refresh failed", exc_info=True)
 
     def _on_bg_complete(self, task_id: str, tool_name: str, result) -> None:
         """后台任务完成，注入结果到消息队列。"""
