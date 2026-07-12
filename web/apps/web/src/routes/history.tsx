@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { BarChart3, Briefcase, Clock3, FileText, History, Search, Swords, Trash2, type LucideIcon } from 'lucide-react'
+import { BarChart3, Briefcase, Clock3, FileText, History, Search, Swords, Trash2, Cpu, Database, Hash, Calendar, ListCollapse, type LucideIcon } from 'lucide-react'
 import { MarkdownContent } from '@/components/markdown'
 import { KlineChart } from '@/components/kline-chart'
 import { MultiStockChart, type ComparisonSeries } from '@/components/multi-stock-chart'
@@ -13,12 +13,23 @@ type FilterKey = 'all' | AnalysisHistoryKind
 type HistoryRecord = AnalysisHistoryRecord<HistoryPayload>
 type HistoryPayload = SinglePayload | BattlePayload | PortfolioPayload | Record<string, unknown>
 
+interface TraceMeta {
+  inputSnapshotHash?: string
+  promptVersion?: string
+  model?: string
+  generatedAt?: string
+  valueSource?: string
+  reportDate?: string
+  klineRows?: number
+}
+
 interface SinglePayload {
   report: string
   symbol: string
   name: string
   klineData: KlineRow[]
   valueSnapshot: ValueSnapshot
+  meta?: TraceMeta
 }
 
 interface BattlePayload {
@@ -29,6 +40,7 @@ interface BattlePayload {
   overlayLimit: number
   report: string
   benchmark: KlineRow[]
+  meta?: TraceMeta
 }
 
 interface BattleStockPayload {
@@ -43,6 +55,7 @@ interface PortfolioPayload {
   source: 'database' | 'manual'
   result: PortfolioResultPayload
   report: string
+  meta?: TraceMeta
 }
 
 interface PortfolioResultPayload {
@@ -377,6 +390,7 @@ function SingleDetail({ copy, payload }: { copy: HistoryCopy; payload: SinglePay
   return (
     <div className="space-y-5">
       <SummaryGrid items={metrics} />
+      <HistoryTracePanel meta={payload.meta} />
       <Section title={copy.chart}>{payload.klineData.length > 0 && <KlineChart data={payload.klineData} height={360} />}</Section>
       <ValueSnapshotBlock title={copy.value} snapshot={payload.valueSnapshot} />
       <ReportBlock title={copy.report} report={payload.report} />
@@ -391,6 +405,7 @@ function BattleDetail({ copy, payload }: { copy: HistoryCopy; payload: BattlePay
   return (
     <div className="space-y-5">
       <SummaryGrid items={metrics} />
+      <HistoryTracePanel meta={payload.meta} />
       <Section title={copy.chart}><BattleChart payload={payload} /></Section>
       <BattleStockTable copy={copy} stocks={payload.stocks} />
       <Section title={copy.input}><pre className="whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">{payload.input}</pre></Section>
@@ -406,9 +421,59 @@ function PortfolioDetail({ copy, payload }: { copy: HistoryCopy; payload: Portfo
   return (
     <div className="space-y-5">
       <SummaryGrid items={metrics} />
+      <HistoryTracePanel meta={payload.meta} />
       <PortfolioPositionTable copy={copy} positions={result.positions} />
       <PortfolioValueTable title={copy.value} values={result.values} />
       <ReportBlock title={copy.report} report={payload.report || result.report} />
+    </div>
+  )
+}
+
+function HistoryTracePanel({ meta }: { meta?: TraceMeta }) {
+  if (!meta || !meta.inputSnapshotHash) return null
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-4">
+      <h3 className="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground/80">
+        <Cpu size={14} className="text-primary/70" />
+        分析溯源信息 (Report Trace Panel)
+      </h3>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-xs">
+        <div className="flex items-center gap-2 rounded bg-background p-2 border border-border">
+          <Hash size={14} className="text-muted-foreground shrink-0" />
+          <div className="truncate">
+            <div className="text-muted-foreground scale-95 origin-left">输入快照 Hash</div>
+            <div className="font-mono font-medium text-foreground select-all mt-0.5">{meta.inputSnapshotHash}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 rounded bg-background p-2 border border-border">
+          <Cpu size={14} className="text-muted-foreground shrink-0" />
+          <div className="truncate">
+            <div className="text-muted-foreground scale-95 origin-left">AI 模型 / 提示词版本</div>
+            <div className="font-medium text-foreground mt-0.5">{meta.model} ({meta.promptVersion || 'v1.0'})</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 rounded bg-background p-2 border border-border">
+          <Calendar size={14} className="text-muted-foreground shrink-0" />
+          <div className="truncate">
+            <div className="text-muted-foreground scale-95 origin-left">生成时间</div>
+            <div className="font-medium text-foreground mt-0.5">{new Date(meta.generatedAt || '').toLocaleString()}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 rounded bg-background p-2 border border-border">
+          <Database size={14} className="text-muted-foreground shrink-0" />
+          <div className="truncate">
+            <div className="text-muted-foreground scale-95 origin-left">基本面源 / 报告期</div>
+            <div className="font-medium text-foreground mt-0.5">{meta.valueSource || 'N/A'} ({meta.reportDate || 'N/A'})</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 rounded bg-background p-2 border border-border">
+          <ListCollapse size={14} className="text-muted-foreground shrink-0" />
+          <div className="truncate">
+            <div className="text-muted-foreground scale-95 origin-left">历史行情长度</div>
+            <div className="font-medium text-foreground mt-0.5">{meta.klineRows ? `${meta.klineRows} 行` : 'N/A'}</div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

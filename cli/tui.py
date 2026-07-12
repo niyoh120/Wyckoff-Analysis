@@ -3966,6 +3966,10 @@ class WyckoffTUI(App):
                 ui.write(preview)
         elif event_type == "model_start":
             ui.spinner_start("思考中")
+        elif event_type == "stage_start":
+            ui.spinner_start(event.get("message", "执行中"))
+        elif event_type == "stage_done":
+            ui.spinner_stop()
         elif event_type == "tool_start":
             _flush_and_clear_stream(self, ui, stream)
             display = self._tools.display_name(event["name"]) if self._tools else event["name"]

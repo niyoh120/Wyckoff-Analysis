@@ -400,14 +400,60 @@ def _build_veto_result(
     )
 
 
+def _fetch_local_news(code: str, name: str) -> list[dict[str, Any]]:
+    from integrations.news_intelligence import query_intelligence_by_keyword
+
+    local_news = []
+    if code:
+        local_news.extend(query_intelligence_by_keyword(code))
+    if name:
+        local_news.extend(query_intelligence_by_keyword(name))
+
+    seen_keys = set()
+    dedup_local = []
+    for ln in local_news:
+        key = ln.get("url") or ln.get("title")
+        if key not in seen_keys:
+            seen_keys.add(key)
+            dedup_local.append(ln)
+    return dedup_local
+
+
+def _merge_news(local_news: list[dict[str, Any]], remote_news: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in [*local_news, *remote_news]:
+        title = " ".join(str(item.get("title") or "").lower().split())
+        key = str(item.get("url") or "").strip() or title
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    return sorted(merged, key=lambda item: str(item.get("pub_date") or item.get("date") or ""), reverse=True)
+
+
+def _fetch_merged_news(code: str, name: str) -> tuple[list[dict[str, Any]], str, list[str]]:
+    local_news: list[dict[str, Any]] = []
+    remote_news: list[dict[str, Any]] = []
+    errors: list[str] = []
+    try:
+        local_news = _fetch_local_news(code, name)
+    except Exception as exc:
+        errors.append(f"local:{exc}")
+        logger.debug("[rag_veto] local news fetch failed for %s: %s", code, exc)
+    try:
+        remote_news = _fetch_news_akshare(code)
+    except Exception as exc:
+        errors.append(f"akshare:{exc}")
+        logger.debug("[rag_veto] akshare news fetch failed for %s: %s", code, exc)
+    sources = [source for source, rows in (("local_intelligence", local_news), ("akshare", remote_news)) if rows]
+    return _merge_news(local_news, remote_news), "+".join(sources) or "none", errors
+
+
 def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
     started = time.perf_counter()
-    search_source = "akshare"
-
-    try:
-        results = _fetch_news_akshare(code)
-    except Exception as e:
-        logger.debug("[rag_veto] akshare fetch failed for %s: %s", code, e)
+    results, search_source, errors = _fetch_merged_news(code, name)
+    if not results and errors:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         return _build_veto_result(
             code=code,
@@ -419,7 +465,7 @@ def _scan_one(code: str, name: str, keywords: list[str]) -> VetoResult:
             raw_result_count=0,
             relevant_result_count=0,
             elapsed_ms=elapsed_ms,
-            error=f"akshare_err:{e}",
+            error="fetch_err:" + ";".join(errors),
         )
 
     text_parts, evidence, semantic_snippets = _news_scan_inputs(results)
@@ -468,6 +514,14 @@ def run_negative_news_veto(candidates: list[dict[str, str]]) -> dict[str, VetoRe
     out: dict[str, VetoResult] = {}
     if not is_rag_veto_enabled():
         return out
+
+    # Best-effort fail-open auto refresh news intelligence pool
+    from integrations.news_intelligence import refresh_intelligence_pool
+
+    try:
+        refresh_intelligence_pool()
+    except Exception as e:
+        logger.warning("[rag_veto] Failed to refresh local intelligence pool: %s", e)
 
     keywords = _normalize_keywords()
     items = [

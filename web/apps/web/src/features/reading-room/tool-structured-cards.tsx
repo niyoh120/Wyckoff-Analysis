@@ -1,5 +1,5 @@
-import { BellPlus, Plus, ShieldAlert } from 'lucide-react'
-import { formatStrategyPolicyText, type AnalyzeStockResult, type ScreenStockItem, type StrategyDecisionResult } from '@wyckoff/shared'
+import { BellPlus, Database, Plus, ShieldAlert } from 'lucide-react'
+import { formatStrategyPolicyText, type AnalyzeStockResult, type KlineDataQuality, type ScreenStockItem, type StrategyDecisionResult } from '@wyckoff/shared'
 import { MarkdownContent } from '@/components/markdown'
 import { ScreenResultCard } from '@/components/screen-result-card'
 import { asRecord, normalizeStockCode, sanitizeText } from './utils'
@@ -60,8 +60,23 @@ function AnalyzeResultCard({
         <DecisionMetric label="动作" value={data.action} />
         <DecisionMetric label="置信" value={data.confidence != null ? data.confidence.toFixed(0) : '--'} />
       </div>
+      {data.data_quality && <DataQualityLine quality={data.data_quality} />}
       <AnalyzeLevelBadges data={data} />
       <MarkdownContent content={data.markdown || data.summary} className="text-xs" />
+    </div>
+  )
+}
+
+function DataQualityLine({ quality }: { quality: KlineDataQuality }) {
+  const source = quality.source === 'tickflow' ? 'TickFlow' : quality.source === 'tushare' ? 'Tushare' : quality.source === 'mixed' ? '多源' : '无来源'
+  const coverage = quality.coverageStart && quality.coverageEnd ? `${quality.coverageStart} 至 ${quality.coverageEnd}` : '无覆盖区间'
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border/50 bg-muted/30 px-2 py-1.5 text-[11px] text-muted-foreground">
+      <Database size={12} />
+      <span>数据依据：{source}</span>
+      <span>覆盖 {coverage}</span>
+      <span>最新 {quality.latestTradingDate || '未知'}</span>
+      {quality.fallbackUsed && <span className="text-amber-700 dark:text-amber-200">已使用回退源</span>}
     </div>
   )
 }

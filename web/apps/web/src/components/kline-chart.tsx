@@ -33,6 +33,7 @@ interface KlineChartProps {
   tradingRange?: { support: number; resistance: number }
   stage?: string
   showIndicators?: boolean
+  onBarClick?: (date: string) => void
 }
 
 interface StructureSnapshot {
@@ -59,7 +60,7 @@ interface ChartRefs {
 
 type ChartTheme = ReturnType<typeof readChartTheme>
 
-export function KlineChart({ data, height = 400, wyckoffMarkers, tradingRange, stage, showIndicators = false }: KlineChartProps) {
+export function KlineChart({ data, height = 400, wyckoffMarkers, tradingRange, stage, showIndicators = false, onBarClick }: KlineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRefs = useRef<ChartRefs | null>(null)
   const themeRef = useRef(readChartTheme())
@@ -68,6 +69,7 @@ export function KlineChart({ data, height = 400, wyckoffMarkers, tradingRange, s
 
   useChartInit(containerRef, chartRefs, themeRef, height)
   useChartData(chartRefs, themeRef, data, wyckoffMarkers, tradingRange)
+  useChartSelection(chartRefs, onBarClick)
   useBollingerOverlay(chartRefs, data, indicators.boll)
 
   const closes = useMemo(() => data.map((d) => d.close), [data])
@@ -78,7 +80,7 @@ export function KlineChart({ data, height = 400, wyckoffMarkers, tradingRange, s
       {structure && <StructureMetrics structure={structure} />}
       <div
         ref={containerRef}
-        className="w-full overflow-hidden rounded-lg border border-border bg-background"
+        className={`w-full overflow-hidden rounded-lg border border-border bg-background ${onBarClick ? 'cursor-crosshair' : ''}`}
         style={{ height }}
       />
       {showIndicators && <IndicatorBar indicators={indicators} setIndicators={setIndicators} />}
@@ -87,6 +89,18 @@ export function KlineChart({ data, height = 400, wyckoffMarkers, tradingRange, s
       <ChartLegend boll={indicators.boll} wyckoffMarkers={!!wyckoffMarkers} />
     </div>
   )
+}
+
+function useChartSelection(chartRefs: React.MutableRefObject<ChartRefs | null>, onBarClick?: (date: string) => void) {
+  useEffect(() => {
+    const chart = chartRefs.current?.chart
+    if (!chart || !onBarClick) return
+    const handleClick = (param: { time?: Time }) => {
+      if (typeof param.time === 'string') onBarClick(param.time)
+    }
+    chart.subscribeClick(handleClick)
+    return () => chart.unsubscribeClick(handleClick)
+  }, [chartRefs, onBarClick])
 }
 
 function useChartInit(

@@ -28,7 +28,7 @@ import {
   type Provider,
   type ToolDeps,
 } from '@wyckoff/shared'
-import { consumeStream, convertToModelMessages, generateText, stepCountIs, streamText, tool, type UIMessage } from 'ai'
+import { consumeStream, convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, stepCountIs, streamText, tool, type UIMessage, type UIMessageChunk } from 'ai'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { Env } from '../index'
@@ -58,30 +58,22 @@ chatRoutes.post('/', async (c) => {
   if (estimateMessagesSize(messages) > 60_000) return c.json({ error: '本轮上下文过长，请开启新对话或缩短问题。' }, 413)
 
   const supabase = createUserSupabase(c.env, auth.accessToken)
-  const config = await loadLLMConfig(supabase, auth.userId)
-  if (!config) return c.json({ error: '请先在设置页配置 LLM API Key' }, 400)
+  const configs = await loadLLMConfigs(supabase, auth.userId)
+  if (configs.length === 0) return c.json({ error: '请先在设置页配置 LLM API Key' }, 400)
 
-  const provider = createProvider(config)
-  const tools = buildTools(createToolDeps(supabase), auth.userId, config, provider.chat(config.model))
-  const modelMessages = await convertToModelMessages(messages.slice(-40), {
-    tools,
-    ignoreIncompleteToolCalls: true,
-  })
-  const result = streamText({
-    model: provider.chat(config.model),
-    system: WYCKOFF_CHAT_SYSTEM_PROMPT,
-    messages: modelMessages,
-    tools,
-    stopWhen: stepCountIs(10),
-    abortSignal: c.req.raw.signal,
-    experimental_toolApprovalSecret: c.env.CHAT_TOOL_APPROVAL_SECRET || c.env.SUPABASE_SERVICE_ROLE_KEY,
-    providerOptions: { openai: { parallelToolCalls: false } },
-  })
-
-  return result.toUIMessageStreamResponse({
-    consumeSseStream: consumeStream,
+  const stream = createUIMessageStream({
+    execute: ({ writer }) => runChatWithResilience({
+      writer,
+      configs,
+      deps: createToolDeps(supabase),
+      userId: auth.userId,
+      messages,
+      signal: c.req.raw.signal,
+      env: c.env,
+    }),
     onError: normalizeStreamError,
   })
+  return createUIMessageStreamResponse({ stream, consumeSseStream: consumeStream })
 })
 
 type ChatRequestBody = { messages?: UIMessage[] }
@@ -182,20 +174,34 @@ function createToolFetch(): typeof globalThis.fetch {
   }
 }
 
-async function loadLLMConfig(supabase: ToolDeps['supabase'], userId: string): Promise<(LLMToolConfig & { protocol?: 'openai' | 'anthropic' }) | null> {
+type ChatModelConfig = LLMToolConfig & { protocol?: 'openai' | 'anthropic'; provider: string }
+
+async function loadLLMConfig(supabase: ToolDeps['supabase'], userId: string): Promise<ChatModelConfig | null> {
+  return (await loadLLMConfigs(supabase, userId))[0] || null
+}
+
+async function loadLLMConfigs(supabase: ToolDeps['supabase'], userId: string): Promise<ChatModelConfig[]> {
   const { data } = await supabase
     .from('user_settings')
     .select('chat_provider, gemini_api_key, gemini_model, gemini_base_url, openai_api_key, openai_model, openai_base_url, deepseek_api_key, deepseek_model, deepseek_base_url, anthropic_api_key, anthropic_model, anthropic_base_url, custom_providers')
     .eq('user_id', userId)
     .single()
-  if (!data) return null
-  return configForProvider(data as UserSettingsRow)
+  if (!data) return []
+  const settings = data as UserSettingsRow
+  const activeProvider = String(settings.chat_provider || '1route')
+  const custom = parseCustomProviders(settings.custom_providers)
+  const providers = Array.from(new Set([activeProvider, 'openai', 'deepseek', 'gemini', 'anthropic', ...Object.keys(custom)]))
+  return providers
+    .filter((provider) => !['zhipu', 'minimax', 'qwen', 'volcengine'].includes(provider))
+    .flatMap((provider) => {
+      const config = configForProvider(settings, provider)
+      return config ? [{ ...config, provider }] : []
+    })
 }
 
 type UserSettingsRow = Record<string, string | Record<string, unknown> | null>
 
-function configForProvider(data: UserSettingsRow): (LLMToolConfig & { protocol?: 'openai' | 'anthropic' }) | null {
-  const provider = String(data.chat_provider || '1route')
+function configForProvider(data: UserSettingsRow, provider = String(data.chat_provider || '1route')): (LLMToolConfig & { protocol?: 'openai' | 'anthropic' }) | null {
   if (['zhipu', 'minimax', 'qwen', 'volcengine'].includes(provider)) return null
   if (provider === 'gemini') return knownProviderConfig(data, 'gemini', 'https://generativelanguage.googleapis.com/v1beta/openai', PROVIDER_DEFAULT_MODELS.gemini)
   if (provider === 'openai') return knownProviderConfig(data, 'openai', PROVIDER_BASE_URLS.openai, PROVIDER_DEFAULT_MODELS.openai)
@@ -248,6 +254,119 @@ function buildTools(deps: ToolDeps, userId: string, config: LLMToolConfig, model
     ...buildPortfolioTools(deps, userId),
     ...buildAnalysisTools(deps, userId, config, model),
   }
+}
+
+interface ChatResilienceArgs {
+  writer: { write: (chunk: never) => void }
+  configs: ChatModelConfig[]
+  deps: ToolDeps
+  userId: string
+  messages: UIMessage[]
+  signal: AbortSignal
+  env: Env
+}
+
+async function runChatWithResilience(args: ChatResilienceArgs): Promise<void> {
+  let lastError: unknown = new Error('没有可用的模型配置')
+  for (let index = 0; index < args.configs.length; index += 1) {
+    const config = args.configs[index]
+    if (!config) continue
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await runChatAttempt(args, config)
+        return
+      } catch (error) {
+        lastError = error
+        const started = Boolean((error as { outputStarted?: boolean }).outputStarted)
+        const retryable = isRetryableModelError(error)
+        const nextConfig = args.configs[index + 1]
+        const canRetry = !started && retryable && attempt < 2
+        const canFallback = !started && retryable && !canRetry && Boolean(nextConfig)
+        if (args.signal.aborted || started || (!canRetry && !canFallback)) throw error
+        writeModelStatus(args.writer, canRetry ? {
+          phase: 'retrying', model: config.model, attempt,
+        } : {
+          phase: 'fallback', model: config.model, attempt, nextModel: nextConfig?.model,
+        })
+        await waitForRetry(attempt, args.signal)
+        if (canFallback) break
+      }
+    }
+  }
+  throw lastError
+}
+
+async function runChatAttempt(args: ChatResilienceArgs, config: ChatModelConfig): Promise<void> {
+  writeStageProgress(args.writer, { stage: 'model', state: 'started', message: '正在分析', model: config.model })
+  let succeeded = false
+  let outputStarted = false
+  try {
+    const provider = createProvider(config)
+    const tools = buildTools(args.deps, args.userId, config, provider.chat(config.model))
+    const modelMessages = await convertToModelMessages(args.messages.slice(-40), {
+      tools,
+      ignoreIncompleteToolCalls: true,
+    })
+    const result = streamText({
+      model: provider.chat(config.model),
+      system: WYCKOFF_CHAT_SYSTEM_PROMPT,
+      messages: modelMessages,
+      tools,
+      stopWhen: stepCountIs(10),
+      abortSignal: args.signal,
+      experimental_toolApprovalSecret: args.env.CHAT_TOOL_APPROVAL_SECRET || args.env.SUPABASE_SERVICE_ROLE_KEY,
+      providerOptions: { openai: { parallelToolCalls: false } },
+    })
+    const pending: UIMessageChunk[] = []
+    for await (const chunk of result.toUIMessageStream({ onError: (error) => { throw error } })) {
+      if (chunk.type === 'error') throw new Error(chunk.errorText)
+      pending.push(chunk)
+      if (isVisibleChatChunk(chunk)) {
+        outputStarted = true
+        flushChunks(args.writer, pending)
+      }
+    }
+    flushChunks(args.writer, pending)
+    succeeded = true
+  } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+      outputStarted,
+    })
+  } finally {
+    writeStageProgress(args.writer, { stage: 'model', state: 'completed', success: succeeded, model: config.model })
+  }
+}
+
+function flushChunks(writer: ChatResilienceArgs['writer'], chunks: UIMessageChunk[]): void {
+  while (chunks.length > 0) writer.write(chunks.shift() as never)
+}
+
+function isVisibleChatChunk(chunk: UIMessageChunk): boolean {
+  return chunk.type === 'text-start' || chunk.type === 'text-delta' || chunk.type === 'reasoning-start' || chunk.type === 'tool-input-start' || chunk.type === 'tool-input-available' || chunk.type === 'tool-output-available' || chunk.type === 'tool-output-error' || chunk.type === 'tool-approval-request'
+}
+
+function writeModelStatus(writer: ChatResilienceArgs['writer'], status: { phase: 'retrying' | 'fallback'; model: string; attempt: number; nextModel?: string }): void {
+  writer.write({ type: 'data-model-status', data: { kind: 'model', ...status }, transient: true } as never)
+}
+
+function writeStageProgress(
+  writer: ChatResilienceArgs['writer'],
+  progress: { stage: 'model'; state: 'started' | 'completed'; message?: string; success?: boolean; model: string },
+): void {
+  writer.write({ type: 'data-stage-progress', data: { kind: 'stage', ...progress }, transient: true } as never)
+}
+
+function isRetryableModelError(error: unknown): boolean {
+  const status = providerStatusCode(error)
+  if (status == null) return true
+  return status === 408 || status === 409 || status === 429 || status >= 500
+}
+
+async function waitForRetry(attempt: number, signal: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, attempt * 350)
+    signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason) }, { once: true })
+  })
 }
 
 function buildReadTools(deps: ToolDeps, userId: string, model: unknown) {
@@ -371,12 +490,18 @@ function normalizeStreamError(error: unknown): string {
 
 function providerStatusCode(error: unknown): number | null {
   if (!error || typeof error !== 'object') return null
-  const direct = Number((error as { statusCode?: unknown }).statusCode)
-  if (Number.isFinite(direct)) return direct
+  const value = error as { statusCode?: unknown; status?: unknown; response?: { status?: unknown } }
+  for (const candidate of [value.statusCode, value.status, value.response?.status]) {
+    const direct = Number(candidate)
+    if (Number.isFinite(direct)) return direct
+  }
   const lastError = (error as { lastError?: unknown }).lastError
   if (lastError && typeof lastError === 'object') {
-    const nested = Number((lastError as { statusCode?: unknown }).statusCode)
-    if (Number.isFinite(nested)) return nested
+    const nestedValue = lastError as { statusCode?: unknown; status?: unknown; response?: { status?: unknown } }
+    for (const candidate of [nestedValue.statusCode, nestedValue.status, nestedValue.response?.status]) {
+      const nested = Number(candidate)
+      if (Number.isFinite(nested)) return nested
+    }
   }
   return null
 }

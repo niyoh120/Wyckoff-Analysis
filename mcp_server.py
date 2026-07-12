@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Literal
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -46,6 +46,41 @@ def _build_ctx():
 _ctx = _build_ctx()
 
 
+# ---------------------------------------------------------------------------
+# ToolSurface Registry & execution helper for MCP Server
+# ---------------------------------------------------------------------------
+from collections.abc import Callable
+
+from tools.tool_surface import ToolSurface
+
+_surface = ToolSurface()
+
+
+def _execute_mcp_tool(name: str, handler: Callable, arguments: dict[str, Any]) -> dict[str, Any]:
+    from tools.tool_surface import ToolAccessContext, from_handler
+
+    existing = _surface.resolve(name)
+    if existing is None or existing.handler is not handler:
+        _surface.register(from_handler(handler, name=name))
+
+    ctx = ToolAccessContext(
+        timeout_seconds=250.0 if "screen" in name or "backtest" in name else 60.0,
+        session_id=_ctx.state.get("user_id", ""),
+    )
+    tool_def = _surface.resolve(name)
+    if tool_def:
+        import inspect
+
+        sig = inspect.signature(tool_def.handler)
+        if "tool_context" in sig.parameters:
+            arguments["tool_context"] = _ctx
+
+    res = _surface.execute_tool(name, arguments, ctx)
+    if not res["ok"]:
+        return {"status": "error", "error": res["error"]["message"]}
+    return res["result"]
+
+
 def _normalize_scan_limit(limit: int | None) -> int | None:
     if limit in (None, ""):
         return None
@@ -82,7 +117,17 @@ def query_history(
     attribution(策略归因治理器，返回 latest_source/remote_error、latest_operator_summary、
     latest_policy_display/latest_execution_summary、promotion_checklist/latest_operations)。
     """
-    return _query_history(source=source, status=status, run_date=run_date, decision=decision, limit=limit)
+    return _execute_mcp_tool(
+        "query_history",
+        _query_history,
+        {
+            "source": source,
+            "status": status,
+            "run_date": run_date,
+            "decision": decision,
+            "limit": limit,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +146,7 @@ from agents.search_tools import search_stock_by_name as _search_stock_by_name
 @mcp.tool()
 def search_stock_by_name(keyword: str) -> list[dict]:
     """根据关键词搜索 A 股股票，支持名称、代码、拼音首字母模糊搜索。"""
-    return _search_stock_by_name(keyword=keyword, tool_context=_ctx)
+    return _execute_mcp_tool("search_stock_by_name", _search_stock_by_name, {"keyword": keyword})
 
 
 @mcp.tool()
@@ -115,7 +160,11 @@ def analyze_stock(
     - mode='price'：返回近 N 天 OHLCV 数据
     **结果处理**：诊断结果较专业，请用通俗语言解释给用户。
     """
-    return _analyze_stock(code=code, mode=mode, cost=cost, days=days, tool_context=_ctx)
+    return _execute_mcp_tool(
+        "analyze_stock",
+        _analyze_stock,
+        {"code": code, "mode": mode, "cost": cost, "days": days},
+    )
 
 
 @mcp.tool()
@@ -125,7 +174,11 @@ def get_market_overview(trade_date: str = "", include_breadth: bool = False) -> 
     **调用时机**：用户问大盘、历史某日市场或上涨/下跌家数时调用。
     trade_date 支持 YYYY-MM-DD/ YYYYMMDD；查涨跌家数时设 include_breadth=true。
     """
-    return _get_market_overview(trade_date=trade_date, include_breadth=include_breadth, tool_context=_ctx)
+    return _execute_mcp_tool(
+        "get_market_overview",
+        _get_market_overview,
+        {"trade_date": trade_date, "include_breadth": include_breadth},
+    )
 
 
 @mcp.tool()
@@ -139,10 +192,14 @@ def screen_stocks(
     **调用时机**：用户说"帮我选股"、"今天有什么机会"、"跑一下漏斗"时调用。
     **注意**：耗时 2-3 分钟，请提前告知用户需要等待。
     **快速试扫**：limit 可限制扫描股票池前 N 只；聊天态留空默认快扫，全量扫描传 limit=0。
-    **财务过滤**：聊天快扫默认跳过 TickFlow 财务指标；明确需要完整财务过滤时传 financial_metrics=true。
+    **财务过滤**：聊天快扫默认跳过 TickFlow 财务指标；明确需要完整财务过滤时传 financial_metrics=true.
     **结果处理**：返回候选股票列表和分数，请用专业但易懂的方式呈现。
     """
-    return _screen_stocks(board=board, limit=limit, financial_metrics=financial_metrics, tool_context=_ctx)
+    return _execute_mcp_tool(
+        "screen_stocks",
+        _screen_stocks,
+        {"board": board, "limit": limit, "financial_metrics": financial_metrics},
+    )
 
 
 @mcp.tool()
@@ -163,16 +220,19 @@ def run_backtest(
     **结果处理**：返回胜率、收益率、最大回撤等指标，请对比基准解读。
     **entry_price_mode**：open=信号次日开盘价买入（默认）；close=信号次日收盘价买入；tail_1455=次日14:55分钟线价。
     """
-    return _run_backtest(
-        start=start,
-        end=end,
-        hold_days=hold_days,
-        top_n=top_n,
-        board=board,
-        stop_loss_pct=stop_loss_pct,
-        take_profit_pct=take_profit_pct,
-        entry_price_mode=entry_price_mode,
-        tool_context=_ctx,
+    return _execute_mcp_tool(
+        "run_backtest",
+        _run_backtest,
+        {
+            "start": start,
+            "end": end,
+            "hold_days": hold_days,
+            "top_n": top_n,
+            "board": board,
+            "stop_loss_pct": stop_loss_pct,
+            "take_profit_pct": take_profit_pct,
+            "entry_price_mode": entry_price_mode,
+        },
     )
 
 
@@ -417,6 +477,29 @@ def generate_strategy_decision() -> dict:
     **结果处理**：返回每只持仓的操作建议（持有/减仓/清仓）和新标的买入建议。
     """
     return _generate_strategy_decision(tool_context=_ctx)
+
+
+@mcp.tool()
+def reassess_profile(
+    report_text: str,
+    profile: Literal["conservative", "balanced", "aggressive"] = "balanced",
+) -> dict:
+    """基于已有的 AI 研报文本，重新评估并预览保守 (conservative)、均衡 (balanced) 或激进 (aggressive) 决策风格下的交易信号与参数调整。不写入数据库。"""
+    from workflows.reassess_profile import reassess_decision_profile
+
+    return _execute_mcp_tool(
+        "reassess_profile",
+        reassess_decision_profile,
+        {"report_text": report_text, "profile": profile},
+    )
+
+
+@mcp.tool()
+def diagnose_backend() -> dict:
+    """运行后端大模型诊疗（Doctor），全面检查所有 LLM 接口和数据源凭证（如 Tushare Token）的配置、连通性及延迟，输出诊断报告。"""
+    from tools.backend_doctor import diagnose_backend as _diagnose
+
+    return _execute_mcp_tool("diagnose_backend", _diagnose, {})
 
 
 # ---------------------------------------------------------------------------

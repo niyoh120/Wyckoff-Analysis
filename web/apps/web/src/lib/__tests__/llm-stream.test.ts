@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { streamLLMResponse } from '../llm-stream'
+import { streamLLMResponse, streamLLMResponseWithFallback } from '../llm-stream'
 import type { LLMConfig } from '../chat-agent'
 
 function sseResponse(lines: string[]): Response {
@@ -101,5 +101,27 @@ describe('streamLLMResponse', () => {
 
     expect(result).toBe('last chunk')
     expect(onDelta).toHaveBeenCalledWith('last chunk')
+  })
+
+  it('retries a transient model failure without duplicating streamed deltas', async () => {
+    const config: LLMConfig = {
+      api_key: 'openai-key',
+      model: 'gpt-test',
+      base_url: 'https://api.openai.com/v1',
+      protocol: 'openai',
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'busy' } }), { status: 503 }))
+      .mockResolvedValueOnce(sseResponse(['data: {"choices":[{"delta":{"content":"recovered"}}]}', 'data: [DONE]']))
+    vi.stubGlobal('fetch', fetchMock)
+    const onDelta = vi.fn()
+    const onStatus = vi.fn()
+
+    const result = await streamLLMResponseWithFallback([config], [{ role: 'user', content: 'hi' }], { onDelta, onStatus })
+
+    expect(result).toBe('recovered')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(onDelta).toHaveBeenCalledTimes(1)
+    expect(onStatus).toHaveBeenCalledWith(expect.objectContaining({ phase: 'retrying', attempt: 1 }))
   })
 })

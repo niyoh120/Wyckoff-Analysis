@@ -186,3 +186,30 @@ class TestRealWorldCases:
             assert "*st" in hits or "st" in hits
         else:
             assert "*st" not in hits and "st" not in hits
+
+
+def test_merge_news_combines_sources_and_deduplicates_urls():
+    from integrations.rag_veto import _merge_news
+
+    local = [{"title": "本地旧标题", "url": "https://example.com/a", "pub_date": "2026-07-10"}]
+    remote = [
+        {"title": "远程同链接", "url": "https://example.com/a", "pub_date": "2026-07-11"},
+        {"title": "远程新增", "url": "https://example.com/b", "pub_date": "2026-07-12"},
+    ]
+
+    merged = _merge_news(local, remote)
+
+    assert [item["url"] for item in merged] == ["https://example.com/b", "https://example.com/a"]
+
+
+def test_scan_one_fetches_local_and_remote_news(monkeypatch):
+    from integrations import rag_veto as mod
+
+    monkeypatch.setattr(mod, "_fetch_local_news", lambda _code, _name: [{"title": "公司公告", "url": "local"}])
+    monkeypatch.setattr(mod, "_fetch_news_akshare", lambda _code: [{"title": "监管立案调查", "url": "remote"}])
+    monkeypatch.setattr(mod, "_semantic_veto_decision", lambda *_args, **_kwargs: mod.SemanticDecision(veto=False))
+
+    result = mod._scan_one("600000", "浦发银行", ["立案调查"])
+
+    assert result.search_source == "local_intelligence+akshare"
+    assert result.raw_result_count == 2

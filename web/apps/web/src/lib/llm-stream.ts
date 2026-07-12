@@ -13,6 +13,13 @@ interface StreamRequest {
   body: string
 }
 
+export interface LLMStreamStatus {
+  phase: 'retrying' | 'fallback'
+  model: string
+  attempt: number
+  nextModel?: string
+}
+
 export async function streamLLMResponse(
   config: LLMConfig,
   messages: ChatMessage[],
@@ -56,6 +63,57 @@ export async function streamLLMResponse(
     if (delta) { opts.onDelta?.(delta); result += delta }
   }
   return result
+}
+
+export async function streamLLMResponseWithFallback(
+  configs: LLMConfig[],
+  messages: ChatMessage[],
+  opts: { temperature?: number; maxTokens?: number; signal?: AbortSignal; onDelta?: (chunk: string) => void; onStatus?: (status: LLMStreamStatus) => void } = {},
+): Promise<string> {
+  let lastError: unknown = new Error('没有可用的模型配置')
+  for (let index = 0; index < configs.length; index += 1) {
+    const config = configs[index]
+    if (!config) continue
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      let emitted = false
+      try {
+        return await streamLLMResponse(config, messages, {
+          ...opts,
+          onDelta: (chunk) => { emitted = true; opts.onDelta?.(chunk) },
+        })
+      } catch (error) {
+        lastError = error
+        if (opts.signal?.aborted || emitted || !isRetryableModelError(error)) throw error
+        const nextConfig = configs[index + 1]
+        const canRetry = attempt < 2
+        opts.onStatus?.({
+          phase: canRetry ? 'retrying' : 'fallback',
+          model: config.model,
+          attempt,
+          ...(canRetry ? {} : nextConfig ? { nextModel: nextConfig.model } : {}),
+        })
+        if (!canRetry && !nextConfig) throw error
+        await waitForRetry(attempt, opts.signal)
+        if (!canRetry) break
+      }
+    }
+  }
+  throw lastError
+}
+
+function isRetryableModelError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const match = message.match(/\((\d{3})\)/)
+  const status = match ? Number(match[1]) : null
+  if (status == null) return true
+  return status === 408 || status === 409 || status === 429 || status >= 500
+}
+
+async function waitForRetry(attempt: number, signal?: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = globalThis.setTimeout(resolve, attempt * 350)
+    signal?.addEventListener('abort', () => { globalThis.clearTimeout(timer); reject(signal.reason) }, { once: true })
+  })
 }
 
 function buildStreamRequest(

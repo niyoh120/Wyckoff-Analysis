@@ -5,8 +5,8 @@ import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
-import { loadLLMConfig } from '@/lib/chat-agent'
-import { streamLLMResponse } from '@/lib/llm-stream'
+import { loadLLMConfigCandidates } from '@/lib/chat-agent'
+import { streamLLMResponseWithFallback } from '@/lib/llm-stream'
 import { MarkdownContent } from '@/components/markdown'
 import { UpgradeNotice } from '@/components/upgrade-notice'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
@@ -48,6 +48,7 @@ interface FullDiagnosisResult {
   report: string
   positions: PositionPnL[]
   values: PortfolioValueRow[]
+  klineRows: number
   summaryStats: { totalCost: number; totalMarket: number; pnlPct: number; freeCash: number; count: number }
 }
 
@@ -61,6 +62,15 @@ interface PortfolioHistoryPayload {
   source: 'database' | 'manual'
   result: FullDiagnosisResult
   report: string
+  meta?: {
+    inputSnapshotHash?: string
+    promptVersion?: string
+    model?: string
+    generatedAt?: string
+    valueSource?: string
+    reportDate?: string
+    klineRows?: number
+  }
 }
 
 async function fetchPortfolio(userId: string): Promise<Portfolio> {
@@ -82,7 +92,7 @@ export function PortfolioPage() {
   const fullDiag = useFullDiagnosisRunner()
   const [manualPortfolio, setManualPortfolio] = useState<Portfolio>({ free_cash: 0, positions: [] })
   const source = portfolioData.isWhitelisted ? 'database' : 'manual'
-  usePortfolioHistory(user?.id, fullDiag.result, source)
+  usePortfolioHistory(user?.id, fullDiag.result, source, fullDiag.model)
 
   if (portfolioData.isLoading) return <WyckoffLoading />
 
@@ -130,6 +140,7 @@ function useFullDiagnosisRunner() {
   const [error, setError] = useState('')
   const [result, setResult] = useState<FullDiagnosisResult | null>(null)
   const [streamingReport, setStreamingReport] = useState('')
+  const [model, setModel] = useState('unknown')
   const [progress, setProgress] = useState<DiagProgress | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const streamBuf = useRef('')
@@ -141,8 +152,9 @@ function useFullDiagnosisRunner() {
     const abort = startDiagnosisRun(abortRef, streamBuf, rafRef)
     resetDiagnosisState(setError, setResult, setStreamingReport, setLoading, setProgress, total)
     try {
-      const [config, keys] = await Promise.all([loadLLMConfig(user.id), getUserDataKeys(user.id)])
-      if (!config) throw new Error(t('portfolio.missingModel'))
+      const [configs, keys] = await Promise.all([loadLLMConfigCandidates(user.id), getUserDataKeys(user.id)])
+      if (configs.length === 0) throw new Error(t('portfolio.missingModel'))
+      setModel(configs[0]?.model || 'unknown')
 
       setProgress({ step: 'kline', fetched: 0, total })
       const entries = await fetchAllPositionKlines(portfolio.positions, keys, (n) => setProgress({ step: 'kline', fetched: n, total }))
@@ -155,7 +167,7 @@ function useFullDiagnosisRunner() {
         streamBuf.current += chunk
         scheduleStreamingReportFlush(streamBuf, rafRef, setStreamingReport)
       }
-      const report = await callFullPortfolioLLM(config, prompt, abort.signal, onDelta)
+      const report = await callFullPortfolioLLM(configs, prompt, abort.signal, onDelta, (nextModel) => setModel(nextModel))
       cancelAnimationFrame(rafRef.current)
       if (abort.signal.aborted) return
       setStreamingReport(report)
@@ -168,15 +180,38 @@ function useFullDiagnosisRunner() {
     }
   }
 
-  return { loading, error, result, streamingReport, progress, run }
+  return { loading, error, result, streamingReport, progress, run, model }
 }
 
-function usePortfolioHistory(userId: string | undefined, result: FullDiagnosisResult | null, source: PortfolioHistoryPayload['source']) {
+function usePortfolioHistory(userId: string | undefined, result: FullDiagnosisResult | null, source: PortfolioHistoryPayload['source'], model: string) {
   const savedKey = useRef('')
 
   useEffect(() => {
     if (!userId || !result?.report) return
-    const payload: PortfolioHistoryPayload = { source, result, report: result.report }
+
+    const rawText = result.positions.map(p => {
+      const val = result.values.find(v => v.code === p.code);
+      const src = val?.snapshot.source || '';
+      const metricsJson = val?.snapshot.metrics ? JSON.stringify(val.snapshot.metrics) : 'none';
+      return `${p.code}:${p.shares}:${p.cost}:${src}:${metricsJson}`;
+    }).join('|');
+    let hash = 2166136261;
+    for (let i = 0; i < rawText.length; i++) {
+      hash = Math.imul(hash ^ rawText.charCodeAt(i), 16777619);
+    }
+    const inputSnapshotHash = (hash >>> 0).toString(16);
+
+    const meta = {
+      inputSnapshotHash,
+      promptVersion: 'wyckoff-prompt-v2.1',
+      model,
+      generatedAt: new Date().toISOString(),
+      valueSource: result.values.map(v => sourceLabel(v.snapshot)).filter(Boolean).join(','),
+      reportDate: result.values.map(v => v.snapshot.metrics?.period_end || 'unknown').filter(Boolean).join(','),
+      klineRows: result.klineRows || undefined,
+    }
+
+    const payload: PortfolioHistoryPayload = { source, result, report: result.report, meta }
     const key = portfolioHistoryKey(payload)
     if (savedKey.current === key) return
     savedKey.current = key
@@ -188,7 +223,7 @@ function usePortfolioHistory(userId: string | undefined, result: FullDiagnosisRe
       symbols: result.positions.map((position) => position.code),
       payload,
     }).catch(() => undefined)
-  }, [result, source, userId])
+  }, [result, source, userId, model])
 }
 
 function portfolioHistoryKey(payload: PortfolioHistoryPayload): string {
@@ -296,6 +331,7 @@ function buildDiagnosisResult(entries: PositionEntry[], report: string, freeCash
   })
   return {
     report, positions, values,
+    klineRows: entries.reduce((sum, entry) => sum + entry.kline.length, 0),
     summaryStats: { totalCost, totalMarket, pnlPct: totalCost > 0 ? ((totalMarket - totalCost) / totalCost) * 100 : 0, freeCash, count: entries.length },
   }
 }
@@ -669,11 +705,27 @@ function buildFullPortfolioPrompt(entries: PositionEntry[], freeCash: number): s
   return [header, '', ...sections].join('\n\n')
 }
 
-async function callFullPortfolioLLM(config: Parameters<typeof streamLLMResponse>[0], prompt: string, signal?: AbortSignal, onDelta?: (chunk: string) => void): Promise<string> {
-  const result = await streamLLMResponse(config, [
-    { role: 'system', content: '你是威科夫资产配置诊断专家。基于用户的全部持仓、真实K线和价值面快照做整体诊断。主框架仍是仓位、趋势和量价结构；价值面只用于校准公司质量、风险暴露和仓位置信度，不要用基本面替代K线事实。输出包含：\n1. 仓位分布评估（集中度、行业分散性）\n2. 各持仓当前威科夫阶段一句话判断，并说明价值面质量/风险如何影响持仓置信度\n3. 现金比例是否合理\n4. 整体风险暴露（哪些持仓需要警惕）\n5. 加减仓优先级建议\n6. 操作建议（先减谁、可加谁、现金该不该动）\n\n用简洁的 Markdown 格式回答。不编造数据。' },
+export const PORTFOLIO_SYSTEM_PROMPT = `你是威科夫资产配置诊断专家。基于用户的全部持仓、真实K线和价值面快照做整体诊断。主框架仍是仓位、趋势和量价结构；价值面只用于校准公司质量、风险暴露和仓位置信度，不要用基本面替代K线事实。
+
+【核心质量要求】
+- 必须在诊断报告中说明数据来源、给出明确的置信度理由与配置风控建议，并提供调仓或防守策略的失效条件/警戒水位线。
+- 绝对禁止在分析结论中使用“必然”、“保证”、“无风险”、“稳赚”、“稳赢”、“包赚”等夸大或确定性的承诺词语。
+
+输出包含：
+1. 仓位分布评估（集中度、行业分散性）
+2. 各持仓当前威科夫阶段一句话判断，并说明价值面质量/风险如何影响持仓置信度
+3. 现金比例是否合理
+4. 整体风险暴露（哪些持仓需要警惕，包括失效位和风险提示）
+5. 加减仓优先级建议
+6. 操作建议（先减谁、可加谁、现金该不该动）
+
+用简洁的 Markdown 格式回答。不编造数据。`
+
+async function callFullPortfolioLLM(configs: Parameters<typeof streamLLMResponseWithFallback>[0], prompt: string, signal?: AbortSignal, onDelta?: (chunk: string) => void, onModel?: (model: string) => void): Promise<string> {
+  const result = await streamLLMResponseWithFallback(configs, [
+    { role: 'system', content: PORTFOLIO_SYSTEM_PROMPT },
     { role: 'user', content: `请对我的完整持仓做整体诊断和资产配置建议。\n\n${prompt}` },
-  ], { temperature: 0.5, maxTokens: 4000, signal, onDelta })
+  ], { temperature: 0.5, maxTokens: 4000, signal, onDelta, onStatus: (status) => onModel?.(status.nextModel || status.model) })
   if (!result) throw new Error('模型未返回结果，请重试')
   return result
 }

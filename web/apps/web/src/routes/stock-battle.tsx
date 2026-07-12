@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, ty
 import { CheckSquare, Loader2, Swords, XSquare } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferences } from '@/lib/preferences'
-import { loadLLMConfig } from '@/lib/chat-agent'
-import { streamLLMResponse } from '@/lib/llm-stream'
+import { loadLLMConfigCandidates } from '@/lib/chat-agent'
+import { streamLLMResponseWithFallback } from '@/lib/llm-stream'
 import { MarkdownContent } from '@/components/markdown'
 import { KlineChart } from '@/components/kline-chart'
 import { MultiStockChart, type ComparisonSeries } from '@/components/multi-stock-chart'
@@ -49,6 +49,15 @@ interface BattleHistoryPayload {
   overlayLimit: number
   report: string
   benchmark: KlineRow[]
+  meta?: {
+    inputSnapshotHash?: string
+    promptVersion?: string
+    model?: string
+    generatedAt?: string
+    valueSource?: string
+    reportDate?: string
+    klineRows?: number
+  }
 }
 
 const DEFAULT_INPUT = '中国平安\n贵州茅台\nAAPL\nNVDA\n腾讯'
@@ -58,7 +67,7 @@ export function StockBattlePage() {
   const [input, setInput] = useState(DEFAULT_INPUT)
   const battle = useBattleRunner()
   const selectedSeries = useSelectedSeries(battle.stocks, battle.selectedCodes)
-  useBattleHistory(user?.id, input, battle.stocks, battle.selectedCodes, battle.mode, battle.overlayLimit, battle.report, battle.benchmark)
+  useBattleHistory(user?.id, input, battle.stocks, battle.selectedCodes, battle.mode, battle.overlayLimit, battle.report, battle.benchmark, battle.model)
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5 p-6">
@@ -88,6 +97,7 @@ function useBattleRunner() {
   const [mode, setMode] = useState<ChartMode>('overlay')
   const [overlayLimit, setOverlayLimit] = useState(6)
   const [report, setReport] = useState('')
+  const [model, setModel] = useState('unknown')
   const abortRef = useRef<AbortController | null>(null)
   const streamBuf = useRef(''), rafRef = useRef(0)
   const [benchmark, setBenchmark] = useState<KlineRow[]>([])
@@ -98,10 +108,11 @@ function useBattleRunner() {
     const abort = new AbortController()
     abortRef.current = abort
     streamBuf.current = ''
-    setLoading(true); setError(''); setStocks([]); setBenchmark([]); setSelectedCodes([]); setReport('')
+    setLoading(true); setError(''); setStocks([]); setBenchmark([]); setSelectedCodes([]); setReport(''); setModel('unknown')
     try {
-      const [config, keys, targets] = await Promise.all([loadLLMConfig(user.id), getUserDataKeys(user.id), resolveTargets(input)])
-      if (!config) throw new Error(t('battle.missingModel'))
+      const [configs, keys, targets] = await Promise.all([loadLLMConfigCandidates(user.id), getUserDataKeys(user.id), resolveTargets(input)])
+      if (configs.length === 0) throw new Error(t('battle.missingModel'))
+      setModel(configs[0]?.model || 'unknown')
       if (!keys.tickflow) throw new Error(upgradeMessage())
       const [fetched, bench] = await Promise.all([
         fetchBattleStocks(targets, keys),
@@ -112,7 +123,7 @@ function useBattleRunner() {
       setBenchmark(bench)
       setSelectedCodes(fetched.slice(0, Math.min(6, fetched.length)).map((item) => item.code))
       const onDelta = (chunk: string) => { streamBuf.current += chunk; scheduleBattleReportFlush(streamBuf, rafRef, setReport) }
-      const finalReport = await callBattleLLM(config, fetched, abort.signal, onDelta)
+      const finalReport = await callBattleLLM(configs, fetched, abort.signal, onDelta, (nextModel) => setModel(nextModel))
       cancelAnimationFrame(rafRef.current)
       if (abort.signal.aborted) return
       setReport(finalReport)
@@ -125,7 +136,7 @@ function useBattleRunner() {
     }
   }
 
-  return { loading, error, stocks, selectedCodes, mode, overlayLimit, report, benchmark, run, setSelectedCodes, setMode, setOverlayLimit }
+  return { loading, error, stocks, selectedCodes, mode, overlayLimit, report, benchmark, run, setSelectedCodes, setMode, setOverlayLimit, model }
 }
 
 function scheduleBattleReportFlush(buf: MutableRefObject<string>, raf: MutableRefObject<number>, set: Dispatch<SetStateAction<string>>) {
@@ -142,12 +153,13 @@ function useBattleHistory(
   overlayLimit: number,
   report: string,
   benchmark: KlineRow[],
+  model: string,
 ) {
   const savedKey = useRef('')
 
   useEffect(() => {
     if (!userId || !report || stocks.length === 0) return
-    const payload = buildBattleHistoryPayload(input, stocks, selectedCodes, mode, overlayLimit, report, benchmark)
+    const payload = buildBattleHistoryPayload(input, stocks, selectedCodes, mode, overlayLimit, report, benchmark, model)
     const key = battleHistoryKey(payload)
     if (savedKey.current === key) return
     savedKey.current = key
@@ -159,7 +171,7 @@ function useBattleHistory(
       symbols: payload.stocks.map((stock) => stock.code),
       payload,
     }).catch(() => undefined)
-  }, [benchmark, input, mode, overlayLimit, report, selectedCodes, stocks, userId])
+  }, [benchmark, input, mode, overlayLimit, report, selectedCodes, stocks, userId, model])
 }
 
 function buildBattleHistoryPayload(
@@ -170,7 +182,25 @@ function buildBattleHistoryPayload(
   overlayLimit: number,
   report: string,
   benchmark: KlineRow[],
+  model: string,
 ): BattleHistoryPayload {
+  const rawText = stocks.map(s => `${s.code}:${s.data.length}:${s.valueSnapshot.source}:${s.valueSnapshot.metrics ? JSON.stringify(s.valueSnapshot.metrics) : 'none'}`).join('|')
+  let hash = 2166136261
+  for (let i = 0; i < rawText.length; i++) {
+    hash = Math.imul(hash ^ rawText.charCodeAt(i), 16777619)
+  }
+  const inputSnapshotHash = (hash >>> 0).toString(16)
+
+  const meta = {
+    inputSnapshotHash,
+    promptVersion: 'wyckoff-prompt-v2.1',
+    model,
+    generatedAt: new Date().toISOString(),
+    valueSource: stocks.map(s => sourceLabel(s.valueSnapshot)).filter(Boolean).join(','),
+    reportDate: stocks.map(s => s.valueSnapshot.metrics?.period_end || 'unknown').filter(Boolean).join(','),
+    klineRows: stocks.reduce((acc, s) => acc + s.data.length, 0),
+  }
+
   return {
     input,
     stocks,
@@ -179,6 +209,7 @@ function buildBattleHistoryPayload(
     overlayLimit,
     report,
     benchmark,
+    meta,
   }
 }
 
@@ -517,15 +548,26 @@ function periodReturn(data: KlineRow[], days: number): number {
   return base > 0 ? (latest / base - 1) * 100 : 0
 }
 
-async function callBattleLLM(config: Parameters<typeof streamLLMResponse>[0], stocks: BattleStock[], signal?: AbortSignal, onDelta?: (chunk: string) => void): Promise<string> {
-  const result = await streamLLMResponse(config, buildBattleMessages(stocks), { temperature: 0.45, maxTokens: 3500, signal, onDelta })
+async function callBattleLLM(configs: Parameters<typeof streamLLMResponseWithFallback>[0], stocks: BattleStock[], signal?: AbortSignal, onDelta?: (chunk: string) => void, onModel?: (model: string) => void): Promise<string> {
+  const result = await streamLLMResponseWithFallback(configs, buildBattleMessages(stocks), { temperature: 0.45, maxTokens: 3500, signal, onDelta, onStatus: (status) => onModel?.(status.nextModel || status.model) })
   if (!result) throw new Error('模型未返回结果，请重试')
   return result
 }
 
+export const BATTLE_SYSTEM_PROMPT = `你是威科夫强弱对抗分析师。主框架是量价相对强弱、趋势延续性和回撤位置；若给出价值面摘要，只把它作为质量、风险和置信度校准，不用基本面替代 K 线事实。
+
+【核心质量要求】
+- 必须在报告中说明数据来源、给出明确的置信度理由与风控建议，并提供策略失效判定条件。
+- 绝对禁止在分析结论中使用“必然”、“保证”、“无风险”、“稳赚”、“稳赢”、“包赚”等夸大或确定性的承诺词语。
+
+输出结构：
+1. 强弱排序及核心胜出原因。
+2. 各标的落后风险及价值面校准。
+3. 各标的适合观察的触发价位、防守生死线/策略失效条件。`
+
 function buildBattleMessages(stocks: BattleStock[]) {
   return [
-    { role: 'system' as const, content: '你是威科夫强弱对抗分析师。主框架是量价相对强弱、趋势延续性和回撤位置；若给出价值面摘要，只把它作为质量、风险和置信度校准，不用基本面替代 K 线事实。输出强弱排序、胜出原因、落后风险、价值面校准、适合观察的触发价位。' },
+    { role: 'system' as const, content: BATTLE_SYSTEM_PROMPT },
     { role: 'user' as const, content: `请比较这些股票的强弱，并给出结论。\n\n${stocks.map(buildStockDigest).join('\n\n---\n\n')}` },
   ]
 }

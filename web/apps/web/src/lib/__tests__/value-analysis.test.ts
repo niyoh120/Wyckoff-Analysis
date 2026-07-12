@@ -6,6 +6,7 @@ import type { Translate } from '../value-analysis'
 import {
   buildValueDigest,
   buildValueScore,
+  calculateInputSnapshotHash,
   formatValuePercent,
   numberTone,
   reverseNumberTone,
@@ -29,6 +30,8 @@ const translations: Partial<Record<TranslationKey, string>> = {
   'analysis.valueRiskGrossMarginLow': '毛利率偏低',
   'analysis.valueRiskHighDebt': '资产负债率偏高',
   'analysis.valueRiskCashWeak': '经营现金流偏弱',
+  'analysis.valueRiskProfitCashFlowDivergence': '净利润增长但经营现金流负',
+  'analysis.valueRiskWeakCashEarnings': '利润现金含量偏弱',
   'analysis.valueUnsupported': '价值面快照先支持 A 股。',
   'analysis.valueMissingSource': '需要 TickFlow 或 Tushare 数据源后展示价值面。',
   'analysis.valueUnavailable': '暂无可用基本面数据。',
@@ -114,5 +117,35 @@ describe('value analysis helpers', () => {
     expect(prompt).toContain('EPS=12.34')
     expect(digest).toContain('valueMetrics roe=18.20%')
     expect(digest).toContain('cashToRevenue=16.20%')
+  })
+
+  it('detects compound risk rules and rule codes', () => {
+    const score = buildValueScore({
+      roe: 12,
+      net_income_yoy: 8,
+      revenue_yoy: 5,
+      gross_margin: 40,
+      debt_to_asset_ratio: 40,
+      operating_cash_to_revenue: -5,
+    }, t)
+
+    const riskCodes = score.risks.map(r => r.code)
+    expect(riskCodes).toContain('PROFIT_CASH_FLOW_DIVERGENCE')
+    expect(riskCodes).toContain('WEAK_CASH_EARNINGS')
+    expect(score.risks.find(r => r.code === 'PROFIT_CASH_FLOW_DIVERGENCE')?.label).toBe('净利润增长但经营现金流负')
+    expect(score.strengths[0]?.code).toBe('ROE_STRONG')
+    expect(score.score).toBe(5)
+  })
+
+  it('calculates deterministic input snapshot hash', () => {
+    const kline = [{ date: '2026-01-01', open: 1, high: 2, low: 1, close: 1.5, volume: 100 }]
+    const snap = snapshot({ roe: 15, period_end: '2026-03-31' })
+    const h1 = calculateInputSnapshotHash('600519.SH', kline, snap)
+    const h2 = calculateInputSnapshotHash('600519.SH', kline, snap)
+    const h3 = calculateInputSnapshotHash('000001.SZ', kline, snap)
+
+    expect(h1).toBe(h2)
+    expect(h1).not.toBe(h3)
+    expect(typeof h1).toBe('string')
   })
 })

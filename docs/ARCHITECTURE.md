@@ -712,7 +712,19 @@ tickflow                                        （1 分钟盘中数据，尾盘
 
 日线行情通过统一仓库层 `integrations/stock_hist_repository.py` 直接从数据源拉取（TickFlow 优先，降级 tushare/akshare/baostock）。
 
-`integrations/rag_veto.py` — 新闻否决层：抓取东方财富个股新闻，命中负面关键词则拦截推荐。
+`integrations/rag_veto.py` — 新闻否决层：合并本地 `intelligence_items` 情报池与 AkShare/东方财富个股新闻，按 URL 或标准化标题去重后做相关性、关键词和语义检查。任一来源失败时保留另一来源，避免单点失败阻断 Step3。
+
+本地情报池由 `integrations/news_intelligence.py` 管理。`NEWS_INTEL_AUTO_FETCH_ENABLED=true` 时，RAG 批处理会按 60 分钟冷却刷新 NewsNow；`NEWSNOW_BASE_URL` 可覆盖默认服务地址。关闭自动刷新只停用 NewsNow 拉取，不停用本地已有数据或 AkShare 远程新闻。
+
+### ToolSurface 执行边界
+
+CLI、MCP 通过 `tools/tool_surface.py` 统一做参数校验、stock scope、结果截断、脱敏审计和超时处理。CLI 普通同步工具默认 30 秒；`ask_user_question` 与 `delegate_to_research` / `delegate_to_analysis` / `delegate_to_trading` 属于交互或长委派工具，不套用 ToolSurface 外层超时，由各自的用户等待或子 Agent deadline 管理。MCP 普通工具默认 60 秒，screen/backtest 为 250 秒。
+
+### 分析数据质量与历史 meta
+
+Web 个股、持仓和股票对抗分析保存历史时写入 `meta`：输入快照 hash、prompt 版本、实际模型、生成时间、价值面来源/报告期和 K 线行数。个股 K 线同时携带 `dataQuality`，用于区分完整数据、降级来源和缺口；meta 只记录可追溯口径，不参与交易评分。价值面复合风险可保留多条解释标签，但同一负现金流根因只在基础规则中扣分一次。
+
+个股、持仓和股票对抗统一按用户配置顺序重试当前模型并切换备用模型；一旦已经输出 token，为避免拼接不同模型内容，不再自动切换。
 
 ## 云端存储（Supabase）
 

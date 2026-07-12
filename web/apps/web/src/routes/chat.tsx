@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferences } from '@/lib/preferences'
 import {
@@ -14,7 +15,7 @@ import { useReadingRoomConversations } from '@/features/reading-room/conversatio
 import { ChatHeader } from '@/features/reading-room/header'
 import { buildRunRecords } from '@/features/reading-room/run-records'
 import { ChatMessages, ErrorBanner } from '@/features/reading-room/transcript'
-import type { ReadingRoomTab } from '@/features/reading-room/types'
+import type { ChatRunStatus, ReadingRoomTab } from '@/features/reading-room/types'
 import { readBooleanStorage } from '@/features/reading-room/utils'
 import { useReadingRoomWatchlist } from '@/features/reading-room/watchlist-state'
 
@@ -22,14 +23,17 @@ export function ChatPage() {
   const session = useAuthStore((s) => s.session)
   const user = useAuthStore((s) => s.user)
   const { t } = usePreferences()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [input, setInput] = useState('')
   const [localError, setLocalError] = useState('')
+  const [modelStatus, setModelStatus] = useState<ChatRunStatus | null>(null)
   const [activeTab, setActiveTab] = useState<ReadingRoomTab>('desk')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readBooleanStorage(CONVERSATION_SIDEBAR_STORAGE_KEY, true))
   const scrollRef = useRef<HTMLDivElement>(null)
   const token = session?.access_token
   const config = useChatConfig(token, t)
-  const chat = useReadingRoomChat(token, setLocalError, t)
+  const chat = useReadingRoomChat(token, setLocalError, t, setModelStatus)
   const loading = chat.status === 'submitted' || chat.status === 'streaming'
   const queue = useMessageQueue(chat, loading, token, config.configured, setLocalError, t)
   const conversations = useReadingRoomConversations(user?.id, chat.messages, chat.setMessages)
@@ -63,6 +67,14 @@ export function ChatPage() {
     setLocalError,
     setSidebarCollapsed,
   })
+  const { startNewConversation } = actions
+
+  useEffect(() => {
+    const prompt = (location.state as { initialPrompt?: unknown } | null)?.initialPrompt
+    if (typeof prompt !== 'string' || !prompt.trim() || !token || !config.configured) return
+    startNewConversation(prompt)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [config.configured, location.pathname, location.state, navigate, startNewConversation, token])
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -100,6 +112,7 @@ export function ChatPage() {
         onInput={setInput}
         onSubmit={handleSubmit}
         onStop={() => void chat.stop()}
+        modelStatus={modelStatus}
       />
       <ErrorBanner message={localError || chat.error?.message || ''} />
     </div>

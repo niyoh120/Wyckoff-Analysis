@@ -464,6 +464,33 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["url"],
         },
     },
+    {
+        "name": "reassess_profile",
+        "description": "基于已有的 AI 研报文本，重新评估并预览保守 (conservative)、均衡 (balanced) 或激进 (aggressive) 决策风格下的交易信号与参数调整。不写入数据库。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "report_text": {
+                    "type": "string",
+                    "description": "研报文本内容（通常为 Markdown）",
+                },
+                "profile": {
+                    "type": "string",
+                    "enum": ["conservative", "balanced", "aggressive"],
+                    "description": "决策风格：conservative(保守), balanced(均衡), aggressive(激进)",
+                },
+            },
+            "required": ["report_text", "profile"],
+        },
+    },
+    {
+        "name": "diagnose_backend",
+        "description": "运行后端大模型诊疗（Doctor），全面检查所有 LLM 接口和数据源凭证（如 Tushare Token）的配置、连通性及延迟，输出诊断报告。",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -497,6 +524,8 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "read_file": ToolSpec("read_file", "读取文件"),
     "write_file": ToolSpec("write_file", "写入文件", requires_approval=True),
     "web_fetch": ToolSpec("web_fetch", "抓取网页"),
+    "reassess_profile": ToolSpec("reassess_profile", "风控评估", concurrency_safe=True),
+    "diagnose_backend": ToolSpec("diagnose_backend", "大模型诊疗", concurrency_safe=True),
     "ask_user_question": ToolSpec("ask_user_question", "提问用户", concurrency_safe=False),
     "execute_skill": ToolSpec("execute_skill", "执行技能", concurrency_safe=True),
     "delegate_to_research": ToolSpec("delegate_to_research", "委派研究员"),
@@ -582,10 +611,6 @@ def execute_skill(name: str, user_input: str = "", *, tool_context=None) -> dict
 
 
 # ---------------------------------------------------------------------------
-# ToolRegistry — 管理工具注册和执行
-# ---------------------------------------------------------------------------
-
-
 class ToolRegistry:
     """工具注册表：注册、查询 schema、执行工具。"""
 
@@ -604,6 +629,20 @@ class ToolRegistry:
         self._confirm_callback = None
         self._ask_user_question_callback = None
         self._always_allowed: set[str] = set()
+
+        # Initialize ToolSurface and populate from TOOL_SCHEMAS
+        from tools.tool_surface import ToolSurface, from_json_schema
+
+        self._tool_surface = ToolSurface()
+        for schema in TOOL_SCHEMAS:
+            name = schema["name"]
+            handler = self._tools.get(name)
+            if handler:
+                try:
+                    tool_def = from_json_schema(schema, handler)
+                    self._tool_surface.register(tool_def)
+                except Exception as e:
+                    logger.warning("Failed to register tool %s to tool_surface: %s", name, e)
 
     def set_provider(self, provider):
         """注入 LLM Provider，供委派工具启动 sub-agent。"""
@@ -646,6 +685,8 @@ class ToolRegistry:
             delegate_to_research,
             delegate_to_trading,
         )
+        from tools.backend_doctor import diagnose_backend
+        from workflows.reassess_profile import reassess_decision_profile
 
         return {
             "search_stock_by_name": search_stock_by_name,
@@ -669,6 +710,8 @@ class ToolRegistry:
             "read_file": read_file,
             "write_file": write_file,
             "web_fetch": web_fetch,
+            "reassess_profile": reassess_decision_profile,
+            "diagnose_backend": diagnose_backend,
         }
 
     def schemas(self, allowed_tools: set[str] | tuple[str, ...] | None = None) -> list[dict[str, Any]]:
@@ -732,11 +775,24 @@ class ToolRegistry:
                 "message": f"{display}已提交后台执行，您可以继续提问。任务完成后会自动通知。",
             }
 
-        try:
-            return fn(**call_args)
-        except Exception as e:
-            logger.exception("Tool %s execution failed", name)
-            return {"error": f"工具执行失败: {e}"}
+        if self._tool_surface.resolve(name) is None:
+            try:
+                return fn(**call_args)
+            except Exception as e:
+                logger.exception("Tool %s execution failed", name)
+                return {"error": f"工具执行失败: {e}"}
+
+        from tools.tool_surface import ToolAccessContext
+
+        ctx = ToolAccessContext(
+            timeout_seconds=30.0,
+            session_id=self._tool_context.state.get("session_id"),
+        )
+        res = self._tool_surface.execute_tool(name, call_args, ctx)
+        if not res["ok"]:
+            err = res["error"]
+            return {"error": err["message"], "code": err["code"]}
+        return res["result"]
 
     def _remember_background_handoffs(self) -> None:
         for _task_id, tool_name, result in self._bg_manager.completed_results():

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from cli.loop_guard import resolve_turn_expectation
 from cli.runtime import AgentRuntime, partition_tool_calls
 from cli.screen_intent import (
@@ -58,6 +60,37 @@ def test_runtime_emits_tool_events_and_done():
     assert events[-1]["text"] == "你当前没有持仓。"
     assert events[-1]["usage"] == {"input_tokens": 25, "output_tokens": 11}
     assert any(m.get("role") == "tool" and m.get("name") == "portfolio" for m in messages)
+
+
+def test_runtime_emits_model_stage_progress_around_each_provider_round():
+    provider = ScriptedProvider(
+        rounds=[
+            [{"type": "text_delta", "text": "分析完成。"}],
+        ]
+    )
+
+    events = list(AgentRuntime(provider, StubToolRegistry()).run_stream([{"role": "user", "content": "分析一下"}]))
+
+    model_events = [event for event in events if event["type"] in {"stage_start", "stage_done"}]
+    assert model_events == [
+        {"type": "stage_start", "stage": "model", "round": 1, "message": "正在分析"},
+        {"type": "stage_done", "stage": "model", "round": 1, "success": True},
+    ]
+    assert events.index(model_events[0]) < next(i for i, event in enumerate(events) if event["type"] == "text_delta")
+    assert events.index(model_events[1]) < next(i for i, event in enumerate(events) if event["type"] == "done")
+
+
+def test_runtime_emits_failed_model_stage_before_provider_error():
+    def broken_round(_messages, _tools, _system_prompt):
+        raise RuntimeError("provider unavailable")
+
+    runtime = AgentRuntime(ScriptedProvider(rounds=[broken_round]), StubToolRegistry())
+    stream = runtime.run_stream([{"role": "user", "content": "分析一下"}])
+
+    assert next(stream) == {"type": "stage_start", "stage": "model", "round": 1, "message": "正在分析"}
+    assert next(stream) == {"type": "stage_done", "stage": "model", "round": 1, "success": False}
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        next(stream)
 
 
 def test_runtime_passes_provider_context_window_to_compaction(monkeypatch):

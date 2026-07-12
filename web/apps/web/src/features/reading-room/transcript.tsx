@@ -7,7 +7,7 @@ import type { ReadingRoomConversation } from './conversations'
 import { ReadingRoomDashboard } from './dashboard'
 import type { ReadingRoomChat } from './chat-state'
 import { MessageBubble, QueuedMessageBubble } from './tool-rendering'
-import type { PinStockInput, QueuedMessage, ReadingRoomTab, RunRecord, WatchItem } from './types'
+import type { ChatRunStatus, PinStockInput, QueuedMessage, ReadingRoomTab, RunRecord, WatchItem } from './types'
 import { WatchlistPanelView } from './watchlist'
 
 interface ChatMessagesProps {
@@ -36,6 +36,7 @@ interface ChatMessagesProps {
   onInput: (value: string) => void
   onSubmit: (e: FormEvent) => void
   onStop: () => void
+  modelStatus: ChatRunStatus | null
 }
 
 export function ChatMessages(props: ChatMessagesProps) {
@@ -58,6 +59,7 @@ export function ChatMessages(props: ChatMessagesProps) {
               onPinStock={props.onPinStock}
               onRemoveWatchItem={props.onRemoveWatchItem}
               onStart={props.onStart}
+              modelStatus={props.modelStatus}
             />
           </div>
           <ChatComposerSlot props={props} />
@@ -110,8 +112,10 @@ function ReadingRoomMainContent({
   onPinStock,
   onRemoveWatchItem,
   onStart,
+  modelStatus,
 }: Pick<ChatMessagesProps, 'activeTab' | 'chat' | 'loading' | 'queuedMessages' | 'runRecords' | 'watchlist' | 'onOpenRecord' | 'onPinStock' | 'onRemoveWatchItem' | 'onStart'> & {
   activeAssistantId: string | null
+  modelStatus: ChatRunStatus | null
 }) {
   if (activeTab === 'desk') {
     return (
@@ -135,6 +139,7 @@ function ReadingRoomMainContent({
         loading={loading}
         queuedMessages={queuedMessages}
         onPinStock={onPinStock}
+        modelStatus={modelStatus}
       />
     </div>
   )
@@ -146,10 +151,12 @@ function ChatTranscript({
   loading,
   queuedMessages,
   onPinStock,
-}: Pick<ChatMessagesProps, 'chat' | 'loading' | 'queuedMessages' | 'onPinStock'> & { activeAssistantId: string | null }) {
+  modelStatus,
+}: Pick<ChatMessagesProps, 'chat' | 'loading' | 'queuedMessages' | 'onPinStock'> & { activeAssistantId: string | null; modelStatus: ChatRunStatus | null }) {
   if (chat.messages.length === 0 && !loading && queuedMessages.length === 0) return <EmptyChatPanel />
   return (
     <div className="space-y-5 pb-4 animate-fade-in-up">
+      {modelStatus && <ModelStatusBanner status={modelStatus} />}
       {chat.messages.map((message) => (
         <MessageBubble
           key={message.id}
@@ -164,6 +171,18 @@ function ChatTranscript({
       {loading && <ThinkingBubble />}
     </div>
   )
+}
+
+function ModelStatusBanner({ status }: { status: ChatRunStatus }) {
+  const label = status.kind === 'stage'
+    ? status.message || '正在分析'
+    : status.phase === 'fallback'
+    ? `当前模型 ${status.model} 暂时不可用，正在切换到 ${status.nextModel || '备用模型'}`
+    : `当前模型响应异常，正在重试（第 ${status.attempt} 次）`
+  const tone = status.kind === 'stage'
+    ? 'border-border bg-muted/60 text-muted-foreground'
+    : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100'
+  return <div className={`rounded-lg border px-3 py-2 text-xs ${tone}`}>{label}</div>
 }
 
 function lastAssistantId(messages: UIMessage[]): string | null {

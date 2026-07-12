@@ -3,20 +3,20 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { Loader2, Play, Search } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
-import { loadLLMConfig } from '@/lib/chat-agent'
-import { streamLLMResponse } from '@/lib/llm-stream'
+import { loadLLMConfig, loadLLMConfigCandidates } from '@/lib/chat-agent'
+import { streamLLMResponseWithFallback, type LLMStreamStatus } from '@/lib/llm-stream'
 import { MarkdownContent } from '@/components/markdown'
 import { KlineChart } from '@/components/kline-chart'
 import { usePreferences } from '@/lib/preferences'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
 import { detectWyckoffAnnotations } from '@/lib/wyckoff-detect'
 import { TICKFLOW_PURCHASE, fetchValueSnapshotWithFetch, isCnSymbol, isSupportedKlineCode } from '@wyckoff/shared'
-import type { KlineRow, ValueSnapshot } from '@wyckoff/shared'
-import { fetchKline, getUserDataKeys, checkWhitelist } from '@/lib/kline'
+import type { KlineDataQuality, KlineRow, ValueSnapshot } from '@wyckoff/shared'
+import { fetchKlineWithQuality, getUserDataKeys, checkWhitelist } from '@/lib/kline'
 import { avg } from '@/lib/math'
 import { marketLabel, resolveStockQuery, searchStocks, type StockSearchResult } from '@/lib/market-search'
 import { buildValuePrompt, sourceLabel } from '@wyckoff/shared'
-import { buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
+import { buildValueScore, calculateInputSnapshotHash, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
 import { saveAnalysisHistory } from '@/lib/local-history'
 
 interface AnalysisResult {
@@ -24,7 +24,17 @@ interface AnalysisResult {
   symbol: string
   name: string
   klineData: KlineRow[]
+  dataQuality: KlineDataQuality
   valueSnapshot: ValueSnapshot
+  meta?: {
+    inputSnapshotHash?: string
+    promptVersion?: string
+    model?: string
+    generatedAt?: string
+    valueSource?: string
+    reportDate?: string
+    klineRows?: number
+  }
 }
 
 export function AnalysisPage() {
@@ -34,6 +44,7 @@ export function AnalysisPage() {
   const prerequisites = usePrerequisites(user?.id)
   const runner = useAnalysisRunner(search, prerequisites.setHasModelConfig)
   useAnalysisHistory(user?.id, runner.result)
+  const navigate = useNavigate()
   const disabled = runner.loading || !search.symbol.trim() || prerequisites.checkingConfig || !prerequisites.hasModelConfig || !prerequisites.hasDataSource
 
   return (
@@ -44,7 +55,12 @@ export function AnalysisPage() {
         <SearchForm search={search} loading={runner.loading} disabled={disabled} onAnalyze={runner.handleAnalyze} onClearError={() => runner.setError('')} />
         {runner.error && <div className="mt-3 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200">{runner.error}</div>}
       </div>
-      <AnalysisContent runner={runner} />
+      <AnalysisContent
+        runner={runner}
+        onAskAboutRange={(start, end) => navigate('/chat', {
+          state: { initialPrompt: `请分析 ${runner.result?.symbol || search.symbol} 从 ${start} 到 ${end} 这段 K 线的威科夫结构、量价变化和关键风险。先调用工具读取数据，再给出结论。` },
+        })}
+      />
     </div>
   )
 }
@@ -180,7 +196,8 @@ interface AnalysisRunnerState {
   error: string
   step: AnalysisStep | null
   streamingReport: string
-  earlyKline: { data: KlineRow[]; symbol: string; name: string; valueSnapshot: ValueSnapshot } | null
+  modelStatus: LLMStreamStatus | null
+  earlyKline: { data: KlineRow[]; symbol: string; name: string; dataQuality: KlineDataQuality; valueSnapshot: ValueSnapshot } | null
   setError: Dispatch<SetStateAction<string>>
   handleAnalyze: () => void
 }
@@ -193,7 +210,8 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
   const [error, setError] = useState('')
   const [step, setStep] = useState<AnalysisStep | null>(null)
   const [streamingReport, setStreamingReport] = useState('')
-  const [earlyKline, setEarlyKline] = useState<{ data: KlineRow[]; symbol: string; name: string; valueSnapshot: ValueSnapshot } | null>(null)
+  const [modelStatus, setModelStatus] = useState<LLMStreamStatus | null>(null)
+  const [earlyKline, setEarlyKline] = useState<{ data: KlineRow[]; symbol: string; name: string; dataQuality: KlineDataQuality; valueSnapshot: ValueSnapshot } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const streamBuf = useRef('')
   const rafRef = useRef(0)
@@ -204,34 +222,45 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
     setStep('resolve')
     const resolved = await resolveAnalysisCode(search.symbol, search.selectedStock)
     if (!resolved) { setError(t('analysis.invalidStockCode')); setStep(null); return }
-    const abort = startAnalysisRequest(abortRef, search, resolved, setError, setLoading, setResult, setStreamingReport, setEarlyKline)
+    const abort = startAnalysisRequest(abortRef, search, resolved, setError, setLoading, setResult, setStreamingReport, setEarlyKline, setModelStatus)
     try {
-      const [config, dataKeys] = await Promise.all([loadLLMConfig(userId), getUserDataKeys(userId)])
+      const [configs, dataKeys] = await Promise.all([loadLLMConfigCandidates(userId), getUserDataKeys(userId)])
+      const config = configs[0]
       setHasModelConfig(Boolean(config?.api_key && config?.model))
       if (!config?.api_key || !config.model) throw new Error(t('analysis.missingPrefix', { items: t('analysis.modelRequirement') }))
       setStep('kline')
       const [stockInfoResult, klineData, valueSnapshot] = await Promise.all([
         fetchStockName(resolved.code),
-        fetchKline(resolved.code, dataKeys, userId),
+        fetchKlineWithQuality(resolved.code, dataKeys, userId),
         fetchValueSnapshotWithFetch(globalThis.fetch, resolved.code, dataKeys).catch((): ValueSnapshot => ({ symbol: resolved.code, source: 'none', metrics: null, reason: 'not-found' })),
       ])
-      if (klineData.length === 0) throw new Error(t('analysis.noKlineData'))
+      if (klineData.data.length === 0) throw new Error(t('analysis.noKlineData'))
       const name = resolved.stock?.name || stockInfoResult.data?.name || resolved.code
-      setEarlyKline({ data: klineData, symbol: resolved.code, name, valueSnapshot })
+      setEarlyKline({ data: klineData.data, symbol: resolved.code, name, dataQuality: klineData.quality, valueSnapshot })
       setStep('llm'); streamBuf.current = ''
       const onDelta = (chunk: string) => { streamBuf.current += chunk; scheduleFlush(streamBuf, rafRef, setStreamingReport) }
-      const report = await callLLM(config, resolved.code, name, buildKlinePayload(klineData), valueSnapshot, abort.signal, onDelta)
+      const report = await callLLM(configs, resolved.code, name, buildKlinePayload(klineData.data, klineData.quality), valueSnapshot, abort.signal, onDelta, setModelStatus)
       cancelAnimationFrame(rafRef.current)
       if (abort.signal.aborted) return
       setStreamingReport(report)
-      setResult({ report, symbol: resolved.code, name, klineData, valueSnapshot })
+      const inputSnapshotHash = calculateInputSnapshotHash(resolved.code, klineData.data, valueSnapshot)
+      const meta = {
+        inputSnapshotHash,
+        promptVersion: 'wyckoff-prompt-v2.1',
+        model: config?.model || 'unknown',
+        generatedAt: new Date().toISOString(),
+        valueSource: valueSnapshot.source,
+        reportDate: valueSnapshot.metrics?.period_end || valueSnapshot.metrics?.announce_date || 'unknown',
+        klineRows: klineData.data.length,
+      }
+      setResult({ report, symbol: resolved.code, name, klineData: klineData.data, dataQuality: klineData.quality, valueSnapshot, meta })
     } catch (err) {
       if (abort.signal.aborted) return
       setError(err instanceof Error ? err.message : t('analysis.failed'))
     } finally { cancelAnimationFrame(rafRef.current); setLoading(false); setStep(null) }
   }
 
-  return { loading, result, error, step, streamingReport, earlyKline, setError, handleAnalyze }
+  return { loading, result, error, step, streamingReport, modelStatus, earlyKline, setError, handleAnalyze }
 }
 
 function startAnalysisRequest(
@@ -243,11 +272,12 @@ function startAnalysisRequest(
   setResult: Dispatch<SetStateAction<AnalysisResult | null>>,
   setStreamingReport: Dispatch<SetStateAction<string>>,
   setEarlyKline: Dispatch<SetStateAction<AnalysisRunnerState['earlyKline']>>,
+  setModelStatus: Dispatch<SetStateAction<LLMStreamStatus | null>>,
 ): AbortController {
   abortRef.current?.abort()
   const abort = new AbortController()
   abortRef.current = abort
-  setError(''); setLoading(true); setResult(null); setStreamingReport(''); setEarlyKline(null)
+  setError(''); setLoading(true); setResult(null); setStreamingReport(''); setEarlyKline(null); setModelStatus(null)
   search.setSymbol(resolved.code); search.setSelectedStock(resolved.stock); search.setSearchOpen(false)
   return abort
 }
@@ -379,8 +409,8 @@ function LoadingSuggestion({ text }: { text: string }) {
   return <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground"><Loader2 size={14} className="animate-spin" />{text}</div>
 }
 
-function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
-  const { result, loading, step, streamingReport, earlyKline } = runner
+function AnalysisContent({ runner, onAskAboutRange }: { runner: AnalysisRunnerState; onAskAboutRange: (start: string, end: string) => void }) {
+  const { result, loading, step, streamingReport, modelStatus, earlyKline } = runner
   if (!result && !loading) return <EmptyAnalysisState />
 
   const kline = result?.klineData ?? earlyKline?.data
@@ -388,10 +418,11 @@ function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
   const name = result?.name ?? earlyKline?.name
   const report = result?.report ?? streamingReport
   const valueSnapshot = result?.valueSnapshot ?? earlyKline?.valueSnapshot
+  const dataQuality = result?.dataQuality ?? earlyKline?.dataQuality
 
   return (
     <div className="flex min-h-0 flex-1 flex-col pt-4">
-      {step && <AnalysisProgressBar step={step} />}
+      {step && <AnalysisProgressBar step={step} modelStatus={modelStatus} />}
       {symbol && name && (
         <div className="mb-3 flex shrink-0 items-center gap-2">
           <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">{symbol} {name}</span>
@@ -399,7 +430,7 @@ function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
       )}
       <div className="min-h-0 flex-1 overflow-auto pr-1">
         <div className="space-y-6">
-          {kline && <KlineSection klineData={kline} />}
+          {kline && dataQuality && <KlineSection klineData={kline} dataQuality={dataQuality} onAskAboutRange={onAskAboutRange} />}
           {valueSnapshot && <ValueSection snapshot={valueSnapshot} />}
           {report && <ReportSection report={report} />}
         </div>
@@ -408,17 +439,49 @@ function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
   )
 }
 
-function KlineSection({ klineData, compact = false }: { klineData: KlineRow[]; compact?: boolean }) {
+function KlineSection({ klineData, dataQuality, compact = false, onAskAboutRange }: { klineData: KlineRow[]; dataQuality: KlineDataQuality; compact?: boolean; onAskAboutRange: (start: string, end: string) => void }) {
   const { t } = usePreferences()
   const wyckoff = useMemo(() => detectWyckoffAnnotations(klineData), [klineData])
+  const [selectedRange, setSelectedRange] = useState<{ start: string; end: string } | null>(null)
+  const handleBarClick = (date: string) => {
+    setSelectedRange((current) => {
+      if (!current || current.start !== current.end) return { start: date, end: date }
+      return current.start <= date ? { start: current.start, end: date } : { start: date, end: current.start }
+    })
+  }
+  const range = selectedRange && {
+    start: selectedRange.start,
+    end: selectedRange.end,
+    label: selectedRange.start === selectedRange.end ? selectedRange.start : `${selectedRange.start} 至 ${selectedRange.end}`,
+  }
   return (
     <section>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div><h2 className="text-base font-semibold">{t('analysis.chartTitle')}</h2><p className="mt-1 text-xs text-muted-foreground">{t('analysis.chartSubtitle')}</p></div>
-        <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{klineData.length} {t('common.rows')}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{klineData.length} {t('common.rows')}</span>
+          <DataQualityBadge quality={dataQuality} />
+        </div>
       </div>
-      <KlineChart data={klineData} height={compact ? 320 : 430} wyckoffMarkers={wyckoff?.markers} tradingRange={wyckoff?.tradingRange ?? undefined} stage={wyckoff?.stage} showIndicators />
+      <KlineChart data={klineData} height={compact ? 320 : 430} wyckoffMarkers={wyckoff?.markers} tradingRange={wyckoff?.tradingRange ?? undefined} stage={wyckoff?.stage} showIndicators onBarClick={handleBarClick} />
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+        <span>{range ? `已选 ${range.label}` : '点击一根 K 线开始选段，再点击另一根确定区间'}</span>
+        <div className="flex items-center gap-2">
+          {range && <button type="button" onClick={() => setSelectedRange(null)} className="rounded-md border border-border px-2 py-1 hover:bg-muted/60">清除</button>}
+          {range && <button type="button" onClick={() => onAskAboutRange(range.start, range.end)} className="rounded-md bg-primary px-2.5 py-1 font-medium text-primary-foreground hover:opacity-90">询问这段走势</button>}
+        </div>
+      </div>
     </section>
+  )
+}
+
+function DataQualityBadge({ quality }: { quality: KlineDataQuality }) {
+  const source = quality.source === 'tickflow' ? 'TickFlow' : quality.source === 'tushare' ? 'Tushare' : quality.source === 'mixed' ? '多源' : '无来源'
+  const coverage = quality.coverageStart && quality.coverageEnd ? `${quality.coverageStart} 至 ${quality.coverageEnd}` : '无覆盖区间'
+  return (
+    <span title={`来源：${source}；覆盖：${coverage}；最新交易日：${quality.latestTradingDate || '未知'}`} className={`rounded-full border px-2.5 py-1 text-xs ${quality.isComplete ? 'border-border text-muted-foreground' : 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'}`}>
+      {source} · {quality.latestTradingDate || '未知'}{quality.fallbackUsed ? ' · 已回退' : ''}
+    </span>
   )
 }
 
@@ -495,7 +558,13 @@ function ValueSection({ snapshot, compact = false }: { snapshot: ValueSnapshot; 
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {shownSignals.length > 0 ? shownSignals.map((signal) => (
-          <div key={signal.label} className={`rounded-md border px-3 py-2 text-sm ${signalClass(signal.tone)}`}>{signal.label}</div>
+          <div key={signal.label} className={`rounded-md border px-3 py-2.5 text-sm ${signalClass(signal.tone)} flex flex-col gap-1`}>
+            <div className="flex items-center justify-between gap-2 font-medium">
+              <span>{signal.label}</span>
+              {signal.code && <span className="text-[10px] uppercase tracking-wider font-mono opacity-60 bg-foreground/10 px-1.5 py-0.5 rounded shrink-0">{signal.code}</span>}
+            </div>
+            {signal.explanation && <div className="text-xs opacity-80 leading-normal mt-0.5">{signal.explanation}</div>}
+          </div>
         )) : (
           <div className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">{t('analysis.valueNoSignals')}</div>
         )}
@@ -519,7 +588,7 @@ function ReportSection({ report }: { report: string }) {
   )
 }
 
-function AnalysisProgressBar({ step }: { step: AnalysisStep }) {
+function AnalysisProgressBar({ step, modelStatus }: { step: AnalysisStep; modelStatus: LLMStreamStatus | null }) {
   const { t } = usePreferences()
   const stages: { key: AnalysisStep; label: string; pct: number }[] = [
     { key: 'resolve', label: t('analysis.progressResolve'), pct: 5 },
@@ -530,7 +599,7 @@ function AnalysisProgressBar({ step }: { step: AnalysisStep }) {
   return (
     <div className="mb-4 rounded-lg border border-border bg-muted/10 px-4 py-2.5">
       <div className="mb-1.5 flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{current.label}</span>
+        <span className="text-muted-foreground">{modelStatus ? (modelStatus.phase === 'fallback' ? `当前模型不可用，切换到 ${modelStatus.nextModel || '备用模型'}...` : `模型响应异常，第 ${modelStatus.attempt} 次重试...`) : current.label}</span>
         <span className="font-mono text-muted-foreground">{current.pct}%</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-border">
@@ -585,7 +654,7 @@ async function fetchStockName(code: string): Promise<{ data: { name?: string } |
   return { data }
 }
 
-function buildKlinePayload(data: KlineRow[]): string {
+function buildKlinePayload(data: KlineRow[], quality: KlineDataQuality): string {
   const last = data[data.length - 1]!
   const prev20 = data.slice(-20)
   const ma5 = avg(data.slice(-5).map((d) => d.close))
@@ -593,7 +662,7 @@ function buildKlinePayload(data: KlineRow[]): string {
   const ma50 = data.length >= 50 ? avg(data.slice(-50).map((d) => d.close)) : 0
 
   const summary = [
-    `日线数据摘要（前复权，共${data.length}根，按日期升序）：`,
+    `日线数据摘要（前复权，共${data.length}根，按日期升序；来源=${quality.source}；最新交易日=${quality.latestTradingDate || '未知'}）：`,
     `最新收盘：${last.close.toFixed(2)}`,
     `MA5=${ma5.toFixed(2)} MA20=${ma20.toFixed(2)}${ma50 ? ` MA50=${ma50.toFixed(2)}` : ''}`,
     `近20日最高：${Math.max(...prev20.map((d) => d.high)).toFixed(2)}`,
@@ -610,11 +679,24 @@ function buildKlinePayload(data: KlineRow[]): string {
   ].join('\n')
 }
 
-async function callLLM(config: Parameters<typeof streamLLMResponse>[0], code: string, name: string, klinePayload: string, valueSnapshot: ValueSnapshot, signal?: AbortSignal, onDelta?: (chunk: string) => void): Promise<string> {
-  const result = await streamLLMResponse(config, [
-    { role: 'system', content: '你是威科夫分析大师，主框架是量价与威科夫阶段判断。若用户提供价值面摘要，只把它作为质量、风险和仓位置信度校准：技术面负责时机，价值面负责是否值得提高/降低结论置信度。不要用基本面替代 K 线事实，也不要因为单个指标给出过度确定结论。\n\n输出结构：\n1. 技术面结论：威科夫阶段、量价供需、支撑阻力、主力意图。\n2. 价值面校准：只引用给定摘要中的关键指标，说明它如何影响风险/置信度。\n3. 综合策略：观察/试错/持有/减仓等动作条件，包含失效位和风险提示。\n\n请用简洁、专业的中文 markdown 回答。' },
+export const ANALYSIS_SYSTEM_PROMPT = `你是威科夫分析大师，主框架是量价与威科夫阶段判断。若用户提供价值面摘要，只把它作为质量、风险和仓位置信度校准：技术面负责时机，价值面负责是否值得提高/降低结论置信度。不要用基本面替代 K 线事实，也不要因为单个指标给出过度确定结论。
+
+【核心质量要求】
+- 必须在报告中说明数据来源（如 TickFlow / Tushare）、给出明确结论的置信度理由（如“置信度：80%，理由是...”），并提供明确的Plan B/策略失效位与风险提示。
+- 严禁在结论中使用“必然”、“保证”、“无风险”、“稳赚”、“稳赢”、“包赚”等夸大或确定性的承诺词语。
+
+输出结构：
+1. 技术面结论：威科夫阶段、量价供需、支撑阻力、主力意图。
+2. 价值面校准：只引用给定摘要中的关键指标，说明它如何影响风险/置信度。
+3. 综合策略：观察/试错/持有/减仓等动作条件，包含失效位和风险提示。
+
+请用简洁、专业的中文 markdown 回答。`
+
+async function callLLM(configs: Parameters<typeof streamLLMResponseWithFallback>[0], code: string, name: string, klinePayload: string, valueSnapshot: ValueSnapshot, signal?: AbortSignal, onDelta?: (chunk: string) => void, onStatus?: (status: LLMStreamStatus) => void): Promise<string> {
+  const result = await streamLLMResponseWithFallback(configs, [
+    { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
     { role: 'user', content: `请分析股票 ${code} ${name}。\n\n${buildValuePrompt(valueSnapshot)}\n\n${klinePayload}` },
-  ], { temperature: 0.7, signal, onDelta })
+  ], { temperature: 0.7, signal, onDelta, onStatus })
   if (!result) throw new Error('模型未返回结果，请重试')
   return result
 }

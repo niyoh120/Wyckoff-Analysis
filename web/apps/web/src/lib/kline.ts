@@ -1,5 +1,5 @@
-import { TICKFLOW_PURCHASE, isCnSymbol, normalizeTickFlowSymbol, normalizeTushareCode } from '@wyckoff/shared'
-import type { KlineRow } from '@wyckoff/shared'
+import { TICKFLOW_PURCHASE, buildKlineDataQuality, isCnSymbol, normalizeTickFlowSymbol, normalizeTushareCode } from '@wyckoff/shared'
+import type { KlineDataQuality, KlineRow } from '@wyckoff/shared'
 
 import { supabase } from './supabase'
 
@@ -206,11 +206,11 @@ export async function checkWhitelist(userId: string): Promise<boolean> {
   return Array.isArray(data) && data.some((row) => isWhitelistEntryActive((row as { expire_date?: unknown }).expire_date))
 }
 
-export async function fetchKline(
+export async function fetchKlineWithQuality(
   code: string,
   keys: { tickflow: string | null; tushare: string | null },
   _userId: string,
-): Promise<KlineRow[]> {
+): Promise<{ data: KlineRow[]; quality: KlineDataQuality }> {
   const end = new Date(); end.setDate(end.getDate() - 1)
   const start = new Date(); start.setDate(start.getDate() - 500)
   const fmtCompact = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '')
@@ -218,16 +218,30 @@ export async function fetchKline(
   let tickflowError: Error | null = null
 
   if (keys.tickflow) {
-    try { const r = await fetchKlineViaTickFlow(code, keys.tickflow); if (r.length) return r } catch (err) { tickflowError = err instanceof Error ? err : new Error(String(err)) }
+    try {
+      const r = await fetchKlineViaTickFlow(code, keys.tickflow)
+      if (r.length) return { data: r, quality: buildKlineDataQuality('tickflow', 320, r) }
+    } catch (err) { tickflowError = err instanceof Error ? err : new Error(String(err)) }
   }
   if (isCn && keys.tushare) {
     if (tickflowError) console.warn(`[kline] TickFlow failed for ${code}, falling back to Tushare:`, tickflowError.message)
     try {
       const r = await fetchKlineViaTushare(code, keys.tushare, fmtCompact(start), fmtCompact(end))
-      if (r.length) return r.sort((a, b) => a.date.localeCompare(b.date)).slice(-320)
+      if (r.length) {
+        const data = r.sort((a, b) => a.date.localeCompare(b.date)).slice(-320)
+        return { data, quality: buildKlineDataQuality('tushare', 320, data, Boolean(keys.tickflow)) }
+      }
     } catch { /* fallthrough */ }
   }
   if (tickflowError) throw tickflowError
   const suffixHint = isCn ? '' : '美股/港股请使用 TickFlow 标准代码（如 AAPL.US / 00700.HK）。'
   throw new Error(`无法获取K线数据。${suffixHint}请检查股票代码、TickFlow Key 或稍后重试：${TICKFLOW_PURCHASE}`)
+}
+
+export async function fetchKline(
+  code: string,
+  keys: { tickflow: string | null; tushare: string | null },
+  userId: string,
+): Promise<KlineRow[]> {
+  return (await fetchKlineWithQuality(code, keys, userId)).data
 }

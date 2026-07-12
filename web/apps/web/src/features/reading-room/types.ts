@@ -40,6 +40,25 @@ export interface QueuedMessage {
 
 export type ReadingRoomTab = 'desk' | 'chat' | 'watchlist'
 
+export interface ModelRunStatus {
+  kind: 'model'
+  phase: 'retrying' | 'fallback'
+  model: string
+  attempt: number
+  nextModel?: string
+}
+
+export interface StageProgressStatus {
+  kind: 'stage'
+  stage: 'model'
+  state: 'started' | 'completed'
+  message?: string
+  success?: boolean
+  model: string
+}
+
+export type ChatRunStatus = ModelRunStatus | StageProgressStatus
+
 export interface RunRecord {
   id: string
   messageId: string

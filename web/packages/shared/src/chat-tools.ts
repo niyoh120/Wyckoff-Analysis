@@ -39,6 +39,38 @@ export interface LLMToolConfig {
   base_url: string
 }
 
+export type KlineDataSource = 'tickflow' | 'tushare' | 'mixed' | 'none'
+
+export interface KlineDataQuality {
+  source: KlineDataSource
+  latestTradingDate: string | null
+  coverageStart: string | null
+  coverageEnd: string | null
+  requestedRows: number
+  returnedRows: number
+  isComplete: boolean
+  fallbackUsed: boolean
+}
+
+export function buildKlineDataQuality(
+  source: KlineDataSource,
+  requestedRows: number,
+  rows: KlineRow[],
+  fallbackUsed = false,
+): KlineDataQuality {
+  const dates = rows.map((row) => row.date).filter(Boolean).sort()
+  return {
+    source,
+    latestTradingDate: dates.at(-1) || null,
+    coverageStart: dates[0] || null,
+    coverageEnd: dates.at(-1) || null,
+    requestedRows,
+    returnedRows: rows.length,
+    isComplete: rows.length >= requestedRows,
+    fallbackUsed,
+  }
+}
+
 export const ANALYZE_STOCK_OUTPUT_SCHEMA = z.object({
   summary: z.string(),
   phase: z.string(),
@@ -48,6 +80,18 @@ export const ANALYZE_STOCK_OUTPUT_SCHEMA = z.object({
   action: z.string(),
   risk: z.string(),
   markdown: z.string(),
+  data_source: z.string().nullable().optional(),
+  data_asof: z.string().nullable().optional(),
+  data_quality: z.object({
+    source: z.enum(['tickflow', 'tushare', 'mixed', 'none']),
+    latestTradingDate: z.string().nullable(),
+    coverageStart: z.string().nullable(),
+    coverageEnd: z.string().nullable(),
+    requestedRows: z.number(),
+    returnedRows: z.number(),
+    isComplete: z.boolean(),
+    fallbackUsed: z.boolean(),
+  }).nullable().optional(),
 })
 
 export const STRATEGY_POLICY_OUTPUT_SCHEMA = z.object({
@@ -250,19 +294,39 @@ async function fetchKlineViaTickFlow(deps: ToolDeps, code: string, apiKey: strin
 }
 
 
-export async function fetchKlineForAgent(deps: ToolDeps, code: string, keys: { tickflow: string | null; tushare: string | null }, _userId: string): Promise<KlineRow[]> {
+export async function fetchKlineForAgentWithQuality(
+  deps: ToolDeps,
+  code: string,
+  keys: { tickflow: string | null; tushare: string | null },
+  _userId: string,
+): Promise<{ rows: KlineRow[]; quality: KlineDataQuality }> {
   const end = new Date(); end.setDate(end.getDate() - 1)
   const start = new Date(); start.setDate(start.getDate() - 500)
   const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '')
   const isCn = isCnSymbol(code)
 
   if (keys.tickflow) {
-    try { const r = await fetchKlineViaTickFlow(deps, code, keys.tickflow); if (r.length) return r } catch { /* */ }
+    try {
+      const r = await fetchKlineViaTickFlow(deps, code, keys.tickflow)
+      if (r.length) return { rows: r, quality: buildKlineDataQuality('tickflow', 320, r) }
+    } catch { /* */ }
   }
   if (isCn && keys.tushare) {
-    try { const r = await fetchKlineViaTushare(deps, code, keys.tushare, fmt(start), fmt(end)); if (r.length) return r.sort((a, b) => a.date.localeCompare(b.date)) } catch { /* */ }
+    try {
+      const r = (await fetchKlineViaTushare(deps, code, keys.tushare, fmt(start), fmt(end))).sort((a, b) => a.date.localeCompare(b.date))
+      if (r.length) return { rows: r, quality: buildKlineDataQuality('tushare', 320, r, Boolean(keys.tickflow)) }
+    } catch { /* */ }
   }
-  return []
+  return { rows: [], quality: buildKlineDataQuality('none', 320, []) }
+}
+
+export async function fetchKlineForAgent(
+  deps: ToolDeps,
+  code: string,
+  keys: { tickflow: string | null; tushare: string | null },
+  userId: string,
+): Promise<KlineRow[]> {
+  return (await fetchKlineForAgentWithQuality(deps, code, keys, userId)).rows
 }
 
 export async function fetchValueSnapshotForAgent(deps: ToolDeps, code: string, keys: { tickflow: string | null; tushare: string | null }): Promise<ValueSnapshot> {
@@ -477,6 +541,7 @@ function buildMarketHistoryDigest(name: string, rows: KlineRow[]): string {
   ].join(','))
   return [
     `指数：${name}`,
+    '数据来源：TickFlow 日线K线',
     `样本：最近${rows.length}个交易日，${first.date} 至 ${last.date}`,
     `区间涨跌：${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%，区间高点 ${high.toFixed(2)}，低点 ${low.toFixed(2)}，当前区间位置 ${closePos.toFixed(1)}%`,
     `近5日均量 ${vol5.toFixed(0)}，近20日均量 ${vol20.toFixed(0)}，量比(5/20) ${(vol5 / (vol20 || 1)).toFixed(2)}`,
@@ -1101,15 +1166,20 @@ export async function execAnalyzeStock(
   if (!isCnSymbol(code) && !keys.tickflow) {
     return buildAnalyzeError(code, name, `无法获取 ${code} ${name || ''} 的K线数据。美股/港股诊断需要先在设置页配置 TickFlow API Key，并使用标准代码（如 AAPL.US / 00700.HK）。`)
   }
-  const [kline, valueSnapshot] = await Promise.all([
-    fetchKlineForAgent(deps, code, keys, userId),
+  const [klineResult, valueSnapshot] = await Promise.all([
+    fetchKlineForAgentWithQuality(deps, code, keys, userId),
     fetchValueSnapshotForAgent(deps, code, keys).catch((): ValueSnapshot => ({ symbol: code, source: 'none', metrics: null, reason: 'not-found' })),
   ])
+  const { rows: kline, quality } = klineResult
   if (kline.length === 0) {
     return buildAnalyzeError(code, name, `无法获取 ${code} ${name || ''} 的K线数据。美股/港股请使用 TickFlow 标准代码（如 AAPL.US / 00700.HK）。推荐购买 TickFlow 获取实时行情：https://tickflow.org/auth/register?ref=5N4NKTCPL4`)
   }
 
-  const digest = buildKlineDigest(kline)
+  const digest = [
+    `数据来源：${quality.source === 'tickflow' ? 'TickFlow' : quality.source === 'tushare' ? 'Tushare' : quality.source}`,
+    `数据覆盖：${quality.coverageStart || '未知'} 至 ${quality.coverageEnd || '未知'}；最新交易日：${quality.latestTradingDate || '未知'}；返回 ${quality.returnedRows}/${quality.requestedRows} 根${quality.fallbackUsed ? '；已发生数据源回退' : ''}`,
+    buildKlineDigest(kline),
+  ].join('\n')
   const valueDigest = buildValueAgentDigest(valueSnapshot)
   const systemPrompt = `你是威科夫分析大师。基于以下K线数据和价值面摘要，对 ${code} ${name || ''} 进行深度诊断。主框架仍是量价与威科夫阶段判断，价值面只作为质量、风险和仓位置信度校准：技术面负责时机，价值面负责是否值得提高/降低结论置信度。
 1. 当前威科夫阶段（积累/上涨/派发/下跌），Phase A-E 定位
@@ -1129,14 +1199,14 @@ export async function execAnalyzeStock(
       prompt: userPrompt,
       output: Output.object({ schema: ANALYZE_STOCK_OUTPUT_SCHEMA }),
     })
-    return normalizeAnalyzeOutput(result.output, result.text)
+    return withAnalyzeQuality(normalizeAnalyzeOutput(result.output, result.text), quality)
   } catch {
     const fallback = await deps.generateText({
       model: model as Parameters<typeof GenerateTextFn>[0]['model'],
       system: systemPrompt + '\n\n请用纯 JSON 输出，字段: summary, phase, confidence, support, resistance, action, risk, markdown。',
       prompt: userPrompt,
     })
-    return parseAnalyzeFallback(fallback.text, code, name)
+    return withAnalyzeQuality(parseAnalyzeFallback(fallback.text, code, name), quality)
   }
 }
 
@@ -1150,6 +1220,18 @@ function buildAnalyzeError(code: string, name: string | null, message: string): 
     action: '暂不判断',
     risk: '数据源不可用，不能据此交易。',
     markdown: `## ${code} ${name || ''}\n${message}`,
+    data_source: 'none',
+    data_asof: null,
+    data_quality: buildKlineDataQuality('none', 320, []),
+  }
+}
+
+function withAnalyzeQuality(result: AnalyzeStockResult, quality: KlineDataQuality): AnalyzeStockResult {
+  return {
+    ...result,
+    data_source: quality.source,
+    data_asof: quality.latestTradingDate,
+    data_quality: quality,
   }
 }
 

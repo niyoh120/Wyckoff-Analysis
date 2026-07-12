@@ -18,6 +18,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
+from agents.stream_events import stream_event
+
 
 class AgentCancelled(Exception):
     """Agent 运行被用户主动取消。"""
@@ -261,7 +263,28 @@ class AgentRuntime:
             if round_idx > 0:
                 yield {"type": "model_start", "round": round_idx + 1}
 
-            round_state = yield from self._collect_model_round(messages, system_prompt, round_idx + 1)
+            yield stream_event(
+                "stage_start",
+                stage="model",
+                round=round_idx + 1,
+                message="正在分析",
+            )
+            try:
+                round_state = yield from self._collect_model_round(messages, system_prompt, round_idx + 1)
+            except Exception:
+                yield stream_event(
+                    "stage_done",
+                    stage="model",
+                    round=round_idx + 1,
+                    success=False,
+                )
+                raise
+            yield stream_event(
+                "stage_done",
+                stage="model",
+                round=round_idx + 1,
+                success=True,
+            )
             self._accumulate_usage(state, round_state)
             if round_state.thinking:
                 yield self._record_thinking_event(round_state, round_idx + 1)
@@ -731,11 +754,18 @@ class AgentRuntime:
         return None
 
     def _tool_start_event(self, call: dict[str, Any], *, concurrent: bool = False) -> RuntimeEvent:
+        display = call["name"]
+        if self.tools and hasattr(self.tools, "display_name"):
+            display = self.tools.display_name(call["name"])
         event = {
             "type": "tool_start",
             "name": call["name"],
             "args": call["args"],
             "tool_call_id": call["id"],
+            # Progress contract fields
+            "step": call["id"],
+            "tool": call["name"],
+            "display_name": display,
         }
         if concurrent:
             event["concurrent"] = True
@@ -871,6 +901,9 @@ class AgentRuntime:
             }
         )
         event_type = "tool_error" if status == "error" else "tool_result"
+        display = name
+        if self.tools and hasattr(self.tools, "display_name"):
+            display = self.tools.display_name(name)
         event: RuntimeEvent = {
             "type": event_type,
             "name": name,
@@ -880,6 +913,12 @@ class AgentRuntime:
             "elapsed_ms": elapsed_ms,
             "status": status,
             "content": content,
+            # Progress contract fields
+            "step": call_id,
+            "tool": name,
+            "success": status != "error",
+            "duration": elapsed_ms / 1000.0,
+            "display_name": display,
         }
         if event_type == "tool_error":
             event["error"] = str(result.get("error", result)) if isinstance(result, dict) else str(result)

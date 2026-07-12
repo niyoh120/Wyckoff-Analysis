@@ -214,21 +214,34 @@ function parseCustomProviders(raw: unknown): Record<string, Record<string, strin
 }
 
 export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
+  const configs = await loadLLMConfigCandidates(userId)
+  return configs[0] || null
+}
+
+export async function loadLLMConfigCandidates(userId: string): Promise<LLMConfig[]> {
   const { data } = await supabase
     .from('user_settings')
     .select('chat_provider, gemini_api_key, gemini_model, gemini_base_url, openai_api_key, openai_model, openai_base_url, deepseek_api_key, deepseek_model, deepseek_base_url, anthropic_api_key, anthropic_model, anthropic_base_url, custom_providers')
     .eq('user_id', userId)
     .single()
 
-  if (!data) return null
+  if (!data) return []
 
   const settings = data as UserSettingsRow
-  const provider = settings.chat_provider || '1route'
-  if (RETIRED_PROVIDERS.has(provider)) return null
-  const config = buildProviderConfig(provider, settings)
-
-  if (!config.api_key) return null
-  return config
+  const activeProvider = settings.chat_provider || '1route'
+  const custom = parseCustomProviders(settings.custom_providers)
+  const providers = Array.from(new Set([
+    activeProvider,
+    'openai',
+    'deepseek',
+    'gemini',
+    'anthropic',
+    ...Object.keys(custom),
+  ]))
+  return providers
+    .filter((provider) => !RETIRED_PROVIDERS.has(provider))
+    .map((provider) => buildProviderConfig(provider, settings))
+    .filter((config) => Boolean(config.api_key && config.model && config.base_url))
 }
 
 const BUILTIN_PROVIDER_OVERRIDES: Record<string, Partial<LLMConfig>> = {
