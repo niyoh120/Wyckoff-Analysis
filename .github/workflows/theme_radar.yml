@@ -20,6 +20,9 @@ concurrency:
   group: theme-radar-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -58,10 +61,13 @@ jobs:
         run: mkdir -p logs
 
       - name: Run theme radar
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_WITH_NEWS: ${{ inputs.with_news }}
         run: |
           set -o pipefail
           NEWS_FLAG="--with-news"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.with_news }}" != "true" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_WITH_NEWS" != "true" ]; then
             NEWS_FLAG=""
           fi
           python -u scripts/theme_radar_job.py ${NEWS_FLAG} --output "${{ github.workspace }}/logs/theme_radar_report.md" \

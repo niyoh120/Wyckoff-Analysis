@@ -33,18 +33,19 @@ def persist_benchmark_context(
     dry_run: bool,
     trade_date: str,
     log_fn,
-) -> None:
+) -> bool:
     if not benchmark_context:
-        return
+        return True
     if dry_run:
         log_fn("预演模式: 跳过市场信号写库(benchmark)", logs_path)
-        return
+        return True
     payload = benchmark_context_payload(benchmark_context)
     ok = upsert_market_signal_daily(trade_date, payload)
     log_fn(
         f"市场信号写库(benchmark): ok={ok}, trade_date={trade_date}, regime={payload.get('benchmark_regime')}",
         logs_path,
     )
+    return bool(ok)
 
 
 def persist_recommendations(
@@ -57,7 +58,7 @@ def persist_recommendations(
     step2_details: dict | None = None,
     benchmark_context: dict | None = None,
     trade_mode: MarketTradeMode | None = None,
-) -> tuple[int | None, list[dict]]:
+) -> tuple[int | None, list[dict], bool]:
     write_symbols = recommendation_write_symbols(
         symbols_info,
         step2_details=step2_details,
@@ -69,12 +70,12 @@ def persist_recommendations(
             f"预演模式: 跳过推荐记录入库 raw_count={len(symbols_info)}, write_count={len(write_symbols)}",
             logs_path,
         )
-        return None, []
+        return None, [], True
     try:
         recommend_date = int(trade_date.replace("-", ""))
         if not write_symbols:
             log_fn(f"推荐记录入库: raw_count={len(symbols_info)}, write_count=0（二次确认候选为空，跳过）", logs_path)
-            return recommend_date, []
+            return recommend_date, [], True
         payload = prepare_recommendation_payload(recommend_date, write_symbols)
         write_recommendation_backup(recommend_date, payload, logs_path, ai_codes=None, log_fn=log_fn)
         rec_ok = upsert_recommendation_payload(payload)
@@ -84,10 +85,10 @@ def persist_recommendations(
             f"payload_count={len(payload)}, date={recommend_date}",
             logs_path,
         )
-        return recommend_date, payload
+        return recommend_date, payload, bool(rec_ok)
     except Exception as e:
         log_fn(f"推荐记录入库失败: {e}", logs_path)
-        return None, []
+        return None, [], False
 
 
 def recommendation_write_symbols(

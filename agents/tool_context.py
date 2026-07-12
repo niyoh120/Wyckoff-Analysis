@@ -70,6 +70,8 @@ def get_credential(tool_context: ToolContext | None, key: str, env_fallback: str
         value = str(load_user_credentials(user_id).get(key, "") or "").strip()
         if value:
             return value
+    if has_cloud(tool_context):
+        return ""
     try:
         from integrations.local_auth import load_config
 
@@ -82,12 +84,13 @@ def get_credential(tool_context: ToolContext | None, key: str, env_fallback: str
 
 
 def resolve_llm_config(tool_context: ToolContext | None) -> tuple[str, str, str, str]:
-    try:
-        local = _local_default_llm_config()
-        if local:
-            return local
-    except Exception:
-        logger.debug("failed to load LLM provider config from local config", exc_info=True)
+    if not has_cloud(tool_context):
+        try:
+            local = _local_default_llm_config()
+            if local:
+                return local
+        except Exception:
+            logger.debug("failed to load LLM provider config from local config", exc_info=True)
     api_key = get_credential(tool_context, "gemini_api_key", "GEMINI_API_KEY")
     model = get_credential(tool_context, "gemini_model", "GEMINI_MODEL") or "gemini-2.0-flash"
     base_url = get_credential(tool_context, "gemini_base_url", "")
@@ -110,8 +113,13 @@ def _local_default_llm_config() -> tuple[str, str, str, str] | None:
 
 def ensure_tushare_token(tool_context: ToolContext | None) -> None:
     token = get_credential(tool_context, "tushare_token", "TUSHARE_TOKEN")
-    if token:
+    if token and not has_cloud(tool_context):
         os.environ["TUSHARE_TOKEN"] = token
+    if tool_context is not None:
+        tool_context.state["tushare_token"] = token
+    from integrations.tushare_client import set_runtime_token
+
+    set_runtime_token(token)
 
 
 def get_user_client(tool_context: ToolContext | None):

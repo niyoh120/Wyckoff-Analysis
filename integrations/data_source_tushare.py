@@ -22,7 +22,7 @@ def fetch_stock_tushare(symbol: str, start: str, end: str) -> pd.DataFrame:
 
     wait_for_rate_limit()
     ts_code = to_ts_code(symbol)
-    df = ts.pro_bar(ts_code=ts_code, adj="qfq", start_date=start, end_date=end)
+    df = ts.pro_bar(api=pro, ts_code=ts_code, adj="qfq", start_date=start, end_date=end)
     if df is None or df.empty:
         _raise_tushare_empty(pro, ts_code, start, end)
     return _normalize_tushare_frame(df)

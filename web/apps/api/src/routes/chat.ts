@@ -22,6 +22,8 @@ import {
   normalizeGeminiStream,
   PROVIDER_BASE_URLS,
   PROVIDER_DEFAULT_MODELS,
+  isSafeProviderBaseUrl,
+  isAllowedModelBaseUrl,
   type LLMToolConfig,
   type Provider,
   type ToolDeps,
@@ -87,7 +89,6 @@ type ChatRateState = { day: string; count: number; lastAt: number }
 type ChatRateResult = { ok: true } | { ok: false; message: string }
 
 const rateStates = new Map<string, ChatRateState>()
-const ALLOWED_URL_RE = /^https?:\/\//i
 const ALLOWED_TARGET_ORIGINS: Set<string> = new Set(ALLOWED_PROXY_TARGET_ORIGINS)
 const ONE_ROUTE_ORIGINS = new Set(['https://api.1route.dev', 'https://www.1route.dev'])
 
@@ -156,7 +157,8 @@ function createProviderFetch(): typeof globalThis.fetch {
   return async (input, init) => {
     const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const patchedBody = isOneRouteChatCompletion(requestUrl) ? patchOneRouteBody(init?.body) : init?.body
-    const response = await globalThis.fetch(input, { ...init, body: patchedBody })
+    const response = await globalThis.fetch(input, { ...init, body: patchedBody, redirect: 'manual' })
+    if (response.status >= 300 && response.status < 400) throw new Error('Model provider redirects are not allowed')
     if (isGeminiChatCompletion(requestUrl) && isSseResponse(response) && response.body) {
       return new Response(normalizeGeminiStream(response.body), {
         status: response.status,
@@ -209,7 +211,7 @@ function knownProviderConfig(data: UserSettingsRow, provider: string, fallbackBa
   const api_key = String(data[`${provider}_api_key`] || '')
   const model = String(data[`${provider}_model`] || fallbackModel)
   const base_url = String(data[`${provider}_base_url`] || fallbackBaseUrl)
-  return api_key && model ? { api_key, model, base_url } : null
+  return api_key && model && isSafeProviderBaseUrl(base_url) && isAllowedModelBaseUrl(base_url) ? { api_key, model, base_url } : null
 }
 
 function customProviderConfig(data: UserSettingsRow, provider: string): LLMToolConfig | null {
@@ -218,7 +220,7 @@ function customProviderConfig(data: UserSettingsRow, provider: string): LLMToolC
   const api_key = info.apikey || info.api_key || ''
   const model = info.model || defaultModelForProvider(provider)
   const base_url = info.baseurl || info.base_url || defaultBaseUrlForProvider(provider)
-  return api_key && model && ALLOWED_URL_RE.test(base_url) ? { api_key, model, base_url } : null
+  return api_key && model && isSafeProviderBaseUrl(base_url) && isAllowedModelBaseUrl(base_url) ? { api_key, model, base_url } : null
 }
 
 function defaultModelForProvider(provider: string): string {

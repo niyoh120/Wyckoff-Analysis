@@ -21,6 +21,7 @@ BENCHMARK_REGIME_SEVERITY = {
     "BLACK_SWAN": 5,
 }
 PREMARKET_REGIME_SEVERITY = {
+    "UNKNOWN": 3,
     "NORMAL": 0,
     "CAUTION": 2,
     "RISK_OFF": 3,
@@ -44,7 +45,7 @@ def normalize_premarket_regime(raw: object) -> str:
     regime = clean_text(raw).upper()
     if regime in PREMARKET_REGIME_SEVERITY:
         return regime
-    return "NORMAL"
+    return "UNKNOWN"
 
 
 def resolve_effective_market_regime(benchmark_regime: object, premarket_regime: object) -> str:

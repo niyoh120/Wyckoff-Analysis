@@ -27,6 +27,7 @@ from workflows.backtest_defaults import (
     DEFAULT_TAKE_PROFIT_PCT,
     DEFAULT_TRAILING_ACTIVATE_PCT,
     DEFAULT_TRAILING_STOP_PCT,
+    DEFAULT_USE_CURRENT_META,
     DEFAULT_WBT_FEE_RATE,
     DEFAULT_WBT_N_JOBS,
 )
@@ -138,8 +139,8 @@ def _add_metadata_and_cost_args(parser: argparse.ArgumentParser) -> None:
         "--use-current-meta",
         dest="use_current_meta",
         action="store_true",
-        default=True,
-        help="使用当前截面市值/行业映射过滤（默认开启，贴近线上）",
+        default=DEFAULT_USE_CURRENT_META,
+        help="显式使用当前截面市值/行业映射过滤（会引入 look-ahead bias，仅限探索）",
     )
     parser.add_argument(
         "--no-use-current-meta",

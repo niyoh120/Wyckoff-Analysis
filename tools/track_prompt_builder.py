@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.market_trade_mode import normalize_regime
+
 
 def _track_execution_requirements() -> str:
     return (
@@ -93,7 +95,7 @@ def build_track_user_message(
 ) -> str:
     """构建发送给 LLM 的轨道级用户消息。"""
     track_key = "Accum" if str(track).strip() == "Accum" else "Trend"
-    regime_upper = str(regime or "").strip().upper() or "NEUTRAL"
+    regime_upper = normalize_regime(regime)
     return (
         ("{}\n\n".format("\n".join(benchmark_lines)) if benchmark_lines else "")
         + _regime_hint_text(regime_upper)

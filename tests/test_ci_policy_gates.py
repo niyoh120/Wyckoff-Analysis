@@ -80,6 +80,8 @@ on:
 concurrency:
   group: manual-${{ github.ref }}
   cancel-in-progress: true
+permissions:
+  contents: read
 jobs:
   run:
     runs-on: ubuntu-latest

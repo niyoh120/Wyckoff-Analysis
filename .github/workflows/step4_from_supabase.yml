@@ -9,8 +9,11 @@ on:
         default: ""
 
 concurrency:
-  group: step4-from-supabase-${{ github.ref }}
+  group: step4-oms-a-share-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   run:

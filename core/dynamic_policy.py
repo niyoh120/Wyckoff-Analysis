@@ -7,6 +7,7 @@ from statistics import mean
 from typing import Any
 
 from core.ai_candidate_allocation import fit_ai_candidate_quotas
+from core.market_trade_mode import normalize_regime
 from core.signal_feedback import BLOCKED_REGISTRY_STATUSES, normalize_signal_type, signal_track
 from core.strategy_policy_governor import scoped_signal_weight_key
 from utils.safe import safe_float
@@ -71,7 +72,7 @@ def _latest_health_by_signal(
     horizon_days: int,
 ) -> dict[str, dict[str, Any]]:
     selected: dict[str, dict[str, Any]] = {}
-    regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
+    regime_norm = normalize_regime(regime)
     for row in sorted(health_rows or [], key=lambda r: str(r.get("as_of_date") or ""), reverse=True):
         if int(row.get("horizon_days") or 0) != horizon_days:
             continue
@@ -94,7 +95,7 @@ def build_signal_weight_map(
 ) -> dict[str, float]:
     weights: dict[str, float] = {}
     horizon = dynamic_policy_horizon(config) if horizon_days is None else max(int(horizon_days), 1)
-    regime_norm = str(regime or "NEUTRAL").strip().upper() or "NEUTRAL"
+    regime_norm = normalize_regime(regime)
     for signal_type, row in _latest_health_by_signal(health_rows, regime, horizon).items():
         w = max(safe_float(row.get("weight_multiplier")), 0.0)
         weights[signal_type] = w

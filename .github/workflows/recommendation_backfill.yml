@@ -80,16 +80,21 @@ jobs:
 
       - name: Run recommendation backfill
         shell: bash
+        env:
+          INPUT_LATEST: ${{ inputs.latest }}
+          INPUT_ANCHOR: ${{ inputs.anchor }}
+          INPUT_APPLY: ${{ inputs.apply }}
         run: |
           args=(
-            --latest "${{ inputs.latest }}"
+            --latest "$INPUT_LATEST"
             --skip-step3
             --output-dir "${{ github.workspace }}/artifacts/recommendation_backfill"
           )
-          if [ -n "${{ inputs.anchor }}" ]; then
-            args+=(--anchor "${{ inputs.anchor }}")
+          if [ -n "$INPUT_ANCHOR" ]; then
+            [[ "$INPUT_ANCHOR" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "Invalid anchor"; exit 2; }
+            args+=(--anchor "$INPUT_ANCHOR")
           fi
-          if [ "${{ inputs.apply }}" = "true" ]; then
+          if [ "$INPUT_APPLY" = "true" ]; then
             args+=(--apply)
           fi
           python -u scripts/backfill_recommendation_tracking.py "${args[@]}"

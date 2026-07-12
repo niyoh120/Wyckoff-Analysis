@@ -680,7 +680,7 @@ def test_send_trade_ticket_requires_telegram(monkeypatch):
     assert captured == {}
 
 
-def test_step4_result_record_updates_stops_and_builds_ticket_rows(monkeypatch):
+def test_step4_result_record_defers_stop_updates_until_orders_are_saved(monkeypatch):
     calls: list[tuple[str, list[dict]]] = []
     monkeypatch.setattr(
         step4_results,
@@ -689,13 +689,12 @@ def test_step4_result_record_updates_stops_and_builds_ticket_rows(monkeypatch):
     )
 
     record = step4_results.prepare_step4_result_record(
-        portfolio_id="P1",
         tickets=[_ticket()],
         state_signature="ABC123",
     )
 
     assert "_sigabc123" in record.run_id
-    assert calls == [("P1", [{"code": "000001", "stop_loss": 8.8}])]
+    assert calls == []
     assert record.ticket_rows[0]["reason"] == "系统风控 | audit=risk-ok"
 
 
@@ -716,6 +715,11 @@ def test_step4_save_orders_and_nav_uses_persistence_boundaries(monkeypatch):
         "upsert_daily_nav",
         lambda **kwargs: calls.setdefault("nav", kwargs) is not None,
     )
+    monkeypatch.setattr(
+        step4_results,
+        "update_position_stops",
+        lambda portfolio_id, updates: calls.setdefault("stops", (portfolio_id, updates)) is not None,
+    )
     options = SimpleNamespace(portfolio_id="P1", model="model-x")
     context = SimpleNamespace(trade_date="2026-05-15", total_equity=120000.0)
 
@@ -724,6 +728,7 @@ def test_step4_save_orders_and_nav_uses_persistence_boundaries(monkeypatch):
         context=context,
         run_id="run-1",
         rendered_market_view="市场视图",
+        tickets=[_ticket()],
         ticket_rows=[{"code": "000001"}],
         free_cash_after=50000.0,
     )
@@ -748,3 +753,31 @@ def test_step4_save_orders_and_nav_uses_persistence_boundaries(monkeypatch):
         "total_equity": 120000.0,
         "positions_value": 70000.0,
     }
+
+
+def test_step4_order_write_failure_does_not_mutate_stops_or_nav(monkeypatch):
+    mutated: list[str] = []
+    monkeypatch.setattr(step4_results, "save_ai_trade_orders", lambda **_kwargs: False)
+    monkeypatch.setattr(
+        step4_results,
+        "update_position_stops",
+        lambda *_args, **_kwargs: mutated.append("stops") or True,
+    )
+    monkeypatch.setattr(
+        step4_results,
+        "upsert_daily_nav",
+        lambda **_kwargs: mutated.append("nav") or True,
+    )
+
+    ok = step4_results.save_step4_orders_and_nav(
+        options=SimpleNamespace(portfolio_id="P1", model="model-x"),
+        context=SimpleNamespace(trade_date="2026-05-15", total_equity=120000.0),
+        run_id="run-1",
+        rendered_market_view="市场视图",
+        tickets=[_ticket()],
+        ticket_rows=[{"code": "000001"}],
+        free_cash_after=50000.0,
+    )
+
+    assert ok is False
+    assert mutated == []

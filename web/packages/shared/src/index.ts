@@ -8,6 +8,7 @@ export {
   PROVIDER_DEFAULT_MODELS,
   TABLE_NAMES,
   isAllowedModelBaseUrl,
+  isSafeProviderBaseUrl,
 } from './constants'
 export type { Provider } from './constants'
 export {

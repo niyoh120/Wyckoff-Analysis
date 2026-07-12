@@ -92,6 +92,28 @@ _BLOCKED_COMMANDS = {
     "zsh",
 }
 _INLINE_CODE_COMMANDS = {"python", "python3", "node", "ruby", "perl", "php"}
+_READ_ONLY_COMMANDS = {
+    "cat",
+    "cut",
+    "echo",
+    "find",
+    "grep",
+    "head",
+    "ls",
+    "pwd",
+    "rg",
+    "sort",
+    "tail",
+    "uniq",
+    "wc",
+    "python",
+    "python3",
+    "node",
+    "ruby",
+    "perl",
+    "php",
+}
+_MUTATING_FLAGS = {"--delete", "--exec", "--execdir", "--in-place", "-delete", "-exec", "-execdir", "-f", "-i"}
 _SHELL_META_RE = re.compile(r"[\n\r;&|<>`]|(?<!\\)\$\(")
 _SAFE_WRITE_SUFFIXES = {
     ".csv",
@@ -224,10 +246,14 @@ def validate_agent_command(command: str) -> list[str] | dict:
     executable = pathlib.Path(args[0]).name.lower()
     if executable in _BLOCKED_COMMANDS:
         return security_error(f"禁止通过 Agent 执行高风险命令: {executable}")
+    if executable not in _READ_ONLY_COMMANDS:
+        return security_error(f"Agent 只允许执行明确批准的只读命令: {executable}")
     if executable in _INLINE_CODE_COMMANDS:
         inline_error = _check_inline_interpreter_args(executable, args[1:])
         if inline_error is not None:
             return inline_error
+    if any(arg.split("=", 1)[0].lower() in _MUTATING_FLAGS for arg in args[1:]):
+        return security_error("禁止通过 Agent 使用可能修改文件的命令参数")
     for arg in args[1:]:
         lowered = arg.lower()
         touches_wyckoff_config = ".wyckoff" in lowered and not any(

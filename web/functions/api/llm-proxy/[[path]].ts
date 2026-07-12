@@ -3,11 +3,23 @@ import {
 } from '../../../packages/shared/src/gemini-sse-normalize'
 import { ALLOWED_PROXY_TARGET_ORIGINS } from '../../../packages/shared/src/constants'
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': '*',
+const ALLOWED_ORIGINS = new Set([
+  'https://wyckoff-analysis.pages.dev',
+  'https://wyckoff.pages.dev',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+])
+const ALLOWED_METHODS = new Set(['GET', 'POST', 'OPTIONS'])
+const MAX_BODY_BYTES = 2 * 1024 * 1024
+const UPSTREAM_TIMEOUT_MS = 60_000
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  return {
+    ...(origin && ALLOWED_ORIGINS.has(origin) ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'authorization, content-type, accept, x-api-key, anthropic-version, x-target-url',
   'Access-Control-Max-Age': '86400',
+  }
 }
 
 const FORWARD_HEADERS = new Set([
@@ -71,9 +83,18 @@ function buildOneRouteChatBody(body: ArrayBuffer, contentType: string): BodyInit
 
 export const onRequest: PagesFunction = async (context) => {
   const { request } = context
+  const origin = request.headers.get('Origin')
+  const cors = corsHeaders(origin)
+
+  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    return Response.json({ error: 'Origin is not allowed' }, { status: 403 })
+  }
+  if (!ALLOWED_METHODS.has(request.method)) {
+    return Response.json({ error: 'Method is not allowed' }, { status: 405, headers: cors })
+  }
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { headers: CORS_HEADERS })
+    return new Response(null, { headers: cors })
   }
 
   const targetUrl = request.headers.get('X-Target-URL')
@@ -82,15 +103,22 @@ export const onRequest: PagesFunction = async (context) => {
   }
   const target = normalizeTargetUrl(targetUrl)
   if (!target) {
-    return Response.json({ error: 'X-Target-URL is not allowed' }, { status: 403, headers: CORS_HEADERS })
+    return Response.json({ error: 'X-Target-URL is not allowed' }, { status: 403, headers: cors })
   }
 
   const url = new URL(request.url)
   const proxyPath = url.pathname.replace('/api/llm-proxy', '')
   const dest = joinTargetUrl(target, proxyPath, url.search)
-  const body = request.method !== 'GET' && request.method !== 'HEAD'
+  const contentLength = Number(request.headers.get('content-length') || '0')
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    return Response.json({ error: 'Request body is too large' }, { status: 413, headers: cors })
+  }
+  const body = request.method !== 'GET'
     ? await request.arrayBuffer()
     : undefined
+  if (body && body.byteLength > MAX_BODY_BYTES) {
+    return Response.json({ error: 'Request body is too large' }, { status: 413, headers: cors })
+  }
 
   const headers = new Headers()
   request.headers.forEach((value, key) => {
@@ -106,7 +134,12 @@ export const onRequest: PagesFunction = async (context) => {
       method: request.method,
       headers,
       body: requestBody,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     })
+    if (response.status >= 300 && response.status < 400) {
+      return Response.json({ error: 'Upstream redirects are not allowed' }, { status: 502, headers: cors })
+    }
 
     const respHeaders = new Headers()
     response.headers.forEach((value, key) => {
@@ -114,7 +147,7 @@ export const onRequest: PagesFunction = async (context) => {
         respHeaders.set(key, value)
       }
     })
-    respHeaders.set('Access-Control-Allow-Origin', '*')
+    for (const [key, value] of Object.entries(cors)) respHeaders.set(key, value)
     respHeaders.set('X-Wyckoff-Proxy-Target', target.origin)
 
     const respBody = response.body

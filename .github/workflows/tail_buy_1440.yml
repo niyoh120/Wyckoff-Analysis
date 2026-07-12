@@ -17,6 +17,9 @@ concurrency:
   group: tail-buy-1440-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -78,10 +81,12 @@ jobs:
         run: mkdir -p logs
 
       - name: Run tail buy job
+        env:
+          INPUT_MODE: ${{ inputs.mode || 'auto' }}
         run: |
           set -o pipefail
           python -u scripts/tail_buy_intraday_job.py \
-            --mode "${{ inputs.mode || 'auto' }}" \
+            --mode "$INPUT_MODE" \
             --max-llm-symbols "${TAIL_BUY_LLM_TOP_N}" \
             --deadline-minute "${TAIL_BUY_TASK_TIMEOUT_MIN}" \
             --logs "${{ github.workspace }}/logs/tail_buy_1440.log" \

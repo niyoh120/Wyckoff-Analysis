@@ -73,6 +73,10 @@
 
 `/api/llm-proxy/*` 继续保留为兼容代理：一部分 Web 工具和本地开发路径仍需要同域转发 TickFlow / Tushare / OpenAI-compatible 请求，避免浏览器 CORS 和供应商 SSE 差异。
 
+代理只接受受信 Web Origin（无 `Origin` 的 CLI 请求继续兼容）、`GET/POST`、2 MiB 以内请求，并限制到 HTTPS 白名单上游；服务端模型 `base_url` 同样拒绝凭据、非标准端口、loopback、私网和 link-local 地址，且不跟随重定向。
+
+CLI Agent 的本地命令工具只允许明确的只读命令；文件工具继续执行隐藏目录、凭据文件和系统目录阻断。`web_fetch` 每一跳重定向都重新验证 DNS/IP/端口。本地 Dashboard 使用进程级随机令牌及 Host/Origin 校验，不把绑定 `127.0.0.1` 当作唯一安全边界。云端用户凭据只从该用户上下文读取，不回退到运维者本机配置或环境变量。
+
 ### 技术栈
 
 | 层 | 技术 |

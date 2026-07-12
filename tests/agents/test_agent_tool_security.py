@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import socket
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
-from agents.local_tools import exec_command, read_file, web_fetch, write_file
+from agents.local_tools import _get_public_response, exec_command, read_file, web_fetch, write_file
 from agents.tool_security import redact_sensitive_columns, validate_public_http_url
 from cli.tools import TOOL_SCHEMAS
 
@@ -58,6 +59,14 @@ def test_exec_command_blocks_destructive_command():
 
     assert result["error"].startswith("安全拦截")
     assert "高风险命令" in result["error"]
+
+
+@pytest.mark.parametrize("command", ["truncate -s 0 report.md", "mv report.md gone.md", "touch injected.txt"])
+def test_exec_command_blocks_unapproved_mutating_commands(command):
+    result = exec_command(command)
+
+    assert result["error"].startswith("安全拦截")
+    assert "只读命令" in result["error"]
 
 
 def test_exec_command_blocks_inline_code():
@@ -207,6 +216,23 @@ def test_web_fetch_blocks_non_http_scheme():
 
     assert result["error"].startswith("安全拦截")
     assert "http/https" in result["error"]
+
+
+def test_web_fetch_revalidates_redirect_targets(monkeypatch):
+    monkeypatch.setattr(
+        "agents.local_tools.validate_public_http_url",
+        lambda url: {"error": "安全拦截: 本机"} if "127.0.0.1" in url else url,
+    )
+
+    class Requests:
+        @staticmethod
+        def get(url, **kwargs):
+            assert kwargs["allow_redirects"] is False
+            return SimpleNamespace(status_code=302, headers={"location": "http://127.0.0.1/admin"}, close=lambda: None)
+
+    result, _ = _get_public_response(Requests, "https://example.com/start")
+
+    assert result["error"].startswith("安全拦截")
 
 
 def test_redact_sensitive_columns_masks_columns_by_name():

@@ -38,7 +38,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   BT_START: ${{ inputs.start }}
@@ -81,8 +81,9 @@ jobs:
     steps:
       - name: Resolve period dates
         id: period
+        env:
+          INPUT_PERIOD: ${{ inputs.period || 'recent_6m' }}
         run: |
-          INPUT_PERIOD="${{ inputs.period || 'recent_6m' }}"
           MATRIX_PERIOD="${{ matrix.period_key }}"
           ACTIVE="false"
           if { [ "$INPUT_PERIOD" = "all_defined" ] && [ "$MATRIX_PERIOD" != "recent_2m" ]; } || [ "$INPUT_PERIOD" = "$MATRIX_PERIOD" ]; then
@@ -257,8 +258,9 @@ jobs:
     steps:
       - name: Resolve period dates
         id: period
+        env:
+          INPUT_PERIOD: ${{ inputs.period || 'recent_6m' }}
         run: |
-          INPUT_PERIOD="${{ inputs.period || 'recent_6m' }}"
           MATRIX_PERIOD="${{ matrix.period_key }}"
           ACTIVE="false"
           if { [ "$INPUT_PERIOD" = "all_defined" ] && [ "$MATRIX_PERIOD" != "recent_2m" ]; } || [ "$INPUT_PERIOD" = "$MATRIX_PERIOD" ]; then
@@ -352,7 +354,6 @@ jobs:
               --board "${BT_BOARD}" \
               --sample-size "${BT_SAMPLE_SIZE}" \
               --trading-days "${BT_TRADING_DAYS}" \
-              --use-current-meta \
               --abc-filter \
               --entry-price-mode "${BT_ENTRY_PRICE_MODE}" \
               --cash-portfolio \
@@ -396,8 +397,9 @@ jobs:
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
     steps:
       - name: Resolve period dates
+        env:
+          PERIOD: ${{ inputs.period || 'recent_6m' }}
         run: |
-          PERIOD="${{ inputs.period || 'recent_6m' }}"
           if [ "$PERIOD" = "all_defined" ]; then
             echo "BT_PERIOD_LABEL=recent_6m,bull_2020,bear_2022" >> "$GITHUB_ENV"
             echo "BT_START=multi" >> "$GITHUB_ENV"

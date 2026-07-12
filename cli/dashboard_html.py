@@ -210,6 +210,13 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;b
 </div>
 <script>
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
+const DASHBOARD_TOKEN=document.querySelector('meta[name="wyckoff-dashboard-token"]')?.content||'';
+const _nativeFetch=window.fetch.bind(window);
+window.fetch=(input,init={})=>{
+  const headers=new Headers(init.headers||{});headers.set('X-Wyckoff-Token',DASHBOARD_TOKEN);
+  if((init.method||'GET').toUpperCase()!=='GET'&&!headers.has('Content-Type'))headers.set('Content-Type','application/json');
+  return _nativeFetch(input,{...init,headers});
+};
 const API=p=>fetch(p).then(r=>r.json());
 
 // ═══ i18n ═══

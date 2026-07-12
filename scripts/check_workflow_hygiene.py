@@ -46,6 +46,10 @@ def _prepares_logs(job: dict[str, Any]) -> bool:
     return False
 
 
+def _has_direct_input_interpolation(job: dict[str, Any]) -> bool:
+    return any("${{ inputs." in str(step.get("run", "")) for step in _steps(job))
+
+
 def _check_workflow(path: Path) -> list[str]:
     failures: list[str] = []
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -63,6 +67,9 @@ def _check_workflow(path: Path) -> list[str]:
     )
     if is_automation and not data.get("concurrency"):
         failures.append(f"{path}: automation workflow must define top-level concurrency")
+    permissions = data.get("permissions")
+    if not isinstance(permissions, dict) or permissions.get("contents") != "read":
+        failures.append(f"{path}: workflow must declare top-level permissions: contents: read")
 
     jobs = data.get("jobs")
     if not isinstance(jobs, dict) or not jobs:
@@ -74,6 +81,8 @@ def _check_workflow(path: Path) -> list[str]:
             continue
         if is_automation and not is_ci and _prepares_logs(raw_job) and not _has_upload_artifact(raw_job):
             failures.append(f"{path}: job {job_name} prepares logs but does not upload artifacts")
+        if _has_direct_input_interpolation(raw_job):
+            failures.append(f"{path}: job {job_name} must pass workflow inputs through env before shell use")
     return failures
 
 
@@ -81,6 +90,12 @@ def main() -> int:
     failures: list[str] = []
     for path in sorted(WORKFLOW_DIR.glob("*.yml")) + sorted(WORKFLOW_DIR.glob("*.yaml")):
         failures.extend(_check_workflow(path))
+
+    shared_group = "step4-oms-a-share-${{ github.ref }}"
+    for name in ("wyckoff_funnel.yml", "step4_from_supabase.yml"):
+        data = yaml.safe_load((WORKFLOW_DIR / name).read_text(encoding="utf-8"))
+        if data.get("concurrency", {}).get("group") != shared_group:
+            failures.append(f"{name}: Step4/OMS entrypoints must share concurrency group {shared_group}")
 
     if failures:
         print("Workflow hygiene: FAIL")

@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 from typing import Any
+from urllib.parse import urljoin
 
 from agents.tool_security import (
     SAFE_WEB_CONTENT_TYPE_PREFIXES,
@@ -19,6 +20,7 @@ from agents.tool_security import (
 MAX_AGENT_FILE_BYTES = 50 * 1024 * 1024
 MAX_AGENT_TEXT_WRITE_BYTES = 2 * 1024 * 1024
 MAX_AGENT_WEB_BYTES = 1024 * 1024
+MAX_AGENT_WEB_REDIRECTS = 5
 
 
 def exec_command(command: str, timeout: int = 30, cwd: str = "", tool_context: Any = None) -> dict:
@@ -140,7 +142,9 @@ def web_fetch(url: str, tool_context: Any = None) -> dict:
         return safe_url
 
     try:
-        resp = requests.get(safe_url, timeout=(3, 15), headers={"User-Agent": "Wyckoff-Agent/1.0"}, stream=True)
+        resp, final_url = _get_public_response(requests, safe_url)
+        if isinstance(resp, dict):
+            return resp
         resp.raise_for_status()
         ctype = resp.headers.get("content-type", "").lower()
         if ctype and not any(ctype.startswith(prefix) for prefix in SAFE_WEB_CONTENT_TYPE_PREFIXES):
@@ -150,9 +154,32 @@ def web_fetch(url: str, tool_context: Any = None) -> dict:
         if isinstance(body, dict):
             return body
         text = _extract_response_text(body, ctype)
-        return {"url": safe_url, "status": resp.status_code, "content": redact_sensitive_text(text)}
+        return {"url": final_url, "status": resp.status_code, "content": redact_sensitive_text(text)}
     except Exception as e:
         return {"error": f"抓取失败: {e}"}
+
+
+def _get_public_response(requests_module, initial_url: str):
+    url = initial_url
+    for _ in range(MAX_AGENT_WEB_REDIRECTS + 1):
+        checked = validate_public_http_url(url)
+        if isinstance(checked, dict):
+            return checked, url
+        resp = requests_module.get(
+            checked,
+            timeout=(3, 15),
+            headers={"User-Agent": "Wyckoff-Agent/1.0"},
+            stream=True,
+            allow_redirects=False,
+        )
+        if resp.status_code not in {301, 302, 303, 307, 308}:
+            return resp, checked
+        location = resp.headers.get("location", "").strip()
+        resp.close()
+        if not location:
+            return security_error("重定向响应缺少 Location"), checked
+        url = urljoin(checked, location)
+    return security_error(f"网页重定向超过 {MAX_AGENT_WEB_REDIRECTS} 次"), url
 
 
 def _read_response_body(resp) -> str | dict:

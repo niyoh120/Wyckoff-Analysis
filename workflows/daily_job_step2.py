@@ -18,7 +18,8 @@ def run_step2_block(
     step2 = run_step2_stage(run_step2, cfg.webhook, cfg.preview_only, cfg.logs_path)
     summary.append(step2.summary_item)
     has_blocking_failure = step2.blocking_failure
-    recommend_date, recommendation_payload = persist_step2_outputs(step2, cfg)
+    recommend_date, recommendation_payload, persistence_ok = persist_step2_outputs(step2, cfg)
+    has_blocking_failure = has_blocking_failure or not persistence_ok
     return step2, has_blocking_failure, recommend_date, recommendation_payload
 
 
@@ -58,10 +59,11 @@ def run_step2_stage(run_step2, webhook: str, preview_only: bool, logs_path: str 
     )
 
 
-def persist_step2_outputs(step2: Step2StageResult, cfg: DailyJobConfig) -> tuple[int | None, list[dict]]:
+def persist_step2_outputs(step2: Step2StageResult, cfg: DailyJobConfig) -> tuple[int | None, list[dict], bool]:
     trade_mode = resolve_market_trade_mode((step2.benchmark_context or {}).get("regime"))
+    persistence_ok = True
     if not step2.blocking_failure and step2.benchmark_context:
-        daily_persistence.persist_benchmark_context(
+        persistence_ok = daily_persistence.persist_benchmark_context(
             step2.benchmark_context,
             cfg.logs_path,
             dry_run=cfg.preview_only,
@@ -75,7 +77,7 @@ def persist_step2_outputs(step2: Step2StageResult, cfg: DailyJobConfig) -> tuple
         )
         _prepare_step3_review_input(step2, trade_mode, cfg)
     if step2.ok and (step2.symbols_info or step2.details):
-        return daily_persistence.persist_recommendations(
+        recommend_date, payload, recommendation_ok = daily_persistence.persist_recommendations(
             step2.symbols_info,
             cfg.logs_path,
             dry_run=cfg.preview_only,
@@ -85,7 +87,8 @@ def persist_step2_outputs(step2: Step2StageResult, cfg: DailyJobConfig) -> tuple
             benchmark_context=step2.benchmark_context,
             trade_mode=trade_mode,
         )
-    return None, []
+        return recommend_date, payload, persistence_ok and recommendation_ok
+    return None, [], persistence_ok
 
 
 def _prepare_step3_review_input(step2: Step2StageResult, trade_mode: MarketTradeMode, cfg: DailyJobConfig) -> None:

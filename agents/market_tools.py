@@ -55,7 +55,13 @@ def get_market_overview(
             return {"error": "无法获取指定日期市场数据", "requested_date": requested, "details": "; ".join(errors)}
         akshare_result = _fetch_akshare_overview(errors)
         if akshare_result:
-            return {"indices": akshare_result, "source": "akshare"}
+            return {
+                "indices": akshare_result,
+                "source": "akshare",
+                "trade_date": "",
+                "freshness": "unknown",
+                "warning": "AkShare 实时截面不提供可验证交易日期，不得视为今日已确认数据",
+            }
         return {"error": "无法获取大盘数据", "details": "; ".join(errors) if errors else "unknown"}
     except Exception as e:
         logger.exception("get_market_overview error")
@@ -211,7 +217,7 @@ def _akshare_index_rows(spot, columns: dict[str, str]) -> dict[str, dict]:
 def _akshare_latest_row(ts_code: str, row, columns: dict[str, str]) -> dict:
     return {
         "ts_code": ts_code,
-        "trade_date": date.today().strftime("%Y%m%d"),
+        "trade_date": "",
         "close": round(_safe_float(row.get(columns["close"], 0) if columns["close"] else 0), 2),
         "pct_chg": round(_safe_float(row.get(columns["pct"], 0) if columns["pct"] else 0), 2),
         "vol": int(_safe_float(row.get(columns["vol"], 0) if columns["vol"] else 0)),

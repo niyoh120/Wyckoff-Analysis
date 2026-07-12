@@ -418,7 +418,7 @@ def _meta_note(summary: dict) -> str:
         return (
             "- ⚠️ 市值/行业映射采用当前截面，会引入 look-ahead bias （市值穿越与行业漂移）；该结果仅用于参数方向验证。"
         )
-    return "- 本次已关闭当前截面市值/行业映射过滤（Layer1 市值 + Layer3 行业共振），用于降低前视偏差。"
+    return "- 本次按正式回测默认口径关闭当前截面市值/行业/概念映射，降低前视偏差；仍存在当前股票池幸存者偏差。"
 
 
 def _trailing_line(summary: dict) -> str:

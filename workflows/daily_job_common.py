@@ -27,6 +27,10 @@ class Step3StageResult:
     springboard_updates: dict[str, dict]
     summary_item: dict
 
+    @property
+    def blocking_failure(self) -> bool:
+        return not bool(self.summary_item.get("ok"))
+
 
 class TeeStream:
     def __init__(self, console_stream, file_stream):

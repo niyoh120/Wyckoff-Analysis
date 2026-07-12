@@ -211,7 +211,6 @@ def _send_and_persist_step4_results(
     report_progress,
 ) -> tuple[bool, str]:
     result_record = prepare_step4_result_record(
-        portfolio_id=options.portfolio_id,
         tickets=tickets,
         state_signature=context.state_signature,
     )
@@ -223,16 +222,19 @@ def _send_and_persist_step4_results(
         tickets=tickets,
         atr_period=options.runtime_config.atr_period,
     )
-    if not _send_trade_ticket(report, options.tg_bot_token, options.tg_chat_id):
-        return False, "notification_failed"
-    save_step4_orders_and_nav(
+    persisted = save_step4_orders_and_nav(
         options=options,
         context=context,
         run_id=result_record.run_id,
         rendered_market_view=rendered_market_view,
+        tickets=tickets,
         ticket_rows=result_record.ticket_rows,
         free_cash_after=free_cash_after,
     )
+    if not persisted:
+        return False, "persistence_failed"
+    if not _send_trade_ticket(report, options.tg_bot_token, options.tg_chat_id):
+        return False, "notification_failed"
     logger.info(
         "交易工单发送成功: decisions=%s, tickets=%s, model=%s, portfolio_id=%s",
         len(decisions),

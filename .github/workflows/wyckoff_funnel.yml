@@ -12,8 +12,11 @@ on:
         type: string
 
 concurrency:
-  group: daily-job-${{ github.ref }}
+  group: step4-oms-a-share-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   run:

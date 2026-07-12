@@ -10,6 +10,9 @@ concurrency:
   group: tickflow-funnel-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   run:
     runs-on: ubuntu-latest

@@ -11,6 +11,7 @@ import pandas as pd
 
 from core.candidate_metadata import CANDIDATE_ATTRIBUTION_COLUMNS
 from core.hist_dates import latest_trade_date_from_hist
+from core.market_trade_mode import normalize_regime
 from core.sector_rotation import SECTOR_STATE_LABELS
 from core.wyckoff_engine import normalize_hist_from_fetch
 from integrations.fetch_a_share_csv import fetch_hist, resolve_trading_window
@@ -53,7 +54,7 @@ def load_step3_market_context(
     return Step3MarketContext(
         window=window,
         benchmark_context=ctx,
-        regime=ctx.get("regime", "NEUTRAL"),
+        regime=normalize_regime(ctx.get("regime")),
         sector_rotation_ctx=sector_rotation_ctx,
         sector_rotation_map=sector_rotation_ctx.get("state_map", {}) or {},
         sector_map=sector_map,

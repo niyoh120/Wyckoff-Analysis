@@ -27,11 +27,9 @@ class Step4ResultRecord:
 
 def prepare_step4_result_record(
     *,
-    portfolio_id: str,
     tickets: list[ExecutionTicket],
     state_signature: str,
 ) -> Step4ResultRecord:
-    update_step4_position_stops(portfolio_id, tickets)
     ticket_rows = build_step4_ticket_rows(tickets)
     log_step4_reject_audit(tickets)
     return Step4ResultRecord(_build_step4_run_id(state_signature), ticket_rows)
@@ -43,28 +41,33 @@ def save_step4_orders_and_nav(
     context: Step4InputContext,
     run_id: str,
     rendered_market_view: str,
+    tickets: list[ExecutionTicket],
     ticket_rows: list[dict],
     free_cash_after: float,
-) -> None:
-    if _save_step4_trade_orders(options, context, run_id, rendered_market_view, ticket_rows):
-        _cancel_previous_trade_orders(options, context, run_id)
-    else:
-        logger.warning("AI 订单记录写入失败（已忽略，不阻断流程） | portfolio_id=%s", options.portfolio_id)
-    _save_step4_nav_snapshot(options, context, free_cash_after)
+) -> bool:
+    if not _save_step4_trade_orders(options, context, run_id, rendered_market_view, ticket_rows):
+        logger.error("AI 订单记录写入失败 | portfolio_id=%s", options.portfolio_id)
+        return False
+    _cancel_previous_trade_orders(options, context, run_id)
+    stops_ok = update_step4_position_stops(options.portfolio_id, tickets)
+    nav_ok = _save_step4_nav_snapshot(options, context, free_cash_after)
+    return stops_ok and nav_ok
 
 
-def update_step4_position_stops(portfolio_id: str, tickets: list[ExecutionTicket]) -> None:
+def update_step4_position_stops(portfolio_id: str, tickets: list[ExecutionTicket]) -> bool:
     updates = [
         {"code": ticket.code, "stop_loss": ticket.effective_stop_loss}
         for ticket in tickets
         if ticket.is_holding and ticket.effective_stop_loss is not None
     ]
     if not updates:
-        return
+        return True
     if update_position_stops(portfolio_id, updates):
         logger.info("已更新 %s 个持仓的止损价 | portfolio_id=%s", len(updates), portfolio_id)
+        return True
     else:
         logger.error("持仓止损价更新失败 | portfolio_id=%s", portfolio_id)
+        return False
 
 
 def build_step4_ticket_rows(tickets: list[ExecutionTicket]) -> list[dict]:
@@ -160,7 +163,7 @@ def _save_step4_nav_snapshot(
     options: Step4RunOptions,
     context: Step4InputContext,
     free_cash_after: float,
-) -> None:
+) -> bool:
     positions_value = max(float(context.total_equity) - float(free_cash_after), 0.0)
     if upsert_daily_nav(
         portfolio_id=options.portfolio_id,
@@ -170,5 +173,7 @@ def _save_step4_nav_snapshot(
         positions_value=positions_value,
     ):
         logger.info("已写入 %s 日净值快照: %s", options.portfolio_id, context.trade_date)
+        return True
     else:
         logger.warning("%s 日净值快照写入失败（已忽略）", options.portfolio_id)
+        return False

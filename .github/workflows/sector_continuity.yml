@@ -10,6 +10,9 @@ concurrency:
   group: sector-continuity-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   run:
     runs-on: ubuntu-latest

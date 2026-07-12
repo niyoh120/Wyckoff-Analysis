@@ -32,7 +32,7 @@ def test_persist_step2_outputs_tracks_candidates_when_trade_gate_blocks_recommen
     monkeypatch.setattr(step2_module, "persist_step2_observations", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(step2_module, "run_signal_confirmation", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(step2_module, "run_springboard_scoring", lambda *_args, **_kwargs: 1)
-    monkeypatch.setattr(step2_module.daily_persistence, "persist_benchmark_context", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(step2_module.daily_persistence, "persist_benchmark_context", lambda *_args, **_kwargs: True)
 
     def fake_step3_review_symbols(symbols, **kwargs):
         persisted.append(
@@ -59,7 +59,7 @@ def test_persist_step2_outputs_tracks_candidates_when_trade_gate_blocks_recommen
                 "step2_details": kwargs["step2_details"],
             }
         )
-        return 20260601, []
+        return 20260601, [], True
 
     monkeypatch.setattr(
         step2_module.daily_persistence,
@@ -76,10 +76,11 @@ def test_persist_step2_outputs_tracks_candidates_when_trade_gate_blocks_recommen
         blocking_failure=False,
     )
 
-    recommend_date, payload = persist_step2_outputs(result, _cfg())
+    recommend_date, payload, persistence_ok = persist_step2_outputs(result, _cfg())
 
     assert recommend_date == 20260601
     assert payload == []
+    assert persistence_ok is True
     assert persisted[0]["step"] == "review"
     assert persisted[0]["symbols"] == [{"code": "000001", "name": "平安银行"}]
     assert persisted[0]["trade_mode"] == "repair_review"

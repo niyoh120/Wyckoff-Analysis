@@ -196,7 +196,9 @@ def _stock_hist_failure(ctx: StockHistFetchContext) -> RuntimeError:
 def _build_datasource_hint(failed_details: list[str]) -> str:
     hint = _network_hint_from_details(failed_details)
     has_tickflow = bool(os.getenv("TICKFLOW_API_KEY", "").strip())
-    has_tushare = bool(os.getenv("TUSHARE_TOKEN", "").strip())
+    from integrations.tushare_client import has_tushare_token
+
+    has_tushare = has_tushare_token()
     if not has_tickflow and not has_tushare:
         return f" 请配置数据源：{TICKFLOW_UPGRADE_URL}"
     if has_tushare and not has_tickflow:

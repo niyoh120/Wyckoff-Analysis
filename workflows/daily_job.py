@@ -32,17 +32,18 @@ def run_daily_job(args: Any) -> int:
         recommendation_payload=recommendation_payload,
         summary=summary,
     )
+    has_blocking_failure = has_blocking_failure or step3.blocking_failure
     if not persist_step3_signal_observations(step2, step3, cfg):
         has_blocking_failure = True
 
-    summary.append(
-        run_step4_stage(
-            cfg=cfg,
-            symbols_info=step2.symbols_info,
-            step3_springboard_codes=step3.springboard_codes,
-            step3_report_text=step3.report_text,
-            benchmark_context=step2.benchmark_context,
-        )
+    step4_summary = run_step4_stage(
+        cfg=cfg,
+        symbols_info=step2.symbols_info,
+        step3_springboard_codes=step3.springboard_codes,
+        step3_report_text=step3.report_text,
+        benchmark_context=step2.benchmark_context,
     )
+    summary.append(step4_summary)
+    has_blocking_failure = has_blocking_failure or not bool(step4_summary.get("ok"))
     log_daily_summary(summary, cfg.logs_path)
     return 1 if has_blocking_failure else 0

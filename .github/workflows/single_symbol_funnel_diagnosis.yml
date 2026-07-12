@@ -25,6 +25,9 @@ concurrency:
   group: single-symbol-funnel-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -53,14 +56,23 @@ jobs:
           pip install -e .
 
       - name: Run single symbol diagnosis
+        env:
+          INPUT_SYMBOL: ${{ inputs.symbol }}
+          INPUT_START_DATE: ${{ inputs.start_date }}
+          INPUT_END_DATE: ${{ inputs.end_date }}
+          INPUT_TRADING_DAYS: ${{ inputs.trading_days }}
         run: |
           set -o pipefail
+          [[ "$INPUT_SYMBOL" =~ ^[A-Za-z0-9.,_-]+$ ]] || { echo "Invalid symbol"; exit 2; }
+          [[ "$INPUT_START_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "Invalid start_date"; exit 2; }
+          [[ "$INPUT_END_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "Invalid end_date"; exit 2; }
+          [[ "$INPUT_TRADING_DAYS" =~ ^[0-9]{1,4}$ ]] || { echo "Invalid trading_days"; exit 2; }
           mkdir -p logs/single_symbol_funnel
           python -u scripts/single_symbol_funnel_diagnosis.py \
-            --symbol "${{ inputs.symbol }}" \
-            --start-date "${{ inputs.start_date }}" \
-            --end-date "${{ inputs.end_date }}" \
-            --trading-days "${{ inputs.trading_days }}" \
+            --symbol "$INPUT_SYMBOL" \
+            --start-date "$INPUT_START_DATE" \
+            --end-date "$INPUT_END_DATE" \
+            --trading-days "$INPUT_TRADING_DAYS" \
             --output-dir "${{ github.workspace }}/logs/single_symbol_funnel" \
             2>&1 | tee "${{ github.workspace }}/logs/single_symbol_funnel/console.log"
 

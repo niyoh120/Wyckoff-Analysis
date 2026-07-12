@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -17,6 +18,7 @@ from urllib.parse import urlparse
 from cli.dashboard_html import DASHBOARD_HTML
 
 logger = logging.getLogger(__name__)
+_DASHBOARD_TOKEN = secrets.token_urlsafe(32)
 
 # ---------------------------------------------------------------------------
 # Data access layer (thin wrappers over local_db)
@@ -224,6 +226,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _html(self, html: str):
+        html = html.replace("</head>", f'<meta name="wyckoff-dashboard-token" content="{_DASHBOARD_TOKEN}"></head>', 1)
         body = html.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -232,6 +235,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if not self._trusted_request(allow_page=True):
+            return
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
@@ -268,7 +273,34 @@ class _Handler(BaseHTTPRequestHandler):
             return {}
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
+    def _trusted_request(self, *, allow_page: bool = False) -> bool:
+        port = self.server.server_port
+        host = self.headers.get("Host", "")
+        if host not in {f"127.0.0.1:{port}", f"localhost:{port}"}:
+            self._json({"error": "invalid host"}, 403)
+            return False
+        origin = self.headers.get("Origin", "")
+        if origin and origin not in {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}:
+            self._json({"error": "cross-origin request blocked"}, 403)
+            return False
+        if allow_page and not self.path.startswith("/api/"):
+            return True
+        if secrets.compare_digest(self.headers.get("X-Wyckoff-Token", ""), _DASHBOARD_TOKEN):
+            return True
+        self._json({"error": "invalid dashboard token"}, 403)
+        return False
+
+    def _trusted_write(self) -> bool:
+        if not self._trusted_request():
+            return False
+        if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+            self._json({"error": "application/json required"}, 415)
+            return False
+        return True
+
     def do_POST(self):
+        if not self._trusted_write():
+            return
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         if path == "/api/models":
@@ -284,6 +316,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def do_PUT(self):
+        if not self._trusted_write():
+            return
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         if path.startswith("/api/models/") and path.endswith("/default"):
@@ -336,6 +370,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def do_DELETE(self):
+        if not self._trusted_write():
+            return
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         if path.startswith("/api/models/"):

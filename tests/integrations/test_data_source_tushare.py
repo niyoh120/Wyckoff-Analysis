@@ -42,6 +42,7 @@ def test_fetch_stock_tushare_normalizes_pro_bar_units(monkeypatch) -> None:
     out = provider.fetch_stock_tushare("600519", "20260601", "20260602")
 
     assert tuple(out.columns) == STOCK_HIST_COLUMNS
+    assert isinstance(captured.pop("api"), _FakePro)
     assert captured == {"ts_code": "600519.SH", "adj": "qfq", "start_date": "20260601", "end_date": "20260602"}
     assert out.iloc[0]["日期"] == "2026-06-01"
     assert float(out.iloc[0]["成交量"]) == 10000
