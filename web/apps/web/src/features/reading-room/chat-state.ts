@@ -18,7 +18,7 @@ import { useChat } from '@ai-sdk/react'
 import type { TranslationKey } from '@/lib/preferences'
 import type { ReadingRoomConversations } from './conversations'
 import { scrollToMessage } from './run-records'
-import type { ChatConfig, ChatRunStatus, QueuedMessage, ReadingRoomTab, StageProgressStatus } from './types'
+import type { ChatConfig, ChatRunEvent, ChatRunStatus, QueuedMessage, ReadingRoomTab, StageProgressStatus } from './types'
 import { writeBooleanStorage } from './utils'
 
 export const CONVERSATION_SIDEBAR_STORAGE_KEY = 'wyckoff:reading-room-sidebar-collapsed-v1'
@@ -156,6 +156,9 @@ export function useReadingRoomChat(
   setLocalError: (value: string) => void,
   t: (key: TranslationKey) => string,
   setModelStatus: (value: ChatRunStatus | null) => void,
+  onRunEvent?: (event: ChatRunEvent) => void,
+  onRunFinish?: () => void,
+  onRunError?: () => void,
 ) {
   const transport = useMemo(() => buildChatTransport(token), [token])
   return useChat({
@@ -163,14 +166,15 @@ export function useReadingRoomChat(
     experimental_throttle: 50,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onData: (part) => {
+      if (part.type === 'data-run-event') onRunEvent?.(part.data as ChatRunEvent)
       if (part.type === 'data-model-status') setModelStatus(part.data as ChatRunStatus)
       if (part.type === 'data-stage-progress') {
         const progress = part.data as StageProgressStatus
         setModelStatus(progress.state === 'completed' ? null : progress)
       }
     },
-    onFinish: () => setModelStatus(null),
-    onError: (err) => { setModelStatus(null); setLocalError(err.message || t('chat.requestFailed')) },
+    onFinish: () => { setModelStatus(null); onRunFinish?.() },
+    onError: (err) => { setModelStatus(null); onRunError?.(); setLocalError(err.message || t('chat.requestFailed')) },
   })
 }
 

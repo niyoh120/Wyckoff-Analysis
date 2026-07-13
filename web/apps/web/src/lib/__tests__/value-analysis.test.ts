@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FundamentalMetric, ValueSnapshot } from '@wyckoff/shared'
-import { buildValuePrompt, sourceLabel } from '@wyckoff/shared'
+import { buildValuePrompt, sourceLabel, VALUE_RULESET_VERSION, valueDataQuality, valueTraceMeta } from '@wyckoff/shared'
 import type { TranslationKey } from '../preferences'
 import type { Translate } from '../value-analysis'
 import {
@@ -114,9 +114,28 @@ describe('value analysis helpers', () => {
 
     expect(prompt).toContain('价值面摘要（来源：TickFlow，报告期：2026-03-31）')
     expect(prompt).toContain('ROE=18.20%')
+    expect(prompt).toContain('数据质量：数据完整（6/6 核心字段')
     expect(prompt).toContain('EPS=12.34')
     expect(digest).toContain('valueMetrics roe=18.20%')
     expect(digest).toContain('cashToRevenue=16.20%')
+  })
+
+  it('downgrades stale or incomplete value snapshots', () => {
+    const stale = snapshot({
+      period_end: '2024-03-31',
+      roe: 12,
+      net_income_yoy: 8,
+      revenue_yoy: 6,
+      gross_margin: 30,
+      debt_to_asset_ratio: 45,
+      operating_cash_to_revenue: 9,
+    })
+    const incomplete = snapshot({ period_end: '2026-03-31', roe: 12, net_income_yoy: 8 })
+
+    expect(valueDataQuality(stale, new Date('2026-07-13T00:00:00Z')).level).toBe('stale')
+    expect(valueDataQuality(incomplete, new Date('2026-07-13T00:00:00Z')).level).toBe('limited')
+    expect(buildValuePrompt(stale)).toContain('仅作风险校准')
+    expect(buildValuePrompt(incomplete)).toContain('仅作风险校准')
   })
 
   it('detects compound risk rules and rule codes', () => {
@@ -137,15 +156,53 @@ describe('value analysis helpers', () => {
     expect(score.score).toBe(5)
   })
 
+  it('keeps risk fixtures stable across the shared ruleset', () => {
+    const fixtures = [
+      {
+        name: 'cash-profit divergence',
+        metrics: { period_end: '2026-03-31', roe: 12, net_income_yoy: 8, revenue_yoy: 5, gross_margin: 40, debt_to_asset_ratio: 40, operating_cash_to_revenue: -5 },
+        codes: ['PROFIT_CASH_FLOW_DIVERGENCE', 'WEAK_CASH_EARNINGS'],
+        quality: 'ready',
+      },
+      {
+        name: 'high leverage',
+        metrics: { period_end: '2026-03-31', roe: 8, net_income_yoy: 3, revenue_yoy: 4, gross_margin: 20, debt_to_asset_ratio: 76, operating_cash_to_revenue: 4 },
+        codes: ['HIGH_LEVERAGE'],
+        quality: 'ready',
+      },
+      {
+        name: 'stale report',
+        metrics: { period_end: '2024-03-31', roe: 12, net_income_yoy: 8, revenue_yoy: 5, gross_margin: 40, debt_to_asset_ratio: 40, operating_cash_to_revenue: 9 },
+        codes: [],
+        quality: 'stale',
+      },
+      {
+        name: 'insufficient fields',
+        metrics: { period_end: '2026-03-31', roe: 12, net_income_yoy: 8 },
+        codes: [],
+        quality: 'limited',
+      },
+    ] as const
+
+    for (const fixture of fixtures) {
+      const trace = valueTraceMeta(snapshot(fixture.metrics))
+      expect(trace.rulesetVersion, fixture.name).toBe(VALUE_RULESET_VERSION)
+      expect(trace.dataQuality, fixture.name).toBe(fixture.quality)
+      expect(trace.ruleCodes, fixture.name).toEqual(expect.arrayContaining([...fixture.codes]))
+    }
+  })
+
   it('calculates deterministic input snapshot hash', () => {
     const kline = [{ date: '2026-01-01', open: 1, high: 2, low: 1, close: 1.5, volume: 100 }]
     const snap = snapshot({ roe: 15, period_end: '2026-03-31' })
     const h1 = calculateInputSnapshotHash('600519.SH', kline, snap)
     const h2 = calculateInputSnapshotHash('600519.SH', kline, snap)
     const h3 = calculateInputSnapshotHash('000001.SZ', kline, snap)
+    const h4 = calculateInputSnapshotHash('600519.SH', kline, snap, 'value-rules-v2')
 
     expect(h1).toBe(h2)
     expect(h1).not.toBe(h3)
+    expect(h1).not.toBe(h4)
     expect(typeof h1).toBe('string')
   })
 })

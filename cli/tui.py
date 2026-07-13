@@ -916,6 +916,31 @@ def _display_workflow_phase_event(event: dict[str, Any], write, scroll) -> None:
     scroll()
 
 
+def _display_workflow_disagreement_event(event: dict[str, Any], write, scroll) -> None:
+    summary = event.get("summary") if isinstance(event.get("summary"), dict) else {}
+    conflict_type = str(summary.get("conflict_type") or "")
+    lines = ["  [bold yellow]多视角复核[/bold yellow]"]
+    labels = (("bullish_agents", "偏多"), ("bearish_agents", "偏防御"), ("neutral_agents", "中性"))
+    for key, direction in labels:
+        for item in summary.get(key) or []:
+            if not isinstance(item, dict):
+                continue
+            agent = _sub_agent_progress_label(item.get("agent", "task")).removesuffix(" agent")
+            lines.append(f"    {escape(agent)}：{direction}")
+    for item in summary.get("degraded_steps") or []:
+        if not isinstance(item, dict):
+            continue
+        agent = _sub_agent_progress_label(item.get("agent", "task")).removesuffix(" agent")
+        status = escape(str(item.get("status") or "failed"))
+        lines.append(f"    [yellow]{escape(agent)} 未完成（{status}）[/yellow]")
+    if conflict_type == "mixed_directional_signals":
+        lines.append("    [yellow]多空存在分歧，最终结论已要求等待确认后再行动。[/yellow]")
+    else:
+        lines.append("    [yellow]输入不完整，最终结论已按保守模式降级。[/yellow]")
+    write(Text.from_markup("\n".join(lines)))
+    scroll()
+
+
 def _workflow_script(run: dict[str, Any]) -> dict[str, Any]:
     script = run.get("plan", {}).get("script", {})
     return script if isinstance(script, dict) else {}
@@ -2201,6 +2226,10 @@ class WyckoffTUI(App):
             self.action_fork_session()
         elif cmd == "/schedule":
             self._handle_schedule_cmd(raw, log)
+        elif cmd == "/doctor":
+            self._show_backend_doctor(log)
+        elif cmd == "/news":
+            self._handle_news_cmd(raw, log)
         else:
             self._try_skill(raw, log)
 
@@ -2223,7 +2252,9 @@ class WyckoffTUI(App):
                 "  /changelog— 版本更新日志\n"
                 "  /prompt  — Prompt 模板（list/show/<name>）\n"
                 "  /workflow— workflow（approve/reload/restart/pause/stop/save/run）\n"
-                "  /schedule— 定时任务（list/add/rm/on/off）\n"
+                "  /schedule— 定时任务（list/status/run/add/rm/on/off）\n"
+                "  /doctor  — 模型与数据源健康检查\n"
+                "  /news    — 新闻来源状态（status/refresh）\n"
                 "  /resume  — 恢复历史对话\n"
                 "  /fork    — 分叉当前会话\n"
                 "  /new     — 新对话 (Ctrl+N)\n"
@@ -3378,6 +3409,10 @@ class WyckoffTUI(App):
         sub = parts[1] if len(parts) > 1 else "list"
         if sub == "list":
             self._schedule_list(log)
+        elif sub == "status":
+            self._schedule_status(log)
+        elif sub == "run" and len(parts) > 2:
+            self._schedule_run_now(parts[2], log)
         elif sub == "add":
             self._schedule_add_start(log)
         elif sub == "rm" and len(parts) > 2:
@@ -3387,7 +3422,11 @@ class WyckoffTUI(App):
         elif sub == "off" and len(parts) > 2:
             self._schedule_toggle(parts[2], False, log)
         else:
-            log.write(Text.from_markup("[dim]/schedule 用法: list | add | rm <id> | on <id> | off <id>[/dim]"))
+            log.write(
+                Text.from_markup(
+                    "[dim]/schedule 用法: list | status | run <id> | add | rm <id> | on <id> | off <id>[/dim]"
+                )
+            )
 
     def _schedule_list(self, log) -> None:
         if not self._schedules:
@@ -3397,6 +3436,78 @@ class WyckoffTUI(App):
         for s in self._schedules:
             icon = "[green]●[/green]" if s.enabled else "[dim]○[/dim]"
             log.write(Text.from_markup(f"  {icon} [bold]{s.id}[/bold] — {s.name}  [dim]{s.cron}[/dim]  → {s.action}"))
+
+    def _schedule_status(self, log) -> None:
+        from cli.scheduler import schedule_status
+
+        rows = schedule_status(self._schedules)
+        if not rows:
+            log.write(Text.from_markup("[dim]暂无定时任务。使用 /schedule add 创建[/dim]"))
+            return
+        log.write(Text.from_markup("\n[bold]定时任务状态[/bold]"))
+        for row in rows:
+            enabled = "[green]运行中[/green]" if row["enabled"] else "[dim]已停用[/dim]"
+            next_run = str(row["next_run"] or "-").replace("T", " ")
+            last = str(row["last_fired"] or "-")
+            status = escape(str(row["last_status"] or "never"))
+            log.write(
+                Text.from_markup(
+                    f"  [bold]{escape(str(row['id']))}[/bold] {enabled} · 下次 {escape(next_run)} · 上次 {escape(last)} · {status}"
+                )
+            )
+            if row["last_error"]:
+                log.write(Text.from_markup(f"    [yellow]{escape(str(row['last_error']))}[/yellow]"))
+
+    def _schedule_run_now(self, sched_id: str, log) -> None:
+        from cli.scheduler import save_schedules
+
+        schedule = next((item for item in self._schedules if item.id == sched_id), None)
+        if schedule is None:
+            log.write(Text.from_markup(f"  [red]未找到: {escape(sched_id)}[/red]"))
+            return
+        schedule.last_fired = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        schedule.last_status = "queued" if self._busy else "triggered"
+        schedule.last_error = ""
+        save_schedules(self._schedules)
+        log.write(Text.from_markup(f"  [cyan]▶ 已立即触发 {escape(schedule.name)}[/cyan]"))
+        self._fire_schedule(schedule)
+
+    def _show_backend_doctor(self, log) -> None:
+        from tools.backend_doctor import diagnose_backend
+
+        log.write(Text.from_markup("\n[bold]模型与数据源健康检查[/bold]"))
+        result = diagnose_backend()
+        for group in ("llm_providers", "data_sources"):
+            for name, item in (result.get(group) or {}).items():
+                status = str(item.get("status") or "unknown")
+                tone = "green" if status == "healthy" else "yellow" if status == "unconfigured" else "red"
+                latency = item.get("latency_ms")
+                detail = f" · {latency}ms" if latency is not None else ""
+                if error := item.get("error"):
+                    detail += f" · {str(error)[:120]}"
+                log.write(
+                    Text.from_markup(f"  [{tone}]{escape(str(name))}[/{tone}] · {escape(status)}{escape(detail)}")
+                )
+
+    def _handle_news_cmd(self, raw: str, log) -> None:
+        from integrations.news_intelligence import intelligence_status, refresh_intelligence_pool
+
+        parts = raw.strip().split()
+        sub = parts[1] if len(parts) > 1 else "status"
+        if sub not in {"status", "refresh"}:
+            log.write(Text.from_markup("[dim]/news 用法: status | refresh[/dim]"))
+            return
+        result = refresh_intelligence_pool(force=True) if sub == "refresh" else intelligence_status()
+        log.write(Text.from_markup("\n[bold]新闻情报来源[/bold]"))
+        if sub == "refresh":
+            log.write(Text.from_markup(f"  [cyan]刷新完成[/cyan] · 新增 {int(result.get('new_items') or 0)} 条"))
+        for item in result.get("sources") or []:
+            source = escape(str(item.get("source") or "unknown"))
+            success = str(item.get("last_success_at") or "-").replace("T", " ")
+            count = int(item.get("last_item_count") or 0)
+            log.write(Text.from_markup(f"  {source} · 最近成功 {escape(success)} · 本次 {count} 条"))
+            if error := item.get("last_error"):
+                log.write(Text.from_markup(f"    [yellow]{escape(str(error)[:160])}[/yellow]"))
 
     def _handle_sched_input(self, mode: str, text: str, log, inp) -> None:
         if mode == _InputState.SCHED_ID:
@@ -3548,18 +3659,26 @@ class WyckoffTUI(App):
             save_schedules(self._schedules)
 
     def _fire_schedule(self, sched) -> None:
+        from cli.scheduler import save_schedules
+
         log = self.query_one("#chat-log", ChatLog)
         log.write(Text.from_markup(f"[bold yellow]⏰ 定时触发：{sched.name}[/bold yellow]"))
         if sched.notify:
             self._desktop_notify(f"Wyckoff: {sched.name}")
         action = sched.action.strip()
         if action.startswith("/"):
+            sched.last_status = "triggered"
             self._handle_command(action)
         elif self._busy:
+            sched.last_status = "queued"
             self._queue.append(action)
             log.write(Text.from_markup("  [dim]📋 Agent 忙碌中，已排队[/dim]"))
         else:
+            sched.last_status = "triggered"
             self._send_message(action)
+        schedules = getattr(self, "_schedules", None)
+        if schedules is not None:
+            save_schedules(schedules)
 
     def _desktop_notify(self, message: str) -> None:
         import subprocess
@@ -3936,6 +4055,8 @@ class WyckoffTUI(App):
             )
         elif event_type in {"workflow_phase_start", "workflow_phase_done"}:
             _display_workflow_phase_event(event, ui.write, ui.scroll)
+        elif event_type == "workflow_disagreement_summary":
+            _display_workflow_disagreement_event(event, ui.write, ui.scroll)
         elif event_type in {"workflow_step_start", "workflow_step_done"}:
             _display_workflow_step_event(event, ui.write, ui.scroll)
         elif event_type in {"workflow_done", "thinking_delta"}:

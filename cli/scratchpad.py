@@ -71,6 +71,7 @@ class AgentScratchpad:
         query_hash = hashlib.sha1(query.encode("utf-8", errors="ignore")).hexdigest()[:12]
         stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         self.path = self.dir / f"{stamp}_{query_hash}.jsonl"
+        self._context_sources: list[dict[str, Any]] = []
 
         self.append(
             {
@@ -107,6 +108,7 @@ class AgentScratchpad:
         duration_ms: int | None = None,
         status: str = "ok",
     ) -> None:
+        self._record_context_source(tool_name, result)
         entry: dict[str, Any] = {
             "type": "tool_result",
             "timestamp": _timestamp(),
@@ -118,6 +120,35 @@ class AgentScratchpad:
         if duration_ms is not None:
             entry["durationMs"] = duration_ms
         self.append(entry)
+
+    def _record_context_source(self, tool_name: str, result: Any) -> None:
+        if not isinstance(result, dict):
+            return
+        quality = result.get("data_quality")
+        source = result.get("data_source") or result.get("source")
+        as_of = result.get("data_asof") or result.get("latest_date") or result.get("trade_date")
+        if not any((quality, source, as_of)):
+            return
+        item = {
+            "tool": str(tool_name or ""),
+            "source": str(source or ""),
+            "as_of": str(as_of or ""),
+            "quality": scrub_sensitive_value(quality) if isinstance(quality, dict) else str(quality or ""),
+        }
+        if item not in self._context_sources:
+            self._context_sources.append(item)
+
+    def record_context_snapshot(self, *, provider: str = "", model: str = "") -> None:
+        """Persist the low-sensitivity data context used by this analysis turn."""
+        self.append(
+            {
+                "type": "context_snapshot",
+                "timestamp": _timestamp(),
+                "provider": provider,
+                "model": model,
+                "sources": self._context_sources,
+            }
+        )
 
     def record_compaction(
         self,
@@ -143,7 +174,10 @@ class AgentScratchpad:
         input_tokens: int = 0,
         output_tokens: int = 0,
         elapsed_s: float = 0.0,
+        provider: str = "",
+        model: str = "",
     ) -> None:
+        self.record_context_snapshot(provider=provider, model=model)
         self.append(
             {
                 "type": "final",

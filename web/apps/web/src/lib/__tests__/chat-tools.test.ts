@@ -119,6 +119,7 @@ describe('buildValueAgentDigest', () => {
     expect(digest).toContain('ROE=18.20%')
     expect(digest).toContain('价值面评级：稳健')
     expect(digest).toContain('质量信号：')
+    expect(digest).toContain('规则版本：value-rules-v1')
   })
 })
 

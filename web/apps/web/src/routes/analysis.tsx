@@ -10,13 +10,13 @@ import { KlineChart } from '@/components/kline-chart'
 import { usePreferences } from '@/lib/preferences'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
 import { detectWyckoffAnnotations } from '@/lib/wyckoff-detect'
-import { TICKFLOW_PURCHASE, fetchValueSnapshotWithFetch, isCnSymbol, isSupportedKlineCode } from '@wyckoff/shared'
-import type { KlineDataQuality, KlineRow, ValueSnapshot } from '@wyckoff/shared'
+import { TICKFLOW_PURCHASE, buildStockAnalysisContextPack, fetchValueSnapshotWithFetch, formatAnalysisContextPack, isCnSymbol, isSupportedKlineCode } from '@wyckoff/shared'
+import type { AnalysisContextPack, KlineDataQuality, KlineRow, ValueSnapshot } from '@wyckoff/shared'
 import { fetchKlineWithQuality, getUserDataKeys, checkWhitelist } from '@/lib/kline'
 import { avg } from '@/lib/math'
 import { marketLabel, resolveStockQuery, searchStocks, type StockSearchResult } from '@/lib/market-search'
-import { buildValuePrompt, sourceLabel } from '@wyckoff/shared'
-import { buildValueScore, calculateInputSnapshotHash, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
+import { buildValuePrompt, sourceLabel, valueTraceMeta } from '@wyckoff/shared'
+import { buildValueScore, calculateInputSnapshotHash, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueDataQualityText, valueDataQualityTitle, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
 import { saveAnalysisHistory } from '@/lib/local-history'
 
 interface AnalysisResult {
@@ -26,6 +26,7 @@ interface AnalysisResult {
   klineData: KlineRow[]
   dataQuality: KlineDataQuality
   valueSnapshot: ValueSnapshot
+  contextPack: AnalysisContextPack
   meta?: {
     inputSnapshotHash?: string
     promptVersion?: string
@@ -33,6 +34,9 @@ interface AnalysisResult {
     generatedAt?: string
     valueSource?: string
     reportDate?: string
+    valueRulesetVersion?: string
+    valueDataQuality?: string
+    valueRuleCodes?: string[]
     klineRows?: number
   }
 }
@@ -197,7 +201,7 @@ interface AnalysisRunnerState {
   step: AnalysisStep | null
   streamingReport: string
   modelStatus: LLMStreamStatus | null
-  earlyKline: { data: KlineRow[]; symbol: string; name: string; dataQuality: KlineDataQuality; valueSnapshot: ValueSnapshot } | null
+  earlyKline: { data: KlineRow[]; symbol: string; name: string; dataQuality: KlineDataQuality; valueSnapshot: ValueSnapshot; contextPack: AnalysisContextPack } | null
   setError: Dispatch<SetStateAction<string>>
   handleAnalyze: () => void
 }
@@ -211,7 +215,7 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
   const [step, setStep] = useState<AnalysisStep | null>(null)
   const [streamingReport, setStreamingReport] = useState('')
   const [modelStatus, setModelStatus] = useState<LLMStreamStatus | null>(null)
-  const [earlyKline, setEarlyKline] = useState<{ data: KlineRow[]; symbol: string; name: string; dataQuality: KlineDataQuality; valueSnapshot: ValueSnapshot } | null>(null)
+  const [earlyKline, setEarlyKline] = useState<{ data: KlineRow[]; symbol: string; name: string; dataQuality: KlineDataQuality; valueSnapshot: ValueSnapshot; contextPack: AnalysisContextPack } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const streamBuf = useRef('')
   const rafRef = useRef(0)
@@ -236,14 +240,16 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
       ])
       if (klineData.data.length === 0) throw new Error(t('analysis.noKlineData'))
       const name = resolved.stock?.name || stockInfoResult.data?.name || resolved.code
-      setEarlyKline({ data: klineData.data, symbol: resolved.code, name, dataQuality: klineData.quality, valueSnapshot })
+      const contextPack = buildStockAnalysisContextPack({ symbol: resolved.code, name, kline: klineData.data, dataQuality: klineData.quality, valueSnapshot })
+      setEarlyKline({ data: klineData.data, symbol: resolved.code, name, dataQuality: klineData.quality, valueSnapshot, contextPack })
       setStep('llm'); streamBuf.current = ''
       const onDelta = (chunk: string) => { streamBuf.current += chunk; scheduleFlush(streamBuf, rafRef, setStreamingReport) }
-      const report = await callLLM(configs, resolved.code, name, buildKlinePayload(klineData.data, klineData.quality), valueSnapshot, abort.signal, onDelta, setModelStatus)
+      const report = await callLLM(configs, resolved.code, name, buildKlinePayload(klineData.data, klineData.quality, contextPack), valueSnapshot, abort.signal, onDelta, setModelStatus)
       cancelAnimationFrame(rafRef.current)
       if (abort.signal.aborted) return
       setStreamingReport(report)
       const inputSnapshotHash = calculateInputSnapshotHash(resolved.code, klineData.data, valueSnapshot)
+      const valueTrace = valueTraceMeta(valueSnapshot)
       const meta = {
         inputSnapshotHash,
         promptVersion: 'wyckoff-prompt-v2.1',
@@ -251,9 +257,12 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
         generatedAt: new Date().toISOString(),
         valueSource: valueSnapshot.source,
         reportDate: valueSnapshot.metrics?.period_end || valueSnapshot.metrics?.announce_date || 'unknown',
+        valueRulesetVersion: valueTrace.rulesetVersion,
+        valueDataQuality: valueTrace.dataQuality,
+        valueRuleCodes: valueTrace.ruleCodes,
         klineRows: klineData.data.length,
       }
-      setResult({ report, symbol: resolved.code, name, klineData: klineData.data, dataQuality: klineData.quality, valueSnapshot, meta })
+      setResult({ report, symbol: resolved.code, name, klineData: klineData.data, dataQuality: klineData.quality, valueSnapshot, contextPack, meta })
     } catch (err) {
       if (abort.signal.aborted) return
       setError(err instanceof Error ? err.message : t('analysis.failed'))
@@ -419,6 +428,7 @@ function AnalysisContent({ runner, onAskAboutRange }: { runner: AnalysisRunnerSt
   const report = result?.report ?? streamingReport
   const valueSnapshot = result?.valueSnapshot ?? earlyKline?.valueSnapshot
   const dataQuality = result?.dataQuality ?? earlyKline?.dataQuality
+  const contextPack = result?.contextPack ?? earlyKline?.contextPack
 
   return (
     <div className="flex min-h-0 flex-1 flex-col pt-4">
@@ -431,11 +441,23 @@ function AnalysisContent({ runner, onAskAboutRange }: { runner: AnalysisRunnerSt
       <div className="min-h-0 flex-1 overflow-auto pr-1">
         <div className="space-y-6">
           {kline && dataQuality && <KlineSection klineData={kline} dataQuality={dataQuality} onAskAboutRange={onAskAboutRange} />}
+          {contextPack && <ContextPackSection pack={contextPack} />}
           {valueSnapshot && <ValueSection snapshot={valueSnapshot} />}
           {report && <ReportSection report={report} />}
         </div>
       </div>
     </div>
+  )
+}
+
+function ContextPackSection({ pack }: { pack: AnalysisContextPack }) {
+  return (
+    <details className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+      <summary className="cursor-pointer text-sm font-medium">本次分析上下文包与证据</summary>
+      <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+        <pre className="whitespace-pre-wrap rounded-md bg-background p-3 leading-5">{formatAnalysisContextPack(pack)}</pre>
+      </div>
+    </details>
   )
 }
 
@@ -526,6 +548,7 @@ function ValueSection({ snapshot, compact = false }: { snapshot: ValueSnapshot; 
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(signals?.tone ?? 'neutral')}`}>{signals?.label}</span>
           <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{sourceLabel(snapshot)}</span>
+          <span title={valueDataQualityTitle(snapshot, t)} className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{valueDataQualityText(snapshot, t)}</span>
         </div>
       </div>
 
@@ -654,7 +677,7 @@ async function fetchStockName(code: string): Promise<{ data: { name?: string } |
   return { data }
 }
 
-function buildKlinePayload(data: KlineRow[], quality: KlineDataQuality): string {
+function buildKlinePayload(data: KlineRow[], quality: KlineDataQuality, contextPack?: AnalysisContextPack): string {
   const last = data[data.length - 1]!
   const prev20 = data.slice(-20)
   const ma5 = avg(data.slice(-5).map((d) => d.close))
@@ -674,6 +697,8 @@ function buildKlinePayload(data: KlineRow[], quality: KlineDataQuality): string 
 
   return [
     summary, '',
+    contextPack ? formatAnalysisContextPack(contextPack) : '',
+    '',
     '以下是近320个交易日以内的完整日线OHLCV CSV数据。你必须读取这些数据进行判断，不要声称无法读取日线数据。',
     '```csv', 'date,open,high,low,close,volume', ...csvRows, '```',
   ].join('\n')

@@ -17,6 +17,7 @@ from cli.tui import (
     _chatlog_role_for_turn,
     _display_final_response,
     _display_retry_event,
+    _display_workflow_disagreement_event,
     _display_workflow_plan_event,
     _display_workflow_step_event,
     _is_system_notification_message,
@@ -803,6 +804,33 @@ def test_display_workflow_plan_event_previews_tool_only_model_steps():
     assert "执行接力：读取持仓与资金 → 诊断持仓与市场环境 → 形成去留和风险动作" in rendered
     assert "工具边界：持仓、大盘水温、攻防决策" in rendered
     assert "1. 读取持仓与资金" not in rendered
+
+
+def test_display_workflow_disagreement_event_explains_conflict_and_degraded_input():
+    writes = []
+    scrolls = []
+
+    _display_workflow_disagreement_event(
+        {
+            "summary": {
+                "conflict_type": "mixed_directional_signals",
+                "bullish_agents": [{"agent": "research", "signal": "bullish"}],
+                "bearish_agents": [{"agent": "trading", "signal": "bearish"}],
+                "neutral_agents": [],
+                "degraded_steps": [{"agent": "analysis", "status": "timeout"}],
+            }
+        },
+        writes.append,
+        lambda: scrolls.append(True),
+    )
+
+    rendered = "\n".join(str(item) for item in writes)
+    assert "多视角复核" in rendered
+    assert "研究：偏多" in rendered
+    assert "交易：偏防御" in rendered
+    assert "分析 未完成（timeout）" in rendered
+    assert "等待确认后再行动" in rendered
+    assert scrolls == [True]
 
 
 def test_sub_agent_progress_handler_uses_reader_facing_tool_labels():

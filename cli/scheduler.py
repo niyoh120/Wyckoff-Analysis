@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,8 @@ class Schedule:
     notify: bool = True
     enabled: bool = True
     last_fired: str = ""
+    last_status: str = "never"
+    last_error: str = ""
 
 
 def load_schedules() -> list[Schedule]:
@@ -77,6 +79,38 @@ def cron_matches_now(cron: str, at: datetime | None = None) -> bool:
         (fields[4], now.isoweekday() % 7, 0, 6),
     ]
     return all(_field_matches(pat, val, lo, hi) for pat, val, lo, hi in checks)
+
+
+def next_scheduled_time(schedule: Schedule, *, at: datetime | None = None, search_days: int = 8) -> datetime | None:
+    """Find the next matching minute without requiring a background scheduler."""
+    if not schedule.enabled:
+        return None
+    current = (at or datetime.now()).replace(second=0, microsecond=0) + timedelta(minutes=1)
+    limit = current + timedelta(days=max(search_days, 1))
+    while current <= limit:
+        if cron_matches_now(schedule.cron, at=current):
+            return current
+        current += timedelta(minutes=1)
+    return None
+
+
+def schedule_status(schedules: list[Schedule], *, at: datetime | None = None) -> list[dict[str, str | bool]]:
+    """Return reader-facing schedule state for TUI and future API consumers."""
+    return [
+        {
+            "id": schedule.id,
+            "name": schedule.name,
+            "enabled": schedule.enabled,
+            "cron": schedule.cron,
+            "last_fired": schedule.last_fired,
+            "last_status": schedule.last_status,
+            "last_error": schedule.last_error,
+            "next_run": next_time.isoformat(timespec="minutes")
+            if (next_time := next_scheduled_time(schedule, at=at))
+            else "",
+        }
+        for schedule in schedules
+    ]
 
 
 def _field_matches(pattern: str, value: int, lo: int, hi: int) -> bool:

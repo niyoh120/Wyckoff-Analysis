@@ -41,6 +41,10 @@ on:
           - "off"
           - "neutral_only"
         default: "live"
+      hypothesis_id:
+        description: "可选：关联本次回测证据的研究假设 ID（hyp_*）"
+        required: false
+        default: ""
 
 concurrency:
   group: backtest-grid-${{ github.ref }}
@@ -460,11 +464,16 @@ jobs:
       - name: Update market backtest report
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HYPOTHESIS_ID: ${{ inputs.hypothesis_id || '' }}
         run: |
           python3 scripts/update_backtest_market_report.py \
             --artifacts-dir artifacts \
             --output docs/BACKTEST_MARKET_REPORT.md \
             --confirmation-output backtest_confirmation.json \
+            --hypothesis-id "$HYPOTHESIS_ID" \
+            --evidence-output research_evidence.json \
+            --stability-output parameter_stability.json \
+            --stability-evidence-output stability_evidence.json \
             --run-url "$RUN_URL" \
             --generated-at "$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S Asia/Shanghai')"
 
@@ -475,6 +484,9 @@ jobs:
           path: |
             docs/BACKTEST_MARKET_REPORT.md
             backtest_confirmation.json
+            research_evidence.json
+            parameter_stability.json
+            stability_evidence.json
           retention-days: 30
           if-no-files-found: error
 

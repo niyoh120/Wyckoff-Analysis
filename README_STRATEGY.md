@@ -94,6 +94,16 @@ Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否
 Backtest Grid 会随 `backtest-market-report-*` artifact 生成 `backtest_confirmation.json`；Signal Feedback
 会自动尝试读取最近成功的 Backtest Grid 确认文件。确认口径偏保守：跨周期现金收益全正才 `pass`，
 存在弱周期全非正则 `fail`，其余保留 `review`。
+手动触发时可填写 `hypothesis_id`；workflow 会额外上传 `research_evidence.json`。本地运行报告脚本且
+对应假设存在于 `wyckoff.db` 时，证据会直接挂入台账；GitHub Actions 无法写入操作者本地 SQLite，
+因此以便携 evidence artifact 保留关联。
+研究台账通过 `evaluate` 生成晋级清单，并通过 `transition` 执行受控状态迁移；普通字段更新不能
+直接修改 status。`testing → validated` 要求最近的跨周期 `backtest` 和参数 `stability` 证据均为
+`pass`，且整个研究生命周期不会自动开启正式交易策略。
+Backtest Grid 同时生成 `parameter_stability.json` 和可移植的 `stability_evidence.json`：以跨周期
+稳健最优参数为锚，只把“同一组合风格、仅一个参数移动到相邻档位”的组合视为邻居；锚点跨周期
+全正、至少覆盖 2 个邻居且至少 50% 邻居也跨周期全正才记为 `pass`。覆盖不足为 `review`，锚点
+失败或稳定邻居不足为 `fail`，避免单点最优直接晋级。
 
 回测新开仓默认使用 `--execution-regime-gate live`，与尾盘/OMS 共用市场禁买集合；报告同时记录各水温
 交易日数量、被闸门拦截的信号日和候选数。研究闸门贡献时可显式使用 `off` 作为无执行闸门对照，或用

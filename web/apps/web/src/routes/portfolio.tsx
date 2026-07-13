@@ -16,8 +16,8 @@ import { fetchKlineViaTickFlow, getUserDataKeys } from '@/lib/kline'
 import { useWhitelistGate } from '@/lib/whitelist-gate'
 import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
-import { sourceLabel, type ValueScore, type ValueTone } from '@wyckoff/shared'
-import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
+import { sourceLabel, VALUE_RULESET_VERSION, valueTraceMeta, type ValueScore, type ValueTone } from '@wyckoff/shared'
+import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueDataQualityText, valueDataQualityTitle, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
 
 interface Position {
   code: string | number
@@ -71,6 +71,9 @@ interface PortfolioHistoryPayload {
     generatedAt?: string
     valueSource?: string
     reportDate?: string
+    valueRulesetVersion?: string
+    valueDataQuality?: string
+    valueRuleCodes?: string[]
     klineRows?: number
   }
 }
@@ -222,17 +225,18 @@ function usePortfolioHistory(userId: string | undefined, result: FullDiagnosisRe
   useEffect(() => {
     if (!userId || !result?.report) return
 
-    const rawText = result.positions.map(p => {
+    const rawText = `${VALUE_RULESET_VERSION}:${result.positions.map(p => {
       const val = result.values.find(v => v.code === p.code);
       const src = val?.snapshot.source || '';
       const metricsJson = val?.snapshot.metrics ? JSON.stringify(val.snapshot.metrics) : 'none';
       return `${p.code}:${p.shares}:${p.cost}:${src}:${metricsJson}`;
-    }).join('|');
+    }).join('|')}`;
     let hash = 2166136261;
     for (let i = 0; i < rawText.length; i++) {
       hash = Math.imul(hash ^ rawText.charCodeAt(i), 16777619);
     }
     const inputSnapshotHash = (hash >>> 0).toString(16);
+    const valueTraces = result.values.map(value => valueTraceMeta(value.snapshot))
 
     const meta = {
       inputSnapshotHash,
@@ -241,6 +245,9 @@ function usePortfolioHistory(userId: string | undefined, result: FullDiagnosisRe
       generatedAt: new Date().toISOString(),
       valueSource: result.values.map(v => sourceLabel(v.snapshot)).filter(Boolean).join(','),
       reportDate: result.values.map(v => v.snapshot.metrics?.period_end || 'unknown').filter(Boolean).join(','),
+      valueRulesetVersion: VALUE_RULESET_VERSION,
+      valueDataQuality: valueTraces.map(trace => trace.dataQuality).join(','),
+      valueRuleCodes: [...new Set(valueTraces.flatMap(trace => trace.ruleCodes))],
       klineRows: result.klineRows || undefined,
     }
 
@@ -551,7 +558,7 @@ function PortfolioValueCard({ row, view }: { row: PortfolioValueRow; view: Value
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold">{row.code} {row.name}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{sourceLabel(row.snapshot)}{metrics.period_end ? ` · ${metrics.period_end}` : ''}</p>
+          <p title={valueDataQualityTitle(row.snapshot, t)} className="mt-1 text-xs text-muted-foreground">{sourceLabel(row.snapshot)}{metrics.period_end ? ` · ${metrics.period_end}` : ''} · {valueDataQualityText(row.snapshot, t)}</p>
         </div>
         <ValueBadge value={value} />
       </div>

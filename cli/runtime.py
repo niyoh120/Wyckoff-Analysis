@@ -641,6 +641,8 @@ class AgentRuntime:
                 input_tokens=state.total_input,
                 output_tokens=state.total_output,
                 elapsed_s=elapsed,
+                provider=str(getattr(self.provider, "name", "")),
+                model=str(getattr(self.provider, "model", "")),
             )
         return {
             "type": "done",

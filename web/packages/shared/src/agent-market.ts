@@ -23,6 +23,7 @@ export interface ValueSnapshot {
   source: 'tickflow' | 'tushare' | 'none'
   metrics: FundamentalMetric | null
   reason?: ValueSnapshotReason
+  fetched_at?: string
 }
 
 export const TICKFLOW_PURCHASE = 'https://tickflow.org/auth/register?ref=5N4NKTCPL4'
@@ -77,13 +78,14 @@ export async function fetchValueSnapshotWithFetch(
   keys: { tickflow: string | null; tushare: string | null },
 ): Promise<ValueSnapshot> {
   const symbol = isCnSymbol(code) ? normalizeTickFlowSymbol(code) : code.trim().toUpperCase()
-  if (!isCnSymbol(code)) return { symbol, source: 'none', metrics: null, reason: 'unsupported-market' }
-  if (!keys.tickflow && !keys.tushare) return { symbol, source: 'none', metrics: null, reason: 'missing-source' }
+  const fetched_at = new Date().toISOString()
+  if (!isCnSymbol(code)) return { symbol, source: 'none', metrics: null, reason: 'unsupported-market', fetched_at }
+  if (!keys.tickflow && !keys.tushare) return { symbol, source: 'none', metrics: null, reason: 'missing-source', fetched_at }
   const tickflow = keys.tickflow ? await tryTickFlowSnapshot(fetcher, code, keys.tickflow) : null
-  if (tickflow) return { symbol, source: 'tickflow', metrics: tickflow }
+  if (tickflow) return { symbol, source: 'tickflow', metrics: tickflow, fetched_at }
   const tushare = keys.tushare ? await tryTushareSnapshot(fetcher, code, keys.tushare) : null
-  if (tushare) return { symbol, source: 'tushare', metrics: tushare }
-  return { symbol, source: 'none', metrics: null, reason: 'not-found' }
+  if (tushare) return { symbol, source: 'tushare', metrics: tushare, fetched_at }
+  return { symbol, source: 'none', metrics: null, reason: 'not-found', fetched_at }
 }
 
 async function tryTickFlowSnapshot(fetcher: Fetcher, code: string, apiKey: string): Promise<FundamentalMetric | null> {

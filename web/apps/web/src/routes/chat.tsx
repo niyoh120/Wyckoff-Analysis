@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePreferences } from '@/lib/preferences'
@@ -15,9 +15,26 @@ import { useReadingRoomConversations } from '@/features/reading-room/conversatio
 import { ChatHeader } from '@/features/reading-room/header'
 import { buildRunRecords } from '@/features/reading-room/run-records'
 import { ChatMessages, ErrorBanner } from '@/features/reading-room/transcript'
-import type { ChatRunStatus, ReadingRoomTab } from '@/features/reading-room/types'
+import type { ChatRunEvent, ChatRunStatus, ReadingRoomTab, RunCheckpoint } from '@/features/reading-room/types'
 import { readBooleanStorage } from '@/features/reading-room/utils'
+import { appendRunEvent, clearRunCheckpoint, finishRun, readRunCheckpoint } from '@/features/reading-room/run-ledger'
 import { useReadingRoomWatchlist } from '@/features/reading-room/watchlist-state'
+
+function useRunLedger() {
+  const activeConversationRef = useRef('')
+  const [runCheckpoint, setRunCheckpoint] = useState<RunCheckpoint | null>(null)
+  const onRunEvent = useCallback((event: ChatRunEvent) => {
+    const conversationId = activeConversationRef.current
+    if (conversationId) setRunCheckpoint(appendRunEvent(conversationId, event))
+  }, [])
+  const finish = useCallback((status: 'completed' | 'interrupted') => {
+    const conversationId = activeConversationRef.current
+    if (conversationId) setRunCheckpoint(finishRun(conversationId, status))
+  }, [])
+  const onRunFinish = useCallback(() => finish('completed'), [finish])
+  const onRunError = useCallback(() => finish('interrupted'), [finish])
+  return { activeConversationRef, runCheckpoint, setRunCheckpoint, onRunEvent, onRunFinish, onRunError }
+}
 
 export function ChatPage() {
   const session = useAuthStore((s) => s.session)
@@ -33,10 +50,15 @@ export function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const token = session?.access_token
   const config = useChatConfig(token, t)
-  const chat = useReadingRoomChat(token, setLocalError, t, setModelStatus)
+  const { activeConversationRef, runCheckpoint, setRunCheckpoint, onRunEvent, onRunFinish, onRunError } = useRunLedger()
+  const chat = useReadingRoomChat(token, setLocalError, t, setModelStatus, onRunEvent, onRunFinish, onRunError)
   const loading = chat.status === 'submitted' || chat.status === 'streaming'
   const queue = useMessageQueue(chat, loading, token, config.configured, setLocalError, t)
   const conversations = useReadingRoomConversations(user?.id, chat.messages, chat.setMessages)
+  useEffect(() => {
+    activeConversationRef.current = conversations.activeId
+    setRunCheckpoint(readRunCheckpoint(conversations.activeId))
+  }, [conversations.activeId])
   const watchlist = useReadingRoomWatchlist(user?.id)
   const runRecords = useMemo(() => buildRunRecords(chat.messages, t), [chat.messages, t])
   useAutoScroll(scrollRef, activeTab === 'chat' ? chat.messages : [], activeTab === 'chat' && loading, activeTab === 'chat' ? queue.messages.length : 0)
@@ -68,6 +90,19 @@ export function ChatPage() {
     setSidebarCollapsed,
   })
   const { startNewConversation } = actions
+  const handleResumeRun = useCallback(() => {
+    if (loading) return
+    setActiveTab('chat')
+    setLocalError('')
+    chat.clearError()
+    void chat.sendMessage({ text: '请继续完成上一轮分析。复用当前对话中已经完成的工具结果，不要重复已完成的数据读取；如果上一轮缺少关键数据，只补充缺失步骤，然后给出最终结论。' })
+  }, [chat, loading])
+  const handleClearRunCheckpoint = useCallback(() => {
+    const conversationId = activeConversationRef.current
+    if (!conversationId) return
+    clearRunCheckpoint(conversationId)
+    setRunCheckpoint(null)
+  }, [])
 
   useEffect(() => {
     const prompt = (location.state as { initialPrompt?: unknown } | null)?.initialPrompt
@@ -113,6 +148,9 @@ export function ChatPage() {
         onSubmit={handleSubmit}
         onStop={() => void chat.stop()}
         modelStatus={modelStatus}
+        runCheckpoint={runCheckpoint}
+        onResumeRun={handleResumeRun}
+        onClearRunCheckpoint={handleClearRunCheckpoint}
       />
       <ErrorBanner message={localError || chat.error?.message || ''} />
     </div>

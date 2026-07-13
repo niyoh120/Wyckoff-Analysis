@@ -1,5 +1,5 @@
 import { type FormEvent, type RefObject } from 'react'
-import { MessageSquareText } from 'lucide-react'
+import { MessageSquareText, RotateCcw, X } from 'lucide-react'
 import type { UIMessage } from 'ai'
 import { ChatComposer, ThinkingBubble } from './composer'
 import { ConversationSidebar } from './conversation-sidebar'
@@ -7,7 +7,7 @@ import type { ReadingRoomConversation } from './conversations'
 import { ReadingRoomDashboard } from './dashboard'
 import type { ReadingRoomChat } from './chat-state'
 import { MessageBubble, QueuedMessageBubble } from './tool-rendering'
-import type { ChatRunStatus, PinStockInput, QueuedMessage, ReadingRoomTab, RunRecord, WatchItem } from './types'
+import type { ChatRunStatus, PinStockInput, QueuedMessage, ReadingRoomTab, RunCheckpoint, RunRecord, WatchItem } from './types'
 import { WatchlistPanelView } from './watchlist'
 
 interface ChatMessagesProps {
@@ -37,6 +37,9 @@ interface ChatMessagesProps {
   onSubmit: (e: FormEvent) => void
   onStop: () => void
   modelStatus: ChatRunStatus | null
+  runCheckpoint: RunCheckpoint | null
+  onResumeRun: () => void
+  onClearRunCheckpoint: () => void
 }
 
 export function ChatMessages(props: ChatMessagesProps) {
@@ -60,6 +63,9 @@ export function ChatMessages(props: ChatMessagesProps) {
               onRemoveWatchItem={props.onRemoveWatchItem}
               onStart={props.onStart}
               modelStatus={props.modelStatus}
+              runCheckpoint={props.runCheckpoint}
+              onResumeRun={props.onResumeRun}
+              onClearRunCheckpoint={props.onClearRunCheckpoint}
             />
           </div>
           <ChatComposerSlot props={props} />
@@ -113,9 +119,15 @@ function ReadingRoomMainContent({
   onRemoveWatchItem,
   onStart,
   modelStatus,
+  runCheckpoint,
+  onResumeRun,
+  onClearRunCheckpoint,
 }: Pick<ChatMessagesProps, 'activeTab' | 'chat' | 'loading' | 'queuedMessages' | 'runRecords' | 'watchlist' | 'onOpenRecord' | 'onPinStock' | 'onRemoveWatchItem' | 'onStart'> & {
   activeAssistantId: string | null
   modelStatus: ChatRunStatus | null
+  runCheckpoint: RunCheckpoint | null
+  onResumeRun: () => void
+  onClearRunCheckpoint: () => void
 }) {
   if (activeTab === 'desk') {
     return (
@@ -140,6 +152,9 @@ function ReadingRoomMainContent({
         queuedMessages={queuedMessages}
         onPinStock={onPinStock}
         modelStatus={modelStatus}
+        runCheckpoint={runCheckpoint}
+        onResumeRun={onResumeRun}
+        onClearRunCheckpoint={onClearRunCheckpoint}
       />
     </div>
   )
@@ -152,11 +167,17 @@ function ChatTranscript({
   queuedMessages,
   onPinStock,
   modelStatus,
-}: Pick<ChatMessagesProps, 'chat' | 'loading' | 'queuedMessages' | 'onPinStock'> & { activeAssistantId: string | null; modelStatus: ChatRunStatus | null }) {
-  if (chat.messages.length === 0 && !loading && queuedMessages.length === 0) return <EmptyChatPanel />
+  runCheckpoint,
+  onResumeRun,
+  onClearRunCheckpoint,
+}: Pick<ChatMessagesProps, 'chat' | 'loading' | 'queuedMessages' | 'onPinStock'> & { activeAssistantId: string | null; modelStatus: ChatRunStatus | null; runCheckpoint: RunCheckpoint | null; onResumeRun: () => void; onClearRunCheckpoint: () => void }) {
+  if (chat.messages.length === 0 && !loading && queuedMessages.length === 0 && !runCheckpoint) return <EmptyChatPanel />
   return (
     <div className="space-y-5 pb-4 animate-fade-in-up">
       {modelStatus && <ModelStatusBanner status={modelStatus} />}
+      {!loading && runCheckpoint && runCheckpoint.status !== 'completed' && (
+        <RunRecoveryBanner checkpoint={runCheckpoint} onResume={onResumeRun} onClear={onClearRunCheckpoint} />
+      )}
       {chat.messages.map((message) => (
         <MessageBubble
           key={message.id}
@@ -169,6 +190,22 @@ function ChatTranscript({
       ))}
       {queuedMessages.map((message, index) => <QueuedMessageBubble key={message.id} message={message} index={index + 1} />)}
       {loading && <ThinkingBubble />}
+    </div>
+  )
+}
+
+function RunRecoveryBanner({ checkpoint, onResume, onClear }: { checkpoint: RunCheckpoint; onResume: () => void; onClear: () => void }) {
+  const lastEvent = checkpoint.events.at(-1)
+  return (
+    <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-xs text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium">上一轮分析可能在中途断开</div>
+          <div className="mt-1 text-sky-800/80 dark:text-sky-100/80">已记录 {checkpoint.events.length} 个执行事件{lastEvent ? `，停在：${lastEvent.label}` : ''}。继续时会复用当前对话，尽量避免重复已完成的数据读取。</div>
+        </div>
+        <button type="button" onClick={onClear} aria-label="关闭恢复提示" className="shrink-0 rounded p-1 text-sky-700 hover:bg-sky-100 dark:text-sky-200 dark:hover:bg-sky-500/20"><X size={14} /></button>
+      </div>
+      <button type="button" onClick={onResume} className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-sky-700 px-2.5 py-1.5 font-medium text-white hover:bg-sky-800 dark:bg-sky-600 dark:hover:bg-sky-500"><RotateCcw size={13} />继续本轮</button>
     </div>
   )
 }

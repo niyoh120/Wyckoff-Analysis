@@ -38,11 +38,18 @@ export type { FundamentalMetric, ValueSnapshot, ValueSnapshotReason } from './ag
 export {
   buildValuePrompt,
   buildValueScore,
+  evaluateValueRules,
   formatPromptNumber,
   formatPromptPercent,
   sourceLabel,
+  valueDataQuality,
+  valueDataQualityLabel,
+  valueDataQualityPrompt,
+  valueTraceMeta,
+  VALUE_RULESET_VERSION,
+  VALUE_RULES,
 } from './agent-value'
-export type { ValueScore, ValueSignal, ValueTone } from './agent-value'
+export type { ValueDataQuality, ValueDataQualityLevel, ValueRule, ValueScore, ValueSignal, ValueTone, ValueTraceMeta } from './agent-value'
 export {
   formatPatternReviewDigest,
   formatPatternReviewLine,
@@ -72,3 +79,10 @@ export type { PolicyWeightMetaInput } from './policy-weight-meta'
 export { formatTailBuyPolicyWeightText, tailBuyPolicyWeightMultiplier } from './tail-buy-policy-weight'
 export type { TailBuyPolicyWeightFormatOptions, TailBuyPolicyWeightInput } from './tail-buy-policy-weight'
 export * from './chat-tools'
+export {
+  ANALYSIS_CONTEXT_PACK_SCHEMA,
+  CONTEXT_EVIDENCE_SCHEMA,
+  buildStockAnalysisContextPack,
+  formatAnalysisContextPack,
+} from './analysis-context'
+export type { AnalysisContextPack, ContextEvidence } from './analysis-context'

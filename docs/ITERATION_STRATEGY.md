@@ -133,6 +133,9 @@ display 字段和 `latest_operator_summary`，raw `next_action` / `promotion_sta
 Backtest Grid 负责产出 `backtest_confirmation.json`：跨周期全正才记为 `pass`，出现弱周期全非正记为
 `fail`，其余保留 `review`。Signal Feedback 会尝试读取最近成功的 Backtest Grid artifact，把这个
 结果作为归因晋级清单的一项结构化证据。
+手动触发 Backtest Grid 时可传 `hypothesis_id`。报告聚合阶段会生成 `research_evidence.json`，其中
+保留 hypothesis ID、Actions run URL、确认结论和完整指标；本地聚合且台账中存在该假设时会同步写入
+`research_evidence` 表。Actions runner 不持有操作者本地数据库，因此云端以 artifact 作为可移植证据。
 归因报告还会把晋级清单压成 `policy_operations_brief.promotion_checklist_summary`、
 `backtest_confirmation_text` 和 `promotion_blockers`。后续 Agent/Web/CLI 的日常运营口径应优先读取这些
 字段，再回查 raw `promotion_checklist`。
@@ -275,6 +278,23 @@ gantt
 - 早期样本少，权重更像“提醒灯”，不适合直接当作强交易信号。
 - 不同 regime 下样本会被进一步切薄，`ALL` 汇总和具体 regime 都要看。
 - Shadow 优于静态不是看“选得不一样”，而是看 `diff_added` 的后续收益是否长期好于 `diff_removed`。
+
+## 研究假设与证据台账
+
+CLI / MCP 的 `research_hypothesis` 将策略改动登记为长期研究对象，状态为
+`exploring` / `testing` / `validated` / `monitoring` / `rejected`。每条假设必须写明 thesis、
+信号定义和失效条件，并可通过稳定 `artifact_ref` 关联 `backtest`、`attribution`、`shadow`、
+`stability`、`report` 或 `observation` 证据。`evaluate` 输出目标状态的晋级清单；`transition`
+只允许合法迁移，其中 `testing → validated` 必须同时具备最新 `backtest=pass` 和
+`stability=pass`。普通 `update` 不允许直接改 status，所有迁移写入 `research_transition` 审计表。
+台账只记录研究结论，不直接改变生产权重；正式晋级仍由现有
+`promotion_checklist`、回测确认和人工复核控制。
+
+参数稳定性由 `workflows/backtest_parameter_stability.py` 从同一次 Backtest Grid 计算。评估先复用
+跨周期 robust ranking 选锚点，再寻找同一 portfolio style 下仅一个参数相邻变化的组合。锚点须全部
+周期现金收益为正；邻居少于 2 个时为 `review`；邻居覆盖充足时，至少 50% 邻居也须全部周期为正，
+否则判为参数孤岛并输出 `fail`。产物为 `parameter_stability.json`，指定 hypothesis 时还会生成并
+关联 `stability_evidence.json`。
 
 ## Wyckoff 系统的天然优势
 

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 
-_SCHEMA_VERSION = 13
+_SCHEMA_VERSION = 15
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -233,6 +233,42 @@ CREATE TABLE IF NOT EXISTS workflow_event (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS research_hypothesis (
+    hypothesis_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    thesis TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'exploring',
+    universe TEXT DEFAULT '',
+    signal_definition TEXT DEFAULT '',
+    invalidation_criteria TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS research_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hypothesis_id TEXT NOT NULL,
+    evidence_type TEXT NOT NULL,
+    artifact_ref TEXT NOT NULL,
+    verdict TEXT DEFAULT 'review',
+    summary TEXT DEFAULT '',
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(hypothesis_id, evidence_type, artifact_ref),
+    FOREIGN KEY(hypothesis_id) REFERENCES research_hypothesis(hypothesis_id)
+);
+
+CREATE TABLE IF NOT EXISTS research_transition (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hypothesis_id TEXT NOT NULL,
+    from_status TEXT NOT NULL,
+    to_status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    checklist_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY(hypothesis_id) REFERENCES research_hypothesis(hypothesis_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_rec_date ON recommendation_tracking(recommend_date);
 CREATE INDEX IF NOT EXISTS idx_sig_status ON signal_pending(status);
 CREATE INDEX IF NOT EXISTS idx_mem_type ON agent_memory(memory_type);
@@ -247,6 +283,9 @@ CREATE INDEX IF NOT EXISTS idx_theme_radar_synced ON theme_radar_snapshot(synced
 CREATE INDEX IF NOT EXISTS idx_workflow_run_session ON workflow_run(session_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_run_updated ON workflow_run(updated_at);
 CREATE INDEX IF NOT EXISTS idx_workflow_event_run ON workflow_event(run_id, id);
+CREATE INDEX IF NOT EXISTS idx_research_hypothesis_status ON research_hypothesis(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_research_evidence_hypothesis ON research_evidence(hypothesis_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_research_transition_hypothesis ON research_transition(hypothesis_id, created_at);
 
 -- FTS5 全文检索索引（记忆系统 hybrid search）
 CREATE VIRTUAL TABLE IF NOT EXISTS agent_memory_fts USING fts5(
@@ -1498,6 +1537,176 @@ def load_tail_buy_history(
         params + [min(max(limit, 1), 200)],
     )
     return [dict(r) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Research hypotheses
+# ---------------------------------------------------------------------------
+
+
+def create_research_hypothesis(row: dict[str, Any]) -> dict[str, Any]:
+    init_db()
+    conn = get_db()
+    with conn:
+        conn.execute(
+            """INSERT INTO research_hypothesis
+               (hypothesis_id, title, thesis, status, universe, signal_definition, invalidation_criteria)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                row["hypothesis_id"],
+                row["title"],
+                row["thesis"],
+                row["status"],
+                row.get("universe", ""),
+                row.get("signal_definition", ""),
+                row.get("invalidation_criteria", ""),
+            ),
+        )
+    return load_research_hypothesis(row["hypothesis_id"]) or {}
+
+
+def list_research_hypotheses(*, status: str = "", limit: int = 50) -> list[dict[str, Any]]:
+    init_db()
+    conn = get_db()
+    params: list[Any] = []
+    where = ""
+    if status:
+        where = "WHERE status=?"
+        params.append(status)
+    params.append(max(1, min(int(limit), 200)))
+    rows = conn.execute(
+        f"""SELECT * FROM research_hypothesis {where}
+            ORDER BY updated_at DESC LIMIT ?""",
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def load_research_hypothesis(hypothesis_id: str) -> dict[str, Any] | None:
+    init_db()
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM research_hypothesis WHERE hypothesis_id=?",
+        (hypothesis_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    result = dict(row)
+    evidence = conn.execute(
+        """SELECT * FROM research_evidence WHERE hypothesis_id=?
+           ORDER BY created_at DESC, id DESC""",
+        (hypothesis_id,),
+    ).fetchall()
+    result["evidence"] = [_research_evidence_row(item) for item in evidence]
+    transitions = conn.execute(
+        """SELECT * FROM research_transition WHERE hypothesis_id=?
+           ORDER BY created_at DESC, id DESC""",
+        (hypothesis_id,),
+    ).fetchall()
+    result["transitions"] = [_research_transition_row(item) for item in transitions]
+    return result
+
+
+def update_research_hypothesis(hypothesis_id: str, changes: dict[str, Any]) -> dict[str, Any] | None:
+    allowed = {
+        "title",
+        "thesis",
+        "status",
+        "universe",
+        "signal_definition",
+        "invalidation_criteria",
+    }
+    values = {key: value for key, value in changes.items() if key in allowed and value is not None}
+    if not values:
+        return load_research_hypothesis(hypothesis_id)
+    assignments = ", ".join(f"{key}=?" for key in values)
+    conn = get_db()
+    with conn:
+        cursor = conn.execute(
+            f"""UPDATE research_hypothesis SET {assignments}, updated_at=datetime('now')
+                WHERE hypothesis_id=?""",
+            [*values.values(), hypothesis_id],
+        )
+    return load_research_hypothesis(hypothesis_id) if cursor.rowcount else None
+
+
+def link_research_evidence(row: dict[str, Any]) -> dict[str, Any]:
+    init_db()
+    conn = get_db()
+    with conn:
+        conn.execute(
+            """INSERT INTO research_evidence
+               (hypothesis_id, evidence_type, artifact_ref, verdict, summary, metrics_json)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(hypothesis_id, evidence_type, artifact_ref) DO UPDATE SET
+                 verdict=excluded.verdict, summary=excluded.summary,
+                 metrics_json=excluded.metrics_json, created_at=datetime('now')""",
+            (
+                row["hypothesis_id"],
+                row["evidence_type"],
+                row["artifact_ref"],
+                row.get("verdict", "review"),
+                row.get("summary", ""),
+                json.dumps(row.get("metrics") or {}, ensure_ascii=False, default=str),
+            ),
+        )
+        conn.execute(
+            "UPDATE research_hypothesis SET updated_at=datetime('now') WHERE hypothesis_id=?",
+            (row["hypothesis_id"],),
+        )
+    return load_research_hypothesis(row["hypothesis_id"]) or {}
+
+
+def transition_research_hypothesis(
+    hypothesis_id: str,
+    *,
+    from_status: str,
+    to_status: str,
+    reason: str,
+    checklist: dict[str, Any],
+) -> dict[str, Any] | None:
+    conn = get_db()
+    with conn:
+        cursor = conn.execute(
+            """UPDATE research_hypothesis SET status=?, updated_at=datetime('now')
+               WHERE hypothesis_id=? AND status=?""",
+            (to_status, hypothesis_id, from_status),
+        )
+        if not cursor.rowcount:
+            return None
+        conn.execute(
+            """INSERT INTO research_transition
+               (hypothesis_id, from_status, to_status, reason, checklist_json)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                hypothesis_id,
+                from_status,
+                to_status,
+                reason,
+                json.dumps(checklist, ensure_ascii=False, default=str),
+            ),
+        )
+    return load_research_hypothesis(hypothesis_id)
+
+
+def _research_evidence_row(row: sqlite3.Row) -> dict[str, Any]:
+    result = dict(row)
+    raw_metrics = result.pop("metrics_json", "{}")
+    try:
+        result["metrics"] = json.loads(raw_metrics or "{}")
+    except json.JSONDecodeError:
+        result["metrics"] = {}
+    return result
+
+
+def _research_transition_row(row: sqlite3.Row) -> dict[str, Any]:
+    result = dict(row)
+    raw_checklist = result.pop("checklist_json", "{}")
+    try:
+        result["checklist"] = json.loads(raw_checklist or "{}")
+    except json.JSONDecodeError:
+        result["checklist"] = {}
+    return result
 
 
 # ---------------------------------------------------------------------------

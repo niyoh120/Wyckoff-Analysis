@@ -15,8 +15,8 @@ import { fetchKlineViaTickFlow, getUserDataKeys } from '@/lib/kline'
 import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
 import { resolveStockQuery } from '@/lib/market-search'
-import { sourceLabel, type ValueScore, type ValueTone } from '@wyckoff/shared'
-import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
+import { sourceLabel, VALUE_RULESET_VERSION, valueTraceMeta, type ValueScore, type ValueTone } from '@wyckoff/shared'
+import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueDataQualityText, valueDataQualityTitle, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
 
 interface BattleTarget {
   code: string
@@ -56,6 +56,9 @@ interface BattleHistoryPayload {
     generatedAt?: string
     valueSource?: string
     reportDate?: string
+    valueRulesetVersion?: string
+    valueDataQuality?: string
+    valueRuleCodes?: string[]
     klineRows?: number
   }
 }
@@ -184,12 +187,13 @@ function buildBattleHistoryPayload(
   benchmark: KlineRow[],
   model: string,
 ): BattleHistoryPayload {
-  const rawText = stocks.map(s => `${s.code}:${s.data.length}:${s.valueSnapshot.source}:${s.valueSnapshot.metrics ? JSON.stringify(s.valueSnapshot.metrics) : 'none'}`).join('|')
+  const rawText = `${VALUE_RULESET_VERSION}:${stocks.map(s => `${s.code}:${s.data.length}:${s.valueSnapshot.source}:${s.valueSnapshot.metrics ? JSON.stringify(s.valueSnapshot.metrics) : 'none'}`).join('|')}`
   let hash = 2166136261
   for (let i = 0; i < rawText.length; i++) {
     hash = Math.imul(hash ^ rawText.charCodeAt(i), 16777619)
   }
   const inputSnapshotHash = (hash >>> 0).toString(16)
+  const valueTraces = stocks.map(stock => valueTraceMeta(stock.valueSnapshot))
 
   const meta = {
     inputSnapshotHash,
@@ -198,6 +202,9 @@ function buildBattleHistoryPayload(
     generatedAt: new Date().toISOString(),
     valueSource: stocks.map(s => sourceLabel(s.valueSnapshot)).filter(Boolean).join(','),
     reportDate: stocks.map(s => s.valueSnapshot.metrics?.period_end || 'unknown').filter(Boolean).join(','),
+    valueRulesetVersion: VALUE_RULESET_VERSION,
+    valueDataQuality: valueTraces.map(trace => trace.dataQuality).join(','),
+    valueRuleCodes: [...new Set(valueTraces.flatMap(trace => trace.ruleCodes))],
     klineRows: stocks.reduce((acc, s) => acc + s.data.length, 0),
   }
 
@@ -386,7 +393,7 @@ function ValueBattleCard({ stock, view }: { stock: BattleStock; view: ValueView 
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold">{stock.code} {stock.name}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{sourceLabel(stock.valueSnapshot)}{metrics.period_end ? ` · ${metrics.period_end}` : ''}</p>
+          <p title={valueDataQualityTitle(stock.valueSnapshot, t)} className="mt-1 text-xs text-muted-foreground">{sourceLabel(stock.valueSnapshot)}{metrics.period_end ? ` · ${metrics.period_end}` : ''} · {valueDataQualityText(stock.valueSnapshot, t)}</p>
         </div>
         <ValueBadge value={value} />
       </div>

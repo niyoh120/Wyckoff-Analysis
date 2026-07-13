@@ -59,6 +59,25 @@ export interface StageProgressStatus {
 
 export type ChatRunStatus = ModelRunStatus | StageProgressStatus
 
+export interface ChatRunEvent {
+  runId: string
+  sequence: number
+  type: 'model_started' | 'model_completed' | 'model_failed' | 'tool_started' | 'tool_completed' | 'tool_failed' | 'answer_started' | string
+  label: string
+  toolName?: string
+  toolCallId?: string
+  timestamp: string
+}
+
+export interface RunCheckpoint {
+  runId: string
+  conversationId: string
+  status: 'running' | 'completed' | 'interrupted'
+  startedAt: string
+  updatedAt: string
+  events: ChatRunEvent[]
+}
+
 export interface RunRecord {
   id: string
   messageId: string

@@ -35,11 +35,14 @@ def test_refresh_intelligence_pool_fetches_and_obeys_cooldown(monkeypatch):
     monkeypatch.setattr(intel, "save_intelligence_items", lambda items: saved.extend(items) or len(items))
     monkeypatch.setattr(intel, "_last_fetch_time", 0.0)
 
-    intel.refresh_intelligence_pool()
-    intel.refresh_intelligence_pool()
+    monkeypatch.setattr(intel, "_record_source_state", lambda *_args, **_kwargs: None)
+    first = intel.refresh_intelligence_pool()
+    second = intel.refresh_intelligence_pool()
 
     assert len(calls) == 1
     assert saved[0]["source"] == "source-a"
+    assert first["refreshed"] is True
+    assert second["reason"] == "cooldown"
 
 
 def test_refresh_intelligence_pool_is_fail_open(monkeypatch):
@@ -50,4 +53,31 @@ def test_refresh_intelligence_pool_is_fail_open(monkeypatch):
         intel.urllib.request, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("down"))
     )
 
-    intel.refresh_intelligence_pool()
+    monkeypatch.setattr(intel, "_record_source_state", lambda *_args, **_kwargs: None)
+    result = intel.refresh_intelligence_pool()
+
+    assert result["refreshed"] is True
+    assert result["new_items"] == 0
+
+
+def test_query_news_intelligence_keeps_citations_and_status(monkeypatch):
+    monkeypatch.setattr(
+        intel,
+        "query_intelligence_by_keyword",
+        lambda query, limit: [
+            {
+                "title": "测试新闻",
+                "url": "https://example.com/news",
+                "source": "source-a",
+                "pub_date": "2026-07-13",
+                "content": "内容",
+            }
+        ],
+    )
+    monkeypatch.setattr(intel, "intelligence_status", lambda: {"sources": [{"source": "source-a"}]})
+
+    result = intel.query_news_intelligence("测试", limit=3)
+
+    assert result["query"] == "测试"
+    assert result["items"][0]["url"] == "https://example.com/news"
+    assert result["source_status"]["sources"][0]["source"] == "source-a"

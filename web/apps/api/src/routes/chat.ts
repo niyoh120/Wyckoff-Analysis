@@ -60,6 +60,7 @@ chatRoutes.post('/', async (c) => {
   const supabase = createUserSupabase(c.env, auth.accessToken)
   const configs = await loadLLMConfigs(supabase, auth.userId)
   if (configs.length === 0) return c.json({ error: '请先在设置页配置 LLM API Key' }, 400)
+  const runId = crypto.randomUUID()
 
   const stream = createUIMessageStream({
     execute: ({ writer }) => runChatWithResilience({
@@ -70,6 +71,8 @@ chatRoutes.post('/', async (c) => {
       messages,
       signal: c.req.raw.signal,
       env: c.env,
+      runId,
+      sequence: 0,
     }),
     onError: normalizeStreamError,
   })
@@ -264,6 +267,8 @@ interface ChatResilienceArgs {
   messages: UIMessage[]
   signal: AbortSignal
   env: Env
+  runId: string
+  sequence: number
 }
 
 async function runChatWithResilience(args: ChatResilienceArgs): Promise<void> {
@@ -297,6 +302,7 @@ async function runChatWithResilience(args: ChatResilienceArgs): Promise<void> {
 }
 
 async function runChatAttempt(args: ChatResilienceArgs, config: ChatModelConfig): Promise<void> {
+  writeRunEvent(args, { type: 'model_started', label: `开始使用 ${config.model}` })
   writeStageProgress(args.writer, { stage: 'model', state: 'started', message: '正在分析', model: config.model })
   let succeeded = false
   let outputStarted = false
@@ -320,6 +326,7 @@ async function runChatAttempt(args: ChatResilienceArgs, config: ChatModelConfig)
     const pending: UIMessageChunk[] = []
     for await (const chunk of result.toUIMessageStream({ onError: (error) => { throw error } })) {
       if (chunk.type === 'error') throw new Error(chunk.errorText)
+      writeChunkRunEvent(args, chunk)
       pending.push(chunk)
       if (isVisibleChatChunk(chunk)) {
         outputStarted = true
@@ -334,6 +341,7 @@ async function runChatAttempt(args: ChatResilienceArgs, config: ChatModelConfig)
     })
   } finally {
     writeStageProgress(args.writer, { stage: 'model', state: 'completed', success: succeeded, model: config.model })
+    writeRunEvent(args, { type: succeeded ? 'model_completed' : 'model_failed', label: succeeded ? '模型分析完成' : '模型分析失败' })
   }
 }
 
@@ -354,6 +362,38 @@ function writeStageProgress(
   progress: { stage: 'model'; state: 'started' | 'completed'; message?: string; success?: boolean; model: string },
 ): void {
   writer.write({ type: 'data-stage-progress', data: { kind: 'stage', ...progress }, transient: true } as never)
+}
+
+function writeChunkRunEvent(args: ChatResilienceArgs, chunk: UIMessageChunk): void {
+  if (chunk.type === 'tool-input-start') {
+    writeRunEvent(args, { type: 'tool_started', label: `读取 ${chunk.toolName}`, toolName: chunk.toolName })
+  } else if (chunk.type === 'tool-output-available') {
+    writeRunEvent(args, { type: 'tool_completed', label: '数据读取完成', toolCallId: chunk.toolCallId })
+  } else if (chunk.type === 'tool-output-error') {
+    writeRunEvent(args, { type: 'tool_failed', label: '数据读取失败', toolCallId: chunk.toolCallId })
+  } else if (chunk.type === 'text-start') {
+    writeRunEvent(args, { type: 'answer_started', label: '开始生成结论' })
+  }
+}
+
+function writeRunEvent(
+  args: ChatResilienceArgs,
+  event: { type: string; label: string; toolName?: string; toolCallId?: string },
+): void {
+  args.sequence += 1
+  args.writer.write({
+    type: 'data-run-event',
+    data: {
+      runId: args.runId,
+      sequence: args.sequence,
+      type: event.type,
+      label: event.label,
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      timestamp: new Date().toISOString(),
+    },
+    transient: true,
+  } as never)
 }
 
 function isRetryableModelError(error: unknown): boolean {

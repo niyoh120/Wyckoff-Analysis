@@ -32,12 +32,13 @@ def test_scratchpad_records_jsonl_and_redacts_secrets(tmp_path):
 
     lines = [json.loads(line) for line in scratchpad.path.read_text(encoding="utf-8").splitlines()]
 
-    assert [line["type"] for line in lines] == ["init", "tool_result", "compaction", "final"]
+    assert [line["type"] for line in lines] == ["init", "tool_result", "compaction", "context_snapshot", "final"]
     tool_entry = lines[1]
     assert tool_entry["args"]["api_key"] == "***REDACTED***"
     assert tool_entry["result"]["token"] == "***REDACTED***"
     assert tool_entry["durationMs"] == 12
     assert lines[2]["contextArchive"]["archive_ref"] == "archive://session_x/ctx_1"
+    assert lines[3]["sources"] == []
 
 
 def test_tool_result_serialization_replaces_nonfinite_numbers() -> None:

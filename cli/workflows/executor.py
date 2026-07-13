@@ -22,6 +22,7 @@ from cli.sub_agents import (
     run_sub_agent,
 )
 from cli.workflows.control import WorkflowControl
+from cli.workflows.disagreement import build_workflow_disagreement_summary
 from cli.workflows.models import (
     COMPLETED,
     FAILED,
@@ -320,7 +321,11 @@ class WorkflowExecutor:
                 input_tokens=usage.get("input_tokens", 0),
                 output_tokens=usage.get("output_tokens", 0),
                 elapsed_s=time.monotonic() - started_at,
+                provider=str(getattr(self.provider, "name", "")),
+                model=str(getattr(self.provider, "model", "")),
             )
+        if disagreement_event := self._mark_disagreement_summary(results):
+            yield disagreement_event
         yield self._mark_run_done(final_text)
         yield {
             "type": "done",
@@ -648,6 +653,15 @@ class WorkflowExecutor:
         save_workflow_run(run)
         payload = {"type": "workflow_done", "run_id": run.run_id, "status": run.status}
         append_workflow_event(run.run_id, "workflow_done", payload)
+        return payload
+
+    def _mark_disagreement_summary(self, results: list[dict[str, Any]]) -> RuntimeEvent | None:
+        summary = build_workflow_disagreement_summary(results)
+        if not _has_material_disagreement(summary):
+            return None
+        run = self._require_run()
+        payload = {"type": "workflow_disagreement_summary", "run_id": run.run_id, "summary": summary}
+        append_workflow_event(run.run_id, "workflow_disagreement_summary", payload)
         return payload
 
     def _mark_run_stopped(self, final_text: str) -> RuntimeEvent:
@@ -1386,16 +1400,28 @@ def _synthesis_prompt(run: WorkflowRun, results: list[dict[str, Any]]) -> str:
     script_prompt = _script_synthesis_prompt(run.script)
     handoff_summary = _synthesis_handoff_summary(results)
     agent_results = _synthesis_agent_results(results)
+    disagreement_summary = build_workflow_disagreement_summary(results)
     return (
         "请基于以下动态 workflow 执行结果，给用户输出最终中文答复。\n"
-        "要求：只使用 agent 结果里的事实；如果某步失败，明确说明影响和降级结论。\n"
+        "要求：只使用 agent 结果里的事实；如果某步失败，明确说明影响和降级结论。"
+        "若多 Agent 方向冲突，先说明冲突再给保守行动条件。\n"
         f"{_SYNTHESIS_REQUIREMENTS}\n"
         f"模型脚本的汇总要求:\n{script_prompt or '-'}\n\n"
         f"用户请求:\n{run.user_text}\n\n"
         f"workflow script:\n{json.dumps(run.script, ensure_ascii=False, default=str)[:4000]}\n\n"
         f"priority candidate handoff:\n{json.dumps(handoff_summary, ensure_ascii=False, default=str)[:6000]}\n\n"
+        f"low-sensitivity agent disagreement summary:\n{json.dumps(disagreement_summary, ensure_ascii=False, default=str)[:3000]}\n\n"
         f"agent results:\n{json.dumps(agent_results, ensure_ascii=False, default=str)[:12000]}"
     )
+
+
+def _has_material_disagreement(summary: dict[str, Any]) -> bool:
+    return bool(summary.get("degraded_steps")) or summary.get("conflict_type") in {
+        "mixed_directional_signals",
+        "partial_bullish_with_degraded_inputs",
+        "partial_bearish_with_degraded_inputs",
+        "degraded_inputs",
+    }
 
 
 def _script_synthesis_prompt(script: Any) -> str:

@@ -295,6 +295,82 @@ def test_update_market_report_writes_confirmation_json(tmp_path, monkeypatch):
     assert confirmation["status"] == "review"
 
 
+def test_update_market_report_links_confirmation_to_research_hypothesis(tmp_path, monkeypatch):
+    import json
+
+    from agents.research_tools import research_hypothesis
+    from integrations import local_db
+    from scripts.update_backtest_market_report import main
+
+    if local_db._conn is not None:
+        local_db._conn.close()
+    local_db._conn = None
+    monkeypatch.setattr("core.constants.LOCAL_DB_PATH", tmp_path / "research.db")
+    hypothesis = research_hypothesis(
+        action="create",
+        title="跨周期 LPS",
+        thesis="LPS 策略跨周期保持正收益",
+    )["hypothesis"]
+    _write_grid_cell(tmp_path, "recent_6m", "2025-12-01", "2026-05-31", 10, 7, 2.0)
+    confirmation_path = tmp_path / "confirmation.json"
+    evidence_path = tmp_path / "research_evidence.json"
+    stability_path = tmp_path / "parameter_stability.json"
+    stability_evidence_path = tmp_path / "stability_evidence.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "update_backtest_market_report.py",
+            "--artifacts-dir",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "report.md"),
+            "--confirmation-output",
+            str(confirmation_path),
+            "--hypothesis-id",
+            hypothesis["hypothesis_id"],
+            "--evidence-output",
+            str(evidence_path),
+            "--stability-output",
+            str(stability_path),
+            "--stability-evidence-output",
+            str(stability_evidence_path),
+            "--run-url",
+            "https://github.com/example/actions/runs/42",
+        ],
+    )
+
+    assert main() == 0
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    stability = json.loads(stability_path.read_text(encoding="utf-8"))
+    detail = research_hypothesis(action="detail", hypothesis_id=hypothesis["hypothesis_id"])
+    assert evidence["artifact_ref"].endswith("/42#backtest_confirmation.json")
+    assert json.loads(stability_evidence_path.read_text(encoding="utf-8"))["artifact_ref"].endswith(
+        "/42#parameter_stability.json"
+    )
+    assert evidence["verdict"] == "review"
+    assert stability["status"] == "review"
+    assert {item["evidence_type"] for item in detail["hypothesis"]["evidence"]} == {
+        "backtest",
+        "stability",
+    }
+    local_db._conn.close()
+    local_db._conn = None
+
+
+def test_backtest_grid_exposes_portable_hypothesis_evidence():
+    from pathlib import Path
+
+    workflow = Path(".github/workflows/backtest_grid.yml").read_text(encoding="utf-8")
+
+    assert "hypothesis_id:" in workflow
+    assert '--hypothesis-id "$HYPOTHESIS_ID"' in workflow
+    assert "--evidence-output research_evidence.json" in workflow
+    assert "--stability-output parameter_stability.json" in workflow
+    assert "--stability-evidence-output stability_evidence.json" in workflow
+    assert "research_evidence.json" in workflow
+    assert "parameter_stability.json" in workflow
+
+
 def test_market_report_flags_period_with_no_positive_cash_combo(tmp_path):
     from scripts.update_backtest_market_report import build_report, load_grid_cells
 

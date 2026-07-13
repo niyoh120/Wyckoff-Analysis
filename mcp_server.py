@@ -100,6 +100,7 @@ def _normalize_scan_limit(limit: int | None) -> int | None:
 # ---------------------------------------------------------------------------
 
 from agents.history_tools import query_history as _query_history
+from agents.research_tools import research_hypothesis as _research_hypothesis
 
 
 @mcp.tool()
@@ -125,6 +126,50 @@ def query_history(
             "status": status,
             "run_date": run_date,
             "decision": decision,
+            "limit": limit,
+        },
+    )
+
+
+@mcp.tool()
+def research_hypothesis(
+    action: Literal["create", "list", "detail", "update", "link_evidence", "evaluate", "transition"],
+    hypothesis_id: str = "",
+    title: str = "",
+    thesis: str = "",
+    status: str = "",
+    universe: str = "",
+    signal_definition: str = "",
+    invalidation_criteria: str = "",
+    evidence_type: str = "",
+    artifact_ref: str = "",
+    verdict: str = "review",
+    summary: str = "",
+    metrics: dict | None = None,
+    target_status: str = "",
+    reason: str = "",
+    limit: int = 50,
+) -> dict:
+    """登记策略研究假设，并把回测、归因和 shadow 产物作为晋级证据关联起来。"""
+    return _execute_mcp_tool(
+        "research_hypothesis",
+        _research_hypothesis,
+        {
+            "action": action,
+            "hypothesis_id": hypothesis_id,
+            "title": title,
+            "thesis": thesis,
+            "status": status,
+            "universe": universe,
+            "signal_definition": signal_definition,
+            "invalidation_criteria": invalidation_criteria,
+            "evidence_type": evidence_type,
+            "artifact_ref": artifact_ref,
+            "verdict": verdict,
+            "summary": summary,
+            "metrics": metrics,
+            "target_status": target_status,
+            "reason": reason,
             "limit": limit,
         },
     )

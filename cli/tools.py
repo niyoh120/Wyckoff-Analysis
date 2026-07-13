@@ -491,6 +491,59 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {},
         },
     },
+    {
+        "name": "query_news_intelligence",
+        "description": "查询本地新闻情报池，并返回来源、发布时间和可打开的引用链接。需要刷新时可显式指定 refresh=true。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "股票代码、名称或主题关键词"},
+                "limit": {"type": "integer", "description": "返回条数，默认 10，最大 50"},
+                "refresh": {"type": "boolean", "description": "是否强制刷新新闻池，默认 false"},
+            },
+        },
+    },
+    {
+        "name": "research_hypothesis",
+        "description": (
+            "管理可追溯的策略研究假设，并关联回测、归因、shadow 或观察证据。"
+            "用于记录为什么测试某条规则、何时验证通过以及什么条件会使它失效。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["create", "list", "detail", "update", "link_evidence", "evaluate", "transition"],
+                },
+                "hypothesis_id": {"type": "string"},
+                "title": {"type": "string"},
+                "thesis": {"type": "string"},
+                "status": {
+                    "type": "string",
+                    "enum": ["exploring", "testing", "validated", "monitoring", "rejected"],
+                },
+                "universe": {"type": "string"},
+                "signal_definition": {"type": "string"},
+                "invalidation_criteria": {"type": "string"},
+                "evidence_type": {
+                    "type": "string",
+                    "enum": ["backtest", "stability", "attribution", "shadow", "report", "observation"],
+                },
+                "artifact_ref": {"type": "string"},
+                "verdict": {"type": "string", "enum": ["pass", "review", "fail"]},
+                "summary": {"type": "string"},
+                "metrics": {"type": "object"},
+                "target_status": {
+                    "type": "string",
+                    "enum": ["exploring", "testing", "validated", "monitoring", "rejected"],
+                },
+                "reason": {"type": "string", "description": "状态迁移原因；拒绝或重新探索时必填。"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            },
+            "required": ["action"],
+        },
+    },
 ]
 
 
@@ -517,6 +570,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "generate_strategy_decision": ToolSpec("generate_strategy_decision", "攻防决策", background=True),
     "query_history": ToolSpec("query_history", "历史查询", concurrency_safe=True),
     "evaluate_recommendation_events": ToolSpec("evaluate_recommendation_events", "推荐评估", background=True),
+    "research_hypothesis": ToolSpec("research_hypothesis", "研究假设", concurrency_safe=True),
     "update_portfolio": ToolSpec("update_portfolio", "调仓操作", requires_approval=True),
     "run_backtest": ToolSpec("run_backtest", "回测", background=True),
     "check_background_tasks": ToolSpec("check_background_tasks", "任务状态"),
@@ -526,6 +580,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "web_fetch": ToolSpec("web_fetch", "抓取网页"),
     "reassess_profile": ToolSpec("reassess_profile", "风控评估", concurrency_safe=True),
     "diagnose_backend": ToolSpec("diagnose_backend", "大模型诊疗", concurrency_safe=True),
+    "query_news_intelligence": ToolSpec("query_news_intelligence", "新闻情报", concurrency_safe=True),
     "ask_user_question": ToolSpec("ask_user_question", "提问用户", concurrency_safe=False),
     "execute_skill": ToolSpec("execute_skill", "执行技能", concurrency_safe=True),
     "delegate_to_research": ToolSpec("delegate_to_research", "委派研究员"),
@@ -677,6 +732,7 @@ class ToolRegistry:
         from agents.portfolio_tools import portfolio, update_portfolio
         from agents.recommendation_tools import evaluate_recommendation_events
         from agents.report_tools import generate_ai_report
+        from agents.research_tools import research_hypothesis
         from agents.screen_tools import screen_stocks
         from agents.search_tools import search_stock_by_name
         from agents.strategy_tools import generate_strategy_decision
@@ -685,6 +741,7 @@ class ToolRegistry:
             delegate_to_research,
             delegate_to_trading,
         )
+        from integrations.news_intelligence import query_news_intelligence
         from tools.backend_doctor import diagnose_backend
         from workflows.reassess_profile import reassess_decision_profile
 
@@ -699,6 +756,7 @@ class ToolRegistry:
             "generate_strategy_decision": generate_strategy_decision,
             "query_history": query_history,
             "evaluate_recommendation_events": evaluate_recommendation_events,
+            "research_hypothesis": research_hypothesis,
             "update_portfolio": update_portfolio,
             "run_backtest": run_backtest,
             "ask_user_question": ask_user_question,
@@ -712,6 +770,7 @@ class ToolRegistry:
             "web_fetch": web_fetch,
             "reassess_profile": reassess_decision_profile,
             "diagnose_backend": diagnose_backend,
+            "query_news_intelligence": query_news_intelligence,
         }
 
     def schemas(self, allowed_tools: set[str] | tuple[str, ...] | None = None) -> list[dict[str, Any]]:

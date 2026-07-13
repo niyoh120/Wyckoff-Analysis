@@ -7,7 +7,7 @@ import { clearAllAnalysisHistory, clearAnalysisHistory, deleteAnalysisHistory, l
 import { formatValuePercent } from '@/lib/value-analysis'
 import { usePreferences, type Locale } from '@/lib/preferences'
 import { useAuthStore } from '@/stores/auth'
-import { sourceLabel, type KlineRow, type ValueSnapshot } from '@wyckoff/shared'
+import { formatAnalysisContextPack, sourceLabel, type AnalysisContextPack, type KlineRow, type ValueSnapshot } from '@wyckoff/shared'
 
 type FilterKey = 'all' | AnalysisHistoryKind
 type HistoryRecord = AnalysisHistoryRecord<HistoryPayload>
@@ -20,6 +20,9 @@ interface TraceMeta {
   generatedAt?: string
   valueSource?: string
   reportDate?: string
+  valueRulesetVersion?: string
+  valueDataQuality?: string
+  valueRuleCodes?: string[]
   klineRows?: number
 }
 
@@ -29,6 +32,7 @@ interface SinglePayload {
   name: string
   klineData: KlineRow[]
   valueSnapshot: ValueSnapshot
+  contextPack?: AnalysisContextPack
   meta?: TraceMeta
 }
 
@@ -391,10 +395,20 @@ function SingleDetail({ copy, payload }: { copy: HistoryCopy; payload: SinglePay
     <div className="space-y-5">
       <SummaryGrid items={metrics} />
       <HistoryTracePanel meta={payload.meta} />
+      {payload.contextPack && <HistoryContextPack pack={payload.contextPack} />}
       <Section title={copy.chart}>{payload.klineData.length > 0 && <KlineChart data={payload.klineData} height={360} />}</Section>
       <ValueSnapshotBlock title={copy.value} snapshot={payload.valueSnapshot} />
       <ReportBlock title={copy.report} report={payload.report} />
     </div>
+  )
+}
+
+function HistoryContextPack({ pack }: { pack: AnalysisContextPack }) {
+  return (
+    <details className="rounded-lg border border-border bg-muted/20 p-4">
+      <summary className="cursor-pointer text-sm font-semibold">分析上下文与证据链</summary>
+      <pre className="mt-3 whitespace-pre-wrap rounded-md bg-background p-3 text-xs leading-5 text-muted-foreground">{formatAnalysisContextPack(pack)}</pre>
+    </details>
   )
 }
 
@@ -464,6 +478,20 @@ function HistoryTracePanel({ meta }: { meta?: TraceMeta }) {
           <div className="truncate">
             <div className="text-muted-foreground scale-95 origin-left">基本面源 / 报告期</div>
             <div className="font-medium text-foreground mt-0.5">{meta.valueSource || 'N/A'} ({meta.reportDate || 'N/A'})</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 rounded bg-background p-2 border border-border">
+          <ListCollapse size={14} className="text-muted-foreground shrink-0" />
+          <div className="truncate">
+            <div className="text-muted-foreground scale-95 origin-left">价值规则 / 数据状态</div>
+            <div className="font-mono font-medium text-foreground mt-0.5">{meta.valueRulesetVersion || 'legacy'} · {meta.valueDataQuality || 'N/A'}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 rounded bg-background p-2 border border-border">
+          <ListCollapse size={14} className="text-muted-foreground shrink-0" />
+          <div className="truncate">
+            <div className="text-muted-foreground scale-95 origin-left">触发的价值规则</div>
+            <div className="font-mono font-medium text-foreground mt-0.5">{meta.valueRuleCodes?.join(', ') || 'N/A'}</div>
           </div>
         </div>
         <div className="flex items-center gap-2 rounded bg-background p-2 border border-border">

@@ -17,6 +17,7 @@ import {
 import { formatPatternReviewDigest, labelCandidateTerm, type PatternReviewRow } from './pattern-review'
 import { formatTailBuyPolicyWeightText } from './tail-buy-policy-weight'
 import { tailBuyExecutionSemantics } from './tail-buy-semantics'
+import { ANALYSIS_CONTEXT_PACK_SCHEMA, buildStockAnalysisContextPack } from './analysis-context'
 
 export interface KlineRow {
   date: string
@@ -92,6 +93,7 @@ export const ANALYZE_STOCK_OUTPUT_SCHEMA = z.object({
     isComplete: z.boolean(),
     fallbackUsed: z.boolean(),
   }).nullable().optional(),
+  context_pack: ANALYSIS_CONTEXT_PACK_SCHEMA.nullable().optional(),
 })
 
 export const STRATEGY_POLICY_OUTPUT_SCHEMA = z.object({
@@ -1181,6 +1183,7 @@ export async function execAnalyzeStock(
     buildKlineDigest(kline),
   ].join('\n')
   const valueDigest = buildValueAgentDigest(valueSnapshot)
+  const contextPack = buildStockAnalysisContextPack({ symbol: code, name, kline, dataQuality: quality, valueSnapshot })
   const systemPrompt = `你是威科夫分析大师。基于以下K线数据和价值面摘要，对 ${code} ${name || ''} 进行深度诊断。主框架仍是量价与威科夫阶段判断，价值面只作为质量、风险和仓位置信度校准：技术面负责时机，价值面负责是否值得提高/降低结论置信度。
 1. 当前威科夫阶段（积累/上涨/派发/下跌），Phase A-E 定位
 2. 量价关系分析（供需力量对比，近期量比变化）
@@ -1199,14 +1202,14 @@ export async function execAnalyzeStock(
       prompt: userPrompt,
       output: Output.object({ schema: ANALYZE_STOCK_OUTPUT_SCHEMA }),
     })
-    return withAnalyzeQuality(normalizeAnalyzeOutput(result.output, result.text), quality)
+    return withAnalyzeQuality(normalizeAnalyzeOutput(result.output, result.text), quality, contextPack)
   } catch {
     const fallback = await deps.generateText({
       model: model as Parameters<typeof GenerateTextFn>[0]['model'],
       system: systemPrompt + '\n\n请用纯 JSON 输出，字段: summary, phase, confidence, support, resistance, action, risk, markdown。',
       prompt: userPrompt,
     })
-    return withAnalyzeQuality(parseAnalyzeFallback(fallback.text, code, name), quality)
+    return withAnalyzeQuality(parseAnalyzeFallback(fallback.text, code, name), quality, contextPack)
   }
 }
 
@@ -1226,12 +1229,13 @@ function buildAnalyzeError(code: string, name: string | null, message: string): 
   }
 }
 
-function withAnalyzeQuality(result: AnalyzeStockResult, quality: KlineDataQuality): AnalyzeStockResult {
+function withAnalyzeQuality(result: AnalyzeStockResult, quality: KlineDataQuality, contextPack?: AnalyzeStockResult['context_pack']): AnalyzeStockResult {
   return {
     ...result,
     data_source: quality.source,
     data_asof: quality.latestTradingDate,
     data_quality: quality,
+    context_pack: contextPack,
   }
 }
 

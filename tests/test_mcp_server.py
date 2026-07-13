@@ -102,3 +102,25 @@ def test_query_history_supports_attribution_source(monkeypatch):
     assert captured["limit"] == 1
     assert "作用范围=尾盘+漏斗shadow" in result["latest_operator_summary"]
     assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
+
+
+def test_research_hypothesis_maps_mcp_arguments(monkeypatch):
+    mcp_server = import_mcp_server(monkeypatch)
+    captured = {}
+
+    def fake_research_hypothesis(**kwargs):
+        captured.update(kwargs)
+        return {"status": "created", "hypothesis": {"hypothesis_id": "hyp_1"}}
+
+    monkeypatch.setattr(mcp_server, "_research_hypothesis", fake_research_hypothesis)
+
+    result = mcp_server.research_hypothesis(
+        action="create",
+        title="Spring 样本外",
+        thesis="Spring 在风险开启期具有正收益",
+        invalidation_criteria="十日均值收益为负",
+    )
+
+    assert result["hypothesis"]["hypothesis_id"] == "hyp_1"
+    assert captured["title"] == "Spring 样本外"
+    assert captured["invalidation_criteria"] == "十日均值收益为负"

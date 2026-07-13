@@ -1,5 +1,5 @@
 import { BellPlus, Database, Plus, ShieldAlert } from 'lucide-react'
-import { formatStrategyPolicyText, type AnalyzeStockResult, type KlineDataQuality, type ScreenStockItem, type StrategyDecisionResult } from '@wyckoff/shared'
+import { formatAnalysisContextPack, formatStrategyPolicyText, type AnalyzeStockResult, type KlineDataQuality, type ScreenStockItem, type StrategyDecisionResult } from '@wyckoff/shared'
 import { MarkdownContent } from '@/components/markdown'
 import { ScreenResultCard } from '@/components/screen-result-card'
 import { asRecord, normalizeStockCode, sanitizeText } from './utils'
@@ -61,9 +61,19 @@ function AnalyzeResultCard({
         <DecisionMetric label="置信" value={data.confidence != null ? data.confidence.toFixed(0) : '--'} />
       </div>
       {data.data_quality && <DataQualityLine quality={data.data_quality} />}
+      {data.context_pack && <ContextPackLine pack={data.context_pack} />}
       <AnalyzeLevelBadges data={data} />
       <MarkdownContent content={data.markdown || data.summary} className="text-xs" />
     </div>
+  )
+}
+
+function ContextPackLine({ pack }: { pack: NonNullable<AnalyzeStockResult['context_pack']> }) {
+  return (
+    <details className="rounded-md border border-border/50 bg-muted/20 px-2 py-1.5 text-[11px]">
+      <summary className="cursor-pointer font-medium text-foreground">查看分析上下文与证据</summary>
+      <pre className="mt-2 whitespace-pre-wrap leading-4 text-muted-foreground">{formatAnalysisContextPack(pack)}</pre>
+    </details>
   )
 }
 

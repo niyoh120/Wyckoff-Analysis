@@ -563,7 +563,7 @@ def _data_quality_metrics(inputs: FunnelMetricsInputs) -> dict:
     }
 
 
-def _layer_metrics(layers: FunnelLayerOutputs, *, total_symbols: int, financial_requested: bool) -> dict:
+def _layer_metrics(layers: FunnelLayerOutputs, *, total_symbols: int, financial_requested: bool = False) -> dict:
     return {
         "layer1": len(layers.l1_passed),
         "layer2": len(layers.l2_passed),
