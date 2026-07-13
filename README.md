@@ -76,6 +76,9 @@ brew tap YoungCan-Wang/wyckoff && brew install wyckoff
 uv pip install youngcan-wyckoff-analysis
 ```
 
+维护者发布 PyPI 的自动 patch 流程与 Trusted Publishing 一次性配置见
+[docs/PYPI_RELEASE.md](docs/PYPI_RELEASE.md)。
+
 ```bash
 wyckoff          # 启动 Agent 对话
 wyckoff dashboard  # 启动本地可视化面板
