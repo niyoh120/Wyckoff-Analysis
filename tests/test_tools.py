@@ -1973,8 +1973,10 @@ class TestMarketRegime:
         assert result["daily_down_count"] == 1
         assert result["daily_flat_count"] == 1
         assert round(result["daily_up_ratio_pct"], 2) == 33.33
+        assert result["prev_daily_sample_size"] == 3
+        assert result["prev_daily_up_ratio_pct"] == 0.0
 
-    def test_daily_breadth_turns_structural_risk_off_into_repair(self, monkeypatch):
+    def test_daily_breadth_alone_does_not_turn_risk_off_into_repair(self, monkeypatch):
         import tools.market_regime as market_regime
         from core.wyckoff_engine import FunnelConfig
 
@@ -1994,8 +1996,54 @@ class TestMarketRegime:
             },
         )
 
-        assert result["regime"] == "PANIC_REPAIR"
-        assert result["repair_triggered"] is True
+        assert result["regime"] == "RISK_OFF"
+        assert result["repair_triggered"] is False
+
+    def test_panic_repair_requires_candidate_day_then_next_day_confirmation(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+        closes = [100.0 - i * 0.1 for i in range(217)]
+        panic_close = closes[-1] * 0.98
+        candidate_close = panic_close * 1.01
+        confirmed_close = candidate_close * 1.003
+        candidate = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_df([*closes, panic_close, candidate_close]),
+            None,
+            FunnelConfig(),
+            breadth={
+                "ratio_pct": 10.0,
+                "prev_ratio_pct": 9.0,
+                "delta_pct": 1.0,
+                "sample_size": 100,
+                "daily_up_ratio_pct": 70.0,
+                "daily_median_pct_chg": 1.0,
+            },
+        )
+        confirmed = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_df([*closes, panic_close, candidate_close, confirmed_close]),
+            None,
+            FunnelConfig(),
+            breadth={
+                "ratio_pct": 12.0,
+                "prev_ratio_pct": 10.0,
+                "delta_pct": 2.0,
+                "sample_size": 100,
+                "daily_up_ratio_pct": 55.0,
+                "daily_median_pct_chg": 0.2,
+                "prev_daily_up_ratio_pct": 70.0,
+                "prev_daily_median_pct_chg": 1.0,
+            },
+        )
+
+        assert candidate["regime"] == "PANIC_REPAIR"
+        assert candidate["repair_triggered"] is True
+        assert candidate["repair_stage"] == "candidate"
+        assert confirmed["regime"] == "PANIC_REPAIR_CONFIRMED"
+        assert confirmed["repair_stage"] == "confirmed"
+        assert confirmed["repair_confirmed"] is True
+        assert "prior_repair_candidate_confirmed" in confirmed["repair_reasons"]
 
     def test_weak_daily_breadth_downgrades_risk_on_to_caution(self, monkeypatch):
         import tools.market_regime as market_regime

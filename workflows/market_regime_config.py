@@ -30,6 +30,8 @@ def market_regime_config_from_env() -> MarketRegimeConfig:
         panic_repair_enabled=_bool_env("FUNNEL_PANIC_REPAIR_ENABLE", True),
         panic_repair_main_rebound_pct=_float_env("FUNNEL_PANIC_REPAIR_MAIN_REBOUND_PCT", 0.8),
         panic_repair_small_rebound_pct=_float_env("FUNNEL_PANIC_REPAIR_SMALL_REBOUND_PCT", 1.5),
+        panic_repair_confirm_main_pct=_float_env("FUNNEL_PANIC_REPAIR_CONFIRM_MAIN_PCT", 0.0),
+        panic_repair_confirm_breadth_pct=_float_env("FUNNEL_PANIC_REPAIR_CONFIRM_BREADTH_PCT", 50.0),
         evr_policy=os.getenv("FUNNEL_EVR_POLICY", "all_regimes").strip().lower() or "all_regimes",
         pv_llm_provider=os.getenv("DEFAULT_LLM_PROVIDER", "gemini").strip().lower() or "gemini",
     ).normalized()

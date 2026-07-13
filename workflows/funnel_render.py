@@ -188,6 +188,8 @@ def _execution_decision_line(regime: str, selected_count: int, data_quality: dic
             return "禁止新仓；可送AI/shadow对照，不写正式推荐、不执行新买入；优先处理持仓风控。"
     if not mode.allow_recommendation_write:
         return "观察买入；允许少量候选进入AI研报，但不写正式推荐，尾盘任务和人工二次确认后再决定。"
+    if mode.mode == "repair_probe":
+        return "修复成立；仅开放一只小额 PROBE 候选，禁止 ATTACK、追价和自动扩仓。"
     if selected_count <= 0:
         return "观察买入；暂无可送审标的，不从本报告选择新买入，等待下一次二次确认。"
     return f"可执行买入候选 {selected_count} 只；需等 Step3 起跳板与 OMS 风控同时确认后才可执行。"
@@ -201,6 +203,8 @@ def _today_conclusion_line(ctx: Any, selected_count: int) -> str:
         conclusion = "禁止新仓"
     elif not mode.allow_recommendation_write:
         conclusion = "观察买入"
+    elif mode.mode == "repair_probe" and selected_count > 0:
+        conclusion = "修复成立，小额试探候选"
     elif selected_count > 0:
         conclusion = "可执行买入候选"
     else:

@@ -19,7 +19,8 @@ from utils.safe import safe_float as _safe_float_or_default
 _PV_OUTLOOK_FALLBACK: dict[str, str] = {
     "RISK_ON": "次日推演：若量能维持在20日均量0.95x上方且不破MA50，偏强震荡延续；若放量跌破MA50，需转入防守。",
     "BEAR_REBOUND": "次日推演：熊市反抽只做强确认，若不能放量站稳MA200，控制仓位并回避追高。",
-    "PANIC_REPAIR": "次日推演：修复阶段以确认强度为先，若放量站稳MA50可继续修复；若缩量冲高回落，按反抽处理。",
+    "PANIC_REPAIR": "次日推演：当前仅为修复候选，继续观察；次日广度与价格未同时确认前禁止新仓。",
+    "PANIC_REPAIR_CONFIRMED": "次日推演：修复已获广度与价格确认，只允许小额试探；若确认位失守立即退回观察。",
     "NEUTRAL": "次日推演：中性震荡为主，等待放量突破近高或放量跌破MA50后再确认方向。",
     "RISK_OFF": "次日推演：防守优先，若出现放量下压并失守MA50，继续收缩风险敞口；仅在缩量止跌后再评估试探。",
     "CRASH": "次日推演：防守优先，若出现放量下压并失守MA50，继续收缩风险敞口；仅在缩量止跌后再评估试探。",
@@ -52,6 +53,8 @@ class MarketRegimeConfig:
     panic_repair_enabled: bool = True
     panic_repair_main_rebound_pct: float = 0.8
     panic_repair_small_rebound_pct: float = 1.5
+    panic_repair_confirm_main_pct: float = 0.0
+    panic_repair_confirm_breadth_pct: float = 50.0
     evr_policy: str = "all_regimes"
     pv_llm_provider: str = "gemini"
 
@@ -76,6 +79,8 @@ class MarketRegimeConfig:
             panic_repair_enabled=bool(self.panic_repair_enabled),
             panic_repair_main_rebound_pct=float(self.panic_repair_main_rebound_pct),
             panic_repair_small_rebound_pct=float(self.panic_repair_small_rebound_pct),
+            panic_repair_confirm_main_pct=float(self.panic_repair_confirm_main_pct),
+            panic_repair_confirm_breadth_pct=float(self.panic_repair_confirm_breadth_pct),
             evr_policy=str(self.evr_policy or "all_regimes").strip().lower() or "all_regimes",
             pv_llm_provider=str(self.pv_llm_provider or "gemini").strip().lower() or "gemini",
         )
@@ -94,6 +99,7 @@ class MainBenchmarkMetrics:
     recent3_cum: float | None = None
     today_pct: float | None = None
     prev_pct: float | None = None
+    prev2_pct: float | None = None
     vol_ma5: float | None = None
     vol_ma20: float | None = None
     vol_ratio_5_20: float | None = None
@@ -107,6 +113,7 @@ class SmallcapMetrics:
     recent3_cum: float | None = None
     today_pct: float | None = None
     prev_pct: float | None = None
+    prev2_pct: float | None = None
 
 
 def _build_pv_user_message(
@@ -359,13 +366,16 @@ def _base_benchmark_context(
     }
 
 
-def _recent_pct_metrics(frame: pd.DataFrame) -> tuple[list[float], float | None, float | None, float | None]:
+def _recent_pct_metrics(
+    frame: pd.DataFrame,
+) -> tuple[list[float], float | None, float | None, float | None, float | None]:
     recent = frame["pct_chg"].dropna().tail(3)
     recent_list = [float(x) for x in recent.tolist()]
     recent_cum = float(((recent / 100.0 + 1.0).prod() - 1.0) * 100.0) if not recent.empty else None
     today_pct = float(recent_list[-1]) if recent_list else None
     prev_pct = float(recent_list[-2]) if len(recent_list) >= 2 else None
-    return recent_list, recent_cum, today_pct, prev_pct
+    prev2_pct = float(recent_list[-3]) if len(recent_list) >= 3 else None
+    return recent_list, recent_cum, today_pct, prev_pct, prev2_pct
 
 
 def _classify_volume_state(ratio: float | None) -> str:
@@ -392,7 +402,7 @@ def _main_benchmark_metrics(bench_df: pd.DataFrame | None) -> MainBenchmarkMetri
     ma50 = float(rolling50.mean().iloc[-1])
     ma200 = float(frame["close"].rolling(200).mean().iloc[-1])
     ma50_prev = rolling50.mean().shift(5).iloc[-1]
-    recent3_list, recent3_cum, today_pct, prev_pct = _recent_pct_metrics(frame)
+    recent3_list, recent3_cum, today_pct, prev_pct, prev2_pct = _recent_pct_metrics(frame)
     vol = frame["volume"].dropna()
     vol_ma5 = vol_ma20 = vol_ratio = None
     if len(vol) >= 20:
@@ -408,6 +418,7 @@ def _main_benchmark_metrics(bench_df: pd.DataFrame | None) -> MainBenchmarkMetri
         recent3_cum=recent3_cum,
         today_pct=today_pct,
         prev_pct=prev_pct,
+        prev2_pct=prev2_pct,
         vol_ma5=vol_ma5,
         vol_ma20=vol_ma20,
         vol_ratio_5_20=vol_ratio,
@@ -423,13 +434,14 @@ def _smallcap_metrics(smallcap_df: pd.DataFrame | None) -> SmallcapMetrics:
     frame["pct_chg"] = pd.to_numeric(frame["pct_chg"], errors="coerce")
     if len(frame) < 10:
         return SmallcapMetrics(recent3_list=[])
-    recent3_list, recent3_cum, today_pct, prev_pct = _recent_pct_metrics(frame)
+    recent3_list, recent3_cum, today_pct, prev_pct, prev2_pct = _recent_pct_metrics(frame)
     return SmallcapMetrics(
         close=float(frame["close"].iloc[-1]),
         recent3_list=recent3_list,
         recent3_cum=recent3_cum,
         today_pct=today_pct,
         prev_pct=prev_pct,
+        prev2_pct=prev2_pct,
     )
 
 
@@ -464,10 +476,15 @@ def _breadth_values(breadth: dict | None) -> tuple[float | None, float | None, f
     )
 
 
-def _daily_breadth_values(breadth: dict | None) -> tuple[float | None, float | None]:
+def _daily_breadth_values(breadth: dict | None) -> tuple[float | None, float | None, float | None, float | None]:
     if not breadth:
-        return None, None
-    return _safe_float(breadth.get("daily_up_ratio_pct")), _safe_float(breadth.get("daily_median_pct_chg"))
+        return None, None, None, None
+    return (
+        _safe_float(breadth.get("daily_up_ratio_pct")),
+        _safe_float(breadth.get("daily_median_pct_chg")),
+        _safe_float(breadth.get("prev_daily_up_ratio_pct")),
+        _safe_float(breadth.get("prev_daily_median_pct_chg")),
+    )
 
 
 def _apply_daily_breadth_regime(
@@ -478,9 +495,6 @@ def _apply_daily_breadth_regime(
 ) -> tuple[str, list[str]]:
     if daily_up_ratio is None:
         return regime, []
-    if regime == "RISK_OFF" and daily_up_ratio >= regime_config.daily_breadth_repair_threshold:
-        if daily_median_pct is None or daily_median_pct > 0:
-            return "PANIC_REPAIR", [f"daily_breadth_repair={daily_up_ratio:.2f}%"]
     if regime == "RISK_ON" and daily_up_ratio <= regime_config.daily_breadth_weak_threshold:
         return "CAUTION", [f"daily_breadth_weak={daily_up_ratio:.2f}%"]
     return regime, []
@@ -565,7 +579,6 @@ def _repair_reasons(
     main: MainBenchmarkMetrics,
     small: SmallcapMetrics,
     regime_config: MarketRegimeConfig,
-    base_regime: str,
 ) -> list[str]:
     prev_panic = (main.prev_pct is not None and float(main.prev_pct) <= regime_config.crash_main_day_drop_pct) or (
         small.prev_pct is not None and float(small.prev_pct) <= regime_config.crash_small_day_drop_pct
@@ -573,29 +586,54 @@ def _repair_reasons(
     rebound_ok = (
         main.today_pct is not None and float(main.today_pct) >= regime_config.panic_repair_main_rebound_pct
     ) or (small.today_pct is not None and float(small.today_pct) >= regime_config.panic_repair_small_rebound_pct)
-    continuous_rebound = False
-    if main.today_pct is not None and main.prev_pct is not None:
-        continuous_rebound = (
-            float(main.today_pct) >= regime_config.panic_repair_main_rebound_pct * 0.5
-            and float(main.prev_pct) >= regime_config.panic_repair_main_rebound_pct * 0.5
-        )
     panic_reversal = prev_panic and rebound_ok
-    defensive_continuation = str(base_regime or "").strip().upper() in {"RISK_OFF", "CRASH"} and continuous_rebound
-    if not (panic_reversal or defensive_continuation):
+    if not panic_reversal:
         return []
-    reasons = []
-    if panic_reversal:
-        reasons.extend(
-            [
-                f"prev_panic(main_prev={main.prev_pct}, small_prev={small.prev_pct})",
-                f"rebound_ok(main_today={main.today_pct}, small_today={small.today_pct})",
-            ]
-        )
-    if defensive_continuation:
-        reasons.append(
-            f"continuous_rebound_after_{base_regime}(main_prev={main.prev_pct}, main_today={main.today_pct})"
-        )
-    return reasons
+    return [
+        f"prev_panic(main_prev={main.prev_pct}, small_prev={small.prev_pct})",
+        f"rebound_ok(main_today={main.today_pct}, small_today={small.today_pct})",
+    ]
+
+
+def _candidate_breadth_reasons(
+    daily_up_ratio: float | None,
+    daily_median_pct: float | None,
+    regime_config: MarketRegimeConfig,
+) -> list[str]:
+    if daily_up_ratio is None or daily_up_ratio < regime_config.daily_breadth_repair_threshold:
+        return []
+    if daily_median_pct is None or daily_median_pct <= 0:
+        return []
+    return [f"candidate_breadth={daily_up_ratio:.2f}%", f"candidate_median={daily_median_pct:+.2f}%"]
+
+
+def _confirmed_repair_reasons(
+    main: MainBenchmarkMetrics,
+    small: SmallcapMetrics,
+    daily_up_ratio: float | None,
+    daily_median_pct: float | None,
+    prev_daily_up_ratio: float | None,
+    prev_daily_median_pct: float | None,
+    regime_config: MarketRegimeConfig,
+) -> list[str]:
+    prior_main = MainBenchmarkMetrics(today_pct=main.prev_pct, prev_pct=main.prev2_pct)
+    prior_small = SmallcapMetrics(today_pct=small.prev_pct, prev_pct=small.prev2_pct)
+    prior_price = _repair_reasons(prior_main, prior_small, regime_config)
+    prior_breadth = _candidate_breadth_reasons(prev_daily_up_ratio, prev_daily_median_pct, regime_config)
+    price_confirmed = main.today_pct is not None and main.today_pct >= regime_config.panic_repair_confirm_main_pct
+    breadth_confirmed = (
+        daily_up_ratio is not None
+        and daily_up_ratio >= regime_config.panic_repair_confirm_breadth_pct
+        and daily_median_pct is not None
+        and daily_median_pct >= 0
+    )
+    if not (prior_price and prior_breadth and price_confirmed and breadth_confirmed):
+        return []
+    return [
+        "prior_repair_candidate_confirmed",
+        f"confirm_price={main.today_pct:+.2f}%",
+        f"confirm_breadth={daily_up_ratio:.2f}%",
+    ]
 
 
 def _apply_panic_repair_regime(
@@ -605,6 +643,10 @@ def _apply_panic_repair_regime(
     breadth_ratio: float | None,
     breadth_delta: float | None,
     money_flow: dict | None,
+    daily_up_ratio: float | None,
+    daily_median_pct: float | None,
+    prev_daily_up_ratio: float | None,
+    prev_daily_median_pct: float | None,
     regime_config: MarketRegimeConfig,
 ) -> tuple[str, list[str], list[str]]:
     panic_reasons = _panic_reasons(main, small, breadth_ratio, breadth_delta, regime_config)
@@ -615,7 +657,20 @@ def _apply_panic_repair_regime(
         regime = "RISK_OFF"
     if not regime_config.panic_repair_enabled:
         return regime, [], []
-    repair_reasons = _repair_reasons(main, small, regime_config, base_regime=regime)
+    confirmed = _confirmed_repair_reasons(
+        main,
+        small,
+        daily_up_ratio,
+        daily_median_pct,
+        prev_daily_up_ratio,
+        prev_daily_median_pct,
+        regime_config,
+    )
+    if confirmed:
+        return "PANIC_REPAIR_CONFIRMED", [], confirmed
+    price_reasons = _repair_reasons(main, small, regime_config)
+    breadth_reasons = _candidate_breadth_reasons(daily_up_ratio, daily_median_pct, regime_config)
+    repair_reasons = [*price_reasons, *breadth_reasons] if price_reasons and breadth_reasons else []
     return ("PANIC_REPAIR", [], repair_reasons) if repair_reasons else (regime, [], [])
 
 
@@ -669,7 +724,7 @@ def _tune_cfg_for_regime(
         cfg.rs_min_short = max(cfg.rs_min_short, 1.0)
         cfg.rps_fast_min = max(cfg.rps_fast_min, 80.0)
         cfg.rps_slow_min = max(cfg.rps_slow_min, 75.0)
-    elif regime == "PANIC_REPAIR":
+    elif regime in {"PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED"}:
         cfg.min_avg_amount_wan = max(cfg.min_avg_amount_wan, regime_config.panic_repair_min_avg_amount_wan)
         cfg.rs_min_long = max(cfg.rs_min_long, 1.0)
         cfg.rs_min_short = max(cfg.rs_min_short, 0.2)
@@ -747,6 +802,9 @@ def _final_breadth_context(
         "daily_up_ratio_pct": (breadth or {}).get("daily_up_ratio_pct"),
         "daily_median_pct_chg": (breadth or {}).get("daily_median_pct_chg"),
         "daily_average_pct_chg": (breadth or {}).get("daily_average_pct_chg"),
+        "prev_daily_sample_size": int((breadth or {}).get("prev_daily_sample_size") or 0),
+        "prev_daily_up_ratio_pct": (breadth or {}).get("prev_daily_up_ratio_pct"),
+        "prev_daily_median_pct_chg": (breadth or {}).get("prev_daily_median_pct_chg"),
     }
 
 
@@ -800,6 +858,9 @@ def _benchmark_result_context(
     bear_rebound_reasons: list[str],
     regime_config: MarketRegimeConfig,
 ) -> dict:
+    repair_stage = (
+        "candidate" if regime == "PANIC_REPAIR" else "confirmed" if regime == "PANIC_REPAIR_CONFIRMED" else ""
+    )
     result = {
         "regime": regime,
         "close": main.close,
@@ -820,6 +881,9 @@ def _benchmark_result_context(
         "panic_triggered": bool(panic_reasons),
         "panic_reasons": panic_reasons,
         "repair_triggered": bool(repair_reasons),
+        "repair_stage": repair_stage,
+        "repair_candidate_triggered": repair_stage == "candidate",
+        "repair_confirmed": repair_stage == "confirmed",
         "repair_reasons": repair_reasons,
         "bear_rebound_triggered": bool(bear_rebound_reasons),
         "bear_rebound_reasons": bear_rebound_reasons,
@@ -844,7 +908,7 @@ def analyze_benchmark_and_tune_cfg(
 ) -> dict:
     """
     Step 0：大盘总闸
-    - 输出宏观水温（RISK_ON / BEAR_REBOUND / NEUTRAL / RISK_OFF / CRASH / PANIC_REPAIR）
+    - 输出宏观水温，并区分恐慌、修复候选和修复确认
     - 在 RISK_OFF 时动态收紧个股过滤阈值
     """
     runtime = (regime_config or DEFAULT_MARKET_REGIME_CONFIG).normalized()
@@ -854,7 +918,7 @@ def analyze_benchmark_and_tune_cfg(
     main = _main_benchmark_metrics(bench_df)
     small = _smallcap_metrics(smallcap_df)
     breadth_ratio, breadth_prev, breadth_delta, breadth_sample = _breadth_values(breadth)
-    daily_up_ratio, daily_median_pct = _daily_breadth_values(breadth)
+    daily_up_ratio, daily_median_pct, prev_daily_up_ratio, prev_daily_median_pct = _daily_breadth_values(breadth)
     regime = _apply_breadth_regime(_trend_regime(main), breadth_ratio, breadth_delta, runtime)
     regime = _apply_caution_regime(regime, breadth_ratio, runtime)
     regime, panic_reasons, repair_reasons = _apply_panic_repair_regime(
@@ -864,11 +928,13 @@ def analyze_benchmark_and_tune_cfg(
         breadth_ratio,
         breadth_delta,
         money_flow_context,
+        daily_up_ratio,
+        daily_median_pct,
+        prev_daily_up_ratio,
+        prev_daily_median_pct,
         runtime,
     )
-    regime, daily_breadth_reasons = _apply_daily_breadth_regime(regime, daily_up_ratio, daily_median_pct, runtime)
-    if regime == "PANIC_REPAIR":
-        repair_reasons.extend(daily_breadth_reasons)
+    regime, _ = _apply_daily_breadth_regime(regime, daily_up_ratio, daily_median_pct, runtime)
     regime, bear_rebound_reasons = _apply_bear_rebound_regime(regime, main)
     _apply_evr_policy(cfg, regime, runtime)
     _tune_cfg_for_regime(cfg, regime, main.recent3_cum, runtime)

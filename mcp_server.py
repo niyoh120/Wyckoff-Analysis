@@ -246,7 +246,7 @@ def market_regime() -> dict:
     """获取 A 股市场水温和动态阈值。纯引擎计算，不经过 LLM。
 
     **调用时机**：需要量化判断当前是牛市还是熊市、是否适合加仓时调用。
-    返回 regime 枚举（RISK_ON/NEUTRAL/RISK_OFF/CRASH/PANIC_REPAIR）及斜率、3日收益等指标。
+    返回 regime 枚举（含 CRASH、PANIC_REPAIR 候选、PANIC_REPAIR_CONFIRMED 确认）及斜率、3日收益等指标。
     **结果处理**：regime 是核心字段，请据此给出仓位建议。
     """
     from datetime import date as _date

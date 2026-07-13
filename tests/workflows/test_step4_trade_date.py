@@ -479,6 +479,26 @@ def test_max_new_buy_names_blocks_bear_rebound() -> None:
 
     assert max_new_buy_names("BEAR_REBOUND", limits) == 0
     assert max_new_buy_names("PANIC_REPAIR", limits) == 0
+    assert max_new_buy_names("PANIC_REPAIR_CONFIRMED", limits) == 1
+
+
+def test_confirmed_repair_allows_small_probe_but_blocks_attack() -> None:
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={"000001": 9.5},
+        atr_map={"000001": 0.2},
+        market_regime="PANIC_REPAIR_CONFIRMED",
+    )
+
+    probe_tickets, _ = engine.process([_decision("PROBE")])
+    attack_tickets, _ = engine.process([_decision("ATTACK")])
+
+    assert probe_tickets[0].status == "APPROVED"
+    assert probe_tickets[0].amount <= 5000
+    assert attack_tickets[0].status == "NO_TRADE"
+    assert "只允许小额 PROBE" in attack_tickets[0].reason
 
 
 def test_step4_new_buy_trim_prefers_evidence_score_over_model_confidence() -> None:

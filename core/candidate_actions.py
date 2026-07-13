@@ -24,6 +24,13 @@ ACTION_INFO: dict[str, CandidateActionInfo] = {
         allows_ai_review=True,
     ),
     "repair_review_only": CandidateActionInfo("repair_review_only", "只做修复复核", "review_only"),
+    "repair_probe_ready": CandidateActionInfo(
+        "repair_probe_ready",
+        "修复确认小额试探",
+        "probe_ready",
+        blocks_direct_buy=False,
+        allows_ai_review=True,
+    ),
     "confirmation_required": CandidateActionInfo("confirmation_required", "等待确认", "confirmation"),
     "watch_only": CandidateActionInfo("watch_only", "观察池", "watch"),
     "priority_watch": CandidateActionInfo("priority_watch", "重点观察", "watch"),
@@ -66,6 +73,8 @@ def candidate_action_role(status: Any, *, guard_reason: str = "", ready_rank: in
         return "受限复核候选" if guard_reason else "首选"
     if text == "repair_review_only":
         return "修复复核候选"
+    if text == "repair_probe_ready":
+        return "修复确认试探候选"
     if text == "confirmation_required":
         return "待确认候选"
     if candidate_action_info(text).level == "watch":

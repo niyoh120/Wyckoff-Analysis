@@ -193,6 +193,20 @@ def test_replay_backtest_neutral_only_gate_blocks_caution(monkeypatch) -> None:
     assert replay_mod._execution_regime_allows("RISK_ON", "off") is True
 
 
+def test_live_gate_limits_confirmed_repair_to_one_candidate() -> None:
+    selected = replay_mod._RankedSelection(
+        ["000001", "000002"],
+        {"000001": 90.0, "000002": 80.0},
+        {"000001": "Trend", "000002": "Accum"},
+        {},
+    )
+
+    limited, blocked = replay_mod._limit_confirmed_repair_selection(selected, "PANIC_REPAIR_CONFIRMED", "live")
+
+    assert limited.codes == ["000001"]
+    assert blocked == 1
+
+
 def test_confirmed_signals_dedupes_code_and_keeps_best_score() -> None:
     class Pending:
         def write(self, *_args, **_kwargs):

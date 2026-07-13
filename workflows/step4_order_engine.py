@@ -64,6 +64,7 @@ def _resolve_chase_limits(
         "CAUTION": 0.92,
         "BEAR_REBOUND": 0.92,
         "PANIC_REPAIR": 0.95,
+        "PANIC_REPAIR_CONFIRMED": 0.88,
         "RISK_OFF": 0.85,
         "CRASH": 0.70,
         "BLACK_SWAN": 0.60,
@@ -149,7 +150,11 @@ class WyckoffOrderEngine:
         self.market_regime = normalize_regime(market_regime)
         self.config = config or DEFAULT_STEP4_ORDER_CONFIG
         self.budget_limits = {
-            "PROBE": self.config.probe_budget_limit,
+            "PROBE": (
+                self.config.repair_probe_budget_limit
+                if self.market_regime == "PANIC_REPAIR_CONFIRMED"
+                else self.config.probe_budget_limit
+            ),
             "ATTACK": self.config.attack_budget_limit,
         }
 
@@ -547,6 +552,8 @@ class WyckoffOrderEngine:
     def _process_buy(self, ctx: OrderContext) -> ExecutionTicket:
         if ctx.action in {"PROBE", "ATTACK"} and self.market_regime in self.config.buy_block_regimes:
             return self._no_trade(ctx.dec, ctx.name, f"系统性风控拦截: regime={self.market_regime} 禁止买入")
+        if ctx.action == "ATTACK" and self.market_regime == "PANIC_REPAIR_CONFIRMED":
+            return self._no_trade(ctx.dec, ctx.name, "修复成立阶段只允许小额 PROBE，禁止 ATTACK")
         for validator in (self._validate_buy_stop, self._validate_add_on):
             ticket = validator(ctx)
             if ticket is not None:

@@ -735,6 +735,8 @@ def _screen_trade_readiness(
         return "research_only"
     if str(trade_mode.get("mode") or "").strip() == "confirmation_only":
         return "confirmation_required"
+    if str(trade_mode.get("mode") or "").strip() == "repair_probe":
+        return "probe_ready"
     return "review_ready"
 
 
@@ -1240,6 +1242,8 @@ def _candidate_action_label(trade_mode: dict) -> str:
         return "只观察，不新增买入"
     if mode == "repair_review":
         return "修复复核，暂不写正式推荐"
+    if mode == "repair_probe":
+        return "修复成立，只允许小额试探仓"
     if mode == "confirmation_only":
         return "等待二次确认后再行动"
     if mode == "mainline_active":
@@ -1376,6 +1380,8 @@ def _candidate_next_step(trade_mode: dict, bucket: str, data_quality: dict | Non
         return "可送AI做修复复核，但不写正式推荐"
     if mode == "confirmation_only":
         return "进入AI复核，等待二次确认后再行动"
+    if mode == "repair_probe":
+        return "进入AI复核，只允许一只候选以小额 PROBE 试探"
     if mode == "risk_on":
         return "进入AI复核，合格后纳入新买候选"
     return "进入AI复核，先确认候选质量"
@@ -1393,6 +1399,8 @@ def _candidate_action_status(trade_mode: dict, bucket: str, data_quality: dict |
         return "repair_review_only"
     if mode == "confirmation_only":
         return "confirmation_required"
+    if mode == "repair_probe":
+        return "repair_probe_ready"
     return "ready_for_ai_review"
 
 
@@ -1418,6 +1426,8 @@ def _candidate_trade_readiness(trade_mode: dict, bucket: str, data_quality: dict
         return "research_only"
     if str(trade_mode.get("mode") or "").strip() == "confirmation_only":
         return "confirmation_required"
+    if str(trade_mode.get("mode") or "").strip() == "repair_probe":
+        return "probe_ready"
     return "review_ready"
 
 
@@ -1501,6 +1511,8 @@ def _trade_mode_risk_factors(trade_mode: dict, bucket: str) -> list[str]:
         return ["只做修复复核，不写正式推荐"]
     if str(trade_mode.get("mode") or "").strip() == "confirmation_only":
         return ["等待二次确认后再行动"]
+    if str(trade_mode.get("mode") or "").strip() == "repair_probe":
+        return ["修复刚成立，仅允许小额 PROBE，禁止 ATTACK"]
     return []
 
 

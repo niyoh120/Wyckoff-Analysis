@@ -10,7 +10,14 @@ from core.funnel_theme import is_accum_trigger, promotion_limits
 # 主路径上 RISK_OFF/CRASH/BLACK_SWAN 已经在 market_trade_mode.NO_NEW_BUY_REGIMES
 # 中被 allow_ai_review=False 提前短路，走不到本模块；但 promote_l2_bypass_for_ai
 # 等函数也被诊断/回放等旁路直接调用，仍需保留这层纵深防御，不能仅依赖上游闸门。
-DEFENSIVE_QUOTA_REGIMES = {"RISK_OFF", "BEAR_REBOUND", "PANIC_REPAIR", "CRASH", "BLACK_SWAN"}
+DEFENSIVE_QUOTA_REGIMES = {
+    "RISK_OFF",
+    "BEAR_REBOUND",
+    "PANIC_REPAIR",
+    "PANIC_REPAIR_CONFIRMED",
+    "CRASH",
+    "BLACK_SWAN",
+}
 
 
 def merge_trigger_maps(*trigger_maps: dict[str, list[tuple[str, float]]]) -> dict[str, list[tuple[str, float]]]:

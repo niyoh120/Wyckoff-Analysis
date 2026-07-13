@@ -16,6 +16,7 @@ BENCHMARK_REGIME_SEVERITY = {
     "NEUTRAL": 1,
     "BEAR_REBOUND": 2,
     "PANIC_REPAIR": 2,
+    "PANIC_REPAIR_CONFIRMED": 2,
     "RISK_OFF": 3,
     "CRASH": 4,
     "BLACK_SWAN": 5,
@@ -53,6 +54,8 @@ def resolve_effective_market_regime(benchmark_regime: object, premarket_regime: 
     premarket_norm = normalize_premarket_regime(premarket_regime)
     if benchmark_norm == "UNKNOWN" and premarket_norm == "NORMAL":
         return "UNKNOWN"
+    if premarket_norm in {"NORMAL", "CAUTION"} and benchmark_norm in {"PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED"}:
+        return benchmark_norm
     severity = max(
         BENCHMARK_REGIME_SEVERITY.get(benchmark_norm, 1),
         PREMARKET_REGIME_SEVERITY.get(premarket_norm, 0),

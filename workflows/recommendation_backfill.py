@@ -472,7 +472,7 @@ def _is_legacy_market_regime_error(exc: Exception) -> bool:
 def _legacy_market_signal_row(row: dict) -> dict:
     out = dict(row)
     original = str(out.get("benchmark_regime") or "").strip().upper()
-    if original not in {"PANIC_REPAIR", "BEAR_REBOUND"}:
+    if original not in {"PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED", "BEAR_REBOUND"}:
         return out
     out["benchmark_regime"] = "RISK_OFF"
     source_jobs = dict(out.get("source_jobs") or {})

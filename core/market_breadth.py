@@ -11,6 +11,7 @@ def calc_market_breadth(df_map: dict[str, pd.DataFrame], ma_window: int = 20) ->
     above_now = 0
     above_prev = 0
     daily_changes: list[float] = []
+    prev_daily_changes: list[float] = []
     window = max(int(ma_window), 2)
     for df in df_map.values():
         if df is None or df.empty:
@@ -25,12 +26,17 @@ def calc_market_breadth(df_map: dict[str, pd.DataFrame], ma_window: int = 20) ->
         above_prev += int(float(close.iloc[-2]) >= float(close.iloc[:-1].mean()))
         if float(close.iloc[-2]) != 0:
             daily_changes.append((float(close.iloc[-1]) / float(close.iloc[-2]) - 1.0) * 100.0)
+        if float(close.iloc[-3]) != 0:
+            prev_daily_changes.append((float(close.iloc[-2]) / float(close.iloc[-3]) - 1.0) * 100.0)
     ratio_now = above_now / valid_now * 100.0 if valid_now else None
     ratio_prev = above_prev / valid_prev * 100.0 if valid_prev else None
     delta = ratio_now - ratio_prev if ratio_now is not None and ratio_prev is not None else None
     daily = pd.Series(daily_changes, dtype=float)
     daily_total = int(len(daily))
     daily_up = int((daily > 0).sum())
+    prev_daily = pd.Series(prev_daily_changes, dtype=float)
+    prev_daily_total = int(len(prev_daily))
+    prev_daily_up = int((prev_daily > 0).sum())
     return {
         "ratio_pct": ratio_now,
         "prev_ratio_pct": ratio_prev,
@@ -43,6 +49,9 @@ def calc_market_breadth(df_map: dict[str, pd.DataFrame], ma_window: int = 20) ->
         "daily_up_ratio_pct": daily_up / daily_total * 100.0 if daily_total else None,
         "daily_median_pct_chg": float(daily.median()) if daily_total else None,
         "daily_average_pct_chg": float(daily.mean()) if daily_total else None,
+        "prev_daily_sample_size": prev_daily_total,
+        "prev_daily_up_ratio_pct": prev_daily_up / prev_daily_total * 100.0 if prev_daily_total else None,
+        "prev_daily_median_pct_chg": float(prev_daily.median()) if prev_daily_total else None,
     }
 
 

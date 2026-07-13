@@ -9,11 +9,22 @@ NO_NEW_BUY_REGIMES = frozenset({"UNKNOWN", "RISK_OFF", "CRASH", "BLACK_SWAN"})
 # 过热：禁止正式推荐与执行新开，但保留 AI/shadow 对照。
 OVERHEAT_SHADOW_REGIMES = frozenset({"RISK_ON"})
 REPAIR_REVIEW_REGIMES = frozenset({"BEAR_REBOUND", "PANIC_REPAIR"})
+REPAIR_PROBE_REGIMES = frozenset({"PANIC_REPAIR_CONFIRMED"})
 CAUTION_ONLY_REGIMES = frozenset({"CAUTION"})
 # 尾盘/OMS 禁止新开仓的水温并集。
 EXECUTE_BLOCK_NEW_BUY_REGIMES = frozenset(NO_NEW_BUY_REGIMES | OVERHEAT_SHADOW_REGIMES | REPAIR_REVIEW_REGIMES)
 KNOWN_MARKET_REGIMES = frozenset(
-    {"RISK_ON", "NEUTRAL", "CAUTION", "BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF", "CRASH", "BLACK_SWAN"}
+    {
+        "RISK_ON",
+        "NEUTRAL",
+        "CAUTION",
+        "BEAR_REBOUND",
+        "PANIC_REPAIR",
+        "PANIC_REPAIR_CONFIRMED",
+        "RISK_OFF",
+        "CRASH",
+        "BLACK_SWAN",
+    }
 )
 
 
@@ -34,6 +45,21 @@ class MarketTradeMode:
 def normalize_regime(regime: str | None) -> str:
     normalized = str(regime or "").strip().upper()
     return normalized if normalized in KNOWN_MARKET_REGIMES else "UNKNOWN"
+
+
+def _confirmed_repair_trade_mode(regime: str) -> MarketTradeMode:
+    return MarketTradeMode(
+        regime=regime,
+        mode="repair_probe",
+        label="修复成立",
+        action="修复成立：只开放一只小额 PROBE，禁止 ATTACK、追价和自动扩仓",
+        reason="恐慌后的修复候选已通过次日价格与市场广度双确认",
+        allow_ai_review=True,
+        allow_recommendation_write=True,
+        allow_full_l4=False,
+        allow_bypass_review=False,
+        allow_theme_promotion=False,
+    )
 
 
 def resolve_market_trade_mode(regime: str | None) -> MarketTradeMode:
@@ -77,6 +103,8 @@ def resolve_market_trade_mode(regime: str | None) -> MarketTradeMode:
             allow_bypass_review=False,
             allow_theme_promotion=False,
         )
+    if regime_norm in REPAIR_PROBE_REGIMES:
+        return _confirmed_repair_trade_mode(regime_norm)
     if regime_norm in CAUTION_ONLY_REGIMES:
         return MarketTradeMode(
             regime=regime_norm,

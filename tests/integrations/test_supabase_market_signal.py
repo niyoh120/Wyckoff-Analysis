@@ -104,11 +104,17 @@ class _FakeMarketSignalTable:
     """Simulates a single market_signal_daily row plus a concurrent writer that mutates
     updated_at right after this process's first read, to exercise the optimistic-lock retry."""
 
-    def __init__(self, initial_row: dict, concurrent_write_after_reads: int | None = None):
+    def __init__(
+        self,
+        initial_row: dict,
+        concurrent_write_after_reads: int | None = None,
+        reject_confirmed_regime: bool = False,
+    ):
         self.row = dict(initial_row)
         self.reads = 0
         self.writes: list[dict] = []
         self._concurrent_write_after_reads = concurrent_write_after_reads
+        self._reject_confirmed_regime = reject_confirmed_regime
 
     def table(self, _name):
         return _FakeQuery(self, "select")
@@ -120,6 +126,8 @@ class _FakeMarketSignalTable:
         return dict(self.row) if self.row.get("trade_date") == trade_date else None
 
     def on_upsert(self, payload: dict) -> None:
+        if self._reject_confirmed_regime and payload.get("benchmark_regime") == "PANIC_REPAIR_CONFIRMED":
+            raise RuntimeError("benchmark_regime check constraint")
         self.writes.append(dict(payload))
         self.row = dict(payload)
 
@@ -142,3 +150,20 @@ def test_upsert_market_signal_daily_retries_on_concurrent_update(monkeypatch):
     assert len(fake_client.writes) == 1
     assert fake_client.writes[0]["vix_close"] == 18.5
     assert fake_client.writes[0]["benchmark_regime"] == "RISK_ON"
+
+
+def test_confirmed_repair_falls_back_for_legacy_regime_constraint(monkeypatch):
+    fake_client = _FakeMarketSignalTable(
+        {"trade_date": "2026-06-20", "updated_at": "t0"},
+        reject_confirmed_regime=True,
+    )
+    monkeypatch.setattr(market_signal_module, "is_supabase_admin_configured", lambda: True)
+    monkeypatch.setattr(market_signal_module, "require_server_write_context", lambda *_a, **_k: None)
+    monkeypatch.setattr(market_signal_module, "_get_supabase_admin_client", lambda: fake_client)
+
+    ok = upsert_market_signal_daily("2026-06-20", {"benchmark_regime": "PANIC_REPAIR_CONFIRMED"})
+
+    assert ok is True
+    assert fake_client.writes[0]["benchmark_regime"] == "RISK_OFF"
+    compat = fake_client.writes[0]["source_jobs"]["regime_compat"]
+    assert compat["original_benchmark_regime"] == "PANIC_REPAIR_CONFIRMED"

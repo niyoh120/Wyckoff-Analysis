@@ -189,6 +189,9 @@ def replay_backtest(
             blocked_candidates += len(selected.codes)
             selected = None
         if selected is not None:
+            selected, limited = _limit_confirmed_repair_selection(selected, ctx.regime, config.execution_regime_gate)
+            blocked_candidates += limited
+        if selected is not None:
             signal_days += 1
             missing_skipped += _append_trade_records(
                 records, ctx, selected, all_df_map, trade_dates, name_map, ohlc_cache, intraday_cache, config
@@ -214,6 +217,25 @@ def _execution_regime_allows(regime: str, mode: str) -> bool:
     if mode == "neutral_only":
         return normalized == "NEUTRAL"
     return normalized not in EXECUTE_BLOCK_NEW_BUY_REGIMES
+
+
+def _limit_confirmed_repair_selection(
+    selected: _RankedSelection,
+    regime: str,
+    mode: str,
+) -> tuple[_RankedSelection, int]:
+    if mode != "live" or normalize_regime(regime) != "PANIC_REPAIR_CONFIRMED" or len(selected.codes) <= 1:
+        return selected, 0
+    kept = selected.codes[:1]
+    return (
+        _RankedSelection(
+            kept,
+            {code: selected.score_map[code] for code in kept if code in selected.score_map},
+            {code: selected.track_map[code] for code in kept if code in selected.track_map},
+            {code: selected.trigger_name_map[code] for code in kept if code in selected.trigger_name_map},
+        ),
+        len(selected.codes) - 1,
+    )
 
 
 def _build_day_context(

@@ -36,6 +36,16 @@ def test_trade_mode_allows_repair_review_without_write() -> None:
     assert mode.allow_bypass_review is False
 
 
+def test_confirmed_repair_opens_probe_only_mode() -> None:
+    mode = resolve_market_trade_mode("PANIC_REPAIR_CONFIRMED")
+
+    assert mode.mode == "repair_probe"
+    assert mode.allow_ai_review is True
+    assert mode.allow_recommendation_write is True
+    assert mode.allow_full_l4 is False
+    assert mode.allow_theme_promotion is False
+
+
 def test_trade_mode_keeps_neutral_mainline_active() -> None:
     mode = resolve_market_trade_mode("NEUTRAL")
 
@@ -71,21 +81,19 @@ def test_steady_bull_rebound_does_not_trigger_panic_repair() -> None:
         MainBenchmarkMetrics(today_pct=0.4408, prev_pct=0.5031),
         SmallcapMetrics(today_pct=-1.888, prev_pct=2.9884),
         MarketRegimeConfig().normalized(),
-        base_regime="RISK_ON",
     )
 
     assert reasons == []
 
 
-def test_defensive_continuous_rebound_can_trigger_repair_review() -> None:
+def test_defensive_continuous_rebound_without_panic_stays_out_of_repair() -> None:
     reasons = _repair_reasons(
         MainBenchmarkMetrics(today_pct=0.45, prev_pct=0.5),
         SmallcapMetrics(today_pct=-0.2, prev_pct=0.1),
         MarketRegimeConfig().normalized(),
-        base_regime="RISK_OFF",
     )
 
-    assert reasons == ["continuous_rebound_after_RISK_OFF(main_prev=0.5, main_today=0.45)"]
+    assert reasons == []
 
 
 def test_risk_on_structure_with_weak_breadth_becomes_caution() -> None:

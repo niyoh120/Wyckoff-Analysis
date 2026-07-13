@@ -177,7 +177,14 @@ def _regime_elements(regime_data: dict) -> list[dict]:
 
 
 def _regime_columns(regime_data: dict) -> list[dict]:
-    regime_icons = {"NEUTRAL": "🟡", "PANIC_REPAIR": "🟠", "RISK_OFF": "🔴", "RISK_ON": "🟢", "CRASH": "⚫"}
+    regime_icons = {
+        "NEUTRAL": "🟡",
+        "PANIC_REPAIR": "🟠",
+        "PANIC_REPAIR_CONFIRMED": "🟢",
+        "RISK_OFF": "🔴",
+        "RISK_ON": "🟢",
+        "CRASH": "⚫",
+    }
     return [
         {
             "tag": "column",

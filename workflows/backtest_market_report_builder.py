@@ -19,6 +19,7 @@ from workflows.backtest_market_report_artifacts import GridCell, read_trades
 REGIME_LABELS = {
     "CRASH": "下跌/踩踏期",
     "PANIC_REPAIR": "恐慌修复期",
+    "PANIC_REPAIR_CONFIRMED": "恐慌修复确认期",
     "RISK_OFF": "防守/风险偏好收缩期",
     "NEUTRAL": "震荡中性期",
     "RISK_ON": "风险偏好扩张期",
@@ -673,6 +674,8 @@ def _build_trading_playbook_lines(cells: list[GridCell], robust_best: RobustPara
         + f"{_playbook_ref(neutral_ref or robust_ref)} | 只做二次确认，降低仓位，不追无确认信号 |",
         "| PANIC_REPAIR / BEAR_REBOUND | 观察买入 | "
         + f"{_playbook_ref(robust_ref)} | 只允许复核候选，不自动写正式推荐 |",
+        "| PANIC_REPAIR_CONFIRMED | 小额试探 | "
+        + f"{_playbook_ref(robust_ref)} | 最多一只 PROBE，单票上限5%，禁止 ATTACK |",
         f"| RISK_OFF / CRASH / BLACK_SWAN | {defensive_action} | 空仓或影子观察 | {defensive_basis} |",
     ]
 

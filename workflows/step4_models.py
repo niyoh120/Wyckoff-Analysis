@@ -103,6 +103,7 @@ class Step4OrderConfig:
     buy_stop_mode: str = "floor"
     atr_slippage_factor: float = 0.25
     probe_budget_limit: float = 0.10
+    repair_probe_budget_limit: float = 0.05
     attack_budget_limit: float = 0.20
     buy_block_regimes: frozenset[str] = frozenset(
         {"UNKNOWN", "BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF", "CRASH", "BLACK_SWAN"}
