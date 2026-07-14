@@ -10,10 +10,19 @@ from core._price_math import (
     numeric_column,
     range_pos,
     ret_pct,
+    swing_values,
     to_numeric,
     upper_shadow_pct,
     vol_ratio,
 )
+
+
+def test_swing_values_uses_confirmed_local_extrema():
+    values = pd.Series([5.0, 4.0, 2.0, 4.0, 5.0, 3.0, 1.0, 3.0, 5.0])
+
+    assert swing_values(values, kind="low", window=1) == [2.0, 1.0]
+    assert swing_values(values, kind="high", window=1) == [5.0]
+    assert swing_values(values, kind="unknown", window=1) == []
 
 
 def test_clamp_bounds_value_within_range():

@@ -1,12 +1,13 @@
-"""Structure-aware Wyckoff diagnostics."""
+"""Dynamic trading-range diagnostics for Wyckoff signal observation."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import NamedTuple
 
 import pandas as pd
 
+from core._price_math import swing_values
 from core._price_math import to_numeric as _to_numeric
 from core.wyckoff_engine import FunnelConfig, sort_by_date_if_needed
 
@@ -52,6 +53,7 @@ class _RangeCandidate(NamedTuple):
     max_drift: float
     support_tests: int
     resistance_tests: int
+    atr_pct: float
 
 
 def _ensure_pct_chg(df: pd.DataFrame) -> pd.Series:
@@ -92,26 +94,6 @@ def _recent_ref_volume_ratio(volume: pd.Series, recent_n: int, ref_n: int) -> fl
     return float(recent.max()) / ref_max
 
 
-def _swing_values(series: pd.Series, *, kind: str, window: int) -> list[float]:
-    values = _to_numeric(series).reset_index(drop=True)
-    out: list[float] = []
-    w = max(int(window), 1)
-    if len(values) < w * 2 + 1:
-        return out
-    for i in range(w, len(values) - w):
-        current = values.iloc[i]
-        if pd.isna(current):
-            continue
-        span = values.iloc[i - w : i + w + 1].dropna()
-        if span.empty:
-            continue
-        if (kind == "low" and float(current) <= float(span.min())) or (
-            kind == "high" and float(current) >= float(span.max())
-        ):
-            out.append(float(current))
-    return out
-
-
 def _range_zone(
     df: pd.DataFrame,
     *,
@@ -136,8 +118,8 @@ def _range_boundary(
     close = _to_numeric(zone["close"])
     if high.isna().all() or low.isna().all() or close.isna().all():
         return None
-    swing_lows = _swing_values(low, kind="low", window=swing_window)
-    swing_highs = _swing_values(high, kind="high", window=swing_window)
+    swing_lows = swing_values(low, kind="low", window=swing_window)
+    swing_highs = swing_values(high, kind="high", window=swing_window)
     support = float(pd.Series(swing_lows[-5:]).median()) if len(swing_lows) >= 2 else float(low.quantile(0.10))
     resistance = float(pd.Series(swing_highs[-5:]).median()) if len(swing_highs) >= 2 else float(high.quantile(0.90))
     if support <= 0 or resistance <= support:
@@ -173,11 +155,29 @@ def _range_tests(high: pd.Series, low: pd.Series, support: float, resistance: fl
     return support_tests, resistance_tests
 
 
+def _range_atr_pct(zone: pd.DataFrame, window: int) -> float:
+    high = _to_numeric(zone["high"])
+    low = _to_numeric(zone["low"])
+    close = _to_numeric(zone["close"])
+    true_range = pd.concat([(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(
+        axis=1
+    )
+    atr = true_range.tail(max(int(window), 1)).mean()
+    last_close = close.iloc[-1]
+    return float(atr / last_close * 100.0) if pd.notna(atr) and pd.notna(last_close) and last_close > 0 else 0.0
+
+
 def _range_quality(
-    width_pct: float, drift_pct: float, max_drift: float, support_tests: int, resistance_tests: int
+    width_pct: float,
+    drift_pct: float,
+    max_drift: float,
+    support_tests: int,
+    resistance_tests: int,
+    atr_pct: float,
 ) -> float:
-    width_score = max(0.0, 1.0 - abs(width_pct - 18.0) / 30.0)
-    test_score = min((support_tests + resistance_tests) / 8.0, 1.0)
+    ideal_width = min(max(atr_pct * 4.0, 6.0), 40.0)
+    width_score = max(0.0, 1.0 - abs(width_pct - ideal_width) / max(ideal_width, 1.0))
+    test_score = min((support_tests + resistance_tests) / 6.0, 1.0)
     drift_score = max(0.0, 1.0 - drift_pct / max_drift)
     return float(0.45 * test_score + 0.35 * width_score + 0.20 * drift_score)
 
@@ -207,6 +207,7 @@ def _range_candidate(
         max_drift=max_drift,
         support_tests=support_tests,
         resistance_tests=resistance_tests,
+        atr_pct=_range_atr_pct(zone, getattr(cfg, "spring_tr_atr_window", 20)),
     )
 
 
@@ -238,6 +239,7 @@ def identify_trading_range(
         candidate.max_drift,
         candidate.support_tests,
         candidate.resistance_tests,
+        candidate.atr_pct,
     )
     mid = candidate.support + (candidate.resistance - candidate.support) / 2.0
     return TradingRange(
@@ -267,7 +269,7 @@ def _infer_stage(df: pd.DataFrame, tr: TradingRange, trigger_keys: set[str]) -> 
 
 
 def _empty_structure_triggers() -> dict[str, list[tuple[str, float]]]:
-    return {"sos": [], "spring": [], "lps": [], "evr": [], "compression": []}
+    return {"sos": [], "spring": [], "lps": [], "evr": []}
 
 
 def _structure_series(df: pd.DataFrame) -> _StructureSeries | None:
@@ -399,9 +401,52 @@ def detect_structure_triggers(
     return StructureTriggerResult(triggers=triggers, trading_ranges=ranges, stage_map=stage_map)
 
 
+def build_structure_shadow(
+    legacy_triggers: dict[str, list[tuple[str, float]]],
+    structure_result: StructureTriggerResult,
+    *,
+    universe_count: int,
+) -> dict:
+    """Compare structure-aware signals with formal Layer 4 without promoting them."""
+    comparisons = {}
+    for signal in ("spring", "lps", "sos", "evr"):
+        legacy_scores = {str(symbol): float(score) for symbol, score in legacy_triggers.get(signal, [])}
+        structure_scores = {str(symbol): float(score) for symbol, score in structure_result.triggers.get(signal, [])}
+        legacy = set(legacy_scores)
+        structure = set(structure_scores)
+        comparisons[signal] = {
+            "legacy_count": len(legacy),
+            "structure_count": len(structure),
+            "both_count": len(legacy & structure),
+            "legacy_only_count": len(legacy - structure),
+            "structure_only_count": len(structure - legacy),
+            "both": sorted(legacy & structure),
+            "legacy_only": sorted(legacy - structure),
+            "structure_only": sorted(structure - legacy),
+            "structure_scores": structure_scores,
+        }
+    stage_counts: dict[str, int] = {}
+    for stage in structure_result.stage_map.values():
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
+    range_count = len(structure_result.trading_ranges)
+    return {
+        "mode": "observation_only",
+        "status": "ok",
+        "affects_formal_selection": False,
+        "universe_count": max(int(universe_count), 0),
+        "range_identified_count": range_count,
+        "range_coverage": round(range_count / universe_count, 4) if universe_count > 0 else 0.0,
+        "trading_ranges": {symbol: asdict(value) for symbol, value in structure_result.trading_ranges.items()},
+        "diagnostic_stage_map": structure_result.stage_map,
+        "diagnostic_stage_counts": stage_counts,
+        "by_trigger": comparisons,
+    }
+
+
 __all__ = [
     "StructureTriggerResult",
     "TradingRange",
+    "build_structure_shadow",
     "detect_structure_triggers",
     "identify_trading_range",
 ]

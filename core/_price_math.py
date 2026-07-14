@@ -22,6 +22,23 @@ def to_numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 
 
+def swing_values(series: pd.Series, *, kind: str, window: int) -> list[float]:
+    values = to_numeric(series).reset_index(drop=True)
+    width = max(int(window), 1)
+    if kind not in {"low", "high"} or len(values) < width * 2 + 1:
+        return []
+    swings: list[float] = []
+    for index in range(width, len(values) - width):
+        current = values.iloc[index]
+        if pd.isna(current):
+            continue
+        span = values.iloc[index - width : index + width + 1].dropna()
+        boundary = span.min() if kind == "low" else span.max()
+        if not span.empty and float(current) == float(boundary):
+            swings.append(float(current))
+    return swings
+
+
 def numeric_column(df: pd.DataFrame, column: str, *, dropna: bool = True) -> pd.Series:
     if column not in df.columns:
         return pd.Series(dtype=float)

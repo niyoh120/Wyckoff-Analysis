@@ -584,6 +584,7 @@ def _layer_metrics(layers: FunnelLayerOutputs, *, total_symbols: int, financial_
         "mainline_candidates": layers.mainline_candidates,
         "mainline_ai_cap": layers.mainline_ai_cap,
         "by_trigger": {k: len(v) for k, v in layers.triggers.items()},
+        "structure_shadow": getattr(layers, "structure_shadow", {}),
         "rps_universe_count": layers.rps_universe_count,
         "layer_rejections": build_layer_rejections(
             total_symbols=total_symbols,

@@ -22,6 +22,7 @@ from core.wyckoff_engine import (
     layer3_sector_resonance,
     layer4_triggers,
 )
+from core.wyckoff_structure import build_structure_shadow, detect_structure_triggers
 from integrations.market_metadata import CONCEPT_HEAT_HISTORY
 from integrations.ths_hot_concept import merge_concept_heat
 from tools.mainline_config import load_mainline_engine_config
@@ -47,6 +48,7 @@ class FunnelLayerOutputs:
     top_sectors: list[str]
     sector_rotation: dict
     triggers: dict[str, list[tuple[str, float]]]
+    structure_shadow: dict
     leader_radar_rows: list[dict]
     leader_radar_symbols: list[str]
     theme_radar_current: dict
@@ -91,6 +93,7 @@ def run_base_funnel_layers(
     triggers = layer4_triggers(
         l3_passed, all_df_map, cfg, channel_map=l2_channel_map, market_cap_map=ref_data.market_cap_map
     )
+    structure_shadow = _structure_shadow(l3_passed, all_df_map, cfg, triggers)
     leader_rows = detect_leader_radar(l1_passed, all_df_map, ref_data.sector_map, l2_channel_map, cfg)
     theme_current, theme_radar, theme_source = _build_theme_context(window, ref_data, all_df_map)
     mainline_cfg = load_mainline_engine_config()
@@ -116,6 +119,7 @@ def run_base_funnel_layers(
         top_sectors=top_sectors,
         sector_rotation=sector_rotation,
         triggers=triggers,
+        structure_shadow=structure_shadow,
         leader_radar_rows=leader_rows,
         leader_radar_symbols=[str(row.get("code", "")).strip() for row in leader_rows if row.get("code")],
         theme_radar_current=theme_current,
@@ -127,6 +131,26 @@ def run_base_funnel_layers(
         mainline_ai_cap=mainline_cfg.max_ai_candidates,
         rps_universe_count=len(l1_input),
     )
+
+
+def _structure_shadow(
+    symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    cfg: FunnelConfig,
+    formal_triggers: dict[str, list[tuple[str, float]]],
+) -> dict:
+    try:
+        structure = detect_structure_triggers(symbols, df_map, cfg)
+        return build_structure_shadow(formal_triggers, structure, universe_count=len(symbols))
+    except Exception as exc:
+        logger.warning("structure shadow unavailable: %s", exc)
+        return {
+            "mode": "observation_only",
+            "status": "unavailable",
+            "affects_formal_selection": False,
+            "universe_count": len(symbols),
+            "reason": type(exc).__name__,
+        }
 
 
 def _run_strength_layers(

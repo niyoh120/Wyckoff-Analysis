@@ -4,7 +4,12 @@ import numpy as np
 import pandas as pd
 
 from core.wyckoff_engine import FunnelConfig
-from core.wyckoff_v2_structure import detect_structure_triggers, identify_trading_range
+from core.wyckoff_structure import (
+    _range_quality,
+    build_structure_shadow,
+    detect_structure_triggers,
+    identify_trading_range,
+)
 
 
 def _range_df(n: int = 120) -> pd.DataFrame:
@@ -39,6 +44,13 @@ def test_identify_trading_range_from_repeated_swings():
     assert 11.5 <= tr.resistance <= 12.5
     assert tr.support_tests >= 2
     assert tr.resistance_tests >= 2
+
+
+def test_range_quality_scores_width_relative_to_atr():
+    matched = _range_quality(12.0, 0.0, 12.0, 3, 3, 3.0)
+    too_wide_for_volatility = _range_quality(12.0, 0.0, 12.0, 3, 3, 1.5)
+
+    assert matched > too_wide_for_volatility
 
 
 def test_structure_spring_uses_prior_trading_range():
@@ -80,3 +92,29 @@ def test_structure_sos_uses_dynamic_resistance():
 
     assert result.triggers["sos"]
     assert result.stage_map["000001"] == "Markup"
+
+
+def test_structure_shadow_keeps_structure_only_signal_observational():
+    df = _range_df()
+    df.loc[df.index[-1], ["open", "high", "low", "close", "volume", "pct_chg"]] = [
+        10.0,
+        10.7,
+        9.55,
+        10.45,
+        1_700_000.0,
+        4.0,
+    ]
+    cfg = FunnelConfig()
+    cfg.spring_vol_ratio = 1.0
+    structure = detect_structure_triggers(["000001"], {"000001": df}, cfg)
+
+    shadow = build_structure_shadow({}, structure, universe_count=1)
+
+    assert shadow["mode"] == "observation_only"
+    assert shadow["affects_formal_selection"] is False
+    assert shadow["by_trigger"]["spring"]["structure_only"] == ["000001"]
+    assert shadow["by_trigger"]["spring"]["structure_only_count"] == 1
+    assert shadow["by_trigger"]["spring"]["structure_scores"]["000001"] > 0
+    assert shadow["range_coverage"] == 1.0
+    assert shadow["trading_ranges"]["000001"]["quality_score"] > 0
+    assert shadow["diagnostic_stage_map"] == {"000001": "Accum_C"}

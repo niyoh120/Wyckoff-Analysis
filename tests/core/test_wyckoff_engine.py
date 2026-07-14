@@ -18,6 +18,8 @@ from core.wyckoff_engine import (
     _effective_entry_max_bias_200,
     _is_holiday_grace,
     _latest_trade_date,
+    _sos_volume_ratio,
+    _spring_support_level,
     build_candidate_entries,
     detect_accum_stage,
     detect_leader_radar,
@@ -726,6 +728,20 @@ class TestSpringVolScaleByBoard:
         assert _detect_spring(df, cfg, code=STAR_CODE) is None
 
 
+def test_spring_support_uses_swing_low_median_instead_of_extreme():
+    lows = [10.2, 9.8, 10.2] * 7
+    lows[10] = 5.0
+    zone = pd.DataFrame({"low": lows, "close": [10.0] * len(lows)})
+
+    assert _spring_support_level(zone) == 9.8
+
+
+def test_spring_support_falls_back_when_swings_are_insufficient():
+    zone = pd.DataFrame({"low": [10.0, 9.0, 10.0], "close": [10.0, 9.5, 10.0]})
+
+    assert _spring_support_level(zone) == 9.5
+
+
 class TestLpsVolScaleByBoard:
     def test_vol_ratio_between_main_and_registration_threshold(self):
         cfg = FunnelConfig()
@@ -817,6 +833,14 @@ class TestSosVolScaleByBoard:
         # 说明同样的涨幅"含金量"在20%涨跌停板块更低，点火判定理应更严格。
         assert _detect_sos(df, cfg, code=MAIN_BOARD_CODE) is not None
         assert _detect_sos(df, cfg, code=STAR_CODE) is None
+
+
+def test_sos_volume_requires_ratio_and_historical_quantile():
+    cfg = FunnelConfig(sos_vol_ratio=1.5, sos_vol_quantile_window=60, sos_vol_quantile=0.95)
+    reference = [1.0] * 56 + [5.0] * 4
+
+    assert _sos_volume_ratio(pd.Series(reference + [2.0]), cfg) is None
+    assert _sos_volume_ratio(pd.Series(reference + [6.0]), cfg) is not None
 
 
 class TestFrozenBoardExcludedFromSpring:

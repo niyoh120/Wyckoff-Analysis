@@ -57,12 +57,14 @@ def test_layer_metrics_include_rps_universe_and_stage_rejections() -> None:
         mainline_candidates=[],
         mainline_ai_cap=3,
         triggers={"sos": [("1", 80.0)]},
+        structure_shadow={"mode": "observation_only", "affects_formal_selection": False},
         rps_universe_count=5,
     )
 
     metrics = _layer_metrics(layers, total_symbols=5)
 
     assert metrics["rps_universe_count"] == 5
+    assert metrics["structure_shadow"]["affects_formal_selection"] is False
     assert metrics["layer_rejections"]["layer1"]["rejected"] == 2
     assert metrics["layer_rejections"]["layer2"]["rejected"] == 1
     assert metrics["layer_rejections"]["layer3"]["rejected"] == 1

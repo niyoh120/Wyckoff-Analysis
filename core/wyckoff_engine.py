@@ -18,6 +18,7 @@ from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 
+from core._price_math import swing_values
 from core.candidate_lanes import build_l1_candidate_lane_entries, merge_candidate_entries
 from core.candidate_tracks import candidate_entry_sort_key
 from core.cn_boards import cn_board, is_supported_cn_board
@@ -989,6 +990,13 @@ def _board_vol_ratio_scale(code: str, *, market: str = "cn") -> float:
     return _REGISTRATION_BOARD_VOL_SCALE if cn_board(code) in {"chinext", "star"} else 1.0
 
 
+def _spring_support_level(support_zone: pd.DataFrame) -> float:
+    swing_lows = swing_values(support_zone["low"], kind="low", window=3)
+    if len(swing_lows) >= 2:
+        return float(pd.Series(swing_lows[-5:]).median())
+    return float(pd.to_numeric(support_zone["close"], errors="coerce").min())
+
+
 def _detect_spring(
     df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None, code: str = ""
 ) -> float | None:
@@ -1004,7 +1012,7 @@ def _detect_spring(
     # 调用时把历史前序 df_full 传进去计算 ATR
     if not _is_trading_range_context(support_zone, cfg, df_full=df_s.iloc[:-2]):
         return None
-    support_level = support_zone["close"].min()
+    support_level = _spring_support_level(support_zone)
     prev = df_s.iloc[-2]
     last = df_s.iloc[-1]
 
@@ -1229,7 +1237,9 @@ def _sos_volume_ratio(volume: pd.Series, cfg: FunnelConfig, vol_scale: float = 1
         return None
     vol_ratio = float(volume.iloc[-1]) / vol_ref_avg
     threshold = float(getattr(cfg, "sos_vol_ratio", 2.0)) * vol_scale
-    return vol_ratio if vol_ratio >= threshold else None
+    quantile = float(getattr(cfg, "sos_vol_quantile", 0.95))
+    quantile_volume = float(vol_ref.quantile(min(max(quantile, 0.0), 1.0)))
+    return vol_ratio if vol_ratio >= threshold and float(volume.iloc[-1]) >= quantile_volume else None
 
 
 def _sos_breakout_or_ma_cross(series: _SosSeries, cfg: FunnelConfig) -> bool:

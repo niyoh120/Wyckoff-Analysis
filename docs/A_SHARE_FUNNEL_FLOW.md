@@ -239,6 +239,13 @@ flowchart TD
 | Compression | 压缩蓄势 | 通用 |
 | Trend Pullback | 趋势回踩 | Trend / Mainline |
 
+`core/wyckoff_structure.py` 会在同一批 L3 股票上额外识别动态交易区间，并对 Spring、LPS、SOS、EVR
+生成 `structure_shadow` 对照。该结果只记录区间覆盖率、正式/结构共同命中和各自独有命中，固定为
+`observation_only`，不合并进正式 `triggers`，不参与候选评分、二次确认、回测成交或 OMS。
+结构区间质量按测试次数、ATR 归一化宽度和漂移评分；结构诊断异常时只把 shadow 标记为 `unavailable`，
+正式 L4 继续运行。正式 Spring 使用近期 swing low 中位支撑并在样本不足时回退最低收盘价；SOS 同时校验
+均量倍数和历史量能分位。
+
 ### 外部观察名单
 
 `external_seeds` 用于把人工关注、社区反馈或其它系统给出的股票加入同一套漏斗观察，而不是作为正式候选来源：
