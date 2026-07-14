@@ -58,7 +58,7 @@ export function ChatPage() {
   useEffect(() => {
     activeConversationRef.current = conversations.activeId
     setRunCheckpoint(readRunCheckpoint(conversations.activeId))
-  }, [conversations.activeId])
+  }, [conversations.activeId, activeConversationRef, setRunCheckpoint])
   const watchlist = useReadingRoomWatchlist(user?.id)
   const runRecords = useMemo(() => buildRunRecords(chat.messages, t), [chat.messages, t])
   useAutoScroll(scrollRef, activeTab === 'chat' ? chat.messages : [], activeTab === 'chat' && loading, activeTab === 'chat' ? queue.messages.length : 0)
@@ -102,7 +102,7 @@ export function ChatPage() {
     if (!conversationId) return
     clearRunCheckpoint(conversationId)
     setRunCheckpoint(null)
-  }, [])
+  }, [activeConversationRef, setRunCheckpoint])
 
   useEffect(() => {
     const prompt = (location.state as { initialPrompt?: unknown } | null)?.initialPrompt

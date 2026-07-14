@@ -19,6 +19,7 @@ from integrations.supabase_base import create_admin_client as _get_supabase_admi
 from integrations.supabase_base import create_read_client as _get_supabase_read_client
 from integrations.supabase_base import is_admin_configured as is_supabase_admin_configured
 from integrations.supabase_base import require_server_write_context
+from utils.safe import finite_float as _safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -43,18 +44,6 @@ def market_signal_readiness(row: dict[str, Any] | None, expected_trade_date: dat
     if not benchmark:
         return {"status": "partial", "reason": "当日盘后 benchmark 尚未就绪"}
     return {"status": "ready", "reason": "当日盘后 benchmark 已就绪"}
-
-
-def _safe_float(raw: Any) -> float | None:
-    try:
-        if raw is None:
-            return None
-        text = str(raw).strip().replace(",", "")
-        if not text:
-            return None
-        return float(text)
-    except Exception:
-        return None
 
 
 def _format_signed_pct(raw: Any) -> str:

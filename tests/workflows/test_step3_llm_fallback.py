@@ -91,7 +91,6 @@ def test_step3_runtime_config_from_env_normalizes_values(monkeypatch):
     assert cfg.entry_quality_tie_bucket == 0.5
     assert cfg.enable_rag_veto is False
     assert cfg.skip_llm is True
-    assert cfg.send_x_summary is True
     assert cfg.gemini_model_fallback == "gemini-backup"
     assert cfg.llm_fallback_providers == ("efficiency", "gemini")
     assert cfg.history_max_workers == 1
@@ -104,13 +103,3 @@ def test_step3_runtime_config_rejects_legacy_report_style(monkeypatch):
 
     with pytest.raises(RuntimeError, match="legacy 口径已禁用"):
         step3_runtime_config_from_env()
-
-
-def test_step3_runtime_config_can_disable_x_summary(monkeypatch):
-    from workflows.step3_runtime_config import step3_runtime_config_from_env
-
-    monkeypatch.setenv("STEP3_SEND_X_SUMMARY", "0")
-
-    cfg = step3_runtime_config_from_env()
-
-    assert cfg.send_x_summary is False

@@ -31,7 +31,7 @@ export const TICKFLOW_PURCHASE = 'https://tickflow.org/auth/register?ref=5N4NKTC
 type Fetcher = typeof globalThis.fetch
 
 export function normalizeCode(code: string | number): string {
-  const raw = String(code || '').trim().toUpperCase()
+  const raw = String(code ?? '').trim().toUpperCase()
   return /^\d+$/.test(raw) && raw.length < 6 ? raw.padStart(6, '0') : raw
 }
 

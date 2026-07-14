@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { Output } from 'ai'
 import type { generateText as GenerateTextFn } from 'ai'
 import { z } from 'zod'
-import { fetchValueSnapshotWithFetch, isCnSymbol, normalizeTickFlowSymbol, normalizeTushareCode, type ValueSnapshot } from './agent-market'
+import { fetchValueSnapshotWithFetch, isCnSymbol, normalizeCode, normalizeTickFlowSymbol, normalizeTushareCode, type ValueSnapshot } from './agent-market'
 import { buildValuePrompt, buildValueScore } from './agent-value'
 import {
   attributionFormalDynamicLabel,
@@ -357,7 +357,7 @@ export async function fetchQuotes(
   if (!tickflowKey || stocks.length === 0) return {}
   try {
     const symbols = stocks.map(r => {
-      const c = String(r.code).padStart(6, '0')
+      const c = normalizeCode(r.code)
       if (c.startsWith('6')) return `${c}.SH`
       if (c.startsWith('4') || c.startsWith('8') || c.startsWith('9')) return `${c}.BJ`
       return `${c}.SZ`
@@ -405,7 +405,7 @@ export async function execSearchStock(deps: ToolDeps, userId: string, query: str
   const quotes = await fetchQuotes(deps, tickflowKey, unique)
 
   const lines = unique.map(r => {
-    const code6 = String(r.code).padStart(6, '0')
+    const code6 = normalizeCode(r.code)
     const qt = quotes[code6]
     if (qt) {
       const price = qt.close || qt.last || qt.price || qt.current || 0
@@ -595,9 +595,9 @@ function mapSignalPendingReviewRow(row: Record<string, unknown>): PatternReviewR
   if (!recommendDate) return null
   const signalType = stringOrNull(row.signal_type)
   const status = stringOrNull(row.status) || 'pending'
-  return {
-    code: normalizeReviewCode(row.code),
-    name: stringOrNull(row.name) || normalizeReviewCode(row.code),
+    return {
+      code: normalizeCode(row.code as string | number),
+      name: stringOrNull(row.name) || normalizeCode(row.code as string | number),
     recommend_date: recommendDate,
     recommend_count: 1,
     initial_price: numberOrNull(row.snap_close),
@@ -645,11 +645,6 @@ function jsonMapOrNull(value: unknown): Record<string, unknown> | null {
   }
 }
 
-function normalizeReviewCode(value: unknown): string {
-  const raw = String(value ?? '').trim()
-  return /^\d+$/.test(raw) ? raw.padStart(6, '0') : raw
-}
-
 export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<string> {
   const { data } = await deps.supabase
     .from('tail_buy_history')
@@ -662,7 +657,7 @@ export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<s
   const latestDate = String(data[0]!.run_date || '')
   const freshness = dataFreshnessNote(latestDate, '尾盘记录')
   const lines = data.map((r) => {
-    const code = String(r.code).padStart(6, '0')
+    const code = normalizeCode(r.code as string | number)
     const entry = typeof r.initial_price === 'number' && r.initial_price > 0 ? r.initial_price : r.last_close
     const current = typeof r.current_price === 'number' && r.current_price > 0 ? r.current_price : entry
     const change = typeof r.change_pct === 'number' ? `${r.change_pct.toFixed(1)}%` : '-'
@@ -1072,7 +1067,7 @@ export async function execScreenStocks(deps: ToolDeps): Promise<ScreenResult> {
   const result: ScreenResult = {
     date: latestDate,
     stocks: latest.map(r => ({
-      code: String(r.code).padStart(6, '0'),
+      code: normalizeCode(r.code),
       name: r.name,
       funnel_score: r.funnel_score ?? null,
       change_pct: r.change_pct ?? null,

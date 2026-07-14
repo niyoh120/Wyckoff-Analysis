@@ -1,3 +1,5 @@
+import { normalizeCode } from './agent-market'
+
 export const PATTERN_REVIEW_EMPTY_MESSAGE = '暂无形态复盘记录'
 export const PATTERN_REVIEW_SCOPE_NOTE = 'AI推荐才进入交易研判，观察/信号复盘不等于买入。'
 
@@ -72,7 +74,7 @@ export function labelCandidateTerm(value: string): string | null {
 }
 
 export function formatPatternReviewLine(row: PatternReviewRow): string {
-  const code = String(row.code).padStart(6, '0')
+  const code = normalizeCode(row.code)
   const pricePath = `${formatPrice(row.initial_price)}→${formatPrice(row.current_price)}`
   const lane = [row.candidate_lane || row.signal_key || row.signal_type, row.entry_type || row.candidate_status]
     .map(item => String(item || '').trim())

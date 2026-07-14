@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from dataclasses import dataclass
 import pandas as pd
 
 from core.signal_confirmation import score_springboard_abc
+
+logger = logging.getLogger(__name__)
 
 STRUCTURAL_L4_TRIGGERS = {"spring", "lps", "compression", "compress", "trend_pullback", "volatile_pullback"}
 NAKED_RIGHT_SIDE_TRIGGERS = {"sos", "evr"}
@@ -254,6 +257,7 @@ def _springboard_met_count(df: pd.DataFrame, keys: set[str]) -> int:
         try:
             counts.append(int(score_springboard_abc(df, signal_type).get("met_count") or 0))
         except Exception:
+            logger.warning("score_springboard_abc failed for signal_type=%s", signal_type, exc_info=True)
             continue
     return max(counts) if counts else 0
 

@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { watchChartResize } from '@/lib/chart-resize'
 import { useWhitelistGate } from '@/lib/whitelist-gate'
 import { SortableHeader, type SortOrder } from '@/components/sortable-header'
-import { labelCandidateTerm } from '@wyckoff/shared'
+import { labelCandidateTerm, normalizeCode } from '@wyckoff/shared'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
 import { financialValueClass } from '@/lib/financial-colors'
@@ -182,7 +182,7 @@ function mapSignalPendingRow(row: SignalPendingRow): Recommendation | null {
   const recommendDate = signalDateNumber(row.signal_date)
   if (!recommendDate) return null
   return {
-    code: normalizeTrackingCode(row.code),
+    code: normalizeCode(row.code),
     name: row.name ?? null,
     recommend_date: recommendDate,
     initial_price: nullableNumber(row.snap_close),
@@ -699,7 +699,7 @@ function TrackingRow({ row, market = 'cn' }: { row: Recommendation; market?: Mar
   const { t } = usePreferences()
   const vetoed = row.rag_vetoed
   const rowCls = vetoed ? 'border-t border-border hover:bg-muted/20 opacity-60 line-through' : 'border-t border-border hover:bg-muted/20'
-  const codeDisplay = market === 'cn' ? String(row.code).padStart(6, '0') : String(row.code)
+  const codeDisplay = market === 'cn' ? normalizeCode(row.code) : String(row.code)
   const scoreKind = trackingScoreKind(row)
   return (
     <tr className={rowCls}>
@@ -1037,7 +1037,7 @@ function trackingSourcePriority(row: Recommendation): number {
 }
 
 function trackingCodeKey(code: number | string): string {
-  return normalizeTrackingCode(code)
+  return normalizeCode(code)
 }
 
 function buildSummaryStats(rows: Recommendation[]): SummaryStats | null {
@@ -1074,11 +1074,6 @@ function isFiniteNumber(value: number | null | undefined): value is number {
 
 function nullableNumber(value: number | null | undefined): number | null {
   return isFiniteNumber(value) ? value : null
-}
-
-function normalizeTrackingCode(code: number | string): string {
-  const raw = String(code).trim()
-  return /^\d+$/.test(raw) ? raw.padStart(6, '0') : raw
 }
 
 function signalDateNumber(value: string | null | undefined): number {

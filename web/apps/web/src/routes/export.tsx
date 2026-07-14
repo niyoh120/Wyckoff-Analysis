@@ -46,7 +46,7 @@ async function getTickFlowKey(userId: string): Promise<string | null> {
 export function ExportPage() {
   const user = useAuthStore((s) => s.user)
   const { t } = usePreferences()
-  const state = useExportState(user?.id, t)
+  const state = useExportState(user?.id)
 
   return (
     <div className="flex h-full flex-col p-6">
@@ -63,7 +63,8 @@ export function ExportPage() {
   )
 }
 
-function useExportState(userId: string | undefined, t: Translate) {
+function useExportState(userId: string | undefined) {
+  const { t } = usePreferences()
   const [mode, setMode] = useState<ExportMode>('single')
   const [symbol, setSymbol] = useState('')
   const [batchText, setBatchText] = useState('')
@@ -147,7 +148,6 @@ function useExportState(userId: string | undefined, t: Translate) {
       setAdjust,
       loading,
       onExport: handleExport,
-      t,
     },
     preview: {
       datasets,
@@ -165,7 +165,6 @@ function useExportState(userId: string | undefined, t: Translate) {
       downloadCurrent,
       downloadSelected,
       downloadZip,
-      t,
     },
   }
 }
@@ -185,30 +184,30 @@ function ExportControlPanel(props: {
   setAdjust: (value: ExportAdjust) => void
   loading: boolean
   onExport: () => void
-  t: Translate
 }) {
+  const { t } = usePreferences()
   const disabled = props.loading || (props.mode === 'single' ? !props.symbol.trim() : !props.batchText.trim())
   return (
     <section className="mb-5 rounded-lg border border-border p-4">
       <div className="mb-4 flex flex-wrap gap-2">
-        <ModeButton active={props.mode === 'single'} onClick={() => props.setMode('single')}>{props.t('export.singleMode')}</ModeButton>
-        <ModeButton active={props.mode === 'batch'} onClick={() => props.setMode('batch')}>{props.t('export.batchMode')}</ModeButton>
+        <ModeButton active={props.mode === 'single'} onClick={() => props.setMode('single')}>{t('export.singleMode')}</ModeButton>
+        <ModeButton active={props.mode === 'batch'} onClick={() => props.setMode('batch')}>{t('export.batchMode')}</ModeButton>
       </div>
       <div className="grid gap-3 lg:grid-cols-[minmax(240px,1fr)_120px_120px_150px_auto] lg:items-end">
         {props.mode === 'single' ? (
-          <TextField label={props.t('common.stockCode')} value={props.symbol} onChange={props.setSymbol} placeholder={props.t('export.symbolPlaceholder')} onEnter={props.onExport} />
+          <TextField label={t('common.stockCode')} value={props.symbol} onChange={props.setSymbol} placeholder={t('export.symbolPlaceholder')} onEnter={props.onExport} />
         ) : (
-          <TextArea label={props.t('export.batchSymbols')} value={props.batchText} onChange={props.setBatchText} placeholder="601318; 000001; 510300; AAPL.US; 00700.HK" />
+          <TextArea label={t('export.batchSymbols')} value={props.batchText} onChange={props.setBatchText} placeholder="601318; 000001; 510300; AAPL.US; 00700.HK" />
         )}
-        <NumberField label={props.t('export.days')} value={props.days} min={10} max={700} onChange={props.setDays} />
-        <NumberField label={props.t('export.endOffset')} value={props.endOffset} min={0} max={30} onChange={props.setEndOffset} />
-        <AdjustSelect value={props.adjust} onChange={props.setAdjust} t={props.t} />
+        <NumberField label={t('export.days')} value={props.days} min={10} max={700} onChange={props.setDays} />
+        <NumberField label={t('export.endOffset')} value={props.endOffset} min={0} max={30} onChange={props.setEndOffset} />
+        <AdjustSelect value={props.adjust} onChange={props.setAdjust} />
         <button onClick={props.onExport} disabled={disabled} className="flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
           {props.loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-          {props.loading ? props.t('export.fetching') : props.t('export.fetch')}
+          {props.loading ? t('export.fetching') : t('export.fetch')}
         </button>
       </div>
-      <p className="mt-3 text-xs text-muted-foreground">{props.t('export.batchHint')}</p>
+      <p className="mt-3 text-xs text-muted-foreground">{t('export.batchHint')}</p>
     </section>
   )
 }
@@ -254,7 +253,8 @@ function resetExportOutput(
   setColumnFilter('')
 }
 
-function AdjustSelect({ value, onChange, t }: { value: ExportAdjust; onChange: (value: ExportAdjust) => void; t: Translate }) {
+function AdjustSelect({ value, onChange }: { value: ExportAdjust; onChange: (value: ExportAdjust) => void }) {
+  const { t } = usePreferences()
   return (
     <div>
       <label className="mb-1.5 block text-sm font-medium">{t('export.adjust')}</label>
@@ -288,7 +288,6 @@ function DatasetPreviewPanel(props: {
   downloadCurrent: (kind: PreviewMode) => void
   downloadSelected: () => void
   downloadZip: () => void
-  t: Translate
 }) {
   return (
     <section className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
@@ -308,20 +307,20 @@ function PreviewToolbar(props: {
   downloadCurrent: (kind: PreviewMode) => void
   downloadSelected: () => void
   downloadZip: () => void
-  t: Translate
 }) {
+  const { t } = usePreferences()
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <DatasetSelect datasets={props.datasets} activeIndex={props.activeIndex} onChange={props.setActiveIndex} label={props.t('export.dataset')} />
-        <ModeButton active={props.previewMode === 'enhanced'} onClick={() => props.setPreviewMode('enhanced')}>{props.t('export.enhancedView')}</ModeButton>
-        <ModeButton active={props.previewMode === 'raw'} onClick={() => props.setPreviewMode('raw')}>{props.t('export.rawView')}</ModeButton>
+        <DatasetSelect datasets={props.datasets} activeIndex={props.activeIndex} onChange={props.setActiveIndex} label={t('export.dataset')} />
+        <ModeButton active={props.previewMode === 'enhanced'} onClick={() => props.setPreviewMode('enhanced')}>{t('export.enhancedView')}</ModeButton>
+        <ModeButton active={props.previewMode === 'raw'} onClick={() => props.setPreviewMode('raw')}>{t('export.rawView')}</ModeButton>
       </div>
       <div className="flex flex-wrap gap-2">
-        <DownloadButton onClick={() => props.downloadCurrent('enhanced')} icon={<FileSpreadsheet size={15} />}>{props.t('export.enhancedCsv')}</DownloadButton>
-        <DownloadButton onClick={() => props.downloadCurrent('raw')} icon={<FileSpreadsheet size={15} />}>{props.t('export.rawCsv')}</DownloadButton>
-        <DownloadButton onClick={props.downloadSelected} icon={<Download size={15} />}>{props.t('export.selectedCsv')}</DownloadButton>
-        <DownloadButton onClick={props.downloadZip} icon={<Package size={15} />}>{props.t('export.zip')}</DownloadButton>
+        <DownloadButton onClick={() => props.downloadCurrent('enhanced')} icon={<FileSpreadsheet size={15} />}>{t('export.enhancedCsv')}</DownloadButton>
+        <DownloadButton onClick={() => props.downloadCurrent('raw')} icon={<FileSpreadsheet size={15} />}>{t('export.rawCsv')}</DownloadButton>
+        <DownloadButton onClick={props.downloadSelected} icon={<Download size={15} />}>{t('export.selectedCsv')}</DownloadButton>
+        <DownloadButton onClick={props.downloadZip} icon={<Package size={15} />}>{t('export.zip')}</DownloadButton>
       </div>
     </div>
   )
@@ -334,17 +333,17 @@ function ColumnPicker(props: {
   columnSet: Set<string>
   setSelectedColumns: (columns: string[]) => void
   columns: string[]
-  t: Translate
 }) {
+  const { t } = usePreferences()
   return (
     <div className="border-b border-border p-3">
       <div className="mb-2 flex flex-wrap items-center gap-3">
-        <input value={props.columnFilter} onChange={(e) => props.setColumnFilter(e.target.value)} placeholder={props.t('export.columnFilter')} className="h-9 w-56 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20" />
+        <input value={props.columnFilter} onChange={(e) => props.setColumnFilter(e.target.value)} placeholder={t('export.columnFilter')} className="h-9 w-56 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20" />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={props.visibleColumns.every((c) => props.columnSet.has(c))} onChange={(e) => props.setSelectedColumns(toggleColumns(props.columnSet, props.columns, props.visibleColumns, e.target.checked))} />
-          {props.t('export.selectAll')}
+          {t('export.selectAll')}
         </label>
-        <span className="text-xs text-muted-foreground">{props.t('export.selectedCount', { count: props.columnSet.size })}</span>
+        <span className="text-xs text-muted-foreground">{t('export.selectedCount', { count: props.columnSet.size })}</span>
       </div>
       <div className="flex max-h-20 flex-wrap gap-2 overflow-auto">
         {props.visibleColumns.map((column) => (

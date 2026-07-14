@@ -2,7 +2,7 @@
 工具注册表 — 按 Agent 工具族注册函数，去除 ADK 依赖。
 
 核心思路：
-1. ToolContext 用 shim 类替代（只需 .state 属性）
+1. ToolContext 复用 agents.tool_context（提供 .state / .state_lock 等共享字段）
 2. 工具 JSON Schema 手动定义（比自动生成更可控）
 3. 凭证通过 .env 环境变量提供
 """
@@ -15,22 +15,9 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from agents.tool_context import ToolContext
+
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# ToolContext shim — 替代历史 ADK ToolContext
-# ---------------------------------------------------------------------------
-
-
-class ToolContext:
-    """最小化 ToolContext shim，提供 .state / .provider / .registry / .on_progress。"""
-
-    def __init__(self, state: dict[str, Any] | None = None):
-        self.state = state or {}
-        self.provider = None
-        self.registry = None
-        self.on_progress = None
 
 
 # ---------------------------------------------------------------------------

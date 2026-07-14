@@ -7,7 +7,7 @@ import { SortableHeader, type SortOrder } from '@/components/sortable-header'
 import { usePreferences } from '@/lib/preferences'
 import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
-import { formatTailBuyPolicyWeightText, tailBuyExecutionSemantics, tailBuyPolicyWeightMultiplier } from '@wyckoff/shared'
+import { formatTailBuyPolicyWeightText, normalizeCode, tailBuyExecutionSemantics, tailBuyPolicyWeightMultiplier } from '@wyckoff/shared'
 
 interface TailBuyRecord {
   code: string
@@ -114,7 +114,7 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
 
   return (
     <tr key={`${record.code}-${record.run_date}`} className="border-t border-border hover:bg-muted/20">
-      <td className="px-3 py-2 font-mono">{String(record.code).padStart(6, '0')}</td>
+      <td className="px-3 py-2 font-mono">{normalizeCode(record.code)}</td>
       <td className="px-3 py-2">{record.name}</td>
       <td className="px-3 py-2 text-right text-muted-foreground">{record.run_date}</td>
       <td className="px-3 py-2 text-center">

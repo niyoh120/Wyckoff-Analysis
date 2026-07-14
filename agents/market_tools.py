@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from agents.tool_context import ToolContext, ensure_tushare_token, get_credential
-from utils.safe import safe_float as _safe_float_or_none
+from utils.safe import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -218,10 +218,10 @@ def _akshare_latest_row(ts_code: str, row, columns: dict[str, str]) -> dict:
     return {
         "ts_code": ts_code,
         "trade_date": "",
-        "close": round(_safe_float(row.get(columns["close"], 0) if columns["close"] else 0), 2),
-        "pct_chg": round(_safe_float(row.get(columns["pct"], 0) if columns["pct"] else 0), 2),
-        "vol": int(_safe_float(row.get(columns["vol"], 0) if columns["vol"] else 0)),
-        "amount": round(_safe_float(row.get(columns["amount"], 0) if columns["amount"] else 0), 2),
+        "close": round(safe_float(row.get(columns["close"], 0) if columns["close"] else 0), 2),
+        "pct_chg": round(safe_float(row.get(columns["pct"], 0) if columns["pct"] else 0), 2),
+        "vol": int(safe_float(row.get(columns["vol"], 0) if columns["vol"] else 0)),
+        "amount": round(safe_float(row.get(columns["amount"], 0) if columns["amount"] else 0), 2),
     }
 
 
@@ -239,12 +239,8 @@ def resolve_market_history_index(index: str) -> tuple[str, str, str]:
     return "sse", symbol, name
 
 
-def _safe_float(value: Any) -> float:
-    return _safe_float_or_none(value, 0.0) or 0.0
-
-
 def json_float(value: Any, digits: int = 2) -> float | None:
-    out = _safe_float_or_none(value, None)
+    out = safe_float(value, None)
     return None if out is None else round(out, digits)
 
 

@@ -14,7 +14,6 @@ interface ProviderConfig {
 }
 
 type SettingsTab = 'capability' | 'sources' | 'model' | 'notifications' | 'account'
-type Translate = ReturnType<typeof usePreferences>['t']
 type SettingsRow = Record<string, unknown>
 type CustomProviderInfo = Record<string, string>
 type TestTarget = 'model' | 'dataSource'
@@ -36,9 +35,8 @@ export function SettingsPage() {
   const { t } = usePreferences()
   const [activeTab, setActiveTab] = useState<SettingsTab>('capability')
   const { toast, toastKind, showToast, clearToast } = useSettingsToast()
-  const form = useSettingsForm(user?.id, t, showToast, clearToast)
+  const form = useSettingsForm(user?.id, showToast, clearToast)
   const connectivity = useConnectivityTests({
-    t,
     showToast,
     chatProvider: form.chatProvider,
     activeModelConfig: form.activeModelConfig,
@@ -54,9 +52,9 @@ export function SettingsPage() {
         </h1>
         <SettingsToast toast={toast} kind={toastKind} />
         <div className="flex flex-col md:flex-row gap-6 items-start">
-          <SettingsTabs activeTab={activeTab} onChange={setActiveTab} t={t} />
+          <SettingsTabs activeTab={activeTab} onChange={setActiveTab} />
           <div className="flex-1 min-w-0 w-full animate-fade-in-up">
-            {activeTab === 'account' && user && <AccountPanel email={user.email || ''} id={user.id} t={t} />}
+            {activeTab === 'account' && user && <AccountPanel email={user.email || ''} id={user.id} />}
             {activeTab === 'capability' && (
               <CapabilityPanel
                 rows={form.settingsCapabilities}
@@ -67,12 +65,11 @@ export function SettingsPage() {
                 canTestDataSource={Boolean(form.tickflowKey.trim())}
                 onTestModel={connectivity.handleModelTest}
                 onTestDataSource={connectivity.handleDataSourceTest}
-                t={t}
               />
             )}
-            {activeTab === 'sources' && <SourcesPanel tickflowKey={form.tickflowKey} setTickflowKey={form.setTickflowKey} t={t} />}
+            {activeTab === 'sources' && <SourcesPanel tickflowKey={form.tickflowKey} setTickflowKey={form.setTickflowKey} />}
             {activeTab === 'model' && (
-              <ModelPanel chatProvider={form.chatProvider} configs={form.configs} setChatProvider={form.setChatProvider} updateConfig={form.updateConfig} t={t} />
+              <ModelPanel chatProvider={form.chatProvider} configs={form.configs} setChatProvider={form.setChatProvider} updateConfig={form.updateConfig} />
             )}
             {activeTab === 'notifications' && (
               <NotificationsPanel
@@ -86,10 +83,9 @@ export function SettingsPage() {
                 setTgBotToken={form.setTgBotToken}
                 tgChatId={form.tgChatId}
                 setTgChatId={form.setTgChatId}
-                t={t}
               />
             )}
-            {canSaveActiveTab && <SaveBar saving={form.saving} onSave={form.handleSave} t={t} />}
+            {canSaveActiveTab && <SaveBar saving={form.saving} onSave={form.handleSave} />}
           </div>
         </div>
       </div>
@@ -121,10 +117,10 @@ function useSettingsToast() {
 
 function useSettingsForm(
   userId: string | undefined,
-  t: Translate,
   showToast: (message: string, kind?: ToastKind) => void,
   clearToast: () => void,
 ) {
+  const { t } = usePreferences()
   const [chatProvider, setChatProvider] = useState<Provider>('1route')
   const [configs, setConfigs] = useState<Record<string, ProviderConfig>>(() => buildDefaultProviderConfigs())
   const [tickflowKey, setTickflowKey] = useState('')
@@ -217,13 +213,13 @@ function useSettingsForm(
 }
 
 function useConnectivityTests(args: {
-  t: Translate
   showToast: (message: string, kind?: ToastKind) => void
   chatProvider: Provider
   activeModelConfig?: ProviderConfig
   tickflowKey: string
 }) {
-  const { t, showToast, chatProvider, activeModelConfig, tickflowKey } = args
+  const { t } = usePreferences()
+  const { showToast, chatProvider, activeModelConfig, tickflowKey } = args
   const [testing, setTesting] = useState<ConnectivityRunning>({ model: false, dataSource: false })
   const [testResults, setTestResults] = useState<ConnectivityState>({ model: null, dataSource: null })
 
@@ -289,7 +285,8 @@ function SettingsToast({ toast, kind }: { toast: string; kind: 'success' | 'erro
   return <div className={`mb-6 rounded-xl px-4 py-3 text-sm shadow-sm transition-all border ${toneClass}`}>{toast}</div>
 }
 
-function SettingsTabs({ activeTab, onChange, t }: { activeTab: SettingsTab; onChange: (tab: SettingsTab) => void; t: Translate }) {
+function SettingsTabs({ activeTab, onChange }: { activeTab: SettingsTab; onChange: (tab: SettingsTab) => void }) {
+  const { t } = usePreferences()
   return (
     <div className="flex w-full shrink-0 flex-row gap-1 overflow-auto border-b border-border pb-3 md:w-56 md:flex-col md:border-b-0 md:border-r md:pb-0 md:pr-4" role="tablist" aria-label={t('settings.title')}>
       {SETTINGS_TABS.map(({ id, labelKey, Icon }) => {
@@ -314,7 +311,8 @@ function SettingsTabs({ activeTab, onChange, t }: { activeTab: SettingsTab; onCh
   )
 }
 
-function AccountPanel({ email, id, t }: { email: string; id: string; t: Translate }) {
+function AccountPanel({ email, id }: { email: string; id: string }) {
+  const { t } = usePreferences()
   return (
     <section className="glass-panel rounded-2xl p-5">
       <h2 className="mb-4 text-sm font-semibold text-foreground flex items-center gap-2 border-b border-border/60 pb-2">
@@ -344,7 +342,6 @@ function CapabilityPanel({
   canTestDataSource,
   onTestModel,
   onTestDataSource,
-  t,
 }: {
   rows: ReturnType<typeof buildSettingsCapabilityRows>
   summary: ReturnType<typeof summarizeSettingsCapabilities>
@@ -354,8 +351,8 @@ function CapabilityPanel({
   canTestDataSource: boolean
   onTestModel: () => void
   onTestDataSource: () => void
-  t: Translate
 }) {
+  const { t } = usePreferences()
   return (
     <section className="space-y-4">
       <div className="rounded-2xl border border-border bg-card/65 p-5 shadow-sm">
@@ -380,11 +377,10 @@ function CapabilityPanel({
           canTestDataSource={canTestDataSource}
           onTestModel={onTestModel}
           onTestDataSource={onTestDataSource}
-          t={t}
         />
       </div>
       <div className="space-y-3">
-        {rows.map((row) => <CapabilityRow key={row.id} row={row} t={t} />)}
+        {rows.map((row) => <CapabilityRow key={row.id} row={row} />)}
       </div>
     </section>
   )
@@ -397,23 +393,23 @@ function ConnectivityActions(props: {
   canTestDataSource: boolean
   onTestModel: () => void
   onTestDataSource: () => void
-  t: Translate
 }) {
+  const { t } = usePreferences()
   return (
     <div className="mt-4 grid gap-3 lg:grid-cols-2">
       <ConnectivityButton
-        label={props.t('settings.testModel')}
-        hint={props.t('settings.testModelHint')}
-        runningLabel={props.t('settings.testing')}
+        label={t('settings.testModel')}
+        hint={t('settings.testModelHint')}
+        runningLabel={t('settings.testing')}
         running={props.testing.model}
         disabled={!props.canTestModel}
         result={props.testResults.model}
         onClick={props.onTestModel}
       />
       <ConnectivityButton
-        label={props.t('settings.testDataSource')}
-        hint={props.t('settings.testDataSourceHint')}
-        runningLabel={props.t('settings.testing')}
+        label={t('settings.testDataSource')}
+        hint={t('settings.testDataSourceHint')}
+        runningLabel={t('settings.testing')}
         running={props.testing.dataSource}
         disabled={!props.canTestDataSource}
         result={props.testResults.dataSource}
@@ -452,7 +448,8 @@ function ConnectivityButton({ label, hint, runningLabel, running, disabled, resu
   )
 }
 
-function CapabilityRow({ row, t }: { row: ReturnType<typeof buildSettingsCapabilityRows>[number]; t: Translate }) {
+function CapabilityRow({ row }: { row: ReturnType<typeof buildSettingsCapabilityRows>[number] }) {
+  const { t } = usePreferences()
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-border bg-card/40 p-4 hover:bg-card/75 transition-all">
       <div className="min-w-0 flex-1">
@@ -474,10 +471,11 @@ function CapabilityRow({ row, t }: { row: ReturnType<typeof buildSettingsCapabil
   )
 }
 
-function SourcesPanel({ tickflowKey, setTickflowKey, t }: { tickflowKey: string; setTickflowKey: (value: string) => void; t: Translate }) {
+function SourcesPanel({ tickflowKey, setTickflowKey }: { tickflowKey: string; setTickflowKey: (value: string) => void }) {
+  const { t } = usePreferences()
   return (
     <section className="space-y-4">
-      <PromoPanel icon={<Database size={15} />} title={t('settings.dataSources')} body={t('settings.tickflowPromo')} href="https://tickflow.org/auth/register?ref=5N4NKTCPL4" tone="emerald" t={t} />
+      <PromoPanel icon={<Database size={15} />} title={t('settings.dataSources')} body={t('settings.tickflowPromo')} href="https://tickflow.org/auth/register?ref=5N4NKTCPL4" tone="emerald" />
       <div className="glass-panel rounded-2xl p-5 space-y-4 shadow-sm">
         <Input label={t('settings.tickflowApiKey')} type="password" value={tickflowKey} onChange={setTickflowKey} placeholder="tf-..." />
       </div>
@@ -485,16 +483,16 @@ function SourcesPanel({ tickflowKey, setTickflowKey, t }: { tickflowKey: string;
   )
 }
 
-function ModelPanel({ chatProvider, configs, setChatProvider, updateConfig, t }: {
+function ModelPanel({ chatProvider, configs, setChatProvider, updateConfig }: {
   chatProvider: Provider
   configs: Record<string, ProviderConfig>
   setChatProvider: (provider: Provider) => void
   updateConfig: (provider: string, field: keyof ProviderConfig, value: string) => void
-  t: Translate
 }) {
+  const { t } = usePreferences()
   return (
     <section className="space-y-5">
-      <PromoPanel icon={<Brain size={15} />} title={t('settings.modelConfig')} body={t('settings.oneRoutePromo')} href="https://www.1route.dev/register?aff=359904261" tone="indigo" t={t} />
+      <PromoPanel icon={<Brain size={15} />} title={t('settings.modelConfig')} body={t('settings.oneRoutePromo')} href="https://www.1route.dev/register?aff=359904261" tone="indigo" />
       <div className="glass-panel rounded-2xl p-5 shadow-sm space-y-4">
         <div>
           <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">{t('settings.provider')}</label>
@@ -509,19 +507,19 @@ function ModelPanel({ chatProvider, configs, setChatProvider, updateConfig, t }:
       </div>
       <div className="space-y-3">
         {PROVIDERS.map((provider) => (
-          <ProviderDetails key={provider} provider={provider} config={configs[provider]} updateConfig={updateConfig} t={t} />
+          <ProviderDetails key={provider} provider={provider} config={configs[provider]} updateConfig={updateConfig} />
         ))}
       </div>
     </section>
   )
 }
 
-function ProviderDetails({ provider, config, updateConfig, t }: {
+function ProviderDetails({ provider, config, updateConfig }: {
   provider: Provider
   config?: ProviderConfig
   updateConfig: (provider: string, field: keyof ProviderConfig, value: string) => void
-  t: Translate
 }) {
+  const { t } = usePreferences()
   const hasKey = config?.api_key
   return (
     <details className="group rounded-2xl border border-border bg-card/45 overflow-hidden [&_summary::-webkit-details-marker]:hidden">
@@ -535,7 +533,7 @@ function ProviderDetails({ provider, config, updateConfig, t }: {
         </span>
       </summary>
       <div className="space-y-4 border-t border-border/50 p-4 bg-muted/10">
-        {provider === '1route' && <OneRouteInvite t={t} />}
+        {provider === '1route' && <OneRouteInvite />}
         <Input label={t('settings.apiKey')} type="password" value={config?.api_key || ''} onChange={(value) => updateConfig(provider, 'api_key', value)} placeholder="sk-..." />
         <Input label={t('settings.model')} value={config?.model || ''} onChange={(value) => updateConfig(provider, 'model', value)} placeholder={PROVIDER_DEFAULT_MODELS[provider]} />
         <Input label={t('settings.baseUrl')} value={config?.base_url || ''} onChange={(value) => updateConfig(provider, 'base_url', value)} placeholder={PROVIDER_BASE_URLS[provider]} />
@@ -555,18 +553,18 @@ function NotificationsPanel(props: {
   setTgBotToken: (value: string) => void
   tgChatId: string
   setTgChatId: (value: string) => void
-  t: Translate
 }) {
+  const { t } = usePreferences()
   return (
     <section className="glass-panel rounded-2xl p-5 space-y-4 shadow-sm">
       <h2 className="mb-2 text-sm font-semibold text-foreground flex items-center gap-2 border-b border-border/60 pb-2">
         <Bell size={16} className="text-primary" />
-        {props.t('settings.notifications')}
+        {t('settings.notifications')}
       </h2>
       <div className="space-y-4">
-        <Input label={props.t('settings.feishuWebhook')} type="password" value={props.feishuWebhook} onChange={props.setFeishuWebhook} />
-        <Input label={props.t('settings.wecomWebhook')} type="password" value={props.wecomWebhook} onChange={props.setWecomWebhook} />
-        <Input label={props.t('settings.dingtalkWebhook')} type="password" value={props.dingtalkWebhook} onChange={props.setDingtalkWebhook} />
+        <Input label={t('settings.feishuWebhook')} type="password" value={props.feishuWebhook} onChange={props.setFeishuWebhook} />
+        <Input label={t('settings.wecomWebhook')} type="password" value={props.wecomWebhook} onChange={props.setWecomWebhook} />
+        <Input label={t('settings.dingtalkWebhook')} type="password" value={props.dingtalkWebhook} onChange={props.setDingtalkWebhook} />
         <Input label="Telegram Bot Token" type="password" value={props.tgBotToken} onChange={props.setTgBotToken} />
         <Input label="Telegram Chat ID" value={props.tgChatId} onChange={props.setTgChatId} />
       </div>
@@ -574,14 +572,14 @@ function NotificationsPanel(props: {
   )
 }
 
-function PromoPanel({ icon, title, body, href, tone, t }: {
+function PromoPanel({ icon, title, body, href, tone }: {
   icon: React.ReactNode
   title: string
   body: string
   href: string
   tone: 'emerald' | 'indigo'
-  t: Translate
 }) {
+  const { t } = usePreferences()
   const toneClass = tone === 'emerald'
     ? 'border-emerald-200/50 bg-gradient-to-br from-emerald-50/70 to-emerald-50/30 dark:from-emerald-500/10 dark:to-transparent text-emerald-950 dark:text-emerald-200'
     : 'border-indigo-200/50 bg-gradient-to-br from-indigo-50/70 to-indigo-50/30 dark:from-indigo-500/10 dark:to-transparent text-indigo-950 dark:text-indigo-200'
@@ -605,7 +603,8 @@ function PromoPanel({ icon, title, body, href, tone, t }: {
   )
 }
 
-function OneRouteInvite({ t }: { t: Translate }) {
+function OneRouteInvite() {
+  const { t } = usePreferences()
   return (
     <div className="rounded-xl bg-indigo-50/50 dark:bg-indigo-500/5 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-300 border border-indigo-100/50 dark:border-indigo-500/10 leading-relaxed">
       {t('settings.oneRouteNoAccount')}
@@ -617,7 +616,8 @@ function OneRouteInvite({ t }: { t: Translate }) {
   )
 }
 
-function SaveBar({ saving, onSave, t }: { saving: boolean; onSave: () => void; t: Translate }) {
+function SaveBar({ saving, onSave }: { saving: boolean; onSave: () => void }) {
+  const { t } = usePreferences()
   return (
     <div className="mt-6 border-t border-border/60 pt-4">
       <button

@@ -158,3 +158,26 @@ def test_upsert_market_signal_daily_writes_repair_regimes_without_fallback(monke
 
     assert ok is True
     assert fake_client.writes[0]["benchmark_regime"] == "PANIC_REPAIR_CONFIRMED"
+
+
+def test_upsert_market_signal_daily_scrubs_non_finite_numeric_fields(monkeypatch):
+    """A NaN/Inf slipping in from an upstream calculation (e.g. a division by
+    zero in benchmark breadth stats) must not reach Postgres as-is: some
+    numeric columns/clients choke on NaN/Infinity in JSON. finite_float
+    coerces it to NULL instead of writing a poisoned value.
+    """
+    fake_client = _FakeMarketSignalTable({"trade_date": "2026-06-20", "updated_at": "t0"})
+    monkeypatch.setattr(market_signal_module, "is_supabase_admin_configured", lambda: True)
+    monkeypatch.setattr(market_signal_module, "require_server_write_context", lambda *_a, **_k: None)
+    monkeypatch.setattr(market_signal_module, "_get_supabase_admin_client", lambda: fake_client)
+
+    ok = upsert_market_signal_daily(
+        "2026-06-20",
+        {"main_index_close": float("nan"), "vix_close": float("inf"), "a50_close": 13200.5},
+    )
+
+    assert ok is True
+    written = fake_client.writes[0]
+    assert written["main_index_close"] is None
+    assert written["vix_close"] is None
+    assert written["a50_close"] == 13200.5

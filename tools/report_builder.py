@@ -8,12 +8,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from utils.safe import safe_float as _safe_float_or_default
-
-
-def _safe_float(value: object) -> float | None:
-    return _safe_float_or_default(value, None)
-
+from utils.safe import finite_float as _safe_float
 
 # ── 环境变量配置 ──
 

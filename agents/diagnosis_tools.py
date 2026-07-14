@@ -144,16 +144,19 @@ def remember_stock_diagnosis(tool_context: ToolContext | None, result: dict[str,
     row = _compact_diagnosis_handoff_row(result)
     if not row:
         return
-    previous = tool_context.state.get("last_stock_diagnosis")
-    rows = []
-    if isinstance(previous, dict):
-        rows.extend(item for item in previous.get("diagnosed_symbols", []) if isinstance(item, dict))
-    rows = [row, *[item for item in rows if item.get("code") != row.get("code")]][:6]
-    tool_context.state["last_stock_diagnosis"] = {
-        "latest": row,
-        "diagnosed_symbols": rows,
-        "next_action": "诊断已完成，可结合筛股结果、市场水温和攻防决策形成候选排序",
-    }
+    # analyze_stock 是并发安全工具，多只股票可能在线程池中同时诊断；
+    # 用锁保护"读旧列表 -> 合并 -> 写回"这一复合操作，避免并发覆盖丢记录。
+    with tool_context.state_lock:
+        previous = tool_context.state.get("last_stock_diagnosis")
+        rows = []
+        if isinstance(previous, dict):
+            rows.extend(item for item in previous.get("diagnosed_symbols", []) if isinstance(item, dict))
+        rows = [row, *[item for item in rows if item.get("code") != row.get("code")]][:6]
+        tool_context.state["last_stock_diagnosis"] = {
+            "latest": row,
+            "diagnosed_symbols": rows,
+            "next_action": "诊断已完成，可结合筛股结果、市场水温和攻防决策形成候选排序",
+        }
 
 
 def _compact_diagnosis_handoff_row(result: dict[str, Any]) -> dict[str, Any]:

@@ -792,6 +792,7 @@ class AgentRuntime:
         except Exception as exc:
             status = "error"
             result = {"error": str(exc)}
+            logger.exception("tool execution failed: name=%s args=%s", call["name"], call["args"])
         return {
             "call": call,
             "result": result,

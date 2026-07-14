@@ -27,6 +27,10 @@ class ToolContext:
         self.registry = None
         self.on_progress = None
         self.cancel_check = None
+        # 并发安全工具（如 analyze_stock）会在线程池中同时读改写 state 的
+        # 同一个 key（如 last_stock_diagnosis 的合并列表），需要锁保护临界区，
+        # 否则会出现 lost update：后完成的线程覆盖先完成线程写入的记录。
+        self.state_lock = threading.Lock()
 
 
 def load_user_credentials(user_id: str) -> dict[str, Any]:
