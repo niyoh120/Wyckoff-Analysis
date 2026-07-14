@@ -24,4 +24,6 @@ def tail_buy_strategy_config_from_env() -> TailBuyStrategyConfig:
         daily_trap_ma20_extension_pct=_env_float("TAIL_BUY_DAILY_TRAP_MA20_EXTENSION_PCT", 18.0),
         daily_trap_upper_shadow_pct=_env_float("TAIL_BUY_DAILY_TRAP_UPPER_SHADOW_PCT", 4.0),
         daily_trap_volume_ratio=_env_float("TAIL_BUY_DAILY_TRAP_VOLUME_RATIO", 1.8),
+        left_probe_close_pos_min=min(max(_env_float("TAIL_BUY_LEFT_PROBE_CLOSE_POS_MIN", 0.65), 0.0), 1.0),
+        left_probe_spring_quality_min=min(max(_env_float("TAIL_BUY_LEFT_PROBE_SPRING_QUALITY_MIN", 50.0), 0.0), 100.0),
     )

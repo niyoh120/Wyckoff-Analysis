@@ -273,6 +273,7 @@ def test_update_market_report_writes_confirmation_json(tmp_path, monkeypatch):
     _write_grid_cell(tmp_path, "recent_6m", "2025-12-01", "2026-05-31", 10, 7, 2.0)
     report_path = tmp_path / "report.md"
     confirmation_path = tmp_path / "confirmation.json"
+    walk_forward_path = tmp_path / "walk_forward.json"
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -283,6 +284,8 @@ def test_update_market_report_writes_confirmation_json(tmp_path, monkeypatch):
             str(report_path),
             "--confirmation-output",
             str(confirmation_path),
+            "--walk-forward-output",
+            str(walk_forward_path),
             "--generated-at",
             "2026-07-04 00:00:00 Asia/Shanghai",
         ],
@@ -293,6 +296,7 @@ def test_update_market_report_writes_confirmation_json(tmp_path, monkeypatch):
     assert report_path.exists()
     assert confirmation["source"] == "backtest_grid"
     assert confirmation["status"] == "review"
+    assert json.loads(walk_forward_path.read_text(encoding="utf-8"))["source"] == "backtest_grid_walk_forward"
 
 
 def test_update_market_report_links_confirmation_to_research_hypothesis(tmp_path, monkeypatch):
@@ -367,8 +371,14 @@ def test_backtest_grid_exposes_portable_hypothesis_evidence():
     assert "--evidence-output research_evidence.json" in workflow
     assert "--stability-output parameter_stability.json" in workflow
     assert "--stability-evidence-output stability_evidence.json" in workflow
+    assert "--walk-forward-output walk_forward_validation.json" in workflow
     assert "research_evidence.json" in workflow
     assert "parameter_stability.json" in workflow
+    assert "walk_forward_validation.json" in workflow
+    assert "strategy_compare:" in workflow
+    assert "variant: [A, B, C, D, E]" in workflow
+    assert '--strategy-variant "$VARIANT"' in workflow
+    assert "strategy_ablation_report.json" in workflow
 
 
 def test_market_report_flags_period_with_no_positive_cash_combo(tmp_path):

@@ -46,6 +46,7 @@ class TailBuyCandidate:
     fetch_error: str = ""
     features: dict[str, Any] = field(default_factory=dict)
     summary_5m: str = ""
+    all_signals: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self.candidate_theme = self.candidate_theme or candidate_theme(self.candidate_reasons)
@@ -60,3 +61,18 @@ def normalize_status(raw: Any) -> str:
 
 def normalize_regime(raw: Any) -> str:
     return str(raw or "").strip().upper()
+
+
+LEFT_PROBE_SOURCE_SIGNALS = frozenset({"spring", "lps", "compression", "crash_resilience_watch"})
+
+
+def is_left_probe_source(candidate: TailBuyCandidate | None) -> bool:
+    if candidate is None:
+        return False
+    regime = normalize_regime(candidate.market_regime)
+    if regime not in {"CRASH", "CRASH_INTRADAY"}:
+        return False
+    sigs = {s.lower() for s in candidate.all_signals or []}
+    if candidate.signal_type:
+        sigs.add(candidate.signal_type.lower())
+    return bool(sigs & LEFT_PROBE_SOURCE_SIGNALS)

@@ -19,13 +19,16 @@ def tail_buy_execution_semantics(
     *,
     report_mode: str = "intraday",
     features: dict[str, Any] | None = None,
+    market_regime: str | None = None,
 ) -> dict[str, Any]:
     decision = str(final_decision or "").strip().upper()
     signal = str(signal_type or "").strip()
+    if market_regime is None and features:
+        market_regime = features.get("market_regime")
     fallback = (
         _post_close_semantics(decision)
         if report_mode == "post_close_review"
-        else _intraday_semantics(decision, signal, features)
+        else _intraday_semantics(decision, signal, features, market_regime)
     )
     row = features or {}
     return {
@@ -36,11 +39,30 @@ def tail_buy_execution_semantics(
     }
 
 
-def _intraday_semantics(decision: str, signal: str, features: dict[str, Any] | None = None) -> dict[str, Any]:
+def _intraday_semantics(
+    decision: str,
+    signal: str,
+    features: dict[str, Any] | None = None,
+    market_regime: str | None = None,
+) -> dict[str, Any]:
+    from core.market_trade_mode import normalize_regime
+
+    regime = normalize_regime(market_regime)
     if decision == DECISION_BUY and is_limit_up_candidate(features):
         return _semantics("观察买入", "watch_buy", False, "当日已触及/收于涨停，现价无法按挂单价买入；只保留人工复核。")
     if decision == DECISION_BUY and signal in HIGH_RISK_MOMENTUM_SIGNALS:
         return _semantics("观察买入", "watch_buy", False, "高位动能默认不买；只保留人工复核。")
+    if decision == DECISION_BUY and regime == "CRASH_LEFT_PROBE":
+        return _semantics(
+            "左侧试探准备 (LEFT_PROBE_READY)",
+            "left_probe_ready",
+            True,
+            "黄金坑左侧只允许Top1试探仓，单票仓位上限2%；次日确认后才能加到5%。",
+        )
+    if decision == DECISION_BUY and regime in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"}:
+        return _semantics(
+            "小额试探准备 (PROBE_READY)", "probe_ready", True, "修复成立阶段只允许小额试探开仓（仓位5%限额）。"
+        )
     if decision == DECISION_BUY:
         return _semantics("可执行买入", "executable_buy", True, "仍需人工按支撑、回落与仓位纪律复核。")
     if decision == DECISION_WATCH:

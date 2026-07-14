@@ -45,6 +45,7 @@ class BacktestRunInput:
     full_formal_l4_max: int
     selection_mode: str
     max_atr_hold_days: int
+    strategy_variant: str = "live"
     intraday_entry_price_fetcher: IntradayPriceFetcher | None = None
     funnel_config_overrides: dict[str, object] = field(default_factory=dict)
     market_breadth_calculator: MarketBreadthCalculator | None = None
@@ -67,6 +68,7 @@ class BacktestRunConfig:
     entry_price_fallback: str
     pending_mode: str
     pending_merge_order: str
+    strategy_variant: str
     snapshot_dir: Path | None
     funnel_config_overrides: dict[str, object]
     portfolio_style_list: list[str]
@@ -106,6 +108,7 @@ def build_backtest_run_config(params: BacktestRunInput) -> BacktestRunConfig:
         entry_price_fallback=entry_price_fallback,
         pending_mode=pending_mode,
         pending_merge_order=pending_merge_order,
+        strategy_variant=params.strategy_variant,
         snapshot_dir=snapshot,
         funnel_config_overrides=dict(params.funnel_config_overrides),
         portfolio_style_list=style_list,

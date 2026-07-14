@@ -141,7 +141,7 @@ def test_pick_tail_candidates_filters_prev_trade_day_and_status():
         {
             "code": 301090,
             "name": "华润材料",
-            "signal_type": "spring",
+            "signal_type": "crash_resilience_watch",
             "signal_score": 3.2,
             "status": "pending",
             "signal_date": "2026-04-20",
@@ -186,6 +186,7 @@ def test_pick_tail_candidates_filters_prev_trade_day_and_status():
     assert got[0].status == "confirmed"
     assert got[0].market_regime == "RISK_ON"
     assert got[0].snap["snap_support"] == 9.8
+    assert got[0].all_signals == {"crash_resilience_watch", "spring"}
 
 
 def test_pick_tail_candidates_prefers_newer_pending_over_stale_confirmed():
@@ -611,6 +612,59 @@ def test_confirmed_tail_signal_skips_after_breaking_confirm_support():
     assert out.rule_decision == DECISION_SKIP
     assert out.features["day_low_breached_support"] is True
     assert "跌破确认支撑" in "；".join(out.rule_reasons)
+
+
+def test_pending_accum_candidate_can_open_left_probe_after_crash_support_reclaim():
+    candidate = TailBuyCandidate(
+        code="301090",
+        name="华润材料",
+        signal_date="2026-04-20",
+        status="pending",
+        signal_type="lps",
+        signal_score=8.0,
+        market_regime="CRASH",
+        snap={"snap_support": 10.0},
+        all_signals={"lps", "compression"},
+    )
+    df = _make_intraday_df(start=9.9, end=10.9, tail_boost=0.5, tail_volume_mult=2.0)
+    df.loc[5, "low"] = 9.85
+    df["amount"] = df["close"] * df["volume"]
+
+    out = evaluate_rule_decision(
+        candidate,
+        df,
+        style="pullback",
+        config=TailBuyStrategyConfig(chase_day_ret_pct=30.0, chase_high_ret_pct=30.0),
+    )
+
+    assert out.market_regime == "CRASH_LEFT_PROBE"
+    assert out.features["left_probe_ready"] is True
+    assert out.features["raw_day_low_breached_support"] is True
+    assert out.features["day_low_breached_support"] is False
+    assert out.rule_decision == DECISION_BUY
+    assert out.final_decision == DECISION_BUY
+
+
+def test_crash_candidate_without_support_reclaim_stays_blocked():
+    candidate = TailBuyCandidate(
+        code="301090",
+        name="华润材料",
+        signal_date="2026-04-20",
+        status="pending",
+        signal_type="lps",
+        signal_score=8.0,
+        market_regime="CRASH",
+        snap={"snap_support": 10.0},
+        all_signals={"lps"},
+    )
+    df = _make_intraday_df(start=10.1, end=10.8, tail_boost=0.5, tail_volume_mult=2.0)
+
+    out = evaluate_rule_decision(candidate, df, style="pullback")
+
+    assert out.market_regime == "CRASH"
+    assert out.features.get("left_probe_ready") is None
+    assert out.rule_decision == DECISION_SKIP
+    assert "CRASH禁止新开仓" in "；".join(out.rule_reasons)
 
 
 def test_same_day_sos_reclaim_is_not_treated_as_breaking_established_support():
@@ -1050,6 +1104,40 @@ def test_tail_buy_strategy_config_from_env_can_disable_confirmation_gate(monkeyp
 
     assert config.confirmed_only_buy is False
     assert merged[0].final_decision == DECISION_BUY
+
+
+def test_left_probe_env_thresholds_are_clamped(monkeypatch):
+    monkeypatch.setenv("TAIL_BUY_LEFT_PROBE_CLOSE_POS_MIN", "1.5")
+    monkeypatch.setenv("TAIL_BUY_LEFT_PROBE_SPRING_QUALITY_MIN", "-5")
+
+    config = tail_buy_strategy_config_from_env()
+
+    assert config.left_probe_close_pos_min == 1.0
+    assert config.left_probe_spring_quality_min == 0.0
+
+
+def test_crash_left_probe_only_keeps_top_ranked_buy():
+    candidates = [
+        TailBuyCandidate(
+            code=code,
+            name=code,
+            signal_date="2026-04-20",
+            status="pending",
+            signal_type="lps",
+            signal_score=8.0,
+            market_regime="CRASH_LEFT_PROBE",
+            rule_score=score,
+            rule_decision=DECISION_BUY,
+            final_decision=DECISION_BUY,
+            features={"left_probe_ready": True, "support_level": 10.0},
+        )
+        for code, score in (("000001", 82.0), ("000002", 78.0))
+    ]
+
+    merged = merge_rule_and_llm(candidates)
+
+    assert [item.final_decision for item in merged] == [DECISION_BUY, DECISION_WATCH]
+    assert "非Top1试探候选" in "；".join(merged[1].rule_reasons)
 
 
 def test_merge_rule_and_llm_cannot_override_tail_hard_veto():

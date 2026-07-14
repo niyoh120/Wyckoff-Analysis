@@ -47,6 +47,7 @@ def _overview_lines(summary: dict) -> list[str]:
         f"- 持有周期: {summary.get('hold_days')} 交易日",
         _top_n_line(summary),
         f"- AI 候选模式: {summary.get('ai_selection_mode')}",
+        f"- 策略消融组: {summary.get('strategy_variant', 'live')}",
         _signal_weight_line(summary),
         f"- 股票池: {summary.get('board')} (sample={summary.get('sample_size')})",
         f"- 评估交易日: {summary.get('eval_days')}",

@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import date
 
 import pandas as pd
 
 OHLCV_MIN_COVERAGE = 0.95
 MARKET_CAP_MIN_COVERAGE = 0.95
 FINANCIAL_MIN_COVERAGE = 0.90
+FRESH_OHLCV_MIN_COVERAGE = 0.95
+
+
+class FunnelDataStaleError(RuntimeError):
+    """Raised when a production funnel would run on stale market data."""
+
 
 _LAYER_REASONS = {
     "layer1": "ST/板块/市值/价格/流动性/财务准入",
@@ -25,6 +32,7 @@ def build_funnel_data_quality(
     financial_map: dict[str, dict],
     *,
     financial_requested: bool,
+    expected_trade_date: date | None = None,
 ) -> dict:
     universe = list(dict.fromkeys(str(symbol).strip() for symbol in symbols if str(symbol).strip()))
     total = len(universe)
@@ -36,6 +44,9 @@ def build_funnel_data_quality(
         "market_cap": _ratio(cap_count, total),
         "financial": _ratio(financial_count, total),
     }
+    if expected_trade_date is not None:
+        fresh_count = sum(1 for symbol in universe if _latest_frame_date(df_map.get(symbol)) == expected_trade_date)
+        coverage["fresh_ohlcv"] = _ratio(fresh_count, total)
     reasons = _quality_reasons(coverage, financial_requested)
     source_counts = _ohlcv_source_counts(universe, df_map)
     return {
@@ -49,10 +60,34 @@ def build_funnel_data_quality(
             "ohlcv": OHLCV_MIN_COVERAGE,
             "market_cap": MARKET_CAP_MIN_COVERAGE,
             "financial": FINANCIAL_MIN_COVERAGE,
+            "fresh_ohlcv": FRESH_OHLCV_MIN_COVERAGE,
         },
         "ohlcv_source_counts": source_counts,
         "ohlcv_source_ratios": {source: _ratio(count, ohlcv_count) for source, count in source_counts.items()},
     }
+
+
+def assert_funnel_data_freshness(
+    symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    benchmark_frames: list[pd.DataFrame | None],
+    expected_trade_date: date,
+    *,
+    min_coverage: float = FRESH_OHLCV_MIN_COVERAGE,
+) -> None:
+    universe = list(dict.fromkeys(str(symbol).strip() for symbol in symbols if str(symbol).strip()))
+    fresh = sum(1 for symbol in universe if _latest_frame_date(df_map.get(symbol)) == expected_trade_date)
+    coverage = fresh / len(universe) if universe else 0.0
+    stale_benchmarks = [
+        index for index, frame in enumerate(benchmark_frames) if _latest_frame_date(frame) != expected_trade_date
+    ]
+    if coverage >= min_coverage and not stale_benchmarks:
+        return
+    raise FunnelDataStaleError(
+        "funnel data freshness gate failed: "
+        f"expected={expected_trade_date.isoformat()}, fresh_ohlcv={fresh}/{len(universe)} ({coverage:.1%}), "
+        f"stale_benchmarks={stale_benchmarks}"
+    )
 
 
 def build_layer_rejections(
@@ -87,6 +122,8 @@ def build_layer_rejections(
 
 def _quality_reasons(coverage: dict[str, float], financial_requested: bool) -> list[str]:
     checks = [("ohlcv", OHLCV_MIN_COVERAGE), ("market_cap", MARKET_CAP_MIN_COVERAGE)]
+    if "fresh_ohlcv" in coverage:
+        checks.append(("fresh_ohlcv", FRESH_OHLCV_MIN_COVERAGE))
     if financial_requested:
         checks.append(("financial", FINANCIAL_MIN_COVERAGE))
     return [f"{name}_coverage<{threshold:.0%}" for name, threshold in checks if coverage[name] < threshold]
@@ -105,6 +142,13 @@ def _ohlcv_source_counts(symbols: list[str], df_map: dict[str, pd.DataFrame]) ->
 
 def _has_frame(frame: pd.DataFrame | None) -> bool:
     return frame is not None and not frame.empty
+
+
+def _latest_frame_date(frame: pd.DataFrame | None) -> date | None:
+    if not _has_frame(frame) or "date" not in frame.columns:
+        return None
+    dates = pd.to_datetime(frame["date"], errors="coerce").dropna()
+    return dates.iloc[-1].date() if not dates.empty else None
 
 
 def _positive_number(value: object) -> bool:

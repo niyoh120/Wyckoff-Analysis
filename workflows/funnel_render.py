@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+import pandas as pd
+
 from core.candidate_ranker import TRIGGER_GROUP_ORDER, TRIGGER_GROUP_TITLES, TRIGGER_LABELS, TRIGGER_SHORT_LABELS
 from core.candidate_tracks import candidate_entry_key
 from core.execution_playbook import funnel_playbook_lines
@@ -39,6 +41,69 @@ class FunnelRenderedCard:
     symbols: list[dict]
     benchmark_context: dict
     details: dict | None = None
+
+
+def select_crash_resilient_stocks(
+    symbols: list[str],
+    df_map: dict[str, pd.DataFrame],
+    bench_df: pd.DataFrame | None,
+    cfg: Any,
+) -> list[dict]:
+    if bench_df is None or bench_df.empty:
+        return []
+
+    from core.wyckoff_engine import sort_by_date_if_needed
+
+    bench_sorted = sort_by_date_if_needed(bench_df)
+    if len(bench_sorted) < 2:
+        return []
+    bench_close = pd.to_numeric(bench_sorted["close"], errors="coerce")
+    bench_ret = (float(bench_close.iloc[-1]) - float(bench_close.iloc[-2])) / float(bench_close.iloc[-2]) * 100.0
+
+    res = []
+    for sym in symbols:
+        df = df_map.get(sym)
+        if df is None or len(df) < 50:
+            continue
+        df_sorted = sort_by_date_if_needed(df)
+        close = pd.to_numeric(df_sorted["close"], errors="coerce")
+        high = pd.to_numeric(df_sorted["high"], errors="coerce")
+        low = pd.to_numeric(df_sorted["low"], errors="coerce")
+        vol = pd.to_numeric(df_sorted["volume"], errors="coerce")
+
+        c_today = float(close.iloc[-1])
+        c_prev = float(close.iloc[-2])
+        if c_prev <= 0:
+            continue
+
+        ret = (c_today - c_prev) / c_prev * 100.0
+        h_today = float(high.iloc[-1])
+        l_today = float(low.iloc[-1])
+        close_pos = (c_today - l_today) / (h_today - l_today) if h_today > l_today else 0.5
+
+        avg_vol = float(vol.iloc[:-1].tail(10).mean()) if len(vol) >= 11 else float(vol.tail(10).mean())
+        vol_today = float(vol.iloc[-1])
+        vol_ratio = vol_today / avg_vol if avg_vol > 0 else 1.0
+
+        # Calculate MA20 and MA50
+        ma20 = float(close.tail(20).mean())
+        ma50 = float(close.tail(50).mean())
+        above_support = c_today >= max(ma20, ma50)
+
+        if ret >= -1.5 and ret > bench_ret + 1.0 and close_pos >= 0.45 and vol_ratio >= 0.9 and above_support:
+            score = (ret - bench_ret) * 2.0 + close_pos * 10.0 + vol_ratio * 3.0
+            res.append(
+                {
+                    "code": sym,
+                    "score": score,
+                    "ret": ret,
+                    "close_pos": close_pos,
+                    "vol_ratio": vol_ratio,
+                }
+            )
+
+    res.sort(key=lambda x: x["score"], reverse=True)
+    return res[:50]
 
 
 def render_modern_funnel_card(
@@ -762,6 +827,36 @@ def _build_modern_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     counts = _modern_selection_counts(ctx, selection)
     _print_modern_selection_summary(ctx, selection, counts)
     lines = _modern_header_lines(ctx, selection, counts)
+    if ctx.regime == "CRASH":
+        resilient_hits = ctx.formal_triggers.get("crash_resilience_watch", [])
+        if resilient_hits:
+            lines.append("")
+            lines.append(f"**【🛡️ 暴跌日抗跌观察车道 (crash_resilience_watch)】共 {len(resilient_hits)} 只**")
+            lines.append("暴跌日相对大盘强势、高收位、守住支撑且放量承接的个股（只观察，不新开）：")
+            sorted_resilient = sorted(resilient_hits, key=lambda x: x[1], reverse=True)
+            for code, _ in sorted_resilient[:35]:
+                name = ctx.name_map.get(code, code)
+                df = ctx.all_df_map.get(code)
+                if df is not None and len(df) >= 2:
+                    from core.wyckoff_engine import sort_by_date_if_needed
+
+                    df_sorted = sort_by_date_if_needed(df)
+                    c_today = float(df_sorted["close"].iloc[-1])
+                    c_prev = float(df_sorted["close"].iloc[-2])
+                    ret = (c_today - c_prev) / c_prev * 100.0 if c_prev > 0 else 0.0
+                    high = pd.to_numeric(df_sorted["high"], errors="coerce")
+                    low = pd.to_numeric(df_sorted["low"], errors="coerce")
+                    h_today = float(high.iloc[-1])
+                    l_today = float(low.iloc[-1])
+                    pos = (c_today - l_today) / (h_today - l_today) if h_today > l_today else 0.5
+                    vol = pd.to_numeric(df_sorted["volume"], errors="coerce")
+                    avg_vol = float(vol.iloc[:-1].tail(10).mean()) if len(vol) >= 11 else float(vol.tail(10).mean())
+                    vol_today = float(vol.iloc[-1])
+                    vol_r = vol_today / avg_vol if avg_vol > 0 else 1.0
+                    lines.append(
+                        f"  {code} {name} | 今日涨跌: {ret:+.1f}% | 收位: {pos * 100:.0f}% | 量比: {vol_r:.1f}x"
+                    )
+            lines.append("")
     lines.extend(_top_candidate_list_lines(ctx, selection))
     append_etf_section(lines, ctx.etf_metrics, ctx.etf_candidates, display_limit=FUNNEL_ETF_DISPLAY_LIMIT)
     if ctx.etf_metrics or ctx.etf_candidates:

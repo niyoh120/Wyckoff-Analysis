@@ -15,9 +15,12 @@ from core.wyckoff_engine import (
     _detect_lps,
     _detect_sos,
     _detect_spring,
+    _detect_upthrust_after_distribution,
     _effective_entry_max_bias_200,
     _is_holiday_grace,
     _latest_trade_date,
+    _lps_creek_confirmed,
+    _recent_sequence_events,
     _sos_volume_ratio,
     _spring_support_level,
     build_candidate_entries,
@@ -27,6 +30,7 @@ from core.wyckoff_engine import (
     layer1_filter,
     layer2_strength_detailed,
     layer3_sector_resonance,
+    layer5_exit_signals,
     sort_by_date_if_needed,
 )
 
@@ -269,6 +273,48 @@ class TestComputeStopLoss:
         price, reason = _compute_stop_loss(closes, lows, highs, "Accum_B", cfg)
         assert price is not None
         assert "吸筹底线" in reason
+
+
+def test_upthrust_detects_high_volume_false_breakout_and_blocks_candidate() -> None:
+    cfg = FunnelConfig()
+    dates = pd.bdate_range("2025-07-01", periods=261)
+    closes = pd.Series([9.0] * 200 + [12.0 + index * 0.05 for index in range(60)] + [14.65])
+    frame = pd.DataFrame(
+        {
+            "date": dates,
+            "open": [*closes.iloc[:-1], 15.05],
+            "high": [*(closes.iloc[:-1] + 0.12), 15.65],
+            "low": [*(closes.iloc[:-1] - 0.12), 14.45],
+            "close": closes,
+            "volume": [1_000_000.0] * 260 + [2_200_000.0],
+        }
+    )
+
+    evidence = _detect_upthrust_after_distribution(frame, cfg)
+    exit_signal = layer5_exit_signals(["000001"], {"000001": frame}, {"000001": "Markup"}, cfg)
+
+    assert evidence is not None
+    assert evidence["volume_ratio"] >= 2.0
+    assert exit_signal["000001"]["signal"] == "upthrust_warning"
+    assert "Upthrust/UTAD" in exit_signal["000001"]["reason"]
+
+
+def test_upthrust_rejects_breakout_that_holds_above_resistance() -> None:
+    cfg = FunnelConfig()
+    dates = pd.bdate_range("2025-07-01", periods=261)
+    closes = pd.Series([9.0] * 200 + [12.0 + index * 0.05 for index in range(60)] + [15.55])
+    frame = pd.DataFrame(
+        {
+            "date": dates,
+            "open": closes,
+            "high": closes + 0.15,
+            "low": closes - 0.15,
+            "close": closes,
+            "volume": [1_000_000.0] * 260 + [2_200_000.0],
+        }
+    )
+
+    assert _detect_upthrust_after_distribution(frame, cfg) is None
 
 
 class TestAccumStage:
@@ -938,3 +984,53 @@ class TestAttachPriceTargets:
 
         assert entries[0]["metrics"]["existing_key"] == 1.23
         assert "target_last_close" in entries[0]["metrics"]
+
+
+def test_lps_creek_confirmation_requires_prior_breakout_and_hold() -> None:
+    cfg = FunnelConfig(lps_creek_confirmation_enabled=True)
+    total = cfg.lps_creek_lookback + cfg.lps_creek_breakout_lookback + cfg.lps_lookback
+    dates = pd.date_range("2024-01-01", periods=total, freq="B")
+    highs = [12.0 - index * 0.02 + (0.3 if index % 10 == 5 else 0.0) for index in range(total)]
+    closes = [value - 0.45 for value in highs]
+    anchor_end = cfg.lps_creek_lookback
+    for index in range(anchor_end, total):
+        closes[index] = 11.35
+        highs[index] = 11.55
+    frame = pd.DataFrame(
+        {
+            "date": dates,
+            "open": closes,
+            "high": highs,
+            "low": [value - 0.3 for value in closes],
+            "close": closes,
+            "volume": [1_000_000.0] * total,
+            "pct_chg": pd.Series(closes).pct_change().fillna(0.0) * 100.0,
+        }
+    )
+
+    assert _lps_creek_confirmed(frame, cfg) is True
+    frame.loc[anchor_end:, "close"] = 9.5
+    assert _lps_creek_confirmed(frame, cfg) is False
+
+
+def test_recent_sequence_events_detects_spring_before_current_signal() -> None:
+    cfg = FunnelConfig(signal_sequence_lookback=12)
+    closes = [10.0] * 45
+    lows = [9.9] * 45
+    lows[-6] = 9.5
+    closes[-6] = 10.1
+    frame = pd.DataFrame(
+        {
+            "date": pd.date_range("2024-01-01", periods=45, freq="B"),
+            "open": closes,
+            "high": [value + 0.2 for value in closes],
+            "low": lows,
+            "close": closes,
+            "volume": [1_000_000.0] * 45,
+            "pct_chg": pd.Series(closes).pct_change().fillna(0.0) * 100.0,
+        }
+    )
+
+    spring_like, _sos_like = _recent_sequence_events(frame, cfg)
+
+    assert spring_like is True

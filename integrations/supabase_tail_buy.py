@@ -257,7 +257,9 @@ def refresh_tail_buy_prices_with_tickflow_realtime(limit: int = 1000, user_id: s
     }
 
 
-def load_tail_buy_from_supabase(limit: int = 100, user_id: str = "", client=None) -> list[dict[str, Any]]:
+def load_tail_buy_from_supabase(
+    limit: int = 100, user_id: str = "", client=None, run_date: str = ""
+) -> list[dict[str, Any]]:
     """读取最近 N 条尾盘买入记录。"""
     user_id = user_id.strip() or _get_user_id()
     if not user_id:
@@ -266,6 +268,8 @@ def load_tail_buy_from_supabase(limit: int = 100, user_id: str = "", client=None
     try:
         client = client or _read()
         q = client.table(TABLE_TAIL_BUY_HISTORY).select("*").eq("user_id", user_id)
+        if run_date:
+            q = q.eq("run_date", run_date)
         resp = q.order("run_date", desc=True).limit(limit).execute()
         return resp.data or []
     except Exception as e:

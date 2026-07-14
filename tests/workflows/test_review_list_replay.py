@@ -242,4 +242,3 @@ def test_build_report_lines_appends_recommendation_note():
     )
 
     assert "推荐记录: 2026-04-30 被推荐过；累计推荐1次" in "\n".join(lines)
-    assert "**推荐表交叉检查**: 命中1只 | 未推荐0只" in "\n".join(lines)

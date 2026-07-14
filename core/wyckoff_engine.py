@@ -238,6 +238,22 @@ class FunnelConfig:
     lps_vol_dry_ratio: float = 0.50
     lps_vol_ref_window: int = 60
     lps_ma_rising_window: int = 5
+    lps_creek_confirmation_enabled: bool = False
+    lps_creek_lookback: int = 60
+    lps_creek_breakout_lookback: int = 15
+    lps_creek_swing_window: int = 3
+    lps_creek_breakout_pct: float = 0.5
+    lps_creek_hold_tolerance_pct: float = 2.0
+    lps_creek_max_rise_pct_per_bar: float = 0.1
+
+    # Layer 4 research switches (disabled in production until ablation passes)
+    regime_trigger_profiles_enabled: bool = False
+    regime_risk_on_volume_multiplier: float = 1.15
+    regime_defensive_volume_multiplier: float = 0.85
+    regime_repair_volume_multiplier: float = 0.90
+    signal_sequence_bonus_enabled: bool = False
+    signal_sequence_lookback: int = 12
+    signal_sequence_score_bonus: float = 0.5
 
     # Layer 4 - Effort vs Result
     enable_evr_trigger: bool = True
@@ -347,6 +363,13 @@ class FunnelConfig:
     dist_high_threshold_pct: float = 30.0  # 相对 MA200 的高度（%）
     dist_vol_dry_ratio: float = 0.5  # 高位缩量比
     dist_confirm_days: int = 3  # 需要连续确认 N 日
+    dist_upthrust_enabled: bool = True
+    dist_upthrust_lookback: int = 60
+    dist_upthrust_breakout_pct: float = 1.0
+    dist_upthrust_close_back_pct: float = 0.3
+    dist_upthrust_upper_shadow_ratio: float = 0.35
+    dist_upthrust_vol_ratio: float = 1.5
+    dist_upthrust_min_bias_200_pct: float = 15.0
 
 
 class FunnelResult(NamedTuple):
@@ -358,7 +381,7 @@ class FunnelResult(NamedTuple):
     # 威科夫阶段细节
     stage_map: dict[str, str]  # code -> stage_name（如 "Accumulation A"、"Markup"、"Distribution"）
     markup_symbols: list[str]  # 已进入 Markup 的股票
-    exit_signals: dict[str, dict]  # code -> {"signal": "stop_loss|distribution_warning", "price": xxx, "reason": xxx}
+    exit_signals: dict[str, dict]  # code -> stop_loss / distribution_warning / upthrust_warning
     channel_map: dict[str, str]
     leader_radar_symbols: list[str]
     leader_radar_rows: list[dict[str, Any]]
@@ -523,6 +546,7 @@ def layer2_strength_detailed(
     *,
     rps_universe: list[str] | None = None,
     channel_hit_counter: dict[str, int] | None = None,
+    rejections: dict[str, str] | None = None,
 ) -> tuple[list[str], dict[str, str], list[str]]:
     """
     Layer2 多通道强弱甄别。
@@ -578,9 +602,41 @@ def layer2_strength_detailed(
         if result.passed:
             passed.append(sym)
             channel_map[sym] = result.channel
-        elif result.pre_ignition:
-            pre_ignition_list.append(sym)
+        else:
+            if rejections is not None:
+                _diagnose_symbol_rejection(sym, df_sorted, cfg, bench_ctx, rps_ctx, rejections)
+            if result.pre_ignition:
+                pre_ignition_list.append(sym)
     return passed, channel_map, pre_ignition_list
+
+
+def _diagnose_symbol_rejection(
+    sym: str,
+    df_sorted: pd.DataFrame,
+    cfg: FunnelConfig,
+    bench_ctx: Any,
+    rps_ctx: Any,
+    rejections: dict[str, str],
+) -> None:
+    try:
+        import core.layer2_strength as l2s
+
+        state = l2s._symbol_state(df_sorted, cfg, bench_ctx)
+        rps_state = l2s._rps_state(sym, df_sorted["close"], df_sorted, cfg, rps_ctx)
+        momentum_rs_ok, ambush_rs_ok = l2s._rs_flags(df_sorted, state, cfg, bench_ctx, rps_state.slow)
+        rejections[sym] = l2s.diagnose_layer2_symbol_failure(
+            sym,
+            df_sorted,
+            cfg,
+            bench_ctx=bench_ctx,
+            rps_ctx=rps_ctx,
+            rps_state=rps_state,
+            momentum_rs_ok=momentum_rs_ok,
+            ambush_rs_ok=ambush_rs_ok,
+        )
+    except Exception as exc:
+        logger.warning("diagnose symbol %s L2 failure failed: %s", sym, exc)
+        rejections[sym] = "七通道均未通过（诊断异常）"
 
 
 # Layer 3: 板块共振
@@ -1086,7 +1142,62 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     mkt = "hk" if code.strip().upper().endswith(".HK") else "cn"
     if vol_ratio > cfg.lps_vol_dry_ratio * _board_vol_ratio_scale(code, market=mkt):
         return None
+    if cfg.lps_creek_confirmation_enabled and not _lps_creek_confirmed(df_s, cfg):
+        return None
     return float(vol_ratio)
+
+
+def _swing_high_points(high: pd.Series, window: int) -> list[tuple[int, float]]:
+    values = pd.to_numeric(high, errors="coerce").reset_index(drop=True)
+    width = max(int(window), 1)
+    points: list[tuple[int, float]] = []
+    for index in range(width, len(values) - width):
+        current = values.iloc[index]
+        span = values.iloc[index - width : index + width + 1].dropna()
+        if pd.notna(current) and not span.empty and float(current) == float(span.max()):
+            points.append((index, float(current)))
+    return points
+
+
+def _creek_line(points: list[tuple[int, float]], cfg: FunnelConfig) -> tuple[float, float] | None:
+    recent = points[-5:]
+    if len(recent) < 2 or recent[-1][0] <= recent[0][0]:
+        return None
+    slope = (recent[-1][1] - recent[0][1]) / (recent[-1][0] - recent[0][0])
+    rise_pct = slope / recent[-1][1] * 100.0 if recent[-1][1] > 0 else float("inf")
+    if rise_pct > cfg.lps_creek_max_rise_pct_per_bar:
+        return None
+    intercept = recent[-1][1] - slope * recent[-1][0]
+    return float(slope), float(intercept)
+
+
+def _lps_creek_confirmed(df: pd.DataFrame, cfg: FunnelConfig) -> bool:
+    lps_days = max(int(cfg.lps_lookback), 1)
+    breakout_days = max(int(cfg.lps_creek_breakout_lookback), 1)
+    anchor_days = max(int(cfg.lps_creek_lookback), 20)
+    total = anchor_days + breakout_days + lps_days
+    frame = sort_by_date_if_needed(df).tail(total)
+    if len(frame) < total:
+        return False
+    anchor = frame.iloc[:anchor_days]
+    line = _creek_line(_swing_high_points(anchor["high"], cfg.lps_creek_swing_window), cfg)
+    if line is None:
+        return False
+    slope, intercept = line
+    close = pd.to_numeric(frame["close"], errors="coerce").reset_index(drop=True)
+    breakout = close.iloc[anchor_days : anchor_days + breakout_days]
+    crossed = any(
+        float(value) >= (slope * index + intercept) * (1.0 + cfg.lps_creek_breakout_pct / 100.0)
+        for index, value in breakout.items()
+        if pd.notna(value) and slope * index + intercept > 0
+    )
+    current_line = slope * (len(frame) - 1) + intercept
+    return bool(
+        crossed
+        and current_line > 0
+        and pd.notna(close.iloc[-1])
+        and float(close.iloc[-1]) >= current_line * (1.0 - cfg.lps_creek_hold_tolerance_pct / 100.0)
+    )
 
 
 class _EvrSeries(NamedTuple):
@@ -1467,6 +1578,54 @@ def _detect_trend_pullback(
     return float(1.0 - vol_ratio)
 
 
+def _recent_sequence_events(df: pd.DataFrame, cfg: FunnelConfig) -> tuple[bool, bool]:
+    frame = sort_by_date_if_needed(df).iloc[:-1].tail(max(int(cfg.signal_sequence_lookback), 1) + 20)
+    if len(frame) < 21:
+        return False, False
+    close = pd.to_numeric(frame["close"], errors="coerce")
+    high = pd.to_numeric(frame["high"], errors="coerce")
+    low = pd.to_numeric(frame["low"], errors="coerce")
+    volume = pd.to_numeric(frame["volume"], errors="coerce")
+    pct_chg = pd.to_numeric(frame.get("pct_chg", close.pct_change() * 100.0), errors="coerce")
+    support = low.rolling(20).min().shift(1)
+    resistance = high.rolling(20).max().shift(1)
+    vol_ref = volume.rolling(20).mean().shift(1)
+    recent = slice(-max(int(cfg.signal_sequence_lookback), 1), None)
+    spring_like = ((low < support * 0.995) & (close > support * 1.005)).iloc[recent].fillna(False).any()
+    sos_volume = max(float(cfg.sos_vol_ratio) * 0.65, 1.2)
+    sos_like = (
+        ((close >= resistance * 0.995) & (pct_chg >= float(cfg.sos_pct_min) * 0.75) & (volume >= vol_ref * sos_volume))
+        .iloc[recent]
+        .fillna(False)
+        .any()
+    )
+    return bool(spring_like), bool(sos_like)
+
+
+def _apply_signal_sequence_bonus(
+    results: dict[str, list[tuple[str, float]]], df_map: dict[str, pd.DataFrame], cfg: FunnelConfig
+) -> None:
+    hit_keys: dict[str, set[str]] = {}
+    for key, rows in results.items():
+        for code, _score in rows:
+            hit_keys.setdefault(str(code), set()).add(key)
+    qualified: set[tuple[str, str]] = set()
+    for code, keys in hit_keys.items():
+        if not keys.intersection({"sos", "lps"}):
+            continue
+        spring_like, sos_like = _recent_sequence_events(df_map[code], cfg)
+        if "sos" in keys and spring_like:
+            qualified.add((code, "sos"))
+        if "lps" in keys and (spring_like or sos_like):
+            qualified.add((code, "lps"))
+    bonus = float(cfg.signal_sequence_score_bonus)
+    for key in ("sos", "lps"):
+        results[key] = [
+            (code, float(score) + bonus if (str(code), key) in qualified else float(score))
+            for code, score in results[key]
+        ]
+
+
 def layer4_triggers(
     symbols: list[str],
     df_map: dict[str, pd.DataFrame],
@@ -1525,6 +1684,8 @@ def layer4_triggers(
                 score = _detect_trend_pullback(df, cfg, market_cap_yi=cap_yi, max_bias_200=max_bias_200)
                 if score is not None:
                     results["trend_pullback"].append((sym, score))
+    if cfg.signal_sequence_bonus_enabled:
+        _apply_signal_sequence_bonus(results, df_map, cfg)
     return results
 
 
@@ -2116,7 +2277,7 @@ def _formal_candidate_entries(
             sig = str((exit_signals.get(str(code), {}) or {}).get("signal", "")).strip()
             if sig == "stop_loss":
                 risk = 1.0
-            elif sig == "distribution_warning":
+            elif sig in {"distribution_warning", "upthrust_warning"}:
                 risk = 0.45
             score = min(float(base_map.get(key, 50.0)) + float(raw_score or 0.0) * 5.0 - risk * 35.0, 100.0)
             entries.append(
@@ -2340,6 +2501,50 @@ def _detect_distribution_start(df: pd.DataFrame, cfg: FunnelConfig) -> bool:
     return not recent_vol / ref_vol > cfg.dist_vol_dry_ratio
 
 
+def _detect_upthrust_after_distribution(df: pd.DataFrame, cfg: FunnelConfig) -> dict[str, float] | None:
+    """Detect a high-level false breakout that closes back below prior resistance."""
+    if not cfg.dist_upthrust_enabled or len(df) < max(cfg.ma_long, cfg.dist_upthrust_lookback) + 1:
+        return None
+    df_s = sort_by_date_if_needed(df)
+    open_ = pd.to_numeric(df_s["open"], errors="coerce")
+    high = pd.to_numeric(df_s["high"], errors="coerce")
+    low = pd.to_numeric(df_s["low"], errors="coerce")
+    close = pd.to_numeric(df_s["close"], errors="coerce")
+    volume = pd.to_numeric(df_s["volume"], errors="coerce")
+    prior_high = high.iloc[-(cfg.dist_upthrust_lookback + 1) : -1].dropna()
+    swing_highs = swing_values(prior_high, kind="high", window=3)
+    resistance = (
+        float(pd.Series(swing_highs[-5:]).median()) if len(swing_highs) >= 2 else float(prior_high.quantile(0.95))
+    )
+    ma200 = close.rolling(cfg.ma_long).mean().iloc[-1]
+    ref_volume = volume.tail(21).iloc[:-1].mean()
+    day_range = float(high.iloc[-1] - low.iloc[-1])
+    shadow = float(high.iloc[-1] - max(open_.iloc[-1], close.iloc[-1]))
+    if any(pd.isna(value) for value in (resistance, ma200, ref_volume)) or resistance <= 0 or ma200 <= 0:
+        return None
+    breakout_pct = (float(high.iloc[-1]) / resistance - 1.0) * 100.0
+    close_back_pct = (resistance / float(close.iloc[-1]) - 1.0) * 100.0 if close.iloc[-1] > 0 else 0.0
+    volume_ratio = float(volume.iloc[-1] / ref_volume) if ref_volume > 0 else 0.0
+    bias_200 = (float(close.iloc[-1]) / float(ma200) - 1.0) * 100.0
+    upper_shadow_ratio = shadow / day_range if day_range > 0 else 0.0
+    if (
+        breakout_pct < cfg.dist_upthrust_breakout_pct
+        or close_back_pct < cfg.dist_upthrust_close_back_pct
+        or upper_shadow_ratio < cfg.dist_upthrust_upper_shadow_ratio
+        or volume_ratio < cfg.dist_upthrust_vol_ratio
+        or bias_200 < cfg.dist_upthrust_min_bias_200_pct
+    ):
+        return None
+    return {
+        "resistance": resistance,
+        "breakout_pct": breakout_pct,
+        "close_back_pct": close_back_pct,
+        "upper_shadow_ratio": upper_shadow_ratio,
+        "volume_ratio": volume_ratio,
+        "bias_200_pct": bias_200,
+    }
+
+
 def _is_holiday_grace(df_s: pd.DataFrame, grace_days: int) -> bool:
     """检测最近交易日是否处于节后宽限期（跨 ≥3 自然日后的 grace_days 个交易日内）。"""
     if grace_days <= 0 or "date" not in df_s.columns or len(df_s) < 2:
@@ -2386,6 +2591,59 @@ def _compute_stop_loss(
     return price, "主升趋势破位(跌破MA50或高位回撤)"
 
 
+def _stop_loss_exit_signal(df_s: pd.DataFrame, stage: str, cfg: FunnelConfig) -> dict | None:
+    if _is_holiday_grace(df_s, cfg.exit_holiday_grace_days):
+        return None
+    close = pd.to_numeric(df_s["close"], errors="coerce")
+    low = pd.to_numeric(df_s["low"], errors="coerce")
+    high = pd.to_numeric(df_s["high"], errors="coerce")
+    stop_price, stop_reason = _compute_stop_loss(close, low, high, stage, cfg)
+    last_close = float(close.iloc[-1])
+    if stop_price is None or last_close > stop_price:
+        return None
+    deep_breach = stop_price > 0 and (stop_price - last_close) / stop_price >= 0.05
+    if deep_breach:
+        return {
+            "signal": "stop_loss",
+            "price": stop_price,
+            "current": last_close,
+            "reason": stop_reason + "(深度破位)",
+        }
+    confirm_days = max(int(cfg.exit_confirm_days), 1)
+    recent_closes = close.tail(confirm_days)
+    all_below = len(close) < confirm_days or all(float(value) <= stop_price for value in recent_closes)
+    volume = pd.to_numeric(df_s.get("volume"), errors="coerce")
+    vol_confirmed = True
+    if all_below and cfg.exit_vol_confirm_ratio > 0 and len(volume) >= 20 + confirm_days:
+        vol_recent = float(volume.tail(confirm_days).mean())
+        vol_ref = float(volume.tail(20 + confirm_days).iloc[:-confirm_days].mean())
+        vol_confirmed = vol_ref <= 0 or (vol_recent / vol_ref) >= cfg.exit_vol_confirm_ratio
+    if not all_below or not vol_confirmed:
+        return None
+    return {"signal": "stop_loss", "price": stop_price, "current": last_close, "reason": stop_reason}
+
+
+def _distribution_exit_signal(df_s: pd.DataFrame, cfg: FunnelConfig) -> dict | None:
+    upthrust = _detect_upthrust_after_distribution(df_s, cfg)
+    if upthrust:
+        return {
+            "signal": "upthrust_warning",
+            "current": float(pd.to_numeric(df_s["close"], errors="coerce").iloc[-1]),
+            "resistance": upthrust["resistance"],
+            "reason": (
+                f"检测到 Upthrust/UTAD 假突破：盘中越过阻力 {upthrust['breakout_pct']:.1f}% 后收回，"
+                f"上影占振幅 {upthrust['upper_shadow_ratio']:.0%}，量比 {upthrust['volume_ratio']:.1f}"
+            ),
+            "evidence": upthrust,
+        }
+    if _detect_distribution_start(df_s, cfg):
+        return {
+            "signal": "distribution_warning",
+            "reason": "检测到高位 Distribution 阶段迹象（放量不涨/高位缩量），主力疑似派发",
+        }
+    return None
+
+
 def layer5_exit_signals(
     symbols: list[str],
     df_map: dict[str, pd.DataFrame],
@@ -2409,49 +2667,13 @@ def layer5_exit_signals(
         if close.empty or low.empty or high.empty:
             continue
 
-        if not _is_holiday_grace(df_s, cfg.exit_holiday_grace_days):
-            stage = accum_stage_map.get(sym, "Markup")
-            stop_price, stop_reason = _compute_stop_loss(close, low, high, stage, cfg)
-            last_close = float(close.iloc[-1])
-            if stop_price is not None and last_close <= stop_price:
-                # 深度破位硬止损：跌幅超过 stop_price 的 5% 直接触发，不等确认
-                deep_breach = stop_price > 0 and (stop_price - last_close) / stop_price >= 0.05
-                if deep_breach:
-                    signals[sym] = {
-                        "signal": "stop_loss",
-                        "price": stop_price,
-                        "current": last_close,
-                        "reason": stop_reason + "(深度破位)",
-                    }
-                    continue
-                confirm_days = max(int(cfg.exit_confirm_days), 1)
-                if len(close) >= confirm_days:
-                    recent_closes = close.tail(confirm_days)
-                    all_below = all(float(c) <= stop_price for c in recent_closes)
-                else:
-                    all_below = True
-                vol_confirmed = True
-                if all_below and cfg.exit_vol_confirm_ratio > 0:
-                    volume = pd.to_numeric(df_s.get("volume"), errors="coerce")
-                    if not volume.empty and len(volume) >= 20 + confirm_days:
-                        vol_recent = float(volume.tail(confirm_days).mean())
-                        vol_ref = float(volume.tail(20 + confirm_days).iloc[:-confirm_days].mean())
-                        if vol_ref > 0:
-                            vol_confirmed = (vol_recent / vol_ref) >= cfg.exit_vol_confirm_ratio
-                if all_below and vol_confirmed:
-                    signals[sym] = {
-                        "signal": "stop_loss",
-                        "price": stop_price,
-                        "current": last_close,
-                        "reason": stop_reason,
-                    }
-                    continue
-
-        if _detect_distribution_start(df_s, cfg):
-            signals[sym] = {
-                "signal": "distribution_warning",
-                "reason": "检测到高位 Distribution 阶段迹象（放量不涨/高位缩量），主力疑似派发",
-            }
+        signal = _stop_loss_exit_signal(df_s, accum_stage_map.get(sym, "Markup"), cfg)
+        if signal:
+            signals[sym] = signal
+            continue
+        signal = _distribution_exit_signal(df_s, cfg)
+        if signal:
+            signals[sym] = signal
 
     return signals
 

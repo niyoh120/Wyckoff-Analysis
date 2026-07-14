@@ -685,3 +685,367 @@ def _trend_volume_ok(df_sorted: pd.DataFrame, min_ratio: float) -> bool:
         return True
     vol20 = float(vol.tail(20).mean())
     return vol20 <= 0 or float(vol.tail(5).mean()) / vol20 >= min_ratio
+
+
+def _diagnose_momentum(cfg: Any, rps_slow: float | None, momentum_rs_ok: bool) -> tuple[float, list[str]]:
+    if not getattr(cfg, "enable_momentum_channel", True):
+        return 999.0, ["通道未启用"]
+    gaps = []
+    fail = []
+    if not momentum_rs_ok:
+        gaps.append(0.5)
+        fail.append("RS强度未确认: 当前未通过")
+    thresh = cfg.rps_slow_min
+    val = rps_slow or 0.0
+    if val < thresh:
+        gaps.append((thresh - val) / thresh)
+        fail.append(f"RPS(slow)不足: 当前 {val:.1f}, 阈值 {thresh:.1f}, 差距 {thresh - val:.1f}")
+    if not gaps:
+        return 0.0, []
+    return max(gaps), fail
+
+
+def _diagnose_ambush(
+    cfg: Any,
+    last_ma_long: float | None,
+    last_close: float | None,
+    close_series: pd.Series,
+    ambush_rs_ok: bool,
+    rps_slow: float | None,
+) -> tuple[float, list[str]]:
+    if not getattr(cfg, "enable_ambush_channel", True):
+        return 999.0, ["通道未启用"]
+    if pd.isna(last_ma_long) or float(last_ma_long) <= 0 or pd.isna(last_close):
+        return 1.0, ["均线或价格数据缺失"]
+
+    gaps = []
+    fail = []
+    bias_200 = (float(last_close) - float(last_ma_long)) / float(last_ma_long)
+    ret20 = close_return_pct(close_series, 20)
+    bias_ok = abs(bias_200) <= cfg.ambush_bias_200_abs_max
+    ret20_ok = ret20 is not None and ret20 <= cfg.ambush_ret20_max
+
+    if not bias_ok:
+        thresh = cfg.ambush_bias_200_abs_max
+        val = abs(bias_200)
+        gaps.append((val - thresh) / thresh)
+        fail.append(
+            f"偏离MA200超标: 当前 {bias_200 * 100:+.1f}%, 阈值 ±{thresh * 100:.1f}%, 差距 {(val - thresh) * 100:.1f}%"
+        )
+    if not ret20_ok:
+        thresh = cfg.ambush_ret20_max
+        val = ret20 or 0.0
+        gaps.append((val - thresh) / thresh if thresh > 0 else 0.5)
+        fail.append(f"20日涨幅超标: 当前 {val:+.1f}%, 阈值 {thresh:.1f}%, 差距 {val - thresh:.1f}%")
+    if not ambush_rs_ok:
+        gaps.append(0.5)
+        fail.append("RS强度未确认: 当前未通过")
+    thresh_rps = cfg.rps_ambush_min
+    val_rps = rps_slow or 0.0
+    if val_rps < thresh_rps:
+        gaps.append((thresh_rps - val_rps) / thresh_rps)
+        fail.append(f"RPS(slow)不足: 当前 {val_rps:.1f}, 阈值 {thresh_rps:.1f}, 差距 {thresh_rps - val_rps:.1f}")
+
+    if not gaps:
+        return 0.0, []
+    return max(gaps), fail
+
+
+def _accum_low_gap(cfg: Any, last_close: float | None, close_series: pd.Series) -> tuple[float | None, str | None]:
+    lookback = int(cfg.accum_lookback_days)
+    max_from_low = float(cfg.accum_price_from_low_max)
+    period_low = float(close_series.tail(max(lookback, 2)).min())
+    if period_low > 0:
+        price_from_low = float(last_close) / period_low - 1.0
+        if price_from_low > max_from_low:
+            gap = (price_from_low - max_from_low) / max_from_low
+            return gap, (
+                f"偏离低位过高: 当前 {price_from_low * 100:.1f}%, "
+                f"阈值 {max_from_low * 100:.1f}%, 差距 {(price_from_low - max_from_low) * 100:.1f}%"
+            )
+    else:
+        return 0.5, "低位价格无效"
+    return None, None
+
+
+def _accum_range_gap(cfg: Any, df_sorted: pd.DataFrame) -> tuple[float | None, str | None]:
+    window = int(cfg.accum_range_window)
+    max_pct = float(cfg.accum_range_max_pct)
+    zone = df_sorted.tail(max(window, 5))
+    high = pd.to_numeric(zone.get("high"), errors="coerce")
+    low = pd.to_numeric(zone.get("low"), errors="coerce")
+    if not high.dropna().empty and not low.dropna().empty:
+        high_max = float(high.max())
+        low_min = float(low.min())
+        range_pct = (high_max - low_min) / low_min * 100.0 if low_min > 0 else 999.0
+        if range_pct > max_pct:
+            gap = (range_pct - max_pct) / max_pct
+            return gap, f"振幅未收敛: 当前 {range_pct:.1f}%, 阈值 {max_pct:.1f}%, 差距 {range_pct - max_pct:.1f}%"
+    else:
+        return 0.5, "振幅高低点无效"
+    return None, None
+
+
+def _accum_vol_gap(cfg: Any, df_sorted: pd.DataFrame) -> tuple[float | None, str | None]:
+    vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce")
+    dry_w = max(int(cfg.accum_vol_dry_window), 2)
+    ref_w = max(int(cfg.accum_vol_dry_ref_window), dry_w + 1)
+    recent_vol_mean = float(vol.tail(dry_w).mean()) if len(vol) >= dry_w else None
+    ref_vol_mean = float(vol.tail(ref_w).iloc[:-dry_w].mean()) if len(vol) >= ref_w else None
+    dry_ratio = float(cfg.accum_vol_dry_ratio)
+    if recent_vol_mean is not None and ref_vol_mean is not None and ref_vol_mean > 0:
+        vol_ratio = recent_vol_mean / ref_vol_mean
+        if vol_ratio >= dry_ratio:
+            gap = (vol_ratio - dry_ratio) / dry_ratio
+            return gap, f"成交量未萎缩: 当前 {vol_ratio:.2f}x, 阈值 {dry_ratio:.2f}x, 差距 {vol_ratio - dry_ratio:.2f}x"
+    else:
+        return 0.5, "成交量数据不足"
+    return None, None
+
+
+def _accum_ma_gap(cfg: Any, last_ma_short: float | None, last_ma_long: float | None) -> tuple[float | None, str | None]:
+    gap_max = float(cfg.accum_ma_gap_max)
+    if pd.notna(last_ma_short) and pd.notna(last_ma_long) and float(last_ma_long) > 0:
+        ma_gap_pct = (float(last_ma_short) - float(last_ma_long)) / float(last_ma_long) * 100.0
+        if abs(ma_gap_pct) > gap_max * 100.0:
+            gap = (abs(ma_gap_pct) / 100.0 - gap_max) / gap_max
+            return (
+                gap,
+                f"均线间距过大: 当前 {ma_gap_pct:+.1f}%, 阈值 ±{gap_max * 100:.1f}%, 差距 {abs(ma_gap_pct) - gap_max * 100:.1f}%",
+            )
+    else:
+        return 0.5, "均线数据无效"
+    return None, None
+
+
+def _diagnose_accum(
+    cfg: Any,
+    df_sorted: pd.DataFrame,
+    close_series: pd.Series,
+    last_close: float | None,
+    last_ma_short: float | None,
+    last_ma_long: float | None,
+) -> tuple[float, list[str]]:
+    if not getattr(cfg, "enable_accumulation_channel", True):
+        return 999.0, ["通道未启用"]
+    if len(df_sorted) < max(cfg.accum_lookback_days, cfg.accum_vol_dry_ref_window):
+        return 1.0, ["历史长度不足"]
+
+    gaps = []
+    fail = []
+
+    for gap, desc in [
+        _accum_low_gap(cfg, last_close, close_series),
+        _accum_range_gap(cfg, df_sorted),
+        _accum_vol_gap(cfg, df_sorted),
+        _accum_ma_gap(cfg, last_ma_short, last_ma_long),
+    ]:
+        if gap is not None and desc is not None:
+            gaps.append(gap)
+            fail.append(desc)
+
+    if not gaps:
+        return 0.0, []
+    return max(gaps), fail
+
+
+def _diagnose_dry_vol(
+    cfg: Any, df_sorted: pd.DataFrame, close_series: pd.Series, last_close: float | None
+) -> tuple[float, list[str]]:
+    if not getattr(cfg, "enable_dry_vol_channel", True):
+        return 999.0, ["通道未启用"]
+    if len(df_sorted) < cfg.dry_vol_ref_window:
+        return 1.0, ["历史长度不足"]
+
+    gaps = []
+    fail = []
+
+    # 1. Low position
+    lookback = int(cfg.dry_vol_ref_window)
+    max_from_low = float(cfg.dry_vol_price_from_low_max)
+    period_low = float(close_series.tail(max(lookback, 2)).min())
+    if period_low > 0:
+        price_from_low = float(last_close) / period_low - 1.0
+        if price_from_low > max_from_low:
+            gaps.append((price_from_low - max_from_low) / max_from_low)
+            fail.append(
+                f"偏离低位过高: 当前 {price_from_low * 100:.1f}%, 阈值 {max_from_low * 100:.1f}%, 差距 {(price_from_low - max_from_low) * 100:.1f}%"
+            )
+
+    # 2. Dry vol quantile
+    vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce")
+    ref_vol = vol.tail(max(int(cfg.dry_vol_ref_window), 2))
+    if len(ref_vol.dropna()) < 50:
+        gaps.append(0.5)
+        fail.append("有效量数据不足")
+    else:
+        vol_threshold = float(np.quantile(ref_vol.dropna().values, cfg.dry_vol_quantile))
+        min_vol = float(vol.tail(cfg.dry_vol_lookback).min())
+        if min_vol > vol_threshold:
+            gaps.append((min_vol - vol_threshold) / vol_threshold)
+            fail.append(
+                f"未见地量: 当前最小量 {min_vol:.0f}, 阈值量 {vol_threshold:.0f}, 差距 {min_vol - vol_threshold:.0f}"
+            )
+
+    if not gaps:
+        return 0.0, []
+    return max(gaps), fail
+
+
+def _diagnose_rs_div(
+    cfg: Any, df_sorted: pd.DataFrame, close_series: pd.Series, last_close: float | None, bench_ctx: Any
+) -> tuple[float, list[str]]:
+    if not _rs_divergence_base_ok(cfg, df_sorted, bench_ctx.sorted_df):
+        return 999.0, ["不满足底背离基础条件"]
+
+    gaps = []
+    fail = []
+
+    # 1. Low position
+    lookback = max(int(cfg.dry_vol_ref_window), 250)
+    max_from_low = float(cfg.rs_div_price_from_low_max)
+    period_low = float(close_series.tail(max(lookback, 2)).min())
+    if period_low > 0:
+        price_from_low = float(last_close) / period_low - 1.0
+        if price_from_low > max_from_low:
+            gaps.append((price_from_low - max_from_low) / max_from_low)
+            fail.append(
+                f"偏离低位过高: 当前 {price_from_low * 100:.1f}%, 阈值 {max_from_low * 100:.1f}%, 差距 {(price_from_low - max_from_low) * 100:.1f}%"
+            )
+
+    # 2. Bench new low
+    bench_close = pd.to_numeric(bench_ctx.sorted_df.get("close"), errors="coerce")
+    if len(bench_close.dropna()) < cfg.rs_div_bench_ref_window:
+        gaps.append(0.5)
+        fail.append("大盘数据不足")
+    else:
+        if not _bench_made_lower_low(bench_close, cfg):
+            gaps.append(0.5)
+            fail.append("大盘未创收盘新低: 未通过")
+        if not _stock_higher_low_with_volume(df_sorted, bench_ctx.sorted_df, cfg):
+            gaps.append(0.5)
+            fail.append("个股未创高低点或未放量: 未通过")
+
+    if not gaps:
+        return 0.0, []
+    return max(gaps), fail
+
+
+def _diagnose_trend_cont(
+    cfg: Any, df_sorted: pd.DataFrame, close_series: pd.Series, rps_slow: float | None, state: Any
+) -> tuple[float, list[str]]:
+    if not getattr(cfg, "enable_trend_cont_channel", True):
+        return 999.0, ["通道未启用"]
+
+    gaps = []
+    fail = []
+    if not state.bullish_alignment:
+        gaps.append(0.5)
+        fail.append("均线未多头排列: 未通过")
+    thresh_rps = cfg.trend_cont_rps_slow_min
+    val_rps = rps_slow or 0.0
+    if val_rps < thresh_rps:
+        gaps.append((thresh_rps - val_rps) / thresh_rps)
+        fail.append(f"RPS(slow)不足: 当前 {val_rps:.1f}, 阈值 {thresh_rps:.1f}, 差距 {thresh_rps - val_rps:.1f}")
+
+    drawdown_ok = _trend_drawdown_ok(
+        close_series, int(cfg.trend_cont_drawdown_window), float(cfg.trend_cont_max_drawdown_pct)
+    )
+    if not drawdown_ok:
+        gaps.append(0.4)
+        fail.append("趋势回撤超标: 未通过")
+    if not _trend_volume_ok(df_sorted, float(cfg.trend_cont_vol_ratio_min)):
+        gaps.append(0.4)
+        fail.append("成交量不合规: 未通过")
+
+    if not gaps:
+        return 0.0, []
+    return max(gaps), fail
+
+
+def _diagnose_breakout_accel(
+    cfg: Any,
+    df_sorted: pd.DataFrame,
+    close_series: pd.Series,
+    last_close: float | None,
+    last_ma_short: float | None,
+    rps_fast: float | None,
+    state: Any,
+) -> tuple[float, list[str]]:
+    if not getattr(cfg, "enable_breakout_accel_channel", True):
+        return 999.0, ["通道未启用"]
+
+    gaps = []
+    fail = []
+    if pd.notna(last_ma_short) and pd.notna(last_close):
+        if float(last_close) <= float(last_ma_short):
+            gaps.append((float(last_ma_short) - float(last_close)) / float(last_ma_short))
+            fail.append(f"未在MA50上方: 当前 {last_close:.2f}, 阈值MA50 {last_ma_short:.2f}")
+    else:
+        gaps.append(0.5)
+        fail.append("均线或收盘价数据缺失")
+
+    if state.bullish_alignment:
+        gaps.append(0.5)
+        fail.append("已均线多头排列(点火通道仅限突破前): 未通过")
+
+    thresh_rps = cfg.breakout_accel_rps_fast_min
+    val_rps = rps_fast or 0.0
+    if val_rps < thresh_rps:
+        gaps.append((thresh_rps - val_rps) / thresh_rps)
+        fail.append(f"RPS(fast)不足: 当前 {val_rps:.1f}, 阈值 {thresh_rps:.1f}, 差距 {thresh_rps - val_rps:.1f}")
+
+    ret = close_return_pct(close_series, cfg.breakout_accel_ret_window)
+    thresh_ret = cfg.breakout_accel_ret_min
+    if ret is None or ret < thresh_ret:
+        val_ret = ret or 0.0
+        gaps.append((thresh_ret - val_ret) / thresh_ret if thresh_ret > 0 else 0.5)
+        fail.append(f"涨幅不足: 当前 {val_ret:+.1f}%, 阈值 {thresh_ret:.1f}%, 差距 {thresh_ret - val_ret:.1f}%")
+
+    if not _breakout_volume_ok(df_sorted, cfg):
+        gaps.append(0.4)
+        fail.append("放量不足: 未通过")
+
+    if not gaps:
+        return 0.0, []
+    return max(gaps), fail
+
+
+def diagnose_layer2_symbol_failure(
+    sym: str,
+    df_sorted: pd.DataFrame,
+    cfg: Any,
+    *,
+    bench_ctx: BenchmarkContext,
+    rps_ctx: RpsContext,
+    rps_state: Layer2RpsState,
+    momentum_rs_ok: bool,
+    ambush_rs_ok: bool,
+) -> str:
+    state = _symbol_state(df_sorted, cfg, bench_ctx)
+    close_series = state.close
+    last_close = state.last_close
+    last_ma_short = state.last_ma_short
+    last_ma_long = state.last_ma_long
+    rps_slow = rps_state.slow
+    rps_fast = rps_state.fast
+
+    channel_failures = {
+        "主升": _diagnose_momentum(cfg, rps_slow, momentum_rs_ok),
+        "潜伏": _diagnose_ambush(cfg, last_ma_long, last_close, close_series, ambush_rs_ok, rps_slow),
+        "吸筹": _diagnose_accum(cfg, df_sorted, close_series, last_close, last_ma_short, last_ma_long),
+        "地量蓄势": _diagnose_dry_vol(cfg, df_sorted, close_series, last_close),
+        "暗中护盘": _diagnose_rs_div(cfg, df_sorted, close_series, last_close, bench_ctx),
+        "趋势延续": _diagnose_trend_cont(cfg, df_sorted, close_series, rps_slow, state),
+        "点火破局": _diagnose_breakout_accel(cfg, df_sorted, close_series, last_close, last_ma_short, rps_fast, state),
+    }
+
+    valid_channels = {k: v for k, v in channel_failures.items() if "通道未启用" not in v[1]}
+    if not valid_channels:
+        valid_channels = channel_failures
+
+    # Sort by gap float value (v[0])
+    sorted_fails = sorted(valid_channels.items(), key=lambda item: item[1][0])
+    closest_name, (closest_gap, closest_reasons) = sorted_fails[0]
+
+    return f"最接近通道[{closest_name}](缺口{closest_gap * 100:.1f}%): {', '.join(closest_reasons)}"

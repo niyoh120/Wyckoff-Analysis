@@ -25,6 +25,7 @@ TRIGGER_LABELS = {
     "launchpad": "Launchpad（主升预备）",
     "tight_base": "Tight Base（强势平台）",
     "accumulation_ready": "低位转强（吸筹完成）",
+    "crash_resilience_watch": "抗跌观察（暴跌日）",
 }
 
 TRIGGER_SHORT_LABELS = {
@@ -38,6 +39,7 @@ TRIGGER_SHORT_LABELS = {
     "launchpad": "Launchpad",
     "tight_base": "TightBase",
     "accumulation_ready": "AccumReady",
+    "crash_resilience_watch": "CrashWatch",
 }
 
 # 分组展示优先级：SOS > EVR > Spring > LPS > TrendPB > Compression
@@ -52,6 +54,7 @@ TRIGGER_GROUP_ORDER = [
     "spring",
     "lps",
     "compression",
+    "crash_resilience_watch",
 ]
 TRIGGER_GROUP_TITLES = {
     "early_breakout": "🚀 早期突破",
@@ -63,6 +66,7 @@ TRIGGER_GROUP_TITLES = {
     "lps": "🔄 LPS 缩量回踩",
     "trend_pullback": "📈 TrendPB 趋势回踩",
     "compression": "🔻 Compression 压缩蓄势",
+    "crash_resilience_watch": "🛡️ CrashWatch 抗跌观察",
     "accumulation_ready": "🌱 低位转强",
 }
 

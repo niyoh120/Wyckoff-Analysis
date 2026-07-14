@@ -20,6 +20,7 @@ def step4_order_config_from_env() -> Step4OrderConfig:
         atr_slippage_factor=_env_float("STEP4_ATR_SLIPPAGE_FACTOR", 0.25),
         probe_budget_limit=_clamp01(_env_float("STEP4_PROBE_BUDGET_LIMIT", 0.10)),
         repair_probe_budget_limit=_clamp01(_env_float("STEP4_REPAIR_PROBE_BUDGET_LIMIT", 0.05)),
+        left_probe_budget_limit=_clamp01(_env_float("STEP4_LEFT_PROBE_BUDGET_LIMIT", 0.02)),
         attack_budget_limit=_clamp01(_env_float("STEP4_ATTACK_BUDGET_LIMIT", 0.20)),
         buy_block_regimes=_env_regime_set(
             "STEP4_BUY_BLOCK_REGIMES",

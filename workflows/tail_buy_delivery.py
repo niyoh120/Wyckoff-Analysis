@@ -136,7 +136,12 @@ def tail_buy_persist_row(candidate: TailBuyCandidate, started_at: datetime) -> d
         }
     )
     features.update(
-        tail_buy_execution_semantics(candidate.final_decision, candidate.signal_type, features=candidate.features)
+        tail_buy_execution_semantics(
+            candidate.final_decision,
+            candidate.signal_type,
+            features=candidate.features,
+            market_regime=candidate.market_regime,
+        )
     )
     return {
         "code": candidate.code,

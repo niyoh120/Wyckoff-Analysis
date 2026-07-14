@@ -13,7 +13,7 @@ from core.strategy_policy_governor import resolve_signal_weight_multiplier
 TREND_CHANNEL_TAGS = {"主升通道", "趋势延续", "点火破局", "加速突破"}
 ACCUM_CHANNEL_TAGS = {"潜伏通道", "吸筹通道", "地量蓄势", "暗中护盘"}
 HIT_KEYS = ("sos", "spring", "lps", "evr", "compression", "trend_pullback")
-BLOCKED_EXIT_SIGNALS = {"stop_loss", "distribution_warning"}
+BLOCKED_EXIT_SIGNALS = {"stop_loss", "distribution_warning", "upthrust_warning"}
 DEFAULT_AI_QUOTA_BY_FAMILY: dict[str, tuple[int, int]] = {
     # RISK_ON 保留研究/shadow 候选；正式推荐和下单由市场闸门禁止。
     "RISK_ON": (5, 1),
@@ -586,7 +586,7 @@ def _exit_penalty(result: Any, code: str) -> float:
     signal = _exit_signal(result, code)
     if signal == "stop_loss":
         return -100.0
-    if signal == "distribution_warning":
+    if signal in {"distribution_warning", "upthrust_warning"}:
         return -20.0
     return 0.0
 

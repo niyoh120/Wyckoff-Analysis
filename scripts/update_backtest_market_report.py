@@ -11,6 +11,7 @@ import _bootstrap  # noqa: F401
 from workflows.backtest_market_report_artifacts import GridCell, load_grid_cells
 from workflows.backtest_market_report_builder import build_confirmation, build_report
 from workflows.backtest_parameter_stability import build_parameter_stability
+from workflows.backtest_walk_forward import build_walk_forward_validation
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,6 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--evidence-output", default="", help="Optional portable research evidence JSON path")
     parser.add_argument("--stability-output", default="", help="Optional parameter stability JSON path")
     parser.add_argument("--stability-evidence-output", default="", help="Optional portable stability evidence path")
+    parser.add_argument("--walk-forward-output", default="", help="Optional walk-forward validation JSON path")
     return parser.parse_args()
 
 
@@ -43,6 +45,7 @@ def main() -> int:
         print(f"[backtest-report] wrote {confirmation_path}")
         _record_hypothesis_evidence(args, confirmation, confirmation_path, "backtest", args.evidence_output)
         _write_stability(args, cells)
+        _write_walk_forward(args, cells)
     return 0
 
 
@@ -88,6 +91,16 @@ def _write_stability(args: argparse.Namespace, cells: list[GridCell]) -> None:
         "stability",
         args.stability_evidence_output,
     )
+
+
+def _write_walk_forward(args: argparse.Namespace, cells: list[GridCell]) -> None:
+    if not args.walk_forward_output:
+        return
+    validation = build_walk_forward_validation(cells, run_url=args.run_url, generated_at=args.generated_at)
+    output = Path(args.walk_forward_output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(validation, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"[backtest-report] wrote {output}")
 
 
 def _artifact_ref(run_url: str, confirmation_path: Path, evidence_type: str) -> str:

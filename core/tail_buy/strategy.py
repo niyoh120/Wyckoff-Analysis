@@ -39,6 +39,7 @@ from core.tail_buy.models import (
     DECISION_WATCH,
     VALID_DECISIONS,
     TailBuyCandidate,
+    is_left_probe_source,
     normalize_cn_code,
     normalize_regime,
     normalize_status,
@@ -65,6 +66,8 @@ class TailBuyStrategyConfig:
     daily_trap_ma20_extension_pct: float = 18.0
     daily_trap_upper_shadow_pct: float = 4.0
     daily_trap_volume_ratio: float = 1.8
+    left_probe_close_pos_min: float = 0.65
+    left_probe_spring_quality_min: float = 50.0
 
 
 DEFAULT_TAIL_BUY_STRATEGY_CONFIG = TailBuyStrategyConfig()
@@ -99,6 +102,8 @@ def _apply_unconfirmed_buy_gate(
     candidate: TailBuyCandidate,
     config: TailBuyStrategyConfig | None = None,
 ) -> TailBuyCandidate:
+    if candidate.market_regime == "CRASH_LEFT_PROBE":
+        return candidate
     if not _strategy_config(config).confirmed_only_buy or normalize_status(candidate.status) == "confirmed":
         return candidate
     if candidate.rule_decision == DECISION_BUY:
@@ -139,6 +144,7 @@ def pick_tail_candidates(
     allowed = {str(x).strip().lower() for x in statuses}
     cutoff = _normalize_signal_date(cutoff_date)
     by_code: dict[str, TailBuyCandidate] = {}
+    sig_types_by_code: dict[str, set[str]] = {}
 
     for row in rows or []:
         if not isinstance(row, dict):
@@ -152,12 +158,16 @@ def pick_tail_candidates(
         code = normalize_cn_code(row.get("code"))
         if not code:
             continue
+        sig_type = str(row.get("signal_type", "") or "").strip().lower()
+        if sig_type:
+            sig_types_by_code.setdefault(code, set()).add(sig_type)
+
         candidate = TailBuyCandidate(
             code=code,
             name=str(row.get("name", "") or code).strip() or code,
             signal_date=signal_date,
             status=status,
-            signal_type=str(row.get("signal_type", "") or "").strip() or "unknown",
+            signal_type=sig_type or "unknown",
             signal_score=safe_float(row.get("signal_score"), 0.0),
             market_regime=normalize_regime(row.get("regime") or row.get("market_regime")),
             candidate_lane=str(row.get("candidate_lane", "") or "").strip(),
@@ -181,6 +191,9 @@ def pick_tail_candidates(
         new_rank = (candidate.signal_date, 1 if candidate.status == "confirmed" else 0, candidate.signal_score)
         if new_rank > old_rank:
             by_code[code] = candidate
+
+    for c in by_code.values():
+        c.all_signals = sig_types_by_code.get(c.code, set())
 
     out = list(by_code.values())
     out.sort(key=lambda x: (x.status != "confirmed", -x.signal_score, x.code))
@@ -342,6 +355,34 @@ def _apply_same_day_breakout_support_semantics(candidate: TailBuyCandidate, feat
     features["raw_day_low_breached_support"] = True
     features["day_low_breached_support"] = False
     features["same_day_breakout_reclaimed"] = True
+
+
+def _qualifies_left_probe(candidate: TailBuyCandidate, features: dict[str, Any], config: TailBuyStrategyConfig) -> bool:
+    if not is_left_probe_source(candidate):
+        return False
+    support = safe_float(features.get("support_level"), 0.0)
+    last_close = safe_float(features.get("last_close"), 0.0)
+    reclaimed_support = bool(features.get("day_low_breached_support")) and support > 0 and last_close >= support
+    strong_finish = safe_float(features.get("close_pos"), 0.0) >= config.left_probe_close_pos_min
+    spring_quality = safe_float(features.get("spring_quality"), 0.0)
+    reclaimed_tape = (
+        bool(features.get("reclaim_vwap"))
+        or bool(features.get("strong_hold_vwap"))
+        or spring_quality >= config.left_probe_spring_quality_min
+    )
+    return reclaimed_support and strong_finish and reclaimed_tape and not bool(features.get("tail_blowoff_reversal"))
+
+
+def _apply_left_probe_semantics(
+    candidate: TailBuyCandidate, features: dict[str, Any], config: TailBuyStrategyConfig
+) -> None:
+    if not _qualifies_left_probe(candidate, features, config):
+        return
+    features["raw_day_low_breached_support"] = True
+    features["day_low_breached_support"] = False
+    features["left_probe_ready"] = True
+    features["left_probe_source_regime"] = candidate.market_regime
+    candidate.market_regime = "CRASH_LEFT_PROBE"
 
 
 def _last_intraday_date(df: pd.DataFrame) -> date | None:
@@ -514,6 +555,7 @@ _SIGNAL_TYPE_STYLE: dict[str, str] = {
     "trend_pullback": "pullback",
     "trend_lane_pullback": "pullback",
     "rec_deep_pullback": "pullback",
+    "crash_resilience_watch": "pullback",
     "evr": "hybrid",
     "compression": "hybrid",
     "rec_momentum_continuation": "trend",
@@ -545,6 +587,7 @@ def _normalize_signal_score(signal_score: float, signal_type: str) -> float:
         "wyckoff_structure",
         "rec_deep_pullback",
         "rec_momentum_continuation",
+        "crash_resilience_watch",
     }:
         normalized = raw / 10.0 if raw > 10.0 else raw
     else:
@@ -861,6 +904,7 @@ def evaluate_rule_decision(
     features = compute_tail_features(df_1m, daily_context, config=policy)
     features.update(_daily_trap_features(daily_history, policy))
     features.update(_candidate_context_features(candidate, _latest_intraday_session(ensure_intraday_df(df_1m))))
+    _apply_left_probe_semantics(candidate, features, policy)
     _apply_same_day_breakout_support_semantics(candidate, features)
     features.update(
         _limit_up_features(
@@ -873,6 +917,9 @@ def evaluate_rule_decision(
     )
     if candidate.market_regime:
         features["market_regime"] = candidate.market_regime
+    score_policy = (
+        replace(policy, confirmed_only_buy=False) if candidate.market_regime == "CRASH_LEFT_PROBE" else policy
+    )
     score, decision, reasons = score_tail_features(
         features,
         signal_score=candidate.signal_score,
@@ -881,7 +928,7 @@ def evaluate_rule_decision(
         style=style,
         market_regime=candidate.market_regime,
         entry_guard=True,
-        config=policy,
+        config=score_policy,
     )
     candidate.features = features
     candidate.rule_score = score
@@ -934,6 +981,7 @@ def build_llm_prompt(
         "candidate_theme/candidate_phase/candidate_role 是程序确定字段，只能原样使用，不得重判或编造。"
         "主线核心只提高同等条件下的优先级，不能覆盖规则硬闸；confirmed 也不自动等于 BUY。"
         "若 day_low_breached_support=true、tail_blowoff_reversal=true、缺少支撑锚点或防守水温单EVR，必须选择 SKIP。"
+        "CRASH_LEFT_PROBE 仅代表规则已确认黄金坑左侧试探资格，仍只能选择小额 BUY 或继续 WATCH，不得建议加仓。"
         "若 daily_trap_pressure=true，不能选择 BUY，只能 WATCH 或 SKIP。"
         "禁止输出投资建议免责声明，禁止输出 markdown。"
     )
@@ -957,6 +1005,8 @@ def build_llm_prompt(
         f"- support_level={safe_float(f.get('support_level')):.3f}\n"
         f"- day_low_vs_support_pct={safe_float(f.get('day_low_vs_support_pct')):.3f}\n"
         f"- day_low_breached_support={bool(f.get('day_low_breached_support'))}\n"
+        f"- raw_day_low_breached_support={bool(f.get('raw_day_low_breached_support'))}\n"
+        f"- left_probe_ready={bool(f.get('left_probe_ready'))}\n"
         f"- same_day_breakout_reclaimed={bool(f.get('same_day_breakout_reclaimed'))}\n"
         f"- intraday_high_ret_pct={safe_float(f.get('intraday_high_ret_pct')):.3f}\n"
         f"- tail_blowoff_reversal={bool(f.get('tail_blowoff_reversal'))}\n"
@@ -1180,6 +1230,27 @@ def merge_rule_and_llm(
         item = _apply_unconfirmed_buy_gate(item, policy)
         out.append(item)
     out.sort(key=lambda x: (-x.priority_score, -x.rule_score, x.code))
+    return _cap_repair_tail_buys(out)
+
+
+def _cap_repair_tail_buys(out: list[TailBuyCandidate]) -> list[TailBuyCandidate]:
+    from core.market_trade_mode import normalize_regime
+
+    has_buy = False
+    for item in out:
+        regime = normalize_regime(item.market_regime)
+        if regime in {"PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY", "CRASH_LEFT_PROBE"}:
+            if item.final_decision == DECISION_BUY:
+                if not has_buy:
+                    has_buy = True
+                else:
+                    item.final_decision = DECISION_WATCH
+                    item.priority_score = _priority_score(item.rule_score + 3.0)
+                    msg = "防守期多开仓风控：非Top1试探候选降级为WATCH观察"
+                    if msg not in item.rule_reasons:
+                        item.rule_reasons.append(msg)
+                    if item.llm_decision == DECISION_BUY:
+                        item.llm_decision = DECISION_WATCH
     return out
 
 

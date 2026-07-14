@@ -7,6 +7,7 @@ import os
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Any
 
 import pandas as pd
 
@@ -152,46 +153,6 @@ def classify_review_code(code: str, ctx: ReplayContext) -> tuple[str, str, str]:
     return name, REVIEW_STAGE_TRIGGER_MISS, "未触发 Spring/LPS/EVR/SOS 等买点确认"
 
 
-def build_replay_rows(
-    review_codes: list[str], ctx: ReplayContext, today: date
-) -> tuple[list[dict[str, str]], Counter[str]]:
-    recommendation_lookup, recommendation_error = load_recommendation_lookup(review_codes)
-    rows: list[dict[str, str]] = []
-    stage_counter: Counter[str] = Counter()
-    for code in review_codes:
-        name, stage, reason = classify_review_code(code, ctx)
-        stage_counter[stage] += 1
-        rows.append(
-            {
-                "code": code,
-                "name": name,
-                "stage": stage,
-                "reason": reason,
-                "recommendation": format_recommendation_history(
-                    code, recommendation_lookup, recommendation_error, exclude_date=today
-                ),
-            }
-        )
-    return rows, stage_counter
-
-
-def send_replay_report(
-    webhook: str,
-    rows: list[dict[str, str]],
-    stage_counter: Counter[str],
-    dates: ReviewDates,
-    end_trade_date: str,
-) -> bool:
-    lines = build_report_lines(
-        rows=rows,
-        stage_counter=stage_counter,
-        today=dates.today,
-        previous_trade_date=dates.previous_trade_date,
-        end_trade_date=end_trade_date,
-    )
-    return send_feishu_notification(webhook, "🔍 涨停复盘：今日涨停为何未在前一日漏斗捕获", "\n".join(lines))
-
-
 def build_layer2_context(df_map: dict[str, pd.DataFrame], bench_df: pd.DataFrame | None) -> dict:
     return {"bench_df_raw": bench_df, "rps_universe": list(df_map.keys())}
 
@@ -210,7 +171,7 @@ def blocked_exit_signal_map(exit_signals: dict[str, dict] | None) -> dict[str, d
     blocked: dict[str, dict] = {}
     for code, raw in (exit_signals or {}).items():
         signal = str((raw or {}).get("signal", "")).strip()
-        if signal in {"stop_loss", "distribution_warning"}:
+        if signal in {"stop_loss", "distribution_warning", "upthrust_warning"}:
             blocked[str(code)] = dict(raw or {})
     return blocked
 
@@ -254,16 +215,161 @@ def explain_l2_fail(code: str, cfg: FunnelConfig, df_map: dict[str, pd.DataFrame
     df = df_map.get(code)
     if df is None or len(df) < cfg.ma_long:
         return f"历史长度不足: < MA{cfg.ma_long}"
+    rejections: dict[str, str] = {}
     passed, channel_map, _ = layer2_strength_detailed(
         [code],
         df_map,
         ctx.get("bench_df_raw"),
         cfg,
         rps_universe=ctx.get("rps_universe", [code]),
+        rejections=rejections,
     )
     if passed:
         return f"结构强度通道已通过[{channel_map.get(code, '未知通道')}]，应在题材共振或买点确认阶段被拦截"
-    return "结构强度不足：七通道均未通过（主升/潜伏/吸筹/地量蓄势/暗中护盘/趋势延续/点火破局）"
+    return f"结构强度不足：{rejections.get(code, '七通道均未通过')}"
+
+
+def load_tail_buy_lookup(codes: list[str], run_date: date) -> dict[str, dict]:
+    run_date_str = run_date.strftime("%Y-%m-%d")
+    code_set = set(codes)
+    out = {}
+    try:
+        from integrations.supabase_tail_buy import load_tail_buy_from_supabase
+
+        records = load_tail_buy_from_supabase(limit=500, run_date=run_date_str)
+        for r in records:
+            r_code = str(r.get("code", "")).strip()
+            if r_code in code_set:
+                out[r_code] = r
+    except Exception as e:
+        print(f"[review] 从 Supabase 加载尾盘记录失败: {e}")
+
+    try:
+        from integrations.local_db import load_tail_buy_history
+
+        records = load_tail_buy_history(run_date=run_date_str, limit=500)
+        for r in records:
+            r_code = str(r.get("code", "")).strip()
+            if r_code in code_set and r_code not in out:
+                out[r_code] = r
+    except Exception as e:
+        print(f"[review] 从本地 SQLite 加载尾盘记录失败: {e}")
+
+    return out
+
+
+def _build_replay_row(
+    code: str,
+    ctx: ReplayContext,
+    today: date,
+    prev_date_str: str,
+    recommendation_lookup: dict,
+    recommendation_error: Any,
+    tail_buy_lookup: dict,
+) -> tuple[dict, str, bool, bool, bool, bool]:
+    from workflows.review_recommendation_lookup import normalize_code6, normalize_recommend_date
+
+    name, stage, reason = classify_review_code(code, ctx)
+    is_candidate = code in ctx.candidate_entry_map
+
+    rec_records = recommendation_lookup.get(normalize_code6(code), [])
+    is_recommended = any(normalize_recommend_date(r.get("recommend_date")) == prev_date_str for r in rec_records)
+
+    tail_rec = tail_buy_lookup.get(code)
+    is_tail = tail_rec is not None
+    is_tradeable = False
+    if is_tail:
+        import json
+
+        from core.tail_buy.decision_semantics import tail_buy_execution_semantics
+
+        features = {}
+        f_json = tail_rec.get("features_json")
+        if isinstance(f_json, dict):
+            features = f_json
+        elif isinstance(f_json, str) and f_json:
+            try:
+                features = json.loads(f_json)
+            except Exception:
+                pass
+        if not features:
+            f_val = tail_rec.get("features")
+            if isinstance(f_val, dict):
+                features = f_val
+            elif isinstance(f_val, str) and f_val:
+                try:
+                    features = json.loads(f_val)
+                except Exception:
+                    pass
+
+        sem = tail_buy_execution_semantics(
+            final_decision=tail_rec.get("final_decision"),
+            signal_type=tail_rec.get("signal_type"),
+            features=features,
+            market_regime=tail_rec.get("market_regime"),
+        )
+        is_tradeable = sem.get("orderable") is True
+
+    rec_text = format_recommendation_history(code, recommendation_lookup, recommendation_error, exclude_date=today)
+    tail_text = ""
+    if is_tail:
+        tail_text = f" | 尾盘决策: {tail_rec.get('final_decision')}"
+
+    row = {
+        "code": code,
+        "name": name,
+        "stage": stage,
+        "reason": reason,
+        "recommendation": rec_text + tail_text,
+    }
+    return row, stage, is_candidate, is_recommended, is_tail, is_tradeable
+
+
+def build_replay_rows(
+    review_codes: list[str], ctx: ReplayContext, today: date, previous_trade_date: date
+) -> tuple[list[dict[str, str]], Counter[str], dict[str, int]]:
+    recommendation_lookup, recommendation_error = load_recommendation_lookup(review_codes)
+    tail_buy_lookup = load_tail_buy_lookup(review_codes, today)
+
+    rows: list[dict[str, str]] = []
+    stage_counter: Counter[str] = Counter()
+
+    cand_count = 0
+    rec_count = 0
+    tail_count = 0
+    trade_count = 0
+
+    prev_date_str = previous_trade_date.strftime("%Y-%m-%d")
+
+    for code in review_codes:
+        row, stage, is_candidate, is_recommended, is_tail, is_tradeable = _build_replay_row(
+            code=code,
+            ctx=ctx,
+            today=today,
+            prev_date_str=prev_date_str,
+            recommendation_lookup=recommendation_lookup,
+            recommendation_error=recommendation_error,
+            tail_buy_lookup=tail_buy_lookup,
+        )
+        rows.append(row)
+        stage_counter[stage] += 1
+        if is_candidate:
+            cand_count += 1
+        if is_recommended:
+            rec_count += 1
+        if is_tail:
+            tail_count += 1
+        if is_tradeable:
+            trade_count += 1
+
+    stats = {
+        "candidate": cand_count,
+        "recommended": rec_count,
+        "tail_captured": tail_count,
+        "tradeable": trade_count,
+        "total": len(review_codes),
+    }
+    return rows, stage_counter, stats
 
 
 def explain_risk_reject(code: str, blocked_exit_map: dict[str, dict], hit_map: dict[str, list[str]]) -> str:
@@ -282,6 +388,25 @@ def explain_risk_reject(code: str, blocked_exit_map: dict[str, dict], hit_map: d
     return " | ".join(parts)
 
 
+def send_replay_report(
+    webhook: str,
+    rows: list[dict[str, str]],
+    stage_counter: Counter[str],
+    dates: ReviewDates,
+    end_trade_date: str,
+    stats: dict[str, int] | None = None,
+) -> bool:
+    lines = build_report_lines(
+        rows=rows,
+        stage_counter=stage_counter,
+        today=dates.today,
+        previous_trade_date=dates.previous_trade_date,
+        end_trade_date=end_trade_date,
+        stats=stats,
+    )
+    return send_feishu_notification(webhook, "🔍 涨停复盘：今日涨停为何未在前一日漏斗捕获", "\n".join(lines))
+
+
 def _run_review_for_codes(webhook: str, review_codes: list[str], dates: ReviewDates, log) -> int:
     if not review_codes:
         log("[review] 今日无满足涨幅 ≥ 8% 且开盘 ≤ 4% 且前一日涨幅 ≤ 6% 的股票，跳过")
@@ -292,8 +417,8 @@ def _run_review_for_codes(webhook: str, review_codes: list[str], dates: ReviewDa
     ctx = replay_context(triggers, metrics, log=log)
     if ctx is None:
         return 3
-    rows, stage_counter = build_replay_rows(review_codes, ctx, dates.today)
-    ok = send_replay_report(webhook, rows, stage_counter, dates, ctx.end_trade_date)
+    rows, stage_counter, stats = build_replay_rows(review_codes, ctx, dates.today, dates.previous_trade_date)
+    ok = send_replay_report(webhook, rows, stage_counter, dates, ctx.end_trade_date, stats)
     log(f"[review] feishu_sent={ok}")
     return 0 if ok else 4
 
@@ -332,4 +457,5 @@ def _signal_label(exit_sig: dict) -> str:
     return {
         "stop_loss": "触发结构止损",
         "distribution_warning": "触发Distribution派发警告",
+        "upthrust_warning": "触发Upthrust/UTAD假突破派发警告",
     }.get(str(exit_sig.get("signal", "")).strip(), "触发风控硬剔除")

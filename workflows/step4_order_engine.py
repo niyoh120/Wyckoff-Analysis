@@ -149,12 +149,13 @@ class WyckoffOrderEngine:
         self.atr_map = atr_map or {}
         self.market_regime = normalize_regime(market_regime)
         self.config = config or DEFAULT_STEP4_ORDER_CONFIG
+        probe_limit = self.config.probe_budget_limit
+        if self.market_regime in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"}:
+            probe_limit = self.config.repair_probe_budget_limit
+        elif self.market_regime == "CRASH_LEFT_PROBE":
+            probe_limit = self.config.left_probe_budget_limit
         self.budget_limits = {
-            "PROBE": (
-                self.config.repair_probe_budget_limit
-                if self.market_regime == "PANIC_REPAIR_CONFIRMED"
-                else self.config.probe_budget_limit
-            ),
+            "PROBE": probe_limit,
             "ATTACK": self.config.attack_budget_limit,
         }
 
@@ -552,8 +553,9 @@ class WyckoffOrderEngine:
     def _process_buy(self, ctx: OrderContext) -> ExecutionTicket:
         if ctx.action in {"PROBE", "ATTACK"} and self.market_regime in self.config.buy_block_regimes:
             return self._no_trade(ctx.dec, ctx.name, f"系统性风控拦截: regime={self.market_regime} 禁止买入")
-        if ctx.action == "ATTACK" and self.market_regime == "PANIC_REPAIR_CONFIRMED":
-            return self._no_trade(ctx.dec, ctx.name, "修复成立阶段只允许小额 PROBE，禁止 ATTACK")
+        probe_only_regimes = {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY", "CRASH_LEFT_PROBE"}
+        if ctx.action == "ATTACK" and self.market_regime in probe_only_regimes:
+            return self._no_trade(ctx.dec, ctx.name, "防守试探阶段只允许小额 PROBE，禁止 ATTACK")
         for validator in (self._validate_buy_stop, self._validate_add_on):
             ticket = validator(ctx)
             if ticket is not None:

@@ -56,6 +56,7 @@ from workflows.backtest_defaults import (
     full_formal_l4_max,
 )
 from workflows.backtest_intraday import tickflow_entry_price_fetcher_from_env
+from workflows.backtest_strategy_variants import normalize_strategy_variant, strategy_variant_overrides
 from workflows.candidate_policy_config import candidate_policy_config_from_env
 from workflows.dynamic_policy_config import dynamic_policy_config_from_env
 from workflows.funnel_config_overrides import funnel_cfg_overrides_from_env
@@ -89,6 +90,7 @@ class BacktestWorkflowRequest:
     sell_friction_pct: float = DEFAULT_SELL_FRICTION_PCT
     regime_filter: bool = False
     execution_regime_gate: str = "live"
+    strategy_variant: str = "live"
     pending_mode: str = "both"
     pending_merge_order: str = "funnel_first"
     atr_period: int = DEFAULT_ATR_PERIOD
@@ -132,6 +134,8 @@ def run_backtest_request(
 
 def _build_run_config(request: BacktestWorkflowRequest) -> BacktestRunConfig:
     signal_weight_map, signal_weight_meta = _signal_policy_from_env()
+    strategy_variant = normalize_strategy_variant(request.strategy_variant)
+    funnel_overrides = {**funnel_cfg_overrides_from_env(), **strategy_variant_overrides(strategy_variant)}
     return build_backtest_run_config(
         BacktestRunInput(
             start_dt=request.start_dt,
@@ -147,6 +151,7 @@ def _build_run_config(request: BacktestWorkflowRequest) -> BacktestRunConfig:
             sell_friction_pct=request.sell_friction_pct,
             regime_filter=request.regime_filter,
             execution_regime_gate=request.execution_regime_gate,
+            strategy_variant=strategy_variant,
             pending_mode=request.pending_mode,
             pending_merge_order=request.pending_merge_order,
             metrics_engine=request.metrics_engine,
@@ -163,7 +168,7 @@ def _build_run_config(request: BacktestWorkflowRequest) -> BacktestRunConfig:
             selection_mode=FUNNEL_AI_SELECTION_MODE,
             max_atr_hold_days=DEFAULT_ATR_MAX_HOLD_DAYS,
             intraday_entry_price_fetcher=_intraday_entry_price_fetcher(request),
-            funnel_config_overrides=funnel_cfg_overrides_from_env(),
+            funnel_config_overrides=funnel_overrides,
             market_breadth_calculator=calc_market_breadth,
             market_regime_analyzer=_market_regime_analyzer_from_env(),
             candidate_policy=candidate_policy_config_from_env(),

@@ -38,21 +38,32 @@ def build_report_lines(
     today: date,
     previous_trade_date: date,
     end_trade_date: str,
+    stats: dict[str, int] | None = None,
 ) -> list[str]:
     summary = " | ".join([f"{key}{value}" for key, value in stage_counter.items()]) or "无"
-    recommendation_hits, recommendation_unknown = _recommendation_counts(rows)
     lines = [
         f"**今日**: {today}",
         f"**前一日漏斗**: {end_trade_date}",
         f"**今日≥+8%且今日开盘≤+4%且前一日≤+6%股票数**: {len(rows)}",
-        f"**结果汇总**: {summary}",
-        _recommendation_summary(len(rows), recommendation_hits, recommendation_unknown),
-        "",
-        *build_focus_lines(rows, today=today, previous_trade_date=previous_trade_date),
-        "",
-        "**逐票复盘（前一日候选链路状态与原因）**",
-        "",
     ]
+    if stats:
+        stats_line = (
+            f"**漏斗全链路追踪**: 前一日候选 {stats['candidate']}/{stats['total']} | "
+            f"正式推荐 {stats['recommended']}/{stats['total']} | "
+            f"次日尾盘捕获 {stats['tail_captured']}/{stats['total']} | "
+            f"尾盘可下单 {stats['tradeable']}/{stats['total']}"
+        )
+        lines.append(stats_line)
+    lines.extend(
+        [
+            f"**结果汇总**: {summary}",
+            "",
+            *build_focus_lines(rows, today=today, previous_trade_date=previous_trade_date),
+            "",
+            "**逐票复盘（前一日候选链路状态与原因）**",
+            "",
+        ]
+    )
     lines.extend(_detail_lines(rows))
     return lines
 
@@ -134,18 +145,6 @@ def _trigger_hit_focus(rows: list[dict[str, str]]) -> list[str]:
     if not rows:
         return []
     return [f"- **买点已确认**：{short_code_list(rows)}。这类不是形态漏检，后续应核对是否被 AI 配额或风控环节挡住。"]
-
-
-def _recommendation_counts(rows: list[dict[str, str]]) -> tuple[int, int]:
-    notes = [str(row.get("recommendation", "")).strip() for row in rows]
-    hits = sum(1 for note in notes if "累计推荐" in note)
-    unknown = sum(1 for note in notes if "无法确认" in note)
-    return hits, unknown
-
-
-def _recommendation_summary(total: int, hits: int, unknown: int) -> str:
-    summary = f"**推荐表交叉检查**: 命中{hits}只 | 未推荐{total - hits - unknown}只"
-    return summary + (f" | 无法确认{unknown}只" if unknown else "")
 
 
 def _detail_lines(rows: list[dict[str, str]]) -> list[str]:

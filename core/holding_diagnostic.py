@@ -77,7 +77,7 @@ class HoldingDiagnostic:
     candidate_score: float = 0.0
 
     # 退出信号 (来自 layer5_exit_signals)
-    exit_signal: str | None = None  # stop_loss / distribution_warning
+    exit_signal: str | None = None  # stop_loss / distribution_warning / upthrust_warning
     exit_price: float | None = None
     exit_reason: str = ""
 
@@ -389,7 +389,7 @@ def _health_rating(
     if risk.ret_10d < -15 and not (intraday_path and intraday_path.path_type == PATH_WASHOUT):
         reasons.append(f"近10日暴跌({risk.ret_10d:+.1f}%)")
 
-    if wyckoff.exit_signal == "distribution_warning":
+    if wyckoff.exit_signal in {"distribution_warning", "upthrust_warning"}:
         reasons.append("高位派发预警")
     if risk.stop_status == "逼近止损(<2%)":
         reasons.append("逼近止损线")

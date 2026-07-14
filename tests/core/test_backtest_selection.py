@@ -268,6 +268,36 @@ def test_tradeable_l4_selection_prefers_candidate_board_when_available() -> None
     assert track_map == {"000002": "Trend"}
 
 
+def test_tradeable_l4_selection_blocks_upthrust_candidate() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={"sos": [("000001", 5.0)]},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={"000001": {"signal": "upthrust_warning"}},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[{"code": "000001", "entry_type": "sos", "score": 70.0}],
+    )
+
+    codes, score_map, track_map = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="NEUTRAL",
+        selection_mode="tradeable_l4",
+        candidate_policy=CandidatePolicyConfig(loss_guard_enabled=False),
+    )
+
+    assert codes == []
+    assert score_map == {}
+    assert track_map == {}
+
+
 def test_tradeable_l4_candidate_board_applies_signal_weight_map() -> None:
     result = FunnelResult(
         layer1_symbols=[],

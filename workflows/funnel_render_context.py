@@ -170,6 +170,7 @@ def _build_render_context_parts(triggers: dict[str, list[tuple[str, float]]], me
         theme_bonus_map,
         capital_migration_badge_map,
         capital_migration_bonus_map,
+        benchmark_context=benchmark_context,
     )
     report_maps = _build_report_maps(
         name_map,
@@ -272,6 +273,7 @@ def _build_review_score_context(
     theme_bonus_map: dict[str, float],
     capital_migration_badge_map: dict[str, str],
     capital_migration_bonus_map: dict[str, float],
+    benchmark_context: dict | None = None,
 ) -> _ReviewScoreContext:
     review_triggers = merge_trigger_maps(triggers, bypass_triggers, strategic_triggers)
     formal_hit_set = {str(code).strip() for hits in triggers.values() for code, _ in hits if str(code).strip()}
@@ -285,6 +287,7 @@ def _build_review_score_context(
         theme_bonus_map=theme_bonus_map,
         capital_migration_badge_map=capital_migration_badge_map,
         capital_migration_bonus_map=capital_migration_bonus_map,
+        benchmark_context=benchmark_context,
     )
     sorted_codes = sorted(code_to_reasons.keys(), key=lambda c: -candidate_score_value(code_to_total_score.get(c)))
     return _ReviewScoreContext(
@@ -372,6 +375,7 @@ def _build_review_score_maps(
     theme_bonus_map: dict[str, float],
     capital_migration_badge_map: dict[str, str],
     capital_migration_bonus_map: dict[str, float],
+    benchmark_context: dict | None = None,
 ) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, float]]:
     code_to_reasons: dict[str, list[str]] = {}
     code_to_trigger_keys: dict[str, list[str]] = {}
@@ -387,6 +391,14 @@ def _build_review_score_maps(
     append_theme_reasons(code_to_reasons, capital_migration_badge_map)
     apply_theme_bonus_to_scores(code_to_total_score, theme_bonus_map)
     apply_theme_bonus_to_scores(code_to_total_score, capital_migration_bonus_map)
+
+    if benchmark_context and "l3_passed_normal" in benchmark_context:
+        l3_passed_normal = set(benchmark_context["l3_passed_normal"])
+        for code in code_to_total_score:
+            if code in l3_passed_normal:
+                code_to_total_score[code] = candidate_score_value(code_to_total_score.get(code)) + 8.0
+                code_to_reasons.setdefault(code, []).append("板块共振加分(+8.0)")
+
     return code_to_reasons, code_to_trigger_keys, code_to_total_score
 
 

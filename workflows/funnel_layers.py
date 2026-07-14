@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import pandas as pd
 
@@ -88,28 +89,65 @@ def run_base_funnel_layers(
         etf_sector_map,
         etf_df_map,
         _hot_concepts(ref_data, theme_activity),
+        regime=benchmark_context.get("regime"),
+        benchmark_context=benchmark_context,
     )
     benchmark_context["sector_rotation"] = sector_rotation
     triggers = layer4_triggers(
         l3_passed, all_df_map, cfg, channel_map=l2_channel_map, market_cap_map=ref_data.market_cap_map
     )
+    _handle_crash_regime_resilience(benchmark_context, l1_passed, all_df_map, bench_df, cfg, triggers)
     structure_shadow = _structure_shadow(l3_passed, all_df_map, cfg, triggers)
     leader_rows = detect_leader_radar(l1_passed, all_df_map, ref_data.sector_map, l2_channel_map, cfg)
     theme_current, theme_radar, theme_source = _build_theme_context(window, ref_data, all_df_map)
     mainline_cfg = load_mainline_engine_config()
-    mainline_candidates = build_mainline_candidates(
+    mainline_candidates = _build_mainline_candidates_helper(
         l1_passed=l1_passed,
         l2_passed=l2_passed,
-        concept_map=ref_data.concept_map,
-        concept_heat=_effective_concept_heat(ref_data),
-        theme_radar=theme_current,
+        ref_data=ref_data,
+        theme_current=theme_current,
         theme_activity=theme_activity,
-        hot_events=ref_data.ths_hot_events,
-        df_map=all_df_map,
-        financial_map=ref_data.financial_map,
-        name_map=ref_data.name_map,
-        config=mainline_cfg,
+        mainline_cfg=mainline_cfg,
+        all_df_map=all_df_map,
     )
+    return _build_funnel_layer_outputs(
+        l1_input=l1_input,
+        l1_passed=l1_passed,
+        l2_passed=l2_passed,
+        l2_channel_map=l2_channel_map,
+        l3_passed=l3_passed,
+        top_sectors=top_sectors,
+        sector_rotation=sector_rotation,
+        triggers=triggers,
+        structure_shadow=structure_shadow,
+        leader_rows=leader_rows,
+        theme_current=theme_current,
+        theme_radar=theme_radar,
+        theme_source=theme_source,
+        theme_activity=theme_activity,
+        mainline_candidates=mainline_candidates,
+        mainline_cfg=mainline_cfg,
+    )
+
+
+def _build_funnel_layer_outputs(
+    l1_input: list[str],
+    l1_passed: list[str],
+    l2_passed: list[str],
+    l2_channel_map: dict[str, str],
+    l3_passed: list[str],
+    top_sectors: list[str],
+    sector_rotation: dict,
+    triggers: dict,
+    structure_shadow: dict,
+    leader_rows: list[dict],
+    theme_current: dict,
+    theme_radar: dict,
+    theme_source: str,
+    theme_activity: dict,
+    mainline_candidates: list[dict],
+    mainline_cfg: Any,
+) -> FunnelLayerOutputs:
     return FunnelLayerOutputs(
         l1_passed=l1_passed,
         l2_passed=l2_passed,
@@ -183,6 +221,8 @@ def _run_sector_layer(
     etf_sector_map: dict[str, str],
     etf_df_map: dict[str, pd.DataFrame],
     activity_hot_concepts: list[str],
+    regime: str | None = None,
+    benchmark_context: dict | None = None,
 ) -> tuple[list[str], list[str], dict]:
     etf_codes = set(etf_sector_map)
     l3_raw, top_sectors = layer3_sector_resonance(
@@ -194,7 +234,15 @@ def _run_sector_layer(
         concept_map=ref_data.concept_map,
         hot_concepts=list(dict.fromkeys([*ref_data.hot_concepts, *activity_hot_concepts])),
     )
-    l3_passed = [s for s in l3_raw if s not in etf_codes]
+    is_repair = regime in {"PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY", "BEAR_REBOUND"}
+    if is_repair:
+        print("[funnel] 修复期风格切换第一天，Layer 3 板块共振过滤已从硬过滤降级为加分项。")
+        l3_passed_normal = [s for s in l3_raw if s not in etf_codes]
+        if benchmark_context is not None:
+            benchmark_context["l3_passed_normal"] = l3_passed_normal
+        l3_passed = [s for s in l2_passed if s not in etf_codes]
+    else:
+        l3_passed = [s for s in l3_raw if s not in etf_codes]
     sector_rotation = analyze_sector_rotation(
         all_df_map,
         ref_data.sector_map,
@@ -332,3 +380,47 @@ def _l2_channel_counts(channel_map: dict[str, str]) -> dict[str, int]:
         "trend_cont": sum(1 for v in channel_map.values() if "趋势延续" in v),
         "sos": sum(1 for v in channel_map.values() if "点火破局" in v),
     }
+
+
+def _build_mainline_candidates_helper(
+    l1_passed: list[str],
+    l2_passed: list[str],
+    ref_data: FunnelReferenceData,
+    theme_current: dict,
+    theme_activity: dict,
+    mainline_cfg: Any,
+    all_df_map: dict[str, pd.DataFrame],
+) -> list[dict]:
+    return build_mainline_candidates(
+        l1_passed=l1_passed,
+        l2_passed=l2_passed,
+        concept_map=ref_data.concept_map,
+        concept_heat=_effective_concept_heat(ref_data),
+        theme_radar=theme_current,
+        theme_activity=theme_activity,
+        hot_events=ref_data.ths_hot_events,
+        df_map=all_df_map,
+        financial_map=ref_data.financial_map,
+        name_map=ref_data.name_map,
+        config=mainline_cfg,
+    )
+
+
+def _handle_crash_regime_resilience(
+    benchmark_context: dict,
+    l1_passed: list[str],
+    all_df_map: dict[str, pd.DataFrame],
+    bench_df: pd.DataFrame | None,
+    cfg: Any,
+    triggers: dict,
+) -> None:
+    if benchmark_context.get("regime") == "CRASH":
+        from workflows.funnel_render import select_crash_resilient_stocks
+
+        resilient_stocks = select_crash_resilient_stocks(
+            symbols=l1_passed,
+            df_map=all_df_map,
+            bench_df=bench_df,
+            cfg=cfg,
+        )
+        triggers["crash_resilience_watch"] = [(item["code"], item["score"]) for item in resilient_stocks]

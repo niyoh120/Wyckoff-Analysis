@@ -63,3 +63,20 @@ class TestTailBuyExecutionSemanticsLimitUp:
 
         assert semantics["execution_label"] == "明日观察买入"
         assert semantics["orderable"] is False
+
+    def test_panic_repair_limit_up_orderable_false(self):
+        semantics = tail_buy_execution_semantics(
+            "BUY", "spring", features={"limit_up_touched": True}, market_regime="PANIC_REPAIR_CONFIRMED"
+        )
+        assert semantics["execution_label"] == "观察买入"
+        assert semantics["execution_status"] == "watch_buy"
+        assert semantics["orderable"] is False
+
+    def test_crash_left_probe_uses_two_percent_execution_semantics(self):
+        semantics = tail_buy_execution_semantics(
+            "BUY", "spring", features={"left_probe_ready": True}, market_regime="CRASH_LEFT_PROBE"
+        )
+
+        assert semantics["execution_status"] == "left_probe_ready"
+        assert semantics["orderable"] is True
+        assert "2%" in semantics["execution_next_step"]

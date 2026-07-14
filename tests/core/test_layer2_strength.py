@@ -90,3 +90,54 @@ def test_rps_filter_flags_allow_accel_bypass() -> None:
 def test_channel_labels_preserve_order_and_return_empty_without_hits() -> None:
     assert channel_labels({"ambush": True, "sos": True}) == ["潜伏通道", "点火破局"]
     assert channel_labels({}) == []
+
+
+def test_diagnose_layer2_symbol_failure() -> None:
+    from core.layer2_strength import Layer2RpsState, diagnose_layer2_symbol_failure
+    from core.wyckoff_engine import FunnelConfig, build_benchmark_context, build_rps_context
+
+    cfg = FunnelConfig()
+    dates = pd.date_range("2024-01-01", periods=100)
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "open": [10.0] * 100,
+            "high": [10.2] * 100,
+            "low": [9.8] * 100,
+            "close": [10.0] * 100,
+            "volume": [1000] * 100,
+            "pct_chg": [0.0] * 100,
+        }
+    )
+
+    bench_df = pd.DataFrame(
+        {
+            "date": dates,
+            "open": [10.0] * 100,
+            "high": [10.2] * 100,
+            "low": [9.8] * 100,
+            "close": [10.0] * 100,
+            "volume": [1000] * 100,
+            "pct_chg": [0.0] * 100,
+        }
+    )
+
+    bench_ctx = build_benchmark_context(
+        bench_df, cfg, sort_frame=lambda x: x, latest_trade_date=lambda x: x["date"].iloc[-1]
+    )
+    rps_ctx = build_rps_context(["000001"], {"000001": df}, cfg, rps_universe=["000001"], sort_frame=lambda x: x)
+    rps_state = Layer2RpsState(slow=50.0, fast=50.0, momentum_ok=False, ambush_ok=False)
+
+    res = diagnose_layer2_symbol_failure(
+        "000001",
+        df,
+        cfg,
+        bench_ctx=bench_ctx,
+        rps_ctx=rps_ctx,
+        rps_state=rps_state,
+        momentum_rs_ok=False,
+        ambush_rs_ok=False,
+    )
+
+    assert "最接近通道" in res
+    assert "缺口" in res

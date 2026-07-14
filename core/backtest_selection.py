@@ -293,6 +293,9 @@ def candidate_entry_loss_guard(
     code = str(item.get("code", "")).strip()
     if not code:
         return "empty_code"
+    exit_signal = str((result.exit_signals.get(code, {}) or {}).get("signal", "")).strip()
+    if exit_signal in {"stop_loss", "distribution_warning", "upthrust_warning"}:
+        return f"exit_signal:{exit_signal}"
     entry_type = candidate_entry_key(item, LOSS_GUARD_ENTRY_KEYS)
     return loss_guard_reason(
         code,

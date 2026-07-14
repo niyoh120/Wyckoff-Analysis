@@ -41,6 +41,7 @@ def _frame(step: float, last_volume: float) -> pd.DataFrame:
 
 
 def test_run_funnel_job_passes_l2_channel_map_to_l4(monkeypatch):
+    monkeypatch.setenv("FUNNEL_DATA_FRESHNESS_HARD_FAIL", "0")
     channel_map = {"000001": "趋势延续", "000002": "加速突破"}
     df_map = {"000001": _frame(0.2, 100.0), "000002": _frame(0.1, 100.0)}
     calls: list[tuple[list[str], dict[str, str] | None]] = []

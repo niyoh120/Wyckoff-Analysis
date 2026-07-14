@@ -154,6 +154,12 @@ def _add_metadata_and_cost_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_signal_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "--strategy-variant",
+        choices=["live", "A", "B", "C", "D", "E"],
+        default="live",
+        help="策略消融组：live=生产配置；A=基线；B/C/D=单项实验；E=组合实验",
+    )
+    parser.add_argument(
         "--regime-filter",
         action="store_true",
         default=False,

@@ -220,7 +220,7 @@ def _diagnosis_next_tool(code: str, brief: dict[str, Any]) -> dict[str, Any]:
 
 def _diagnosis_status(d) -> str:
     health = str(d.health or "")
-    if d.exit_signal == "stop_loss" or "危险" in health:
+    if d.exit_signal in {"stop_loss", "upthrust_warning"} or "危险" in health:
         return "avoid"
     if "警戒" in health:
         return "caution_watch"

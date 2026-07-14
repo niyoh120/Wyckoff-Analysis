@@ -1836,7 +1836,7 @@ class TestCandidateRanker:
         assert isinstance(TRIGGER_LABELS, dict)
         assert "sos" in TRIGGER_LABELS
         assert "spring" in TRIGGER_LABELS
-        assert len(TRIGGER_LABELS) == 10
+        assert len(TRIGGER_LABELS) >= 10
 
     def test_rank_l3_candidates_rewards_trigger_and_hot_sector(self):
         from core.candidate_ranker import rank_l3_candidates

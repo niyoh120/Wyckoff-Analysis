@@ -27,6 +27,7 @@ from core.wyckoff_engine import (
     layer4_triggers,
 )
 from integrations.ths_hot_concept import merge_concept_heat, summarize_ths_hot_events
+from utils.env import env_bool
 from utils.progress import report_progress as _report_progress
 from workflows.candidate_policy_config import candidate_policy_config_from_env
 from workflows.funnel_ai_selection import (
@@ -62,7 +63,7 @@ from workflows.funnel_settings import (
 
 logger = logging.getLogger(__name__)
 
-ENFORCE_TARGET_TRADE_DATE = False
+ENFORCE_TARGET_TRADE_DATE = env_bool("FUNNEL_ENFORCE_TARGET_TRADE_DATE", True)
 
 
 @dataclass(frozen=True)
@@ -543,12 +544,14 @@ def _pool_fetch_metrics(inputs: FunnelMetricsInputs) -> dict:
 
 
 def _data_quality_metrics(inputs: FunnelMetricsInputs) -> dict:
+    window = getattr(inputs, "window", None)
     quality = build_funnel_data_quality(
         inputs.pool.symbols,
         inputs.all_df_map,
         inputs.ref_data.market_cap_map,
         inputs.financial_map,
         financial_requested=inputs.financial_metrics_requested,
+        expected_trade_date=getattr(window, "end_trade_date", None),
     )
     coverage = quality["coverage"]
     return {

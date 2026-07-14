@@ -739,6 +739,23 @@ def _tune_cfg_for_regime(
         cfg.rs_min_short = max(cfg.rs_min_short, 0.0)
         cfg.rps_fast_min = min(cfg.rps_fast_min, 70.0)
         cfg.rps_slow_min = min(cfg.rps_slow_min, 60.0)
+    _apply_trigger_threshold_profile(cfg, regime)
+
+
+def _apply_trigger_threshold_profile(cfg: FunnelConfig, regime: str) -> None:
+    if not cfg.regime_trigger_profiles_enabled:
+        return
+    if regime == "RISK_ON":
+        multiplier = cfg.regime_risk_on_volume_multiplier
+    elif regime in {"CRASH", "RISK_OFF", "BEAR_REBOUND"}:
+        multiplier = cfg.regime_defensive_volume_multiplier
+    elif regime in {"PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"}:
+        multiplier = cfg.regime_repair_volume_multiplier
+    else:
+        return
+    cfg.sos_vol_ratio *= multiplier
+    cfg.spring_vol_ratio *= multiplier
+    cfg.evr_vol_ratio *= multiplier
 
 
 def _tune_risk_off_cfg(

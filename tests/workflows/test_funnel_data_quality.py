@@ -1,14 +1,26 @@
 from __future__ import annotations
 
-import pandas as pd
+from datetime import date
 
-from workflows.funnel_data_quality import build_funnel_data_quality, build_layer_rejections
+import pandas as pd
+import pytest
+
+from workflows.funnel_data_quality import (
+    FunnelDataStaleError,
+    assert_funnel_data_freshness,
+    build_funnel_data_quality,
+    build_layer_rejections,
+)
 
 
 def _frame(source: str) -> pd.DataFrame:
     frame = pd.DataFrame({"close": [10.0]})
     frame.attrs["upstream_source"] = source
     return frame
+
+
+def _dated_frame(day: str) -> pd.DataFrame:
+    return pd.DataFrame({"date": [day], "close": [10.0]})
 
 
 def test_data_quality_is_ready_when_all_required_coverages_pass() -> None:
@@ -86,6 +98,45 @@ def test_data_quality_degrades_when_ohlcv_coverage_is_below_95_percent() -> None
     assert result["status"] == "degraded"
     assert result["trade_readiness"] == "observe_only"
     assert "ohlcv_coverage<95%" in result["reasons"]
+
+
+def test_data_quality_reports_stale_ohlcv_against_expected_trade_date() -> None:
+    result = build_funnel_data_quality(
+        ["000001", "000002"],
+        {"000001": _dated_frame("2026-07-14"), "000002": _dated_frame("2026-07-15")},
+        {"000001": 100.0, "000002": 100.0},
+        {},
+        financial_requested=False,
+        expected_trade_date=date(2026, 7, 15),
+    )
+
+    assert result["coverage"]["fresh_ohlcv"] == 0.5
+    assert "fresh_ohlcv_coverage<95%" in result["reasons"]
+
+
+def test_freshness_gate_rejects_stale_benchmark_even_when_stocks_are_fresh() -> None:
+    expected = date(2026, 7, 15)
+    frames = {"000001": _dated_frame("2026-07-15")}
+
+    with pytest.raises(FunnelDataStaleError, match="stale_benchmarks=\\[1\\]"):
+        assert_funnel_data_freshness(
+            ["000001"],
+            frames,
+            [_dated_frame("2026-07-15"), _dated_frame("2026-07-14")],
+            expected,
+        )
+
+
+def test_freshness_gate_accepts_target_date_with_required_coverage() -> None:
+    expected = date(2026, 7, 15)
+    frames = {code: _dated_frame("2026-07-15") for code in ("000001", "000002")}
+
+    assert_funnel_data_freshness(
+        list(frames),
+        frames,
+        [_dated_frame("2026-07-15"), _dated_frame("2026-07-15")],
+        expected,
+    )
 
 
 def test_layer_rejections_report_each_stage_input_pass_and_reason() -> None:

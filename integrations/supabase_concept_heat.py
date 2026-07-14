@@ -66,20 +66,16 @@ def upsert_concept_heat_history(trade_date: str, heat: list[dict[str, Any]], top
             _close(client)
 
 
-def load_concept_heat_history_from_supabase(limit_days: int = 20) -> dict[str, dict]:
+def load_concept_heat_history_from_supabase(limit_days: int = 20, as_of_date: str | None = None) -> dict[str, dict]:
     """读取最近 N 个交易日的概念热度历史。"""
     row_limit = max(int(limit_days), 1) * 50
     client = None
     try:
         client = _read()
-        resp = (
-            client.table(TABLE_CONCEPT_HEAT_HISTORY)
-            .select("trade_date,concept_name,pct,net_inflow,rank")
-            .order("trade_date", desc=True)
-            .order("rank")
-            .limit(row_limit)
-            .execute()
-        )
+        query = client.table(TABLE_CONCEPT_HEAT_HISTORY).select("trade_date,concept_name,pct,net_inflow,rank")
+        if as_of_date:
+            query = query.lte("trade_date", as_of_date)
+        resp = query.order("trade_date", desc=True).order("rank").limit(row_limit).execute()
     except Exception as exc:
         logger.warning("concept heat read failed: %s", exc)
         return {}

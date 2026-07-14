@@ -140,8 +140,12 @@ def _top_heat_items(heat: list[dict[str, Any]], top_n: int) -> list[dict[str, An
     return list(selected.values())
 
 
-def detect_theme_lines(min_days: int = 3) -> list[str]:
+def detect_theme_lines(min_days: int = 3, as_of_date: str | None = None) -> list[str]:
     history = stale_json_cache(CONCEPT_HEAT_HISTORY, {})
+    if not isinstance(history, dict):
+        history = {}
+    if as_of_date:
+        history = {d: v for d, v in history.items() if d <= as_of_date}
     if len(history) < min_days:
         return []
     sorted_dates = sorted(history.keys(), reverse=True)
@@ -325,3 +329,20 @@ def _ts_code_to_symbol(ts_code: str) -> str:
 
 def _actionable_concept_name(name: str) -> bool:
     return bool(name) and name not in CONCEPT_NOISE and is_actionable_theme_name(name)
+
+
+def fetch_historical_market_cap_map(as_of_date: str) -> dict[str, float]:
+    """获取指定历史交易日期的全市场市值映射（单位：亿元）。"""
+    trade_date = as_of_date.replace("-", "")
+    pro = _tushare_pro()
+    if pro is None:
+        return {}
+    try:
+        df = pro.daily_basic(trade_date=trade_date, fields="ts_code,total_mv")
+        if df is not None and not df.empty:
+            mapping: dict[str, float] = {}
+            _append_market_cap_rows(mapping, df)
+            return mapping
+    except Exception as exc:
+        debug_metadata_fail(f"tushare_historical_daily_basic[{trade_date}]", exc)
+    return {}

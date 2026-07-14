@@ -221,6 +221,7 @@ flowchart TD
 
 ### 数据质量与诊断口径
 
+- 生产漏斗默认开启交易日新鲜度硬断路器：股票 OHLCV 至少 95% 必须对齐目标交易日，两个基准指数也必须对齐；否则任务直接失败并报警，不生成基于旧行情的报告。`FUNNEL_DATA_FRESHNESS_HARD_FAIL=0` 只用于显式研究/故障诊断。
 - OHLCV 和市值覆盖率均不得低于 95%。每日量价漏斗不请求全市场财务指标，财务覆盖率显示为“未纳入量价漏斗”；仅显式启用质量/基本面筛选时，财务覆盖率不得低于 90%。Step3 仍为最终少量候选补充财务快照。
 - 任一必需覆盖率不足，运行状态标记为 `degraded`，交易就绪度强制为 `observe_only`。候选仍可进入 AI/shadow 对照，但报告、结构化详情和候选行都会禁止正式推荐、写入执行清单或新开仓。
 - 报告展示三个覆盖率、OHLCV 数据源数量与占比、RPS universe 数量，以及 L1 到 L4 的输入、通过、淘汰数量和该层筛选原因。
@@ -295,7 +296,8 @@ flowchart TD
     IDEM -->|否| LLM["LLM 决策<br/>EXIT > TRIM > HOLD > PROBE/ATTACK"]
 
     LLM --> RISK{"风控门控"}
-    RISK -->|UNKNOWN / RISK_ON / BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["冻结新开仓<br/>STEP4_BUY_BLOCK_REGIMES"]
+    RISK -->|UNKNOWN / RISK_ON / BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["默认冻结新开仓<br/>STEP4_BUY_BLOCK_REGIMES"]
+    RISK -->|CRASH_LEFT_PROBE| LEFT_PROBE["Top1 左侧 PROBE<br/>单票上限2%，禁止 ATTACK"]
     RISK -->|PANIC_REPAIR_CONFIRMED| REPAIR_PROBE["最多1只小额 PROBE<br/>禁止 ATTACK"]
     RISK -->|NEUTRAL / CAUTION| ALLOW["按交易模式限额执行"]
 
@@ -383,7 +385,7 @@ shadow 新增表现、scoped 信号调权和回测确认。
 | **23:00 周一-周五** | `recommendation_tracking_reprice.yml` | 下游：复盘重定价 |
 | **次日 06:20 周二-周六** | `db_maintenance.yml` | 下游：清理过期数据 |
 | **23:30 周一-周五** | `signal_feedback.yml` | **下游反馈**：刷新 health / registry |
-| **次日尾盘** | `tail_buy_1440.yml` | **下游执行**：手动或外部自动化触发，读 `signal_pending` 尾盘策略；pending 只观察，confirmed 才可 BUY |
+| **交易日14:40尾盘** | `tail_buy_1440.yml` | **下游执行**：定时读取 `signal_pending`；pending 默认只观察，只有 `CRASH_LEFT_PROBE` 黄金坑硬条件可例外小仓试探 |
 
 ---
 
@@ -457,9 +459,11 @@ efinance
 | `FUNNEL_EXTERNAL_SEED_SYMBOLS` / `FUNNEL_EXTRA_SYMBOLS` | 空 | 临时追加外部观察名单；存在时自动启用 external seed shadow |
 | `STEP4_BUY_HARD_STOP_PCT` | `12.0` | 新开仓灾难止损地板；ATR/结构/时间管理优先 |
 | `STEP4_REPAIR_PROBE_BUDGET_LIMIT` | `0.05` | `PANIC_REPAIR_CONFIRMED` 单票试探仓上限；同时最多只开放一只 |
+| `STEP4_LEFT_PROBE_BUDGET_LIMIT` | `0.02` | `CRASH_LEFT_PROBE` 单票左侧试探仓上限；同时最多只开放一只 |
 | `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` | `1` | Step4 新开仓只允许二次确认候选；未确认候选只观察 |
 | `STEP4_TOP_FUNNEL_CANDIDATES_COUNT` | `0` | 默认关闭，Step4 仍只接收 Step3 起跳板；大于 0 时额外允许二次确认漏斗中优先分最高的前 N 名进入 OMS 复核 |
 | `TAIL_BUY_CONFIRMED_ONLY_BUY` | `1` | 尾盘买入只对二次确认候选输出 BUY |
+| `TAIL_BUY_LEFT_PROBE_CLOSE_POS_MIN` / `TAIL_BUY_LEFT_PROBE_SPRING_QUALITY_MIN` | `0.65` / `50` | CRASH 左侧例外要求的最低收位与分钟线 Spring 质量；仍需跌破支撑后收回 |
 | `TAIL_BUY_HOLDING_HARD_STOP_PCT` | `12` | 持仓尾盘诊断的固定止损兜底；ATR 放宽需显式开启且受上限约束 |
 | `STEP4_BUY_BLOCK_REGIMES` | `UNKNOWN,RISK_ON,BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN` | 市场数据未就绪、过热与弱市均冻结新开仓 |
 

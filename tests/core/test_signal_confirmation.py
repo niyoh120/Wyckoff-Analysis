@@ -92,3 +92,36 @@ def test_confirmation_cycle_marks_confirmed_source_for_step3():
     assert confirmed[0]["source_type"] == "signal_pending"
     assert confirmed[0]["confirm_date"] == "2026-06-12"
     assert confirmed[0]["confirm_reason"]
+
+
+def test_crash_resilience_confirmation():
+    snap = {"snap_close": 10.0}
+
+    # 1. Low below -3% of snap_close -> expired
+    status, reason = check_confirmation(
+        "crash_resilience_watch",
+        snap,
+        {"low": 9.6, "close": 9.9, "volume": 700_000, "ma20": 9.5, "ma50": 9.4},
+        days_elapsed=1,
+    )
+    assert status == "expired"
+    assert "支撑位" in reason
+
+    # 2. Close above snap_close and holding support -> confirmed
+    status, reason = check_confirmation(
+        "crash_resilience_watch",
+        snap,
+        {"low": 9.8, "close": 10.1, "volume": 700_000, "ma20": 9.5, "ma50": 9.4},
+        days_elapsed=1,
+    )
+    assert status == "confirmed"
+    assert "站稳主支撑" in reason
+
+    # 3. Close below snap_close but holding support -> pending
+    status, reason = check_confirmation(
+        "crash_resilience_watch",
+        snap,
+        {"low": 9.8, "close": 9.95, "volume": 700_000, "ma20": 9.5, "ma50": 9.4},
+        days_elapsed=1,
+    )
+    assert status == "pending"

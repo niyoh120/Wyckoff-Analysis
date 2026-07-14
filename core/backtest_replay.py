@@ -224,7 +224,11 @@ def _limit_confirmed_repair_selection(
     regime: str,
     mode: str,
 ) -> tuple[_RankedSelection, int]:
-    if mode != "live" or normalize_regime(regime) != "PANIC_REPAIR_CONFIRMED" or len(selected.codes) <= 1:
+    if (
+        mode != "live"
+        or normalize_regime(regime) not in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY", "CRASH_LEFT_PROBE"}
+        or len(selected.codes) <= 1
+    ):
         return selected, 0
     kept = selected.codes[:1]
     return (

@@ -406,7 +406,12 @@ def _tail_buy_record(row: dict) -> dict:
     decision = str(row.get("final_decision", ""))
     signal_type = str(row.get("signal_type", ""))
     features = _json_map(row.get("features_json"))
-    semantics = tail_buy_execution_semantics(decision, signal_type, features=features)
+    semantics = tail_buy_execution_semantics(
+        decision,
+        signal_type,
+        features=features,
+        market_regime=str(row.get("market_regime") or ""),
+    )
     return {
         "code": str(row.get("code", "")),
         "name": str(row.get("name", "")),

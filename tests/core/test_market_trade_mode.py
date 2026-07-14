@@ -46,6 +46,15 @@ def test_confirmed_repair_opens_probe_only_mode() -> None:
     assert mode.allow_theme_promotion is False
 
 
+def test_crash_left_probe_opens_candidate_level_probe_only_mode() -> None:
+    mode = resolve_market_trade_mode("CRASH_LEFT_PROBE")
+
+    assert mode.mode == "left_probe"
+    assert mode.allow_recommendation_write is True
+    assert mode.allow_full_l4 is False
+    assert mode.allow_theme_promotion is False
+
+
 def test_trade_mode_keeps_neutral_mainline_active() -> None:
     mode = resolve_market_trade_mode("NEUTRAL")
 

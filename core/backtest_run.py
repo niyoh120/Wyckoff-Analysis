@@ -162,6 +162,7 @@ def _base_summary(
         "hold_days": config.replay.hold_days,
         "top_n": config.replay.top_n,
         "ai_selection_mode": config.replay.selection_mode,
+        "strategy_variant": config.strategy_variant,
         "ai_top_n_cap": None if config.replay.top_n <= 0 else config.replay.top_n,
         "board": context.board,
         "sample_size": context.sample_size,

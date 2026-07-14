@@ -20,6 +20,7 @@ from integrations.market_metadata import (
     detect_theme_lines,
     fetch_concept_heat,
     fetch_concept_map,
+    fetch_historical_market_cap_map,
     fetch_market_cap_map,
     fetch_sector_map,
     stale_json_cache,
@@ -40,11 +41,12 @@ from tools.external_seeds import (
 from tools.market_liquidity import calc_amount_distribution_health, calc_market_money_flow
 from tools.market_regime import analyze_benchmark_and_tune_cfg
 from tools.symbol_pool import load_stock_name_map, resolve_symbol_pool, resolve_symbol_pool_from_env
-from utils.env import env_flag, parse_int_env
+from utils.env import env_bool, env_flag, parse_int_env
 from utils.progress import report_progress as _report_progress
 from utils.trading_clock import resolve_end_calendar_day
 from workflows.fetch_runtime_config import fetch_runtime_config_from_env
 from workflows.funnel_config_overrides import apply_funnel_cfg_overrides
+from workflows.funnel_data_quality import assert_funnel_data_freshness
 from workflows.funnel_etf import run_etf_enhancement
 from workflows.funnel_settings import (
     BATCH_SIZE,
@@ -140,6 +142,13 @@ def prepare_funnel_job_data(
         direct_source=direct_source,
         executor_mode=executor_mode,
     )
+    if env_bool("FUNNEL_DATA_FRESHNESS_HARD_FAIL", True):
+        assert_funnel_data_freshness(
+            pool.symbols,
+            all_df_map,
+            [bench_df, smallcap_df],
+            window.end_trade_date,
+        )
     snapshot_dir = dump_full_fetch_snapshot(
         enabled=FUNNEL_EXPORT_FULL_FETCH,
         export_dir=FUNNEL_EXPORT_DIR,
@@ -324,6 +333,73 @@ def _load_market_metadata(
     except Exception as e:
         logger.warning("概念映射加载失败，降级为空映射: %s", e)
         concept_map = {}
+
+    as_of_date = window.end_trade_date.isoformat()
+    is_historical = (window.end_trade_date < date.today()) or bool((os.getenv("END_CALENDAR_DAY") or "").strip())
+
+    if is_historical:
+        concept_heat, ths_events, event_heat, concept_history, hot_concepts = _load_historical_metadata(as_of_date, cfg)
+    else:
+        concept_heat, ths_events, event_heat, concept_history, hot_concepts = _load_live_metadata(as_of_date, cfg)
+
+    _report_progress("元数据加载", "市值数据", 0.14)
+    if is_historical:
+        print(f"[funnel] 回放模式：加载历史市值数据 (as_of_date={as_of_date})...")
+        try:
+            market_cap_map = fetch_historical_market_cap_map(as_of_date)
+        except Exception as e:
+            logger.warning("历史市值数据加载失败，降级为空映射: %s", e)
+            market_cap_map = {}
+        if not market_cap_map:
+            print(
+                "[funnel] ⚠️ 历史市值数据加载为空（可能API频控或权限限制），回放模式下将临时跳过市值过滤以防误杀，存在数据质量降级风险"
+            )
+    else:
+        print("[funnel] 加载当前实时市值数据...")
+        try:
+            market_cap_map = fetch_market_cap_map()
+        except Exception as e:
+            logger.warning("市值数据加载失败，降级为空映射: %s", e)
+            market_cap_map = {}
+        if not market_cap_map:
+            print("[funnel] ⚠️ 市值数据为空（TUSHARE_TOKEN 可能缺失/失效），Layer1 将跳过市值过滤")
+    _report_progress("元数据加载", "元数据加载完成", 0.18)
+    return sector_map, concept_map, concept_heat, ths_events, event_heat, concept_history, hot_concepts, market_cap_map
+
+
+def _load_historical_metadata(as_of_date: str, cfg: FunnelConfig) -> tuple[list[dict], dict, list[dict], dict, list]:
+    print(f"[funnel] 历史/回放模式运行中 (as_of_date={as_of_date})，跳过实时热度及事件抓取")
+    try:
+        from integrations.supabase_concept_heat import load_concept_heat_history_from_supabase
+
+        concept_history = load_concept_heat_history_from_supabase(limit_days=30, as_of_date=as_of_date)
+    except Exception as e:
+        logger.warning("从 Supabase 加载历史概念热度失败，降级本地缓存: %s", e)
+        concept_history = {}
+
+    if not concept_history:
+        concept_history = stale_json_cache(CONCEPT_HEAT_HISTORY, {})
+        if not isinstance(concept_history, dict):
+            concept_history = {}
+    concept_history = {d: v for d, v in concept_history.items() if d <= as_of_date}
+
+    day_heat = concept_history.get(as_of_date, {})
+    concept_heat = []
+    for name, info in day_heat.items():
+        concept_heat.append(
+            {
+                "name": name,
+                "pct": float(info.get("pct", 0.0) or 0.0),
+                "net_inflow": float(info.get("inflow", 0.0) or 0.0),
+            }
+        )
+    ths_events = {"trade_date": as_of_date, "events": []}
+    event_heat = []
+    hot_concepts = detect_theme_lines(min_days=cfg.theme_line_min_days, as_of_date=as_of_date)
+    return concept_heat, ths_events, event_heat, concept_history, hot_concepts
+
+
+def _load_live_metadata(as_of_date: str, cfg: FunnelConfig) -> tuple[list[dict], dict, list[dict], dict, list]:
     print("[funnel] 加载概念热度...")
     try:
         concept_heat = fetch_concept_heat()
@@ -333,22 +409,13 @@ def _load_market_metadata(
     ths_events, event_heat = _load_ths_hot_events()
     heat_for_history = merge_concept_heat(concept_heat, event_heat)
     if heat_for_history:
-        update_concept_heat_history(window.end_trade_date.isoformat(), heat_for_history, top_n=cfg.theme_line_top_n)
+        update_concept_heat_history(as_of_date, heat_for_history, top_n=cfg.theme_line_top_n)
     concept_history = stale_json_cache(CONCEPT_HEAT_HISTORY, {})
     if not isinstance(concept_history, dict):
         concept_history = {}
-    hot_concepts = detect_theme_lines(min_days=cfg.theme_line_min_days)
-    _report_progress("元数据加载", "市值数据", 0.14)
-    print("[funnel] 加载市值数据...")
-    try:
-        market_cap_map = fetch_market_cap_map()
-    except Exception as e:
-        logger.warning("市值数据加载失败，降级为空映射: %s", e)
-        market_cap_map = {}
-    if not market_cap_map:
-        print("[funnel] ⚠️ 市值数据为空（TUSHARE_TOKEN 可能缺失/失效），Layer1 将跳过市值过滤")
-    _report_progress("元数据加载", "元数据加载完成", 0.18)
-    return sector_map, concept_map, concept_heat, ths_events, event_heat, concept_history, hot_concepts, market_cap_map
+    concept_history = {d: v for d, v in concept_history.items() if d <= as_of_date}
+    hot_concepts = detect_theme_lines(min_days=cfg.theme_line_min_days, as_of_date=as_of_date)
+    return concept_heat, ths_events, event_heat, concept_history, hot_concepts
 
 
 def _load_ths_hot_events() -> tuple[dict[str, Any], list[dict]]:

@@ -96,6 +96,7 @@ def request_from_args(args, start_dt, end_dt, hold_days: int) -> BacktestWorkflo
         sell_friction_pct=args.sell_friction_pct,
         regime_filter=args.regime_filter,
         execution_regime_gate=args.execution_regime_gate,
+        strategy_variant=getattr(args, "strategy_variant", "live"),
         pending_mode=args.pending_mode,
         pending_merge_order=args.pending_merge_order,
         atr_period=args.atr_period,
