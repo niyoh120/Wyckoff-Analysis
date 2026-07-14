@@ -402,10 +402,11 @@ def _replace_auxiliary_tables(
         _rows_with_updated_at(table_rows.get("external_seed_observations") or []),
         "market,trade_date,source,code",
     )
-    market_signal_upserted = _upsert_market_signal_rows(
+    market_signal_upserted = _upsert_rows(
         client,
         TABLE_MARKET_SIGNAL_DAILY,
         table_rows.get("market_signal_daily") or [],
+        "trade_date",
     )
     theme_radar_upserted = _upsert_rows(
         client,
@@ -453,35 +454,6 @@ def _upsert_rows(client, table: str, rows: list[dict], conflict: str) -> int:
             client.table(table).upsert(batch, on_conflict=conflict).execute()
             upserted += len(batch)
     return upserted
-
-
-def _upsert_market_signal_rows(client, table: str, rows: list[dict]) -> int:
-    try:
-        return _upsert_rows(client, table, rows, "trade_date")
-    except Exception as exc:
-        if not _is_legacy_market_regime_error(exc):
-            raise
-        return _upsert_rows(client, table, [_legacy_market_signal_row(row) for row in rows], "trade_date")
-
-
-def _is_legacy_market_regime_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return "benchmark_regime" in message and "check constraint" in message
-
-
-def _legacy_market_signal_row(row: dict) -> dict:
-    out = dict(row)
-    original = str(out.get("benchmark_regime") or "").strip().upper()
-    if original not in {"PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED", "BEAR_REBOUND"}:
-        return out
-    out["benchmark_regime"] = "RISK_OFF"
-    source_jobs = dict(out.get("source_jobs") or {})
-    source_jobs["regime_compat"] = {
-        "original_benchmark_regime": original,
-        "stored_benchmark_regime": "RISK_OFF",
-    }
-    out["source_jobs"] = source_jobs
-    return out
 
 
 def _stale_old_row_ids(payloads: dict[int, list[dict]], old_rows: list[dict[str, Any]]) -> list[Any]:

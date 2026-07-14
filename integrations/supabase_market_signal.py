@@ -527,35 +527,10 @@ def _write_merged_row(client: Client, merged: dict[str, Any]) -> None:
         ).execute()
     except Exception:
         fallback = {k: v for k, v in merged.items() if k not in STRUCTURED_MARKET_SIGNAL_FIELDS}
-        try:
-            client.table(TABLE_MARKET_SIGNAL_DAILY).upsert(
-                _normalize_row_for_upsert(fallback),
-                on_conflict="trade_date",
-            ).execute()
-        except Exception as exc:
-            if not _benchmark_regime_constraint_error(exc):
-                raise
-            client.table(TABLE_MARKET_SIGNAL_DAILY).upsert(
-                _normalize_row_for_upsert(_legacy_benchmark_regime_row(fallback)),
-                on_conflict="trade_date",
-            ).execute()
-
-
-def _benchmark_regime_constraint_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return "benchmark_regime" in message and "check constraint" in message
-
-
-def _legacy_benchmark_regime_row(row: dict[str, Any]) -> dict[str, Any]:
-    out = dict(row)
-    original = str(out.get("benchmark_regime") or "").strip().upper()
-    if original != "PANIC_REPAIR_CONFIRMED":
-        return out
-    out["benchmark_regime"] = "RISK_OFF"
-    source_jobs = dict(out.get("source_jobs") or {})
-    source_jobs["regime_compat"] = {"original_benchmark_regime": original, "stored_benchmark_regime": "RISK_OFF"}
-    out["source_jobs"] = source_jobs
-    return out
+        client.table(TABLE_MARKET_SIGNAL_DAILY).upsert(
+            _normalize_row_for_upsert(fallback),
+            on_conflict="trade_date",
+        ).execute()
 
 
 def _row_unchanged_since_read(client: Client, trade_date_text: str, expected_updated_at: Any) -> bool:
