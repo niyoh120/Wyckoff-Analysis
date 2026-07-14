@@ -333,6 +333,17 @@ def _candidate_context_features(candidate: TailBuyCandidate, df: pd.DataFrame) -
     }
 
 
+def _apply_same_day_breakout_support_semantics(candidate: TailBuyCandidate, features: dict[str, Any]) -> None:
+    signal_type = str(candidate.signal_type or "").strip().lower()
+    if signal_type not in {"sos", "jac"} or int(features.get("signal_age_days") or 0) != 0:
+        return
+    if not bool(features.get("day_low_breached_support")) or bool(features.get("close_below_support")):
+        return
+    features["raw_day_low_breached_support"] = True
+    features["day_low_breached_support"] = False
+    features["same_day_breakout_reclaimed"] = True
+
+
 def _last_intraday_date(df: pd.DataFrame) -> date | None:
     if df.empty or "datetime" not in df.columns:
         return None
@@ -850,6 +861,7 @@ def evaluate_rule_decision(
     features = compute_tail_features(df_1m, daily_context, config=policy)
     features.update(_daily_trap_features(daily_history, policy))
     features.update(_candidate_context_features(candidate, _latest_intraday_session(ensure_intraday_df(df_1m))))
+    _apply_same_day_breakout_support_semantics(candidate, features)
     features.update(
         _limit_up_features(
             candidate,
@@ -945,6 +957,7 @@ def build_llm_prompt(
         f"- support_level={safe_float(f.get('support_level')):.3f}\n"
         f"- day_low_vs_support_pct={safe_float(f.get('day_low_vs_support_pct')):.3f}\n"
         f"- day_low_breached_support={bool(f.get('day_low_breached_support'))}\n"
+        f"- same_day_breakout_reclaimed={bool(f.get('same_day_breakout_reclaimed'))}\n"
         f"- intraday_high_ret_pct={safe_float(f.get('intraday_high_ret_pct')):.3f}\n"
         f"- tail_blowoff_reversal={bool(f.get('tail_blowoff_reversal'))}\n"
         f"- daily_trap_pressure={bool(f.get('daily_trap_pressure'))}\n"

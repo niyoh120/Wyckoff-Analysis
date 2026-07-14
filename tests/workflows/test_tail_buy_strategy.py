@@ -613,6 +613,49 @@ def test_confirmed_tail_signal_skips_after_breaking_confirm_support():
     assert "跌破确认支撑" in "；".join(out.rule_reasons)
 
 
+def test_same_day_sos_reclaim_is_not_treated_as_breaking_established_support():
+    candidate = TailBuyCandidate(
+        code="603367",
+        name="辰欣药业",
+        signal_date="2026-04-21",
+        status="pending",
+        signal_type="sos",
+        signal_score=3.5,
+        market_regime="PANIC_REPAIR_INTRADAY",
+        snap={"snap_support": 14.24},
+    )
+    df = _make_intraday_df(start=13.75, end=15.1, tail_volume_mult=2.0)
+    df.loc[2, "low"] = 13.48
+
+    out = evaluate_rule_decision(candidate, df, style="hybrid")
+
+    assert out.features["raw_day_low_breached_support"] is True
+    assert out.features["day_low_breached_support"] is False
+    assert out.features["same_day_breakout_reclaimed"] is True
+    assert "跌破确认支撑" not in "；".join(out.rule_reasons)
+    assert "PANIC_REPAIR_INTRADAY单SOS只观察" in "；".join(out.rule_reasons)
+
+
+def test_same_day_sos_close_below_support_remains_a_hard_veto():
+    candidate = TailBuyCandidate(
+        code="603367",
+        name="辰欣药业",
+        signal_date="2026-04-21",
+        status="pending",
+        signal_type="sos",
+        signal_score=3.5,
+        snap={"snap_support": 14.24},
+    )
+    df = _make_intraday_df(start=14.3, end=14.0)
+
+    out = evaluate_rule_decision(candidate, df, style="hybrid")
+
+    assert out.rule_decision == DECISION_SKIP
+    assert out.features["day_low_breached_support"] is True
+    assert out.features.get("same_day_breakout_reclaimed") is None
+    assert "跌破确认支撑" in "；".join(out.rule_reasons)
+
+
 def test_tail_buy_skips_when_support_anchor_is_missing():
     candidate = TailBuyCandidate(
         code="603039",
