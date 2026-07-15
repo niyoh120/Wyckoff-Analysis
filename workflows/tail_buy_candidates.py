@@ -265,6 +265,7 @@ def _map_recommendation_rows(rows: list[dict], target_signal_date: str, signal_t
 def _recommendation_candidate(row: dict, target_signal_date: str, signal_type: str) -> TailBuyCandidate:
     change_pct = safe_float(row.get("change_pct"))
     current_price = safe_float(row.get("current_price"))
+    initial_price = safe_float(row.get("initial_price"))
     return TailBuyCandidate(
         code=normalize_code6(row.get("code")),
         name=str(row.get("name", "") or row.get("code") or "").strip(),
@@ -284,7 +285,7 @@ def _recommendation_candidate(row: dict, target_signal_date: str, signal_type: s
         theme_score=optional_candidate_score(row.get("theme_score")),
         stock_role_score=optional_candidate_score(row.get("stock_role_score")),
         snap={
-            "snap_support": current_price,
+            "snap_support": initial_price if initial_price > 0 else 0.0,
             "snap_close": current_price,
             "snap_ma20": 0.0,
             "snap_recommend_date": row.get("recommend_date"),

@@ -51,7 +51,69 @@ def test_candidate_flow_empty_pool_skips_rule_and_llm(monkeypatch) -> None:
     assert logs == ["候选池为空：本轮仅输出持仓动作建议。"]
 
 
-def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
+class TestPrefilterUnconfirmed:
+    """_prefilter_unconfirmed 在 confirmed_only_buy=True 时跳过未确认候选。"""
+
+    def _config(self, confirmed_only_buy: bool):
+        return SimpleNamespace(
+            logs_path="",
+            strategy_config=SimpleNamespace(confirmed_only_buy=confirmed_only_buy),
+        )
+
+    def _candidate(self, code: str, *, status: str, signal_type: str = "sos"):
+        return TailBuyCandidate(
+            code=code,
+            name=code,
+            signal_date="2026-06-22",
+            status=status,
+            signal_type=signal_type,
+            signal_score=70.0,
+        )
+
+    def test_confirmed_only_buy_filters_unconfirmed(self, monkeypatch):
+        logs: list[str] = []
+        monkeypatch.setattr(job, "log_line", lambda msg, *_a, **_kw: logs.append(msg))
+
+        candidates = [
+            self._candidate("000001", status="confirmed"),
+            self._candidate("000002", status="pending"),
+            self._candidate("000003", status="pending"),
+        ]
+        to_scan, deferred = job._prefilter_unconfirmed(candidates, self._config(True))
+
+        assert [c.code for c in to_scan] == ["000001"]
+        assert [c.code for c in deferred] == ["000002", "000003"]
+        assert deferred[0].rule_decision == "WATCH"
+        assert deferred[0].final_decision == "WATCH"
+        assert "未二次确认" in deferred[0].rule_reasons[0]
+        assert any("confirmed=1" in line for line in logs)
+
+    def test_confirmed_only_buy_false_returns_all(self, monkeypatch):
+        monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
+
+        candidates = [
+            self._candidate("000001", status="confirmed"),
+            self._candidate("000002", status="pending"),
+        ]
+        to_scan, deferred = job._prefilter_unconfirmed(candidates, self._config(False))
+
+        assert len(to_scan) == 2
+        assert deferred == []
+
+    def test_holding_always_scanned_even_if_pending(self, monkeypatch):
+        monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
+
+        candidates = [
+            self._candidate("000001", status="pending", signal_type="holding"),
+            self._candidate("000002", status="pending", signal_type="sos"),
+        ]
+        to_scan, deferred = job._prefilter_unconfirmed(candidates, self._config(True))
+
+        assert [c.code for c in to_scan] == ["000001"]
+        assert [c.code for c in deferred] == ["000002"]
+
+
+def test_candidate_flow_applies_policy_weights_before_merge(monkeypatch) -> None:
     candidate = _candidate("000001", score=80)
     calls: dict[str, object] = {}
 
@@ -79,8 +141,6 @@ def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
         return scored
 
     monkeypatch.setattr(job, "apply_policy_weight_adjustments", fake_adjust)
-    monkeypatch.setattr(job, "apply_tail_buy_depth_filter", lambda scored, **_kwargs: {"000001": {}})
-    monkeypatch.setattr(job, "run_llm_overlay", lambda *args, **_kwargs: ({}, 0, 0, {}))
     monkeypatch.setattr(job, "merge_rule_and_llm", lambda scored, _llm, **_kwargs: scored)
 
     result = job.run_tail_buy_candidate_flow(
@@ -95,7 +155,7 @@ def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
             llm_allowed_rule_decisions=("BUY", "WATCH"),
             llm_concurrency=1,
             deadline_at=current_time() + timedelta(minutes=5),
-            strategy_config=object(),
+            strategy_config=SimpleNamespace(confirmed_only_buy=False),
         ),
     )
 
@@ -108,6 +168,7 @@ def test_candidate_flow_applies_policy_weights_before_llm(monkeypatch) -> None:
     assert result.policy_weight_meta["source"] == "远端"
     assert result.policy_weight_meta["execution_policy"] == "shadow"
     assert result.policy_weight_meta["next_action"] == "manual_review_dynamic_on"
+    assert result.llm_total == 0
 
 
 def test_single_rule_scan_marks_deferred_candidates(monkeypatch) -> None:

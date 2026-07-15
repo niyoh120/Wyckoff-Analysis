@@ -17,12 +17,10 @@ from core.tail_buy.strategy import (
     apply_policy_weight_adjustments,
     board_scaled_strategy_config,
     build_5m_summary,
-    build_llm_prompt,
     compute_tail_features,
     evaluate_rule_decision,
     merge_rule_and_llm,
     pick_tail_candidates,
-    select_llm_overlay_candidates,
 )
 from workflows.tail_buy_config import tail_buy_strategy_config_from_env
 from workflows.tail_buy_rule_scan import run_rule_scan_batch
@@ -350,8 +348,9 @@ def test_evaluate_rule_decision_buy_and_skip_split():
     strong_df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.8, tail_volume_mult=2.0)
     weak_df = _make_intraday_df(start=10.0, end=9.6, tail_boost=-0.2, tail_volume_mult=0.6)
 
-    strong_out = evaluate_rule_decision(strong, strong_df, style="hybrid")
-    weak_out = evaluate_rule_decision(weak, weak_df, style="hybrid")
+    no_chase_config = TailBuyStrategyConfig(chase_day_ret_pct=30.0, chase_high_ret_pct=30.0)
+    strong_out = evaluate_rule_decision(strong, strong_df, style="hybrid", config=no_chase_config)
+    weak_out = evaluate_rule_decision(weak, weak_df, style="hybrid", config=no_chase_config)
 
     assert strong_out.rule_decision in {DECISION_BUY, DECISION_WATCH}
     assert strong_out.rule_score > weak_out.rule_score
@@ -417,7 +416,7 @@ def test_old_confirmed_signal_can_buy_when_current_tail_confirms():
     assert "信号已超过" not in "；".join(out.rule_reasons)
 
 
-def test_intraday_chase_is_watch_not_buy():
+def test_intraday_chase_is_skip_not_buy():
     candidate = TailBuyCandidate(
         code="600620",
         name="沪杭甬",
@@ -431,12 +430,12 @@ def test_intraday_chase_is_watch_not_buy():
 
     out = evaluate_rule_decision(candidate, df, style="trend")
 
-    assert out.rule_decision == DECISION_WATCH
-    assert "日内涨幅过大" in "；".join(out.rule_reasons)
+    assert out.rule_decision == DECISION_SKIP
+    assert "追高风险" in "；".join(out.rule_reasons)
 
 
 def test_intraday_chase_threshold_relaxed_for_chinext_board():
-    """同样14%日内涨幅，创业板/科创板的追高门槛应比主板更宽松，不应被误杀。"""
+    """同样10%日内涨幅，创业板/科创板的追高门槛应比主板更宽松，不应被误杀。"""
     candidate = TailBuyCandidate(
         code="300620",
         name="创业板测试股",
@@ -446,11 +445,11 @@ def test_intraday_chase_threshold_relaxed_for_chinext_board():
         signal_score=3.5,
         snap={"snap_support": 9.8},
     )
-    df = _make_intraday_df(start=10.0, end=11.4, tail_boost=0.1, tail_volume_mult=1.3)
+    df = _make_intraday_df(start=10.0, end=11.0, tail_boost=0.05, tail_volume_mult=1.3)
 
     out = evaluate_rule_decision(candidate, df, style="trend")
 
-    assert "日内涨幅过大" not in "；".join(out.rule_reasons)
+    assert "追高风险" not in "；".join(out.rule_reasons)
 
 
 class TestBoardScaledStrategyConfig:
@@ -536,7 +535,7 @@ def test_strong_intraday_trend_gets_hold_vwap_feature():
         signal_score=6.0,
         snap={"snap_support": 9.8},
     )
-    df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.2, tail_volume_mult=1.2)
+    df = _make_intraday_df(start=10.0, end=10.5, tail_boost=0.15, tail_volume_mult=1.2)
 
     out = evaluate_rule_decision(candidate, df, style="trend")
 
@@ -555,9 +554,10 @@ def test_pending_strong_tail_signal_stays_watch_by_default():
         signal_score=6.0,
         snap={"snap_support": 9.8},
     )
+    no_chase_config = TailBuyStrategyConfig(chase_day_ret_pct=30.0, chase_high_ret_pct=30.0)
     strong_df = _make_intraday_df(start=10.0, end=10.9, tail_boost=0.8, tail_volume_mult=2.0)
 
-    out = evaluate_rule_decision(candidate, strong_df, style="hybrid")
+    out = evaluate_rule_decision(candidate, strong_df, style="hybrid", config=no_chase_config)
 
     assert out.rule_score >= 72.0
     assert out.rule_decision == DECISION_WATCH
@@ -890,61 +890,6 @@ def test_evaluate_rule_decision_skips_limit_up_check_without_daily_history():
     assert "limit_up_touched" not in candidate.features
 
 
-def test_llm_prompt_surfaces_daily_trap_pressure_gate():
-    candidate = evaluate_rule_decision(
-        TailBuyCandidate(
-            code="002217",
-            name="合力泰",
-            signal_date="2026-04-20",
-            status="confirmed",
-            signal_type="sos",
-            signal_score=6.0,
-            snap={"snap_support": 9.8},
-        ),
-        _make_intraday_df(start=10.3, end=11.2, tail_boost=0.8, tail_volume_mult=1.8),
-        style="trend",
-        config=TailBuyStrategyConfig(
-            naked_support_extension_pct=30.0,
-            chase_day_ret_pct=20.0,
-            chase_high_ret_pct=25.0,
-        ),
-        daily_history=_make_daily_trap_df(),
-    )
-
-    system_prompt, user_prompt = build_llm_prompt(candidate, style="trend")
-
-    assert "daily_trap_pressure=true" in system_prompt
-    assert "不能选择 BUY" in system_prompt
-    assert "daily_trap_pressure=True" in user_prompt
-    assert "daily_close_vs_ma20_pct" in user_prompt
-    assert "日线" in user_prompt
-
-
-def test_llm_prompt_surfaces_mainline_semantics_without_overriding_gates():
-    candidate = TailBuyCandidate(
-        code="300308",
-        name="中际旭创",
-        signal_date="2026-04-20",
-        status="confirmed",
-        signal_type="mainline",
-        signal_score=86.0,
-        candidate_lane="mainline",
-        candidate_theme="光模块",
-        candidate_phase="分歧机会",
-        candidate_role="主线核心",
-        mainline_score=0.86,
-        theme_score=0.8,
-        stock_role_score=0.82,
-    )
-
-    system_prompt, user_prompt = build_llm_prompt(candidate, style="trend")
-
-    assert "只能原样使用" in system_prompt
-    assert "不能覆盖规则硬闸" in system_prompt
-    assert "theme=光模块, phase=分歧机会, role=主线核心" in user_prompt
-    assert "mainline=0.86, theme=0.8, role=0.82" in user_prompt
-
-
 def test_rule_scan_batch_applies_daily_trap_pressure_gate():
     class FakeTickFlow:
         def get_intraday_batch(self, symbols, *, period, count):
@@ -1255,60 +1200,6 @@ def test_compute_tail_features_handles_volume_lot_unit_for_vwap():
     assert feats["vwap_volume_scale"] == 1.0
     assert 9.5 < feats["vwap"] < 11.0
     assert feats["dist_vwap_pct"] > -10.0
-
-
-def test_select_llm_overlay_candidates_prefilters_skip_and_low_score():
-    items = [
-        TailBuyCandidate(
-            code="301090",
-            name="华润材料",
-            signal_date="2026-04-20",
-            status="confirmed",
-            signal_type="spring",
-            signal_score=6.0,
-            rule_score=82.0,
-            rule_decision=DECISION_BUY,
-        ),
-        TailBuyCandidate(
-            code="002217",
-            name="合力泰",
-            signal_date="2026-04-20",
-            status="pending",
-            signal_type="sos",
-            signal_score=4.0,
-            rule_score=61.0,
-            rule_decision=DECISION_WATCH,
-        ),
-        TailBuyCandidate(
-            code="600000",
-            name="浦发银行",
-            signal_date="2026-04-20",
-            status="pending",
-            signal_type="sos",
-            signal_score=2.0,
-            rule_score=58.0,
-            rule_decision=DECISION_WATCH,
-        ),
-        TailBuyCandidate(
-            code="000001",
-            name="平安银行",
-            signal_date="2026-04-20",
-            status="pending",
-            signal_type="sos",
-            signal_score=1.0,
-            rule_score=75.0,
-            rule_decision=DECISION_SKIP,
-        ),
-    ]
-
-    selected = select_llm_overlay_candidates(
-        items,
-        max_llm_symbols=10,
-        min_rule_score=60.0,
-        allowed_rule_decisions=(DECISION_BUY, DECISION_WATCH),
-    )
-
-    assert [x.code for x in selected] == ["301090", "002217"]
 
 
 def test_build_tail_buy_markdown_can_append_extra_sections():
@@ -1738,7 +1629,7 @@ def test_holding_tail_action_adds_clear_signal_even_if_losing(monkeypatch):
         def get_intraday_batch(self, chunk, *, period, count):
             assert period == "1m"
             assert count == 5000
-            df = _make_intraday_df(start=10.0, end=10.6, tail_boost=0.2, tail_volume_mult=2.0)
+            df = _make_intraday_df(start=10.0, end=10.5, tail_boost=0.15, tail_volume_mult=2.0)
             return {symbol: df for symbol in chunk}
 
     monkeypatch.setattr(

@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import time
 
+from core.tail_buy.models import DECISION_WATCH
 from core.tail_buy.strategy import TailBuyCandidate, apply_policy_weight_adjustments, merge_rule_and_llm
 from integrations.tickflow_client import TickFlowClient
 from integrations.tickflow_notice import TICKFLOW_UPGRADE_URL
@@ -23,7 +24,6 @@ from workflows.tail_buy_delivery import (
     send_tail_buy_skip_notice,
 )
 from workflows.tail_buy_holdings import analyze_holdings_actions, build_holdings_markdown
-from workflows.tail_buy_llm_overlay import apply_tail_buy_depth_filter, run_llm_overlay
 from workflows.tail_buy_market_repair import (
     append_intraday_market_reminder,
     apply_base_market_regime,
@@ -233,32 +233,48 @@ def run_tail_buy_candidate_flow(
         log_line("候选池为空：本轮仅输出持仓动作建议。", config.logs_path)
         return TailBuyCandidateRun([], 0, 0, {}, "")
     data_fetched_at = now_text()
-    scored = run_tail_buy_rule_scan(pending_candidates, tickflow_client=tickflow_client, config=config)
+    to_scan, deferred = _prefilter_unconfirmed(pending_candidates, config)
+    scored = run_tail_buy_rule_scan(to_scan, tickflow_client=tickflow_client, config=config)
+    scored.extend(deferred)
+    scored.sort(key=lambda x: (-x.rule_score, x.code))
     policy_snapshot = load_tail_buy_policy_snapshot(config.logs_path)
     policy_weights = policy_snapshot.weights
     scored = apply_policy_weight_adjustments(scored, policy_weights, policy_meta=policy_snapshot.as_dict())
-    depth_map = apply_tail_buy_depth_filter(scored, tickflow_client=tickflow_client, config=config)
-    llm_map, llm_total, llm_success, llm_route_stats = run_llm_overlay(
-        scored,
-        llm_routes=config.llm_routes,
-        style=config.style,
-        max_llm_symbols=config.max_llm_symbols,
-        min_rule_score=config.llm_min_rule_score,
-        allowed_rule_decisions=config.llm_allowed_rule_decisions,
-        llm_concurrency=config.llm_concurrency,
-        deadline_at=config.deadline_at,
-        depth_map=depth_map,
-        logs_path=config.logs_path,
-    )
     return TailBuyCandidateRun(
-        merged=merge_rule_and_llm(scored, llm_map, config=config.strategy_config),
-        llm_total=llm_total,
-        llm_success=llm_success,
-        llm_route_stats=llm_route_stats,
+        merged=merge_rule_and_llm(scored, {}, config=config.strategy_config),
+        llm_total=0,
+        llm_success=0,
+        llm_route_stats={},
         data_fetched_at=data_fetched_at,
         policy_weights=policy_weights,
         policy_weight_meta=policy_snapshot.as_dict(),
     )
+
+
+def _prefilter_unconfirmed(
+    candidates: list[TailBuyCandidate],
+    config: TailBuyRuntimeConfig,
+) -> tuple[list[TailBuyCandidate], list[TailBuyCandidate]]:
+    """confirmed_only_buy=True 时，未确认候选跳过分时扫描，直接标记为 WATCH。"""
+    if not config.strategy_config.confirmed_only_buy:
+        return candidates, []
+    to_scan: list[TailBuyCandidate] = []
+    deferred: list[TailBuyCandidate] = []
+    for item in candidates:
+        if str(item.status).strip().lower() == "confirmed" or item.signal_type == "holding":
+            to_scan.append(item)
+        else:
+            item.fetch_error = "未二次确认，confirmed_only_buy=True，跳过分时扫描"
+            item.rule_decision = DECISION_WATCH
+            item.final_decision = DECISION_WATCH
+            item.rule_reasons = ["未二次确认，尾盘只观察不买入"]
+            deferred.append(item)
+    if deferred:
+        log_line(
+            f"预过滤：confirmed={len(to_scan)}, 跳过未确认={len(deferred)}，节省分时扫描 API 调用",
+            config.logs_path,
+        )
+    return to_scan, deferred
 
 
 def _run_tail_buy_trading_day(request: TailBuyJobRequest, config: TailBuyRuntimeConfig) -> int:

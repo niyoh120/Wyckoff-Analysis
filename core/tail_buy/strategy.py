@@ -1,13 +1,10 @@
 """
-尾盘买入策略核心（规则层 + LLM 合并层）。
+尾盘买入策略核心（规则层 + 合并层）。
 """
 
 from __future__ import annotations
 
-import json
-import logging
 import math
-import re
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Any
@@ -46,8 +43,6 @@ from core.tail_buy.models import (
     safe_float,
 )
 
-logger = logging.getLogger(__name__)
-
 
 @dataclass(frozen=True)
 class TailBuyStrategyConfig:
@@ -57,8 +52,8 @@ class TailBuyStrategyConfig:
     blowoff_drop_from_high_pct: float = 2.2
     blowoff_close_pos_max: float = 0.58
     blowoff_tail_volume_share: float = 0.45
-    chase_day_ret_pct: float = 10.0
-    chase_high_ret_pct: float = 12.0
+    chase_day_ret_pct: float = 7.0
+    chase_high_ret_pct: float = 9.0
     weak_naked_day_ret_pct: float = 0.8
     weak_naked_tail30_ret_pct: float = 0.3
     naked_support_extension_pct: float = 18.0
@@ -867,9 +862,12 @@ def score_tail_features(
     if bars < 60:
         return 5.0, DECISION_SKIP, ["分时数据不足（<60根1m）"]
 
+    policy = _strategy_config(config)
     hard_veto_reasons = tail_hard_veto_reasons(features)
     if entry_guard:
         hard_veto_reasons.extend(tail_entry_veto_reasons(features, signal_type, market_regime))
+        if _is_intraday_chase(features, policy):
+            hard_veto_reasons.append("日内涨幅过大，追高风险直接否决")
     if hard_veto_reasons:
         return 20.0, DECISION_SKIP, hard_veto_reasons
 
@@ -879,7 +877,6 @@ def score_tail_features(
     score += _score_tail_position(features, trend_bias, reasons)
     score += _score_tail_momentum(features, trend_bias=trend_bias, pullback_bias=pullback_bias, reasons=reasons)
     score += _score_tail_indicators(features, reasons)
-    policy = _strategy_config(config)
     score, decision, reasons = _decision_from_score(score, status, reasons, policy)
     return _apply_soft_buy_gates(score, decision, reasons, features, signal_type, policy)
 
@@ -961,147 +958,6 @@ def build_5m_summary(df_1m: pd.DataFrame, *, max_bars: int = 12) -> str:
             f"V{int(max(safe_float(row['volume']), 0.0))}"
         )
     return "\n".join(rows)
-
-
-def build_llm_prompt(
-    candidate: TailBuyCandidate,
-    *,
-    style: str = "hybrid",
-    depth_info: dict | None = None,
-) -> tuple[str, str]:
-    f = candidate.features or {}
-    style_desc = {
-        "trend": "偏趋势（尾盘点火）",
-        "pullback": "偏回踩再起",
-        "hybrid": "混合型（尾盘走强 + 回踩再起）",
-    }.get(str(style).lower(), "混合型（尾盘走强 + 回踩再起）")
-    system_prompt = (
-        "你是A股尾盘买入策略二判助手。"
-        "你只能在 BUY/WATCH/SKIP 中选择一个结论，且必须返回 JSON。"
-        "candidate_theme/candidate_phase/candidate_role 是程序确定字段，只能原样使用，不得重判或编造。"
-        "主线核心只提高同等条件下的优先级，不能覆盖规则硬闸；confirmed 也不自动等于 BUY。"
-        "若 day_low_breached_support=true、tail_blowoff_reversal=true、缺少支撑锚点或防守水温单EVR，必须选择 SKIP。"
-        "CRASH_LEFT_PROBE 仅代表规则已确认黄金坑左侧试探资格，仍只能选择小额 BUY 或继续 WATCH，不得建议加仓。"
-        "若 daily_trap_pressure=true，不能选择 BUY，只能 WATCH 或 SKIP。"
-        "禁止输出投资建议免责声明，禁止输出 markdown。"
-    )
-    user_prompt = (
-        f"策略风格: {style_desc}\n"
-        f"股票: {candidate.code} {candidate.name}\n"
-        f"主线语义: theme={candidate.candidate_theme or '-'}, phase={candidate.candidate_phase or '-'}, "
-        f"role={candidate.candidate_role or '-'}\n"
-        f"主线评分: mainline={candidate.mainline_score}, theme={candidate.theme_score}, "
-        f"role={candidate.stock_role_score}\n"
-        f"信号: status={candidate.status}, type={candidate.signal_type}, lane={candidate.candidate_lane or '-'}, "
-        f"entry={candidate.entry_type or '-'}, regime={candidate.market_regime or '-'}, "
-        f"signal_score={candidate.signal_score:.2f}\n"
-        f"规则一判: {candidate.rule_decision}, rule_score={candidate.rule_score:.1f}\n"
-        "规则特征:\n"
-        f"- close_pos={safe_float(f.get('close_pos')):.3f}\n"
-        f"- dist_vwap_pct={safe_float(f.get('dist_vwap_pct')):.3f}\n"
-        f"- last30_ret_pct={safe_float(f.get('last30_ret_pct')):.3f}\n"
-        f"- last15_ret_pct={safe_float(f.get('last15_ret_pct')):.3f}\n"
-        f"- tail30_volume_share={safe_float(f.get('tail30_volume_share')):.3f}\n"
-        f"- support_level={safe_float(f.get('support_level')):.3f}\n"
-        f"- day_low_vs_support_pct={safe_float(f.get('day_low_vs_support_pct')):.3f}\n"
-        f"- day_low_breached_support={bool(f.get('day_low_breached_support'))}\n"
-        f"- raw_day_low_breached_support={bool(f.get('raw_day_low_breached_support'))}\n"
-        f"- left_probe_ready={bool(f.get('left_probe_ready'))}\n"
-        f"- same_day_breakout_reclaimed={bool(f.get('same_day_breakout_reclaimed'))}\n"
-        f"- intraday_high_ret_pct={safe_float(f.get('intraday_high_ret_pct')):.3f}\n"
-        f"- tail_blowoff_reversal={bool(f.get('tail_blowoff_reversal'))}\n"
-        f"- daily_trap_pressure={bool(f.get('daily_trap_pressure'))}\n"
-        f"- daily_close_vs_ma20_pct={safe_float(f.get('daily_close_vs_ma20_pct')):.3f}\n"
-        f"- daily_upper_shadow_pct={safe_float(f.get('daily_upper_shadow_pct')):.3f}\n"
-        f"- daily_volume_ratio={safe_float(f.get('daily_volume_ratio')):.3f}\n"
-        f"- daily_trap_reason={str(f.get('daily_trap_reason') or '-')[:80]}\n"
-        f"- strong_hold_vwap={bool(f.get('strong_hold_vwap'))}, hold_vwap_ratio={safe_float(f.get('hold_vwap_ratio')):.3f}\n"
-        f"- reclaim_vwap={bool(f.get('reclaim_vwap'))}\n"
-        f"- breakout_tail={bool(f.get('breakout_tail'))}\n"
-        f"- drop_from_high_pct={safe_float(f.get('drop_from_high_pct')):.3f}\n"
-        "最近5m摘要:\n"
-        f"{candidate.summary_5m or 'NO_DATA'}\n"
-    )
-    if depth_info:
-        user_prompt += (
-            f"\n[五档] 委比: {depth_info.get('weibi', 0):.1f}% | "
-            f"买盘总量: {depth_info.get('bid_total', 0)}手 | "
-            f"卖盘总量: {depth_info.get('ask_total', 0)}手\n"
-        )
-    user_prompt += '\n请输出严格 JSON：{"decision":"BUY|WATCH|SKIP","reason":"<=80字","risk":"<=40字","confidence":0.0}'
-    return system_prompt, user_prompt
-
-
-def parse_llm_decision(raw_text: str) -> dict[str, Any] | None:
-    text = str(raw_text or "").strip()
-    if not text:
-        return None
-    parsed: dict[str, Any] | None = None
-    try:
-        parsed = json.loads(text)
-    except Exception:
-        logger.debug("Direct JSON parse failed, trying regex extraction", exc_info=True)
-    if parsed is None:
-        match = re.search(r"\{[\s\S]*\}", text)
-        if match:
-            try:
-                parsed = json.loads(match.group(0))
-            except Exception:
-                parsed = None
-    if not isinstance(parsed, dict):
-        return None
-    decision = str(parsed.get("decision", "") or "").strip().upper()
-    if decision not in VALID_DECISIONS:
-        return None
-    reason = str(parsed.get("reason", "") or "").strip()
-    risk = str(parsed.get("risk", "") or "").strip()
-    confidence = parsed.get("confidence")
-    try:
-        conf_value = float(confidence)
-    except Exception:
-        conf_value = None
-    if conf_value is not None:
-        conf_value = max(0.0, min(1.0, conf_value))
-    return {
-        "decision": decision,
-        "reason": reason,
-        "risk": risk,
-        "confidence": conf_value,
-    }
-
-
-def select_llm_overlay_candidates(
-    candidates: list[TailBuyCandidate],
-    *,
-    max_llm_symbols: int,
-    min_rule_score: float = 60.0,
-    allowed_rule_decisions: tuple[str, ...] = (DECISION_BUY, DECISION_WATCH),
-) -> list[TailBuyCandidate]:
-    """
-    在 Python 规则层先收紧 LLM 二判候选：
-    - 仅保留无 fetch_error 的标的
-    - 仅保留规则结论在 allowed_rule_decisions 内的标的
-    - 仅保留 rule_score >= min_rule_score 的标的
-    - 最后按 rule_score 倒序截断到 max_llm_symbols
-    """
-    limit = max(int(max_llm_symbols), 0)
-    if limit <= 0 or not candidates:
-        return []
-
-    allowed = {str(x or "").strip().upper() for x in (allowed_rule_decisions or ()) if str(x or "").strip()}
-    if not allowed:
-        return []
-
-    floor = max(safe_float(min_rule_score, 0.0), 0.0)
-    selected = [
-        item
-        for item in candidates
-        if not item.fetch_error
-        and str(item.rule_decision or "").strip().upper() in allowed
-        and safe_float(item.rule_score, 0.0) >= floor
-    ]
-    selected.sort(key=lambda x: (-x.rule_score, x.code))
-    return selected[:limit]
 
 
 def apply_policy_weight_adjustments(

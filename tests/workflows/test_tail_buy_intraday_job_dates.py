@@ -119,10 +119,38 @@ def test_load_tail_candidates_adds_recommendation_review_supplement(monkeypatch)
         tail_buy_candidates,
         "_fetch_recommendation_review_rows",
         lambda *_args, **_kwargs: [
-            {"code": "000001", "name": "平安银行", "recommend_date": 20260610, "change_pct": -35, "current_price": 10},
-            {"code": "000002", "name": "万科A", "recommend_date": 20260610, "change_pct": -32, "current_price": 8},
-            {"code": "000003", "name": "强势股", "recommend_date": 20260610, "change_pct": 45, "current_price": 20},
-            {"code": "000004", "name": "普通股", "recommend_date": 20260610, "change_pct": 5, "current_price": 10},
+            {
+                "code": "000001",
+                "name": "平安银行",
+                "recommend_date": 20260610,
+                "change_pct": -35,
+                "current_price": 10,
+                "initial_price": 15,
+            },
+            {
+                "code": "000002",
+                "name": "万科A",
+                "recommend_date": 20260610,
+                "change_pct": -32,
+                "current_price": 8,
+                "initial_price": 12,
+            },
+            {
+                "code": "000003",
+                "name": "强势股",
+                "recommend_date": 20260610,
+                "change_pct": 45,
+                "current_price": 20,
+                "initial_price": 14,
+            },
+            {
+                "code": "000004",
+                "name": "普通股",
+                "recommend_date": 20260610,
+                "change_pct": 5,
+                "current_price": 10,
+                "initial_price": 9.5,
+            },
         ],
     )
 
@@ -137,7 +165,9 @@ def test_load_tail_candidates_adds_recommendation_review_supplement(monkeypatch)
     assert set(by_code) == {"000001", "000002", "000003"}
     assert by_code["000002"].signal_type == "rec_deep_pullback"
     assert by_code["000003"].signal_type == "rec_momentum_continuation"
-    assert by_code["000002"].snap["snap_support"] == 8.0
+    # 支撑位应锚定推荐入选价（initial_price），而非会随行情浮动的 current_price，
+    # 否则"跌破支撑"硬否决永远无法触发。
+    assert by_code["000002"].snap["snap_support"] == 12.0
     assert "rec_review=2" in source
 
 
