@@ -210,16 +210,80 @@ def test_apply_intraday_repair_mode_only_overrides_weak_candidates() -> None:
     assert neutral.market_regime == "NEUTRAL"
 
 
-def test_apply_base_market_regime_fills_missing_candidate_state() -> None:
+def test_apply_base_market_regime_overwrites_with_current_day_regime() -> None:
     missing = _candidate("000001")
     existing = _candidate("000002")
     existing.market_regime = "NEUTRAL"
 
-    changed = apply_base_market_regime([missing, existing], "UNKNOWN/NORMAL | 禁止新开仓")
+    changed = apply_base_market_regime([missing, existing], benchmark="CRASH", premarket="NORMAL")
 
-    assert changed == 1
-    assert missing.market_regime == "UNKNOWN"
-    assert existing.market_regime == "NEUTRAL"
+    assert changed == 2
+    assert missing.market_regime == "CRASH"
+    assert existing.market_regime == "CRASH"
+
+
+class TestApplyMarketBlockTiered:
+    """_apply_market_block 分层拦截：硬防守全拦，CRASH/RISK_ON 按信号类型放行。"""
+
+    def _config(self):
+        return SimpleNamespace(logs_path="")
+
+    def _candidate(self, code: str, signal_type: str = "sos"):
+        return TailBuyCandidate(
+            code=code,
+            name=code,
+            signal_date="2026-06-22",
+            status="confirmed",
+            signal_type=signal_type,
+            signal_score=70.0,
+            final_decision="BUY",
+        )
+
+    def test_hard_block_regime_blocks_all(self, monkeypatch):
+        monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
+        candidates = [
+            self._candidate("000001", "evr"),
+            self._candidate("000002", "sos"),
+        ]
+        regime_info = {"benchmark": "PANIC_REPAIR", "premarket": "RISK_OFF"}
+        job._apply_market_block(candidates, regime_info, self._config())
+        assert all(c.final_decision == "SKIP" for c in candidates)
+
+    def test_crash_allows_evr_blocks_sos(self, monkeypatch):
+        monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
+        evr = self._candidate("000001", "evr")
+        sos = self._candidate("000002", "sos")
+        regime_info = {"benchmark": "CRASH", "premarket": "NORMAL"}
+        job._apply_market_block([evr, sos], regime_info, self._config())
+        assert evr.final_decision != "SKIP"
+        assert sos.final_decision == "SKIP"
+        assert "CRASH" in sos.rule_reasons[0]
+
+    def test_neutral_allows_all(self, monkeypatch):
+        monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
+        candidates = [
+            self._candidate("000001", "evr"),
+            self._candidate("000002", "sos"),
+        ]
+        regime_info = {"benchmark": "NEUTRAL", "premarket": "NORMAL"}
+        job._apply_market_block(candidates, regime_info, self._config())
+        assert all(c.final_decision != "SKIP" for c in candidates)
+
+    def test_holding_never_blocked(self, monkeypatch):
+        monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
+        holding = self._candidate("000001", "holding")
+        regime_info = {"benchmark": "BLACK_SWAN", "premarket": "RISK_OFF"}
+        job._apply_market_block([holding], regime_info, self._config())
+        assert holding.final_decision != "SKIP"
+
+    def test_conflict_bm_tiered_pm_hard_block_uses_more_defensive(self, monkeypatch):
+        """benchmark=RISK_ON(分层) + premarket=PANIC_REPAIR(硬阻塞) → 应取 PANIC_REPAIR 硬拦截。"""
+        monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
+        launchpad = self._candidate("000001", "launchpad")
+        regime_info = {"benchmark": "RISK_ON", "premarket": "PANIC_REPAIR"}
+        job._apply_market_block([launchpad], regime_info, self._config())
+        assert launchpad.final_decision == "SKIP"
+        assert "PANIC_REPAIR" in launchpad.rule_reasons[0]
 
 
 def test_auto_run_plan_uses_intraday_before_close(monkeypatch) -> None:

@@ -78,10 +78,19 @@ def _item_line(item: TailBuyCandidate) -> str:
         explicit_role=item.candidate_role,
     )
     semantic_text = f" | {' / '.join(semantic)}" if semantic else ""
+    support_text = _item_support_text(item)
     return (
         f"- {add_tag}{item.code} {item.name} | priority={item.priority_score:.1f} | "
-        f"rule={item.rule_decision}({item.rule_score:.1f}){llm_tag}{semantic_text} | {reasons}{llm_reason}"
+        f"rule={item.rule_decision}({item.rule_score:.1f}){llm_tag}{semantic_text}{support_text} | {reasons}{llm_reason}"
     )
+
+
+def _item_support_text(item: TailBuyCandidate) -> str:
+    support = _float_feature(item.features.get("support_level"))
+    if support <= 0:
+        return ""
+    dist_pct = _float_feature(item.features.get("close_vs_support_pct"))
+    return f" | 支撑参考={support:.2f}(现价距支撑{dist_pct:+.1f}%)"
 
 
 def _item_reason_text(item: TailBuyCandidate) -> str:

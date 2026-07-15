@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import Any
 
 from core.tail_buy.decision_semantics import tail_buy_execution_semantics
 from core.tail_buy.reporting import build_tail_buy_markdown
@@ -16,7 +17,13 @@ from workflows.tail_buy_utils import log_line, now_text, safe_float
 
 
 def resolve_market_reminder(today_trade_date: str) -> str:
-    from core.tail_buy.guardrails import TAIL_BLOCK_NEW_BUY_REGIMES
+    regime_info = resolve_market_regime_info(today_trade_date)
+    return regime_info["reminder"]
+
+
+def resolve_market_regime_info(today_trade_date: str) -> dict[str, Any]:
+    """返回市场风控信息，包含 blocked 硬拦截标志。"""
+    from core.tail_buy.guardrails import HARD_BLOCK_REGIMES
 
     row = load_market_signal_daily(today_trade_date)
     stale = False
@@ -24,18 +31,32 @@ def resolve_market_reminder(today_trade_date: str) -> str:
         row = load_latest_market_signal_daily()
         stale = bool(row)
     if not row:
-        return "market_signal_daily 暂无可用记录（闸门未知，仍按候选 regime 拦截）"
+        return {
+            "reminder": "market_signal_daily 暂无可用记录（闸门未知，仍按候选 regime 拦截）",
+            "benchmark": "UNKNOWN",
+            "premarket": "UNKNOWN",
+            "blocked": True,
+            "stale": True,
+        }
     benchmark = str(row.get("benchmark_regime", "UNKNOWN") or "UNKNOWN").strip().upper()
     if stale:
         benchmark = "UNKNOWN"
     premarket = str(row.get("premarket_regime", "UNKNOWN") or "UNKNOWN").strip().upper()
     message = str(row.get("banner_message", "") or "").strip()
-    blocked = benchmark in TAIL_BLOCK_NEW_BUY_REGIMES or premarket in TAIL_BLOCK_NEW_BUY_REGIMES
+    blocked = benchmark in HARD_BLOCK_REGIMES or premarket in HARD_BLOCK_REGIMES
     gate = "禁止新开仓（尾盘不买新票）" if blocked else "允许新开仓（仍需 confirmed + BUY）"
     stale_text = f" | STALE: 仅找到 {row.get('trade_date') or '-'} 市场信号" if stale else ""
     if message:
-        return f"{benchmark}/{premarket} | {gate}{stale_text} | {message.replace(chr(10), ' ')}"
-    return f"{benchmark}/{premarket} | {gate}{stale_text}"
+        reminder = f"{benchmark}/{premarket} | {gate}{stale_text} | {message.replace(chr(10), ' ')}"
+    else:
+        reminder = f"{benchmark}/{premarket} | {gate}{stale_text}"
+    return {
+        "reminder": reminder,
+        "benchmark": benchmark,
+        "premarket": premarket,
+        "blocked": blocked,
+        "stale": stale,
+    }
 
 
 def notify_tail_buy_non_trading_day(config: TailBuyRuntimeConfig) -> int:

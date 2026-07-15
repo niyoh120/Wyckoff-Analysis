@@ -40,6 +40,8 @@ type TailBuySortKey =
   | 'entryPrice'
   | 'currentPrice'
   | 'changePct'
+  | 'support'
+  | 'distSupport'
   | 'vwap'
   | 'distVwap'
   | 'last30Ret'
@@ -80,6 +82,16 @@ function resolveCurrentPrice(record: TailBuyRecord): number | undefined {
   return record.current_price && record.current_price > 0 ? record.current_price : resolveEntryPrice(record)
 }
 
+function resolveSupportLevel(features: Record<string, unknown>): number | undefined {
+  const raw = features.support_level
+  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : undefined
+}
+
+function resolveDistSupportPct(features: Record<string, unknown>): number | undefined {
+  const raw = features.close_vs_support_pct
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined
+}
+
 function parseFeatures(raw: unknown): Record<string, unknown> {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>
   if (typeof raw !== 'string' || raw.trim() === '') return {}
@@ -105,6 +117,8 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
   const changePct = resolveChangePct(entryPrice, currentPrice, record.change_pct)
   const changeClass = financialValueClass(changePct)
   const features = parseFeatures(record.features_json)
+  const supportLevel = resolveSupportLevel(features)
+  const distSupportPct = resolveDistSupportPct(features)
   const execution = tailBuyExecutionSemantics({
     finalDecision: record.final_decision,
     signalType: record.signal_type,
@@ -130,6 +144,8 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
       <td className="px-3 py-2 text-right">{fmtNumber(entryPrice)}</td>
       <td className="px-3 py-2 text-right">{fmtNumber(currentPrice)}</td>
       <td className={`px-3 py-2 text-right ${changeClass}`}>{fmtPercent(changePct)}</td>
+      <td className="px-3 py-2 text-right">{fmtNumber(supportLevel)}</td>
+      <td className="px-3 py-2 text-right">{fmtPercent(distSupportPct)}</td>
       <td className="px-3 py-2 text-right">{fmtNumber(record.vwap)}</td>
       <td className="px-3 py-2 text-right">{fmtPercent(record.dist_vwap_pct)}</td>
       <td className="px-3 py-2 text-right">{fmtPercent(record.last30_ret_pct)}</td>
@@ -257,6 +273,8 @@ function TailBuyTableHead({
         <SortableHeader align="right" active={sortBy === 'entryPrice'} label="入库价" order={sortOrder} onClick={() => onSortChange('entryPrice')} />
         <SortableHeader align="right" active={sortBy === 'currentPrice'} label="现价" order={sortOrder} onClick={() => onSortChange('currentPrice')} />
         <SortableHeader align="right" active={sortBy === 'changePct'} label="涨跌" order={sortOrder} onClick={() => onSortChange('changePct')} />
+        <SortableHeader align="right" active={sortBy === 'support'} label="支撑参考" order={sortOrder} onClick={() => onSortChange('support')} />
+        <SortableHeader align="right" active={sortBy === 'distSupport'} label="距支撑" order={sortOrder} onClick={() => onSortChange('distSupport')} />
         <SortableHeader align="right" active={sortBy === 'vwap'} label="VWAP" order={sortOrder} onClick={() => onSortChange('vwap')} />
         <SortableHeader align="right" active={sortBy === 'distVwap'} label="距VWAP" order={sortOrder} onClick={() => onSortChange('distVwap')} />
         <SortableHeader align="right" active={sortBy === 'last30Ret'} label="30m" order={sortOrder} onClick={() => onSortChange('last30Ret')} />
@@ -288,6 +306,8 @@ function sortValue(record: TailBuyRecord, sortBy: TailBuySortKey): string | numb
     case 'entryPrice': return resolveEntryPrice(record)
     case 'currentPrice': return resolveCurrentPrice(record)
     case 'changePct': return resolveChangePct(resolveEntryPrice(record), resolveCurrentPrice(record), record.change_pct)
+    case 'support': return resolveSupportLevel(parseFeatures(record.features_json))
+    case 'distSupport': return resolveDistSupportPct(parseFeatures(record.features_json))
     case 'vwap': return record.vwap
     case 'distVwap': return record.dist_vwap_pct
     case 'last30Ret': return record.last30_ret_pct

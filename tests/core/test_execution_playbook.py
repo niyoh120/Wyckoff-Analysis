@@ -44,9 +44,11 @@ def test_tail_guardrail_blocks_risk_on_new_buys() -> None:
     from core.tail_buy.guardrails import tail_entry_veto_reasons
 
     reasons = tail_entry_veto_reasons({"support_level": 10.0}, "mainline", "RISK_ON")
-    assert any("禁止新开仓" in r for r in reasons)
+    assert any("尾盘不买" in r for r in reasons)
+    launchpad = tail_entry_veto_reasons({"support_level": 10.0}, "launchpad", "RISK_ON")
+    assert not any("尾盘不买" in r for r in launchpad)
     holding = tail_entry_veto_reasons({"support_level": 10.0}, "holding", "RISK_ON")
-    assert not any("禁止新开仓" in r for r in holding)
+    assert not any("尾盘不买" in r for r in holding)
 
 
 def test_hold_trade_days_uses_trading_calendar_not_weekends() -> None:

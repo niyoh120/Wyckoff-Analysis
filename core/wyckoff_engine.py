@@ -163,15 +163,18 @@ class FunnelConfig:
     # 不依赖 RPS 强势排名，专门捕捉"已止跌横盘蓄势"的 Phase A/B/C 股票。
     # 触发条件：低位区间 + 横盘振幅小 + 量能萎缩 + 均线胶着（尚未多头排列）。
     # 这类股票应与 L4 Spring/LPS 配合使用，单独出现时仅进观察池。
+    # 四个子条件原为严格 and 串联（0.35/30%/0.65/6%），实盘统计显示长期 0 命中，
+    # 结构判定权重下放给 L4 Spring/LPS 承接；此处小幅放宽而非删除通道，
+    # 保留"低位横盘"这一独立于 RPS 排名的入口。
     enable_accumulation_channel: bool = True
     accum_lookback_days: int = 250  # 年内低点计算窗口（交易日）
-    accum_price_from_low_max: float = 0.35  # 现价不超过年内低点 +35%
+    accum_price_from_low_max: float = 0.45  # 现价不超过年内低点 +45%
     accum_range_window: int = 60  # 横盘振幅计算窗口（交易日）
-    accum_range_max_pct: float = 30.0  # 窗口内 (high_max-low_min)/low_min 不超过 30%
+    accum_range_max_pct: float = 40.0  # 窗口内 (high_max-low_min)/low_min 不超过 40%
     accum_vol_dry_window: int = 20  # 量能萎缩统计近 N 日
     accum_vol_dry_ref_window: int = 120  # 量能萎缩对比参考窗口
-    accum_vol_dry_ratio: float = 0.65  # 近 N 日均量 / 参考均量 < 此值（量能萎缩）
-    accum_ma_gap_max: float = 0.06  # |MA50 - MA200| / MA200 < 此值（均线胶着）
+    accum_vol_dry_ratio: float = 0.75  # 近 N 日均量 / 参考均量 < 此值（量能萎缩）
+    accum_ma_gap_max: float = 0.08  # |MA50 - MA200| / MA200 < 此值（均线胶着）
 
     # Layer 2 地量蓄势通道（Dry Volume Channel）
     # 低位区间内，近期某日出现了年内最低级别的单日成交量，说明卖压完全枯竭。

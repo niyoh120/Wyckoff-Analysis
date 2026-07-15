@@ -1,9 +1,10 @@
 name: Premarket Risk
 
 on:
-  schedule:
-    # 北京时间 08:20（UTC+8）= UTC 00:20 同日；盘前风控，给 09:30 开盘留足缓冲
-    - cron: "20 0 * * 1-5"
+  # 定时 schedule 已停用：GitHub Actions 免费额度下 schedule 触发实测常延迟 3~5 小时
+  # （曾配置 UTC 00:20/北京 08:20，实际多在北京 11:36~13:35 才开始跑），完全错过开盘前窗口。
+  # 现改为纯手动触发，建议在北京时间 08:00~09:00 之间手动运行
+  # （此时 VIX 已随美股收盘稳定超过 1 小时以上，且给 09:30 开盘留出缓冲）。
   workflow_dispatch:
 
 concurrency:

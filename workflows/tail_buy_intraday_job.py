@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import time
 
-from core.tail_buy.models import DECISION_WATCH
+from core.tail_buy.models import DECISION_SKIP, DECISION_WATCH
 from core.tail_buy.strategy import TailBuyCandidate, apply_policy_weight_adjustments, merge_rule_and_llm
 from integrations.tickflow_client import TickFlowClient
 from integrations.tickflow_notice import TICKFLOW_UPGRADE_URL
@@ -19,7 +19,7 @@ from workflows.tail_buy_candidates import (
 from workflows.tail_buy_delivery import (
     notify_tail_buy_non_trading_day,
     persist_tail_buy_results,
-    resolve_market_reminder,
+    resolve_market_regime_info,
     send_tail_buy_report,
     send_tail_buy_skip_notice,
 )
@@ -251,6 +251,41 @@ def run_tail_buy_candidate_flow(
     )
 
 
+def _apply_market_block(
+    candidates: list[TailBuyCandidate],
+    regime_info: dict,
+    config: TailBuyRuntimeConfig,
+) -> None:
+    """市场风控分层拦截：硬防守 regime 全拦，分层 regime 按信号类型放行。"""
+    from core.tail_buy.guardrails import HARD_BLOCK_REGIMES, TIERED_ALLOW_SIGNALS
+    from workflows.tail_buy_market_repair import more_defensive_regime
+
+    bm = regime_info.get("benchmark", "UNKNOWN")
+    pm = regime_info.get("premarket", "UNKNOWN")
+    regime = more_defensive_regime(bm, pm) if bm and pm else (bm or pm or "UNKNOWN")
+    hard_block = regime in HARD_BLOCK_REGIMES
+    allowed = TIERED_ALLOW_SIGNALS.get(regime)
+    blocked_count = 0
+    for item in candidates:
+        if str(item.signal_type or "").strip().lower() == "holding":
+            continue
+        if hard_block or (allowed is not None and str(item.signal_type or "").strip().lower() not in allowed):
+            item.final_decision = DECISION_SKIP
+            item.rule_decision = DECISION_SKIP
+            if hard_block:
+                item.rule_reasons = [f"市场风控硬拦截({regime})，禁止新开仓"]
+            else:
+                item.rule_reasons = [f"{regime}仅放行{','.join(sorted(allowed))}，{item.signal_type}不买"]
+            item.fetch_error = "market_blocked"
+            blocked_count += 1
+    if blocked_count:
+        log_line(
+            f"市场风控分层拦截: regime={regime}, hard_block={hard_block}, "
+            f"allowed={sorted(allowed) if allowed else 'all'}, 跳过 {blocked_count} 个候选",
+            config.logs_path,
+        )
+
+
 def _prefilter_unconfirmed(
     candidates: list[TailBuyCandidate],
     config: TailBuyRuntimeConfig,
@@ -291,8 +326,13 @@ def _run_tail_buy_trading_day(request: TailBuyJobRequest, config: TailBuyRuntime
         return 1
     pending_candidates, candidate_source_desc = inputs
     tickflow_client = TickFlowClient(api_key=config.tickflow_api_key, max_retries=config.tickflow_task_retries)
-    market_reminder = resolve_market_reminder(plan.today_trade_date)
-    apply_base_market_regime(pending_candidates, market_reminder)
+    market_regime_info = resolve_market_regime_info(plan.today_trade_date)
+    market_reminder = market_regime_info["reminder"]
+    apply_base_market_regime(
+        pending_candidates,
+        benchmark=market_regime_info["benchmark"],
+        premarket=market_regime_info["premarket"],
+    )
     market_mode, market_mode_reason = resolve_intraday_market_mode(
         tickflow_client,
         market_reminder=market_reminder,
@@ -300,6 +340,8 @@ def _run_tail_buy_trading_day(request: TailBuyJobRequest, config: TailBuyRuntime
     )
     apply_intraday_market_mode(pending_candidates, mode=market_mode, logs_path=config.logs_path)
     market_reminder = append_intraday_market_reminder(market_reminder, market_mode, market_mode_reason)
+    if market_regime_info["blocked"]:
+        _apply_market_block(pending_candidates, market_regime_info, config)
     holdings_section = build_tail_buy_holdings_section(
         tickflow_client=tickflow_client,
         pending_candidates=pending_candidates,

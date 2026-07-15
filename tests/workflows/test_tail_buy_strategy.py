@@ -664,7 +664,8 @@ def test_crash_candidate_without_support_reclaim_stays_blocked():
     assert out.market_regime == "CRASH"
     assert out.features.get("left_probe_ready") is None
     assert out.rule_decision == DECISION_SKIP
-    assert "CRASH禁止新开仓" in "；".join(out.rule_reasons)
+    assert "CRASH" in "；".join(out.rule_reasons)
+    assert "lps" in "；".join(out.rule_reasons)
 
 
 def test_same_day_sos_reclaim_is_not_treated_as_breaking_established_support():

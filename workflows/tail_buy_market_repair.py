@@ -15,12 +15,44 @@ _INDEX_SYMBOLS = ("000001.SH", "399006.SZ")
 _WEAK_REGIME_TOKENS = ("CRASH", "RISK_OFF", "PANIC_REPAIR", "BEAR_REBOUND", "BLACK_SWAN")
 
 
-def apply_base_market_regime(candidates: list[TailBuyCandidate], market_reminder: str) -> int:
-    prefix = str(market_reminder or "").split("/", 1)[0].strip().upper()
-    regime = prefix if prefix else "UNKNOWN"
+_REGIME_PRIORITY = {
+    "BLACK_SWAN": 0,
+    "CRASH": 1,
+    "CRASH_INTRADAY": 2,
+    "RISK_OFF": 3,
+    "PANIC_REPAIR_CONFIRMED": 4,
+    "PANIC_REPAIR_INTRADAY": 5,
+    "PANIC_REPAIR": 6,
+    "BEAR_REBOUND": 7,
+    "CRASH_LEFT_PROBE": 8,
+    "RISK_ON": 9,
+    "NEUTRAL": 10,
+    "CAUTION": 11,
+    "NORMAL": 12,
+    "UNKNOWN": 13,
+}
+
+
+def more_defensive_regime(a: str, b: str) -> str:
+    pa = _REGIME_PRIORITY.get(str(a or "").strip().upper(), 99)
+    pb = _REGIME_PRIORITY.get(str(b or "").strip().upper(), 99)
+    return a if pa <= pb else b
+
+
+def apply_base_market_regime(
+    candidates: list[TailBuyCandidate],
+    *,
+    benchmark: str = "",
+    premarket: str = "",
+) -> int:
+    regime = (
+        more_defensive_regime(benchmark, premarket)
+        if benchmark and premarket
+        else (benchmark or premarket or "UNKNOWN")
+    )
     changed = 0
     for item in candidates:
-        if not str(item.market_regime or "").strip():
+        if str(item.market_regime or "").strip().upper() != regime:
             item.market_regime = regime
             changed += 1
     return changed
