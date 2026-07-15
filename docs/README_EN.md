@@ -80,7 +80,7 @@ Modern React SPA with AI Agent chat, portfolio management, funnel screening, rec
 | AI Three-Camp Report | Logic Bankrupt / Reserve Camp / Springboard — LLM renders an independent verdict |
 | Portfolio Diagnosis | Batch health check: MA structure, accumulation phase, trigger signals, stop-loss status |
 | Private Rebalance | EXIT / TRIM / HOLD / PROBE / ATTACK; ~5-day swing time management; ~-12% disaster floor |
-| Tail-Buy Strategy | Confirmed-only BUY; regime blocks for RISK_ON/weak markets; holding time management |
+| Tail-Buy Strategy | Runs at 14:40 on trading weekdays with manual fallback; confirmed-only BUY, regime blocks, and holding time management |
 | Signal Confirmation Pool | L4 trigger signals must pass 1-3 day price confirmation before becoming actionable |
 | Wyckoff Pattern Replay | Historical picks auto-sync closing prices and compute cumulative returns |
 | Daily-Bar Backtest | Replays post-funnel N-day returns; reports win rate / Sharpe / max drawdown |
@@ -233,14 +233,14 @@ NEUTRAL is the main battleground (mainline-first quotas); **RISK_ON blocks new b
 
 ## Daily Automation
 
-Built-in GitHub Actions cron jobs:
+Daily automations (GitHub Actions plus Codex Automation):
 
 | Task | Schedule (Beijing Time) | Description |
 |---|---|---|
 | Funnel + AI Report + Rebalance | Sun–Thu 17:17 | Fully automated; results pushed to Feishu / Telegram |
-| Tail-Buy Strategy | Manual / external automation | Confirmed-only BUY; RISK_ON/weak regimes block new entries; holding time management |
-| Pre-Market Risk | Mon–Fri 08:20 | A50 + VIX alert |
-| Limit-Up Review | Mon–Fri 19:25 | Review stocks that rose >= 8% today |
+| Tail-Buy Strategy | Mon–Fri 14:40 / manual fallback | Confirmed-only BUY; RISK_ON/weak regimes block new entries; holding time management |
+| Pre-Market Risk | Mon–Fri 08:20 | Codex Automation dispatches the GitHub workflow; A50 + VIX alert |
+| Strong-Move Review | Mon–Fri 19:25 | Review stocks with today's close return > 7% and previous-session close return < 3% |
 | Recommendation Reprice | Mon–Fri 23:00 | Sync closing prices |
 | Backtest Grid | 1st & 15th monthly 04:00 | 8 focused parameter combos → aggregated report |
 | DB Maintenance | Tue–Sat 06:20 | Purge stale quotes, orders, signals, market signals, and other rolling-window data |

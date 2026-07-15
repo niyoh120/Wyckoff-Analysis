@@ -60,7 +60,7 @@ def run_review_list_replay(webhook: str, log=print) -> int:
     if not webhook:
         log("[review] FEISHU_WEBHOOK_URL 未配置")
         return 2
-    log("[review] 获取今日≥+8%且今日开盘≤+4%且前一日≤+6% 股票...")
+    log("[review] 获取当日收盘涨幅>+7%且前一交易日收盘涨幅<+3%股票...")
     dates = resolve_review_dates()
     log(f"[review] 今日: {dates.today}, 前一交易日: {dates.previous_trade_date}")
     name_map_today, all_codes = load_today_pool()
@@ -404,15 +404,15 @@ def send_replay_report(
         end_trade_date=end_trade_date,
         stats=stats,
     )
-    return send_feishu_notification(webhook, "🔍 涨停复盘：今日涨停为何未在前一日漏斗捕获", "\n".join(lines))
+    return send_feishu_notification(webhook, "🔍 强势股复盘：今日异动为何未在前一日漏斗捕获", "\n".join(lines))
 
 
 def _run_review_for_codes(webhook: str, review_codes: list[str], dates: ReviewDates, log) -> int:
     if not review_codes:
-        log("[review] 今日无满足涨幅 ≥ 8% 且开盘 ≤ 4% 且前一日涨幅 ≤ 6% 的股票，跳过")
+        log("[review] 今日无满足收盘涨幅 > 7% 且前一交易日收盘涨幅 < 3% 的股票，跳过")
         send_empty_review(webhook, dates.today)
         return 0
-    log(f"[review] 今日发现满足严格涨停复盘池股票 {len(review_codes)} 只: {', '.join(review_codes)}")
+    log(f"[review] 今日发现满足强势复盘池股票 {len(review_codes)} 只: {', '.join(review_codes)}")
     triggers, metrics = run_previous_funnel(dates.previous_trade_date, log=log)
     ctx = replay_context(triggers, metrics, log=log)
     if ctx is None:
@@ -426,8 +426,8 @@ def _run_review_for_codes(webhook: str, review_codes: list[str], dates: ReviewDa
 def send_empty_review(webhook: str, today: date) -> None:
     send_feishu_notification(
         webhook,
-        "🔍 涨停复盘",
-        f"交易日 {today}：今日无满足涨幅 ≥ 8% 且开盘 ≤ 4% 且前一日涨幅 ≤ 6% 的全市场股票",
+        "🔍 强势股复盘",
+        f"交易日 {today}：今日无满足收盘涨幅 > 7% 且前一交易日收盘涨幅 < 3% 的全市场股票",
     )
 
 

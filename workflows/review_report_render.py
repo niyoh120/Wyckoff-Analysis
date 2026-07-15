@@ -1,4 +1,4 @@
-"""Markdown report rendering for limit-up replay reviews."""
+"""Markdown report rendering for strong-move replay reviews."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def build_report_lines(
     lines = [
         f"**今日**: {today}",
         f"**前一日漏斗**: {end_trade_date}",
-        f"**今日≥+8%且今日开盘≤+4%且前一日≤+6%股票数**: {len(rows)}",
+        f"**今日收盘涨幅>+7%且前一交易日收盘涨幅<+3%股票数**: {len(rows)}",
     ]
     if stats:
         stats_line = (

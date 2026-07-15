@@ -15,7 +15,7 @@ from core.funnel_taxonomy import (
     REVIEW_STAGE_TRIGGER_MISS,
 )
 from core.wyckoff_engine import FunnelConfig
-from workflows.review_big_gainers import find_big_gainers, load_today_review_codes
+from workflows.review_big_gainers import find_big_gainers, find_big_gainers_from_spot, load_today_review_codes
 from workflows.review_list_replay import (
     ReplayContext,
     build_candidate_entry_map,
@@ -124,7 +124,7 @@ def test_find_big_gainers_derives_pct_from_close():
     df = pd.DataFrame(
         {
             "date": ["2026-05-11", "2026-05-12", "2026-05-13"],
-            "close": [10.0, 10.5, 11.4],
+            "close": [10.0, 10.2, 11.0],
             "pct_chg": [0.0, 0.0, 0.0],
         }
     )
@@ -135,7 +135,7 @@ def test_find_big_gainers_derives_pct_from_close():
 
 
 def test_find_big_gainers_falls_back_to_pct_chg():
-    df = pd.DataFrame({"date": ["2026-05-12", "2026-05-13"], "close": [10.0, 10.9], "pct_chg": [5.9, 8.2]})
+    df = pd.DataFrame({"date": ["2026-05-12", "2026-05-13"], "close": [10.0, 10.8], "pct_chg": [2.9, 7.2]})
 
     codes = find_big_gainers({"000001": df}, {"000001": "平安银行"})
 
@@ -154,6 +154,47 @@ def test_find_big_gainers_excludes_hot_previous_day():
     codes = find_big_gainers({"000001": df}, {"000001": "平安银行"})
 
     assert codes == []
+
+
+def test_find_big_gainers_uses_strict_close_boundaries() -> None:
+    exactly_seven_today = pd.DataFrame(
+        {"date": ["2026-05-11", "2026-05-12", "2026-05-13"], "close": [10.0, 10.2, 10.914]}
+    )
+    exactly_three_previous = pd.DataFrame(
+        {"date": ["2026-05-11", "2026-05-12", "2026-05-13"], "close": [10.0, 10.3, 11.1]}
+    )
+
+    codes = find_big_gainers(
+        {"000001": exactly_seven_today, "000002": exactly_three_previous},
+        {"000001": "平安银行", "000002": "万科A"},
+    )
+
+    assert codes == []
+
+
+def test_find_big_gainers_does_not_filter_gap_up_open() -> None:
+    frame = pd.DataFrame(
+        {
+            "date": ["2026-05-11", "2026-05-12", "2026-05-13"],
+            "open": [10.0, 10.1, 11.0],
+            "close": [10.0, 10.2, 11.1],
+        }
+    )
+
+    assert find_big_gainers({"000001": frame}, {"000001": "平安银行"}) == ["000001"]
+
+
+def test_spot_prefilter_uses_strict_today_close_threshold() -> None:
+    codes, usable = find_big_gainers_from_spot(
+        {
+            "000001": {"pct_chg": 7.0, "open": 10.8, "close": 10.7},
+            "000002": {"pct_chg": 7.01, "open": 11.0, "close": 10.8},
+        },
+        {"000001": "平安银行", "000002": "万科A"},
+    )
+
+    assert usable == 2
+    assert codes == ["000002"]
 
 
 def test_load_today_review_codes_falls_back_when_spot_candidates_empty(monkeypatch):

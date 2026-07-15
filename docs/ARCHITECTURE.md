@@ -643,7 +643,7 @@ flowchart LR
 
 `core/tail_buy/` + `workflows/tail_buy_config.py` + `scripts/tail_buy_intraday_job.py`
 
-策略设计用于尾盘执行，从已确认候选中筛选买入标的；GitHub Actions 在交易日 14:40 定时运行，同时保留 `workflow_dispatch`。pending 默认不可买，只有满足支撑收回、高收承接和左侧来源约束的 `CRASH_LEFT_PROBE` 可例外输出2%试探仓。
+策略设计用于尾盘执行，从已确认候选中筛选买入标的；GitHub Actions 在交易日 14:40 定时运行，同时保留 `workflow_dispatch`。pending 默认不可买，只有满足支撑收回、高收承接和左侧来源约束的 `CRASH_LEFT_PROBE` 可例外输出2%试探仓。benchmark 与 premarket 必须分别通过市场门控：任一硬拦截状态都禁止新开仓，分层允许信号取交集，缺失状态按 `UNKNOWN` fail-closed。
 
 ### 两阶段评估
 
@@ -683,11 +683,11 @@ signal_pending (pending/confirmed)
 | 工作流 | 时间（北京） | 说明 |
 |-------|-------------|------|
 | **CI** (`ci.yml`) | push/PR | pytest + compile + dry-run |
-| **盘前风控** (`premarket_risk.yml`) | 周一-周五 08:20 | A50 + VIX 预警 |
+| **盘前风控** (`premarket_risk.yml`) | 周一-周五 08:20 | Codex Automation 调用 `workflow_dispatch`；A50 + VIX 预警，Actions 可手动补跑 |
 | **港股漏斗筛选** (`wyckoff_funnel_hk.yml`) | 周一-周五 16:35 | `market_funnel_job.py --market hk` |
 | **A 股漏斗筛选 + AI 研报 + 决策** (`wyckoff_funnel.yml`) | 周日-周四 17:17 | `daily_job.py` Step2→3→4；周日正常为周一实盘准备候选，若次日非 A 股交易日才跳过，日频写入 `theme_radar_snapshot` |
 | **板块连续性报告** (`sector_continuity.yml`) | 周一-周五 16:10 | 刷新概念热度历史，辅助主线引擎判断延续性 |
-| **涨停复盘** (`review_list_replay.yml`) | 周一-周五 19:25 | 当日涨幅 ≥ 8% 回溯 |
+| **强势股复盘** (`review_list_replay.yml`) | 周一-周五 19:25 | 当日收盘涨幅 > 7% 且前一交易日收盘涨幅 < 3% 回溯 |
 | **主线雷达周报** (`theme_radar.yml`) | 周五 21:10 | `theme_radar_job.py --with-news`，周频新闻增强复盘 |
 | **形态复盘重定价** (`recommendation_tracking_reprice.yml`) | 周一-周五 23:00 | 同步收盘价、计算收益 |
 | **信号反馈闭环** (`signal_feedback.yml`) | 周一-周五 23:30 | `signal_feedback_job.py` 刷新 outcomes / health / registry |

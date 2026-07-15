@@ -79,7 +79,7 @@ SPA moderna con chat de AI Agent, gestion de cartera, screener de embudo, seguim
 | Reporte IA de 3 campamentos | Logica rota / Reserva / Plataforma de despegue — el LLM clasifica de forma independiente |
 | Diagnostico de cartera | Escaneo masivo: estructura de medias moviles, fase de acumulacion, senales de activacion, estado de stop-loss |
 | Rebalanceo privado | Combina posiciones + candidatas y emite ordenes EXIT / TRIM / HOLD / PROBE / ATTACK, con push a Telegram |
-| Estrategia de compra al cierre | Se activa manualmente o por automatizacion externa cerca del cierre; evaluacion en dos etapas (puntuacion por reglas + revision LLM) |
+| Estrategia de compra al cierre | Se ejecuta a las 14:40 en dias bursatiles y admite ejecucion manual; puntuacion por reglas + revision LLM |
 | Confirmacion de senales | Las senales L4 pasan por 1-3 dias de confirmacion de precio antes de ser accionables |
 | Seguimiento de recomendaciones | Sincroniza automaticamente el precio de cierre y calcula el rendimiento acumulado |
 | Backtesting | Simula rendimiento a N dias tras el filtrado del embudo: tasa de aciertos, Sharpe, drawdown maximo |
@@ -232,14 +232,14 @@ El orden y la frecuencia de las llamadas los decide el LLM en tiempo real, sin o
 
 ## Automatizacion diaria
 
-Tareas programadas con GitHub Actions integradas en el repositorio:
+Automatizaciones diarias con GitHub Actions y Codex Automation:
 
 | Tarea | Hora (Beijing) | Descripcion |
 |-------|---------------|-------------|
 | Embudo + Reporte IA + Rebalanceo | Dom-Jue 17:17 | Totalmente automatico; resultados enviados a Feishu / Telegram |
-| Estrategia de compra al cierre | Manual / automatizacion externa | Puntuacion por reglas + revision LLM |
-| Riesgo pre-mercado | Lun-Vie 08:20 | Alerta A50 + VIX |
-| Resumen de limit-up | Lun-Vie 19:25 | Revision de acciones con alza diaria >= 8 % |
+| Estrategia de compra al cierre | Lun-Vie 14:40 / ejecucion manual alternativa | Puntuacion por reglas + revision LLM |
+| Riesgo pre-mercado | Lun-Vie 08:20 | Codex Automation activa el workflow de GitHub; alerta A50 + VIX |
+| Revision de movimientos fuertes | Lun-Vie 19:25 | Cierre de hoy > 7 % y cierre de la sesion anterior < 3 % |
 | Repricing de recomendaciones | Lun-Vie 23:00 | Sincroniza precios de cierre |
 | Grid de backtest | 1 y 15 de cada mes 04:00 | 8 combos enfocados de parametros → reporte agregado |
 | Mantenimiento de base de datos | Mar-Sab 06:20 | Limpia cotizaciones, órdenes, señales y datos de mercado fuera de la ventana |

@@ -16,7 +16,7 @@ flowchart TB
         U2["环境变量 / Secrets<br/>TICKFLOW / TUSHARE / LLM / Supabase / IM"]
         U3["本地元数据<br/>行业映射 / 概念映射 / 股票池"]
         U4["前日反馈闭环<br/>signal_health_daily<br/>signal_registry"]
-        U5["前日盘前风控<br/>premarket_risk → market_signal_daily"]
+        U5["前日盘前风控<br/>Codex Automation → workflow_dispatch<br/>premarket_risk → market_signal_daily"]
         U6["前日漏斗产出<br/>signal_pending 待确认信号"]
         U7["外部观察名单<br/>profile / env / symbols_file"]
     end
@@ -32,7 +32,7 @@ flowchart TB
 
     subgraph DOWNSTREAM["⬇️ 下游（漏斗运行后消费）"]
         D1["23:30 signal_feedback_job<br/>计算 outcomes / health / registry"]
-        D2["次日 08:20 premarket_risk<br/>Step4 买入门控"]
+        D2["次日 08:20 Codex Automation<br/>触发 premarket_risk<br/>Step4 买入门控"]
         D3["次日尾盘 tail_buy_intraday<br/>读 signal_pending 尾盘买入"]
         D4["Web / CLI / MCP<br/>chat-agent 工具调用"]
         D5["回测 backtest_runner<br/>读 funnel_snapshots"]
@@ -325,6 +325,7 @@ flowchart TD
 | 排序 | confirmed → 主线/趋势 → 信号分 |
 | 主线语义 | `candidate_theme / candidate_phase / candidate_role` 从推荐、信号贯穿到尾盘记录；LLM 只解释不重判 |
 | 禁新开 | `RISK_ON` 与弱市/修复期与 Step4 对齐，新票不买 |
+| 双水温门控 | benchmark 与 premarket 分别判断；任一硬拦截即禁新开，分层允许信号取交集，`UNKNOWN` fail-closed |
 | 持仓 | 硬止损约 12%；非主线满 5 日建议时间止盈 |
 | 读法 | 只执行 **BUY（可执行）**；WATCH/SKIP 不下手 |
 
@@ -381,9 +382,9 @@ shadow 新增表现、scoped 信号调权和回测确认。
 
 | 时间（北京） | 工作流 | 与漏斗关系 |
 |-------------|--------|-----------|
-| **08:20** | `premarket_risk.yml` | **上游门控**：A50 + VIX → Step4 次日买入权限 |
+| **工作日 08:20** | Codex Automation → `premarket_risk.yml` `workflow_dispatch` | **上游门控**：A50 + VIX → Step4 次日买入权限；GitHub `schedule` 已停用，可手动补跑 |
 | **周日-周四 17:17** | `wyckoff_funnel.yml` | **主漏斗** daily_job Step2→3→4；周日正常为周一实盘准备候选，次日非 A 股交易日才跳过 |
-| **19:25** | `review_list_replay.yml` | 下游：涨停复盘 |
+| **19:25** | `review_list_replay.yml` | 下游：强势股复盘；筛选当日收盘涨幅 > 7% 且前一交易日收盘涨幅 < 3% 的股票 |
 | **21:10 周五** | `theme_radar.yml` | 下游：主线雷达周报（新闻增强） |
 | **23:00 周一-周五** | `recommendation_tracking_reprice.yml` | 下游：复盘重定价 |
 | **次日 06:20 周二-周六** | `db_maintenance.yml` | 下游：清理过期数据 |

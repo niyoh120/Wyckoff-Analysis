@@ -1,4 +1,4 @@
-"""Today review-pool discovery for limit-up replay jobs."""
+"""Today review-pool discovery for strong-move replay jobs."""
 
 from __future__ import annotations
 
@@ -10,9 +10,8 @@ import pandas as pd
 from core.cn_boards import is_supported_cn_board
 from core.wyckoff_engine import sort_by_date_if_needed
 
-TODAY_REVIEW_MIN_PCT = 8.0
-TODAY_OPEN_MAX_PCT = 4.0
-PREVIOUS_REVIEW_MAX_PCT = 6.0
+TODAY_REVIEW_MIN_PCT = 7.0
+PREVIOUS_REVIEW_MAX_PCT = 3.0
 
 
 def is_target_cn_board(code: str) -> bool:
@@ -23,15 +22,14 @@ def find_big_gainers(
     df_map: dict[str, pd.DataFrame],
     name_map: dict[str, str],
     today_threshold: float = TODAY_REVIEW_MIN_PCT,
-    open_max: float = TODAY_OPEN_MAX_PCT,
     previous_max: float = PREVIOUS_REVIEW_MAX_PCT,
 ) -> list[str]:
     codes: list[str] = []
     for code, df in df_map.items():
         if _skip_daily_candidate(code, df, name_map):
             continue
-        latest_pct, open_pct, previous_pct = latest_pct_and_open(df)
-        if _daily_candidate_matches(latest_pct, open_pct, previous_pct, today_threshold, open_max, previous_max):
+        latest_pct, previous_pct = latest_and_previous_pct(df)
+        if _daily_candidate_matches(latest_pct, previous_pct, today_threshold, previous_max):
             codes.append(code)
     return sorted(codes)
 
@@ -40,7 +38,6 @@ def find_big_gainers_from_spot(
     spot_map: dict[str, dict],
     name_map: dict[str, str],
     threshold: float = TODAY_REVIEW_MIN_PCT,
-    open_max: float = TODAY_OPEN_MAX_PCT,
 ) -> tuple[list[str], int]:
     codes: list[str] = []
     usable = 0
@@ -51,7 +48,7 @@ def find_big_gainers_from_spot(
         try:
             pct_f = float(snap.get("pct_chg"))
             usable += 1
-            if pct_f >= threshold and _spot_open_allowed(snap, pct_f, open_max):
+            if pct_f > threshold:
                 codes.append(code)
         except Exception:
             continue
@@ -102,19 +99,17 @@ def review_spot_min_coverage() -> float:
     return min(max(value, 0.0), 1.0)
 
 
-def latest_pct_and_open(df: pd.DataFrame) -> tuple[float | None, float | None, float | None]:
+def latest_and_previous_pct(df: pd.DataFrame) -> tuple[float | None, float | None]:
     series = sort_by_date_if_needed(df)
     close = pd.to_numeric(series.get("close"), errors="coerce").dropna()
-    open_col = series.get("open")
-    open_series = pd.to_numeric(open_col, errors="coerce") if open_col is not None else None
-    latest_pct, open_pct = _latest_close_and_open_pct(close, open_series)
+    latest_pct = _latest_close_pct(close)
     previous_pct = _previous_close_pct(close)
     pct = pd.to_numeric(series.get("pct_chg", pd.Series(dtype=float)), errors="coerce")
     if latest_pct is None and len(pct) >= 1 and pd.notna(pct.iloc[-1]):
         latest_pct = float(pct.iloc[-1])
     if previous_pct is None and len(pct) >= 2 and pd.notna(pct.iloc[-2]):
         previous_pct = float(pct.iloc[-2])
-    return latest_pct, open_pct, previous_pct
+    return latest_pct, previous_pct
 
 
 def _skip_daily_candidate(code: str, df: pd.DataFrame, name_map: dict[str, str]) -> bool:
@@ -123,18 +118,16 @@ def _skip_daily_candidate(code: str, df: pd.DataFrame, name_map: dict[str, str])
 
 def _daily_candidate_matches(
     latest_pct: float | None,
-    open_pct: float | None,
     previous_pct: float | None,
     today_threshold: float,
-    open_max: float,
     previous_max: float,
 ) -> bool:
+    epsilon = 1e-9
     return (
         latest_pct is not None
         and previous_pct is not None
-        and latest_pct >= today_threshold
-        and (open_pct is None or open_pct <= open_max)
-        and previous_pct <= previous_max
+        and latest_pct > today_threshold + epsilon
+        and previous_pct < previous_max - epsilon
     )
 
 
@@ -148,28 +141,13 @@ def _skip_spot_candidate(code: str, snap: dict, name_map: dict[str, str]) -> boo
     )
 
 
-def _spot_open_allowed(snap: dict, pct_f: float, open_max: float) -> bool:
-    open_v = snap.get("open")
-    close_v = snap.get("close")
-    if open_v is None or close_v is None or pct_f == -100.0:
-        return True
-    pre_close = float(close_v) / (1.0 + pct_f / 100.0)
-    if pre_close <= 0:
-        return True
-    return (float(open_v) / pre_close - 1.0) * 100.0 <= open_max
-
-
-def _latest_close_and_open_pct(close: pd.Series, open_series: pd.Series | None) -> tuple[float | None, float | None]:
+def _latest_close_pct(close: pd.Series) -> float | None:
     if len(close) < 2:
-        return None, None
+        return None
     prev_close = float(close.iloc[-2])
     if prev_close <= 0:
-        return None, None
-    latest_pct = (float(close.iloc[-1]) / prev_close - 1.0) * 100.0
-    open_pct = None
-    if open_series is not None and len(open_series) >= len(close) and pd.notna(open_series.iloc[-1]):
-        open_pct = (float(open_series.iloc[-1]) / prev_close - 1.0) * 100.0
-    return latest_pct, open_pct
+        return None
+    return (float(close.iloc[-1]) / prev_close - 1.0) * 100.0
 
 
 def _previous_close_pct(close: pd.Series) -> float | None:
