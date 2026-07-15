@@ -66,6 +66,24 @@ def _overview_lines(summary: dict) -> list[str]:
         f"- 交易风格: {_style_text(summary)}",
         _metrics_engine_line(summary),
         f"- 成交样本: {summary.get('trades')}",
+        *_crash_probe_lines(summary),
+    ]
+
+
+def _crash_probe_lines(summary: dict) -> list[str]:
+    watched = int(summary.get("crash_probe_watch_candidates") or 0)
+    if watched <= 0:
+        return ["- CRASH 左侧试错回放: 区间内无抗跌观察样本"]
+    return [
+        "- CRASH 左侧试错回放（日线代理）: "
+        f"观察 {watched} / 硬条件 {int(summary.get('crash_probe_proxy_qualified') or 0)} / "
+        f"Top1 入场 {int(summary.get('crash_probe_staged_entries') or 0)} / "
+        f"次日确认 {int(summary.get('crash_probe_confirmed_next_day') or 0)} "
+        f"({fmt_metric(summary.get('crash_probe_confirmation_rate_pct'), 2)}%)",
+        "- CRASH 分段仓位权重收益和（研究诊断，非组合收益）: "
+        f"仅2%试错 {fmt_metric(summary.get('crash_probe_probe_2pct_capital_return_pct'), 3)}% / "
+        f"确认加3% {fmt_metric(summary.get('crash_probe_confirmed_add_3pct_capital_return_pct'), 3)}% / "
+        f"合计 {fmt_metric(summary.get('crash_probe_staged_2_to_5pct_capital_return_pct'), 3)}%",
     ]
 
 
@@ -128,6 +146,10 @@ def _cash_portfolio_lines(summary: dict) -> list[str]:
         f"- 胜率: {fmt_metric(summary.get('cash_portfolio_win_rate_pct'), 2)}%",
         f"- 平均盈利: {fmt_metric(summary.get('cash_portfolio_avg_profit_pct'), 3)}%",
         f"- 平均亏损: {fmt_metric(summary.get('cash_portfolio_avg_loss_pct'), 3)}%",
+        "- 成交摩擦: 买入 "
+        f"{fmt_metric(summary.get('cash_portfolio_buy_friction_pct'), 3)}% / 卖出 "
+        f"{fmt_metric(summary.get('cash_portfolio_sell_friction_pct'), 3)}%；"
+        f"合计 {fmt_metric(summary.get('cash_portfolio_friction_total'), 2)}",
         f"- 佣金合计: {fmt_metric(summary.get('cash_portfolio_commission_total'), 2)}",
         "",
     ]
@@ -363,9 +385,15 @@ def _entry_price_note(summary: dict) -> str:
 
 def _cost_note(summary: dict) -> str:
     if not summary.get("cash_portfolio_enabled"):
-        return "- 已纳入双边摩擦成本（各0.5%）；累计收益走单利（cumsum）口径，不放大噪声，便于策略横向比较。"
+        return (
+            "- 已纳入成交摩擦成本（买入 "
+            f"{fmt_metric(summary.get('buy_friction_pct'), 3)}% / 卖出 "
+            f"{fmt_metric(summary.get('sell_friction_pct'), 3)}%）；累计收益走单利（cumsum）口径。"
+        )
     return (
-        "- 现金账户口径：买卖双边佣金率 "
+        "- 现金账户口径：成交价已纳入买入 "
+        f"{fmt_metric(summary.get('cash_portfolio_buy_friction_pct'), 3)}% / 卖出 "
+        f"{fmt_metric(summary.get('cash_portfolio_sell_friction_pct'), 3)}% 摩擦，另计双边佣金率 "
         f"{fmt_metric(float(summary.get('cash_portfolio_commission_rate') or 0) * 10000, 2)} / 万，"
         f"单笔成交额低于 {fmt_metric(summary.get('cash_portfolio_small_trade_threshold'), 2)} 元时收 "
         f"{fmt_metric(summary.get('cash_portfolio_small_trade_fee'), 2)} 元。"
@@ -416,19 +444,27 @@ def _top_n_line(summary: dict) -> str:
 
 
 def _meta_mode(summary: dict) -> str:
-    return (
-        "current_snapshot (⚠️ look-ahead bias)"
-        if summary.get("use_current_meta")
-        else "disabled_current_snapshot_filters (bias-reduced)"
-    )
+    source = _metadata_source(summary)
+    if source == "snapshot":
+        return "current_snapshot (⚠️ look-ahead bias)"
+    if source == "current":
+        return "current_network (⚠️ look-ahead bias)"
+    return "disabled_current_snapshot_filters (bias-reduced)"
 
 
 def _meta_note(summary: dict) -> str:
-    if summary.get("use_current_meta"):
+    if _metadata_source(summary) in {"snapshot", "current"}:
         return (
             "- ⚠️ 市值/行业映射采用当前截面，会引入 look-ahead bias （市值穿越与行业漂移）；该结果仅用于参数方向验证。"
         )
     return "- 本次按正式回测默认口径关闭当前截面市值/行业/概念映射，降低前视偏差；仍存在当前股票池幸存者偏差。"
+
+
+def _metadata_source(summary: dict) -> str:
+    source = str(summary.get("metadata_source") or "").strip().lower()
+    if source:
+        return source
+    return "current" if summary.get("use_current_meta") else "disabled"
 
 
 def _trailing_line(summary: dict) -> str:

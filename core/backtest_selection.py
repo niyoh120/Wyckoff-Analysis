@@ -9,6 +9,7 @@ from core.candidate_policy import (
     CandidatePolicyConfig,
     apply_loss_guard,
     candidate_score_value,
+    cap_quality_candidates,
     is_tradeable_l4_trigger_combo,
     loss_guard_reason,
     trigger_sets_by_code,
@@ -160,6 +161,8 @@ def select_ai_input_codes(
         full_formal_l4_max=full_formal_l4_max,
         candidate_policy=candidate_policy,
         signal_weight_map=signal_weight_map,
+        sector_map=sector_map,
+        ai_allocation=ai_allocation,
     )
     if l4_selection is not None:
         return l4_selection
@@ -187,9 +190,27 @@ def _select_l4_mode_codes(
     full_formal_l4_max: int,
     candidate_policy: CandidatePolicyConfig | None,
     signal_weight_map: dict[str, float] | None,
+    sector_map: dict[str, str],
+    ai_allocation: AiCandidateAllocationConfig | None,
 ) -> tuple[list[str], dict[str, float], dict[str, str]] | None:
     if selection_mode in TRADEABLE_L4_SELECTION_MODES and result.candidate_entries:
-        return _select_candidate_entries(result, day_df_map, regime, candidate_policy, signal_weight_map)
+        selected, score_map, track_map = _select_candidate_entries(
+            result, day_df_map, regime, candidate_policy, signal_weight_map
+        )
+        selected, score_map, track_map = _expand_tradeable_quality_pool(
+            selected,
+            score_map,
+            track_map,
+            sorted_hit_codes,
+            hit_score_map,
+            result,
+        )
+        selected = _apply_tradeable_loss_guard(
+            selected, track_map, result, day_df_map, regime, score_map, candidate_policy
+        )
+        score_map = {code: score_map.get(code, 0.0) for code in selected}
+        track_map = {code: track_map[code] for code in selected}
+        return _cap_tradeable_selection(selected, score_map, track_map, sector_map, ai_allocation)
     if selection_mode in STRICT_L4_SELECTION_MODES or selection_mode in TRADEABLE_L4_SELECTION_MODES:
         trigger_sets = trigger_sets_by_code(result.triggers)
         selected_codes = [
@@ -207,7 +228,51 @@ def _select_l4_mode_codes(
         )
         score_map = {code: score_map.get(code, 0.0) for code in selected_codes}
         track_map = {code: track_map[code] for code in selected_codes}
+        return _cap_tradeable_selection(selected_codes, score_map, track_map, sector_map, ai_allocation)
     return selected_codes, score_map, track_map
+
+
+def _expand_tradeable_quality_pool(
+    selected_codes: list[str],
+    score_map: dict[str, float],
+    track_map: dict[str, str],
+    sorted_hit_codes: list[str],
+    hit_score_map: dict[str, float],
+    result: FunnelResult,
+) -> tuple[list[str], dict[str, float], dict[str, str]]:
+    trigger_sets = trigger_sets_by_code(result.triggers)
+    formal_codes = [code for code in sorted_hit_codes if is_tradeable_l4_trigger_combo(trigger_sets.get(code, set()))]
+    merged = dedup_order(selected_codes + formal_codes)
+    formal_tracks = track_map_for_hits(formal_codes, result.triggers)
+    merged_scores = dict(score_map)
+    merged_tracks = dict(track_map)
+    for code in formal_codes:
+        merged_scores[code] = max(merged_scores.get(code, 0.0), hit_score_map.get(code, 0.0))
+        merged_tracks.setdefault(code, formal_tracks[code])
+    return merged, merged_scores, merged_tracks
+
+
+def _cap_tradeable_selection(
+    selected_codes: list[str],
+    score_map: dict[str, float],
+    track_map: dict[str, str],
+    sector_map: dict[str, str],
+    ai_allocation: AiCandidateAllocationConfig | None,
+) -> tuple[list[str], dict[str, float], dict[str, str]]:
+    config = ai_allocation or AiCandidateAllocationConfig()
+    selected, _cap_dropped, _sector_dropped = cap_quality_candidates(
+        selected_codes,
+        score_map,
+        sector_map,
+        total_cap=config.total_cap,
+        max_per_sector=config.max_per_sector,
+        rank_by_score=True,
+    )
+    return (
+        selected,
+        {code: score_map.get(code, 0.0) for code in selected},
+        {code: track_map[code] for code in selected},
+    )
 
 
 def _apply_tradeable_loss_guard(

@@ -633,7 +633,8 @@ def test_loss_guard_bear_rebound_bans_pure_lps_even_with_score():
     assert dropped == {"单LPS仅观察": 1}
 
 
-def test_select_base_ai_candidates_repair_mode_uses_empty_base_quota():
+def test_select_base_ai_candidates_repair_mode_uses_empty_base_quota(monkeypatch):
+    monkeypatch.delenv("FUNNEL_AI_TOTAL_CAP", raising=False)
     selected, trend, accum, score_map, ai_policy, use_full = funnel_ai_selection.select_base_ai_candidates(
         metrics={},
         triggers={"sos": [("000001", 3.0)]},
@@ -749,6 +750,26 @@ def test_promote_review_candidates_applies_capital_migration_score_map():
     )
 
     assert score_map["000001"] == 14.5
+
+
+def test_tradeable_l4_quality_pool_does_not_stop_at_old_trend_quota(monkeypatch):
+    monkeypatch.setattr(funnel, "FUNNEL_AI_SELECTION_MODE", "tradeable_l4")
+    codes = [f"0000{index:02d}" for index in range(1, 8)]
+    ctx = SimpleNamespace(
+        formal_sorted_codes=codes,
+        candidate_entry_map={},
+        code_to_trigger_keys={code: ["trend_pullback"] for code in codes},
+        code_to_total_score={code: 100.0 - index for index, code in enumerate(codes)},
+    )
+    score_map = {codes[0]: 100.0}
+    policy = {"total_cap": 8}
+
+    selected, trend, accum = funnel._expand_quality_first_pool(ctx, [codes[0]], score_map, policy)
+
+    assert selected == codes
+    assert trend == codes
+    assert accum == []
+    assert policy["quality_pool_before_guards"] == 7
 
 
 def test_loss_guard_risk_on_bans_pure_trend_pullback():

@@ -25,6 +25,7 @@ def test_candidate_prompts_preserve_deterministic_mainline_semantics() -> None:
 
 
 def test_execution_prompts_keep_research_and_order_boundaries_separate() -> None:
+    assert "威科夫（Richard D. Wyckoff）本人" in PRIVATE_PM_DECISION_JSON_PROMPT
     assert "confirmed 仍不等于 BUY" in WYCKOFF_FUNNEL_SYSTEM_PROMPT
     assert "confirmed 都只是研究状态" in PRIVATE_PM_DECISION_JSON_PROMPT
     assert "具体仓位由 OMS 决定" in PRIVATE_PM_DECISION_JSON_PROMPT

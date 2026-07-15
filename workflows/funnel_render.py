@@ -252,12 +252,15 @@ def _execution_decision_line(regime: str, selected_count: int, data_quality: dic
         if mode.mode == "overheat_shadow":
             return "禁止新仓；可送AI/shadow对照，不写正式推荐、不执行新买入；优先处理持仓风控。"
     if not mode.allow_recommendation_write:
-        return "观察买入；允许少量候选进入AI研报，但不写正式推荐，尾盘任务和人工二次确认后再决定。"
+        return "观察买入；允许少量候选进入AI研报，但不写正式推荐，等待跨日确认和尾盘复核。"
     if mode.mode == "repair_probe":
         return "修复成立；仅开放一只小额 PROBE 候选，禁止 ATTACK、追价和自动扩仓。"
     if selected_count <= 0:
-        return "观察买入；暂无可送审标的，不从本报告选择新买入，等待下一次二次确认。"
-    return f"可执行买入候选 {selected_count} 只；需等 Step3 起跳板与 OMS 风控同时确认后才可执行。"
+        return "观察买入；暂无可送审标的，不从本报告选择新买入，等待下一次跨日确认。"
+    return (
+        f"市场闸门开放，Step3 待审候选 {selected_count} 只；"
+        "仍需跨日确认、Step3 起跳板、尾盘 BUY 与 OMS 核准后才可执行。"
+    )
 
 
 def _today_conclusion_line(ctx: Any, selected_count: int) -> str:
@@ -271,7 +274,7 @@ def _today_conclusion_line(ctx: Any, selected_count: int) -> str:
     elif mode.mode == "repair_probe" and selected_count > 0:
         conclusion = "修复成立，小额试探候选"
     elif selected_count > 0:
-        conclusion = "可执行买入候选"
+        conclusion = "市场闸门开放，候选待审"
     else:
         conclusion = "观察买入"
     return f"**今日结论**: {conclusion} | {mode.label}"
@@ -306,17 +309,17 @@ def _tomorrow_action_line(ctx: Any, selected_count: int) -> str:
     elif mode.mode == "overheat_shadow":
         action = "禁止新仓；AI/shadow 可对照，不写推荐、不执行新买，只处理持仓风控。"
     elif not mode.allow_recommendation_write:
-        action = "观察买入；看 Step3 与尾盘任务的二次确认，不自动写推荐，不自动开仓。"
+        action = "观察买入；等待 Step3、跨日确认与尾盘复核，不自动写推荐，不自动开仓。"
     elif selected_count > 0:
-        action = "可执行买入候选；只在尾盘确认未破支撑、未冲高回落、量价健康后再考虑。"
+        action = "候选待审；通过跨日确认和 Step3 后，只在尾盘量价健康时才进入 OMS 复核。"
     else:
-        action = "观察买入；等待下一轮漏斗或尾盘二次确认，不提前追。"
+        action = "观察买入；等待下一轮漏斗或跨日确认，不提前追。"
     return f"**明日动作**: {action}"
 
 
 def _candidate_brief_line(ctx: Any, selected_count: int) -> str:
     return (
-        f"**候选摘要**: AI输入{selected_count}只 / 买点确认{ctx.unique_hit_count}只 / "
+        f"**候选摘要**: Step3送审{selected_count}只 / L4量价触发{ctx.unique_hit_count}只 / "
         f"主线买点候选{len(ctx.mainline_tradeable)}只 / 观察池{len(ctx.theme_candidate_map)}只"
     )
 
@@ -429,7 +432,7 @@ def _candidate_list_note(mode, *, data_quality_observe_only: bool = False) -> st
     if mode.mode == "overheat_shadow":
         return "过热市禁止新开：以下仅供 AI/shadow 对照，不可写正式推荐或下单。"
     if not mode.allow_recommendation_write:
-        return "观察买入：以下需 Step3 + 尾盘二次确认，当前不可直接下单。"
+        return "观察买入：以下需 Step3 + 跨日确认 + 尾盘复核，当前不可直接下单。"
     return "可送审清单：优先 [主线]；再等 Step3 起跳板 + confirmed + 尾盘 BUY 才执行。"
 
 
@@ -577,7 +580,7 @@ def _confirmation_label(ctx: Any, code: str) -> str:
     best = max(scores, key=lambda item: (int(item.get("met_count") or 0), str(item.get("grade") or "")))
     grade = str(best.get("grade") or "none")
     met_count = int(best.get("met_count") or 0)
-    return f"二次确认:{grade}({met_count}/3)"
+    return f"起跳板结构:{grade}({met_count}/3)"
 
 
 def _confirmation_signal_keys(ctx: Any, code: str) -> list[str]:
@@ -639,7 +642,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     lines += [
         _pool_summary_line(ctx.metrics),
         f"**筛选概览**: {ctx.metrics['total_symbols']}只 → 基础准入:{ctx.metrics['layer1']} "
-        f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → 买点确认事件:{ctx.metrics['total_hits']}",
+        f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → L4量价触发事件:{ctx.metrics['total_hits']}",
         f"**大盘水温**: {bench_line}",
         f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
         f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selected_for_ai), ctx.metrics.get('data_quality'))}",
@@ -654,13 +657,13 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
         f"**中长线主线**: {summarize_theme_radar(ctx.metrics.get('theme_radar') or {})} ({ctx.theme_radar_source})",
         f"**潜在大涨候选板**: {len(ctx.candidate_entries)}只 / 类型 {ctx.metrics.get('candidate_entry_types', {}) or {}}",
         (
-            f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / 买点确认{ctx.theme_l4_count}只 / "
+            f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / L4量价触发{ctx.theme_l4_count}只 / "
             f"战略主题观察{len(ctx.strategic_l2_bypass_pool)}只 / "
             f"主线买点候选{len(ctx.mainline_tradeable)}只 / 加权送审{selection.theme_promoted_count}只"
         ),
-        f"**候选池**: 买点确认{ctx.unique_hit_count}只 / 形态旁路{len(ctx.l2_bypass_pool)}只 "
+        f"**候选池**: L4量价触发{ctx.unique_hit_count}只 / 形态旁路{len(ctx.l2_bypass_pool)}只 "
         f"-> AI输入{len(selected_for_ai)}只 "
-        f"(买点确认 {sum(1 for c in selected_for_ai if c in ctx.formal_hit_set)} / "
+        f"(L4量价触发 {sum(1 for c in selected_for_ai if c in ctx.formal_hit_set)} / "
         f"形态旁路 {sum(1 for c in selected_for_ai if c in ctx.l2_bypass_set)} / "
         f"战略主题 {sum(1 for c in selected_for_ai if c in ctx.strategic_l2_bypass_set)} / "
         f"主线 {sum(1 for c in selected_for_ai if c in ctx.mainline_candidate_set)}; "
@@ -709,7 +712,7 @@ def _modern_selection_counts(ctx: Any, selection: FunnelAiSelection) -> dict[str
 def _print_modern_selection_summary(ctx: Any, selection: FunnelAiSelection, counts: dict[str, int]) -> None:
     policy = selection.ai_policy
     print(
-        f"[funnel] 候选池: 买点确认事件={counts['formal_event']}, 买点确认股票={ctx.unique_hit_count}, "
+        f"[funnel] 候选池: L4量价触发事件={counts['formal_event']}, L4量价触发股票={ctx.unique_hit_count}, "
         f"形态旁路={len(ctx.l2_bypass_pool)}, review候选={ctx.review_unique_count}, "
         f"配额配置=[{ctx.regime}->{policy['quota_family']}: requested Trend={policy['requested_trend_quota']}, "
         f"requested Accum={policy['requested_accum_quota']}, effective Trend={policy['trend_quota']}, "
@@ -726,7 +729,7 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
     lines = _top_summary_lines(ctx, len(selection.selected_for_ai), money_line) + [
         _pool_summary_line(ctx.metrics),
         f"**筛选概览**: {ctx.metrics['total_symbols']}只 → 基础准入:{ctx.metrics['layer1']} "
-        f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → 买点确认:{ctx.unique_hit_count}",
+        f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → L4量价触发:{ctx.unique_hit_count}",
         f"**大盘水温**: {bench_line}",
         f"**今日交易模式**: {_trade_mode_report_line(ctx.regime)}",
         f"**明日执行结论**: {_execution_decision_line(ctx.regime, len(selection.selected_for_ai), ctx.metrics.get('data_quality'))}",
@@ -741,14 +744,14 @@ def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[st
         f"**中长线主线**: {summarize_theme_radar(ctx.metrics.get('theme_radar') or {})} ({ctx.theme_radar_source})",
         f"**潜在大涨候选板**: {len(ctx.candidate_entries)}只 / 类型 {ctx.metrics.get('candidate_entry_types', {}) or {}}",
         (
-            f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / 买点确认{ctx.theme_l4_count}只 / "
+            f"**战略主线联动**: 观察池{len(ctx.theme_candidate_map)}只 / L4量价触发{ctx.theme_l4_count}只 / "
             f"战略主题观察{len(ctx.strategic_l2_bypass_pool)}只 / "
             f"主线买点候选{len(ctx.mainline_tradeable)}只 / 主线送审{selection.mainline_promoted_count}只"
         ),
-        f"**候选池**: 买点确认{ctx.unique_hit_count}只 / 形态旁路{len(ctx.l2_bypass_pool)}只 "
+        f"**候选池**: L4量价触发{ctx.unique_hit_count}只 / 形态旁路{len(ctx.l2_bypass_pool)}只 "
         f"-> AI输入{len(selection.selected_for_ai)}只 "
         f"(配额 {policy['quota_family']}: Trend {len(selection.trend_selected)}/{policy['trend_quota']}, "
-        f"Accum {len(selection.accum_selected)}/{policy['accum_quota']}; 买点确认 {counts['hit_selected']} / "
+        f"Accum {len(selection.accum_selected)}/{policy['accum_quota']}; L4量价触发 {counts['hit_selected']} / "
         f"阶段补位{counts['l3_only']} / 形态旁路 {counts['bypass_selected']} / "
         f"战略主题 {counts['strategic_selected']} / 主线 {counts['mainline_selected']}; "
         f"旁路预算 {FUNNEL_L2_BYPASS_AI_CAP or 'unlimited'})",
@@ -862,7 +865,7 @@ def _build_modern_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     if ctx.etf_metrics or ctx.etf_candidates:
         lines.append("")
     if ctx.formal_sorted_codes:
-        lines.append("**买点确认展开**: 以下列出全部买点确认候选；标记 →AI 的进入 Step3 研报")
+        lines.append("**L4量价触发展开**: 以下列出全部 L4 触发候选；标记 →AI 的进入 Step3 研报")
         append_formal_l4_sections(
             lines,
             ctx.formal_sorted_codes,

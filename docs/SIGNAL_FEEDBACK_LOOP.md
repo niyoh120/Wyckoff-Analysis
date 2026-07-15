@@ -5,7 +5,7 @@
 这份文档说明 A 股定时漏斗、信号反馈任务、动态配额和 shadow run 的真实执行关系。它也可以作为 GitHub Wiki 的技术架构页素材。
 
 > 实盘操作（日漏斗 × 尾盘）见 [`OPERATOR_PLAYBOOK.md`](OPERATOR_PLAYBOOK.md)。
-> 静态配额生产默认：NEUTRAL Trend5/Accum1；RISK_ON 保留 Trend5/Accum1 研究配额，但市场闸门禁止正式推荐和新开仓。dynamic 仍建议先 `shadow`。
+> 生产默认按质量池统一竞争，最终最多 8 只且单行业最多 2 只；Trend/Accum 配额只用于 dynamic `shadow` 对照。RISK_ON 仍由市场闸门禁止正式推荐和新开仓。
 
 ## 一句话
 

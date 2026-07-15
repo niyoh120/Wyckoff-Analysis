@@ -21,7 +21,7 @@ SUPPORTED_PORTFOLIO_STYLES = (
 STYLE_LABELS = {
     "slot_equal_4": "等额四仓",
     "probe_add": "观察仓补仓",
-    "confirmation_only": "二次确认买入",
+    "confirmation_only": "跨日确认买入",
     "trend_pyramid": "趋势金字塔",
     "concentrated_swap": "集中换股",
 }
@@ -48,7 +48,8 @@ class CashPortfolioConfig:
     trend_target_weight: float = 0.30
     concentrated_max_positions: int = 2
     swap_score_multiplier: float = 1.15
-    confirmation_max_calendar_days: int = 20
+    buy_friction_pct: float = 0.0
+    sell_friction_pct: float = 0.0
 
 
 def expand_portfolio_styles(raw: str | list[str] | tuple[str, ...] | None) -> list[str]:
@@ -99,7 +100,7 @@ def _portfolio_equity(
 ) -> float:
     value = float(cash)
     for pos in active:
-        price = float(pos["entry_price"])
+        price = float(pos["entry_market_price"])
         if day is not None and mark_price_fn is not None:
             mark = mark_price_fn(str(pos["code"]), day)
             if mark is not None and mark > 0:
@@ -108,8 +109,20 @@ def _portfolio_equity(
     return value
 
 
-def _code_exposure(active: list[dict[str, Any]], code: str) -> float:
-    return sum(float(pos["shares"]) * float(pos["entry_price"]) for pos in active if pos["code"] == code)
+def _code_exposure(
+    active: list[dict[str, Any]],
+    code: str,
+    day: date,
+    mark_price_fn: Callable[[str, date], float | None] | None,
+) -> float:
+    exposure = 0.0
+    mark = mark_price_fn(code, day) if mark_price_fn is not None else None
+    for pos in active:
+        if pos["code"] != code:
+            continue
+        price = float(mark) if mark is not None and mark > 0 else float(pos["entry_market_price"])
+        exposure += float(pos["shares"]) * price
+    return exposure
 
 
 def _active_codes(active: list[dict[str, Any]]) -> set[str]:
@@ -167,14 +180,20 @@ def _close_position(
     closed_rows: list[dict[str, Any]],
     reason: str,
 ) -> float:
-    sell_gross = float(pos["shares"]) * float(price)
-    sell_fee = calc_commission(sell_gross, pos["config"])
+    config = pos["config"]
+    execution_price = float(price) * (1.0 - float(config.sell_friction_pct) / 100.0)
+    sell_gross = float(pos["shares"]) * execution_price
+    sell_fee = calc_commission(sell_gross, config)
     sell_net = sell_gross - sell_fee
     pnl = sell_net - float(pos["cost_total"])
     cash += sell_net
     closed_rows.append(
         {
             **{k: v for k, v in pos.items() if k != "config"},
+            "exit_market_price": float(price),
+            "exit_price": execution_price,
+            "sell_gross": sell_gross,
+            "sell_friction_cost": float(pos["shares"]) * (float(price) - execution_price),
             "sell_fee": sell_fee,
             "pnl": pnl,
             "ret_pct": pnl / pos["cost_total"] * 100.0,
@@ -227,21 +246,24 @@ def _open_lot(
     weight: float,
     kind: str,
     target_weight: float | None = None,
+    mark_price_fn: Callable[[str, date], float | None] | None = None,
 ) -> tuple[float, bool]:
-    price = float(row["entry_close"])
+    market_price = float(row["entry_close"])
     code = str(row.get("code", "")).strip()
-    if price <= 0 or cash <= 0 or not code:
+    if market_price <= 0 or cash <= 0 or not code:
         return cash, False
-    equity = _portfolio_equity(cash, active)
+    execution_price = market_price * (1.0 + float(config.buy_friction_pct) / 100.0)
+    day = row["entry_date"]
+    equity = _portfolio_equity(cash, active, day, mark_price_fn)
     budget = equity * float(weight)
     if target_weight is not None:
-        budget = max(equity * float(target_weight) - _code_exposure(active, code), 0.0)
-    shares = _shares_for_budget(price, cash, budget, config)
+        budget = max(equity * float(target_weight) - _code_exposure(active, code, day, mark_price_fn), 0.0)
+    shares = _shares_for_budget(execution_price, cash, budget, config)
     if shares <= 0:
         return cash, False
-    buy_gross = shares * price
+    buy_gross = shares * execution_price
     buy_fee = calc_commission(buy_gross, config)
-    active.append(_new_position(row, config, kind, price, shares, buy_gross, buy_fee))
+    active.append(_new_position(row, config, kind, market_price, execution_price, shares, buy_gross, buy_fee))
     return cash - buy_gross - buy_fee, True
 
 
@@ -249,7 +271,8 @@ def _new_position(
     row: pd.Series,
     config: CashPortfolioConfig,
     kind: str,
-    price: float,
+    market_price: float,
+    execution_price: float,
     shares: int,
     buy_gross: float,
     buy_fee: float,
@@ -263,7 +286,8 @@ def _new_position(
         "signal_date": row.get("signal_date"),
         "entry_date": row["entry_date"],
         "exit_date": row["exit_date"],
-        "entry_price": price,
+        "entry_market_price": market_price,
+        "entry_price": execution_price,
         "exit_price": float(row["exit_close"]),
         "shares": shares,
         "score": _row_score(row),
@@ -271,6 +295,7 @@ def _new_position(
         "trigger": str(row.get("trigger", "") or ""),
         "exit_reason": str(row.get("exit_reason", "") or ""),
         "buy_gross": buy_gross,
+        "buy_friction_cost": shares * (execution_price - market_price),
         "buy_fee": buy_fee,
         "cost_total": buy_gross + buy_fee,
         "config": config,
@@ -283,6 +308,7 @@ def _try_slot_equal(
     active: list[dict[str, Any]],
     config: CashPortfolioConfig,
     skipped: dict[str, int],
+    mark_price_fn: Callable[[str, date], float | None] | None,
 ) -> float:
     code = str(row.get("code", "")).strip()
     if len(_active_codes(active)) >= _position_limit(config):
@@ -291,7 +317,15 @@ def _try_slot_equal(
     if code in _active_codes(active):
         skipped["duplicate"] += 1
         return cash
-    cash, opened = _open_lot(row, cash, active, config, weight=1.0 / _position_limit(config), kind="initial")
+    cash, opened = _open_lot(
+        row,
+        cash,
+        active,
+        config,
+        weight=1.0 / _position_limit(config),
+        kind="initial",
+        mark_price_fn=mark_price_fn,
+    )
     skipped["cash"] += 0 if opened else 1
     return cash
 
@@ -302,16 +336,28 @@ def _try_probe_add(
     active: list[dict[str, Any]],
     config: CashPortfolioConfig,
     skipped: dict[str, int],
+    mark_price_fn: Callable[[str, date], float | None] | None,
 ) -> float:
     code = str(row.get("code", "")).strip()
     if code in _active_codes(active):
-        cash, opened = _open_lot(row, cash, active, config, weight=0.0, kind="add", target_weight=config.equal_weight)
+        cash, opened = _open_lot(
+            row,
+            cash,
+            active,
+            config,
+            weight=0.0,
+            kind="add",
+            target_weight=config.equal_weight,
+            mark_price_fn=mark_price_fn,
+        )
         skipped["weight_cap"] += 0 if opened else 1
         return cash
     if len(_active_codes(active)) >= _position_limit(config):
         skipped["full"] += 1
         return cash
-    cash, opened = _open_lot(row, cash, active, config, weight=config.probe_weight, kind="probe")
+    cash, opened = _open_lot(
+        row, cash, active, config, weight=config.probe_weight, kind="probe", mark_price_fn=mark_price_fn
+    )
     skipped["cash"] += 0 if opened else 1
     return cash
 
@@ -320,25 +366,34 @@ def _try_confirmation_only(
     row: pd.Series,
     cash: float,
     active: list[dict[str, Any]],
-    observations: dict[str, date],
     config: CashPortfolioConfig,
     skipped: dict[str, int],
+    mark_price_fn: Callable[[str, date], float | None] | None,
 ) -> float:
     code = str(row.get("code", "")).strip()
+    if not _row_signal_confirmed(row):
+        skipped["unconfirmed"] += 1
+        return cash
     if code in _active_codes(active):
         skipped["duplicate"] += 1
         return cash
-    if code not in observations:
-        observations[code] = row["entry_date"]
-        skipped["observation_wait"] += 1
-        return cash
-    observations.pop(code, None)
     if len(_active_codes(active)) >= _position_limit(config):
         skipped["full"] += 1
         return cash
-    cash, opened = _open_lot(row, cash, active, config, weight=config.equal_weight, kind="confirmed")
+    cash, opened = _open_lot(
+        row, cash, active, config, weight=config.equal_weight, kind="confirmed", mark_price_fn=mark_price_fn
+    )
     skipped["cash"] += 0 if opened else 1
     return cash
+
+
+def _row_signal_confirmed(row: pd.Series) -> bool:
+    value = row.get("signal_confirmed", False)
+    if pd.isna(value):
+        return False
+    if value is True or value == 1:
+        return True
+    return isinstance(value, str) and value.strip().lower() in {"true", "1", "yes", "confirmed"}
 
 
 def _try_trend_pyramid(
@@ -347,12 +402,20 @@ def _try_trend_pyramid(
     active: list[dict[str, Any]],
     config: CashPortfolioConfig,
     skipped: dict[str, int],
+    mark_price_fn: Callable[[str, date], float | None] | None,
 ) -> float:
     code = str(row.get("code", "")).strip()
     if code in _active_codes(active):
         if _is_trend_signal(row):
             cash, opened = _open_lot(
-                row, cash, active, config, weight=0, kind="pyramid_add", target_weight=config.trend_target_weight
+                row,
+                cash,
+                active,
+                config,
+                weight=0,
+                kind="pyramid_add",
+                target_weight=config.trend_target_weight,
+                mark_price_fn=mark_price_fn,
             )
             skipped["weight_cap"] += 0 if opened else 1
         else:
@@ -361,7 +424,15 @@ def _try_trend_pyramid(
     if len(_active_codes(active)) >= _position_limit(config):
         skipped["full"] += 1
         return cash
-    cash, opened = _open_lot(row, cash, active, config, weight=config.trend_initial_weight, kind="trend_initial")
+    cash, opened = _open_lot(
+        row,
+        cash,
+        active,
+        config,
+        weight=config.trend_initial_weight,
+        kind="trend_initial",
+        mark_price_fn=mark_price_fn,
+    )
     skipped["cash"] += 0 if opened else 1
     return cash
 
@@ -395,7 +466,15 @@ def _try_concentrated_swap(
         cash = _maybe_swap_weakest(row, cash, active, config, skipped, mark_price_fn, closed)
         if len(_active_codes(active)) >= _position_limit(config):
             return cash
-    cash, opened = _open_lot(row, cash, active, config, weight=1.0 / _position_limit(config), kind="concentrated")
+    cash, opened = _open_lot(
+        row,
+        cash,
+        active,
+        config,
+        weight=1.0 / _position_limit(config),
+        kind="concentrated",
+        mark_price_fn=mark_price_fn,
+    )
     skipped["cash"] += 0 if opened else 1
     return cash
 
@@ -421,25 +500,11 @@ def _maybe_swap_weakest(
     return _close_code_at_price(active, cash, weak_code, price, closed)
 
 
-def _expire_observations(
-    observations: dict[str, date], day: date, config: CashPortfolioConfig, skipped: dict[str, int]
-) -> None:
-    expired = [
-        code
-        for code, first_day in observations.items()
-        if (day - first_day).days > config.confirmation_max_calendar_days
-    ]
-    for code in expired:
-        observations.pop(code, None)
-    skipped["unconfirmed"] += len(expired)
-
-
 def _new_skipped() -> dict[str, int]:
     return {
         "full": 0,
         "cash": 0,
         "duplicate": 0,
-        "observation_wait": 0,
         "unconfirmed": 0,
         "weight_cap": 0,
         "not_stronger": 0,
@@ -474,13 +539,16 @@ def _portfolio_summary(
         "cash_portfolio_win_rate_pct": float((ret > 0).mean() * 100.0) if len(ret) else None,
         "cash_portfolio_avg_profit_pct": float(wins.mean()) if len(wins) else None,
         "cash_portfolio_avg_loss_pct": float(losses.mean()) if len(losses) else None,
+        "cash_portfolio_buy_friction_pct": float(config.buy_friction_pct),
+        "cash_portfolio_sell_friction_pct": float(config.sell_friction_pct),
+        "cash_portfolio_friction_total": float(_numeric_column(closed_df, "buy_friction_cost").sum())
+        + float(_numeric_column(closed_df, "sell_friction_cost").sum()),
         "cash_portfolio_commission_total": float(_numeric_column(closed_df, "buy_fee").sum())
         + float(_numeric_column(closed_df, "sell_fee").sum()),
         "cash_portfolio_probe_entries": int(entry_kind.isin({"probe"}).sum()),
         "cash_portfolio_add_entries": int(entry_kind.isin({"add", "pyramid_add"}).sum()),
         "cash_portfolio_confirmed_entries": int(entry_kind.isin({"confirmed"}).sum()),
         "cash_portfolio_swap_exits": int((exit_reason == "style_swap").sum()),
-        "cash_portfolio_observation_wait": int(skipped.get("observation_wait", 0)),
         "cash_portfolio_unconfirmed": int(skipped.get("unconfirmed", 0)),
         "cash_portfolio_skipped_full": int(skipped.get("full", 0)),
         "cash_portfolio_skipped_cash": int(skipped.get("cash", 0)),
@@ -521,16 +589,14 @@ def simulate_cash_portfolio(
     active: list[dict[str, Any]] = []
     closed: list[dict[str, Any]] = []
     equity_rows: list[dict[str, Any]] = []
-    observations: dict[str, date] = {}
     skipped = _new_skipped()
     ordered = df.assign(_order=range(len(df))).sort_values(["entry_date", "_order"])
     signals_by_day = {day: rows for day, rows in ordered.groupby("entry_date")}
 
     for day in _trade_calendar(ordered):
         cash = _close_due_positions(active, cash, day, closed)
-        _expire_observations(observations, day, cfg, skipped)
         for _, row in signals_by_day.get(day, pd.DataFrame()).iterrows():
-            cash = _apply_style(row, cash, active, closed, observations, cfg, skipped, mark_price_fn)
+            cash = _apply_style(row, cash, active, closed, cfg, skipped, mark_price_fn)
         equity_rows.append(
             {
                 "date": day,
@@ -540,7 +606,6 @@ def simulate_cash_portfolio(
             }
         )
 
-    skipped["unconfirmed"] += len(observations)
     closed_df = pd.DataFrame(closed)
     nav_df = pd.DataFrame(equity_rows)
     if not nav_df.empty:
@@ -553,20 +618,19 @@ def _apply_style(
     cash: float,
     active: list[dict[str, Any]],
     closed: list[dict[str, Any]],
-    observations: dict[str, date],
     config: CashPortfolioConfig,
     skipped: dict[str, int],
     mark_price_fn: Callable[[str, date], float | None] | None,
 ) -> float:
     style = _style(config)
     if style == "slot_equal_4":
-        return _try_slot_equal(row, cash, active, config, skipped)
+        return _try_slot_equal(row, cash, active, config, skipped, mark_price_fn)
     if style == "probe_add":
-        return _try_probe_add(row, cash, active, config, skipped)
+        return _try_probe_add(row, cash, active, config, skipped, mark_price_fn)
     if style == "confirmation_only":
-        return _try_confirmation_only(row, cash, active, observations, config, skipped)
+        return _try_confirmation_only(row, cash, active, config, skipped, mark_price_fn)
     if style == "trend_pyramid":
-        return _try_trend_pyramid(row, cash, active, config, skipped)
+        return _try_trend_pyramid(row, cash, active, config, skipped, mark_price_fn)
     if style == "concentrated_swap":
         return _try_concentrated_swap(row, cash, active, config, skipped, mark_price_fn, closed)
     raise ValueError(f"未知 portfolio_style: {style}")

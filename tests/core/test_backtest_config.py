@@ -83,6 +83,8 @@ def test_build_backtest_run_config_normalizes_and_expands(tmp_path) -> None:
     assert config.replay.execution_regime_gate == "live"
     assert config.replay.exit.take_profit_pct == 18.0
     assert config.performance.cash_portfolio is True
+    assert {c.buy_friction_pct for c in config.performance.cash_config_by_style} == {0.5}
+    assert {c.sell_friction_pct for c in config.performance.cash_config_by_style} == {0.5}
     assert [c.portfolio_style for c in config.performance.cash_config_by_style] == [
         "confirmation_only",
         "trend_pyramid",

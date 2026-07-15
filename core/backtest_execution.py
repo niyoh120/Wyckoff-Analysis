@@ -37,6 +37,7 @@ class TradeRecord:
     exit_reason: str = "unknown"
     mfe_pct: float | None = None
     mae_pct: float | None = None
+    signal_confirmed: bool = False
 
 
 @dataclass(frozen=True)

@@ -25,6 +25,7 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
         "buy_friction_pct": 0.1,
         "sell_friction_pct": 0.1,
         "use_current_meta": False,
+        "metadata_source": "disabled",
         "pending_mode": "confirmation",
         "regime_filter": True,
         "regime_filter_note": "deprecated_live_aligned_noop",
@@ -43,6 +44,9 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
         "cash_portfolio_win_rate_pct": 45,
         "cash_portfolio_avg_profit_pct": 10,
         "cash_portfolio_avg_loss_pct": -5,
+        "cash_portfolio_buy_friction_pct": 0.1,
+        "cash_portfolio_sell_friction_pct": 0.1,
+        "cash_portfolio_friction_total": 80,
         "cash_portfolio_commission_total": 120,
         "cash_portfolio_commission_rate": 0.0003,
         "cash_portfolio_small_trade_threshold": 5000,
@@ -84,8 +88,11 @@ def test_build_summary_md_renders_atr_cash_and_regime_advice() -> None:
     assert "- 大盘水温仓控: 关闭（旧回测开关已废弃，跟随实盘漏斗候选口径）" in md
     assert "- 执行水温闸门: 实盘一致；拦截 3 个信号日 / 7 个候选" in md
     assert "## 真实现金账户模拟" in md
+    assert "- 成交摩擦: 买入 0.100% / 卖出 0.100%；合计 80" in md
+    assert "成交价已纳入买入 0.100% / 卖出 0.100% 摩擦" in md
     assert "RISK_OFF 环境下平均收益 -2.00%" in md
     assert "lps[regime=RISK_ON, lane=trend_pullback]×0.50↓" in md
+    assert "- 元数据口径: disabled_current_snapshot_filters (bias-reduced)" in md
     assert "（远端, 报告=2026-07-04, 周期=h5, 距今=0天, 策略=正式调权(on), 范围=尾盘+正式漏斗）" in md
 
 
@@ -93,6 +100,32 @@ def test_build_summary_md_notes_close_entry_price_mode() -> None:
     md = build_summary_md({"entry_price_mode": "close"})
 
     assert "- 入场口径：信号日收盘后出信号，T+1 收盘价买入（跳过一字涨停日）。" in md
+
+
+def test_build_summary_md_discloses_snapshot_metadata_source() -> None:
+    md = build_summary_md({"metadata_source": "snapshot", "use_current_meta": True})
+
+    assert "- 元数据口径: current_snapshot (⚠️ look-ahead bias)" in md
+    assert "市值/行业映射采用当前截面" in md
+
+
+def test_build_summary_md_renders_crash_probe_proxy_stats() -> None:
+    md = build_summary_md(
+        {
+            "crash_probe_watch_candidates": 8,
+            "crash_probe_proxy_qualified": 3,
+            "crash_probe_staged_entries": 2,
+            "crash_probe_confirmed_next_day": 1,
+            "crash_probe_confirmation_rate_pct": 50.0,
+            "crash_probe_probe_2pct_capital_return_pct": -0.12,
+            "crash_probe_confirmed_add_3pct_capital_return_pct": 0.45,
+            "crash_probe_staged_2_to_5pct_capital_return_pct": 0.33,
+        }
+    )
+
+    assert "观察 8 / 硬条件 3 / Top1 入场 2 / 次日确认 1 (50.00%)" in md
+    assert "权重收益和（研究诊断，非组合收益）" in md
+    assert "仅2%试错 -0.120% / 确认加3% 0.450% / 合计 0.330%" in md
 
 
 def test_generate_strategy_advice_returns_default_when_no_warning() -> None:

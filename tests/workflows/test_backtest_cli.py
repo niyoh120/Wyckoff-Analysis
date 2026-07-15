@@ -22,6 +22,7 @@ def test_backtest_parser_keeps_core_defaults() -> None:
     assert args.board == "all"
     assert args.top_n == 0
     assert args.pending_mode == "both"
+    assert args.pending_merge_order == "confirmed_first"
     assert args.execution_regime_gate == "live"
     assert args.entry_price_mode == "open"
     assert args.cash_portfolio is False

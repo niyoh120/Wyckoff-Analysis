@@ -25,6 +25,7 @@ SPRINGBOARD_ABC_LEGEND = (
     "- A：近5日出现缩量测试/拒绝下跌（量比 < 0.8x 且收位 > 60%）\n"
     "- B：突破日量比 >= 1.5x 且收盘站稳突破位（收位 > 70%）\n"
     "- C：支撑位至少经过 2 次测试且未被有效击穿\n"
+    "- A/B/C 只表示起跳板结构完整度，不等于跨日 confirmed\n"
     "- 进入“处于起跳板”候选区通常需至少满足 2 条；若弱市（RISK_OFF/CRASH）执行更严格。\n"
     "- 起跳板只是送 OMS 复核的候选，不等于买入订单；只有 OMS BUY-APPROVED 才可执行。\n\n"
     "---\n"
@@ -42,7 +43,7 @@ def send_empty_step3_report(
     report = _empty_step3_report(rag_veto_preview, rag_veto_lines, input_count=len(items))
     if not options.notify:
         return (True, "ok", report)
-    if not notify_step3_channels(options, _step3_title(), report):
+    if not notify_step3_channels(options, _step3_title(benchmark_context), report):
         return (False, "feishu_failed", report)
     _maybe_send_compliance_brief(
         options=options,
@@ -105,7 +106,7 @@ def send_step3_final_report(
         failed=failed,
     )
     _log_step3_report_stats(content, llm_result, active_tracks, track_inputs, failed, options.model, options.notify)
-    if options.notify and not notify_step3_channels(options, _step3_title(), content):
+    if options.notify and not notify_step3_channels(options, _step3_title(benchmark_context), content):
         print("[step3] 飞书推送失败")
         return (False, "feishu_failed", llm_result.report)
     _maybe_send_compliance_brief(
@@ -212,7 +213,7 @@ def _maybe_send_compliance_brief(
     if not options.notify or not options.runtime_config.send_compliance_brief:
         return
     content = _build_compliance_brief(benchmark_context, selected_df, ops_codes, code_name)
-    if not notify_step3_channels(options, _compliance_title(), content):
+    if not notify_step3_channels(options, _compliance_title(benchmark_context), content):
         print("[step3] 合规简报推送失败（主报告已发送）")
 
 
@@ -270,9 +271,20 @@ def _log_step3_report_stats(
     print(f"[step3] 研报{action}，股票数={stock_count}，拉取失败数={len(failed)}")
 
 
-def _step3_title() -> str:
-    return f"📄 批量研报 {date.today().strftime('%Y-%m-%d')}"
+def _report_trade_date(benchmark_context: dict | None) -> str:
+    raw = str((benchmark_context or {}).get("trade_date") or (benchmark_context or {}).get("end_trade_date") or "")
+    clean = raw.strip()
+    if len(clean) == 8 and clean.isdigit():
+        clean = f"{clean[:4]}-{clean[4:6]}-{clean[6:]}"
+    try:
+        return date.fromisoformat(clean[:10]).isoformat()
+    except ValueError:
+        return date.today().isoformat()
 
 
-def _compliance_title() -> str:
-    return f"📄 市场观察简报（合规版） {date.today().strftime('%Y-%m-%d')}"
+def _step3_title(benchmark_context: dict | None = None) -> str:
+    return f"📄 批量研报 {_report_trade_date(benchmark_context)}"
+
+
+def _compliance_title(benchmark_context: dict | None = None) -> str:
+    return f"📄 市场观察简报（合规版） {_report_trade_date(benchmark_context)}"

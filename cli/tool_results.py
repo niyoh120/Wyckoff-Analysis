@@ -23,7 +23,7 @@ def _safe_part(value: str) -> str:
 
 
 def _tool_node_id(tool_name: str, tool_call_id: str, content: str) -> str:
-    digest = hashlib.sha1(content.encode("utf-8", errors="ignore")).hexdigest()[:10]
+    digest = hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()[:10]
     return f"T_{_safe_part(tool_name)[:24]}_{_safe_part(tool_call_id)[:24]}_{digest}"
 
 
@@ -60,7 +60,7 @@ def persist_large_tool_result(
 
     results_dir = wyckoff_home() / "tool-results"
     results_dir.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha1(content.encode("utf-8", errors="ignore")).hexdigest()[:10]
+    digest = hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()[:10]
     stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     filename = f"{stamp}_{_safe_part(tool_name)}_{_safe_part(tool_call_id)}_{digest}.json"
     path = results_dir / filename

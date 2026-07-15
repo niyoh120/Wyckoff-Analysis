@@ -56,7 +56,7 @@ permissions:
 env:
   BT_START: ${{ inputs.start }}
   BT_END: ${{ inputs.end }}
-  BT_TOP_N: "4"
+  BT_TOP_N: "1"
   BT_BOARD: "all"
   BT_SAMPLE_SIZE: "0"
   BT_TRADING_DAYS: "320"
@@ -206,6 +206,7 @@ jobs:
       TICKFLOW_BASE_URL: ${{ secrets.TICKFLOW_BASE_URL }}
       FUNNEL_AI_SELECTION_MODE: "tradeable_l4"
       FUNNEL_AI_TOTAL_CAP: "8"
+      FUNNEL_AI_MAX_PER_SECTOR: "2"
       FUNNEL_AI_RISK_ON_TREND: "5"
       FUNNEL_AI_RISK_ON_ACCUM: "1"
       FUNNEL_LOSS_GUARD_RISK_ON_PRE5_RET: "35.0"
@@ -321,7 +322,7 @@ jobs:
             --sltp-priority stop_first \
             --pending-mode both \
             --execution-regime-gate "${BT_EXECUTION_REGIME_GATE}" \
-            --pending-merge-order funnel_first \
+            --pending-merge-order confirmed_first \
             --trailing-stop 0 \
             --metrics-engine auto \
             --wbt-n-jobs 2 \
@@ -455,7 +456,7 @@ jobs:
             --sltp-priority stop_first \
             --pending-mode both \
             --execution-regime-gate "$BT_EXECUTION_REGIME_GATE" \
-            --pending-merge-order funnel_first \
+            --pending-merge-order confirmed_first \
             --trailing-stop 0 \
             --metrics-engine auto \
             --wbt-n-jobs 2 \
@@ -581,7 +582,7 @@ jobs:
       - name: Aggregate and notify
         shell: bash
         env:
-          BT_TOP_N: "4"
+          BT_TOP_N: "1"
           BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'open' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

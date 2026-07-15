@@ -17,14 +17,14 @@ REVIEW_STAGE_TRIGGER_MISS = "买点未确认"
 SOURCE_LABELS = {
     "mainline": "主线买点",
     "alpha_candidate": "候选车道",
-    "l4_hit": "买点确认",
-    "l4_springboard": "买点确认",
+    "l4_hit": "L4量价触发",
+    "l4_springboard": "L4量价触发",
     "l2_bypass": "形态旁路观察",
     "strategic_l2_bypass": "战略主题观察",
     "l3_fill": "板块阶段补位",
     "markup": "主升阶段补位",
     "accum_c": "吸筹确认补位",
-    "signal_confirmed": "二次确认",
+    "signal_confirmed": "跨日确认",
 }
 
 LANE_LABELS = {

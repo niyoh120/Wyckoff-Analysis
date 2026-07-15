@@ -363,7 +363,7 @@ def _confirmed_symbol_info(sig: dict, code_str: str, today: dict[str, float], tr
     item = {
         "code": code_str,
         "name": sig.get("name", code_str),
-        "tag": f"{signal_type.upper()}(二次确认)",
+        "tag": f"{signal_type.upper()}(跨日确认)",
         "track": "Accum" if signal_type in ("spring", "lps", "compression") else "Trend",
         "initial_price": today["close"],
         "score": sig.get("signal_score", 0),

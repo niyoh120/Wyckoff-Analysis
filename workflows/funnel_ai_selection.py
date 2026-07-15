@@ -41,6 +41,7 @@ from utils.trading_clock import CN_TZ
 from workflows.ai_candidate_allocation_config import ai_candidate_allocation_config_from_env
 from workflows.dynamic_policy_config import dynamic_policy_config_from_env
 from workflows.funnel_settings import (
+    FUNNEL_AI_SELECTION_MODE,
     FUNNEL_DEFENSIVE_FORCE_QUOTA,
     FUNNEL_FULL_FORMAL_L4_MAX,
     FUNNEL_L2_BYPASS_AI_CAP,
@@ -143,6 +144,7 @@ def promote_review_candidates(
         apply_theme_bonus_to_scores(score_map, theme_bonus_map)
         apply_theme_bonus_to_scores(score_map, capital_migration_bonus_map or {})
     ai_total_cap = int(ai_policy.get("total_cap") or 0)
+    promotion_total_cap = None if FUNNEL_AI_SELECTION_MODE == "tradeable_l4" else ai_total_cap
     bypass_added, strategic_added = promote_bypass_groups(
         selected_for_ai,
         trend_selected,
@@ -151,7 +153,7 @@ def promote_review_candidates(
         code_to_total_score,
         code_to_trigger_keys,
         score_map,
-        ai_total_cap=ai_total_cap,
+        ai_total_cap=promotion_total_cap,
         bypass_enabled=FUNNEL_L2_BYPASS_AI_ENABLED and trade_mode.allow_bypass_review,
         bypass_cap=FUNNEL_L2_BYPASS_AI_CAP,
         strategic_enabled=FUNNEL_STRATEGIC_L2_BYPASS_AI_ENABLED and trade_mode.allow_bypass_review,
@@ -170,7 +172,7 @@ def promote_review_candidates(
             code_to_trigger_keys,
             score_map,
             promotion_cap=FUNNEL_THEME_RADAR_PROMOTE_CAP,
-            total_cap=ai_total_cap,
+            total_cap=promotion_total_cap,
         )
     mainline_cap = int(pools.get("mainline_cap") or FUNNEL_MAINLINE_MAX_AI_CANDIDATES)
     mainline_total_cap: int | None = None
@@ -416,7 +418,7 @@ def _allocate_candidates_for_ai(
         l3_ranked_symbols,
         regime,
         sector_map=sector_map,
-        max_per_sector=2,
+        max_per_sector=allocation_config.max_per_sector,
         policy_override=dynamic_policy,
         signal_weight_map=(dynamic_ctx.get("weights") or {}) if dynamic_mode == "on" else None,
         allocation_config=allocation_config,
@@ -445,7 +447,7 @@ def _shadow_selected_codes(
         l3_ranked_symbols,
         regime,
         sector_map=sector_map,
-        max_per_sector=2,
+        max_per_sector=int(ai_policy.get("max_per_sector") or 2),
         policy_override=ai_policy.get("_shadow_policy"),
         signal_weight_map=ai_policy.get("_signal_weights") or {},
     )

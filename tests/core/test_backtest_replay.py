@@ -117,6 +117,7 @@ def test_replay_backtest_generates_t1_trades(monkeypatch) -> None:
     assert replay.records[0].entry_date == date(2026, 1, 3)
     assert replay.records[0].exit_date == date(2026, 1, 4)
     assert replay.records[0].ret_pct == pytest.approx(10.0)
+    assert replay.records[0].signal_confirmed is False
     assert calls["concept_map"] == {"000001": ["CPO"]}
     assert calls["concept_heat"] == [{"name": "CPO", "pct": 3.2}]
     assert calls["financial_map"] == {"000001": {"roe": 12}}
@@ -255,11 +256,13 @@ def test_live_gate_limits_confirmed_repair_to_one_candidate() -> None:
         {"000001": 90.0, "000002": 80.0},
         {"000001": "Trend", "000002": "Accum"},
         {},
+        frozenset({"000001", "000002"}),
     )
 
     limited, blocked = replay_mod._limit_confirmed_repair_selection(selected, "PANIC_REPAIR_CONFIRMED", "live")
 
     assert limited.codes == ["000001"]
+    assert limited.confirmed_codes == frozenset({"000001"})
     assert blocked == 1
 
 
@@ -467,3 +470,4 @@ def test_low_score_confirmed_signal_does_not_downgrade_funnel_candidate(monkeypa
     assert replay.records[0].score == 100.0
     assert replay.records[0].track == "Accum"
     assert replay.records[0].trigger == "spring"
+    assert replay.records[0].signal_confirmed is True

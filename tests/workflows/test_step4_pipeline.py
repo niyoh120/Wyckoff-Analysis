@@ -1,68 +1,97 @@
 from __future__ import annotations
 
-from workflows.step4_pipeline import _step4_candidate_meta
+import pytest
+
+from workflows.step4_pipeline import _step4_candidate_meta, is_confirmed_step4_candidate
 
 
-def test_step4_candidate_meta_allows_springboard_and_top_funnel(monkeypatch):
-    # Mocking environment variable
-    monkeypatch.setenv("STEP4_TOP_FUNNEL_CANDIDATES_COUNT", "2")
-    monkeypatch.setenv("STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE", "1")
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"status": "unconfirmed"},
+        {"signal_status": "pending", "tag": "SOS(确认)"},
+        {"confirm_status": "未确认，仅观察"},
+        {"candidate_status": "待确认", "recommend_reason": "confirmed"},
+        {"tag": "二次确认观察"},
+        {"selection_source": "signal_confirmed", "candidate_status": "市场拦截观察"},
+    ],
+)
+def test_step4_confirmation_rejects_negative_or_observation_states(item):
+    assert not is_confirmed_step4_candidate(item)
 
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"status": "confirmed"},
+        {"status": "confirmed", "source_type": "signal_pending"},
+        {"is_confirmed": True},
+        {"selection_source": "signal_confirmed"},
+        {"selection_source": "跨日确认"},
+        {"tag": "SOS(确认)"},
+        {"tag": "EVR(二次确认)"},
+        {"tag": "SPRING(跨日确认)"},
+        {"recommend_reason": "LPS二次确认(A+C)"},
+        {"recommend_reason": "LPS跨日确认(A+C)"},
+        {"tag": "主线买点确认 | 威科夫候选"},
+    ],
+)
+def test_step4_confirmation_accepts_explicit_confirmed_states(item):
+    assert is_confirmed_step4_candidate(item)
+
+
+def test_step4_candidate_meta_veto_only_uses_rules_and_ai_invalidations(monkeypatch):
+    monkeypatch.delenv("STEP4_AI_CANDIDATE_POLICY", raising=False)
     symbols_info = [
-        # 1. 确认的, 分数高, 但不在 springboard_codes 里 (应通过 top_n=2 获准)
         {"code": "000001", "confirm_status": "confirmed", "priority_score": 95},
-        # 2. 确认的, 分数较高, 也不在 springboard_codes 里 (应通过 top_n=2 获准)
-        {"code": "000002", "tag": "二次确认", "score": 90},
-        # 3. 确认的, 分数低, 不在 springboard_codes 里 (应被 top_n=2 拦截)
-        {"code": "000003", "recommend_reason": "confirmed", "priority_score": 50},
-        # 4. 未确认的, 但在 springboard_codes 里 (因为 require_confirmed=1，应被拦截)
-        {"code": "000004", "tag": "pending", "priority_score": 88},
-        # 5. 确认的, 且在 springboard_codes 里 (应通过 allowed_set 获准)
-        {"code": "000005", "tag": "confirmed", "priority_score": 75},
+        {"code": "000002", "confirm_status": "confirmed", "priority_score": 90},
+        {"code": "000003", "confirm_status": "confirmed", "new_buy_allowed": False},
+        {"code": "000004", "signal_status": "pending", "priority_score": 99},
     ]
+    report = "## 💀 逻辑破产 (Invalidated)\n- 000002 放量失守\n\n## ⏳ 储备营地\n- 000001"
 
-    selected, blocked = _step4_candidate_meta(symbols_info, step3_springboard_codes=["000004", "000005"])
+    selected, blocked = _step4_candidate_meta(symbols_info, ["000004"], report)
 
-    selected_codes = {item["code"] for item in selected}
-    # 000001: 获准 (Top 1)
-    # 000002: 获准 (Top 2)
-    # 000005: 获准 (Springboard + confirmed)
-    assert selected_codes == {"000001", "000002", "000005"}
-    # 000004 是待确认，所以在 require_confirmed 下被 block 1 次
-    assert blocked == 1
+    assert [item["code"] for item in selected] == ["000001"]
+    assert blocked == 2
 
 
-def test_step4_candidate_meta_with_top_n_disabled_by_default(monkeypatch):
-    # By default, STEP4_TOP_FUNNEL_CANDIDATES_COUNT should not be set (defaults to 0 / disabled)
-    monkeypatch.delenv("STEP4_TOP_FUNNEL_CANDIDATES_COUNT", raising=False)
-    monkeypatch.setenv("STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE", "1")
-
+def test_step4_candidate_meta_invalid_policy_falls_back_to_veto_only(monkeypatch):
+    monkeypatch.setenv("STEP4_AI_CANDIDATE_POLICY", "legacy")
     symbols_info = [
-        {"code": "000001", "confirm_status": "confirmed", "priority_score": 95},
-        {"code": "000005", "tag": "confirmed", "priority_score": 75},
+        {"code": "000001", "confirm_status": "confirmed"},
+        {"code": "000002", "confirm_status": "confirmed"},
     ]
+    report = "## 💀 逻辑破产\n- 000002 放量失守"
 
-    # Only 000005 is in springboard_codes, 000001 is NOT. With top_n=0, 000001 should be blocked.
-    selected, blocked = _step4_candidate_meta(symbols_info, step3_springboard_codes=["000005"])
-    selected_codes = {item["code"] for item in selected}
-    assert selected_codes == {"000005"}
+    selected, blocked = _step4_candidate_meta(symbols_info, [], report)
+
+    assert [item["code"] for item in selected] == ["000001"]
     assert blocked == 0
 
 
-def test_step4_candidate_meta_with_illegal_config_values(monkeypatch):
-    # Test illegal config values like 'not-a-number' or negative values
-    monkeypatch.setenv("STEP4_TOP_FUNNEL_CANDIDATES_COUNT", "invalid-value")
+def test_step4_candidate_meta_shadow_ignores_ai_classification(monkeypatch):
+    monkeypatch.setenv("STEP4_AI_CANDIDATE_POLICY", "shadow")
+    symbols_info = [
+        {"code": "000001", "confirm_status": "confirmed"},
+        {"code": "000002", "confirm_status": "confirmed"},
+    ]
+    report = "## 💀 逻辑破产\n- 000002 放量失守"
+
+    selected, blocked = _step4_candidate_meta(symbols_info, [], report)
+
+    assert [item["code"] for item in selected] == ["000001", "000002"]
+    assert blocked == 0
+
+
+def test_step4_candidate_meta_deduplicates_codes(monkeypatch):
+    monkeypatch.setenv("STEP4_AI_CANDIDATE_POLICY", "shadow")
     symbols_info = [
         {"code": "000001", "confirm_status": "confirmed", "priority_score": 95},
-        {"code": "000005", "tag": "confirmed", "priority_score": 75},
+        {"code": "000001", "confirm_status": "confirmed", "priority_score": 90},
     ]
-    selected, blocked = _step4_candidate_meta(symbols_info, step3_springboard_codes=["000005"])
-    selected_codes = {item["code"] for item in selected}
-    # Should fallback to 0 safely without crashing and only allow springboard codes
-    assert selected_codes == {"000005"}
 
-    # Test negative value
-    monkeypatch.setenv("STEP4_TOP_FUNNEL_CANDIDATES_COUNT", "-5")
-    selected, blocked = _step4_candidate_meta(symbols_info, step3_springboard_codes=["000005"])
-    selected_codes = {item["code"] for item in selected}
-    assert selected_codes == {"000005"}
+    selected, blocked = _step4_candidate_meta(symbols_info, [], "")
+
+    assert [item["code"] for item in selected] == ["000001"]
+    assert blocked == 0

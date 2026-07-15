@@ -20,6 +20,7 @@ def _cfg() -> DailyJobConfig:
         step4_base_url="",
         step3_skip_llm=True,
         skip_step4=True,
+        historical_replay=False,
         preview_only=True,
         logs_path="",
     )

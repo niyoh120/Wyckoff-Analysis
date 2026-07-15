@@ -421,7 +421,8 @@ def _runtime_config_line(config: TailBuyRuntimeConfig) -> str:
         f"intraday_limit={config.intraday_limit_per_min}/min, max_over_limit={config.max_over_limit_symbols}, "
         f"force_over_limit={config.force_over_limit}, tickflow_retries={config.tickflow_task_retries}, "
         f"use_batch_intraday={config.use_batch_intraday}, intraday_batch_size={config.intraday_batch_size}, "
-        f"confirmed_only_buy={config.strategy_config.confirmed_only_buy}, mode={config.mode}"
+        f"confirmed_only_buy={config.strategy_config.confirmed_only_buy}, "
+        f"ai_policy={config.strategy_config.ai_policy}, mode={config.mode}"
     )
 
 

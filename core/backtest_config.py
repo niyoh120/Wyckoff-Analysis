@@ -95,6 +95,7 @@ def build_backtest_run_config(params: BacktestRunInput) -> BacktestRunConfig:
     performance = _performance_config(
         params.hold_days,
         params.buy_friction_pct,
+        params.sell_friction_pct,
         metrics_engine,
         params.wbt_fee_rate,
         params.wbt_n_jobs,
@@ -271,6 +272,7 @@ def _replay_config(
 def _performance_config(
     hold_days: int,
     buy_friction_pct: float,
+    sell_friction_pct: float,
     metrics_engine: str,
     wbt_fee_rate: float,
     wbt_n_jobs: int,
@@ -278,7 +280,15 @@ def _performance_config(
     cash_config: CashPortfolioConfig,
     style_list: list[str],
 ) -> BacktestPerformanceConfig:
-    cash_configs = [replace(cash_config, portfolio_style=style) for style in style_list]
+    cash_configs = [
+        replace(
+            cash_config,
+            portfolio_style=style,
+            buy_friction_pct=buy_friction_pct,
+            sell_friction_pct=sell_friction_pct,
+        )
+        for style in style_list
+    ]
     return BacktestPerformanceConfig(
         hold_days=hold_days,
         buy_friction_pct=buy_friction_pct,

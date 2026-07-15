@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pandas as pd
+
 from workflows.funnel_ai_selection import FunnelAiSelection
 
 
@@ -73,13 +77,33 @@ def test_data_quality_report_marks_financials_not_applicable_for_price_volume_ru
     assert "财务 0.0%" not in lines[0]
 
 
-def test_execution_decision_line_waits_for_ai_and_oms_confirmation() -> None:
+def test_execution_decision_line_separates_review_from_execution() -> None:
     from workflows.funnel_render import _execution_decision_line
 
     line = _execution_decision_line("NEUTRAL", 3)
 
-    assert "可执行买入候选 3 只" in line
-    assert "OMS 风控同时确认" in line
+    assert "市场闸门开放" in line
+    assert "Step3 待审候选 3 只" in line
+    assert "跨日确认" in line
+    assert "OMS 核准" in line
+
+
+def test_confirmation_label_names_abc_as_springboard_structure(monkeypatch) -> None:
+    from workflows import funnel_render
+
+    monkeypatch.setattr(
+        funnel_render,
+        "score_springboard_abc",
+        lambda _df, _signal_type: {"grade": "A+B+C", "met_count": 3},
+    )
+    ctx = SimpleNamespace(
+        all_df_map={"000001": pd.DataFrame({"close": [10.0]})},
+        code_to_trigger_keys={"000001": ["spring"]},
+        candidate_entry_map={},
+        mainline_candidate_set=set(),
+    )
+
+    assert funnel_render._confirmation_label(ctx, "000001") == "起跳板结构:A+B+C(3/3)"
 
 
 def test_execution_decision_line_blocks_risk_on_new_buys() -> None:

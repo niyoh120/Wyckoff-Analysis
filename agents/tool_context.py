@@ -4,7 +4,7 @@ import logging
 import os
 import threading
 import time
-from hashlib import sha1
+from hashlib import sha256
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -179,7 +179,7 @@ def close_cached_clients() -> None:
 
 
 def _user_client_cache_key(user_id: str, access_token: str) -> str:
-    digest = sha1(str(access_token).encode("utf-8", errors="ignore")).hexdigest()[:16]
+    digest = sha256(str(access_token).encode("utf-8", errors="ignore")).hexdigest()[:16]
     return f"{user_id}:{digest}"
 
 

@@ -68,7 +68,7 @@ class AgentScratchpad:
         self.dir = scratchpad_dir or wyckoff_home() / "scratchpad"
         self.dir.mkdir(parents=True, exist_ok=True)
 
-        query_hash = hashlib.sha1(query.encode("utf-8", errors="ignore")).hexdigest()[:12]
+        query_hash = hashlib.sha256(query.encode("utf-8", errors="ignore")).hexdigest()[:12]
         stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
         self.path = self.dir / f"{stamp}_{query_hash}.jsonl"
         self._context_sources: list[dict[str, Any]] = []

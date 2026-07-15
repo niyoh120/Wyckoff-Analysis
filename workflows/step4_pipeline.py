@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from integrations.fetch_a_share_csv import resolve_trading_window
 from integrations.supabase_portfolio import load_portfolio_state
+from tools.report_parser import extract_invalidated_codes
 from utils.env import env_bool
 from utils.trading_clock import resolve_end_calendar_day
 from workflows.step4_rebalancer import run as run_step4
@@ -24,6 +26,39 @@ STEP4_REASON_MAP = {
     "notification_failed": "OMS 通知推送失败",
     "ok": "ok",
 }
+
+_CONFIRMED_STATUS_VALUES = {"confirmed", "已确认", "确认", "二次确认", "跨日确认"}
+_CONFIRMED_SOURCE_VALUES = {"signal_confirmed", "二次确认", "跨日确认"}
+_UNCONFIRMED_MARKERS = (
+    "unconfirmed",
+    "not_confirmed",
+    "not confirmed",
+    "confirmation_required",
+    "pending",
+    "observe",
+    "observation",
+    "watch_only",
+    "未确认",
+    "待确认",
+    "观察",
+)
+_CONFIRMED_TAG_PATTERNS = (
+    re.compile(r"^(?:confirmed|已确认|确认|二次确认|跨日确认)$", re.IGNORECASE),
+    re.compile(r"^[a-z0-9_-]+[（(](?:(?:二次|跨日)?确认)[）)]$", re.IGNORECASE),
+    re.compile(r"^[a-z0-9_-]+(?:二次|跨日)确认(?:[（(][^）)]*[）)])?$", re.IGNORECASE),
+    re.compile(r"^主线买点确认(?:\s*[|｜].*)?$"),
+)
+_AI_CANDIDATE_POLICIES = {"shadow", "veto_only"}
+_RULE_BLOCKED_ACTIONS = {
+    "watch_only",
+    "repair_review_only",
+    "confirmation_required",
+    "blocked_by_data_quality",
+    "blocked_by_market_gate",
+    "blocked_by_policy_guard",
+    "blocked_by_quality_gate",
+}
+_RULE_BLOCKED_READINESS = {"research_only", "review_only", "observe_only"}
 
 
 def now_text() -> str:
@@ -59,64 +94,82 @@ def load_step4_target() -> tuple[dict | None, str]:
 
 
 def is_confirmed_step4_candidate(item: dict) -> bool:
-    values = [
-        item.get("status"),
-        item.get("signal_status"),
-        item.get("confirm_status"),
-        item.get("selection_source"),
-        item.get("source_type"),
-        item.get("tag"),
-        item.get("recommend_reason"),
+    state_values = [
+        str(item.get(field) or "").strip().lower()
+        for field in (
+            "status",
+            "signal_status",
+            "confirm_status",
+            "confirmation_status",
+            "candidate_status",
+            "tag",
+            "recommend_reason",
+        )
     ]
-    text = " ".join(str(v or "").strip().lower() for v in values)
-    return "confirmed" in text or "确认" in text
+    if any(marker in value for value in state_values for marker in _UNCONFIRMED_MARKERS):
+        return False
+    if item.get("is_confirmed") is True:
+        return True
+    status_values = {
+        str(item.get(field) or "").strip().lower()
+        for field in ("status", "signal_status", "confirm_status", "confirmation_status")
+    }
+    if status_values & _CONFIRMED_STATUS_VALUES:
+        return True
+    source = str(item.get("selection_source") or "").strip().lower()
+    if source in _CONFIRMED_SOURCE_VALUES:
+        return True
+    for field in ("tag", "recommend_reason"):
+        text = str(item.get(field) or "").strip()
+        if any(pattern.fullmatch(text) for pattern in _CONFIRMED_TAG_PATTERNS):
+            return True
+    return False
 
 
-def _step4_candidate_meta(symbols_info: list, step3_springboard_codes: list[str]) -> tuple[list[dict], int]:
-    confirmed_items = [
-        item for item in symbols_info or [] if isinstance(item, dict) and is_confirmed_step4_candidate(item)
-    ]
+def step4_ai_candidate_policy() -> str:
+    policy = os.getenv("STEP4_AI_CANDIDATE_POLICY", "veto_only").strip().lower()
+    return policy if policy in _AI_CANDIDATE_POLICIES else "veto_only"
 
-    def get_item_score(item: dict) -> float:
-        val = item.get("priority_score")
-        if val is None or val == "":
-            val = item.get("score")
-        try:
-            return float(val) if val is not None else 0.0
-        except (TypeError, ValueError):
-            return 0.0
 
-    confirmed_items.sort(key=get_item_score, reverse=True)
+def _is_false_like(value: object) -> bool:
+    if value is False or value == 0:
+        return True
+    return isinstance(value, str) and value.strip().lower() in {"false", "0", "no", "n", "off"}
 
-    allowed_set = set(step3_springboard_codes or [])
-    top_n_raw = os.getenv("STEP4_TOP_FUNNEL_CANDIDATES_COUNT", "0").strip()
-    top_n = 0
-    try:
-        if top_n_raw:
-            top_n = max(0, int(float(top_n_raw)))
-    except (TypeError, ValueError):
-        top_n = 0
 
-    if top_n > 0:
-        top_confirmed = [str(item.get("code", "")).strip() for item in confirmed_items[:top_n]]
-        allowed_set.update(top_confirmed)
+def _rule_eligible_step4_candidate(item: dict) -> bool:
+    if not is_confirmed_step4_candidate(item):
+        return False
+    if _is_false_like(item.get("new_buy_allowed")) or _is_false_like(item.get("label_ready")):
+        return False
+    readiness = str(item.get("trade_readiness") or "").strip().lower()
+    if readiness in _RULE_BLOCKED_READINESS:
+        return False
+    action = str(item.get("action_status") or "").strip().lower()
+    return not action.startswith("blocked_") and action not in _RULE_BLOCKED_ACTIONS
 
-    if not allowed_set:
-        return [], 0
 
+def _step4_candidate_meta(
+    symbols_info: list,
+    _step3_springboard_codes: list[str],
+    step3_report_text: str = "",
+) -> tuple[list[dict], int]:
+    items: list[dict] = []
+    seen_codes: set[str] = set()
+    for item in symbols_info or []:
+        code = str(item.get("code", "")).strip() if isinstance(item, dict) else ""
+        if not code or code in seen_codes:
+            continue
+        seen_codes.add(code)
+        items.append(item)
     require_confirmed = env_bool("STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE", True)
-    selected: list[dict] = []
-    blocked = 0
-    for item in symbols_info:
-        if not isinstance(item, dict):
-            continue
-        code = str(item.get("code", "")).strip()
-        if code not in allowed_set:
-            continue
-        if require_confirmed and not is_confirmed_step4_candidate(item):
-            blocked += 1
-            continue
-        selected.append(item)
+    eligible = [item for item in items if _rule_eligible_step4_candidate(item)] if require_confirmed else items
+    policy = step4_ai_candidate_policy()
+    selected = eligible
+    if policy == "veto_only":
+        vetoed = set(extract_invalidated_codes(step3_report_text, [item.get("code", "") for item in eligible]))
+        selected = [item for item in selected if str(item.get("code", "")).strip() not in vetoed]
+    blocked = len(items) - len(eligible)
     return selected, blocked if require_confirmed else 0
 
 
@@ -143,9 +196,16 @@ def run_step4_pipeline(
 
     user_id = str(step4_target.get("user_id", "") or "").strip()
     portfolio_id = str(step4_target.get("portfolio_id", "") or "").strip()
-    candidate_meta, blocked_unconfirmed = _step4_candidate_meta(symbols_info, step3_springboard_codes)
-    blocked_msg = f"，未二次确认拦截 {blocked_unconfirmed} 只" if blocked_unconfirmed else ""
-    log_line(f"Step4 私人再平衡: 候选收口为 Step3 起跳板 {len(candidate_meta)} 只{blocked_msg}", logs_path)
+    candidate_meta, blocked_by_rules = _step4_candidate_meta(
+        symbols_info,
+        step3_springboard_codes,
+        step3_report_text,
+    )
+    blocked_msg = f"，规则拦截 {blocked_by_rules} 只" if blocked_by_rules else ""
+    log_line(
+        f"Step4 私人再平衡: AI候选策略={step4_ai_candidate_policy()}，规则准入 {len(candidate_meta)} 只{blocked_msg}",
+        logs_path,
+    )
     return _execute_step4_pipeline(
         user_id=user_id,
         portfolio_id=portfolio_id,

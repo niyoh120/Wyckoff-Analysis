@@ -186,7 +186,7 @@ def _add_signal_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--pending-merge-order",
         choices=["funnel_first", "confirmed_first"],
-        default="funnel_first",
+        default="confirmed_first",
         help="pending_mode=both 时合并顺序",
     )
     parser.add_argument(

@@ -150,6 +150,39 @@ class TestReportBuilder:
         codes = extract_operation_pool_codes(report, ["600056"])
         assert codes == ["600056"]
 
+    def test_extract_invalidated_codes_stops_before_building_section(self):
+        from tools.report_parser import extract_invalidated_codes
+
+        report = (
+            "## 💀 逻辑破产 (Invalidated)\n- 600056 放量失守\n"
+            "## ⏳ 储备营地 (Building Cause)\n- 300632 等待确认\n"
+            "## 🏹 处于起跳板\n- 000001 结构完整\n"
+            "## 💀 逻辑破产 (Invalidated)\n- 600000 第二轨放量失守\n"
+        )
+
+        assert extract_invalidated_codes(report, ["600056", "300632", "000001", "600000"]) == [
+            "600056",
+            "600000",
+        ]
+
+    def test_extract_invalidated_codes_stops_at_any_next_heading(self):
+        from tools.report_parser import extract_invalidated_codes
+
+        report = """## 逻辑破产
+- 000001 放量失守
+## 市场复盘
+- 000002 仅作为对照
+"""
+
+        assert extract_invalidated_codes(report, ["000001", "000002"]) == ["000001"]
+
+    def test_extract_invalidated_codes_supports_structured_report(self):
+        from tools.report_parser import extract_invalidated_codes
+
+        report = '{"逻辑破产":[{"code":"000002"}],"储备营地":[{"code":"000001"}]}'
+
+        assert extract_invalidated_codes(report, ["000001", "000002"]) == ["000002"]
+
     def test_extract_operation_pool_springboards_reads_gate_line(self):
         from tools.report_parser import extract_operation_pool_springboards
 

@@ -20,6 +20,69 @@ OPERATION_POOL_KEYS = (
     "on_the_springboard",
     "springboard_pool",
 )
+INVALIDATED_POOL_KEYS = ("\u903b\u8f91\u7834\u4ea7", "invalidated")
+
+
+def extract_invalidated_codes(
+    report: str,
+    allowed_codes: list[str] | set[str] | tuple[str, ...],
+) -> list[str]:
+    allowed_set = {str(code).strip() for code in allowed_codes if re.fullmatch(r"\d{6}", str(code).strip())}
+    if not allowed_set:
+        return []
+    codes = _extract_markdown_section_codes(
+        report,
+        allowed_set,
+        start_tokens=("逻辑破产", "Invalidated"),
+    )
+    for code in _extract_structured_section_codes(report, allowed_set, INVALIDATED_POOL_KEYS):
+        if code not in codes:
+            codes.append(code)
+    return codes
+
+
+def _extract_markdown_section_codes(
+    report: str,
+    allowed_codes: set[str],
+    *,
+    start_tokens: tuple[str, ...],
+) -> list[str]:
+    in_section = False
+    codes: list[str] = []
+    for raw_line in str(report or "").splitlines():
+        line = str(raw_line or "").strip()
+        if line.startswith("#"):
+            if any(token.lower() in line.lower() for token in start_tokens):
+                in_section = True
+                continue
+            if in_section:
+                in_section = False
+            continue
+        if not in_section:
+            continue
+        for code in re.findall(r"\b\d{6}\b", line):
+            if code in allowed_codes and code not in codes:
+                codes.append(code)
+    return codes
+
+
+def _extract_structured_section_codes(report: str, allowed_codes: set[str], keys: tuple[str, ...]) -> list[str]:
+    raw = str(report or "").strip()
+    for candidate in (raw, extract_json_block(raw)):
+        if not candidate:
+            continue
+        try:
+            payload = json.loads(candidate)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        return [
+            code
+            for item in _collect_structured_items(payload, keys)
+            if (code := str(item.get("code") or "").strip()) in allowed_codes
+        ]
+    return []
 
 
 def _collect_structured_items(payload: dict, keys: tuple[str, ...]) -> list[dict]:

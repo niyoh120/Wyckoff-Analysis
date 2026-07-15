@@ -47,6 +47,7 @@ class BacktestPreparedData:
     theme_member_index: dict[str, list[str]] | None = None
     snapshot_rows_total: int = 0
     snapshot_used: bool = False
+    metadata_source: str = "disabled"
 
 
 def parse_date(v: str) -> date:
@@ -222,6 +223,7 @@ def _base_summary(
         "concept_map_loaded": len(data.concept_map),
         "concept_heat_loaded": len(data.concept_heat),
         "financial_map_loaded": len(data.financial_map),
+        "metadata_source": data.metadata_source,
         "mainline_engine_enabled": bool(config.replay.mainline_config and config.replay.mainline_config.enabled),
         "signal_weight_count": len(config.replay.signal_weight_map),
         "signal_weight_map": dict(config.replay.signal_weight_map),
@@ -250,7 +252,7 @@ def _exit_summary(config: BacktestRunConfig) -> dict:
 
 
 def _execution_summary(config: BacktestRunConfig, replay: BacktestReplayResult, trades_df: pd.DataFrame) -> dict:
-    return {
+    summary = {
         "buy_friction_pct": float(config.replay.buy_friction_pct),
         "sell_friction_pct": float(config.replay.sell_friction_pct),
         "regime_filter": False,
@@ -268,6 +270,8 @@ def _execution_summary(config: BacktestRunConfig, replay: BacktestReplayResult, 
         "entry_price_missing_skipped": replay.entry_price_missing_skipped,
         "entry_price_source_counts": _entry_price_source_counts(trades_df),
     }
+    summary.update({f"crash_probe_{key}": value for key, value in replay.crash_probe_stats.items()})
+    return summary
 
 
 def _cash_summary(config: BacktestRunConfig) -> dict:

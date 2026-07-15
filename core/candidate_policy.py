@@ -103,6 +103,37 @@ def rerank_selected_codes(codes: list[str], score_map: dict[str, float]) -> list
     return sorted(deduped, key=lambda c: (-candidate_score_value(score_map.get(c)), c))
 
 
+def cap_quality_candidates(
+    codes: list[str],
+    score_map: dict[str, float],
+    sector_map: dict[str, str] | None,
+    *,
+    total_cap: int,
+    max_per_sector: int,
+    rank_by_score: bool = True,
+) -> tuple[list[str], list[str], list[str]]:
+    """Rank qualified candidates, then apply one global and sector cap."""
+    ranked = rerank_selected_codes(codes, score_map) if rank_by_score else list(dict.fromkeys(codes))
+    if total_cap <= 0:
+        return [], ranked, []
+    selected: list[str] = []
+    cap_dropped: list[str] = []
+    sector_dropped: list[str] = []
+    sector_counts: dict[str, int] = {}
+    for code in ranked:
+        sector = str((sector_map or {}).get(code) or "").strip()
+        if sector and max_per_sector > 0 and sector_counts.get(sector, 0) >= max_per_sector:
+            sector_dropped.append(code)
+            continue
+        if len(selected) >= total_cap:
+            cap_dropped.append(code)
+            continue
+        selected.append(code)
+        if sector:
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
+    return selected, cap_dropped, sector_dropped
+
+
 def candidate_score_value(raw: object) -> float:
     if raw is None or isinstance(raw, bool):
         return 0.0

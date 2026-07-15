@@ -36,6 +36,22 @@ class TestExtractHitsStrict:
 
 
 class TestScanOneFailClosed:
+    def test_runtime_status_reports_resolved_provider_model(self, monkeypatch):
+        from integrations import rag_veto as mod
+
+        monkeypatch.setattr(mod, "RAG_SEMANTIC_API_KEY", "")
+        monkeypatch.setattr(mod, "RAG_SEMANTIC_MODEL", "")
+        monkeypatch.setattr(mod, "RAG_SEMANTIC_BASE_URL", "")
+        monkeypatch.setattr(mod, "RAG_SEMANTIC_PROVIDER", "efficiency")
+        monkeypatch.setenv("EFFICIENCY_API_KEY", "eff-key")
+        monkeypatch.setenv("EFFICIENCY_MODEL", "eff-model")
+
+        status = mod.get_rag_veto_runtime_status()
+
+        assert status["semantic_provider"] == "efficiency"
+        assert status["semantic_model"] == "eff-model"
+        assert status["semantic_error"] is None
+
     def test_keyword_hit_vetoes_when_semantic_config_missing(self, monkeypatch):
         from integrations import rag_veto as mod
 

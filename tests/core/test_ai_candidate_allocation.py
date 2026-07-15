@@ -102,6 +102,7 @@ class TestAllocateAiCandidates:
             env = _workflow_job_env(path, job_name)
 
             assert int(env["FUNNEL_AI_TOTAL_CAP"]) == default_allocation.total_cap
+            assert int(env["FUNNEL_AI_MAX_PER_SECTOR"]) == default_allocation.max_per_sector
             for family, (trend_quota, accum_quota) in DEFAULT_AI_QUOTA_BY_FAMILY.items():
                 assert int(env[f"FUNNEL_AI_{family}_TREND"]) == trend_quota
                 assert int(env[f"FUNNEL_AI_{family}_ACCUM"]) == accum_quota

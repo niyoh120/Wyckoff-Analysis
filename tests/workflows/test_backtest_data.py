@@ -76,12 +76,21 @@ def test_snapshot_meta_loaders(tmp_path) -> None:
     assert metadata.financial_map == {"688001": {"roe": 12}}
 
 
-def test_backtest_metadata_disabled_returns_empty_maps(tmp_path) -> None:
+def test_backtest_metadata_disabled_ignores_current_snapshot_maps(tmp_path) -> None:
+    (tmp_path / "sector_map.json").write_text(json.dumps({"688001": "半导体"}), encoding="utf-8")
+    (tmp_path / "market_cap_map.json").write_text(json.dumps({"688001": 123.4}), encoding="utf-8")
+    (tmp_path / "concept_map.json").write_text(json.dumps({"688001": ["CPO"]}), encoding="utf-8")
+    (tmp_path / "concept_heat.json").write_text(json.dumps([{"name": "CPO"}]), encoding="utf-8")
+    (tmp_path / "financial_map.json").write_text(json.dumps({"688001": {"roe": 12}}), encoding="utf-8")
+
     metadata = load_backtest_metadata(use_current_meta=False, snapshot_dir=tmp_path)
 
     assert metadata.source == "disabled"
     assert metadata.sector_map == {}
     assert metadata.market_cap_map == {}
+    assert metadata.concept_map == {}
+    assert metadata.concept_heat == []
+    assert metadata.financial_map == {}
 
 
 def test_load_snapshot_hist_map_normalizes_symbols_and_dates(tmp_path) -> None:

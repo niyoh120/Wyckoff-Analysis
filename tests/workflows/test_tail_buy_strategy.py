@@ -1031,8 +1031,52 @@ def test_merge_rule_and_llm_keeps_pending_buy_as_watch():
     assert by_code["002217"].llm_model_used.startswith("nvidia-kimi")
 
 
+def test_tail_ai_veto_only_cannot_upgrade_confirmed_watch_to_buy():
+    item = TailBuyCandidate(
+        code="002217",
+        name="合力泰",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="sos",
+        signal_score=4.0,
+        rule_score=68.0,
+        rule_decision=DECISION_WATCH,
+        final_decision=DECISION_WATCH,
+    )
+
+    merged = merge_rule_and_llm([item], {"002217": {"decision": DECISION_BUY, "reason": "模型看多"}})
+
+    assert merged[0].llm_decision == DECISION_BUY
+    assert merged[0].final_decision == DECISION_WATCH
+    assert "不升级规则决策" in merged[0].llm_reason
+
+
+def test_tail_ai_shadow_does_not_downgrade_rule_buy():
+    item = TailBuyCandidate(
+        code="301090",
+        name="华润材料",
+        signal_date="2026-04-20",
+        status="confirmed",
+        signal_type="spring",
+        signal_score=5.0,
+        rule_score=80.0,
+        rule_decision=DECISION_BUY,
+        final_decision=DECISION_BUY,
+    )
+
+    merged = merge_rule_and_llm(
+        [item],
+        {"301090": {"decision": DECISION_SKIP, "reason": "模型否决"}},
+        config=TailBuyStrategyConfig(ai_policy="shadow"),
+    )
+
+    assert merged[0].llm_decision == DECISION_SKIP
+    assert merged[0].final_decision == DECISION_BUY
+
+
 def test_tail_buy_strategy_config_from_env_can_disable_confirmation_gate(monkeypatch):
     monkeypatch.setenv("TAIL_BUY_CONFIRMED_ONLY_BUY", "0")
+    monkeypatch.setenv("TAIL_BUY_AI_POLICY", "invalid")
     config = tail_buy_strategy_config_from_env()
 
     item = TailBuyCandidate(
@@ -1049,6 +1093,7 @@ def test_tail_buy_strategy_config_from_env_can_disable_confirmation_gate(monkeyp
     merged = merge_rule_and_llm([item], {}, config=config)
 
     assert config.confirmed_only_buy is False
+    assert config.ai_policy == "veto_only"
     assert merged[0].final_decision == DECISION_BUY
 
 

@@ -36,6 +36,7 @@ class AllocationPolicy:
 @dataclass(frozen=True)
 class AiCandidateAllocationConfig:
     total_cap: int = 8
+    max_per_sector: int = 2
     max_trend_l3_fill: int = 0
     max_accum_l3_fill: int = 0
     quota_by_family: Mapping[str, tuple[int, int]] = field(default_factory=lambda: dict(DEFAULT_AI_QUOTA_BY_FAMILY))
@@ -102,6 +103,7 @@ def resolve_ai_candidate_policy(
         "regime": regime_norm or "NEUTRAL",
         "quota_family": quota_family,
         "total_cap": total_cap,
+        "max_per_sector": allocation_config.max_per_sector,
         "requested_trend_quota": requested_trend,
         "requested_accum_quota": requested_accum,
         "trend_quota": trend_quota,

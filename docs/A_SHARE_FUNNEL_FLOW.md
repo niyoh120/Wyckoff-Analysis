@@ -92,7 +92,7 @@ flowchart TD
     S4CHK -->|跳过| SUM
     S4CHK -->|执行| S4
 
-    S4["Step4: run_step4()<br/>持仓决断 + Telegram"] --> SUM
+    S4["Step4: 规则准入 + AI风险审计 + OMS<br/>持仓决断 + Telegram"] --> SUM
     SUM["阶段汇总日志<br/>upload artifacts"] --> END(["exit 0/1"])
 
     STEP2 -->|异常| BLOCK["阻断型失败 exit 1"]
@@ -133,7 +133,7 @@ flowchart TD
         G1["calc_market_breadth<br/>市场广度"]
         G2["analyze_benchmark_and_tune_cfg<br/>regime 判定"]
         G3{"水温 regime"}
-        G3 -->|NEUTRAL| T1["主战场 mainline_active<br/>Trend5/Accum1"]
+        G3 -->|NEUTRAL| T1["主战场 mainline_active<br/>质量池 Top8 / 行业最多2"]
         G3 -->|RISK_ON| T2["禁止正式新开 overheat_shadow<br/>研究配额 5/1"]
         G3 -->|RISK_OFF| T3["提高门槛 + 禁新开"]
         G3 -->|CRASH| T4["极限门槛 + 禁新开"]
@@ -217,6 +217,8 @@ flowchart TD
 | 候选车道 | 趋势回踩、平台突破、强承接等结构接近 | 默认观察，质量足够才按配额送审 |
 | Shadow 旁路 | L2 未过但有复盘价值，或外部观察名单 | 不进入正式 AI，除非显式打开开关 |
 
+报告将三类状态分开命名：Spring/LPS/SOS/EVR 命中称为“L4 量价触发”；A/B/C 只表示“起跳板结构”完整度；`pending/confirmed/expired` 才是跨交易日确认状态。三者不能互相替代，OMS 也不会生成 `confirmed`。
+
 正式候选在送入 Step3 前还会经过 `core/candidate_policy.py` 的统一损失护栏。纯 SOS 必须通过 Springboard ABC 3/3；单 EVR、单 LPS 与单 Trend Pullback 默认仅观察。状态已是可交易的主线候选可跳过这三类“仅观察”限制，但仍必须通过最低分、市场环境、弱确认、过热和高位追涨检查；“主线观察”与“过热不追”不享受豁免。L2 的八通道原始命中数会写入诊断日志，但不参与评分。
 
 ### 数据质量与诊断口径
@@ -289,10 +291,14 @@ flowchart LR
 
 ## 五、Step4 OMS 持仓决断
 
+Step4 不再默认把“Step3 起跳板”当成唯一入口。生产默认 `STEP4_AI_CANDIDATE_POLICY=veto_only`：程序先收集全部跨日确认、市场与候选护栏均允许的新仓候选，再剔除 Step3 明确归入“逻辑破产”的代码。AI不能把未确认、只读、观察或市场阻断候选升级成买入；对外部新仓给出的 `ATTACK` 也会被降为 `PROBE`。
+
+候选审计只保留两种模式：`veto_only` 应用 Step3 的明确否决，`shadow` 仅记录分类用于实验对照。两种模式都不绕过尾盘价格确认和 OMS。
+
 ```mermaid
 flowchart TD
     IN1["Step3 研报文本"] --> S4
-    IN2["起跳板 candidate_meta"] --> S4
+    IN2["规则准入 candidate_meta<br/>confirmed + market/policy guards"] --> S4
     IN3["Supabase portfolios<br/>USER_LIVE:user_id"] --> S4
     IN4["market_signal_daily<br/>benchmark + premarket"] --> S4
     IN5["TickFlow 持仓分时诊断"] --> S4
@@ -312,6 +318,11 @@ flowchart TD
     OMS --> TG["推送工单（含执行纪律）"]
     OMS --> DB["trade_orders 写库"]
 ```
+
+### 回放与确认安全边界
+
+- 显式设置 `END_CALENDAR_DAY` 即进入历史回放模式。Step2/Step3 可以按目标日重放，但任务会在读取实盘持仓、订单或 Step4 Supabase 状态前跳过 Step4，历史结果不会改写当前 OMS。
+- Step4 新开仓确认采用字段级白名单：接受明确的 `confirmed` 状态、`signal_confirmed` 来源和受控确认标签；只要载荷含 `unconfirmed`、`pending`、`未确认`、`待确认` 或 `观察` 等否定状态，就先行拦截，不再用字符串包含关系推断确认。
 
 ### 报告执行纪律
 
@@ -457,7 +468,8 @@ efinance
 | 变量 | 当前值 | 作用 |
 |------|--------|------|
 | `FUNNEL_AI_SELECTION_MODE` | `tradeable_l4` | 只把可交易 L4 结构送入 Step3，减少裸 SOS/EVR 追高噪声 |
-| `FUNNEL_AI_TOTAL_CAP` | `8` | AI 总量硬上限；战略/主题补位也受此限制 |
+| `FUNNEL_AI_TOTAL_CAP` | `8` | 质量达标候选的最终统一硬上限；主线、战略和主题补位共同竞争 |
+| `FUNNEL_AI_MAX_PER_SECTOR` | `2` | 最终送审清单的单行业上限，避免同一板块占满上下文 |
 | `FUNNEL_DYNAMIC_POLICY` | `shadow` | 主流程用静态配额，同时记录动态策略差异 |
 | `FUNNEL_DAILY_BREADTH_REPAIR_PCT` / `FUNNEL_DAILY_BREADTH_WEAK_PCT` | `60` / `35` | 修复候选日上涨家数占比阈值 / 强结构转弱阈值 |
 | `FUNNEL_PANIC_REPAIR_CONFIRM_MAIN_PCT` / `FUNNEL_PANIC_REPAIR_CONFIRM_BREADTH_PCT` | `0` / `50` | 修复候选次日的指数价格与上涨家数占比确认阈值 |
@@ -467,9 +479,10 @@ efinance
 | `STEP4_BUY_HARD_STOP_PCT` | `12.0` | 新开仓灾难止损地板；ATR/结构/时间管理优先 |
 | `STEP4_REPAIR_PROBE_BUDGET_LIMIT` | `0.05` | `PANIC_REPAIR_CONFIRMED` 单票试探仓上限；同时最多只开放一只 |
 | `STEP4_LEFT_PROBE_BUDGET_LIMIT` | `0.02` | `CRASH_LEFT_PROBE` 单票左侧试探仓上限；同时最多只开放一只 |
-| `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` | `1` | Step4 新开仓只允许二次确认候选；未确认候选只观察 |
-| `STEP4_TOP_FUNNEL_CANDIDATES_COUNT` | `0` | 默认关闭，Step4 仍只接收 Step3 起跳板；大于 0 时额外允许二次确认漏斗中优先分最高的前 N 名进入 OMS 复核 |
+| `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` | `1` | Step4 新开仓只允许显式跨日确认候选；否定/观察状态优先拦截，不做模糊字符串匹配 |
+| `STEP4_AI_CANDIDATE_POLICY` | `veto_only` | `veto_only` 只剔除逻辑破产；`shadow` 仅记录分类用于实验对照 |
 | `TAIL_BUY_CONFIRMED_ONLY_BUY` | `1` | 尾盘买入只对二次确认候选输出 BUY |
+| `TAIL_BUY_AI_POLICY` | `veto_only` | AI 只能降级或否决规则结论，不能把 `WATCH` 升为 `BUY`；`shadow` 只记录 |
 | `TAIL_BUY_LEFT_PROBE_CLOSE_POS_MIN` / `TAIL_BUY_LEFT_PROBE_SPRING_QUALITY_MIN` | `0.65` / `50` | CRASH 左侧例外要求的最低收位与分钟线 Spring 质量；仍需跌破支撑后收回 |
 | `TAIL_BUY_HOLDING_HARD_STOP_PCT` | `12` | 持仓尾盘诊断的固定止损兜底；ATR 放宽需显式开启且受上限约束 |
 | `STEP4_BUY_BLOCK_REGIMES` | `UNKNOWN,RISK_ON,BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN` | 市场数据未就绪、过热与弱市均冻结新开仓 |

@@ -203,13 +203,13 @@ def load_snapshot_financial_map(snapshot_dir: Path | None) -> dict[str, dict] | 
 
 
 def load_backtest_metadata(use_current_meta: bool, snapshot_dir: Path | None) -> BacktestMetadata:
+    if not use_current_meta:
+        logger.info("偏差抑制口径：关闭当前截面市值/行业/概念/财务元数据")
+        return BacktestMetadata({}, {}, {}, [], {}, "disabled")
+
     snap = _snapshot_metadata(snapshot_dir)
     if snap is not None:
         return snap
-
-    if not use_current_meta:
-        logger.info("偏差抑制口径：关闭当前截面市值/行业映射过滤 (L1 市值过滤 + L3 行业共振过滤)")
-        return BacktestMetadata({}, {}, {}, [], {}, "disabled")
 
     market_cap_map = fetch_market_cap_map()
     sector_map = fetch_sector_map()

@@ -16,7 +16,7 @@ def build_signal_confirmed_preview(selected_df: pd.DataFrame) -> str:
     if confirmed_df.empty:
         return ""
 
-    lines = ["## ✅ 二次确认补充（前置）"]
+    lines = ["## ✅ 跨日确认已通过（前置）"]
     for _, row in confirmed_df.sort_values("input_order", kind="stable").iterrows():
         code = clean_text(row.get("code"))
         name = clean_text(row.get("name")) or code
@@ -31,9 +31,9 @@ def build_signal_confirmed_preview(selected_df: pd.DataFrame) -> str:
 def build_unconfirmed_ops_block(blocked_codes: list[str], code_name: dict[str, str]) -> str:
     if not blocked_codes:
         return ""
-    lines = ["## 🚧 未二次确认拦截（前置）"]
+    lines = ["## 🚧 跨日确认未通过（前置）"]
     for code in blocked_codes:
-        lines.append(f"- {code} {code_name.get(code, code)}：模型曾列入起跳板，但未满足二次确认，降级为观察")
+        lines.append(f"- {code} {code_name.get(code, code)}：模型曾列入起跳板，但跨日确认未通过，降级为观察")
     return "\n".join(lines) + "\n\n---\n"
 
 

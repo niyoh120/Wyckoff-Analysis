@@ -44,7 +44,7 @@ def test_preview_only_skips_persistence_and_keeps_llm_input_path(monkeypatch, tm
             {
                 "code": "000002",
                 "name": "万科A",
-                "tag": "EVR(二次确认)",
+                "tag": "EVR(跨日确认)",
                 "selection_source": "signal_confirmed",
                 "confirm_reason": "守住 10.00",
                 "candidate_lane": "mainline",
@@ -250,9 +250,28 @@ def test_step3_review_symbols_adds_capped_repair_springboards(monkeypatch):
     assert got[0]["code"] == "000007"
     assert got[0]["selection_source"] == "l4_springboard"
     assert got[0]["source_type"] == "repair_springboard_review"
-    assert got[0]["signal_status"] == "confirmed"
+    assert got[0]["signal_status"] == "pending"
     assert got[0]["candidate_status"] == "修复复核候选"
     assert got[0]["springboard_grade"] == "A+C"
+    assert got[0]["structure_reason"] == "SOS起跳板结构(A+C)"
+
+
+def test_repair_springboard_preserves_real_cross_day_confirmation():
+    from workflows.daily_job_persistence import _step3_repair_springboard_row
+
+    got = _step3_repair_springboard_row(
+        {
+            "code": "000007",
+            "tag": "SOS起跳板结构(A+C)",
+            "signal_status": "confirmed",
+            "confirm_date": "2026-07-15",
+            "confirm_reason": "跨日守住支撑",
+        }
+    )
+
+    assert got["signal_status"] == "confirmed"
+    assert got["confirm_date"] == "2026-07-15"
+    assert got["confirm_reason"] == "跨日守住支撑"
 
 
 def test_recommendation_write_symbols_tracks_market_blocked_springboard_candidates():
@@ -284,7 +303,7 @@ def test_recommendation_write_symbols_tracks_market_blocked_springboard_candidat
     assert got[0]["candidate_status"] == "市场拦截观察"
     assert got[0]["selection_source"] == "l4_springboard:market_blocked"
     assert got[0]["market_regime"] == "PANIC_REPAIR"
-    assert got[0]["tag"] == "SOS二次确认(A+C)"
+    assert got[0]["tag"] == "SOS起跳板结构(A+C)"
 
 
 def test_step3_springboard_updates_patch_recommendation_payload():
@@ -353,7 +372,7 @@ def test_step3_confirmed_preview_lists_signal_pending_source():
         )
     )
 
-    assert "二次确认补充" in preview
+    assert "跨日确认已通过" in preview
     assert "603039 泛微网络" in preview
     assert "2026-06-11 → 2026-06-12" in preview
 

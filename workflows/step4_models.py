@@ -125,6 +125,7 @@ class Step4RuntimeConfig:
     atr_period: int = 14
     max_workers: int = 8
     max_external_report_candidates: int = 12
+    ai_candidate_policy: str = "veto_only"
     new_buy_limits: NewBuyLimits = field(default_factory=NewBuyLimits)
 
 

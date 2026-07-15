@@ -17,8 +17,9 @@ def run_step4_stage(
     benchmark_context: dict,
 ) -> dict:
     if cfg.skip_step4:
-        log_line("Step4 私人再平衡: 跳过（DAILY_JOB_SKIP_STEP4=1）", cfg.logs_path)
-        return stage_summary("私人再平衡", "skipped (DAILY_JOB_SKIP_STEP4=1)")
+        reason = "END_CALENDAR_DAY 回放隔离" if cfg.historical_replay else "DAILY_JOB_SKIP_STEP4=1"
+        log_line(f"Step4 私人再平衡: 跳过（{reason}）", cfg.logs_path)
+        return stage_summary("私人再平衡", f"skipped ({reason})")
 
     step4_target, reason = load_step4_target()
     if not step4_target:

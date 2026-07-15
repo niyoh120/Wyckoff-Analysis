@@ -13,7 +13,7 @@ def funnel_playbook_lines(regime: str | None, selected_count: int = 0) -> list[s
         f"1. 闸门：{mode.label}（{mode.mode}）— {mode.reason}",
         f"2. 新开仓：{_new_buy_rule(mode, selected_count)}",
         "3. 只做主线：优先「主线买点候选 / 起跳板」；旁路、Accum、观察池不占主仓。",
-        "4. 买入链路：漏斗候选 → Step3 起跳板 → confirmed 二次确认 → 尾盘 BUY。",
+        "4. 买入链路：漏斗候选 → Step3 审判 → 跨日确认 confirmed → 尾盘 BUY → OMS 核准。",
         "5. 持有：非主线默认 **5 日**时间止盈；主线约 **15 日**，破 MA20 或主题缩量阴跌再减。",
         "6. 止损：结构/时间优先；**-12%** 仅灾难地板，勿当日常洗盘止损。",
         "7. 读报告：先看本纪律与候选清单，再看明细；禁止新仓日不要从观察名单下单。",

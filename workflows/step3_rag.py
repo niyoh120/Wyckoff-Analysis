@@ -5,7 +5,6 @@ from __future__ import annotations
 import pandas as pd
 
 from integrations.rag_veto import (
-    RAG_SEMANTIC_MODEL,
     get_rag_veto_runtime_status,
     is_rag_veto_enabled,
     run_negative_news_veto,
@@ -40,7 +39,11 @@ def _run_rag_veto(selected_df: pd.DataFrame, rag_status: dict) -> Step3RagResult
     )
     veto_map = run_negative_news_veto(rag_inputs)
     vetoed_codes, rag_veto_lines, stats = _collect_step3_rag_results(veto_map)
-    rag_summary_lines = _build_step3_rag_summary_lines(stats, len(vetoed_codes))
+    rag_summary_lines = _build_step3_rag_summary_lines(
+        stats,
+        len(vetoed_codes),
+        semantic_model=str(rag_status.get("semantic_model") or ""),
+    )
     if not vetoed_codes:
         print("[step3][rag] 未命中负面关键词，保持候选不变")
         preview = "## 🛡️ RAG 防雷执行摘要（前置）\n" + "\n".join(rag_summary_lines) + "\n\n---\n"
@@ -106,10 +109,15 @@ def _format_rag_veto_line(code: str, result, hit_text: str) -> str:
     return f"- {code} {result.name}: 命中 {hit_label}{semantic_text}{ev_text}"
 
 
-def _build_step3_rag_summary_lines(stats: dict[str, int], veto_count: int) -> list[str]:
+def _build_step3_rag_summary_lines(
+    stats: dict[str, int],
+    veto_count: int,
+    *,
+    semantic_model: str = "",
+) -> list[str]:
     scanned = stats["scanned"]
     return [
-        f"- 语义模型: {RAG_SEMANTIC_MODEL or '未配置'}",
+        f"- 语义模型: {semantic_model or '未配置'}",
         f"- 扫描股票: {scanned}",
         f"- 新闻拉取成功: {stats['external_ok']}/{scanned}" if scanned else "- 新闻拉取成功: 0/0",
         f"- 相关新闻覆盖: {stats['relevant']}/{scanned}" if scanned else "- 相关新闻覆盖: 0/0",

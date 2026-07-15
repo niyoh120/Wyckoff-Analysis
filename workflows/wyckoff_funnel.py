@@ -15,11 +15,17 @@ from dataclasses import dataclass, replace
 
 import pandas as pd
 
-from core.candidate_policy import apply_loss_guard, candidate_score_value, rerank_selected_codes
+from core.candidate_policy import (
+    apply_loss_guard,
+    candidate_score_value,
+    cap_quality_candidates,
+    is_tradeable_l4_trigger_combo,
+)
 from core.candidate_tracks import candidate_entry_track
 from core.capital_migration import build_capital_migration_report
 from core.cn_boards import is_main_or_chinext, is_star_or_bse
 from core.funnel_etf import etf_metrics
+from core.funnel_selection import split_selected_tracks
 from core.theme_activity import summarize_theme_activity
 from core.theme_radar import summarize_theme_radar
 from core.wyckoff_engine import (
@@ -222,18 +228,13 @@ def _select_run_ai_candidates(
     full_mode_enabled: bool,
 ) -> FunnelAiSelection:
     selected_for_ai, trend_selected, accum_selected, score_map, ai_policy, use_full_ai_selection = (
-        select_base_ai_candidates(
-            ctx.metrics,
-            ctx.formal_triggers,
-            l3_ranked_symbols,
-            ctx.regime,
-            ctx.sector_map,
-            ctx.benchmark_context,
-            ctx.formal_sorted_codes,
-            ctx.code_to_total_score,
-            ctx.code_to_trigger_keys,
-            full_mode_enabled=full_mode_enabled,
-        )
+        _select_base_for_context(ctx, l3_ranked_symbols, full_mode_enabled)
+    )
+    selected_for_ai, trend_selected, accum_selected = _expand_quality_first_pool(
+        ctx,
+        selected_for_ai,
+        score_map,
+        ai_policy,
     )
     strategic_accum_codes = {
         str(code).strip()
@@ -285,6 +286,25 @@ def _select_run_ai_candidates(
     )
 
 
+def _select_base_for_context(
+    ctx: FunnelRenderContext,
+    l3_ranked_symbols: list[str],
+    full_mode_enabled: bool,
+) -> tuple[list[str], list[str], list[str], dict[str, float], dict, bool]:
+    return select_base_ai_candidates(
+        ctx.metrics,
+        ctx.formal_triggers,
+        l3_ranked_symbols,
+        ctx.regime,
+        ctx.sector_map,
+        ctx.benchmark_context,
+        ctx.formal_sorted_codes,
+        ctx.code_to_total_score,
+        ctx.code_to_trigger_keys,
+        full_mode_enabled=full_mode_enabled,
+    )
+
+
 def _apply_ai_post_filters(
     ctx: FunnelRenderContext,
     selected_for_ai: list[str],
@@ -323,13 +343,43 @@ def _apply_ai_post_filters(
     selected_for_ai, trend_selected, accum_selected = _apply_market_mix_guard(
         ctx, selected_for_ai, trend_selected, accum_selected, score_map, ai_policy
     )
-    selected_for_ai = rerank_selected_codes(selected_for_ai, score_map)
-    trend_set, accum_set = set(trend_selected), set(accum_selected)
+    selected_for_ai, cap_dropped, sector_dropped = cap_quality_candidates(
+        selected_for_ai,
+        score_map,
+        getattr(ctx, "sector_map", {}),
+        total_cap=int(ai_policy.get("total_cap") or 8),
+        max_per_sector=int(ai_policy.get("max_per_sector") or 2),
+    )
+    ai_policy["quality_eligible_before_cap"] = len(selected_for_ai) + len(cap_dropped) + len(sector_dropped)
+    ai_policy["total_cap_dropped"] = cap_dropped
+    ai_policy["sector_cap_dropped"] = sector_dropped
+    ai_policy["final_selected_count"] = len(selected_for_ai)
+    trend_selected, accum_selected = split_selected_tracks(selected_for_ai, ctx.code_to_trigger_keys)
     return (
         selected_for_ai,
-        [c for c in selected_for_ai if c in trend_set],
-        [c for c in selected_for_ai if c in accum_set],
+        trend_selected,
+        accum_selected,
     )
+
+
+def _expand_quality_first_pool(
+    ctx: FunnelRenderContext,
+    selected_for_ai: list[str],
+    score_map: dict[str, float],
+    ai_policy: dict,
+) -> tuple[list[str], list[str], list[str]]:
+    if FUNNEL_AI_SELECTION_MODE != "tradeable_l4" or int(ai_policy.get("total_cap") or 0) <= 0:
+        trend, accum = split_selected_tracks(selected_for_ai, ctx.code_to_trigger_keys)
+        return selected_for_ai, trend, accum
+    pool = list(selected_for_ai)
+    for code in list(ctx.formal_sorted_codes) + list(ctx.candidate_entry_map):
+        if code in pool or not is_tradeable_l4_trigger_combo(ctx.code_to_trigger_keys.get(code, [])):
+            continue
+        pool.append(code)
+        score_map[code] = candidate_score_value(ctx.code_to_total_score.get(code))
+    ai_policy["quality_pool_before_guards"] = len(pool)
+    trend, accum = split_selected_tracks(pool, ctx.code_to_trigger_keys)
+    return pool, trend, accum
 
 
 def _apply_market_mix_guard(

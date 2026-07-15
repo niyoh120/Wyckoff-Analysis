@@ -32,6 +32,7 @@ class DailyJobConfig:
     step4_base_url: str
     step3_skip_llm: bool
     skip_step4: bool
+    historical_replay: bool
     preview_only: bool
     logs_path: str
 
@@ -53,6 +54,7 @@ def resolve_daily_job_config(args: argparse.Namespace) -> DailyJobConfig:
     step4_provider = resolve_provider_name("STEP4_LLM_PROVIDER", "efficiency")
     step4_api_key, step4_model, step4_base_url = get_provider_credentials(step4_provider)
     preview_only = env_flag("DAILY_JOB_PREVIEW_ONLY")
+    historical_replay = bool(os.getenv("END_CALENDAR_DAY", "").strip())
     if preview_only:
         os.environ["STEP3_SKIP_LLM"] = "1"
         os.environ["DAILY_JOB_SKIP_STEP4"] = "1"
@@ -70,7 +72,8 @@ def resolve_daily_job_config(args: argparse.Namespace) -> DailyJobConfig:
         step4_model=step4_model,
         step4_base_url=step4_base_url,
         step3_skip_llm=env_flag("STEP3_SKIP_LLM") or preview_only,
-        skip_step4=env_flag("DAILY_JOB_SKIP_STEP4") or preview_only,
+        skip_step4=env_flag("DAILY_JOB_SKIP_STEP4") or preview_only or historical_replay,
+        historical_replay=historical_replay,
         preview_only=preview_only,
         logs_path=args.logs or default_daily_job_logs_path(),
     )

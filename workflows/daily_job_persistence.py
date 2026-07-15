@@ -74,7 +74,7 @@ def persist_recommendations(
     try:
         recommend_date = int(trade_date.replace("-", ""))
         if not write_symbols:
-            log_fn(f"推荐记录入库: raw_count={len(symbols_info)}, write_count=0（二次确认候选为空，跳过）", logs_path)
+            log_fn(f"推荐记录入库: raw_count={len(symbols_info)}, write_count=0（跨日确认候选为空，跳过）", logs_path)
             return recommend_date, [], True
         payload = prepare_recommendation_payload(recommend_date, write_symbols)
         write_recommendation_backup(recommend_date, payload, logs_path, ai_codes=None, log_fn=log_fn)
@@ -169,12 +169,16 @@ def _allow_repair_springboard_review(step2_details: dict | None, trade_mode: Mar
 
 def _step3_repair_springboard_row(row: dict) -> dict:
     out = dict(row)
+    confirmed = is_confirmed_step4_candidate(out)
     out["selection_source"] = "l4_springboard"
     out["source_type"] = "repair_springboard_review"
-    out["signal_status"] = "confirmed"
+    out["signal_status"] = "confirmed" if confirmed else "pending"
     out["candidate_status"] = "修复复核候选"
     out["selection_is_fill"] = False
-    out.setdefault("confirm_reason", out.get("tag") or "修复期起跳板二次确认")
+    out.setdefault("structure_reason", out.get("tag") or "修复期起跳板结构复核")
+    if not confirmed:
+        out.pop("confirm_reason", None)
+        out.pop("confirm_date", None)
     return out
 
 
@@ -271,7 +275,7 @@ def _springboard_tracking_row(
     return {
         "code": code,
         "name": (step2_details.get("name_map") or {}).get(code, code),
-        "tag": f"{signal_type.upper()}二次确认({grade or '2/3+'})",
+        "tag": f"{signal_type.upper()}起跳板结构({grade or '2/3+'})",
         "track": signal_track(signal_type),
         "initial_price": (metrics.get("latest_close_map") or {}).get(code, 0.0),
         "score": _safe_float(score),
@@ -304,7 +308,7 @@ def _tracking_status(row: dict, trade_mode: MarketTradeMode, *, springboard: boo
         return "禁新仓-影子观察" if not trade_mode.allow_ai_review else "市场拦截观察"
     if existing:
         return existing
-    return "二次确认观察" if springboard else "AI复核候选"
+    return "跨日确认观察" if springboard else "AI复核候选"
 
 
 def _tracking_source(row: dict, trade_mode: MarketTradeMode) -> str:

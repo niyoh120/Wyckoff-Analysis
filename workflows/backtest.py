@@ -98,7 +98,7 @@ class BacktestWorkflowRequest:
     execution_regime_gate: str = "live"
     strategy_variant: str = "live"
     pending_mode: str = "both"
-    pending_merge_order: str = "funnel_first"
+    pending_merge_order: str = "confirmed_first"
     atr_period: int = DEFAULT_ATR_PERIOD
     atr_multiplier: float = DEFAULT_ATR_MULTIPLIER
     atr_hard_stop_pct: float = DEFAULT_ATR_HARD_STOP_PCT
@@ -286,6 +286,7 @@ def _load_prepared_data(
         theme_member_index=build_theme_member_index(metadata.concept_map, metadata.sector_map),
         snapshot_rows_total=history.snapshot_rows_total,
         snapshot_used=history.snapshot_used,
+        metadata_source=metadata.source,
     )
 
 
@@ -311,6 +312,8 @@ def _cash_config(request: BacktestWorkflowRequest) -> CashPortfolioConfig:
         small_trade_threshold=request.small_trade_threshold,
         small_trade_fee=request.small_trade_fee,
         lot_size=request.lot_size,
+        buy_friction_pct=request.buy_friction_pct,
+        sell_friction_pct=request.sell_friction_pct,
     )
 
 

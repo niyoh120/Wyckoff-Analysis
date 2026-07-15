@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import os
+
 from core.tail_buy.strategy import TailBuyStrategyConfig
 from utils.env import env_bool as _env_bool
 from utils.env import env_float as _env_float
 
 
 def tail_buy_strategy_config_from_env() -> TailBuyStrategyConfig:
+    ai_policy = os.getenv("TAIL_BUY_AI_POLICY", "veto_only").strip().lower()
+    if ai_policy not in {"shadow", "veto_only"}:
+        ai_policy = "veto_only"
     return TailBuyStrategyConfig(
         confirmed_only_buy=_env_bool("TAIL_BUY_CONFIRMED_ONLY_BUY", True),
+        ai_policy=ai_policy,
         support_breach_tolerance_pct=max(_env_float("TAIL_BUY_SUPPORT_BREACH_TOLERANCE_PCT", 0.3), 0.0),
         blowoff_high_ret_pct=_env_float("TAIL_BUY_BLOWOFF_HIGH_RET_PCT", 5.0),
         blowoff_drop_from_high_pct=_env_float("TAIL_BUY_BLOWOFF_DROP_FROM_HIGH_PCT", 2.2),

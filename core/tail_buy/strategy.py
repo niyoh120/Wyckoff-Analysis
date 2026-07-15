@@ -47,6 +47,7 @@ from core.tail_buy.models import (
 @dataclass(frozen=True)
 class TailBuyStrategyConfig:
     confirmed_only_buy: bool = True
+    ai_policy: str = "veto_only"
     support_breach_tolerance_pct: float = 0.3
     blowoff_high_ret_pct: float = 5.0
     blowoff_drop_from_high_pct: float = 2.2
@@ -1077,8 +1078,12 @@ def merge_rule_and_llm(
             except Exception:
                 conf_val = None
             item.llm_confidence = conf_val
-            item.final_decision = llm_decision
-            item.priority_score = _priority_score(item.rule_score + decision_bonus.get(llm_decision, 0.0))
+            item.final_decision = _merge_tail_decision(item.rule_decision, llm_decision, policy.ai_policy)
+            if item.final_decision != llm_decision:
+                _annotate_blocked_ai_buy(item, policy)
+                note = "AI仅做风险审计，不升级规则决策"
+                item.llm_reason = f"{item.llm_reason}；{note}" if item.llm_reason else note
+            item.priority_score = _priority_score(item.rule_score + decision_bonus.get(item.final_decision, 0.0))
         else:
             item.final_decision = item.rule_decision
             item.priority_score = _priority_score(item.rule_score + decision_bonus.get(item.rule_decision, 0.0))
@@ -1087,6 +1092,30 @@ def merge_rule_and_llm(
         out.append(item)
     out.sort(key=lambda x: (-x.priority_score, -x.rule_score, x.code))
     return _cap_repair_tail_buys(out)
+
+
+def _merge_tail_decision(rule_decision: str, llm_decision: str, policy: str) -> str:
+    if policy == "shadow":
+        return rule_decision
+    rank = {DECISION_SKIP: 0, DECISION_WATCH: 1, DECISION_BUY: 2}
+    return min((rule_decision, llm_decision), key=lambda decision: rank.get(decision, 0))
+
+
+def _annotate_blocked_ai_buy(candidate: TailBuyCandidate, config: TailBuyStrategyConfig) -> None:
+    if candidate.llm_decision != DECISION_BUY or config.ai_policy == "shadow":
+        return
+    reasons = _soft_buy_gate_reasons(candidate.features or {}, candidate.signal_type, config)
+    if (
+        config.confirmed_only_buy
+        and candidate.market_regime != "CRASH_LEFT_PROBE"
+        and normalize_status(candidate.status) != "confirmed"
+    ):
+        reasons.append("未二次确认，降级观察")
+    if not reasons:
+        return
+    candidate.rule_reasons.extend(reason for reason in reasons if reason not in candidate.rule_reasons)
+    suffix = "；".join(reasons)
+    candidate.llm_reason = f"{candidate.llm_reason}；{suffix}" if candidate.llm_reason else suffix
 
 
 def _cap_repair_tail_buys(out: list[TailBuyCandidate]) -> list[TailBuyCandidate]:

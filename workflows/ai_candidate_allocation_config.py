@@ -10,6 +10,7 @@ from core.ai_candidate_allocation import DEFAULT_AI_QUOTA_BY_FAMILY, AiCandidate
 def ai_candidate_allocation_config_from_env() -> AiCandidateAllocationConfig:
     return AiCandidateAllocationConfig(
         total_cap=_env_non_negative_int("FUNNEL_AI_TOTAL_CAP", 8),
+        max_per_sector=_env_non_negative_int("FUNNEL_AI_MAX_PER_SECTOR", 2),
         max_trend_l3_fill=_env_non_negative_int("FUNNEL_AI_MAX_TREND_L3_FILL", 0),
         max_accum_l3_fill=_env_non_negative_int("FUNNEL_AI_MAX_ACCUM_L3_FILL", 0),
         quota_by_family={

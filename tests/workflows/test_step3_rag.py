@@ -26,8 +26,9 @@ def test_rag_summary_does_not_treat_relevant_news_as_negative_keyword_hit(capsys
         }
     )
 
-    lines = _build_step3_rag_summary_lines(stats, 0)
+    lines = _build_step3_rag_summary_lines(stats, 0, semantic_model="resolved-model")
 
+    assert "- 语义模型: resolved-model" in lines
     assert "- 相关新闻覆盖: 2/2" in lines
     assert "- 命中负面关键词: 1/2" in lines
     capsys.readouterr()

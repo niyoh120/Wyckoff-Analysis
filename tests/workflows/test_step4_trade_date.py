@@ -257,6 +257,21 @@ def test_candidate_attribution_reaches_buy_ticket_and_persistence_row():
     assert rows[0]["wyckoff_context"] == tickets[0].wyckoff_context
 
 
+def test_veto_only_policy_downgrades_external_attack_to_probe():
+    decision = _decision("ATTACK")
+
+    decisions = complete_step4_decisions(
+        [decision],
+        PortfolioState(free_cash=50000, total_equity=100000, positions=[]),
+        {},
+        "NEUTRAL",
+        step4.Step4RuntimeConfig(ai_candidate_policy="veto_only"),
+    )
+
+    assert decisions[0].action == "PROBE"
+    assert "不得把外部新仓升级为ATTACK" in decisions[0].reason
+
+
 def test_candidate_guard_blocks_unlabeled_policy_buy_before_market_fetch():
     decision = DecisionItem(
         code="300750",
@@ -649,6 +664,7 @@ def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):
     monkeypatch.setenv("STEP4_MAX_NEW_BUYS_RISK_ON", "-1")
     monkeypatch.setenv("STEP4_MAX_NEW_BUYS_CAUTION", "3")
     monkeypatch.setenv("STEP4_ENFORCE_TARGET_TRADE_DATE", "yes")
+    monkeypatch.setenv("STEP4_AI_CANDIDATE_POLICY", "invalid")
 
     cfg = step4_runtime_config_from_env()
 
@@ -659,6 +675,7 @@ def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):
     assert cfg.new_buy_limits.risk_on == 0
     assert cfg.new_buy_limits.caution == 3
     assert cfg.enforce_target_trade_date is True
+    assert cfg.ai_candidate_policy == "veto_only"
 
 
 def test_step4_portfolio_loads_env_state_and_skips_invalid_positions(monkeypatch):

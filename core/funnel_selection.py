@@ -97,7 +97,7 @@ def promote_bypass_groups(
     code_to_trigger_keys: dict[str, list[str]],
     score_map: dict[str, float],
     *,
-    ai_total_cap: int,
+    ai_total_cap: int | None,
     bypass_enabled: bool,
     bypass_cap: int,
     strategic_enabled: bool,

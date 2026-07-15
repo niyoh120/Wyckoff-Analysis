@@ -88,6 +88,7 @@ def _build_user_message(
     holdings_intraday_report: str,
     external_report: str,
     order_config: Step4OrderConfig,
+    ai_candidate_policy: str,
 ) -> str:
     msg = (
         benchmark_text
@@ -99,6 +100,7 @@ def _build_user_message(
         + f"allowed_codes={','.join(sorted(allowed_codes))}\n\n"
         + "[组合决策约束]\n"
         + f"max_new_buy_names={max_new_buy_names}\n"
+        + f"ai_candidate_policy={ai_candidate_policy}\n"
         + "external_candidates_are_optional=true\n"
         + "omit_rejected_candidates_from_decisions=true\n"
         + "prefer_cash_over_marginal_candidates=true\n"
@@ -111,7 +113,8 @@ def _build_user_message(
         + "TRIM: 只在逼近止损、放量跌破关键位、上涨后出现派发/滞涨时使用；不能只因为浮亏或持有天数而减仓。\n"
         + "HOLD: 默认动作。结构未破坏、止损未触发、无更强替代候选时必须继续持有。\n"
         + "PROBE/ATTACK加仓: 只允许已有持仓浮盈、止损已上移、且当前结构明显强于原买点时使用；禁止亏损补仓。\n"
-        + "新开仓: 只允许二次确认候选；候选还必须明显强于现有最弱持仓且不挤占风控预算。\n\n"
+        + "新开仓: 输入候选已通过确定性准入；AI只能否决或保留，不能把候选升级为无条件买入。\n"
+        + "外部新仓最多给 PROBE，禁止由AI升级为 ATTACK。\n\n"
         + "[内部持仓量价切片]\n"
         + (positions_payload if positions_payload else "当前无持仓，仅现金。")
         + "\n\n[漏斗候选量价切片]\n"
@@ -182,6 +185,7 @@ def _prepare_step4_input_context(
         holdings_intraday_report=holdings_intraday_report,
         external_report=external_report,
         order_config=order_config,
+        ai_candidate_policy=runtime_config.ai_candidate_policy,
     )
     return Step4InputContext(
         portfolio=portfolio,

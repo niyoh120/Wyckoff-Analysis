@@ -86,12 +86,16 @@ def is_rag_veto_enabled() -> bool:
 
 def get_rag_veto_runtime_status() -> dict[str, Any]:
     enabled = is_rag_veto_enabled()
+    semantic_provider, _, semantic_model, _, semantic_error = _semantic_llm_config()
     return {
         "enabled": enabled,
         "has_provider": True,  # akshare 无需 API key
         "lookback_days": int(max(RAG_NEWS_LOOKBACK_DAYS, 1)),
         "max_workers": int(max(RAG_MAX_WORKERS, 1)),
         "source": "akshare/eastmoney",
+        "semantic_provider": semantic_provider,
+        "semantic_model": semantic_model,
+        "semantic_error": semantic_error,
     }
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from core.market_trade_mode import resolve_market_trade_mode
 from workflows.daily_job_persistence import step3_review_symbols
 from workflows.daily_job_step3 import filter_confirmed_step3_codes
-from workflows.step3_reporting import _empty_step3_report
+from workflows.step3_reporting import _empty_step3_report, _step3_title
 
 
 def test_mainline_step3_uses_displayed_funnel_selection_before_confirmation() -> None:
@@ -44,3 +44,7 @@ def test_empty_step3_report_states_real_upstream_reason() -> None:
     assert "上游实际送入 Step3 的候选为 0" in report
     assert "候选均被 RAG" not in report
     assert "风险过高" not in report
+
+
+def test_step3_title_uses_report_trade_date_instead_of_wall_clock() -> None:
+    assert _step3_title({"trade_date": "2026-07-15"}) == "📄 批量研报 2026-07-15"

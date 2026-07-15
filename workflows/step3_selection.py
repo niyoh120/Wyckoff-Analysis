@@ -21,10 +21,10 @@ def candidate_source_label(row: pd.Series) -> str:
     source = clean_text(row.get("selection_source"))
     label = source_label(source)
     confirmed = clean_text(row.get("signal_status")).lower() == "confirmed"
-    if confirmed and label and label != "二次确认":
-        return f"{label}+二次确认"
+    if confirmed and label and label != "跨日确认":
+        return f"{label}+跨日确认"
     if confirmed:
-        return "二次确认"
+        return "跨日确认"
     return label
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from core.cash_portfolio import CashPortfolioConfig, calc_commission, expand_portfolio_styles, simulate_cash_portfolio
 
@@ -84,6 +85,47 @@ def test_cash_portfolio_accepts_empty_trade_frame() -> None:
     assert summary["cash_portfolio_trades"] == 0
 
 
+def test_cash_portfolio_applies_execution_friction_once_to_cash_positions_and_nav() -> None:
+    trades = pd.DataFrame(
+        [
+            {
+                "code": "000001",
+                "entry_date": "2026-01-05",
+                "exit_date": "2026-01-06",
+                "entry_close": 10.0,
+                "exit_close": 10.0,
+                "ret_pct": -99.0,
+            }
+        ]
+    )
+    config = CashPortfolioConfig(
+        initial_cash=100_000,
+        max_positions=1,
+        commission_rate=0.0,
+        small_trade_threshold=0.0,
+        small_trade_fee=0.0,
+        buy_friction_pct=1.0,
+        sell_friction_pct=1.0,
+    )
+
+    closed, nav, summary = simulate_cash_portfolio(trades, config)
+
+    trade = closed.iloc[0]
+    assert trade["shares"] == 9_900
+    assert trade["entry_market_price"] == 10.0
+    assert trade["entry_price"] == 10.1
+    assert trade["exit_market_price"] == 10.0
+    assert trade["exit_price"] == 9.9
+    assert trade["buy_friction_cost"] == pytest.approx(990.0)
+    assert trade["sell_friction_cost"] == pytest.approx(990.0)
+    assert trade["ret_pct"] == pytest.approx(-1.9801980198)
+    assert nav.iloc[0]["equity"] == pytest.approx(99_010.0)
+    assert summary["cash_portfolio_final_cash"] == pytest.approx(98_020.0)
+    assert summary["cash_portfolio_friction_total"] == pytest.approx(1_980.0)
+    assert summary["cash_portfolio_buy_friction_pct"] == 1.0
+    assert summary["cash_portfolio_sell_friction_pct"] == 1.0
+
+
 def test_cash_portfolio_drawdown_uses_mark_price() -> None:
     rows = [
         {
@@ -149,7 +191,41 @@ def test_portfolio_style_probe_add_allows_same_stock_addon() -> None:
     assert summary["cash_portfolio_add_entries"] == 1
 
 
-def test_portfolio_style_confirmation_waits_for_second_signal() -> None:
+def test_portfolio_style_addon_uses_current_mark_for_target_weight() -> None:
+    rows = [
+        {
+            "code": "000001",
+            "entry_date": "2026-01-05",
+            "exit_date": "2026-01-20",
+            "entry_close": 10.0,
+            "exit_close": 20.0,
+        },
+        {
+            "code": "000001",
+            "entry_date": "2026-01-07",
+            "exit_date": "2026-01-22",
+            "entry_close": 20.0,
+            "exit_close": 20.0,
+        },
+    ]
+    config = CashPortfolioConfig(
+        initial_cash=100_000,
+        portfolio_style="probe_add",
+        commission_rate=0.0,
+        small_trade_threshold=0.0,
+        small_trade_fee=0.0,
+    )
+
+    closed, _nav, _summary = simulate_cash_portfolio(
+        pd.DataFrame(rows),
+        config,
+        mark_price_fn=lambda code, day: 20.0 if code == "000001" and day == date(2026, 1, 7) else None,
+    )
+
+    assert closed.loc[closed["entry_kind"] == "add", "shares"].iloc[0] == 200
+
+
+def test_portfolio_style_confirmation_uses_pending_pool_confirmation() -> None:
     rows = [
         {
             "code": "000001",
@@ -160,6 +236,7 @@ def test_portfolio_style_confirmation_waits_for_second_signal() -> None:
             "entry_close": 10.0,
             "exit_close": 11.0,
             "score": 1.0,
+            "signal_confirmed": False,
         },
         {
             "code": "000001",
@@ -170,6 +247,7 @@ def test_portfolio_style_confirmation_waits_for_second_signal() -> None:
             "entry_close": 10.5,
             "exit_close": 11.5,
             "score": 1.2,
+            "signal_confirmed": True,
         },
     ]
 
@@ -179,8 +257,30 @@ def test_portfolio_style_confirmation_waits_for_second_signal() -> None:
     )
 
     assert list(closed["entry_kind"]) == ["confirmed"]
-    assert summary["cash_portfolio_observation_wait"] == 1
+    assert summary["cash_portfolio_unconfirmed"] == 1
     assert summary["cash_portfolio_confirmed_entries"] == 1
+
+
+def test_portfolio_style_confirmation_does_not_treat_repeat_as_confirmation() -> None:
+    rows = [
+        {
+            "code": "000001",
+            "entry_date": date(2026, 1, day),
+            "exit_date": date(2026, 1, day + 5),
+            "entry_close": 10.0,
+            "exit_close": 11.0,
+            "signal_confirmed": False,
+        }
+        for day in (5, 7)
+    ]
+
+    closed, _nav, summary = simulate_cash_portfolio(
+        pd.DataFrame(rows),
+        CashPortfolioConfig(initial_cash=100_000, portfolio_style="confirmation_only"),
+    )
+
+    assert closed.empty
+    assert summary["cash_portfolio_unconfirmed"] == 2
 
 
 def test_portfolio_style_concentrated_swap_replaces_weak_holding() -> None:

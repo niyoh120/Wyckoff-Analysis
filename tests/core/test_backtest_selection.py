@@ -232,13 +232,13 @@ def test_tradeable_l4_selection_uses_formal_l4_without_l3_fallback() -> None:
     assert score_map == {"000005": 1.5, "000006": 1.0}
 
 
-def test_tradeable_l4_selection_prefers_candidate_board_when_available() -> None:
+def test_tradeable_l4_selection_unions_candidate_board_with_formal_quality_pool() -> None:
     result = FunnelResult(
         layer1_symbols=[],
         layer2_symbols=[],
         layer3_symbols=[],
         top_sectors=[],
-        triggers={"sos": [("000001", 5.0)]},
+        triggers={"compression": [("000001", 85.0)]},
         stage_map={},
         markup_symbols=[],
         exit_signals={},
@@ -263,9 +263,9 @@ def test_tradeable_l4_selection_prefers_candidate_board_when_available() -> None
         selection_mode="tradeable_l4",
     )
 
-    assert codes == ["000002"]
-    assert score_map == {"000002": 78.0}
-    assert track_map == {"000002": "Trend"}
+    assert codes == ["000001", "000002"]
+    assert score_map == {"000001": 85.0, "000002": 78.0}
+    assert track_map == {"000001": "Trend", "000002": "Trend"}
 
 
 def test_tradeable_l4_selection_blocks_upthrust_candidate() -> None:
@@ -535,7 +535,7 @@ def test_tradeable_l4_candidate_board_uses_signal_key_when_entry_type_is_display
         selection_mode="tradeable_l4",
     )
 
-    assert codes == ["000002", "000001"]
+    assert codes == ["000001", "000002"]
 
 
 def test_tradeable_l4_candidate_board_keeps_best_duplicate_score_and_track() -> None:
@@ -598,7 +598,7 @@ def test_tradeable_l4_candidate_board_ranks_by_best_duplicate_entry() -> None:
         selection_mode="tradeable_l4",
     )
 
-    assert codes == ["000002", "000001"]
+    assert codes == ["000001", "000002"]
     assert score_map == {"000002": 90.0, "000001": 100.0}
     assert track_map == {"000002": "Trend", "000001": "Accum"}
 
@@ -630,7 +630,7 @@ def test_tradeable_l4_candidate_board_ranks_unknown_entry_after_known_entries() 
         selection_mode="tradeable_l4",
     )
 
-    assert codes == ["000002", "000001"]
+    assert codes == ["000001", "000002"]
 
 
 def test_tradeable_l4_candidate_board_normalizes_entry_type_for_loss_guard() -> None:

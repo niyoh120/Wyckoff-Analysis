@@ -2,6 +2,8 @@
 
 > 自动生成于 2026-06-28 19:10:24。本文件由 `scripts/update_backtest_market_report.py` 从 Backtest Grid artifacts 更新。
 
+> ⚠️ **历史结果已失效，等待新一轮全周期回测替换。** 下表生成于 2026-07-16 回测口径修复之前，当时现金组合没有按成交摩擦重建现金/NAV、`confirmation_only` 会把同一代码重复出现误当确认、当前截面元数据也可能先于偏差开关被读取，且每日 Top4 与生产每日最多一个新开仓不一致。因此本文中的收益、稳健参数和“当前结论”均不得作为盈利证明或生产调参依据；只有修复后 `all_defined` workflow 的新 artifacts 才是有效证据。
+
 ## 执行上下文
 
 - 回测脚本: `python -m scripts.backtest_runner`（由 `.github/workflows/backtest_grid.yml` 手动触发精简参数网格并发执行）
@@ -121,5 +123,11 @@
 
 - 胜率是单笔交易 `ret_pct > 0` 的比例，不是组合每日正收益比例。
 - 入场口径以各参数单元 summary 为准；当前 workflow 默认 T+1 开盘价，`tail_1455` 模式缺分钟线时按 `BACKTEST_ENTRY_PRICE_FALLBACK` 处理。
+- 现金组合使用原始市场价重建成交：买入价乘以 `1 + buy_friction_pct`、卖出价乘以 `1 - sell_friction_pct`，仓位、现金、NAV 与收益均据此计算；佣金在摩擦之外另计，不复用已经扣过摩擦的单笔 `ret_pct`。
 - `可完整验证信号期` 会早于回测结束日，因为持有窗口需要足够后续交易日完成离场验证。
-- 本结果仍包含当前股票池幸存者偏差；正式回测默认关闭当前截面市值/行业/概念映射。只有显式传入 `--use-current-meta` 的探索性运行才会启用这些前视元数据，且不得据此自动选择生产参数。
+- 每个参数单元的 summary 会独立输出 `crash_probe_*` 诊断：D 日盘后观察候选数、D+1 日线硬条件命中数与 Top1 收盘代理入场数、D+2 确认率，以及 2% 初始试错和确认后增量 3% 的权重收益和。它不是组合收益：D+1 仍使用同收盘判定/成交代理、不计现金组合佣金、不计入普通 `trades`，也不能验证分钟 VWAP、Spring 质量或尾盘反转。
+- `pending_mode=both` 默认用 `confirmed_first` 合并，再执行 TopN；现金组合的“跨日确认买入”只认回放记录中的 `signal_confirmed=true`，同一代码重复出现不会被当作确认。
+- A 股正式 workflow 固定 `BT_TOP_N=1`，与实盘每日最多一个新开仓候选一致；参数网格不再用 Top4 评价实盘不会执行的同日组合。
+- 现金组合在新开或加仓日按可得市价重估现有持仓后再算目标权重；当日价格缺失才回退原买入市场价。
+- 本结果仍包含当前股票池幸存者偏差；正式回测默认在读取快照元数据前关闭当前截面市值/行业/概念/热度/财务映射。只有显式传入 `--use-current-meta` 的探索性运行才会启用这些前视元数据，summary/report 会按实际来源披露 `metadata_source=disabled/snapshot/current`，且不得据此前视结果自动选择生产参数。
+- `metadata_source=disabled` 时没有 point-in-time 行业映射，回测只能执行总量上限，不能验证实盘的单行业上限；不得把该结果描述为行业集中度已完全对齐。若显式加载当前行业映射，则必须同时披露其前视偏差。

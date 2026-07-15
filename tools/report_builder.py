@@ -245,9 +245,9 @@ def _build_confirmation_gate_line(
 ) -> str:
     source = str(candidate_source or "").strip() or "未标注"
     status = str(signal_status or "").strip().lower()
-    confirmed = status == "confirmed" or "二次确认" in source
+    confirmed = status == "confirmed" or "二次确认" in source or "跨日确认" in source
     status_text = "confirmed" if confirmed else "unconfirmed"
-    parts = [f"来源:{source}", f"二次确认:{status_text}"]
+    parts = [f"来源:{source}", f"跨日确认:{status_text}"]
     if confirm_date:
         parts.append(f"确认日:{str(confirm_date).strip()}")
     if confirm_reason:
