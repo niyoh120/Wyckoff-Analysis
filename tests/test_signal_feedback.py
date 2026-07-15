@@ -1037,6 +1037,19 @@ def test_build_signal_weight_map_regime_scoped_health_overrides_global():
     assert weights.get("launchpad|regime=RISK_ON") == 1.0
 
 
+def test_build_signal_weight_map_missing_multiplier_defaults_to_no_adjustment():
+    """health/registry 行缺失 weight_multiplier 时应兜底 1.0（不调权），不能误伤为 0.0（完全禁用）。"""
+    health_rows = [
+        {"as_of_date": "2026-06-10", "signal_type": "sos", "regime": "ALL", "horizon_days": 5},
+    ]
+    registry_rows = [
+        {"signal_type": "evr", "status": "WATCH", "regime": ""},
+    ]
+    weights = build_signal_weight_map(health_rows, registry_rows, regime="NEUTRAL")
+    assert weights["sos"] == 1.0
+    assert weights["evr"] == 1.0
+
+
 def test_build_signal_registry_updates_includes_regime_rows():
     """build_signal_registry_updates 应同时输出全局行和按 regime 拆分的行。"""
     health_rows = [

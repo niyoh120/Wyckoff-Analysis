@@ -97,7 +97,9 @@ def build_signal_weight_map(
     horizon = dynamic_policy_horizon(config) if horizon_days is None else max(int(horizon_days), 1)
     regime_norm = normalize_regime(regime)
     for signal_type, row in _latest_health_by_signal(health_rows, regime, horizon).items():
-        w = max(safe_float(row.get("weight_multiplier")), 0.0)
+        # weight_multiplier 缺失代表数据异常而非"已确认无效"，兜底 1.0（不调权）
+        # 而非 0.0，避免把信号误伤成完全禁用。
+        w = max(safe_float(row.get("weight_multiplier"), 1.0), 0.0)
         weights[signal_type] = w
         # 按 regime 存入 scoped key（如 "launchpad|regime=RISK_ON"），
         # 使 resolve_signal_weight_multiplier 精确命中而非回退到全局值。
@@ -109,7 +111,7 @@ def build_signal_weight_map(
         if not signal_type:
             continue
         status = str(row.get("status") or "ACTIVE").strip().upper()
-        reg_weight = max(safe_float(row.get("weight_multiplier")), 0.0)
+        reg_weight = max(safe_float(row.get("weight_multiplier"), 1.0), 0.0)
         row_regime = str(row.get("regime") or "").strip().upper()
         if not row_regime:
             weights[signal_type] = (
