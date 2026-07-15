@@ -15,21 +15,33 @@ _INDEX_SYMBOLS = ("000001.SH", "399006.SZ")
 _WEAK_REGIME_TOKENS = ("CRASH", "RISK_OFF", "PANIC_REPAIR", "BEAR_REBOUND", "BLACK_SWAN")
 
 
+#  数值越小＝越防守。核心不变量：任一 regime 属于 core.tail_buy.guardrails.
+#  HARD_BLOCK_REGIMES（全拦截）时，其数值必须严格小于所有非硬拦截 regime，
+#  否则 more_defensive_regime 合并会把硬拦截错误稀释成放行状态（fail-open）。
+#  同理，UNKNOWN（market_signal_daily 缺失/过期）必须排最防守档：fail-closed，
+#  宁可错拦，不可漏拦。
+#
+#  第一档 HARD_BLOCK（0-5，全拦截，见 guardrails.HARD_BLOCK_REGIMES）：
+#    UNKNOWN / BLACK_SWAN / CRASH_INTRADAY / RISK_OFF / PANIC_REPAIR / BEAR_REBOUND
+#  第二档 分层放行/限额试探（6-10，非硬拦截，但比完全放行更严格）：
+#    CRASH_LEFT_PROBE（2%试探仓）< PANIC_REPAIR_INTRADAY/CONFIRMED（5%试探仓）
+#    < CRASH/RISK_ON（仅放行 guardrails.TIERED_ALLOW_SIGNALS 指定信号类型）
+#  第三档 完全放行（11-13）：CAUTION / NEUTRAL / NORMAL
 _REGIME_PRIORITY = {
-    "BLACK_SWAN": 0,
-    "CRASH": 1,
+    "UNKNOWN": 0,
+    "BLACK_SWAN": 1,
     "CRASH_INTRADAY": 2,
     "RISK_OFF": 3,
-    "PANIC_REPAIR_CONFIRMED": 4,
-    "PANIC_REPAIR_INTRADAY": 5,
-    "PANIC_REPAIR": 6,
-    "BEAR_REBOUND": 7,
-    "CRASH_LEFT_PROBE": 8,
-    "RISK_ON": 9,
-    "NEUTRAL": 10,
+    "PANIC_REPAIR": 4,
+    "BEAR_REBOUND": 5,
+    "CRASH_LEFT_PROBE": 6,
+    "PANIC_REPAIR_INTRADAY": 7,
+    "PANIC_REPAIR_CONFIRMED": 8,
+    "CRASH": 9,
+    "RISK_ON": 10,
     "CAUTION": 11,
-    "NORMAL": 12,
-    "UNKNOWN": 13,
+    "NEUTRAL": 12,
+    "NORMAL": 13,
 }
 
 

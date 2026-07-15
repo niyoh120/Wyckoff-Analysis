@@ -3,10 +3,16 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+from core.tail_buy.guardrails import HARD_BLOCK_REGIMES
 from core.tail_buy.models import TailBuyCandidate
 from workflows import tail_buy_intraday_job as job
 from workflows.strategy_attribution_policy import AttributionPolicySnapshot
-from workflows.tail_buy_market_repair import apply_base_market_regime, apply_intraday_market_mode
+from workflows.tail_buy_market_repair import (
+    _REGIME_PRIORITY,
+    apply_base_market_regime,
+    apply_intraday_market_mode,
+    more_defensive_regime,
+)
 from workflows.tail_buy_utils import current_time
 
 
@@ -222,6 +228,33 @@ def test_apply_base_market_regime_overwrites_with_current_day_regime() -> None:
     assert existing.market_regime == "CRASH"
 
 
+def test_more_defensive_regime_never_dilutes_hard_block() -> None:
+    """任一 regime 属于 HARD_BLOCK_REGIMES 时，合并结果必须仍属于 HARD_BLOCK_REGIMES。
+
+    回归场景：UNKNOWN+NORMAL 曾被错误合并为 NORMAL，导致 fail-open。
+    """
+    for a in _REGIME_PRIORITY:
+        for b in _REGIME_PRIORITY:
+            if a in HARD_BLOCK_REGIMES or b in HARD_BLOCK_REGIMES:
+                assert more_defensive_regime(a, b) in HARD_BLOCK_REGIMES, f"{a}+{b} 合并后逃逸了硬拦截"
+
+
+def test_more_defensive_regime_unknown_beats_normal() -> None:
+    assert more_defensive_regime("UNKNOWN", "NORMAL") == "UNKNOWN"
+    assert more_defensive_regime("NORMAL", "UNKNOWN") == "UNKNOWN"
+
+
+def test_more_defensive_regime_caution_beats_neutral() -> None:
+    assert more_defensive_regime("CAUTION", "NEUTRAL") == "CAUTION"
+    assert more_defensive_regime("NEUTRAL", "CAUTION") == "CAUTION"
+
+
+def test_more_defensive_regime_panic_repair_beats_confirmed() -> None:
+    """PANIC_REPAIR（硬拦截）必须比 PANIC_REPAIR_CONFIRMED（5%试探仓）更防守。"""
+    assert more_defensive_regime("PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED") == "PANIC_REPAIR"
+    assert more_defensive_regime("PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR") == "PANIC_REPAIR"
+
+
 class TestApplyMarketBlockTiered:
     """_apply_market_block 分层拦截：硬防守全拦，CRASH/RISK_ON 按信号类型放行。"""
 
@@ -284,6 +317,25 @@ class TestApplyMarketBlockTiered:
         job._apply_market_block([launchpad], regime_info, self._config())
         assert launchpad.final_decision == "SKIP"
         assert "PANIC_REPAIR" in launchpad.rule_reasons[0]
+
+    def test_benchmark_unknown_with_normal_premarket_still_blocks(self, monkeypatch):
+        """回归：benchmark=UNKNOWN(信号缺失,硬拦截) + premarket=NORMAL 不能放行新开仓。"""
+        monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
+        candidates = [self._candidate("000001", "sos"), self._candidate("000002", "launchpad")]
+        regime_info = {"benchmark": "UNKNOWN", "premarket": "NORMAL"}
+        job._apply_market_block(candidates, regime_info, self._config())
+        assert all(c.final_decision == "SKIP" for c in candidates)
+
+    def test_both_tiered_regimes_intersect_allowed_signals(self, monkeypatch):
+        """benchmark=CRASH({evr,launchpad}) + premarket=RISK_ON({launchpad,trend_lane_pullback})
+        → 只放行两者交集 {launchpad}。"""
+        monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
+        launchpad = self._candidate("000001", "launchpad")
+        evr = self._candidate("000002", "evr")
+        regime_info = {"benchmark": "CRASH", "premarket": "RISK_ON"}
+        job._apply_market_block([launchpad, evr], regime_info, self._config())
+        assert launchpad.final_decision != "SKIP"
+        assert evr.final_decision == "SKIP"
 
 
 def test_auto_run_plan_uses_intraday_before_close(monkeypatch) -> None:
