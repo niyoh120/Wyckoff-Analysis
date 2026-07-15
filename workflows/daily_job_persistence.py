@@ -111,13 +111,30 @@ def step3_review_symbols(
     step2_details: dict | None = None,
     trade_mode: MarketTradeMode | None = None,
 ) -> list[dict]:
+    mode = trade_mode or resolve_market_trade_mode(None)
+    if step2_details is not None and "selected_for_ai" in step2_details and mode.mode != "repair_review":
+        return _selected_funnel_review_symbols(symbols_info, step2_details)
     strict = [item for item in symbols_info if is_recommendation_review_candidate(item)]
     extras = repair_review_springboard_symbols(
         step2_details,
-        trade_mode,
+        mode,
         exclude_codes={code6(item.get("code")) for item in strict},
     )
     return strict + extras
+
+
+def _selected_funnel_review_symbols(symbols_info: list[dict], step2_details: dict) -> list[dict]:
+    selected_codes = [code6(code) for code in step2_details.get("selected_for_ai", []) or []]
+    by_code = {code6(item.get("code")): item for item in symbols_info if isinstance(item, dict)}
+    rows: list[dict] = []
+    for input_order, code in enumerate(selected_codes):
+        item = by_code.get(code)
+        if not code or item is None:
+            continue
+        row = dict(item)
+        row["input_order"] = input_order
+        rows.append(row)
+    return rows
 
 
 def repair_review_springboard_symbols(

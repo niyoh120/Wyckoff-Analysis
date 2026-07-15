@@ -39,7 +39,7 @@ def send_empty_step3_report(
     rag_veto_preview: str,
     rag_veto_lines: list[str],
 ) -> tuple[bool, str, str]:
-    report = _empty_step3_report(rag_veto_preview, rag_veto_lines)
+    report = _empty_step3_report(rag_veto_preview, rag_veto_lines, input_count=len(items))
     if not options.notify:
         return (True, "ok", report)
     if not notify_step3_channels(options, _step3_title(), report):
@@ -119,15 +119,22 @@ def send_step3_final_report(
     return (True, "ok", llm_result.report)
 
 
-def _empty_step3_report(rag_veto_preview: str, rag_veto_lines: list[str]) -> str:
+def _empty_step3_report(rag_veto_preview: str, rag_veto_lines: list[str], *, input_count: int) -> str:
+    if input_count <= 0:
+        reason = "上游实际送入 Step3 的候选为 0，只发送状态说明，未调用三阵营模型"
+    elif rag_veto_lines:
+        reason = f"Step3 收到 {input_count} 只候选，RAG 防雷后无剩余候选，未调用三阵营模型"
+    else:
+        reason = f"Step3 收到 {input_count} 只候选，但数据或质量门槛后无可用模型输入"
     report = (
         "# 🏛️ Alpha 投委会机密电报：威科夫盘面审判\n\n"
+        f"> ⚪ **本轮未执行三阵营模型审判**：{reason}。\n\n"
         "## 💀 逻辑破产\n"
-        "- 无（本轮无明确失效标的可判定）\n\n"
+        "- 无（未执行模型审判，不代表候选逻辑有效或失效）\n\n"
         "## ⏳ 储备营地\n"
-        "- 无（候选均被 RAG 防雷 veto 或数据不足）\n\n"
+        "- 无（未执行模型审判）\n\n"
         "## 🏹 处于起跳板\n"
-        "- 无（风险过高，今日保持观望）"
+        "- 无（未执行模型审判，不表示任何风险结论）"
     )
     if rag_veto_lines:
         report = rag_veto_preview + report + "\n\n## 🛑 RAG 防雷剔除清单\n" + "\n".join(rag_veto_lines)

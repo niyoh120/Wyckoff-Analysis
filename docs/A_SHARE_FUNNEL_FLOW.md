@@ -265,22 +265,25 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    IN["symbols_info<br/>漏斗候选 + 元数据"] --> FETCH["逐只拉 OHLCV<br/>320 日窗口"]
+    IN["selected_for_ai<br/>与漏斗报告送审清单一致"] --> FETCH["逐只拉 OHLCV<br/>320 日窗口"]
     FETCH --> FEAT["特征工程<br/>generate_stock_payload<br/>均线/量价切片/高光事件"]
-    FEAT --> SPLIT["双轨分组<br/>Trend vs Accum"]
+    FEAT --> RAG["RAG 语义防雷<br/>rag_veto 新闻否决"]
+    RAG --> SPLIT["双轨分组<br/>Trend vs Accum"]
     SPLIT --> LLM["LLM 三阵营审判<br/>逻辑破产 / 储备营地 / 起跳板"]
-    LLM --> RAG["RAG 语义防雷<br/>rag_veto 新闻否决"]
-    RAG --> OUT["extract_operation_pool_codes<br/>提取起跳板代码"]
+    LLM --> OUT["extract_operation_pool_codes<br/>提取起跳板代码"]
+    OUT --> GATE{"signal_status=confirmed?"}
+    GATE -->|否| WATCH["降级观察<br/>不得进入 Step4/尾盘执行"]
+    GATE -->|是| EXEC["允许进入后续执行复核"]
     OUT --> PUSH["飞书/企微/钉钉推送研报"]
     OUT --> MARK["mark_ai_recommendations<br/>recommendation_tracking"]
-    OUT --> CONF["跨日信号确认<br/>SOS/EVR需守支撑+站稳MA20"]
 ```
 
 **LLM 配置**（workflow 默认）：
 
 - Step3：`STEP3_LLM_PROVIDER=gemini`，fallback `efficiency`
 - 输入不是原始 K 线，而是压缩后的结构特征
-- 空候选仍发送空集报告、合规摘要和明日执行结论；主 provider 失败时按配置回退，不会在 daily-job 包装层静默跳过
+- 漏斗展示的送审数量与 Step3 实际输入保持一致；模型审判不等于执行放行，`confirmed` 仍是 Step4/尾盘硬门槛
+- 空候选仍发送空集报告、合规摘要和明日执行结论，并明确区分上游空输入、RAG 全剔除和数据门槛过滤；主 provider 失败时按配置回退，不会在 daily-job 包装层静默跳过
 
 ---
 

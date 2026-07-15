@@ -112,7 +112,10 @@ def _prepare_step3_review_input(step2: Step2StageResult, trade_mode: MarketTrade
     )
     log_line(
         "Step2.8 AI研报输入收口: "
-        f"raw={len(step2.symbols_info)}, confirmed={len(step2.details['step3_symbols_info'])}, "
+        f"raw={len(step2.symbols_info)}, "
+        f"funnel_selected={len(step2.details.get('selected_for_ai', []) or [])}, "
+        f"signal_confirmed={len(step2.details.get('signal_confirmed_selected', []) or [])}, "
+        f"step3_input={len(step2.details['step3_symbols_info'])}, "
         f"trade_mode={trade_mode.mode}",
         cfg.logs_path,
     )

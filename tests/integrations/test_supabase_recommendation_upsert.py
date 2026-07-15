@@ -287,12 +287,23 @@ def test_upsert_payload_rows_drops_missing_optional_columns():
         "recommend_date": 20260601,
         "name": "Stock1",
         "initial_price": 10.0,
+        "funnel_score": 88.0,
         "capital_migration_bonus": 0.3,
     }
 
     upsert_recommendation_payload_rows(client, [row])
 
-    assert client.upserts == [[{"code": 1, "recommend_date": 20260601, "name": "Stock1", "initial_price": 10.0}]]
+    assert client.upserts == [
+        [
+            {
+                "code": 1,
+                "recommend_date": 20260601,
+                "name": "Stock1",
+                "initial_price": 10.0,
+                "funnel_score": 88.0,
+            }
+        ]
+    ]
 
 
 def test_write_recommendation_backup_artifact_marks_ai_and_sql(tmp_path):

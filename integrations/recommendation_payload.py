@@ -52,21 +52,27 @@ def _load_existing_recommendation_history(client) -> tuple[dict[int, int], dict[
 def upsert_recommendation_payload_rows(client, payload: list[dict[str, Any]]) -> None:
     if not payload:
         return
-    try:
-        for chunk in _chunked(payload, 500):
-            client.table(TABLE_RECOMMENDATION_TRACKING).upsert(chunk, on_conflict="code,recommend_date").execute()
-    except Exception as e:
-        msg = str(e).lower()
-        if not any(col in msg for col in RECOMMENDATION_OPTIONAL_COLUMNS):
-            raise
-        fallback_payload: list[dict[str, Any]] = []
-        for row in payload:
-            r = dict(row)
-            for col in RECOMMENDATION_OPTIONAL_COLUMNS:
-                r.pop(col, None)
-            fallback_payload.append(r)
-        for chunk in _chunked(fallback_payload, 500):
-            client.table(TABLE_RECOMMENDATION_TRACKING).upsert(chunk, on_conflict="code,recommend_date").execute()
+    compatible_payload = payload
+    dropped_columns: set[str] = set()
+    while True:
+        try:
+            for chunk in _chunked(compatible_payload, 500):
+                client.table(TABLE_RECOMMENDATION_TRACKING).upsert(chunk, on_conflict="code,recommend_date").execute()
+            return
+        except Exception as exc:
+            missing = _missing_optional_columns(exc) - dropped_columns
+            if not missing:
+                raise
+            dropped_columns.update(missing)
+            logger.warning("recommendation_tracking missing optional columns; retrying without %s", sorted(missing))
+            compatible_payload = [
+                {key: value for key, value in row.items() if key not in missing} for row in compatible_payload
+            ]
+
+
+def _missing_optional_columns(exc: Exception) -> set[str]:
+    message = str(exc).lower()
+    return {column for column in RECOMMENDATION_OPTIONAL_COLUMNS if column.lower() in message}
 
 
 def prepare_recommendation_payload(recommend_date: int, symbols_info: list[dict[str, Any]]) -> list[dict[str, Any]]:
