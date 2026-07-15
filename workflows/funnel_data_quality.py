@@ -148,7 +148,7 @@ def _latest_frame_date(frame: pd.DataFrame | None) -> date | None:
     if not _has_frame(frame) or "date" not in frame.columns:
         return None
     dates = pd.to_datetime(frame["date"], errors="coerce").dropna()
-    return dates.iloc[-1].date() if not dates.empty else None
+    return dates.max().date() if not dates.empty else None
 
 
 def _positive_number(value: object) -> bool:

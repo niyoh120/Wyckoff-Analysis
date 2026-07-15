@@ -76,3 +76,15 @@ def test_parameter_stability_reviews_insufficient_neighbor_coverage(tmp_path):
 
     assert result["status"] == "review"
     assert result["neighbor_count"] == 1
+
+
+def test_parameter_stability_reviews_when_anchor_misses_required_period(tmp_path):
+    for period, value in (("recent_6m", 8.0), ("bull_2020", 7.0)):
+        _cell(tmp_path, period, 15, 8, value)
+        _cell(tmp_path, period, 10, 8, value - 1)
+        _cell(tmp_path, period, 15, 7, value - 2)
+
+    result = build_parameter_stability(load_grid_cells(tmp_path))
+
+    assert result["status"] == "review"
+    assert "bear_2022" in result["summary"]

@@ -447,7 +447,7 @@ def test_tradeable_l4_candidate_board_blocks_low_score_risk_on_early_breakout() 
     assert track_map == {"000002": "Trend"}
 
 
-def test_tradeable_l4_candidate_board_prioritizes_launchpad_over_formal_score() -> None:
+def test_tradeable_l4_candidate_board_prioritizes_confirmed_score_and_caps_launchpad() -> None:
     result = FunnelResult(
         layer1_symbols=[],
         layer2_symbols=[],
@@ -474,8 +474,38 @@ def test_tradeable_l4_candidate_board_prioritizes_launchpad_over_formal_score() 
         selection_mode="tradeable_l4",
     )
 
-    assert codes == ["000002", "000001"]
-    assert track_map == {"000002": "Trend", "000001": "Accum"}
+    assert codes == ["000001", "000002"]
+    assert track_map == {"000001": "Accum", "000002": "Trend"}
+
+
+def test_tradeable_l4_candidate_board_excludes_unconfirmed_launchpad_in_caution() -> None:
+    result = FunnelResult(
+        layer1_symbols=[],
+        layer2_symbols=[],
+        layer3_symbols=[],
+        top_sectors=[],
+        triggers={},
+        stage_map={},
+        markup_symbols=[],
+        exit_signals={},
+        channel_map={},
+        leader_radar_symbols=[],
+        leader_radar_rows=[],
+        candidate_entries=[
+            {"code": "000001", "track": "accumulation", "entry_type": "spring", "score": 75.0},
+            {"code": "000002", "track": "future_leader", "entry_type": "launchpad", "score": 90.0},
+        ],
+    )
+
+    codes, _, _ = select_ai_input_codes(
+        result=result,
+        day_df_map={},
+        sector_map={},
+        regime="CAUTION",
+        selection_mode="tradeable_l4",
+    )
+
+    assert codes == ["000001"]
 
 
 def test_tradeable_l4_candidate_board_uses_signal_key_when_entry_type_is_display_text() -> None:

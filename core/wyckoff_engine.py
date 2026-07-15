@@ -18,7 +18,7 @@ from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 
-from core._price_math import swing_values
+from core._price_math import sort_by_date_if_needed, swing_values
 from core.candidate_lanes import build_l1_candidate_lane_entries, merge_candidate_entries
 from core.candidate_tracks import candidate_entry_sort_key
 from core.cn_boards import cn_board, is_supported_cn_board
@@ -27,6 +27,7 @@ from core.layer2_strength import (
     build_rps_context,
     evaluate_layer2_symbol,
 )
+from core.main_force_signal import analyze_main_force_signal
 from core.mainline_engine import MainlineEngineConfig, build_mainline_candidates, mainline_candidate_entries
 from core.price_targets import compute_price_targets
 from core.theme_activity import build_theme_activity_snapshot
@@ -62,17 +63,6 @@ def normalize_hist_from_fetch(df: pd.DataFrame) -> pd.DataFrame:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce")
     return out
-
-
-def sort_by_date_if_needed(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty or "date" not in df.columns:
-        return df
-    try:
-        if df["date"].is_monotonic_increasing:
-            return df
-    except Exception:
-        logger.debug("Monotonic check failed, falling back to sort", exc_info=True)
-    return df.sort_values("date")
 
 
 def _latest_trade_date(df: pd.DataFrame) -> object | None:
@@ -2028,16 +2018,18 @@ def _alpha_feature_row(
     high = pd.to_numeric(df_s.get("high"), errors="coerce")
     low = pd.to_numeric(df_s.get("low"), errors="coerce")
     volume = pd.to_numeric(df_s.get("volume"), errors="coerce").dropna()
-    ma20, ma50, ma200 = close.rolling(20).mean(), close.rolling(50).mean(), close.rolling(200).mean()
+    ma20 = float(close.tail(20).mean()) if len(close) >= 20 else None
+    ma50 = float(close.tail(50).mean()) if len(close) >= 50 else None
+    ma200 = float(close.tail(200).mean()) if len(close) >= 200 else None
     high120 = float(close.tail(min(120, len(close))).max())
     low250 = float(close.tail(min(250, len(close))).min())
     vol20 = float(volume.tail(20).mean()) if len(volume) >= 20 else 0.0
     vol60_ref = float(volume.tail(80).iloc[:60].mean()) if len(volume) >= 80 else 0.0
     last = float(close.iloc[-1])
     ma50_slope = None
-    if len(ma50.dropna()) >= 21:
-        base = float(ma50.iloc[-21])
-        ma50_slope = None if base <= 0 else (float(ma50.iloc[-1]) / base - 1.0) * 100.0
+    if len(close) >= 70 and ma50 is not None:
+        base = float(close.iloc[-70:-20].mean())
+        ma50_slope = None if base <= 0 else (ma50 / base - 1.0) * 100.0
     return {
         "code": code,
         "sector": sector_map.get(code, ""),
@@ -2052,12 +2044,10 @@ def _alpha_feature_row(
         "range60_pct": _range_pct(high, low, 60),
         "vol_ratio_5_20": float(volume.tail(5).mean() / vol20) if vol20 > 0 else None,
         "vol_ratio_20_60": float(vol20 / vol60_ref) if vol60_ref > 0 else None,
-        "above_ma20": bool(pd.notna(ma20.iloc[-1]) and last >= float(ma20.iloc[-1])),
-        "above_ma50": bool(pd.notna(ma50.iloc[-1]) and last >= float(ma50.iloc[-1])),
-        "above_ma200": bool(pd.notna(ma200.iloc[-1]) and last >= float(ma200.iloc[-1])),
-        "bias200_pct": None
-        if pd.isna(ma200.iloc[-1]) or float(ma200.iloc[-1]) <= 0
-        else (last / float(ma200.iloc[-1]) - 1.0) * 100.0,
+        "above_ma20": bool(ma20 is not None and last >= ma20),
+        "above_ma50": bool(ma50 is not None and last >= ma50),
+        "above_ma200": bool(ma200 is not None and last >= ma200),
+        "bias200_pct": None if ma200 is None or ma200 <= 0 else (last / ma200 - 1.0) * 100.0,
         "ma50_slope20": ma50_slope,
         "breakout_setup": _alpha_breakout_setup(df_s, cfg),
     }
@@ -2330,10 +2320,15 @@ def _dedup_candidate_entries(entries: list[dict[str, Any]], limit: int) -> list[
         if not code:
             continue
         prev = best.get(code)
-        if prev is None or float(item.get("score", 0.0)) > float(prev.get("score", 0.0)):
+        if prev is None or _candidate_entry_rank(item) < _candidate_entry_rank(prev):
             best[code] = item
-    ranked = sorted(best.values(), key=candidate_entry_sort_key)
+    ranked = sorted(best.values(), key=_candidate_entry_rank)
     return ranked if limit <= 0 else ranked[:limit]
+
+
+def _candidate_entry_rank(item: dict[str, Any]) -> tuple[int, float, tuple[int, float, str]]:
+    formal_rank = 1 if str(item.get("state", "")).strip().lower() == "alpha" else 0
+    return formal_rank, -float(item.get("score", 0.0)), candidate_entry_sort_key(item)
 
 
 def build_candidate_entries(
@@ -2721,6 +2716,7 @@ def run_funnel(
     hot_concepts: list[str] | None = None,
     theme_radar: dict[str, Any] | None = None,
     financial_map: dict[str, dict] | None = None,
+    theme_member_index: dict[str, list[str]] | None = None,
     mainline_config: MainlineEngineConfig | None = None,
 ) -> FunnelResult:
     if cfg is None:
@@ -2753,6 +2749,7 @@ def run_funnel(
         concept_heat=concept_heat,
         theme_radar=theme_radar,
         financial_map=financial_map,
+        theme_member_index=theme_member_index,
         name_map=name_map,
         mainline_config=mainline_config,
     )
@@ -2862,9 +2859,11 @@ def _candidate_entries_for_result(
     concept_heat: list[dict[str, Any]] | None = None,
     theme_radar: dict[str, Any] | None = None,
     financial_map: dict[str, dict] | None = None,
+    theme_member_index: dict[str, list[str]] | None = None,
     name_map: dict[str, str] | None = None,
     mainline_config: MainlineEngineConfig | None = None,
 ) -> list[dict[str, Any]]:
+    main_force_map = {code: analyze_main_force_signal(df_map.get(code)) for code in l1}
     wyckoff_entries = build_candidate_entries(
         alpha_symbols=l1,
         df_map=df_map,
@@ -2882,6 +2881,7 @@ def _candidate_entries_for_result(
         top_sectors=top_sectors,
         l2_symbols=l2,
         channel_map=channel_map,
+        main_force_map=main_force_map,
     )
     mainline_entries = _mainline_entries_for_result(
         l1,
@@ -2892,8 +2892,10 @@ def _candidate_entries_for_result(
         concept_heat=concept_heat,
         theme_radar=theme_radar,
         financial_map=financial_map,
+        theme_member_index=theme_member_index,
         name_map=name_map,
         mainline_config=mainline_config,
+        main_force_map=main_force_map,
     )
     merged = merge_candidate_entries(wyckoff_entries, lane_entries, mainline_entries)
     _attach_price_targets(merged, df_map)
@@ -2938,8 +2940,10 @@ def _mainline_entries_for_result(
     concept_heat: list[dict[str, Any]] | None,
     theme_radar: dict[str, Any] | None,
     financial_map: dict[str, dict] | None,
+    theme_member_index: dict[str, list[str]] | None,
     name_map: dict[str, str] | None,
     mainline_config: MainlineEngineConfig | None,
+    main_force_map: dict | None = None,
 ) -> list[dict[str, Any]]:
     if mainline_config is None or not mainline_config.enabled:
         return []
@@ -2949,6 +2953,7 @@ def _mainline_entries_for_result(
         concept_map=concept_map or {},
         sector_map=sector_map or {},
         concept_heat=concept_heat or [],
+        theme_member_index=theme_member_index,
     )
     candidates = build_mainline_candidates(
         l1_passed=l1,
@@ -2961,5 +2966,6 @@ def _mainline_entries_for_result(
         financial_map=financial_map or {},
         name_map=name_map or {},
         config=mainline_config,
+        main_force_map=main_force_map,
     )
     return mainline_candidate_entries(candidates, max_count=mainline_config.max_ai_candidates)

@@ -8,6 +8,7 @@ from core.backtest_grid_ranking import RobustParamScore, rank_robust_params
 from workflows.backtest_market_report_artifacts import GridCell
 
 ParamKey = tuple[str, int, int, int, int]
+REQUIRED_PERIODS = frozenset({"recent_6m", "bull_2020", "bear_2022"})
 
 
 def build_parameter_stability(cells: list[GridCell], *, run_url: str = "", generated_at: str = "") -> dict[str, Any]:
@@ -32,7 +33,8 @@ def build_parameter_stability(cells: list[GridCell], *, run_url: str = "", gener
         "rules": {
             "minimum_neighbors": 2,
             "minimum_stable_ratio": 0.5,
-            "stable_definition": "相邻参数在全部已覆盖周期现金收益为正",
+            "required_periods": sorted(REQUIRED_PERIODS),
+            "stable_definition": "相邻参数完整覆盖近期、牛市、熊市且现金收益全部为正",
         },
     }
 
@@ -84,7 +86,12 @@ def _adjacent(anchor: ParamKey, candidate: ParamKey, value_sets: list[list[int]]
 
 
 def _cross_period_positive(score: RobustParamScore[GridCell]) -> bool:
-    return bool(score.values) and score.positive_periods == score.period_count and min(score.values) > 0
+    periods = {cell.period_key for cell in score.cells}
+    return (
+        REQUIRED_PERIODS.issubset(periods)
+        and score.positive_periods == score.period_count
+        and min(score.values, default=float("-inf")) > 0
+    )
 
 
 def _verdict(
@@ -92,6 +99,8 @@ def _verdict(
     neighbors: list[RobustParamScore[GridCell]],
     stable: list[RobustParamScore[GridCell]],
 ) -> str:
+    if not REQUIRED_PERIODS.issubset({cell.period_key for cell in anchor.cells}):
+        return "review"
     if not _cross_period_positive(anchor):
         return "fail"
     if len(neighbors) < 2:
@@ -107,6 +116,9 @@ def _summary(
 ) -> str:
     if verdict == "pass":
         return f"最优参数跨周期全正，且 {len(stable)}/{len(neighbors)} 个相邻参数同样全正。"
+    missing = REQUIRED_PERIODS - {cell.period_key for cell in anchor.cells}
+    if missing:
+        return f"最优参数缺少 {', '.join(sorted(missing))} 周期结果，参数稳定性保留人工复核。"
     if not _cross_period_positive(anchor):
         return "最优参数自身未能跨周期全正，参数稳定性不通过。"
     if len(neighbors) < 2:

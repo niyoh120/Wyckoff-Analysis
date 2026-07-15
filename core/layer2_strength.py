@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -15,6 +15,7 @@ class BenchmarkContext:
     sorted_df: pd.DataFrame | None
     latest_date: object | None
     dropping: bool
+    pct_by_date: dict[object, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,7 @@ def build_benchmark_context(
     bench_sorted = sort_frame(bench_df)
     latest_date = latest_trade_date(bench_sorted)
     dropping = _benchmark_dropping(bench_sorted, int(cfg.bench_drop_days), float(cfg.bench_drop_threshold))
-    return BenchmarkContext(bench_sorted, latest_date, dropping)
+    return BenchmarkContext(bench_sorted, latest_date, dropping, _benchmark_pct_lookup(bench_sorted))
 
 
 def build_rps_context(
@@ -106,28 +107,45 @@ def build_rps_context(
     )
 
 
-def calc_relative_strength(stock_df: pd.DataFrame, bench_sorted_df: pd.DataFrame, cfg: Any) -> RsSnapshot:
-    merged = (
-        stock_df[["date", "pct_chg"]]
-        .copy()
-        .merge(
-            bench_sorted_df[["date", "pct_chg"]].copy(),
-            on="date",
-            how="inner",
-            suffixes=("_s", "_b"),
-        )
-    )
+def calc_relative_strength(
+    stock_df: pd.DataFrame,
+    bench_sorted_df: pd.DataFrame,
+    cfg: Any,
+    bench_pct_by_date: dict[object, object] | None = None,
+) -> RsSnapshot:
+    lookup = bench_pct_by_date if bench_pct_by_date is not None else _benchmark_pct_lookup(bench_sorted_df)
+    stock_pct, bench_pct = _aligned_pct_series(stock_df, lookup)
     w_long = max(int(cfg.rs_window_long), 1)
     w_short = max(int(cfg.rs_window_short), 1)
-    if merged.empty or len(merged) < max(w_long, w_short):
+    if len(stock_pct) < max(w_long, w_short):
         return RsSnapshot(None, None, None, None)
-    s_long = _cum_return_pct_from_series(merged["pct_chg_s"].tail(w_long))
-    b_long = _cum_return_pct_from_series(merged["pct_chg_b"].tail(w_long))
-    s_short = _cum_return_pct_from_series(merged["pct_chg_s"].tail(w_short))
-    b_short = _cum_return_pct_from_series(merged["pct_chg_b"].tail(w_short))
+    s_long = _cum_return_pct_from_series(stock_pct.tail(w_long))
+    b_long = _cum_return_pct_from_series(bench_pct.tail(w_long))
+    s_short = _cum_return_pct_from_series(stock_pct.tail(w_short))
+    b_short = _cum_return_pct_from_series(bench_pct.tail(w_short))
     if s_long is None or b_long is None or s_short is None or b_short is None:
         return RsSnapshot(None, None, None, None)
     return RsSnapshot(s_long - b_long, s_short - b_short, b_long, b_short)
+
+
+def _benchmark_pct_lookup(bench_df: pd.DataFrame) -> dict[object, object]:
+    if not {"date", "pct_chg"}.issubset(bench_df.columns) or bench_df["date"].duplicated().any():
+        return {}
+    return dict(zip(bench_df["date"], bench_df["pct_chg"], strict=True))
+
+
+def _aligned_pct_series(stock_df: pd.DataFrame, bench_pct_by_date: dict[object, object]) -> tuple[pd.Series, pd.Series]:
+    if not bench_pct_by_date or not {"date", "pct_chg"}.issubset(stock_df.columns):
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+    pairs = [
+        (pct, bench_pct_by_date[day])
+        for day, pct in zip(stock_df["date"], stock_df["pct_chg"], strict=True)
+        if day in bench_pct_by_date
+    ]
+    if not pairs:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+    stock_pct, bench_pct = zip(*pairs, strict=True)
+    return pd.Series(stock_pct), pd.Series(bench_pct)
 
 
 def evaluate_layer2_symbol(
@@ -394,7 +412,7 @@ def _rs_flags(
     momentum_ok = True
     ambush_ok = True
     if cfg.enable_rs_filter and bench_ctx.sorted_df is not None and not bench_ctx.sorted_df.empty:
-        rs = calc_relative_strength(df_sorted, bench_ctx.sorted_df, cfg)
+        rs = calc_relative_strength(df_sorted, bench_ctx.sorted_df, cfg, bench_ctx.pct_by_date)
         if rs.rs_long is None or rs.rs_short is None:
             momentum_ok = False
             ambush_ok = False

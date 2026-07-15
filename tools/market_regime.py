@@ -339,6 +339,7 @@ def _base_benchmark_context(
 ) -> dict:
     return {
         "regime": "UNKNOWN",
+        "structural_regime": "UNKNOWN",
         "main_code": "000001",
         "close": None,
         "ma50": None,
@@ -445,24 +446,29 @@ def _smallcap_metrics(smallcap_df: pd.DataFrame | None) -> SmallcapMetrics:
     )
 
 
-def _trend_regime(metrics: MainBenchmarkMetrics) -> str:
+def _structural_regime(metrics: MainBenchmarkMetrics) -> str:
     required = (
         metrics.ma200,
         metrics.ma50,
         metrics.ma50_slope_5d,
-        metrics.recent3_cum,
         metrics.close,
     )
     if any(value is None for value in required):
-        return "NEUTRAL"
-    risk_off = (
-        metrics.close < metrics.ma200
-        and metrics.ma50 < metrics.ma200
-        and metrics.ma50_slope_5d < 0
-        and metrics.recent3_cum <= -2.0
-    )
-    risk_on = metrics.close > metrics.ma50 > metrics.ma200 and metrics.ma50_slope_5d > 0 and metrics.recent3_cum >= 0.0
-    return "RISK_OFF" if risk_off else "RISK_ON" if risk_on else "NEUTRAL"
+        return "UNKNOWN"
+    if metrics.close < metrics.ma200 and metrics.ma50 < metrics.ma200 and metrics.ma50_slope_5d < 0:
+        return "BEAR"
+    if metrics.close > metrics.ma50 > metrics.ma200 and metrics.ma50_slope_5d > 0:
+        return "BULL"
+    return "TRANSITION"
+
+
+def _trend_regime(metrics: MainBenchmarkMetrics) -> str:
+    structure = _structural_regime(metrics)
+    if structure == "BEAR":
+        return "RISK_OFF"
+    if structure == "BULL" and metrics.recent3_cum is not None and metrics.recent3_cum >= 0.0:
+        return "RISK_ON"
+    return "NEUTRAL"
 
 
 def _breadth_values(breadth: dict | None) -> tuple[float | None, float | None, float | None, int]:
@@ -861,6 +867,7 @@ def _benchmark_result_context(
     main: MainBenchmarkMetrics,
     small: SmallcapMetrics,
     regime: str,
+    structural_regime: str,
     cfg: FunnelConfig,
     breadth_context: dict,
     money_flow_context: dict,
@@ -876,6 +883,7 @@ def _benchmark_result_context(
     )
     result = {
         "regime": regime,
+        "structural_regime": structural_regime,
         "close": main.close,
         "ma50": main.ma50,
         "ma200": main.ma200,
@@ -919,17 +927,14 @@ def analyze_benchmark_and_tune_cfg(
     amount_distribution: dict | None = None,
     regime_config: MarketRegimeConfig | None = None,
 ) -> dict:
-    """
-    Step 0：大盘总闸
-    - 输出宏观水温，并区分恐慌、修复候选和修复确认
-    - 在 RISK_OFF 时动态收紧个股过滤阈值
-    """
+    """输出市场结构与短期水温，并在弱市收紧漏斗。"""
     runtime = (regime_config or DEFAULT_MARKET_REGIME_CONFIG).normalized()
     money_flow_context = money_flow or calc_market_money_flow({}, breadth)
     amount_distribution_context = amount_distribution or calc_amount_distribution_health({}, cfg.min_avg_amount_wan)
     context = _base_benchmark_context(cfg, money_flow_context, amount_distribution_context, runtime)
     main = _main_benchmark_metrics(bench_df)
     small = _smallcap_metrics(smallcap_df)
+    structural_regime = _structural_regime(main)
     breadth_ratio, breadth_prev, breadth_delta, breadth_sample = _breadth_values(breadth)
     daily_up_ratio, daily_median_pct, prev_daily_up_ratio, prev_daily_median_pct = _daily_breadth_values(breadth)
     regime = _apply_breadth_regime(_trend_regime(main), breadth_ratio, breadth_delta, runtime)
@@ -967,6 +972,7 @@ def analyze_benchmark_and_tune_cfg(
             main=main,
             small=small,
             regime=regime,
+            structural_regime=structural_regime,
             cfg=cfg,
             breadth_context=breadth_context,
             money_flow_context=money_flow_context,

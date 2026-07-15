@@ -256,13 +256,25 @@ def _select_candidate_entries(
             )
         ],
     )
-    entries = sorted(
-        best_entries.values(),
-        key=lambda item: weighted_candidate_entry_sort_key(item, signal_weight_map, regime=regime),
-    )
+    entries = _rank_tradeable_entries(list(best_entries.values()), signal_weight_map, regime)
     selected_codes = dedup_order([str(item.get("code", "")).strip() for item in entries])
     score_map, track_map = _candidate_entry_maps(entries, signal_weight_map, regime=regime)
     return selected_codes, score_map, track_map
+
+
+def _rank_tradeable_entries(
+    entries: list[dict[str, object]], signal_weight_map: dict[str, float] | None, regime: str
+) -> list[dict[str, object]]:
+    ranked = sorted(entries, key=lambda item: weighted_candidate_entry_sort_key(item, signal_weight_map, regime=regime))
+    launchpads = [item for item in ranked if candidate_entry_key(item) == "launchpad"]
+    confirmed = [item for item in ranked if candidate_entry_key(item) != "launchpad"]
+    if str(regime or "").strip().upper() == "CAUTION":
+        return confirmed
+    if not launchpads:
+        return confirmed
+    if not confirmed:
+        return launchpads[:1]
+    return [confirmed[0], launchpads[0], *confirmed[1:]]
 
 
 def _candidate_entry_maps(

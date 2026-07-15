@@ -8,6 +8,7 @@ import pandas as pd
 
 from core._price_math import clamp as _clamp
 from core._price_math import dist_pct as _dist_pct
+from core._price_math import sort_by_date_if_needed
 
 
 @dataclass(frozen=True)
@@ -23,7 +24,7 @@ EMPTY_MAIN_FORCE_SIGNAL = MainForceSignal(score=0.0, labels=(), metrics={})
 def analyze_main_force_signal(df: pd.DataFrame | None) -> MainForceSignal:
     if df is None or df.empty or "close" not in df.columns:
         return EMPTY_MAIN_FORCE_SIGNAL
-    ordered = df.sort_values("date") if "date" in df.columns else df
+    ordered = sort_by_date_if_needed(df)
     close = _num(ordered, "close")
     if len(close) < 40:
         return EMPTY_MAIN_FORCE_SIGNAL

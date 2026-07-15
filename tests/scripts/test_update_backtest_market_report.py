@@ -379,6 +379,10 @@ def test_backtest_grid_exposes_portable_hypothesis_evidence():
     assert "variant: [A, B, C, D, E]" in workflow
     assert '--strategy-variant "$VARIANT"' in workflow
     assert "strategy_ablation_report.json" in workflow
+    assert "grid_cells:" in workflow
+    assert '--grid-cells "${GRID_CELLS}"' in workflow
+    assert "take_profit_values" not in workflow
+    assert "for TP in" not in workflow
 
 
 def test_market_report_flags_period_with_no_positive_cash_combo(tmp_path):

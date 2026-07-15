@@ -12,10 +12,16 @@ import pandas as pd
 
 from core.backtest_config import BacktestRunConfig, BacktestRunInput, build_backtest_run_config
 from core.backtest_execution import ExitSimulationConfig
-from core.backtest_run import BacktestPreparedData, BacktestRunContext, execute_backtest_run
+from core.backtest_run import (
+    BacktestPreparedData,
+    BacktestRunContext,
+    build_backtest_signal_ledger,
+    execute_backtest_run,
+)
 from core.cash_portfolio import CashPortfolioConfig
 from core.dynamic_policy import dynamic_policy_mode
 from core.market_breadth import calc_market_breadth
+from core.theme_activity import build_theme_member_index
 from tools.mainline_config import load_mainline_engine_config
 from tools.market_regime import analyze_benchmark_and_tune_cfg
 from workflows.ai_candidate_allocation_config import ai_candidate_allocation_config_from_env
@@ -132,6 +138,51 @@ def run_backtest_request(
     return execute_backtest_run(context=context, data=data, config=config, progress=progress)
 
 
+def run_backtest_request_suite(
+    requests: list[BacktestWorkflowRequest],
+    progress: ProgressReporter | None = None,
+) -> list[tuple[pd.DataFrame, dict]]:
+    if not requests:
+        raise ValueError("回测参数组合不能为空")
+    progress = progress or _noop_progress
+    configs = [_build_run_config(request) for request in requests]
+    _validate_shared_signal_suite(requests)
+    first = requests[0]
+    universe = resolve_backtest_universe(first.board, first.sample_size, configs[0].snapshot_dir)
+    _report_universe(universe, first, progress)
+    load_request = max(requests, key=lambda item: item.hold_days)
+    data = _load_prepared_data(load_request, configs[0], universe, progress)
+    context = BacktestRunContext(first.start_dt, first.end_dt, first.board, first.sample_size, first.use_current_meta)
+    ledger = build_backtest_signal_ledger(
+        context=context,
+        data=data,
+        config=configs[0],
+        signal_hold_days=min(request.hold_days for request in requests),
+        progress=progress,
+    )
+    return [execute_backtest_run(context=context, data=data, config=config, signal_ledger=ledger) for config in configs]
+
+
+def _validate_shared_signal_suite(requests: list[BacktestWorkflowRequest]) -> None:
+    first_request = requests[0]
+    request_key = _shared_request_key(first_request)
+    if any(_shared_request_key(request) != request_key for request in requests[1:]):
+        raise ValueError("复用信号台账的回测组合只能改变持有期和退出参数")
+
+
+def _shared_request_key(request: BacktestWorkflowRequest) -> tuple:
+    ignored = {
+        "hold_days",
+        "exit_mode",
+        "stop_loss_pct",
+        "take_profit_pct",
+        "trailing_stop_pct",
+        "trailing_activate_pct",
+        "sltp_priority",
+    }
+    return tuple((name, value) for name, value in vars(request).items() if name not in ignored)
+
+
 def _build_run_config(request: BacktestWorkflowRequest) -> BacktestRunConfig:
     signal_weight_map, signal_weight_meta = _signal_policy_from_env()
     strategy_variant = normalize_strategy_variant(request.strategy_variant)
@@ -232,6 +283,7 @@ def _load_prepared_data(
         concept_heat=metadata.concept_heat,
         financial_map=metadata.financial_map,
         failures=history.failures,
+        theme_member_index=build_theme_member_index(metadata.concept_map, metadata.sector_map),
         snapshot_rows_total=history.snapshot_rows_total,
         snapshot_used=history.snapshot_used,
     )

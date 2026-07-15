@@ -71,6 +71,7 @@ def test_rank_robust_params_uses_first_available_recent_period() -> None:
     )
 
     assert ranked[0].recent_cash_return == 8.0
+    assert robust_label(ranked[0]) == "候选参数（周期覆盖不足）"
 
 
 def test_weak_period_guardrails_reports_only_non_positive_periods() -> None:

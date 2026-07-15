@@ -47,6 +47,7 @@
 | **UTAD (Upthrust After Distribution)** | 派发末期，股价放量突破近期阻力后迅速收回并留下长上影。系统以 `upthrust_warning` 作为 L5 风险信号阻断新候选 |
 | **Creek/LPS confirmation** | 用前序 swing high 构造可外推的 Creek 阻力线；只有先越过 Creek、随后缩量回踩仍守在线上，才把 LPS 视为结构确认。当前仅在 D/E 消融组启用 |
 | **Strategy ablation A-E** | 同一数据与执行参数下的规则消融：A 基线，B=UTAD，C=regime 阈值，D=Creek/LPS+时序，E=全部组合；用于区分单项贡献和组合交互 |
+| **Treatment exposure** | 消融组相对 A 组实际改变的 `(signal_date, code)` 交易集合；零暴露表示规则没有进入最终候选，不能据此评价收益贡献 |
 | **SOW (Sign of Weakness)** | 放量下跌，确认派发结束、下跌开始的信号 |
 
 ---
@@ -138,6 +139,7 @@
 | **恐慌修复成立** | PANIC_REPAIR_CONFIRMED | 修复候选次日同时通过指数价格与全市场广度确认 | **小额试探准备 (PROBE_READY)，仓位上限5%** |
 | **盘中恐慌修复** | PANIC_REPAIR_INTRADAY | 盘中满足暴跌日后强烈反弹且成交量/广度快速回升 | **小额试探准备 (PROBE_READY)，仓位上限5%** |
 | **转弱** | RISK_OFF | 均线空头，下行确认 | **禁止新仓** |
+| **结构周期** | BULL / TRANSITION / BEAR | 由指数相对 MA50/MA200 与 MA50 斜率定义的中期方向，独立于近 3 日反弹；BEAR 默认映射为 RISK_OFF | **结构熊市禁止普通新仓** |
 | **崩盘** | CRASH | 暴跌/广度断崖 | **自动启用抗跌观察车道 (crash_resilience_watch)，只观察禁止新仓** |
 | **崩盘左侧试探** | CRASH_LEFT_PROBE | 左侧观察池候选盘中跌破支撑后收回，收位与承接达标 | **LEFT_PROBE_READY；Top1、单票2%，禁止 ATTACK** |
 

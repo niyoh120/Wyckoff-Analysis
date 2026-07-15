@@ -10,12 +10,12 @@ from core._price_math import clamp as _clamp
 from core._price_math import day_close_pos as _day_close_pos
 from core._price_math import dist_pct as _dist_pct
 from core._price_math import numeric_column as _num
-from core._price_math import range_pos
+from core._price_math import range_pos, sort_by_date_if_needed
 from core._price_math import ret_pct as _ret_pct
 from core._price_math import upper_shadow_pct as _upper_shadow_pct
 from core._price_math import vol_ratio as _vol_ratio
 from core.candidate_tracks import candidate_entry_key, candidate_entry_score, sanitized_candidate_entry
-from core.main_force_signal import analyze_main_force_signal
+from core.main_force_signal import MainForceSignal, analyze_main_force_signal
 
 
 def build_l1_candidate_lane_entries(
@@ -26,13 +26,20 @@ def build_l1_candidate_lane_entries(
     top_sectors: list[str],
     l2_symbols: list[str],
     channel_map: dict[str, str],
+    main_force_map: dict[str, MainForceSignal] | None = None,
     limit: int = 80,
 ) -> list[dict[str, Any]]:
     top_sector_set = {str(item).strip() for item in top_sectors if str(item).strip()}
     l2_set = {str(item).strip() for item in l2_symbols if str(item).strip()}
     rows = [
         _entry_for_code(
-            code, df_map.get(code), sector_map.get(code, ""), code in l2_set, channel_map.get(code, ""), top_sector_set
+            code,
+            df_map.get(code),
+            sector_map.get(code, ""),
+            code in l2_set,
+            channel_map.get(code, ""),
+            top_sector_set,
+            (main_force_map or {}).get(code),
         )
         for code in l1_symbols
     ]
@@ -61,8 +68,9 @@ def _entry_for_code(
     l2_passed: bool,
     channel: str,
     top_sector_set: set[str],
+    main_force: MainForceSignal | None,
 ) -> dict[str, Any] | None:
-    metrics = _price_metrics(df)
+    metrics = _price_metrics(df, main_force)
     if not metrics:
         return None
     risks = _risk_flags(metrics)
@@ -186,10 +194,10 @@ def _lane_min_score(lane: str) -> float:
     }[lane]
 
 
-def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
+def _price_metrics(df: pd.DataFrame | None, main_force: MainForceSignal | None = None) -> dict[str, float]:
     if df is None or df.empty or "close" not in df.columns:
         return {}
-    ordered = df.sort_values("date") if "date" in df.columns else df
+    ordered = sort_by_date_if_needed(df)
     close = pd.to_numeric(ordered["close"], errors="coerce").dropna()
     if len(close) < 80:
         return {}
@@ -212,7 +220,7 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
         "close_pos_day": _day_close_pos(ordered["close"], high, low, use_tail=True),
         "upper_shadow_pct": _upper_shadow_pct(ordered, open_, high, close),
         "vol_ratio_5_20": _vol_ratio(volume),
-        **analyze_main_force_signal(ordered).metrics,
+        **(main_force or analyze_main_force_signal(ordered)).metrics,
     }
 
 
