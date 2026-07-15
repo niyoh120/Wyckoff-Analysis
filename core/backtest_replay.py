@@ -513,6 +513,7 @@ def _confirmed_signals(
             score_map[code] = score
             track_map[code] = candidate_entry_track(item, fields=("track", "signal_type"))
             trigger_map[code] = str(item.get("signal_type", "confirmed"))
+    codes.sort(key=lambda code: (-candidate_score_value(score_map.get(code)), code))
     return _ConfirmedSignals(codes, score_map, track_map, trigger_map)
 
 

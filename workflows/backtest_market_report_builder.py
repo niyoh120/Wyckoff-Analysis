@@ -427,6 +427,13 @@ def _strategy_policy_context(cells: list[GridCell]) -> str:
     return "多口径: " + "；".join(policies[:3]) + (f"；等{len(policies)}项" if len(policies) > 3 else "")
 
 
+def _entry_price_context(cells: list[GridCell]) -> str:
+    modes = sorted({cell.entry_price_mode for cell in cells if cell.entry_price_mode})
+    if not modes:
+        return "未写入"
+    return modes[0] if len(modes) == 1 else "多口径: " + "；".join(modes)
+
+
 def _build_execution_context_lines(
     *,
     cells: list[GridCell],
@@ -453,6 +460,7 @@ def _build_execution_context_lines(
         f"- 可完整验证信号期: {diagnostics.get('first_signal_date') or '-'} ~ {diagnostics.get('last_signal_date') or '-'}",
         f"- 股票池: {best.board or '-'} (sample={best.sample_size or '-'})",
         f"- 每日候选上限: {best.top_n or '-'}",
+        f"- 入场价格模式: {_entry_price_context(cells)}",
         f"- 策略治理调权: {_strategy_policy_context(cells)}",
         f"- 参数/风格单元: {len(cells)} 组；正夏普 {pos_sharpe} 组，非正夏普 {neg_sharpe} 组",
         f"- GitHub Actions: {run_url or '-'}",
@@ -554,7 +562,7 @@ def _confirmation_summary(
     status: str,
     score: RobustParamScore | None,
     weak_periods: list[dict[str, object]],
-    policy_check: dict[str, object] | None = None,
+    readiness_check: dict[str, object] | None = None,
 ) -> str:
     if score is None:
         return "回测确认待复核：未找到可聚合的跨周期参数。"
@@ -567,8 +575,8 @@ def _confirmation_summary(
     if status == "fail":
         labels = "、".join(str(item["period_label"]) for item in weak_periods) or "跨周期"
         return f"回测确认未通过：{labels} 未出现正现金收益组合，不能作为 dynamic=on 晋级依据。"
-    if policy_check and not policy_check.get("ready"):
-        return f"回测结果仍需人工复核：{policy_check.get('reason') or '缺少策略治理口径证据'}。"
+    if readiness_check and not readiness_check.get("ready"):
+        return f"回测结果仍需人工复核：{readiness_check.get('reason') or '缺少生产对齐证据'}。"
     return f"回测结果仍需人工复核：尚未满足跨周期全正，正收益周期 {score.positive_periods}/{score.period_count}。"
 
 
@@ -599,6 +607,17 @@ def _confirmation_policy_check(cells: list[GridCell]) -> dict[str, object]:
     return {"ready": True, "reason": "", "policies": policies}
 
 
+def _confirmation_entry_price_check(cells: list[GridCell]) -> dict[str, object]:
+    modes = sorted({cell.entry_price_mode for cell in cells if cell.entry_price_mode})
+    if not modes:
+        return {"ready": False, "reason": "缺少入场价格口径记录", "modes": []}
+    if len(modes) > 1:
+        return {"ready": False, "reason": "入场价格口径不一致", "modes": modes}
+    if modes[0] not in {"close", "tail_1455"}:
+        return {"ready": False, "reason": "T+1开盘口径未对齐尾盘实盘执行", "modes": modes}
+    return {"ready": True, "reason": "", "modes": modes}
+
+
 def build_confirmation(cells: list[GridCell], run_url: str = "", generated_at: str = "") -> dict[str, object]:
     if not cells:
         raise ValueError("未找到可解析的 backtest summary artifacts")
@@ -607,9 +626,11 @@ def build_confirmation(cells: list[GridCell], run_url: str = "", generated_at: s
     robust_best = robust_ranked[0] if robust_ranked else None
     weak_periods = _confirmation_weak_periods(cells)
     policy_check = _confirmation_policy_check(cells)
+    entry_price_check = _confirmation_entry_price_check(cells)
     status = _confirmation_status(robust_best, weak_periods)
-    if status == "pass" and not policy_check["ready"]:
+    if status == "pass" and (not policy_check["ready"] or not entry_price_check["ready"]):
         status = "review"
+    readiness_check = policy_check if not policy_check["ready"] else entry_price_check
     generated = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return {
         "status": status,
@@ -617,7 +638,7 @@ def build_confirmation(cells: list[GridCell], run_url: str = "", generated_at: s
         "report_date": generated.split()[0],
         "generated_at": generated,
         "run_url": run_url,
-        "summary": _confirmation_summary(status, robust_best, weak_periods, policy_check),
+        "summary": _confirmation_summary(status, robust_best, weak_periods, readiness_check),
         "cell_count": len(cells),
         "period_count": robust_best.period_count if robust_best else 0,
         "positive_periods": robust_best.positive_periods if robust_best else 0,
@@ -630,6 +651,10 @@ def build_confirmation(cells: list[GridCell], run_url: str = "", generated_at: s
         "strategy_policy_ready": bool(policy_check["ready"]),
         "strategy_policy_reason": str(policy_check["reason"]),
         "strategy_policy_values": policy_check["policies"],
+        "entry_price_mode": _entry_price_context(cells),
+        "entry_price_ready": bool(entry_price_check["ready"]),
+        "entry_price_reason": str(entry_price_check["reason"]),
+        "entry_price_values": entry_price_check["modes"],
         "weak_periods": weak_periods,
     }
 
@@ -655,12 +680,9 @@ def _playbook_evidence(cell: GridCell | None, fallback: str) -> str:
 
 
 def _build_trading_playbook_lines(cells: list[GridCell], robust_best: RobustParamScore | None) -> list[str]:
-    recent_best = _period_best_cell(cells, "recent_6m")
     bear_best = _period_best_cell(cells, "bear_2022")
     neutral_ref = _period_best_cell(cells, "recent_6m", "confirmation_only")
     robust_ref = robust_best.best_cell if robust_best else None
-    bear_block = bear_best is not None and (bear_best.cash_total_return or 0) <= 0
-    defensive_action = "禁止新仓" if bear_block else "观察买入"
     defensive_basis = _playbook_evidence(bear_best, "熊市样本不足，先按禁止新仓处理")
     return [
         "",
@@ -668,15 +690,13 @@ def _build_trading_playbook_lines(cells: list[GridCell], robust_best: RobustPara
         "",
         "| 市场状态 | 实盘动作 | 参考参数 | 数据依据 |",
         "|---|---|---|---|",
-        "| RISK_ON / 强主线修复 | 可执行买入 | "
-        + f"{_playbook_ref(recent_best)} | {_playbook_evidence(recent_best, '最近样本不足')} |",
-        "| NEUTRAL / CAUTION | 观察买入 | "
+        "| RISK_ON | 禁止新仓 | 空仓或只管理旧仓 | 生产市场闸门固定禁止，不以近期样本收益解禁 |",
+        "| NEUTRAL / CAUTION | 二次确认后可执行 | "
         + f"{_playbook_ref(neutral_ref or robust_ref)} | 只做二次确认，降低仓位，不追无确认信号 |",
-        "| PANIC_REPAIR / BEAR_REBOUND | 观察买入 | "
-        + f"{_playbook_ref(robust_ref)} | 只允许复核候选，不自动写正式推荐 |",
+        "| PANIC_REPAIR / BEAR_REBOUND | 禁止新仓 | 影子复核 | 只允许复核候选，不自动写正式推荐 |",
         "| PANIC_REPAIR_CONFIRMED | 小额试探 | "
         + f"{_playbook_ref(robust_ref)} | 最多一只 PROBE，单票上限5%，禁止 ATTACK |",
-        f"| RISK_OFF / CRASH / BLACK_SWAN | {defensive_action} | 空仓或影子观察 | {defensive_basis} |",
+        f"| RISK_OFF / CRASH / BLACK_SWAN | 禁止普通新仓 | 空仓或影子观察 | {defensive_basis}；CRASH_LEFT_PROBE 候选级例外仍限 Top1/2% |",
     ]
 
 
@@ -802,9 +822,9 @@ def _build_methodology_notes() -> list[str]:
         "## 口径说明",
         "",
         "- 胜率是单笔交易 `ret_pct > 0` 的比例，不是组合每日正收益比例。",
-        "- 入场口径以各参数单元 summary 为准；当前 workflow 默认 T+1 开盘价，`tail_1455` 模式缺分钟线时按 `BACKTEST_ENTRY_PRICE_FALLBACK` 处理。",
+        "- 入场口径以各参数单元 summary 为准；当前 workflow 默认 T+1 收盘价近似尾盘执行，`tail_1455` 模式缺分钟线时按 `BACKTEST_ENTRY_PRICE_FALLBACK` 处理。",
         "- `可完整验证信号期` 会早于回测结束日，因为持有窗口需要足够后续交易日完成离场验证。",
-        "- 本结果仍可能包含当前股票池幸存者偏差，以及当前截面市值/行业映射带来的前视偏差；用于参数方向和市场周期适配判断，不等同于实盘承诺。",
+        "- 本结果仍包含当前股票池幸存者偏差；正式回测默认关闭当前截面元数据，只有显式启用 `--use-current-meta` 的探索运行才会引入相应前视偏差。",
     ]
 
 

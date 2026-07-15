@@ -45,6 +45,7 @@ class GridCell:
     wbt_max_drawdown: float | None
     wbt_daily_win_rate: float | None
     metrics_engine: str
+    entry_price_mode: str
     strategy_policy: str
 
 
@@ -225,6 +226,7 @@ def _summary_metadata(summary_path: Path, content: str) -> dict[str, Any]:
         "board": board,
         "sample_size": sample_size,
         "metrics_engine": _parse_simple_field(content, "绩效引擎"),
+        "entry_price_mode": _parse_simple_field(content, "入场价格模式"),
         "strategy_policy": _parse_simple_field(content, "策略治理调权"),
     }
 

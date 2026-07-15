@@ -31,7 +31,7 @@ on:
           - "open"
           - "close"
           - "tail_1455"
-        default: "open"
+        default: "close"
       execution_regime_gate:
         description: "新开仓水温闸门：live=实盘一致；off=研究对照；neutral_only=仅中性"
         required: true
@@ -60,7 +60,7 @@ env:
   BT_BOARD: "all"
   BT_SAMPLE_SIZE: "0"
   BT_TRADING_DAYS: "320"
-  BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'open' }}
+  BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'close' }}
   BT_EXECUTION_REGIME_GATE: ${{ inputs.execution_regime_gate || 'live' }}
   BT_INITIAL_CASH: "100000"
   BT_MAX_POSITIONS: "4"
@@ -583,7 +583,7 @@ jobs:
         shell: bash
         env:
           BT_TOP_N: "1"
-          BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'open' }}
+          BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'close' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 -u - <<'PYEOF'
@@ -1024,7 +1024,7 @@ jobs:
           bt_start = os.environ.get('BT_START', '?')
           bt_end = os.environ.get('BT_END', '?')
           bt_topn = os.environ.get('BT_TOP_N', '?')
-          bt_entry_mode = os.environ.get('BT_ENTRY_PRICE_MODE', 'open')
+          bt_entry_mode = os.environ.get('BT_ENTRY_PRICE_MODE', 'close')
           entry_mode_labels = {'open': 'T+1开盘价', 'close': 'T+1收盘价', 'tail_1455': 'T+1 14:55价'}
           entry_mode_text = entry_mode_labels.get(bt_entry_mode, bt_entry_mode)
           periods = sorted(set(c.get('period', '') for c in cells if c.get('period')), key=period_sort_key)

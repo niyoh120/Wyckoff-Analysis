@@ -297,6 +297,34 @@ def test_confirmed_signals_dedupes_code_and_keeps_best_score() -> None:
     assert confirmed.trigger_map == {"000001": "spring"}
 
 
+def test_confirmed_signals_rank_codes_by_best_score() -> None:
+    class Pending:
+        def write(self, *_args, **_kwargs):
+            return None
+
+        def tick(self, *_args, **_kwargs):
+            return [
+                {"code": "000002", "score": 20.0, "signal_type": "sos"},
+                {"code": "000001", "score": 90.0, "signal_type": "spring"},
+                {"code": "000003", "score": 90.0, "signal_type": "lps"},
+            ]
+
+    ctx = replay_mod._DayContext(
+        idx=0,
+        signal_date=date(2026, 1, 1),
+        entry_target_date=date(2026, 1, 2),
+        day_df_map={"000001": _hist()},
+        name_map={"000001": "平安银行"},
+        day_cfg=FunnelConfig(trading_days=3),
+        result=_result(),
+        regime="NEUTRAL",
+    )
+
+    confirmed = replay_mod._confirmed_signals(ctx, Pending(), {})
+
+    assert confirmed.codes == ["000001", "000003", "000002"]
+
+
 def test_confirmed_signals_treats_invalid_scores_as_zero() -> None:
     class Pending:
         def write(self, *_args, **_kwargs):
@@ -324,7 +352,7 @@ def test_confirmed_signals_treats_invalid_scores_as_zero() -> None:
 
     confirmed = replay_mod._confirmed_signals(ctx, Pending(), {})
 
-    assert confirmed.codes == ["BAD", "INF", "NAN", "GOOD"]
+    assert confirmed.codes == ["GOOD", "BAD", "INF", "NAN"]
     assert confirmed.score_map == {"BAD": 0.0, "INF": 0.0, "NAN": 0.0, "GOOD": 90.0}
     assert confirmed.track_map["GOOD"] == "Accum"
     assert confirmed.trigger_map["GOOD"] == "spring"
