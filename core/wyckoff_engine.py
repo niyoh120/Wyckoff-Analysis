@@ -1015,15 +1015,25 @@ def _is_trading_range_context(zone: pd.DataFrame, cfg: FunnelConfig, df_full: pd
     return not drift_pct > cfg.spring_tr_max_drift_pct
 
 
+def _detect_market(code: str) -> str:
+    """根据代码后缀识别市场：A股=cn, 港股=hk, 美股=us。"""
+    upper = code.strip().upper()
+    if upper.endswith(".HK"):
+        return "hk"
+    if upper.endswith(".US"):
+        return "us"
+    return "cn"
+
+
 def _is_frozen_board_day(row: pd.Series, *, market: str = "cn") -> bool:
     """判断某交易日是否为一字板（开=高=低=收，全天几乎无波动）。
 
     A 股涨跌停制度下，一字板当天几乎没有真实换手：价格被封死，
     "放量"和"收盘收回"这类量价确认在物理上不具备意义，不能作为
     有效的 Spring 支撑测试，否则会把"洗出所有筹码的一字跌停"误判为洗盘信号。
-    港股无涨跌停制度，技术上不存在一字板，直接返回 False。
+    港股/美股无涨跌停制度，技术上不存在一字板，直接返回 False。
     """
-    if market == "hk":
+    if market in ("hk", "us"):
         return False
     o, h, low_, c = (float(row.get(k, 0.0) or 0.0) for k in ("open", "high", "low", "close"))
     if c <= 0:
@@ -1040,8 +1050,8 @@ _REGISTRATION_BOARD_VOL_SCALE = 1.41
 
 
 def _board_vol_ratio_scale(code: str, *, market: str = "cn") -> float:
-    """按涨跌停幅度返回量能阈值缩放系数：A股主板/北交所=1.0，创业板/科创板放大；港股=1.0。"""
-    if market == "hk":
+    """按涨跌停幅度返回量能阈值缩放系数：A股主板/北交所=1.0，创业板/科创板放大；港股/美股=1.0。"""
+    if market in ("hk", "us"):
         return 1.0
     return _REGISTRATION_BOARD_VOL_SCALE if cn_board(code) in {"chinext", "star"} else 1.0
 
@@ -1073,8 +1083,7 @@ def _detect_spring(
     last = df_s.iloc[-1]
 
     # 一字跌停/涨停日几乎没有真实换手，排除在有效 Spring 测试之外。
-    is_hk = code.strip().upper().endswith(".HK")
-    mkt = "hk" if is_hk else "cn"
+    mkt = _detect_market(code)
     if _is_frozen_board_day(prev, market=mkt) or _is_frozen_board_day(last, market=mkt):
         return None
 
@@ -1139,7 +1148,7 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
         return None
     vol_ratio = recent_max_vol / ref_max_vol
     # 20%涨跌停板块日常波动更大，缩量比的合格线相应放宽，避免正常噪音误杀有效信号。
-    mkt = "hk" if code.strip().upper().endswith(".HK") else "cn"
+    mkt = _detect_market(code)
     if vol_ratio > cfg.lps_vol_dry_ratio * _board_vol_ratio_scale(code, market=mkt):
         return None
     if cfg.lps_creek_confirmation_enabled and not _lps_creek_confirmed(df_s, cfg):
@@ -1284,18 +1293,21 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     if _bias_200_exceeds_limit(series.close, cfg, max_bias_200):
         return None
 
+    mkt = _detect_market(code)
     vol_ref_avg = _evr_ref_volume_avg(series.volume, cfg.evr_vol_window)
     if vol_ref_avg is None:
         return None
 
     # 20%涨跌停板块日常波动更大：量比门槛、"滞涨"允许的日内波幅都需同步放宽，
     # 否则该信号在这些板块上几乎永远无法触发（正常波动就超过主板的滞涨阈值）。
-    mkt = "hk" if code.strip().upper().endswith(".HK") else "cn"
     vol_scale = _board_vol_ratio_scale(code, market=mkt)
     max_drop = cfg.evr_max_drop * vol_scale
     max_rise = cfg.evr_max_rise * vol_scale
     confirm_days = max(int(cfg.evr_confirm_days), 0)
     for idx in _evr_candidate_indexes(confirm_days):
+        # 一字板当天量能失真，EVR 的"努力无结果"判断不成立。
+        if _is_frozen_board_day(series.frame.iloc[idx], market=mkt):
+            continue
         vol_ratio = float(series.volume.iloc[idx] / vol_ref_avg) if vol_ref_avg > 0 else 0.0
         if vol_ratio < cfg.evr_vol_ratio:
             continue
@@ -1319,6 +1331,7 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
 
 
 class _SosSeries(NamedTuple):
+    frame: pd.DataFrame
     close: pd.Series
     volume: pd.Series
     pct_chg: pd.Series
@@ -1328,6 +1341,7 @@ class _SosSeries(NamedTuple):
 def _sos_series(df: pd.DataFrame) -> _SosSeries | None:
     df_s = sort_by_date_if_needed(df)
     series = _SosSeries(
+        frame=df_s,
         close=pd.to_numeric(df_s["close"], errors="coerce"),
         volume=pd.to_numeric(df_s["volume"], errors="coerce"),
         pct_chg=pd.to_numeric(df_s["pct_chg"], errors="coerce"),
@@ -1338,7 +1352,7 @@ def _sos_series(df: pd.DataFrame) -> _SosSeries | None:
     return series
 
 
-def _sos_volume_ratio(volume: pd.Series, cfg: FunnelConfig, vol_scale: float = 1.0) -> float | None:
+def _sos_volume_ratio(volume: pd.Series, cfg: FunnelConfig) -> float | None:
     vol_window = getattr(cfg, "sos_vol_quantile_window", 60)
     vol_ref = volume.tail(vol_window + 1).iloc[:-1]
     if vol_ref.empty:
@@ -1346,11 +1360,16 @@ def _sos_volume_ratio(volume: pd.Series, cfg: FunnelConfig, vol_scale: float = 1
     vol_ref_avg = float(vol_ref.mean())
     if vol_ref_avg <= 0:
         return None
-    vol_ratio = float(volume.iloc[-1]) / vol_ref_avg
-    threshold = float(getattr(cfg, "sos_vol_ratio", 2.0)) * vol_scale
+    last_vol = float(volume.iloc[-1])
+    vol_ratio = last_vol / vol_ref_avg
+    threshold = float(getattr(cfg, "sos_vol_ratio", 2.0))
+    if vol_ratio < threshold:
+        return None
     quantile = float(getattr(cfg, "sos_vol_quantile", 0.95))
     quantile_volume = float(vol_ref.quantile(min(max(quantile, 0.0), 1.0)))
-    return vol_ratio if vol_ratio >= threshold and float(volume.iloc[-1]) >= quantile_volume else None
+    if quantile_volume > 0 and last_vol < quantile_volume:
+        return None
+    return vol_ratio
 
 
 def _sos_breakout_or_ma_cross(series: _SosSeries, cfg: FunnelConfig) -> bool:
@@ -1376,11 +1395,6 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     点火标志。特征为低位脱盘、放量大阳线，破除重要阻力或近期高点。
     返回 score（量比）或 None。
     """
-    if len(df) < max(cfg.sos_vol_window, cfg.sos_breakout_window, 200) + 2:
-        # Fallback to a smaller necessary length if 200 is too strict, but MA200 needs 200 days
-        # We handle MA200 dynamically inside
-        pass
-
     if len(df) < max(cfg.sos_vol_window, cfg.sos_breakout_window) + 2:
         return None
 
@@ -1391,14 +1405,21 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None 
     if _bias_200_exceeds_limit(series.close, cfg, max_bias_200):
         return None
 
-    # 20%涨跌停板块日常大涨幅度更常见，点火最小涨幅门槛同步放宽，避免过度宽松触发。
-    mkt = "hk" if code.strip().upper().endswith(".HK") else "cn"
-    vol_scale = _board_vol_ratio_scale(code, market=mkt)
-    day_pct = float(series.pct_chg.iloc[-1])
-    if pd.isna(day_pct) or day_pct < cfg.sos_pct_min * vol_scale:
+    mkt = _detect_market(code)
+
+    # 一字涨停板的 SOS 没有真实换手，不能视为有效 Sign of Strength。
+    if _is_frozen_board_day(series.frame.iloc[-1], market=mkt):
         return None
 
-    vol_ratio = _sos_volume_ratio(series.volume, cfg, vol_scale=vol_scale)
+    # 注：SOS 不对创业板/科创板做 vol_scale 放大。真实历史回放（627只A股，2021-2025）
+    # 显示把 sos_pct_min/sos_vol_ratio 按 20% 板块整体抬高门槛后，被门槛卡掉的边际样本
+    # 胜率（28.9%~38.0%）系统性高于留存样本（22.2%~29.1%），即门槛越高、留下的样本越差，
+    # 说明 SOS 筛的是极端强势尾部，抬高门槛只会放大幸存者偏差，不是过滤噪声。
+    day_pct = float(series.pct_chg.iloc[-1])
+    if pd.isna(day_pct) or day_pct < cfg.sos_pct_min:
+        return None
+
+    vol_ratio = _sos_volume_ratio(series.volume, cfg)
     if vol_ratio is None:
         return None
 
@@ -1469,16 +1490,13 @@ def _compression_atr_ratio(
     if violations > 1:
         return None
 
-    vol_ref = float(volume.iloc[-(atr_w + lookback) : -lookback].mean())
-    vol_recent = float(volume.tail(lookback).mean())
-    if vol_ref <= 0 or vol_recent / vol_ref > cfg.compression_vol_decline_ratio:
-        return None
-
     hist_atr_median = float(hist_atr.median())
     return float(current_atr_avg / hist_atr_median) if hist_atr_median > 0 else None
 
 
-def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None) -> float | None:
+def _detect_compression(
+    df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float | None = None, code: str = ""
+) -> float | None:
     """压缩蓄势：连续N日ATR收窄+缩量，爆发前夜形态。返回压缩比或None。"""
     lookback = cfg.compression_lookback
     atr_w = cfg.compression_atr_window
@@ -1489,6 +1507,12 @@ def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig, max_bias_200: float
         return None
     close, high, low, volume = ohlcv
     if not _compression_direction_ok(close, cfg) or not _compression_bias_ok(close, cfg, max_bias_200):
+        return None
+    mkt = _detect_market(code)
+    vol_scale = _board_vol_ratio_scale(code, market=mkt)
+    vol_ref = float(volume.iloc[-(atr_w + lookback) : -lookback].mean())
+    vol_recent = float(volume.tail(lookback).mean())
+    if vol_ref <= 0 or vol_recent / vol_ref > cfg.compression_vol_decline_ratio * vol_scale:
         return None
     return _compression_atr_ratio(close, high, low, volume, cfg)
 
@@ -1542,6 +1566,7 @@ def _detect_trend_pullback(
     cfg: FunnelConfig,
     market_cap_yi: float = 0.0,
     max_bias_200: float | None = None,
+    code: str = "",
 ) -> float | None:
     """趋势回踩：上升趋势中缩量回调后企稳。返回 score (0~1, 越大越好)。"""
     lookback = cfg.trend_pb_lookback
@@ -1572,7 +1597,9 @@ def _detect_trend_pullback(
     vol_ratio = vol_down / vol_up
 
     # 大市值放宽 + 饥饿模式（趋势持续久无触发）
-    threshold = _trend_pullback_vol_threshold(close, cfg, market_cap_yi)
+    mkt = _detect_market(code)
+    vol_scale = _board_vol_ratio_scale(code, market=mkt)
+    threshold = _trend_pullback_vol_threshold(close, cfg, market_cap_yi) * vol_scale
     if vol_ratio > threshold:
         return None
     return float(1.0 - vol_ratio)
@@ -1672,7 +1699,7 @@ def layer4_triggers(
             if score is not None:
                 results["evr"].append((sym, score))
         if cfg.enable_compression_trigger:
-            score = _detect_compression(df, cfg, max_bias_200=max_bias_200)
+            score = _detect_compression(df, cfg, max_bias_200=max_bias_200, code=sym)
             if score is not None:
                 results["compression"].append((sym, score))
         score = _detect_sos(df, cfg, max_bias_200=max_bias_200, code=sym)
@@ -1681,7 +1708,7 @@ def layer4_triggers(
         if cfg.enable_trend_pullback_trigger:
             if any(t in channel for t in TREND_CHANNEL_TAGS):
                 cap_yi = float(cap_map.get(sym, 0.0) or 0.0)
-                score = _detect_trend_pullback(df, cfg, market_cap_yi=cap_yi, max_bias_200=max_bias_200)
+                score = _detect_trend_pullback(df, cfg, market_cap_yi=cap_yi, max_bias_200=max_bias_200, code=sym)
                 if score is not None:
                     results["trend_pullback"].append((sym, score))
     if cfg.signal_sequence_bonus_enabled:

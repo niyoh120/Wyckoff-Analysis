@@ -161,6 +161,7 @@ def prepare_funnel_job_data(
     )
     etf = run_etf_enhancement(cfg, window, bench_df, ref_data.sector_map, all_df_map, direct_source=direct_source)
     benchmark_context = _build_benchmark_context(all_df_map, bench_df, smallcap_df, cfg)
+    benchmark_context["trade_date"] = window.end_trade_date.isoformat()
     return FunnelJobData(
         cfg=cfg,
         window=window,

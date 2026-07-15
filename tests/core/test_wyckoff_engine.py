@@ -13,10 +13,13 @@ from core.wyckoff_engine import (
     _detect_compression,
     _detect_evr,
     _detect_lps,
+    _detect_market,
     _detect_sos,
     _detect_spring,
+    _detect_trend_pullback,
     _detect_upthrust_after_distribution,
     _effective_entry_max_bias_200,
+    _is_frozen_board_day,
     _is_holiday_grace,
     _latest_trade_date,
     _lps_creek_confirmed,
@@ -834,12 +837,13 @@ class TestEvrVolScaleByBoard:
         # 当日涨幅刚好越过主板 evr_max_rise，但小于放大后的科创板门槛。
         borderline_pct = cfg.evr_max_rise * 1.15
         pct_chg = [0.0] * (n - 2) + [borderline_pct, 0.0]
-        lows = closes
+        highs = [c * 1.02 for c in closes]
+        lows = [c * 0.98 for c in closes]
         df = pd.DataFrame(
             {
                 "date": dates,
                 "open": closes,
-                "high": closes,
+                "high": highs,
                 "low": lows,
                 "close": closes,
                 "volume": volumes,
@@ -850,35 +854,41 @@ class TestEvrVolScaleByBoard:
         assert _detect_evr(df, cfg, code=STAR_CODE) is not None
 
 
-class TestSosVolScaleByBoard:
-    def test_day_pct_between_main_and_registration_threshold(self):
+class TestSosNoRegistrationBoardScale:
+    """SOS 对主板/创业板/科创板使用相同的 sos_pct_min / sos_vol_ratio 门槛（不做 vol_scale 放大）。
+
+    真实历史回放（627 只 A 股，2021-2025）显示：把这两个门槛按 20% 板块整体抬高后，
+    被门槛卡掉的边际样本胜率（28.9%~38.0%）系统性高于留存样本（22.2%~29.1%）——
+    门槛越高、留下的样本越差，说明 SOS 筛的是极端强势尾部，抬高门槛只会放大幸存者
+    偏差，不是过滤噪声。因此 SOS 保留统一门槛，不复用 EVR/Spring 的 vol_scale 逻辑。
+    """
+
+    def test_same_pct_threshold_triggers_on_both_main_and_star(self):
         cfg = FunnelConfig()
         n = max(cfg.sos_vol_window, cfg.sos_breakout_window, 200) + 5
         dates = pd.date_range("2024-01-01", periods=n, freq="B")
         base = 10.0
         closes = [base] * (n - 1)
-        # 当日涨幅刚好越过主板 sos_pct_min，但不足以越过放大后的科创板门槛。
         borderline_pct = cfg.sos_pct_min * 1.15
         last_close = base * (1 + borderline_pct / 100.0)
         closes.append(last_close)
         volumes = [1_000_000.0] * (n - 1) + [1_000_000.0 * (cfg.sos_vol_ratio + 1.0)]
         pct_chg = [0.0] * (n - 1) + [borderline_pct]
-        highs = list(closes)
+        highs = [c * 1.02 for c in closes]
+        lows = [c * 0.98 for c in closes]
         df = pd.DataFrame(
             {
                 "date": dates,
                 "open": closes,
                 "high": highs,
-                "low": closes,
+                "low": lows,
                 "close": closes,
                 "volume": volumes,
                 "pct_chg": pct_chg,
             }
         )
-        # 6.9% 涨幅越过主板门槛(6.0%)，但达不到创业板/科创板放大后的门槛(6.0%*1.41≈8.46%)，
-        # 说明同样的涨幅"含金量"在20%涨跌停板块更低，点火判定理应更严格。
         assert _detect_sos(df, cfg, code=MAIN_BOARD_CODE) is not None
-        assert _detect_sos(df, cfg, code=STAR_CODE) is None
+        assert _detect_sos(df, cfg, code=STAR_CODE) is not None
 
 
 def test_sos_volume_requires_ratio_and_historical_quantile():
@@ -1034,3 +1044,245 @@ def test_recent_sequence_events_detects_spring_before_current_signal() -> None:
     spring_like, _sos_like = _recent_sequence_events(frame, cfg)
 
     assert spring_like is True
+
+
+# ─── Market detection tests ────────────────────────────────────────────────
+HK_CODE = "00700.HK"
+US_CODE = "AAPL.US"
+
+
+class TestDetectMarket:
+    def test_a_share_codes_return_cn(self):
+        assert _detect_market(MAIN_BOARD_CODE) == "cn"
+        assert _detect_market(CHINEXT_CODE) == "cn"
+        assert _detect_market(STAR_CODE) == "cn"
+
+    def test_hk_code_returns_hk(self):
+        assert _detect_market(HK_CODE) == "hk"
+
+    def test_us_code_returns_us(self):
+        assert _detect_market(US_CODE) == "us"
+
+    def test_lowercase_and_whitespace_handled(self):
+        assert _detect_market("  aapl.us  ") == "us"
+        assert _detect_market("00700.hk") == "hk"
+
+
+class TestFrozenBoardMarketAwareness:
+    """一字板过滤只对 A 股生效，港股/美股不适用。"""
+
+    def _frozen_row(self) -> pd.Series:
+        return pd.Series({"open": 10.0, "high": 10.0, "low": 10.0, "close": 10.0})
+
+    def test_cn_frozen_board_detected(self):
+        assert _is_frozen_board_day(self._frozen_row(), market="cn") is True
+
+    def test_hk_frozen_board_skipped(self):
+        assert _is_frozen_board_day(self._frozen_row(), market="hk") is False
+
+    def test_us_frozen_board_skipped(self):
+        assert _is_frozen_board_day(self._frozen_row(), market="us") is False
+
+
+class TestBoardVolRatioScaleMarketAwareness:
+    """vol_scale 只对 A 股创业板/科创板放大，港股/美股返回 1.0。"""
+
+    def test_hk_returns_one(self):
+        assert _board_vol_ratio_scale(HK_CODE, market="hk") == 1.0
+
+    def test_us_returns_one(self):
+        assert _board_vol_ratio_scale(US_CODE, market="us") == 1.0
+
+    def test_cn_main_returns_one(self):
+        assert _board_vol_ratio_scale(MAIN_BOARD_CODE, market="cn") == 1.0
+
+    def test_cn_chinext_amplified(self):
+        assert _board_vol_ratio_scale(CHINEXT_CODE, market="cn") > 1.0
+
+    def test_cn_star_amplified(self):
+        assert _board_vol_ratio_scale(STAR_CODE, market="cn") > 1.0
+
+
+# ─── SOS frozen board exclusion tests ──────────────────────────────────────
+class TestSosFrozenBoardExcluded:
+    """A 股一字涨停板的 SOS 没有真实换手，应被排除。"""
+
+    def test_frozen_limit_up_excluded(self):
+        cfg = FunnelConfig()
+        n = max(cfg.sos_vol_window, cfg.sos_breakout_window) + 5
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        base = 10.0
+        closes = [base] * (n - 1)
+        last_close = base * (1 + cfg.sos_pct_min / 100.0)
+        closes.append(last_close)
+        volumes = [1_000_000.0] * (n - 1) + [1_000_000.0 * (cfg.sos_vol_ratio + 1.0)]
+        pct_chg = [0.0] * (n - 1) + [cfg.sos_pct_min]
+        # 一字涨停：open=high=low=close
+        df = pd.DataFrame(
+            {
+                "date": dates,
+                "open": closes,
+                "high": closes,
+                "low": closes,
+                "close": closes,
+                "volume": volumes,
+                "pct_chg": pct_chg,
+            }
+        )
+        assert _detect_sos(df, cfg, code=MAIN_BOARD_CODE) is None
+
+    def test_normal_breakout_passes(self):
+        cfg = FunnelConfig()
+        n = max(cfg.sos_vol_window, cfg.sos_breakout_window) + 5
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        base = 10.0
+        closes = [base] * (n - 1)
+        last_close = base * (1 + cfg.sos_pct_min / 100.0)
+        closes.append(last_close)
+        volumes = [1_000_000.0] * (n - 1) + [1_000_000.0 * (cfg.sos_vol_ratio + 1.0)]
+        pct_chg = [0.0] * (n - 1) + [cfg.sos_pct_min]
+        highs = [c * 1.02 for c in closes]
+        lows = [c * 0.98 for c in closes]
+        df = pd.DataFrame(
+            {
+                "date": dates,
+                "open": closes,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": volumes,
+                "pct_chg": pct_chg,
+            }
+        )
+        assert _detect_sos(df, cfg, code=MAIN_BOARD_CODE) is not None
+
+
+# ─── EVR frozen board exclusion tests ──────────────────────────────────────
+class TestEvrFrozenBoardExcluded:
+    """A 股一字板的 EVR 候选日应被跳过。"""
+
+    def test_frozen_candidate_day_skipped(self):
+        cfg = FunnelConfig()
+        n = cfg.evr_vol_window + 10
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        base = 10.0
+        closes = [base] * (n - 2) + [base, base]
+        volumes = [1_000_000.0] * (n - 2) + [1_000_000.0 * (cfg.evr_vol_ratio + 0.5), 1_000_000.0]
+        pct_chg = [0.0] * (n - 2) + [cfg.evr_max_rise * 0.5, 0.0]
+        # 倒数第二天（信号日）是一字板
+        highs = [c * 1.02 for c in closes]
+        lows = [c * 0.98 for c in closes]
+        highs[-2] = closes[-2]  # 信号日一字板
+        lows[-2] = closes[-2]
+        df = pd.DataFrame(
+            {
+                "date": dates,
+                "open": closes,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": volumes,
+                "pct_chg": pct_chg,
+            }
+        )
+        # 信号日是一字板 → 应被跳过 → 无 EVR 信号
+        assert _detect_evr(df, cfg, code=MAIN_BOARD_CODE) is None
+
+    def test_normal_candidate_day_passes(self):
+        cfg = FunnelConfig()
+        n = cfg.evr_vol_window + 10
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        base = 10.0
+        closes = [base] * (n - 2) + [base, base]
+        volumes = [1_000_000.0] * (n - 2) + [1_000_000.0 * (cfg.evr_vol_ratio + 0.5), 1_000_000.0]
+        pct_chg = [0.0] * (n - 2) + [cfg.evr_max_rise * 0.5, 0.0]
+        highs = [c * 1.02 for c in closes]
+        lows = [c * 0.98 for c in closes]
+        df = pd.DataFrame(
+            {
+                "date": dates,
+                "open": closes,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": volumes,
+                "pct_chg": pct_chg,
+            }
+        )
+        assert _detect_evr(df, cfg, code=MAIN_BOARD_CODE) is not None
+
+
+# ─── Compression vol_scale tests ───────────────────────────────────────────
+class TestCompressionVolScaleByBoard:
+    """Compression 缩量阈值对创业板/科创板应放宽（vol_scale > 1）。"""
+
+    def test_main_board_rejected_but_registration_accepted(self):
+        """构造一个缩量比刚好超过主板阈值、但低于放大后阈值的场景。"""
+        cfg = FunnelConfig()
+        lookback = cfg.compression_lookback
+        atr_w = cfg.compression_atr_window
+        n = atr_w + lookback + 10
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        base = 10.0
+        # 前段正常波动，后段 ATR 收窄
+        closes = [base] * n
+        hist_highs = [c * 1.03 for c in closes[:-lookback]]
+        recent_highs = [c * 1.001 for c in closes[-lookback:]]
+        highs = hist_highs + recent_highs
+        hist_lows = [c * 0.97 for c in closes[:-lookback]]
+        recent_lows = [c * 0.999 for c in closes[-lookback:]]
+        lows = hist_lows + recent_lows
+        # 缩量比刚好超过主板阈值但低于放大后
+        vol_scale = _board_vol_ratio_scale(CHINEXT_CODE, market="cn")
+        borderline_ratio = cfg.compression_vol_decline_ratio * 1.05  # 超过主板阈值
+        assert borderline_ratio < cfg.compression_vol_decline_ratio * vol_scale  # 但低于创业板阈值
+        hist_vol = 1_000_000.0
+        recent_vol = hist_vol * borderline_ratio
+        volumes = [hist_vol] * (n - lookback) + [recent_vol] * lookback
+        df = pd.DataFrame(
+            {"date": dates, "open": closes, "high": highs, "low": lows, "close": closes, "volume": volumes}
+        )
+        assert _detect_compression(df, cfg, code=MAIN_BOARD_CODE) is None
+        assert _detect_compression(df, cfg, code=CHINEXT_CODE) is not None
+
+
+# ─── TrendPullback vol_scale tests ─────────────────────────────────────────
+class TestTrendPullbackVolScaleByBoard:
+    """TrendPullback 缩量阈值对创业板/科创板应放宽。"""
+
+    def test_main_board_rejected_but_chinext_accepted(self):
+        cfg = FunnelConfig()
+        lookback = cfg.trend_pb_lookback
+        ma_w = cfg.trend_pb_ma_window
+        n = ma_w + lookback + 10
+        dates = pd.date_range("2024-01-01", periods=n, freq="B")
+        base = 10.0
+        # 构造先涨后回调再企稳的形态：
+        # 前段上涨（满足 MA 上行），后段在 lookback 窗口内有峰值+回调+企稳。
+        # 峰值单独设一个明显更高的值（而非贴近相邻点），避免 argmax 在浮点误差下
+        # 命中错误索引，导致 vol_up/vol_down 切分点漂移而使测试间歇性失败。
+        up_len = n - lookback
+        closes = [base + i * 0.1 for i in range(up_len)]
+        peak_val = closes[-1] + 3.0
+        pullback_low = peak_val - 0.8
+        closes = closes[:up_len]
+        closes.append(peak_val)  # lookback 窗口第 0 天：明确的单点峰值
+        for i in range(1, lookback):
+            closes.append(pullback_low + (i - 1) * 0.02)  # 回调后企稳回升
+        closes[-1] = closes[-2] + 0.05  # 最后一根收高（满足 last_close > close[-2]）
+        highs = [c * 1.02 for c in closes]
+        lows = [c * 0.98 for c in closes]
+        # 缩量比取主板/创业板阈值中点，远离两侧边界，避免浮点误差导致误判。
+        vol_scale = _board_vol_ratio_scale(CHINEXT_CODE, market="cn")
+        main_threshold = cfg.trend_pb_vol_shrink_ratio
+        chinext_threshold = cfg.trend_pb_vol_shrink_ratio * vol_scale
+        borderline_ratio = (main_threshold + chinext_threshold) / 2.0
+        assert main_threshold < borderline_ratio < chinext_threshold
+        vol_up = 1_000_000.0
+        vol_down = vol_up * borderline_ratio
+        volumes = [vol_up] * (up_len + 1) + [vol_down] * (lookback - 1)
+        df = pd.DataFrame(
+            {"date": dates, "open": closes, "high": highs, "low": lows, "close": closes, "volume": volumes}
+        )
+        assert _detect_trend_pullback(df, cfg, code=MAIN_BOARD_CODE) is None
+        assert _detect_trend_pullback(df, cfg, code=CHINEXT_CODE) is not None
