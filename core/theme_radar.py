@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from math import log1p
 from statistics import median
 from typing import Any
@@ -126,8 +127,19 @@ def normalize_theme_name(raw: str, aliases: dict[str, tuple[str, ...]] | None = 
     text = str(raw or "").strip()
     if not text:
         return ""
+    if aliases is None:
+        return _normalize_default_theme(text)
+    return _normalize_theme(text, aliases)
+
+
+@lru_cache(maxsize=8192)
+def _normalize_default_theme(text: str) -> str:
+    return _normalize_theme(text, THEME_ALIASES)
+
+
+def _normalize_theme(text: str, aliases: dict[str, tuple[str, ...]]) -> str:
     lower_text = text.lower()
-    for theme, keys in (aliases or THEME_ALIASES).items():
+    for theme, keys in aliases.items():
         if theme in text or any(key and key.lower() in lower_text for key in keys):
             return theme
     return text

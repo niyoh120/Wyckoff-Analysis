@@ -13,9 +13,10 @@ from core._price_math import drawdown_pct as _drawdown_pct
 from core._price_math import numeric_column as _numeric_series
 from core._price_math import range_pos as _range_pos
 from core._price_math import ret_pct as _ret_pct
+from core._price_math import sort_by_date_if_needed
 from core._price_math import upper_shadow_pct as _upper_shadow_pct
 from core._price_math import vol_ratio as _vol_ratio
-from core.main_force_signal import analyze_main_force_signal
+from core.main_force_signal import MainForceSignal, analyze_main_force_signal
 from core.theme_radar import normalize_theme_name
 from utils.safe import safe_float as _safe_float
 
@@ -80,6 +81,7 @@ def build_mainline_candidates(
     df_map: dict[str, pd.DataFrame],
     financial_map: dict[str, dict],
     name_map: dict[str, str],
+    main_force_map: dict[str, MainForceSignal] | None = None,
     hot_events: dict[str, Any] | None = None,
     config: MainlineEngineConfig | None = None,
 ) -> list[dict[str, Any]]:
@@ -91,7 +93,9 @@ def build_mainline_candidates(
     theme_scores = _theme_scores(concept_heat, theme_radar, theme_activity or {}, hot_events or {}, cfg)
     seeds = _mainline_seed_map(l1_set, concept_map, theme_scores, theme_radar, hot_events or {}, cfg)
     candidates = [
-        _candidate_from_seed(code, seed, l2_set, df_map, financial_map, name_map, theme_scores, cfg)
+        _candidate_from_seed(
+            code, seed, l2_set, df_map, financial_map, name_map, theme_scores, cfg, (main_force_map or {}).get(code)
+        )
         for code, seed in seeds.items()
         if code in df_map and (cfg.allow_l2_bypass or code in l2_set)
     ]
@@ -203,8 +207,9 @@ def _candidate_from_seed(
     name_map: dict[str, str],
     theme_scores: dict[str, float],
     cfg: MainlineEngineConfig,
+    main_force: MainForceSignal | None,
 ) -> MainlineCandidate | None:
-    metrics = _price_metrics(df_map.get(code))
+    metrics = _price_metrics(df_map.get(code), main_force)
     if not metrics:
         return None
     theme = str(seed.get("theme") or "")
@@ -320,10 +325,10 @@ def _mainline_theme(raw: Any, cfg: MainlineEngineConfig) -> str:
     return theme if theme and (not cfg.themes or theme in set(cfg.themes)) else ""
 
 
-def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
+def _price_metrics(df: pd.DataFrame | None, main_force: MainForceSignal | None = None) -> dict[str, float]:
     if df is None or df.empty or "close" not in df.columns:
         return {}
-    ordered = df.sort_values("date") if "date" in df.columns else df
+    ordered = sort_by_date_if_needed(df)
     close = pd.to_numeric(ordered["close"], errors="coerce").dropna()
     if len(close) < 60:
         return {}
@@ -354,7 +359,7 @@ def _price_metrics(df: pd.DataFrame | None) -> dict[str, float]:
         "upper_shadow_pct": _upper_shadow_pct(ordered, open_, high, close),
         "vol_ratio_5_20": _vol_ratio(volume),
         "amount20_wan": _amount20_wan(amount),
-        **analyze_main_force_signal(ordered).metrics,
+        **(main_force or analyze_main_force_signal(ordered)).metrics,
     }
 
 

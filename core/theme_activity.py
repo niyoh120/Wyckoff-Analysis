@@ -9,6 +9,7 @@ from typing import Any
 import pandas as pd
 
 from core._price_math import clamp as _clamp
+from core._price_math import sort_by_date_if_needed
 from core.concept_filters import is_actionable_theme_name
 from core.theme_radar import normalize_theme_name
 
@@ -42,12 +43,13 @@ def build_theme_activity_snapshot(
     concept_map: dict[str, list[str]],
     sector_map: dict[str, str],
     concept_heat: list[dict[str, Any]] | None = None,
+    theme_member_index: dict[str, list[str]] | None = None,
     config: ThemeActivityConfig | None = None,
 ) -> dict[str, Any]:
     cfg = config or ThemeActivityConfig()
     stock_rows = _stock_activity_rows(df_map)
     heat = _heat_by_theme(concept_heat or [])
-    themes = _theme_member_index(concept_map, sector_map)
+    themes = theme_member_index if theme_member_index is not None else build_theme_member_index(concept_map, sector_map)
     rows = [_activity_for_theme(theme, members, stock_rows, heat) for theme, members in themes.items()]
     eligible = [row for row in rows if row and row.score >= cfg.min_score and row.member_count >= cfg.min_members]
     ranked = sorted(eligible, key=_activity_sort_key)[: cfg.top_themes]
@@ -76,7 +78,7 @@ def _stock_activity_rows(df_map: dict[str, pd.DataFrame]) -> dict[str, dict[str,
 def _stock_activity(df: pd.DataFrame | None) -> dict[str, float] | None:
     if df is None or df.empty or "close" not in df.columns:
         return None
-    ordered = df.sort_values("date") if "date" in df.columns else df
+    ordered = sort_by_date_if_needed(df)
     close = pd.to_numeric(ordered["close"], errors="coerce").dropna()
     if len(close) < 2:
         return None
@@ -97,7 +99,7 @@ def _latest_volume_ratio(df: pd.DataFrame) -> float:
     return float(volume.iloc[-1]) / avg if avg > 0 else 1.0
 
 
-def _theme_member_index(concept_map: dict[str, list[str]], sector_map: dict[str, str]) -> dict[str, list[str]]:
+def build_theme_member_index(concept_map: dict[str, list[str]], sector_map: dict[str, str]) -> dict[str, list[str]]:
     index: dict[str, set[str]] = {}
     for code, concepts in concept_map.items():
         _add_theme_members(index, str(code), concepts or [])

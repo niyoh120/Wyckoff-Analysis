@@ -55,7 +55,14 @@ def rank_robust_params(
 def robust_label(score: RobustParamScore[object] | None) -> str:
     if score is None:
         return "最优参数（按现金收益）"
-    if score.min_cash_return is not None and score.min_cash_return > 0 and score.positive_periods == score.period_count:
+    if score.period_count < 3:
+        return "候选参数（周期覆盖不足）"
+    if (
+        score.period_count >= 3
+        and score.min_cash_return is not None
+        and score.min_cash_return > 0
+        and score.positive_periods == score.period_count
+    ):
         return "稳健参数（跨周期全正）"
     if score.score > 0 and score.positive_periods >= max(1, score.period_count - 1):
         return "折中参数（跨周期惩罚）"

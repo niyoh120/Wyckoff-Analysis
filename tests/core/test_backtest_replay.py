@@ -8,7 +8,7 @@ import pytest
 
 from core import backtest_replay as replay_mod
 from core.backtest_execution import ExitSimulationConfig
-from core.backtest_replay import BacktestReplayConfig, replay_backtest
+from core.backtest_replay import BacktestReplayConfig, build_signal_ledger, replay_backtest, replay_signal_ledger
 from core.mainline_engine import MainlineEngineConfig
 from core.wyckoff_engine import FunnelConfig, FunnelResult
 
@@ -121,6 +121,62 @@ def test_replay_backtest_generates_t1_trades(monkeypatch) -> None:
     assert calls["concept_heat"] == [{"name": "CPO", "pct": 3.2}]
     assert calls["financial_map"] == {"000001": {"roe": 12}}
     assert calls["mainline_config"].max_ai_candidates == 2
+
+
+def test_replay_progress_reports_elapsed_and_eta(monkeypatch, caplog) -> None:
+    events: list[tuple[str, str, float]] = []
+    monkeypatch.setattr(replay_mod, "monotonic", lambda: 1800.0)
+    caplog.set_level("INFO", logger="core.backtest_replay")
+
+    replay_mod._report_progress(19, 100, 7, lambda *args: events.append(args), started_at=0.0)
+
+    assert events == [("回放交易", "20/100, signals=7, elapsed=30m, eta=2h00m", pytest.approx(0.52))]
+    assert "elapsed=30m, eta=2h00m" in caplog.text
+
+
+def test_shared_signal_ledger_matches_independent_replays(monkeypatch) -> None:
+    monkeypatch.setattr("core.backtest_replay.calc_market_breadth", lambda _df_map: {})
+    monkeypatch.setattr(
+        "core.backtest_replay.analyze_benchmark_and_tune_cfg", lambda *_args, **_kwargs: {"regime": "NEUTRAL"}
+    )
+    monkeypatch.setattr("core.backtest_replay.run_funnel", lambda **_kwargs: _result())
+    all_df_map = {"000001": _hist()}
+    trade_dates = [date(2026, 1, day) for day in range(1, 6)]
+    cfg = FunnelConfig(trading_days=3)
+    cfg.ma_long = 2
+    short_config = _config()
+    long_config = replace(short_config, hold_days=2)
+    ledger = build_signal_ledger(
+        all_df_map=all_df_map,
+        bench_df=_hist(),
+        trade_dates=trade_dates,
+        name_map={"000001": "平安银行"},
+        market_cap_map={},
+        sector_map={},
+        base_cfg=cfg,
+        config=short_config,
+        max_idx=len(trade_dates) - short_config.hold_days - 1,
+    )
+
+    for config in (short_config, long_config):
+        shared = replay_signal_ledger(
+            ledger=ledger,
+            all_df_map=all_df_map,
+            trade_dates=trade_dates,
+            name_map={"000001": "平安银行"},
+            config=config,
+        )
+        independent = replay_backtest(
+            all_df_map=all_df_map,
+            bench_df=_hist(),
+            trade_dates=trade_dates,
+            name_map={"000001": "平安银行"},
+            market_cap_map={},
+            sector_map={},
+            base_cfg=cfg,
+            config=config,
+        )
+        assert shared == independent
 
 
 def test_replay_backtest_ignores_deprecated_regime_filter(monkeypatch) -> None:

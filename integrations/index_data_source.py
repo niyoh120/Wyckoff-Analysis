@@ -49,7 +49,7 @@ def fetch_index_akshare(code: str, start: str, end: str) -> pd.DataFrame:
     for col in ["open", "high", "low", "close", "volume", "pct_chg"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df[["date", "open", "high", "low", "close", "volume", "pct_chg"]].copy()
+    return df[["date", "open", "high", "low", "close", "volume", "pct_chg"]].sort_values("date").reset_index(drop=True)
 
 
 def _fetch_index_tushare(code: str, start: str, end: str) -> pd.DataFrame:
@@ -70,7 +70,7 @@ def _fetch_index_tushare(code: str, start: str, end: str) -> pd.DataFrame:
         + df["trade_date"].astype(str).str[6:8]
     )
     df["volume"] = pd.to_numeric(df["vol"], errors="coerce")
-    return df[["date", "open", "high", "low", "close", "volume", "pct_chg"]].copy()
+    return df[["date", "open", "high", "low", "close", "volume", "pct_chg"]].sort_values("date").reset_index(drop=True)
 
 
 def _index_to_ts_code(code: str) -> str:

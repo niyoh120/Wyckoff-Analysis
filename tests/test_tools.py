@@ -2189,7 +2189,25 @@ class TestMarketRegime:
         )
 
         assert result["regime"] == "RISK_ON"
+        assert result["structural_regime"] == "BULL"
         assert result["bear_rebound_triggered"] is False
+
+    def test_structural_bear_remains_risk_off_during_short_rebound(self, monkeypatch):
+        import tools.market_regime as market_regime
+        from core.wyckoff_engine import FunnelConfig
+
+        monkeypatch.setattr(market_regime, "_generate_pv_outlook", lambda **_kwargs: "次日推演：测试")
+        closes = [120.0 - index * 0.2 for index in range(217)] + [76.8, 77.0, 77.2]
+
+        result = market_regime.analyze_benchmark_and_tune_cfg(
+            _benchmark_df(closes),
+            None,
+            FunnelConfig(),
+            breadth={"ratio_pct": 55.0, "delta_pct": 5.0, "sample_size": 100},
+        )
+
+        assert result["structural_regime"] == "BEAR"
+        assert result["regime"] == "RISK_OFF"
 
     def test_single_index_drop_needs_confirmation_before_crash(self, monkeypatch):
         import tools.market_regime as market_regime

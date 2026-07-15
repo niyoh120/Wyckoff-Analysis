@@ -6,7 +6,22 @@ implementation to keep correct.
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+def sort_by_date_if_needed(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty or "date" not in df.columns:
+        return df
+    try:
+        if df["date"].is_monotonic_increasing:
+            return df
+    except Exception:
+        logger.debug("Monotonic check failed, falling back to sort", exc_info=True)
+    return df.sort_values("date")
 
 
 def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:

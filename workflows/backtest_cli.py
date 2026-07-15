@@ -42,6 +42,12 @@ def build_backtest_parser() -> argparse.ArgumentParser:
     _add_signal_args(parser)
     _add_entry_args(parser)
     _add_cash_args(parser)
+    parser.add_argument(
+        "--grid-cells",
+        default="",
+        help="共享一次信号计算的参数格，格式 hold:stop:take:trail，多个格用逗号分隔",
+    )
+    parser.add_argument("--grid-prefix", default="backtest-grid", help="参数格输出目录名前缀")
     return parser
 
 

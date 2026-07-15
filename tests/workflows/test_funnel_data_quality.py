@@ -139,6 +139,22 @@ def test_freshness_gate_accepts_target_date_with_required_coverage() -> None:
     )
 
 
+def test_freshness_gate_accepts_descending_frames_from_tushare() -> None:
+    descending = pd.DataFrame(
+        {
+            "date": ["2026-07-15", "2026-07-14", "2026-07-10"],
+            "close": [10.0, 9.8, 9.5],
+        }
+    )
+
+    assert_funnel_data_freshness(
+        ["000001"],
+        {"000001": descending},
+        [descending, descending],
+        date(2026, 7, 15),
+    )
+
+
 def test_layer_rejections_report_each_stage_input_pass_and_reason() -> None:
     result = build_layer_rejections(
         total_symbols=100,

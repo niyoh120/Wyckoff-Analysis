@@ -10,8 +10,15 @@ import pandas as pd
 
 from core.backtest_config import BacktestRunConfig
 from core.backtest_performance import enrich_backtest_summary
-from core.backtest_replay import BacktestReplayResult, replay_backtest
+from core.backtest_replay import (
+    BacktestReplayResult,
+    BacktestSignalLedger,
+    build_signal_ledger,
+    replay_backtest,
+    replay_signal_ledger,
+)
 from core.hk_boards import apply_hk_funnel_cfg
+from core.theme_activity import build_theme_member_index
 from core.wyckoff_engine import FunnelConfig
 
 ProgressReporter = Callable[[str, str, float], None]
@@ -37,6 +44,7 @@ class BacktestPreparedData:
     concept_heat: list[dict]
     financial_map: dict[str, dict]
     failures: list[str]
+    theme_member_index: dict[str, list[str]] | None = None
     snapshot_rows_total: int = 0
     snapshot_used: bool = False
 
@@ -54,20 +62,31 @@ def execute_backtest_run(
     data: BacktestPreparedData,
     config: BacktestRunConfig,
     progress: ProgressReporter | None = None,
+    signal_ledger: BacktestSignalLedger | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     trade_dates = _trade_dates(data.bench_df, context.start_dt, context.end_dt)
     _validate_trade_dates(trade_dates, config.replay.hold_days)
-    replay = replay_backtest(
-        all_df_map=data.all_df_map,
-        bench_df=data.bench_df,
-        trade_dates=trade_dates,
-        name_map=data.name_map,
-        market_cap_map=data.market_cap_map,
-        sector_map=data.sector_map,
-        base_cfg=_base_funnel_config(config),
-        config=_replay_config_with_metadata(config, data),
-        progress=progress,
-    )
+    replay_config = _replay_config_with_metadata(config, data)
+    if signal_ledger is None:
+        replay = replay_backtest(
+            all_df_map=data.all_df_map,
+            bench_df=data.bench_df,
+            trade_dates=trade_dates,
+            name_map=data.name_map,
+            market_cap_map=data.market_cap_map,
+            sector_map=data.sector_map,
+            base_cfg=_base_funnel_config(config),
+            config=replay_config,
+            progress=progress,
+        )
+    else:
+        replay = replay_signal_ledger(
+            ledger=signal_ledger,
+            all_df_map=data.all_df_map,
+            trade_dates=trade_dates,
+            name_map=data.name_map,
+            config=replay_config,
+        )
     trades_df = pd.DataFrame([record.__dict__ for record in replay.records])
     summary = _build_run_summary(context, data, config, replay, trades_df)
     summary = enrich_backtest_summary(
@@ -82,6 +101,30 @@ def execute_backtest_run(
         config=config.performance,
     )
     return trades_df, summary
+
+
+def build_backtest_signal_ledger(
+    *,
+    context: BacktestRunContext,
+    data: BacktestPreparedData,
+    config: BacktestRunConfig,
+    signal_hold_days: int,
+    progress: ProgressReporter | None = None,
+) -> BacktestSignalLedger:
+    trade_dates = _trade_dates(data.bench_df, context.start_dt, context.end_dt)
+    _validate_trade_dates(trade_dates, signal_hold_days)
+    return build_signal_ledger(
+        all_df_map=data.all_df_map,
+        bench_df=data.bench_df,
+        trade_dates=trade_dates,
+        name_map=data.name_map,
+        market_cap_map=data.market_cap_map,
+        sector_map=data.sector_map,
+        base_cfg=_base_funnel_config(config),
+        config=_replay_config_with_metadata(config, data),
+        max_idx=len(trade_dates) - signal_hold_days - 1,
+        progress=progress,
+    )
 
 
 def _trade_dates(bench_df: pd.DataFrame, start_dt: date, end_dt: date) -> list[date]:
@@ -102,6 +145,8 @@ def _base_funnel_config(config: BacktestRunConfig) -> FunnelConfig:
     elif config.replay.board == "hk":
         apply_hk_funnel_cfg(base_cfg)
     _apply_funnel_config_overrides(base_cfg, config.funnel_config_overrides)
+    # Backtest selection never consumes display-only radar rows; skip their full-universe scan.
+    base_cfg.enable_leader_radar = False
     return base_cfg
 
 
@@ -111,6 +156,9 @@ def _replay_config_with_metadata(config: BacktestRunConfig, data: BacktestPrepar
         concept_map=data.concept_map,
         concept_heat=data.concept_heat,
         financial_map=data.financial_map,
+        theme_member_index=data.theme_member_index
+        if data.theme_member_index is not None
+        else build_theme_member_index(data.concept_map, data.sector_map),
     )
 
 

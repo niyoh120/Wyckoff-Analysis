@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date
+from time import monotonic
 
 import pandas as pd
 
@@ -73,6 +74,7 @@ class BacktestReplayConfig:
     concept_heat: list[dict] = field(default_factory=list)
     theme_radar: dict = field(default_factory=dict)
     financial_map: dict[str, dict] = field(default_factory=dict)
+    theme_member_index: dict[str, list[str]] = field(default_factory=dict)
     mainline_config: MainlineEngineConfig | None = None
     signal_weight_map: dict[str, float] = field(default_factory=dict)
     signal_weight_meta: dict[str, object] = field(default_factory=dict)
@@ -94,6 +96,11 @@ class BacktestReplayResult:
 
 
 @dataclass(frozen=True)
+class BacktestSignalLedger:
+    days: list[_SignalDay]
+
+
+@dataclass(frozen=True)
 class _DayContext:
     idx: int
     signal_date: date
@@ -103,6 +110,23 @@ class _DayContext:
     day_cfg: FunnelConfig
     result: FunnelResult
     regime: str
+
+
+@dataclass(frozen=True)
+class _TradeContext:
+    idx: int
+    signal_date: date
+    entry_target_date: date
+    regime: str
+
+
+@dataclass(frozen=True)
+class _SignalDay:
+    context: _TradeContext
+    selected: _RankedSelection | None
+    confirmed_count: int
+    blocked_signal_day: bool
+    blocked_candidates: int
 
 
 @dataclass(frozen=True)
@@ -165,38 +189,125 @@ def replay_backtest(
     config: BacktestReplayConfig,
     progress: ProgressReporter | None = None,
 ) -> BacktestReplayResult:
-    records: list[TradeRecord] = []
-    ohlc_cache: dict[str, dict[date, tuple[float, float, float, float]]] = {}
-    intraday_cache: dict = {}
-    pending_pool = PendingPool() if config.pending_mode != "off" else None
-    eval_days = signal_days = pending_total = missing_skipped = 0
-    blocked_signal_days = blocked_candidates = 0
-    regime_day_counts: dict[str, int] = {}
     max_idx = len(trade_dates) - config.hold_days - 1
-    for idx in range(max_idx):
+    ledger = build_signal_ledger(
+        all_df_map=all_df_map,
+        bench_df=bench_df,
+        trade_dates=trade_dates,
+        name_map=name_map,
+        market_cap_map=market_cap_map,
+        sector_map=sector_map,
+        base_cfg=base_cfg,
+        config=config,
+        max_idx=max_idx,
+        progress=progress,
+    )
+    return replay_signal_ledger(
+        ledger=ledger,
+        all_df_map=all_df_map,
+        trade_dates=trade_dates,
+        name_map=name_map,
+        config=config,
+    )
+
+
+def build_signal_ledger(
+    *,
+    all_df_map: dict[str, pd.DataFrame],
+    bench_df: pd.DataFrame,
+    trade_dates: list[date],
+    name_map: dict[str, str],
+    market_cap_map: dict[str, float],
+    sector_map: dict[str, str],
+    base_cfg: FunnelConfig,
+    config: BacktestReplayConfig,
+    max_idx: int | None = None,
+    progress: ProgressReporter | None = None,
+) -> BacktestSignalLedger:
+    days: list[_SignalDay] = []
+    pending_pool = PendingPool() if config.pending_mode != "off" else None
+    limit = max_idx if max_idx is not None else len(trade_dates) - 2
+    started_at = monotonic()
+    selected_total = 0
+    for idx in range(limit):
         ctx = _build_day_context(
             idx, all_df_map, bench_df, trade_dates, name_map, market_cap_map, sector_map, base_cfg, config
         )
         if ctx is None:
             continue
-        eval_days += 1
-        regime = normalize_regime(ctx.regime)
-        regime_day_counts[regime] = regime_day_counts.get(regime, 0) + 1
         selected, confirmed_count = _select_ranked_codes(ctx, pending_pool, sector_map, config)
-        pending_total += confirmed_count
-        if selected is not None and not _execution_regime_allows(ctx.regime, config.execution_regime_gate):
-            blocked_signal_days += 1
-            blocked_candidates += len(selected.codes)
-            selected = None
-        if selected is not None:
-            selected, limited = _limit_confirmed_repair_selection(selected, ctx.regime, config.execution_regime_gate)
-            blocked_candidates += limited
-        if selected is not None:
+        blocked_day, blocked_count = _apply_execution_gates(ctx, selected, config)
+        selected = blocked_day.selected
+        days.append(
+            _SignalDay(
+                _trade_context(ctx),
+                selected,
+                confirmed_count,
+                blocked_day.regime_blocked,
+                blocked_count,
+            )
+        )
+        selected_total += len(selected.codes) if selected else 0
+        _report_progress(idx, limit, selected_total, progress, started_at)
+    return BacktestSignalLedger(days)
+
+
+@dataclass(frozen=True)
+class _ExecutionGateResult:
+    selected: _RankedSelection | None
+    regime_blocked: bool
+
+
+def _apply_execution_gates(
+    ctx: _DayContext,
+    selected: _RankedSelection | None,
+    config: BacktestReplayConfig,
+) -> tuple[_ExecutionGateResult, int]:
+    if selected is not None and not _execution_regime_allows(ctx.regime, config.execution_regime_gate):
+        return _ExecutionGateResult(None, True), len(selected.codes)
+    if selected is None:
+        return _ExecutionGateResult(None, False), 0
+    limited_selection, limited = _limit_confirmed_repair_selection(selected, ctx.regime, config.execution_regime_gate)
+    return _ExecutionGateResult(limited_selection, False), limited
+
+
+def replay_signal_ledger(
+    *,
+    ledger: BacktestSignalLedger,
+    all_df_map: dict[str, pd.DataFrame],
+    trade_dates: list[date],
+    name_map: dict[str, str],
+    config: BacktestReplayConfig,
+) -> BacktestReplayResult:
+    records: list[TradeRecord] = []
+    ohlc_cache: dict[str, dict[date, tuple[float, float, float, float]]] = {}
+    intraday_cache: dict = {}
+    eval_days = signal_days = pending_total = missing_skipped = 0
+    blocked_signal_days = blocked_candidates = 0
+    regime_day_counts: dict[str, int] = {}
+    max_idx = len(trade_dates) - config.hold_days - 1
+    for day in ledger.days:
+        if day.context.idx >= max_idx:
+            break
+        eval_days += 1
+        regime = normalize_regime(day.context.regime)
+        regime_day_counts[regime] = regime_day_counts.get(regime, 0) + 1
+        pending_total += day.confirmed_count
+        blocked_signal_days += int(day.blocked_signal_day)
+        blocked_candidates += day.blocked_candidates
+        if day.selected is not None:
             signal_days += 1
             missing_skipped += _append_trade_records(
-                records, ctx, selected, all_df_map, trade_dates, name_map, ohlc_cache, intraday_cache, config
+                records,
+                day.context,
+                day.selected,
+                all_df_map,
+                trade_dates,
+                name_map,
+                ohlc_cache,
+                intraday_cache,
+                config,
             )
-        _report_progress(idx, max_idx, len(records), progress)
     return BacktestReplayResult(
         records,
         eval_days,
@@ -208,6 +319,10 @@ def replay_backtest(
         blocked_signal_days,
         blocked_candidates,
     )
+
+
+def _trade_context(ctx: _DayContext) -> _TradeContext:
+    return _TradeContext(ctx.idx, ctx.signal_date, ctx.entry_target_date, ctx.regime)
 
 
 def _execution_regime_allows(regime: str, mode: str) -> bool:
@@ -273,6 +388,7 @@ def _build_day_context(
         concept_heat=config.concept_heat,
         theme_radar=config.theme_radar,
         financial_map=config.financial_map,
+        theme_member_index=config.theme_member_index,
         mainline_config=config.mainline_config,
     )
     regime = bench_context.get("regime", "NEUTRAL") if bench_context else "NEUTRAL"
@@ -302,10 +418,18 @@ def _day_df_map(
 ) -> dict[str, pd.DataFrame]:
     out: dict[str, pd.DataFrame] = {}
     for code, df in all_df_map.items():
-        tail = df[df["date"] <= signal_date].tail(trading_days)
+        tail = _history_tail(df, signal_date, trading_days)
         if len(tail) >= min_rows:
             out[code] = tail
     return out
+
+
+def _history_tail(df: pd.DataFrame, signal_date: date, trading_days: int) -> pd.DataFrame:
+    dates = df["date"]
+    if dates.is_monotonic_increasing:
+        end = int(dates.searchsorted(signal_date, side="right"))
+        return df.iloc[max(0, end - trading_days) : end]
+    return df[df["date"] <= signal_date].tail(trading_days)
 
 
 def _select_ranked_codes(
@@ -417,7 +541,7 @@ def _set_best_trigger_name(out: dict[str, tuple[float, str]], code: str, score: 
 
 def _append_trade_records(
     records: list[TradeRecord],
-    ctx: _DayContext,
+    ctx: _TradeContext,
     selected: _RankedSelection,
     all_df_map: dict[str, pd.DataFrame],
     trade_dates: list[date],
@@ -439,7 +563,7 @@ def _append_trade_records(
 
 def _trade_record_for_code(
     code: str,
-    ctx: _DayContext,
+    ctx: _TradeContext,
     selected: _RankedSelection,
     all_df_map: dict[str, pd.DataFrame],
     trade_dates: list[date],
@@ -476,7 +600,7 @@ def _trade_record_for_code(
 def _entry_plan(
     full_df: pd.DataFrame,
     code: str,
-    ctx: _DayContext,
+    ctx: _TradeContext,
     trade_dates: list[date],
     intraday_cache: dict,
     config: BacktestReplayConfig,
@@ -522,7 +646,7 @@ def _ohlc_for_code(
 
 def _make_trade_record(
     code: str,
-    ctx: _DayContext,
+    ctx: _TradeContext,
     selected: _RankedSelection,
     name_map: dict[str, str],
     trade_dates: list[date],
@@ -560,9 +684,27 @@ def _make_trade_record(
     )
 
 
-def _report_progress(idx: int, max_idx: int, records_count: int, progress: ProgressReporter | None) -> None:
+def _report_progress(
+    idx: int,
+    max_idx: int,
+    signal_count: int,
+    progress: ProgressReporter | None,
+    started_at: float,
+) -> None:
     if (idx + 1) % 20 != 0 and (idx + 1) != max_idx:
         return
-    logger.info("回放进度 %d/%d, trades=%d", idx + 1, max_idx, records_count)
+    current = idx + 1
+    elapsed = max(monotonic() - started_at, 0.0)
+    eta = elapsed / current * (max_idx - current) if current else 0.0
+    detail = (
+        f"{current}/{max_idx}, signals={signal_count}, elapsed={_format_duration(elapsed)}, eta={_format_duration(eta)}"
+    )
+    logger.info("回放进度 %s", detail)
     if progress is not None and max_idx > 0:
-        progress("回放交易", f"{idx + 1}/{max_idx}", 0.4 + (idx + 1) / max_idx * 0.6)
+        progress("回放交易", detail, 0.4 + current / max_idx * 0.6)
+
+
+def _format_duration(seconds: float) -> str:
+    total_minutes = max(int(seconds // 60), 0)
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours}h{minutes:02d}m" if hours else f"{minutes}m"

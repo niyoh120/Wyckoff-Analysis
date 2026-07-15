@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import csv
 import glob
 import math
 import re
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -14,7 +15,8 @@ from typing import Any
 from workflows.backtest_strategy_variants import VARIANT_LABELS
 
 _DIR_PATTERN = re.compile(
-    r"backtest-strategy-(?P<period>recent_2m|recent_6m|bull_2020|bear_2022|custom)-(?P<variant>[A-E])$"
+    r"backtest-strategy-(?P<period>recent_2m|recent_6m|bull_2020|bear_2022|custom)-(?P<variant>[A-E])"
+    r"(?:-\d+)?$"
 )
 
 
@@ -30,6 +32,7 @@ class StrategyComparisonRow:
     win_rate: float | None
     avg_return: float | None
     sharpe: float | None
+    trade_keys: tuple[str, ...] = ()
 
 
 def load_strategy_comparison_rows(artifacts_dir: Path) -> list[StrategyComparisonRow]:
@@ -53,6 +56,7 @@ def load_strategy_comparison_rows(artifacts_dir: Path) -> list[StrategyCompariso
                 win_rate=_cash_metric(content, "胜率"),
                 avg_return=_metric(content, "平均收益"),
                 sharpe=_metric(content, r"夏普比(?:\s*\(Sharpe Ratio\))?"),
+                trade_keys=_trade_keys(path.parent),
             )
         )
     return rows
@@ -67,11 +71,11 @@ def build_strategy_comparison(rows: list[StrategyComparisonRow]) -> dict[str, An
         "status": "ready" if {"A", "B", "C", "D", "E"}.issubset(by_variant) else "incomplete",
         "baseline": "A",
         "variant_labels": {key: value for key, value in VARIANT_LABELS.items() if key != "live"},
-        "rows": [asdict(row) for row in sorted(rows, key=lambda row: (row.period, row.variant))],
+        "rows": [_row_payload(row) for row in sorted(rows, key=lambda row: (row.period, row.variant))],
         "evaluations": evaluations,
         "walk_forward": _walk_forward(rows),
         "scope": "B 组验证 Upthrust 当日新开仓 veto；持仓期动态 L5 离场尚未接入本固定退出回放。",
-        "decision_rule": "至少两个共同周期、胜出周期过半、平均收益增量为正，且最大回撤恶化不超过2个百分点。",
+        "decision_rule": "至少两个周期真实改变入选交易、胜出周期过半、平均收益增量为正，且最大回撤恶化不超过2个百分点。",
     }
 
 
@@ -91,14 +95,15 @@ def render_strategy_comparison(report: dict[str, Any]) -> str:
             "",
             "## 相对 A 组结论",
             "",
-            "| 组别 | 共同周期 | 胜出 | 平均收益差 | 最大回撤恶化 | 判定 |",
-            "|---|---:|---:|---:|---:|---|",
+            "| 组别 | 共同周期 | 暴露周期 | 改变交易 | 胜出 | 平均收益差 | 最大回撤恶化 | 判定 |",
+            "|---|---:|---:|---:|---:|---:|---:|---|",
         ]
     )
     for variant in ("B", "C", "D", "E"):
         item = (report.get("evaluations") or {}).get(variant, {})
         lines.append(
-            f"| {variant} | {item.get('common_periods', 0)} | {item.get('wins', 0)} | "
+            f"| {variant} | {item.get('common_periods', 0)} | {item.get('exposure_periods', 0)} | "
+            f"{item.get('changed_trades', 0)} | {item.get('wins', 0)} | "
             f"{_fmt(item.get('mean_return_delta'), '%')} | {_fmt(item.get('max_drawdown_worsening'), 'pp')} | "
             f"{item.get('status', 'missing')} |"
         )
@@ -125,11 +130,23 @@ def _evaluate_variant(
         max(abs(float(row.cash_drawdown or 0.0)) - abs(float(base.cash_drawdown or 0.0)), 0.0) for base, row in pairs
     ]
     wins = sum(delta > 0 for delta in deltas)
+    exposure = [_trade_delta(base, row) for base, row in pairs]
+    exposure_periods = sum(value > 0 for value in exposure)
+    changed_trades = sum(exposure)
     required_wins = math.floor(len(pairs) / 2) + 1
-    passed = len(pairs) >= 2 and wins >= required_wins and mean(deltas) > 0 and max(drawdown_worsening, default=0) <= 2
+    passed = (
+        len(pairs) >= 2
+        and exposure_periods >= 2
+        and wins >= required_wins
+        and mean(deltas) > 0
+        and max(drawdown_worsening, default=0) <= 2
+    )
+    status = "no_effect" if changed_trades == 0 else "pass" if passed else "review"
     return {
-        "status": "pass" if passed else ("review" if len(pairs) >= 2 else "insufficient"),
+        "status": status if len(pairs) >= 2 else "insufficient",
         "common_periods": len(pairs),
+        "exposure_periods": exposure_periods,
+        "changed_trades": changed_trades,
         "wins": wins,
         "mean_return_delta": mean(deltas) if deltas else None,
         "max_drawdown_worsening": max(drawdown_worsening, default=None),
@@ -177,6 +194,35 @@ def _row_line(row: dict[str, Any]) -> str:
         f"{_fmt(row.get('cash_drawdown'), '%')} | {row.get('cash_trades') or 0} | "
         f"{_fmt(row.get('win_rate'), '%')} | {_fmt(row.get('avg_return'), '%')} | {_fmt(row.get('sharpe'))} |"
     )
+
+
+def _row_payload(row: StrategyComparisonRow) -> dict[str, Any]:
+    return {
+        "period": row.period,
+        "variant": row.variant,
+        "start": row.start,
+        "end": row.end,
+        "cash_return": row.cash_return,
+        "cash_drawdown": row.cash_drawdown,
+        "cash_trades": row.cash_trades,
+        "win_rate": row.win_rate,
+        "avg_return": row.avg_return,
+        "sharpe": row.sharpe,
+        "selected_trade_count": len(row.trade_keys),
+    }
+
+
+def _trade_keys(directory: Path) -> tuple[str, ...]:
+    paths = sorted(directory.glob("trades_*.csv"))
+    if not paths:
+        return ()
+    with paths[0].open(encoding="utf-8-sig", newline="") as handle:
+        rows = csv.DictReader(handle)
+        return tuple(sorted(f"{row.get('signal_date', '')}:{row.get('code', '')}" for row in rows))
+
+
+def _trade_delta(base: StrategyComparisonRow, candidate: StrategyComparisonRow) -> int:
+    return len(set(base.trade_keys).symmetric_difference(candidate.trade_keys))
 
 
 def _line_value(content: str, label: str) -> str | None:
