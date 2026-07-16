@@ -1,12 +1,19 @@
 import { z } from 'zod'
 
+function normalizeBuyDate(value: unknown): unknown {
+  if (value === '' || value == null) return null
+  if (typeof value !== 'string') return value
+  const text = value.trim()
+  return /^\d{8}$/.test(text) ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6)}` : text
+}
+
 const positionSchema = z.object({
   code: z.union([z.string(), z.number()]),
   name: z.string().nullable(),
   shares: z.number(),
   cost_price: z.number(),
   buy_dt: z.preprocess(
-    (value) => value === '' ? null : value,
+    normalizeBuyDate,
     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   ),
 })

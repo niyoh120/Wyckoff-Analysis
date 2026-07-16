@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parsePortfolioInput } from './portfolio'
+import { normalizeBuyDate, parsePortfolioInput } from './portfolio'
 
 describe('portfolio API input', () => {
   it('accepts a valid user portfolio', () => {
@@ -21,6 +21,21 @@ describe('portfolio API input', () => {
       data: {
         free_cash: 0,
         positions: [{ code: '600611', name: '大众交通', shares: 1400, cost_price: 3.854, buy_dt: null }],
+      },
+    })
+  })
+
+  it('normalizes compact buy dates from stored positions', () => {
+    expect(normalizeBuyDate('20260703')).toBe('2026-07-03')
+    const result = parsePortfolioInput({
+      free_cash: 40000,
+      positions: [{ code: '603995', name: '甬金股份', shares: 500, cost_price: 23.761, buy_dt: '20260703' }],
+    })
+
+    expect(result).toEqual({
+      data: {
+        free_cash: 40000,
+        positions: [{ code: '603995', name: '甬金股份', shares: 500, cost_price: 23.761, buy_dt: '2026-07-03' }],
       },
     })
   })

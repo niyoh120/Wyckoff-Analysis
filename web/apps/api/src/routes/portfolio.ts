@@ -6,13 +6,20 @@ import type { Env } from '../index'
 
 type PortfolioBindings = { Bindings: Env; Variables: { auth: AuthContext } }
 
+export function normalizeBuyDate(value: unknown): unknown {
+  if (value === '' || value == null) return null
+  if (typeof value !== 'string') return value
+  const text = value.trim()
+  return /^\d{8}$/.test(text) ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6)}` : text
+}
+
 const POSITION_SCHEMA = z.object({
   code: z.string().trim().min(1).max(24),
   name: z.string().trim().max(80).nullable(),
   shares: z.number().int().positive().finite(),
   cost_price: z.number().positive().finite(),
   buy_dt: z.preprocess(
-    (value) => value === '' ? null : value,
+    normalizeBuyDate,
     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   ),
 })
@@ -83,12 +90,14 @@ async function loadPortfolio(supabase: ReturnType<typeof createUserSupabase>, us
     supabase.from('portfolios').select('free_cash').eq('portfolio_id', portfolioId).maybeSingle(),
     supabase.from('portfolio_positions').select('code, name, shares, cost_price, buy_dt').eq('portfolio_id', portfolioId).order('buy_dt', { ascending: false }),
   ])
-  const error = portfolioResult.error?.message || positionsResult.error?.message || ''
+  const positions = z.array(POSITION_SCHEMA).safeParse(positionsResult.data || [])
+  const error = portfolioResult.error?.message || positionsResult.error?.message ||
+    (positions.success ? '' : 'Stored portfolio data is invalid')
   return {
     error,
     portfolio: {
       free_cash: Number(portfolioResult.data?.free_cash || 0),
-      positions: positionsResult.data || [],
+      positions: positions.success ? positions.data : [],
     },
   }
 }

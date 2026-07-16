@@ -747,6 +747,8 @@ Web `/portfolio` 的数据库模式仅对白名单用户开放。浏览器把 Su
 从已验证令牌取得 `user_id` 并固定映射到 `USER_LIVE:<user_id>`，请求体不能指定 `portfolio_id`。
 Cloudflare Pages 通过 `web/functions/api/portfolio/[[path]].ts` 将同域请求交给 Hono API，前端同时校验
 响应结构，避免 SPA fallback 的 HTML 或缺失字段被误当成持仓数据。
+历史持仓允许 `buy_dt` 使用 `YYYYMMDD` 或空字符串；API 输出统一归一化为 `YYYY-MM-DD` 或 `null`，
+确保 Web 日期控件和诊断链路只消费一种日期格式。
 `portfolios` 与 `portfolio_positions` 已启用 RLS，SELECT/INSERT/UPDATE/DELETE 均要求
 `split_part(portfolio_id, ':', 2) = auth.uid()::text`；UPDATE 同时使用 `USING` 与 `WITH CHECK`。
 因此用户只能读取和修改自己的持仓。白名单用户可在页面编辑现金和持仓，选择“保存到云端”或
