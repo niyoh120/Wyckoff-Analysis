@@ -15,8 +15,6 @@ import {
   checklistStatusLabel,
 } from './attribution-summary'
 import { formatPatternReviewDigest, labelCandidateTerm, type PatternReviewRow } from './pattern-review'
-import { formatTailBuyPolicyWeightText } from './tail-buy-policy-weight'
-import { tailBuyExecutionSemantics } from './tail-buy-semantics'
 import { ANALYSIS_CONTEXT_PACK_SCHEMA, buildStockAnalysisContextPack } from './analysis-context'
 
 export interface KlineRow {
@@ -382,7 +380,7 @@ export async function execSearchStock(deps: ToolDeps, userId: string, query: str
   const q = query.trim()
   const isCode = /^\d+$/.test(q)
 
-  const tables = ['recommendation_tracking', 'portfolio_positions', 'tail_buy_history'] as const
+  const tables = ['recommendation_tracking', 'portfolio_positions'] as const
   const allRows: { code: number; name: string }[] = []
 
   for (const table of tables) {
@@ -656,41 +654,6 @@ function jsonMapOrNull(value: unknown): Record<string, unknown> | null {
   }
 }
 
-export async function execQueryTailBuy(deps: ToolDeps, limit: number): Promise<string> {
-  const { data } = await deps.supabase
-    .from('tail_buy_history')
-    .select('*')
-    .order('run_date', { ascending: false })
-    .limit(limit)
-
-  if (!data || data.length === 0) return '暂无尾盘买入记录'
-
-  const latestDate = String(data[0]!.run_date || '')
-  const freshness = dataFreshnessNote(latestDate, '尾盘记录')
-  const lines = data.map((r) => {
-    const code = normalizeCode(r.code as string | number)
-    const entry = typeof r.initial_price === 'number' && r.initial_price > 0 ? r.initial_price : r.last_close
-    const current = typeof r.current_price === 'number' && r.current_price > 0 ? r.current_price : entry
-    const change = typeof r.change_pct === 'number' ? `${r.change_pct.toFixed(1)}%` : '-'
-    const price = typeof entry === 'number' && typeof current === 'number'
-      ? `入库${entry.toFixed(2)}→现价${current.toFixed(2)} ${change}`
-      : '入库价-/现价-'
-    const vwapGap = typeof r.dist_vwap_pct === 'number' ? `距VWAP${r.dist_vwap_pct.toFixed(1)}%` : '距VWAP-'
-    const policyWeight = formatTailBuyPolicyWeightText(r, { prefix: ' | 归因调权 ' })
-    const execution = tailBuyExecutionSemantics({
-      finalDecision: r.final_decision,
-      signalType: r.signal_type,
-      features: jsonMapOrNull(r.features_json),
-    })
-    return `${code} ${r.name} | ${r.run_date} | ${r.signal_type} | ${execution.display} | ${price} | ${vwapGap} | 规则分${r.rule_score?.toFixed(1)}${policyWeight} | ${r.llm_decision || '-'} | ${r.llm_reason || ''} | 下一步:${execution.nextStep}`
-  })
-
-  const header = freshness
-    ? `${freshness}\n\n最近 ${data.length} 条尾盘记录：`
-    : `最近 ${data.length} 条尾盘记录：`
-  return `${header}\n\n${lines.join('\n')}`
-}
-
 export async function execQueryAttribution(deps: ToolDeps, limit: number): Promise<string> {
   const { data } = await deps.supabase
     .from('strategy_attribution_reports')
@@ -742,7 +705,7 @@ function attributionExecutionFallback(governor: Record<string, unknown>, rawActi
   return withAttributionActiveScope({
     funnel_dynamic_policy: 'unknown',
     horizon,
-    scope: actionCount > 0 ? 'tail_buy_and_funnel_shadow' : 'none',
+    scope: actionCount > 0 ? 'funnel_shadow' : 'none',
     signal_action_count: actionCount,
     promotion_status: String(governor.promotion_status || 'unknown'),
     next_action: String(governor.next_action || 'keep_shadow_observe'),
@@ -799,7 +762,6 @@ function withAttributionActiveScope(execution: Record<string, unknown>): Record<
   return {
     ...execution,
     active_scope: String(execution.active_scope || flags.active_scope),
-    tail_buy_weights_active: execution.tail_buy_weights_active ?? flags.tail_buy_weights_active,
     funnel_shadow_weights_active: execution.funnel_shadow_weights_active ?? flags.funnel_shadow_weights_active,
     funnel_formal_weights_active: execution.funnel_formal_weights_active ?? flags.funnel_formal_weights_active,
   }
@@ -808,16 +770,13 @@ function withAttributionActiveScope(execution: Record<string, unknown>): Record<
 function attributionActiveFlags(execution: Record<string, unknown>): Record<string, unknown> {
   const actionCount = Number(execution.signal_action_count || 0)
   const scope = String(execution.scope || 'none').trim()
-  const tailActive = actionCount > 0 && ['tail_buy_only', 'tail_buy_and_funnel_shadow', 'tail_buy_and_funnel'].includes(scope)
-  const shadowActive = actionCount > 0 && scope === 'tail_buy_and_funnel_shadow'
-  const formalActive = actionCount > 0 && scope === 'tail_buy_and_funnel'
+  const shadowActive = actionCount > 0 && scope === 'funnel_shadow'
+  const formalActive = actionCount > 0 && scope === 'funnel_formal'
   const labels = []
-  if (tailActive) labels.push('尾盘')
   if (formalActive) labels.push('正式漏斗')
   else if (shadowActive) labels.push('漏斗shadow')
   return {
     active_scope: labels.join('+') || '无',
-    tail_buy_weights_active: tailActive,
     funnel_shadow_weights_active: shadowActive,
     funnel_formal_weights_active: formalActive,
   }

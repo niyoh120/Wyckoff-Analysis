@@ -45,13 +45,12 @@ def test_format_policy_meta_text_surfaces_active_scope() -> None:
                 "report_date": "2026-07-04",
                 "horizon": "5",
                 "execution_policy": "on",
-                "execution_scope": "tail_buy_and_funnel",
-                "tail_buy_weights_active": True,
+                "execution_scope": "funnel_formal",
                 "funnel_shadow_weights_active": True,
                 "funnel_formal_weights_active": True,
             }
         )
-        == "（远端, 报告=2026-07-04, 周期=h5, 策略=正式调权(on), 范围=尾盘+正式漏斗）"
+        == "（远端, 报告=2026-07-04, 周期=h5, 策略=正式调权(on), 范围=正式漏斗）"
     )
 
 
@@ -61,10 +60,10 @@ def test_format_policy_meta_text_derives_active_scope_from_legacy_scope() -> Non
             {
                 "source": "远端",
                 "execution_policy": "shadow",
-                "execution_scope": "tail_buy_and_funnel_shadow",
+                "execution_scope": "funnel_shadow",
             }
         )
-        == "（远端, 策略=shadow 对照(shadow), 范围=尾盘+漏斗shadow）"
+        == "（远端, 策略=shadow 对照(shadow), 范围=漏斗shadow）"
     )
 
 
@@ -136,7 +135,7 @@ def test_policy_display_helpers_translate_manual_approval() -> None:
 
 def test_policy_execution_display_distinguishes_formal_gate() -> None:
     execution = {
-        "active_scope": "尾盘+漏斗shadow",
+        "active_scope": "漏斗shadow",
         "promotion_status": "manual_review_required",
         "next_action": "manual_review_dynamic_on",
         "formal_dynamic_allowed": False,
@@ -146,7 +145,7 @@ def test_policy_execution_display_distinguishes_formal_gate() -> None:
 
     assert policy_formal_dynamic_label(execution) == "未进正式漏斗(未启用自动晋级)"
     assert policy_execution_display(execution) == {
-        "active_scope": "尾盘+漏斗shadow",
+        "active_scope": "漏斗shadow",
         "promotion_status": "需人工复核",
         "next_action": "进入人工晋级评审（非正式生效）",
         "formal_dynamic": "未进正式漏斗(未启用自动晋级)",

@@ -37,7 +37,6 @@ export interface AttributionExecutionImpactInput {
     signal_action_count?: unknown
     scope?: unknown
     active_scope?: unknown
-    tail_buy_weights_active?: unknown
     funnel_shadow_weights_active?: unknown
     funnel_formal_weights_active?: unknown
   } | null
@@ -203,7 +202,6 @@ export function attributionExecutionImpactText(input: AttributionExecutionImpact
   const active = activeFlags(input.execution, actionCount)
   const targetText = optionalText(input.targetText) || '-'
   const impacts = []
-  if (active.tail) impacts.push('尾盘策略会读取这些权重')
   if (active.formal) {
     impacts.push('正式漏斗候选排序会读取这些权重')
   } else if (active.shadow) {
@@ -228,7 +226,7 @@ function normalizeOperatorSummaryScope(
 ): string {
   const activeScope = operatorScope(execution, actions)
   return summary.replace(
-    /作用范围=(tail_buy_and_funnel_shadow|tail_buy_and_funnel|tail_buy_only|none)(?=；|$)/,
+    /作用范围=(funnel_shadow|funnel_formal|none)(?=；|$)/,
     `作用范围=${activeScope}`,
   )
 }
@@ -270,30 +268,27 @@ function activeScopeFromExecution(
   actions: AttributionOperatorAction[],
 ): string {
   const actionCount = Number(execution?.signal_action_count ?? actions.length)
-  const scope = optionalText(execution?.scope) || (actions.length ? 'tail_buy_only' : 'none')
+  const scope = optionalText(execution?.scope) || (actions.length ? 'funnel_shadow' : 'none')
   if (actionCount <= 0) return '无'
-  if (scope === 'tail_buy_and_funnel') return '尾盘+正式漏斗'
-  if (scope === 'tail_buy_and_funnel_shadow') return '尾盘+漏斗shadow'
-  if (scope === 'tail_buy_only') return '尾盘'
+  if (scope === 'funnel_formal') return '正式漏斗'
+  if (scope === 'funnel_shadow') return '漏斗shadow'
   return '无'
 }
 
 function activeFlags(
   execution: AttributionExecutionImpactInput['execution'],
   actionCount: number,
-): { tail: boolean, shadow: boolean, formal: boolean } {
-  const tail = boolValue(execution?.tail_buy_weights_active)
+): { shadow: boolean, formal: boolean } {
   const shadow = boolValue(execution?.funnel_shadow_weights_active)
   const formal = boolValue(execution?.funnel_formal_weights_active)
-  if (tail !== undefined || shadow !== undefined || formal !== undefined) {
-    return { tail: tail === true, shadow: shadow === true, formal: formal === true }
+  if (shadow !== undefined || formal !== undefined) {
+    return { shadow: shadow === true, formal: formal === true }
   }
 
   const scope = optionalText(execution?.scope) || 'none'
   return {
-    tail: actionCount > 0 && ['tail_buy_only', 'tail_buy_and_funnel_shadow', 'tail_buy_and_funnel'].includes(scope),
-    shadow: actionCount > 0 && scope === 'tail_buy_and_funnel_shadow',
-    formal: actionCount > 0 && scope === 'tail_buy_and_funnel',
+    shadow: actionCount > 0 && scope === 'funnel_shadow',
+    formal: actionCount > 0 && scope === 'funnel_formal',
   }
 }
 

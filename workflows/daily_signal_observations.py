@@ -46,34 +46,6 @@ def shadow_observation_inputs(step2_details: dict) -> tuple[dict[str, list[tuple
     return triggers, source_map, score_map
 
 
-def build_intraday_tail_map(
-    step2_details: dict,
-    ai_codes: list[str],
-    logs_path: str | None,
-    *,
-    log_fn: LogFn | None = None,
-) -> dict[str, dict]:
-    if os.getenv("FUNNEL_INTRADAY_TAIL_CONFIRMATION", "1").strip().lower() in {"0", "false", "no", "off"}:
-        return {}
-    api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
-    if not api_key:
-        _log(log_fn, "尾盘分钟线确认: 跳过（TICKFLOW_API_KEY 未配置）", logs_path)
-        return {}
-    items = _tail_confirmation_trigger_items(step2_details, ai_codes)
-    if not items:
-        return {}
-    max_symbols = _env_int("FUNNEL_TAIL_CONFIRMATION_MAX_SYMBOLS", 40, minimum=1)
-    codes = list(dict.fromkeys(code for _sig, code, _score in items))[:max_symbols]
-    try:
-        out = _fetch_intraday_tail_payloads(api_key, codes, items, step2_details)
-        feature_count = sum(1 for key in out if ":" in key)
-        _log(log_fn, f"尾盘分钟线确认: requested={len(codes)}, features={feature_count}", logs_path)
-        return out
-    except Exception as exc:
-        _log(log_fn, f"尾盘分钟线确认失败（已降级）: {exc}", logs_path)
-        return {}
-
-
 def build_external_capital_context_map(
     step2_details: dict,
     ai_codes: list[str],
@@ -137,7 +109,6 @@ def build_signal_observation_rows(
         source_map=_signal_observation_source_map(step2_details),
         springboard_map=springboard_map,
         footprint_map=footprint_map,
-        intraday_tail_map=step2_details.get("intraday_tail_map") or {},
         source_context_map=step2_details.get("source_context_map") or {},
         candidate_metadata_map=_candidate_metadata_map(step2_details),
         entry_quality_map=build_entry_quality_map(step2_details),
@@ -167,7 +138,6 @@ def build_shadow_observation_rows(step2_details: dict, regime: str, *, trade_dat
         latest_close_map=close_map,
         source_map=shadow_source_map,
         footprint_map=footprint_map,
-        intraday_tail_map=step2_details.get("intraday_tail_map") or {},
         source_context_map=step2_details.get("source_context_map") or {},
         entry_quality_map=build_entry_quality_map(step2_details),
         selection_mode="shadow",
@@ -204,7 +174,6 @@ def build_external_seed_signal_rows(step2_details: dict, regime: str, *, trade_d
         source_map=source_map,
         springboard_map=springboard_map,
         footprint_map=footprint_map,
-        intraday_tail_map=step2_details.get("intraday_tail_map") or {},
         source_context_map=step2_details.get("source_context_map") or {},
         entry_quality_map=build_entry_quality_map(step2_details),
         selection_mode="external_seed_shadow",
@@ -253,10 +222,6 @@ def persist_signal_observations(
         from integrations.supabase_signal_feedback import upsert_signal_observations
 
         regime = str((benchmark_context or {}).get("regime") or "NEUTRAL")
-        if "intraday_tail_map" not in step2_details:
-            step2_details["intraday_tail_map"] = build_intraday_tail_map(
-                step2_details, ai_codes, logs_path, log_fn=log_fn
-            )
         if "source_context_map" not in step2_details:
             step2_details["source_context_map"] = build_external_capital_context_map(
                 step2_details,
@@ -313,69 +278,7 @@ def build_springboard_map(step2_details: dict) -> dict[str, dict]:
     return out
 
 
-def _fetch_intraday_tail_payloads(
-    api_key: str,
-    codes: list[str],
-    items: list[tuple[str, str, float]],
-    step2_details: dict,
-) -> dict[str, dict]:
-    from integrations.tickflow_client import TickFlowClient, normalize_cn_symbol
-
-    symbols = [normalize_cn_symbol(code) for code in codes]
-    data_map = TickFlowClient(api_key=api_key).get_intraday_batch(symbols, period="1m", count=5000)
-    springboard_map = step2_details.get("springboard_map") or build_springboard_map(step2_details)
-    allowed = set(codes)
-    out: dict[str, dict[str, Any]] = {}
-    for sig, code, trigger_score in items:
-        if code not in allowed:
-            continue
-        df_1m = data_map.get(normalize_cn_symbol(code))
-        if df_1m is None or df_1m.empty:
-            continue
-        springboard = springboard_map.get(f"{sig}:{code}") or springboard_map.get(code) or {}
-        support = springboard.get("springboard_support")
-        payload = _intraday_tail_payload(
-            df_1m,
-            code=code,
-            signal_type=sig,
-            trigger_score=trigger_score,
-            daily_context={"support_level": support} if support else None,
-        )
-        out[f"{sig}:{code}"] = payload
-        out.setdefault(code, payload)
-    return out
-
-
-def _intraday_tail_payload(
-    df_1m: Any,
-    *,
-    code: str,
-    signal_type: str,
-    trigger_score: float,
-    daily_context: dict | None,
-) -> dict:
-    from core.tail_buy.strategy import board_scaled_strategy_config, compute_tail_features, score_tail_features
-
-    policy = board_scaled_strategy_config(None, code)
-    features = compute_tail_features(df_1m, daily_context=daily_context, config=policy)
-    tail_score, tail_decision, reasons = score_tail_features(
-        features,
-        signal_score=trigger_score,
-        signal_type=signal_type,
-        status="pending",
-        config=policy,
-    )
-    return {
-        "version": "intraday_tail_confirmation_v1",
-        "source": "tickflow_1m",
-        "tail_score": round(float(tail_score), 1),
-        "tail_decision": tail_decision,
-        "tail_reasons": reasons[:6],
-        **features,
-    }
-
-
-def _tail_confirmation_trigger_items(step2_details: dict, ai_codes: list[str]) -> list[tuple[str, str, float]]:
+def _ai_selected_trigger_items(step2_details: dict, ai_codes: list[str]) -> list[tuple[str, str, float]]:
     target_order: list[str] = []
     for raw in list(step2_details.get("selected_for_ai", []) or []) + list(ai_codes or []):
         code = str(raw or "").strip()
@@ -402,7 +305,7 @@ def _external_capital_codes(step2_details: dict, ai_codes: list[str]) -> list[st
             ordered.append(code)
     if ordered:
         return ordered
-    return list(dict.fromkeys(code for _sig, code, _score in _tail_confirmation_trigger_items(step2_details, ai_codes)))
+    return list(dict.fromkeys(code for _sig, code, _score in _ai_selected_trigger_items(step2_details, ai_codes)))
 
 
 def _observation_context(step2_details: dict) -> tuple[dict, dict, dict, dict, dict, dict, dict, dict]:

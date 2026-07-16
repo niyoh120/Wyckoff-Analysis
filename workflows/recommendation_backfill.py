@@ -328,8 +328,6 @@ def _signal_observation_rows(
     if not details:
         return []
     regime = str((benchmark_context or {}).get("regime") or "NEUTRAL")
-    details = dict(details)
-    details["intraday_tail_map"] = details.get("intraday_tail_map") or {}
     rows = signal_observations.build_signal_observation_rows(details, regime, ai_codes, trade_date=trade_date)
     rows.extend(signal_observations.build_shadow_observation_rows(details, regime, trade_date=trade_date))
     rows.extend(signal_observations.build_external_seed_signal_rows(details, regime, trade_date=trade_date))

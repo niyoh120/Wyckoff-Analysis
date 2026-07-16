@@ -33,7 +33,8 @@ jobs:
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SUPABASE_USER_ID: ${{ secrets.SUPABASE_USER_ID }}
-      TAIL_BUY_PORTFOLIO_ID: ${{ secrets.TAIL_BUY_PORTFOLIO_ID }}
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      HOLDING_DIAG_PORTFOLIO_ID: ${{ secrets.HOLDING_DIAG_PORTFOLIO_ID }}
 
     steps:
       - uses: actions/checkout@v4

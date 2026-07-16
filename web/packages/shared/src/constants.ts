@@ -97,5 +97,4 @@ export const TABLE_NAMES = {
   PORTFOLIO_POSITIONS: 'portfolio_positions',
   TRADE_ORDERS: 'trade_orders',
   RECOMMENDATION_TRACKING: 'recommendation_tracking',
-  TAIL_BUY_HISTORY: 'tail_buy_history',
 } as const

@@ -22,10 +22,10 @@ def research_db(tmp_path, monkeypatch):
 def _create() -> dict:
     result = research_hypothesis(
         action="create",
-        title="LPS 尾盘确认",
-        thesis="LPS 经尾盘量价确认后，未来十日收益更稳定",
+        title="LPS 量能确认",
+        thesis="LPS 经量能放大确认后，未来十日收益更稳定",
         universe="cn_a",
-        signal_definition="LPS + intraday_tail_confirmation >= 70",
+        signal_definition="LPS + vol_ratio_confirmation >= 70",
         invalidation_criteria="样本外十日均值收益连续三期为负",
     )
     assert result["status"] == "created"
@@ -44,7 +44,7 @@ def test_create_update_and_list_hypothesis():
 
     assert updated["hypothesis"]["status"] == "testing"
     assert listed["count"] == 1
-    assert listed["hypotheses"][0]["title"] == "LPS 尾盘确认"
+    assert listed["hypotheses"][0]["title"] == "LPS 量能确认"
 
 
 def test_validation_requires_backtest_and_stability_evidence():

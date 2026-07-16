@@ -549,7 +549,7 @@ def _candidate_entry(item: dict[str, Any]) -> dict[str, Any]:
         "score": score,
         "opportunity": _candidate_opportunity(item),
         "timing": str(item.get("entry_type") or ""),
-        "risk": " / ".join([status, *list(item.get("risk_flags") or [])]) or "尾盘仍需二次确认",
+        "risk": " / ".join([status, *list(item.get("risk_flags") or [])]) or "仍需 confirmed 确认",
         "state": "Mainline",
         "reasons": list(item.get("reasons") or [])[:5],
         "metrics": _candidate_entry_metrics(item),

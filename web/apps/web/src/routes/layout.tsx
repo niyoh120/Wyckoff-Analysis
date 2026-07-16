@@ -21,7 +21,6 @@ const navGroups = [
     titleKey: 'nav.group.data',
     items: [
       { to: '/history', icon: History, labelKey: 'nav.history' },
-      { to: '/tail-buy', icon: Moon, labelKey: 'nav.tailBuy' },
       { to: '/export', icon: FileDown, labelKey: 'nav.export' },
     ]
   },

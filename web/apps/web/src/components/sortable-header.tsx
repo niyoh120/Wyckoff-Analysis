@@ -10,7 +10,7 @@ interface SortableHeaderProps {
   variant?: 'full' | 'compact'
 }
 
-/** Shared sortable `<th>` header used by tail-buy and tracking tables. */
+/** Shared sortable `<th>` header used by tracking and export tables. */
 export function SortableHeader({ active, align, label, order, onClick, variant = 'full' }: SortableHeaderProps) {
   const alignText = align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
   if (variant === 'compact') {

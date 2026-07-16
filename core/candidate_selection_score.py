@@ -120,33 +120,6 @@ def _springboard_component(springboard: dict[str, Any]) -> tuple[float, list[str
     return component, tags
 
 
-def _tail_component(intraday_tail: dict[str, Any]) -> tuple[float, list[str], list[str]]:
-    if not intraday_tail:
-        return 0.0, [], []
-    decision = str(intraday_tail.get("tail_decision") or "").strip().upper()
-    score = _points(intraday_tail.get("tail_score"), 14.0)
-    if decision == "BUY":
-        score = min(14.0, score + 2.0)
-    elif decision == "WATCH":
-        score = min(14.0, score + 0.8)
-    tags = []
-    negative = []
-    if decision == "BUY":
-        tags.append("tail_buy_confirmation")
-    elif decision == "WATCH":
-        tags.append("tail_watch_confirmation")
-    elif decision == "SKIP":
-        negative.append("tail_skip")
-    if "dist_vwap_pct" in intraday_tail:
-        dist_vwap = parse_cn_num(intraday_tail.get("dist_vwap_pct"))
-        if dist_vwap is not None:
-            if dist_vwap >= 0:
-                tags.append("above_vwap")
-            else:
-                negative.append("below_vwap")
-    return round(score, 1), tags, negative
-
-
 def _external_capital_component(source_context: dict[str, Any]) -> tuple[float, list[str], list[str]]:
     if not source_context:
         return 0.0, [], []
@@ -204,7 +177,6 @@ def score_candidate_shadow(
     priority_score: float = 0.0,
     footprint: dict[str, Any] | None = None,
     springboard: dict[str, Any] | None = None,
-    intraday_tail: dict[str, Any] | None = None,
     source_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a compact, deterministic candidate-quality score."""
@@ -214,16 +186,14 @@ def score_candidate_shadow(
     funnel_score, funnel_tags = _funnel_component(trigger_score, priority_score)
     price_action, risk_penalty, pa_tags, pa_negative = _price_action_component(signal_type, footprint or {})
     springboard_score, spring_tags = _springboard_component(springboard or {})
-    tail_score, tail_tags, tail_negative = _tail_component(intraday_tail or {})
     external_score, external_tags, external_negative = _external_capital_component(source_context or {})
 
-    positive.extend(funnel_tags + pa_tags + spring_tags + tail_tags + external_tags)
-    negative.extend(pa_negative + tail_negative + external_negative)
+    positive.extend(funnel_tags + pa_tags + spring_tags + external_tags)
+    negative.extend(pa_negative + external_negative)
     components = {
         "funnel": funnel_score,
         "price_action": price_action,
         "springboard": springboard_score,
-        "tail_confirmation": tail_score,
         "external_capital": external_score,
         "risk_penalty": risk_penalty,
     }

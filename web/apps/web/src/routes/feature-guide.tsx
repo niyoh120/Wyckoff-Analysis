@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router'
-import { AlertTriangle, BarChart3, Bot, Briefcase, CalendarDays, CheckCircle2, CloudCog, Download, ExternalLink, GitBranch, MessageSquare, Moon, RadioTower, Rocket, Settings, Swords, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, BarChart3, Bot, Briefcase, CalendarDays, CheckCircle2, CloudCog, Download, ExternalLink, GitBranch, MessageSquare, RadioTower, Rocket, Settings, Swords, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react'
 import { usePreferences, type Locale, type TranslationKey } from '@/lib/preferences'
 
 const workflows = [
@@ -30,7 +30,6 @@ const tools = [
   { nameKey: 'guide.tool.market', detailKey: 'guide.tool.market.detail' },
   { nameKey: 'guide.tool.tracking', detailKey: 'guide.tool.tracking.detail' },
   { nameKey: 'guide.tool.signal', detailKey: 'guide.tool.signal.detail' },
-  { nameKey: 'guide.tool.tail', detailKey: 'guide.tool.tail.detail' },
   { nameKey: 'guide.tool.export', detailKey: 'guide.tool.export.detail' },
   { nameKey: 'guide.tool.history', detailKey: 'guide.tool.history.detail' },
   { nameKey: 'guide.tool.model', detailKey: 'guide.tool.model.detail' },
@@ -48,11 +47,6 @@ const playbooks = [
     textKey: 'guide.playbook.mid.text',
   },
   {
-    labelKey: 'guide.playbook.tail',
-    icon: Moon,
-    textKey: 'guide.playbook.tail.text',
-  },
-  {
     labelKey: 'guide.playbook.review',
     icon: Download,
     textKey: 'guide.playbook.review.text',
@@ -65,7 +59,7 @@ const capabilityCopy = {
     title: 'Web 是日常工作台，后台负责重任务',
     intro: '当前 Web 端已经覆盖读盘、单股、多股、持仓、跟踪和导出这些高频动作；全市场漏斗、回测、回刷和运维任务继续放在 GitHub Actions、CLI 或数据库后台，避免把长任务和敏感权限塞进浏览器。',
     webTitle: 'Web 端已经接入',
-    webItems: ['单股 320 日日线结构图、价值快照、AI 报告与本地历史', '多股对抗的相对强弱、叠加/分图、价值面校准与本地历史', '持仓诊断支持数据库持仓和手动持仓，结果保存在当前浏览器', '白名单形态跟踪、白名单尾盘记录、批量行情导出、模型和数据源配置'],
+    webItems: ['单股 320 日日线结构图、价值快照、AI 报告与本地历史', '多股对抗的相对强弱、叠加/分图、价值面校准与本地历史', '持仓诊断支持数据库持仓和手动持仓，结果保存在当前浏览器', '白名单形态跟踪、批量行情导出、模型和数据源配置'],
     gapTitle: '系统有，但不放在 Web 里主跑',
     whyTitle: '为什么不全塞进 Web',
     costLinkText: '成本详见：COST_MODEL.md',
@@ -76,7 +70,7 @@ const capabilityCopy = {
     title: 'The web UI is the daily desk; background jobs carry the heavy work',
     intro: 'The web UI now covers the high-frequency loops: reading, single-stock analysis, stock battle, portfolio diagnosis, tracking, and export. Full-market funnels, backtests, repricing, and maintenance stay in GitHub Actions, CLI, or database-side jobs instead of pushing long jobs and sensitive permissions into the browser.',
     webTitle: 'Covered by the web UI',
-    webItems: ['Single-stock 320-day chart, value snapshot, AI report, and local history', 'Stock battle with relative strength, overlay/separate charts, value calibration, and local history', 'Portfolio diagnosis for database or manual positions, with browser-local result history', 'Allowlisted pattern tracking, allowlisted tail-buy logs, batch market-data export, model and data-source settings'],
+    webItems: ['Single-stock 320-day chart, value snapshot, AI report, and local history', 'Stock battle with relative strength, overlay/separate charts, value calibration, and local history', 'Portfolio diagnosis for database or manual positions, with browser-local result history', 'Allowlisted pattern tracking, batch market-data export, model and data-source settings'],
     gapTitle: 'Available in the system, but not browser-first',
     whyTitle: 'Why not put everything in the browser',
     costLinkText: 'Cost details: COST_MODEL.md',

@@ -31,9 +31,6 @@
 /history
   Cache-Control: no-cache, max-age=0, must-revalidate
 
-/tail-buy
-  Cache-Control: no-cache, max-age=0, must-revalidate
-
 /export
   Cache-Control: no-cache, max-age=0, must-revalidate
 

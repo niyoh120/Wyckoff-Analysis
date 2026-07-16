@@ -19,28 +19,6 @@ from workflows.dynamic_policy_config import dynamic_policy_config_from_env
 from workflows.signal_feedback_job import _outcome_rows, default_registry_horizon
 
 
-def _make_intraday_df(*, start: float = 10.0, end: float = 10.9, bars: int = 180) -> pd.DataFrame:
-    idx = pd.date_range("2026-06-10 09:30", periods=bars, freq="1min", tz="Asia/Shanghai")
-    close = pd.Series([start + (end - start) * i / max(bars - 1, 1) for i in range(bars)])
-    tail_n = min(30, bars)
-    close.iloc[-tail_n:] = (
-        close.iloc[-tail_n:].to_numpy() + pd.Series([0.5 * (i + 1) / tail_n for i in range(tail_n)]).to_numpy()
-    )
-    volume = pd.Series([1200.0] * bars)
-    volume.iloc[-tail_n:] = volume.iloc[-tail_n:] * 1.8
-    return pd.DataFrame(
-        {
-            "datetime": idx,
-            "open": close.shift(1).fillna(close.iloc[0]).values,
-            "high": (close * 1.003).values,
-            "low": (close * 0.997).values,
-            "close": close.values,
-            "volume": volume.values,
-            "amount": (close * volume).values,
-        }
-    )
-
-
 class _FailingUpsertQuery:
     def upsert(self, _rows: list[dict], *, on_conflict: str):
         return self
@@ -148,16 +126,6 @@ def test_build_signal_observations_marks_selection_and_source():
                 "springboard_evidence": {"c_support": {"touch_dates": ["2026-05-20"]}},
             },
         },
-        intraday_tail_map={
-            "sos:000001": {
-                "version": "intraday_tail_confirmation_v1",
-                "tail_score": 78.5,
-                "tail_decision": "BUY",
-                "dist_vwap_pct": 1.2,
-                "smart_money_score": 3.4,
-                "tail30_volume_share": 0.22,
-            }
-        },
         source_context_map={
             "000001": {
                 "version": "external_capital_context_v1",
@@ -190,8 +158,6 @@ def test_build_signal_observations_marks_selection_and_source():
     assert first["springboard_evidence"]["a_hits"][0]["date"] == "2026-05-24"
     assert first["features_json"]["price_action_footprint"]["tags"] == ["quality_breakout"]
     assert first["features_json"]["springboard"]["springboard_grade"] == "A+B"
-    assert first["features_json"]["intraday_tail_confirmation"]["tail_decision"] == "BUY"
-    assert first["features_json"]["intraday_tail_confirmation"]["smart_money_score"] == 3.4
     assert first["features_json"]["source_context"]["lhb"]["net_buy"] == 123.0
     assert first["features_json"]["source_context"]["margin"]["margin_balance"] == 456.0
     assert first["features_json"]["entry_quality"] == {
@@ -204,13 +170,12 @@ def test_build_signal_observations_marks_selection_and_source():
     }
     lineage = first["features_json"]["data_lineage"]
     assert lineage["version"] == "candidate_evidence_lineage_v1"
-    assert lineage["coverage_score"] == 100.0
+    assert lineage["coverage_score"] == 95.0
     assert lineage["coverage_grade"] == "strong"
     assert lineage["evidence_keys"] == [
         "daily_signal",
         "price_action",
         "springboard",
-        "intraday_tail",
         "external_capital",
         "ai_review",
     ]
@@ -221,7 +186,6 @@ def test_build_signal_observations_marks_selection_and_source():
     assert shadow_score["components"]["funnel"] == 26.4
     assert shadow_score["components"]["springboard"] == 12.0
     assert "springboard_confirmed" in shadow_score["positive_tags"]
-    assert "tail_buy_confirmation" in shadow_score["positive_tags"]
     assert second["track"] == "Accum"
     assert second["source"] == "l2_bypass"
     assert second["selection_mode"] == "l2_bypass_shadow"
@@ -230,7 +194,6 @@ def test_build_signal_observations_marks_selection_and_source():
     assert second["features_json"]["data_lineage"]["coverage_grade"] == "thin"
     assert second["features_json"]["data_lineage"]["missing_keys"] == [
         "price_action",
-        "intraday_tail",
         "external_capital",
     ]
 
@@ -263,59 +226,6 @@ def test_build_signal_observations_writes_candidate_metadata():
     assert row["candidate_status"] == "主线买点候选"
     assert row["features_json"]["candidate_metadata"]["mainline_score"] == 0.86
     assert row["features_json"]["candidate_metadata"]["timing_score"] == 0.72
-
-
-def test_daily_job_builds_intraday_tail_confirmation_map(monkeypatch):
-    from integrations import tickflow_client
-    from workflows import daily_signal_observations
-
-    class FakeTickFlow:
-        def __init__(self, api_key: str):
-            assert api_key == "tf-key"
-
-        def get_intraday_batch(self, symbols: list[str], *, period: str, count: int):
-            assert symbols == ["000001.SZ"]
-            assert period == "1m"
-            assert count == 5000
-            return {"000001.SZ": _make_intraday_df()}
-
-    monkeypatch.setenv("TICKFLOW_API_KEY", "tf-key")
-    monkeypatch.setenv("FUNNEL_INTRADAY_TAIL_CONFIRMATION", "1")
-    monkeypatch.setenv("FUNNEL_TAIL_CONFIRMATION_MAX_SYMBOLS", "1")
-    monkeypatch.setattr(tickflow_client, "TickFlowClient", FakeTickFlow)
-
-    got = daily_signal_observations.build_intraday_tail_map(
-        {
-            "selected_for_ai": ["000001", "000002"],
-            "review_triggers": {"sos": [("000001", 6.0), ("000002", 5.0)]},
-            "springboard_map": {"sos:000001": {"springboard_support": 10.0}},
-        },
-        [],
-        None,
-    )
-
-    assert "sos:000001" in got
-    assert "sos:000002" not in got
-    assert got["sos:000001"]["version"] == "intraday_tail_confirmation_v1"
-    assert got["sos:000001"]["source"] == "tickflow_1m"
-    assert got["sos:000001"]["bars"] == 180
-    assert got["sos:000001"]["tail_score"] > 0
-    assert got["000001"]["tail_decision"] in {"BUY", "WATCH", "SKIP"}
-
-
-def test_daily_job_intraday_tail_map_skips_without_tickflow_key(monkeypatch):
-    from workflows import daily_signal_observations
-
-    monkeypatch.delenv("TICKFLOW_API_KEY", raising=False)
-    monkeypatch.setenv("FUNNEL_INTRADAY_TAIL_CONFIRMATION", "1")
-
-    got = daily_signal_observations.build_intraday_tail_map(
-        {"selected_for_ai": ["000001"], "review_triggers": {"sos": [("000001", 6.0)]}},
-        [],
-        None,
-    )
-
-    assert got == {}
 
 
 def test_daily_job_marks_bypass_observations_as_shadow(monkeypatch):

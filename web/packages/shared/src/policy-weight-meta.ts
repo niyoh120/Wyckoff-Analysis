@@ -101,18 +101,11 @@ function policyFormalDynamicLabel(meta: Record<string, unknown>): string {
 function policyActiveScope(meta: Record<string, unknown>): string {
   const explicit = textMeta(meta, 'active_scope')
   if (explicit && explicit !== '无') return explicit
-  const parts: string[] = []
-  if (boolMeta(meta, 'tail_buy_weights_active') === true) parts.push('尾盘')
-  if (boolMeta(meta, 'funnel_formal_weights_active') === true) {
-    parts.push('正式漏斗')
-  } else if (boolMeta(meta, 'funnel_shadow_weights_active') === true) {
-    parts.push('漏斗shadow')
-  }
-  if (parts.length) return parts.join('+')
+  if (boolMeta(meta, 'funnel_formal_weights_active') === true) return '正式漏斗'
+  if (boolMeta(meta, 'funnel_shadow_weights_active') === true) return '漏斗shadow'
   const scope = textMeta(meta, 'execution_scope')
-  if (scope === 'tail_buy_and_funnel') return '尾盘+正式漏斗'
-  if (scope === 'tail_buy_and_funnel_shadow') return '尾盘+漏斗shadow'
-  if (scope === 'tail_buy_only') return '尾盘'
+  if (scope === 'funnel_formal') return '正式漏斗'
+  if (scope === 'funnel_shadow') return '漏斗shadow'
   return ''
 }
 

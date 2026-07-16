@@ -108,27 +108,8 @@ jobs:
       FUNNEL_L2_BYPASS_AI_ENABLED: "0"
       FUNNEL_STRATEGIC_L2_BYPASS_AI_CAP: "2"
       FUNNEL_THEME_RADAR_PROMOTE_CAP: "2"
-      TAIL_BUY_LLM_PROVIDER: ${{ vars.TAIL_BUY_LLM_PROVIDER || secrets.TAIL_BUY_LLM_PROVIDER || 'efficiency' }}
-      TAIL_BUY_LLM_FALLBACK_PROVIDERS: ${{ vars.TAIL_BUY_LLM_FALLBACK_PROVIDERS || secrets.TAIL_BUY_LLM_FALLBACK_PROVIDERS || '' }}
-      TAIL_BUY_LLM_TOP_N: "12"
-      TAIL_BUY_FETCH_CONCURRENCY: "8"
-      TAIL_BUY_LLM_CONCURRENCY: "1"
-      TAIL_BUY_LLM_MIN_RULE_SCORE: "70"
-      TAIL_BUY_LOG_LLM_PER_SYMBOL_ERRORS: "0"
-      TAIL_BUY_TASK_TIMEOUT_MIN: "25"
-      TAIL_BUY_INTRADAY_LIMIT_PER_MIN: "30"
-      TAIL_BUY_MAX_OVER_LIMIT_SYMBOLS: "5"
-      TAIL_BUY_FORCE_OVER_LIMIT: "1"
-      TAIL_BUY_TICKFLOW_MAX_RETRIES: "1"
-      TAIL_BUY_USE_BATCH_INTRADAY: "1"
-      TAIL_BUY_INTRADAY_BATCH_SIZE: "200"
-      TAIL_BUY_CONFIRMED_ONLY_BUY: "1"
-      TAIL_BUY_LEFT_PROBE_CLOSE_POS_MIN: "0.65"
-      TAIL_BUY_LEFT_PROBE_SPRING_QUALITY_MIN: "50"
       FUNNEL_ENFORCE_TARGET_TRADE_DATE: "1"
       FUNNEL_DATA_FRESHNESS_HARD_FAIL: "1"
-      TAIL_BUY_PORTFOLIO_ID: ${{ secrets.TAIL_BUY_PORTFOLIO_ID }}
-      TAIL_BUY_HOLDING_HARD_STOP_PCT: "12"
       DAILY_JOB_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
       TZ: Asia/Shanghai
 
@@ -154,21 +135,6 @@ jobs:
           set -o pipefail
           python -u scripts/daily_job.py --logs ${{ github.workspace }}/logs/daily_job.log \
             2>&1 | tee -a ${{ github.workspace }}/logs/daily_job.console.log
-
-      - name: Run post-close tail review
-        if: success() && env.END_CALENDAR_DAY == ''
-        run: |
-          set -o pipefail
-          if [ "$(TZ=Asia/Shanghai date +%u)" -ge 6 ]; then
-            echo "Skip post-close tail review on weekend."
-            exit 0
-          fi
-          python -u scripts/tail_buy_intraday_job.py \
-            --mode post_close_review \
-            --max-llm-symbols "${TAIL_BUY_LLM_TOP_N}" \
-            --deadline-minute "${TAIL_BUY_TASK_TIMEOUT_MIN}" \
-            --logs "${{ github.workspace }}/logs/tail_buy_post_close.log" \
-            2>&1 | tee -a "${{ github.workspace }}/logs/tail_buy_post_close.console.log"
 
       - name: Upload artifacts
         if: always()

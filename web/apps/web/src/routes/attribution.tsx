@@ -148,7 +148,6 @@ interface PolicyExecutionPayload {
   promotion_checklist?: PromotionCheck[]
   scope?: string
   active_scope?: string
-  tail_buy_weights_active?: boolean
   funnel_shadow_weights_active?: boolean
   funnel_formal_weights_active?: boolean
   summary?: string
@@ -194,7 +193,7 @@ export function AttributionPage() {
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Strategy Attribution</p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight">策略归因报告</h1>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            固定周期结果、形态表现、分数分桶和 shadow 差异的聚合视图。信号级调权会作为尾盘策略和漏斗动态策略输入；
+            固定周期结果、形态表现、分数分桶和 shadow 差异的聚合视图。信号级调权会作为漏斗动态策略输入；
             是否把动态策略从 shadow 晋级到 on 仍需人工确认。
           </p>
         </div>
@@ -483,7 +482,7 @@ function PolicyExecutionState({
 }) {
   const actionCount = execution?.signal_action_count ?? stats.actionCount
   const hasActions = actionCount > 0
-  const scope = formatExecutionScope(execution?.scope || (hasActions ? 'tail_buy_only' : 'none'))
+  const scope = formatExecutionScope(execution?.scope || (hasActions ? 'funnel_shadow' : 'none'))
   const activeScope = formatExecutionActiveScope(execution, actionCount)
   const targetText = stats.targets.length ? stats.targets.join(' / ') : '-'
   const modeText = governor?.auto_apply
@@ -900,9 +899,8 @@ function policyExecutionStats(rows: AttributionRecommendation[], horizon?: strin
 function formatExecutionScope(raw: string | undefined) {
   const labels: Record<string, string> = {
     none: '仅观察',
-    tail_buy_only: '尾盘',
-    tail_buy_and_funnel_shadow: '尾盘 + 漏斗 shadow',
-    tail_buy_and_funnel: '尾盘 + 正式漏斗',
+    funnel_shadow: '漏斗 shadow',
+    funnel_formal: '正式漏斗',
   }
   return labels[String(raw || '').trim()] || raw || '仅观察'
 }
@@ -1079,9 +1077,8 @@ function formatExecutionActiveScope(execution: PolicyExecutionPayload | null, ac
   if (explicit) return explicit
   const scope = String(execution?.scope || 'none').trim()
   if (actionCount <= 0) return '无'
-  if (scope === 'tail_buy_and_funnel') return '尾盘+正式漏斗'
-  if (scope === 'tail_buy_and_funnel_shadow') return '尾盘+漏斗shadow'
-  if (scope === 'tail_buy_only') return '尾盘'
+  if (scope === 'funnel_formal') return '正式漏斗'
+  if (scope === 'funnel_shadow') return '漏斗shadow'
   return '无'
 }
 

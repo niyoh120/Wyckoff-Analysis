@@ -14,7 +14,6 @@ from core.constants import (
     TABLE_RECOMMENDATION_TRACKING_HK,
     TABLE_RECOMMENDATION_TRACKING_US,
     TABLE_SIGNAL_PENDING,
-    TABLE_TAIL_BUY_HISTORY,
     TABLE_TRADE_ORDERS,
 )
 from integrations.supabase_base import create_admin_client
@@ -44,7 +43,6 @@ CLEANUP_RULES: list[tuple[str, str, int, str]] = [
     (TABLE_SIGNAL_PENDING, "signal_date", _int_env("DB_SIGNAL_PENDING_RETENTION_DAYS", 30), "iso_date"),
     (TABLE_MARKET_SIGNAL_DAILY, "trade_date", _int_env("DB_MARKET_SIGNAL_RETENTION_DAYS", 180), "iso_date"),
     (TABLE_DAILY_NAV, "trade_date", 15, "iso_date"),
-    (TABLE_TAIL_BUY_HISTORY, "run_date", _int_env("DB_TAIL_BUY_HISTORY_RETENTION_DAYS", 90), "iso_date"),
     (TABLE_EXTERNAL_SEED_OBSERVATIONS, "trade_date", _int_env("FUNNEL_EXTERNAL_SEED_RETENTION_DAYS", 180), "iso_date"),
 ]
 RECOMMENDATION_KEEP_DATES = _int_env("DB_RECOMMENDATION_KEEP_DATES", 30)

@@ -128,22 +128,15 @@ def _policy_active_scope(meta: dict[str, Any]) -> str:
     explicit = str(meta.get("active_scope") or meta.get("policy_weight_active_scope") or "").strip()
     if explicit and explicit != "无":
         return explicit
-    parts = []
-    if meta.get("tail_buy_weights_active") is True:
-        parts.append("尾盘")
     if meta.get("funnel_formal_weights_active") is True:
-        parts.append("正式漏斗")
-    elif meta.get("funnel_shadow_weights_active") is True:
-        parts.append("漏斗shadow")
-    if parts:
-        return "+".join(parts)
+        return "正式漏斗"
+    if meta.get("funnel_shadow_weights_active") is True:
+        return "漏斗shadow"
     scope = str(meta.get("execution_scope") or meta.get("policy_weight_execution_scope") or "").strip()
-    if scope == "tail_buy_and_funnel":
-        return "尾盘+正式漏斗"
-    if scope == "tail_buy_and_funnel_shadow":
-        return "尾盘+漏斗shadow"
-    if scope == "tail_buy_only":
-        return "尾盘"
+    if scope == "funnel_formal":
+        return "正式漏斗"
+    if scope == "funnel_shadow":
+        return "漏斗shadow"
     return ""
 
 

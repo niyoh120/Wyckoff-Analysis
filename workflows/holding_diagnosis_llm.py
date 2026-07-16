@@ -18,7 +18,7 @@ from integrations.supabase_portfolio import load_portfolio_state
 TZ = ZoneInfo("Asia/Shanghai")
 HOLDING_ACTIONS = ("ADD", "HOLD", "TRIM", "EXIT")
 SYSTEM_PROMPT = (
-    "你是A股持仓诊断助手。根据持仓分钟级特征和规则一判结果，"
+    "你是A股持仓诊断助手。根据持仓日线结构特征和规则一判结果，"
     "给出最终操作结论。你只能在 ADD/HOLD/TRIM/EXIT 中选择一个，必须返回 JSON。\n"
     "ADD=加仓, HOLD=不动, TRIM=减仓, EXIT=清仓。\n"
     "若规则理由包含疑似洗盘、回踩测试、未确认破位，默认保持 HOLD；"
@@ -150,17 +150,13 @@ def _build_holding_llm_prompt(advice: Any, free_cash: float, total_equity: float
         f"账户: 可用现金={free_cash:.0f} ({cash_pct:.1f}%), 总权益={total_equity:.0f}\n"
         f"规则一判: action={advice.action}, rule_score={advice.rule_score:.1f}\n"
         f"规则理由: {'；'.join(advice.reasons[:3])}\n"
-        f"主线语义: theme={features.get('candidate_theme') or '-'}, "
-        f"phase={features.get('candidate_phase') or '-'}, role={features.get('candidate_role') or '-'}\n"
-        f"分时特征:\n"
-        f"- close_pos={_sf(features.get('close_pos')):.3f}\n"
-        f"- dist_vwap_pct={_sf(features.get('dist_vwap_pct')):.3f}\n"
-        f"- last30_ret_pct={_sf(features.get('last30_ret_pct')):.3f}\n"
-        f"- day_ret_pct={_sf(features.get('day_ret_pct')):.3f}\n"
-        f"- tail30_volume_share={_sf(features.get('tail30_volume_share')):.3f}\n"
-        f"- drop_from_high_pct={_sf(features.get('drop_from_high_pct')):.3f}\n"
-        f"- close_below_support={bool(features.get('close_below_support'))}\n"
-        f"- day_low_breached_support={bool(features.get('day_low_breached_support'))}\n"
+        f"主线语义: phase={features.get('candidate_phase') or '-'}, role={features.get('candidate_role') or '-'}\n"
+        f"日线特征:\n"
+        f"- ma_pattern={features.get('ma_pattern') or '-'}\n"
+        f"- l4_triggers={features.get('l4_triggers') or '-'}\n"
+        f"- intraday_path={features.get('intraday_path') or '-'}\n"
+        f"- vol_ratio_20_60={_sf(features.get('vol_ratio_20_60')):.3f}\n"
+        f"- ret_10d_pct={_sf(features.get('ret_10d_pct')):.3f}\n"
         f"- risk_tag={getattr(advice, 'risk_tag', '')}\n"
         '\n请输出严格 JSON：{"action":"ADD|HOLD|TRIM|EXIT","reason":"<=80字","confidence":0.0}'
     )

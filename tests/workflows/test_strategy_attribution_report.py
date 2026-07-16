@@ -60,7 +60,7 @@ def test_attribution_report_groups_candidate_shadow_grade():
                 "data_lineage": {
                     "coverage_score": 95,
                     "coverage_grade": "strong",
-                    "evidence_keys": ["daily_signal", "price_action", "intraday_tail"],
+                    "evidence_keys": ["daily_signal", "price_action", "springboard"],
                 },
                 "entry_quality": {
                     "score": 82.5,
@@ -101,7 +101,7 @@ def test_attribution_report_groups_candidate_shadow_grade():
     assert joined[1]["data_lineage_evidence_keys"] == ["daily_signal"]
     assert stats["_data_lineage"]["coverage_grade"]["5"]["strong"]["win_rate_pct"] == 100.0
     assert stats["_data_lineage"]["coverage_grade"]["5"]["thin"]["big_loss_rate_pct"] == 100.0
-    assert stats["_data_lineage"]["evidence_key"]["5"]["intraday_tail"]["avg_return_pct"] == 6.0
+    assert stats["_data_lineage"]["evidence_key"]["5"]["springboard"]["avg_return_pct"] == 6.0
     assert stats["_data_lineage"]["coverage_summary"]["5"]["avg_coverage_score"] == 65.0
 
 
@@ -608,22 +608,21 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "shadow_runs": 24,
         "execution_policy": "shadow",
         "execution_horizon": "5",
-        "execution_scope": "tail_buy_and_funnel_shadow",
+        "execution_scope": "funnel_shadow",
         "execution_summary": {
-            "active_scope": "尾盘+漏斗shadow",
+            "active_scope": "漏斗shadow",
             "promotion_status": "需人工复核",
             "next_action": "进入人工晋级评审（非正式生效）",
             "formal_dynamic": "未进正式漏斗(人工复核未完成)",
             "summary": (
-                "h=5 信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。 "
+                "h=5 信号级调权用于漏斗动态策略 shadow 对照；治理器未批准进入正式 dynamic。 "
                 "策略治理器不会自动把 FUNNEL_DYNAMIC_POLICY 晋级到 on；"
                 "下一步是进入人工晋级评审（非正式生效）（追证据字段: manual_review_dynamic_on）。"
             ),
         },
         "formal_dynamic_allowed": False,
         "formal_dynamic_block_reason": "manual_review_required",
-        "active_scope": "尾盘+漏斗shadow",
-        "tail_buy_weights_active": True,
+        "active_scope": "漏斗shadow",
         "funnel_shadow_weights_active": True,
         "funnel_formal_weights_active": False,
         "signal_action_count": 1,
@@ -634,7 +633,7 @@ def test_attribution_console_summary_surfaces_policy_governor(monkeypatch):
         "backtest_confirmation": {"key": "backtest_confirmation", "status": "review", "summary": "need backtest"},
         "operator_summary": (
             "下一步=shadow 新增组已跑赢移除组；先完成晋级清单和回测复核，再人工决定 dynamic=on。；"
-            "作用范围=尾盘+漏斗shadow；正式dynamic=未进正式漏斗(人工复核未完成)；"
+            "作用范围=漏斗shadow；正式dynamic=未进正式漏斗(人工复核未完成)；"
             "回测确认=待复核(need backtest)；"
             "Shadow=暂无最新对照；本期 1 个 scoped 调权：lps×0.50；候选源治理=无"
         ),
@@ -694,13 +693,13 @@ def test_attribution_markdown_surfaces_execution_state(monkeypatch):
     assert "样本 (`shadow_sample`): 通过 (`pass`)" in markdown
     assert "- 漏斗动态策略: 正式调权(on)" in markdown
     assert "- 执行周期: `h=5`" in markdown
-    assert "- 当前生效范围: `尾盘+漏斗shadow`" in markdown
-    assert "- 底层范围: 尾盘+漏斗shadow (`tail_buy_and_funnel_shadow`)" in markdown
+    assert "- 当前生效范围: `漏斗shadow`" in markdown
+    assert "- 底层范围: 漏斗shadow (`funnel_shadow`)" in markdown
     assert "- 可执行调权: `1`" in markdown
     assert "下一步是进入人工晋级评审（非正式生效）（追证据字段: manual_review_dynamic_on）" in markdown
     assert "## 运营复盘" in markdown
     assert "- 操作摘要: 下一步=shadow 新增组已跑赢移除组" in markdown
-    assert "作用范围=尾盘+漏斗shadow" in markdown
+    assert "作用范围=漏斗shadow" in markdown
     assert "- 本期可执行调权:" in markdown
     assert "`lps[regime=RISK_ON, lane=trend_pullback, entry=wyckoff_structure]`" in markdown
 
@@ -736,11 +735,11 @@ def test_attribution_execution_state_counts_focus_horizon_only(monkeypatch):
     assert state["horizon"] == "5"
     assert state["signal_action_count"] == 2
     assert state["promotion_status"] == "unknown"
-    assert state["scope"] == "tail_buy_and_funnel_shadow"
+    assert state["scope"] == "funnel_shadow"
     assert state["action_details"][0]["label"] == "lps"
     assert state["action_details"][1]["label"] == "launchpad"
     assert operations["action_count"] == 2
-    assert operations["operator_summary"].startswith("下一步=-；作用范围=尾盘+漏斗shadow")
+    assert operations["operator_summary"].startswith("下一步=-；作用范围=漏斗shadow")
     assert operations["backtest_confirmation_text"] == "缺失(缺少检查项)"
     assert operations["promotion_checklist_summary"] == "晋级清单=无"
 
@@ -762,14 +761,13 @@ def test_attribution_execution_state_blocks_formal_on_without_governor_approval(
     )
 
     assert state["funnel_dynamic_policy"] == "on"
-    assert state["scope"] == "tail_buy_and_funnel_shadow"
+    assert state["scope"] == "funnel_shadow"
     assert state["formal_dynamic_allowed"] is False
     assert state["formal_dynamic_block_reason"] == "next_action=keep_static_policy"
-    assert state["active_scope"] == "尾盘+漏斗shadow"
-    assert state["tail_buy_weights_active"] is True
+    assert state["active_scope"] == "漏斗shadow"
     assert state["funnel_shadow_weights_active"] is True
     assert state["funnel_formal_weights_active"] is False
-    assert "未批准进入漏斗正式 dynamic" in state["summary"]
+    assert "未批准进入正式 dynamic" in state["summary"]
 
 
 def test_attribution_execution_state_blocks_explicit_formal_on_without_checklist(monkeypatch):
@@ -789,10 +787,10 @@ def test_attribution_execution_state_blocks_explicit_formal_on_without_checklist
         [{"type": "upweight", "target": "sos", "horizon": "5", "reason": '{"weight_multiplier":1.15}'}],
     )
 
-    assert state["scope"] == "tail_buy_and_funnel_shadow"
+    assert state["scope"] == "funnel_shadow"
     assert state["formal_dynamic_allowed"] is False
     assert state["formal_dynamic_block_reason"] == "promotion_checklist=missing"
-    assert state["active_scope"] == "尾盘+漏斗shadow"
+    assert state["active_scope"] == "漏斗shadow"
     assert state["funnel_formal_weights_active"] is False
 
 
@@ -819,10 +817,10 @@ def test_attribution_execution_state_allows_formal_on_with_explicit_approval_and
         [{"type": "upweight", "target": "sos", "horizon": "5", "reason": '{"weight_multiplier":1.15}'}],
     )
 
-    assert state["scope"] == "tail_buy_and_funnel"
+    assert state["scope"] == "funnel_formal"
     assert state["formal_dynamic_allowed"] is True
     assert state["formal_dynamic_block_reason"] == ""
-    assert state["active_scope"] == "尾盘+正式漏斗"
+    assert state["active_scope"] == "正式漏斗"
     assert state["funnel_formal_weights_active"] is True
 
 

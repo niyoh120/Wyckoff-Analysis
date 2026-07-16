@@ -229,35 +229,6 @@ def explain_l2_fail(code: str, cfg: FunnelConfig, df_map: dict[str, pd.DataFrame
     return f"结构强度不足：{rejections.get(code, '七通道均未通过')}"
 
 
-def load_tail_buy_lookup(codes: list[str], run_date: date) -> dict[str, dict]:
-    run_date_str = run_date.strftime("%Y-%m-%d")
-    code_set = set(codes)
-    out = {}
-    try:
-        from integrations.supabase_tail_buy import load_tail_buy_from_supabase
-
-        records = load_tail_buy_from_supabase(limit=500, run_date=run_date_str)
-        for r in records:
-            r_code = str(r.get("code", "")).strip()
-            if r_code in code_set:
-                out[r_code] = r
-    except Exception as e:
-        print(f"[review] 从 Supabase 加载尾盘记录失败: {e}")
-
-    try:
-        from integrations.local_db import load_tail_buy_history
-
-        records = load_tail_buy_history(run_date=run_date_str, limit=500)
-        for r in records:
-            r_code = str(r.get("code", "")).strip()
-            if r_code in code_set and r_code not in out:
-                out[r_code] = r
-    except Exception as e:
-        print(f"[review] 从本地 SQLite 加载尾盘记录失败: {e}")
-
-    return out
-
-
 def _build_replay_row(
     code: str,
     ctx: ReplayContext,
@@ -265,8 +236,7 @@ def _build_replay_row(
     prev_date_str: str,
     recommendation_lookup: dict,
     recommendation_error: Any,
-    tail_buy_lookup: dict,
-) -> tuple[dict, str, bool, bool, bool, bool]:
+) -> tuple[dict, str, bool, bool]:
     from workflows.review_recommendation_lookup import normalize_code6, normalize_recommend_date
 
     name, stage, reason = classify_review_code(code, ctx)
@@ -275,81 +245,39 @@ def _build_replay_row(
     rec_records = recommendation_lookup.get(normalize_code6(code), [])
     is_recommended = any(normalize_recommend_date(r.get("recommend_date")) == prev_date_str for r in rec_records)
 
-    tail_rec = tail_buy_lookup.get(code)
-    is_tail = tail_rec is not None
-    is_tradeable = False
-    if is_tail:
-        import json
-
-        from core.tail_buy.decision_semantics import tail_buy_execution_semantics
-
-        features = {}
-        f_json = tail_rec.get("features_json")
-        if isinstance(f_json, dict):
-            features = f_json
-        elif isinstance(f_json, str) and f_json:
-            try:
-                features = json.loads(f_json)
-            except Exception:
-                pass
-        if not features:
-            f_val = tail_rec.get("features")
-            if isinstance(f_val, dict):
-                features = f_val
-            elif isinstance(f_val, str) and f_val:
-                try:
-                    features = json.loads(f_val)
-                except Exception:
-                    pass
-
-        sem = tail_buy_execution_semantics(
-            final_decision=tail_rec.get("final_decision"),
-            signal_type=tail_rec.get("signal_type"),
-            features=features,
-            market_regime=tail_rec.get("market_regime"),
-        )
-        is_tradeable = sem.get("orderable") is True
-
     rec_text = format_recommendation_history(code, recommendation_lookup, recommendation_error, exclude_date=today)
-    tail_text = ""
-    if is_tail:
-        tail_text = f" | 尾盘决策: {tail_rec.get('final_decision')}"
 
     row = {
         "code": code,
         "name": name,
         "stage": stage,
         "reason": reason,
-        "recommendation": rec_text + tail_text,
+        "recommendation": rec_text,
     }
-    return row, stage, is_candidate, is_recommended, is_tail, is_tradeable
+    return row, stage, is_candidate, is_recommended
 
 
 def build_replay_rows(
     review_codes: list[str], ctx: ReplayContext, today: date, previous_trade_date: date
 ) -> tuple[list[dict[str, str]], Counter[str], dict[str, int]]:
     recommendation_lookup, recommendation_error = load_recommendation_lookup(review_codes)
-    tail_buy_lookup = load_tail_buy_lookup(review_codes, today)
 
     rows: list[dict[str, str]] = []
     stage_counter: Counter[str] = Counter()
 
     cand_count = 0
     rec_count = 0
-    tail_count = 0
-    trade_count = 0
 
     prev_date_str = previous_trade_date.strftime("%Y-%m-%d")
 
     for code in review_codes:
-        row, stage, is_candidate, is_recommended, is_tail, is_tradeable = _build_replay_row(
+        row, stage, is_candidate, is_recommended = _build_replay_row(
             code=code,
             ctx=ctx,
             today=today,
             prev_date_str=prev_date_str,
             recommendation_lookup=recommendation_lookup,
             recommendation_error=recommendation_error,
-            tail_buy_lookup=tail_buy_lookup,
         )
         rows.append(row)
         stage_counter[stage] += 1
@@ -357,16 +285,10 @@ def build_replay_rows(
             cand_count += 1
         if is_recommended:
             rec_count += 1
-        if is_tail:
-            tail_count += 1
-        if is_tradeable:
-            trade_count += 1
 
     stats = {
         "candidate": cand_count,
         "recommended": rec_count,
-        "tail_captured": tail_count,
-        "tradeable": trade_count,
         "total": len(review_codes),
     }
     return rows, stage_counter, stats

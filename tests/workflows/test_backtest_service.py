@@ -95,7 +95,7 @@ def test_backtest_signal_weight_map_matches_funnel_policy_gate(monkeypatch) -> N
             source="远端",
             report_date="2026-07-04",
             execution_policy="shadow",
-            execution_scope="tail_buy_and_funnel_shadow",
+            execution_scope="funnel_shadow",
             formal_dynamic_allowed=False,
             formal_dynamic_block_reason="auto_apply=false",
         ),
@@ -104,7 +104,7 @@ def test_backtest_signal_weight_map_matches_funnel_policy_gate(monkeypatch) -> N
     shadow_weights, shadow_meta = backtest._signal_policy_from_env()
     assert shadow_weights == {"lps": 0.5}
     assert shadow_meta["source"] == "远端"
-    assert shadow_meta["active_scope"] == "尾盘+漏斗shadow"
+    assert shadow_meta["active_scope"] == "漏斗shadow"
     assert shadow_meta["formal_dynamic_allowed"] is False
     assert shadow_meta["formal_dynamic_block_reason"] == "auto_apply=false"
     assert backtest._signal_weight_map_from_env() == {"lps": 0.5}
@@ -135,7 +135,7 @@ def test_backtest_signal_weight_map_matches_funnel_policy_gate(monkeypatch) -> N
             report_date="2026-07-04",
             horizon="5",
             execution_policy="on",
-            execution_scope="tail_buy_and_funnel",
+            execution_scope="funnel_formal",
             formal_dynamic_allowed=True,
         ),
     )
@@ -144,7 +144,7 @@ def test_backtest_signal_weight_map_matches_funnel_policy_gate(monkeypatch) -> N
     assert weights == {"sos": 1.15}
     assert meta["source"] == "远端"
     assert meta["report_date"] == "2026-07-04"
-    assert meta["active_scope"] == "尾盘+正式漏斗"
+    assert meta["active_scope"] == "正式漏斗"
     assert backtest._signal_weight_map_from_env() == {"sos": 1.15}
 
 

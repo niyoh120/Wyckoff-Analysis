@@ -13,7 +13,6 @@ import {
   execMarketOverview,
   execQueryAttribution,
   execQueryRecommendations,
-  execQueryTailBuy,
   execScreenStocks,
   execSearchStock,
   execStrategyDecision,
@@ -416,7 +415,6 @@ function buildReadTools(deps: ToolDeps, userId: string, model: unknown) {
     market_overview: tool({ description: '查看当前/最新大盘行情信号。', inputSchema: z.object({}), execute: () => execMarketOverview(deps) }),
     market_history: tool({ description: '回看大盘指数过去N个交易日K线，分析量价关系和威科夫阶段。', inputSchema: z.object({ days: z.number().nullable(), index: z.enum(['sse', 'csi300', 'szse', 'chinext']).nullable() }), execute: ({ days, index }) => execMarketHistory(deps, userId, model, days ?? 100, index ?? 'sse') }),
     query_recommendations: tool({ description: '查询形态复盘记录。', inputSchema: z.object({ limit: z.number() }), execute: ({ limit }) => execQueryRecommendations(deps, limit) }),
-    query_tail_buy: tool({ description: '查询尾盘买入策略历史记录。', inputSchema: z.object({ limit: z.number() }), execute: ({ limit }) => execQueryTailBuy(deps, limit) }),
     query_attribution: tool({ description: '查询远端策略归因治理器、operator_summary、latest_policy_display、latest_execution_summary、promotion_checklist 和 latest_operations；本地 --no-write 报告需走 CLI/MCP。', inputSchema: z.object({ limit: z.number() }), execute: ({ limit }) => execQueryAttribution(deps, limit) }),
   }
 }

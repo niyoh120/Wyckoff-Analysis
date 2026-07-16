@@ -14,7 +14,7 @@ from core.execution_playbook import funnel_playbook_lines
 from core.funnel_etf import append_etf_section
 from core.funnel_sections import append_formal_l4_sections, score_star
 from core.market_trade_mode import resolve_market_trade_mode
-from core.signal_confirmation import score_springboard_abc
+from core.signal_confirmation import compute_support_level, score_springboard_abc
 from core.strategy_policy_display import format_policy_meta_text, format_policy_weight_text
 from core.theme_radar import summarize_theme_radar, summarize_theme_rotation
 from workflows.funnel_ai_selection import FunnelAiSelection
@@ -252,14 +252,14 @@ def _execution_decision_line(regime: str, selected_count: int, data_quality: dic
         if mode.mode == "overheat_shadow":
             return "禁止新仓；可送AI/shadow对照，不写正式推荐、不执行新买入；优先处理持仓风控。"
     if not mode.allow_recommendation_write:
-        return "观察买入；允许少量候选进入AI研报，但不写正式推荐，等待跨日确认和尾盘复核。"
+        return "观察买入；允许少量候选进入AI研报，但不写正式推荐，等待跨日确认。"
     if mode.mode == "repair_probe":
         return "修复成立；仅开放一只小额 PROBE 候选，禁止 ATTACK、追价和自动扩仓。"
     if selected_count <= 0:
         return "观察买入；暂无可送审标的，不从本报告选择新买入，等待下一次跨日确认。"
     return (
         f"市场闸门开放，Step3 待审候选 {selected_count} 只；"
-        "仍需跨日确认、Step3 起跳板、尾盘 BUY 与 OMS 核准后才可执行。"
+        "仍需跨日确认、Step3 起跳板；confirmed 后按次日开盘价附近买入，OMS 核准后执行。"
     )
 
 
@@ -309,9 +309,9 @@ def _tomorrow_action_line(ctx: Any, selected_count: int) -> str:
     elif mode.mode == "overheat_shadow":
         action = "禁止新仓；AI/shadow 可对照，不写推荐、不执行新买，只处理持仓风控。"
     elif not mode.allow_recommendation_write:
-        action = "观察买入；等待 Step3、跨日确认与尾盘复核，不自动写推荐，不自动开仓。"
+        action = "观察买入；等待 Step3 研报与跨日确认，不自动写推荐，不自动开仓。"
     elif selected_count > 0:
-        action = "候选待审；通过跨日确认和 Step3 后，只在尾盘量价健康时才进入 OMS 复核。"
+        action = "候选待审；通过跨日确认和 Step3 后，confirmed 的候选按次日开盘价附近买入，OMS 复核后执行。"
     else:
         action = "观察买入；等待下一轮漏斗或跨日确认，不提前追。"
     return f"**明日动作**: {action}"
@@ -451,8 +451,8 @@ def _candidate_list_note(mode, *, data_quality_observe_only: bool = False) -> st
     if mode.mode == "overheat_shadow":
         return "过热市禁止新开：以下仅供 AI/shadow 对照，不可写正式推荐或下单。"
     if not mode.allow_recommendation_write:
-        return "观察买入：以下需 Step3 + 跨日确认 + 尾盘复核，当前不可直接下单。"
-    return "可送审清单：优先 [主线]；再等 Step3 起跳板 + confirmed + 尾盘 BUY 才执行。"
+        return "观察买入：以下需 Step3 研报 + confirmed 确认，当前不可直接下单。"
+    return "可送审清单：优先 [主线]；confirmed 后按次日开盘价附近买入，实际订单由 OMS 核准。"
 
 
 def _candidate_list_row(ctx: Any, selection: FunnelAiSelection, code: str) -> str:
@@ -461,7 +461,33 @@ def _candidate_list_row(ctx: Any, selection: FunnelAiSelection, code: str) -> st
     track_badge = f"[{track}] " if track else ""
     score = display_score(ctx, selection, code)
     theme_badge = f"  {ctx.theme_badge_map[code]}" if code in ctx.theme_badge_map else ""
-    return f"  {track_badge}{code} {name}  {score:.2f}{_confirmation_suffix(ctx, code)}{theme_badge}"
+    entry_hint = _entry_price_hint(ctx, code)
+    return f"  {track_badge}{code} {name}  {score:.2f}{_confirmation_suffix(ctx, code)}{theme_badge}\n    {entry_hint}"
+
+
+def _entry_price_hint(ctx: Any, code: str) -> str:
+    """现价 + 参考止损位 + 次日开盘价买入提示，供候选行展示进场参考。"""
+    close = (getattr(ctx, "latest_close_map", {}) or {}).get(code)
+    support = _reference_support_level(ctx, code)
+    if close is None:
+        return "现价: 数据缺失，按次日开盘价附近买入"
+    if support is None or support >= close:
+        return f"现价 {close:.2f}，按次日开盘价附近买入"
+    stop_pct = (support - close) / close * 100
+    return f"现价 {close:.2f} | 参考止损 {support:.2f}（{stop_pct:.1f}%），按次日开盘价附近买入"
+
+
+def _reference_support_level(ctx: Any, code: str) -> float | None:
+    df = (getattr(ctx, "all_df_map", {}) or {}).get(code)
+    if df is None or df.empty:
+        return None
+    levels = []
+    for signal_type in _confirmation_signal_keys(ctx, code):
+        try:
+            levels.append(compute_support_level(df, signal_type))
+        except Exception:
+            continue
+    return max(levels) if levels else None
 
 
 def _top_candidate_list_lines(ctx: Any, selection: FunnelAiSelection) -> list[str]:
@@ -544,7 +570,7 @@ def _append_mainline_card_section(lines: list[str], ctx: Any, selected_count: in
         return
     lines.append("")
     lines.append(f"**【🎯 主线买点候选】{len(ctx.mainline_tradeable)} 只**")
-    lines.append(f"动态主线候选，仍需市场总闸和尾盘确认；送AI复核 {selected_count} 只")
+    lines.append(f"动态主线候选，仍需市场总闸和 confirmed 确认；送AI复核 {selected_count} 只")
     display_rows = _mainline_display_rows(ctx.mainline_tradeable)
     if not display_rows:
         lines.append("  暂无")

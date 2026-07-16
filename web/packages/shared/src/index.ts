@@ -59,8 +59,6 @@ export {
   PATTERN_REVIEW_SCOPE_NOTE,
 } from './pattern-review'
 export type { PatternReviewRow } from './pattern-review'
-export { tailBuyExecutionSemantics } from './tail-buy-semantics'
-export type { TailBuyExecutionInput, TailBuyExecutionSemantics } from './tail-buy-semantics'
 export {
   attributionExecutionImpactText,
   attributionFormalDynamicLabel,
@@ -76,8 +74,6 @@ export {
 export type { AttributionExecutionImpactInput, AttributionOperatorAction, AttributionOperatorSummaryInput } from './attribution-summary'
 export { formatPolicyWeightMetaText, formatStrategyPolicyText, policyExecutionModeLabel } from './policy-weight-meta'
 export type { PolicyWeightMetaInput } from './policy-weight-meta'
-export { formatTailBuyPolicyWeightText, tailBuyPolicyWeightMultiplier } from './tail-buy-policy-weight'
-export type { TailBuyPolicyWeightFormatOptions, TailBuyPolicyWeightInput } from './tail-buy-policy-weight'
 export * from './chat-tools'
 export {
   ANALYSIS_CONTEXT_PACK_SCHEMA,

@@ -35,21 +35,17 @@ def attribution_execution_state(
         scope = "none"
         summary = "暂无可执行信号调权。"
     elif mode == "on" and formal_allowed:
-        scope = "tail_buy_and_funnel"
-        summary = f"h={horizon} 信号级调权会影响尾盘策略和漏斗正式候选。"
-    elif mode == "on":
-        scope = "tail_buy_and_funnel_shadow"
-        summary = f"h={horizon} 信号级调权会影响尾盘策略；治理器未批准进入漏斗正式 dynamic。"
-    elif mode == "shadow":
-        scope = "tail_buy_and_funnel_shadow"
-        summary = f"h={horizon} 信号级调权会影响尾盘策略，并用于漏斗动态策略 shadow 对照。"
+        scope = "funnel_formal"
+        summary = f"h={horizon} 信号级调权会影响漏斗正式候选。"
+    elif mode in {"on", "shadow"}:
+        scope = "funnel_shadow"
+        summary = f"h={horizon} 信号级调权用于漏斗动态策略 shadow 对照；治理器未批准进入正式 dynamic。"
     else:
-        scope = "tail_buy_only"
-        summary = f"h={horizon} 信号级调权会影响尾盘策略；漏斗动态策略当前关闭。"
+        scope = "none"
+        summary = f"h={horizon} 信号级调权暂无下游消费方；漏斗动态策略当前关闭。"
     state = {
         "funnel_dynamic_policy": mode,
         "horizon": horizon,
-        "tail_buy_reads_attribution": action_count > 0,
         "signal_action_count": action_count,
         "action_details": action_details,
         "selection_action_count": len(selection_details),
@@ -91,19 +87,15 @@ def attribution_formal_dynamic_allowed(governor: dict[str, Any]) -> bool:
 def attribution_active_scope_flags(execution: dict[str, Any]) -> dict[str, Any]:
     action_count = int(execution.get("signal_action_count") or 0)
     scope = str(execution.get("scope") or "none").strip()
-    tail_active = action_count > 0 and scope in {"tail_buy_only", "tail_buy_and_funnel_shadow", "tail_buy_and_funnel"}
-    shadow_active = action_count > 0 and scope == "tail_buy_and_funnel_shadow"
-    formal_active = action_count > 0 and scope == "tail_buy_and_funnel"
+    shadow_active = action_count > 0 and scope == "funnel_shadow"
+    formal_active = action_count > 0 and scope == "funnel_formal"
     labels = []
-    if tail_active:
-        labels.append("尾盘")
     if formal_active:
         labels.append("正式漏斗")
     elif shadow_active:
         labels.append("漏斗shadow")
     return {
         "active_scope": "+".join(labels) or "无",
-        "tail_buy_weights_active": tail_active,
         "funnel_shadow_weights_active": shadow_active,
         "funnel_formal_weights_active": formal_active,
     }

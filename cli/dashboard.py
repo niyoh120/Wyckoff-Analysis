@@ -120,35 +120,6 @@ def _get_signals() -> list[dict]:
         return []
 
 
-def _get_tail_buy() -> list[dict]:
-    try:
-        from integrations.local_db import load_tail_buy_history
-
-        records = load_tail_buy_history(limit=100)
-        if not records:
-            from integrations.supabase_tail_buy import load_tail_buy_from_supabase
-
-            records = load_tail_buy_from_supabase(limit=100)
-        return records
-    except Exception:
-        return []
-
-
-def _delete_tail_buy(code: str, run_date: str) -> int:
-    try:
-        from integrations.local_db import get_db
-
-        conn = get_db()
-        with conn:
-            cur = conn.execute(
-                "DELETE FROM tail_buy_history WHERE code=? AND run_date=?",
-                (code, run_date),
-            )
-        return cur.rowcount
-    except Exception:
-        return 0
-
-
 def _get_portfolio() -> dict | None:
     try:
         from integrations.local_db import load_portfolio
@@ -248,8 +219,6 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(_get_recommendations())
         elif path == "/api/signals":
             self._json(_get_signals())
-        elif path == "/api/tail-buy":
-            self._json(_get_tail_buy())
         elif path == "/api/portfolio":
             self._json(_get_portfolio() or {})
         elif path == "/api/sync":
@@ -397,11 +366,6 @@ class _Handler(BaseHTTPRequestHandler):
         elif path.startswith("/api/signals/"):
             code = path.split("/")[-1]
             n = _delete_signal(code)
-            self._json({"ok": n > 0, "deleted": n})
-        elif path.startswith("/api/tail-buy/"):
-            parts = path.split("/")
-            code, run_date = parts[-2], parts[-1]
-            n = _delete_tail_buy(code, run_date)
             self._json({"ok": n > 0, "deleted": n})
         elif path.startswith("/api/chat-sessions/"):
             sid = path.split("/")[-1]

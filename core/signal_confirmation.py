@@ -165,12 +165,12 @@ _CONFIRM_DISPATCH = {
 }
 
 
-def _compute_support_level(
+def compute_support_level(
     df: pd.DataFrame,
     signal_type: str,
     window: int = 60,
 ) -> float:
-    """根据信号类型计算支撑位。"""
+    """根据信号类型计算支撑位，可作为候选股的参考止损位。"""
     df_s = df.sort_values("date") if "date" in df.columns else df
     last = df_s.iloc[-1]
     if signal_type in ("spring", "compression"):
@@ -288,7 +288,7 @@ def score_springboard_abc(
     last_cp = _metric(close_pos.loc[last_idx])
     b = bool(last_vr is not None and last_cp is not None and last_vr >= 1.5 and last_cp > 70)
 
-    support = _compute_support_level(df, signal_type, window)
+    support = compute_support_level(df, signal_type, window)
     tol = support * 0.05
     touches, evidence = _springboard_evidence(df_s, vol_ratio, close_pos, low, support, tol, window)
     c = touches >= 2

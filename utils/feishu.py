@@ -10,7 +10,6 @@ import requests
 
 import utils.feishu_backtest_card
 import utils.feishu_report_card
-import utils.feishu_tail_buy_card
 import utils.feishu_text
 from integrations.tickflow_notice import append_tickflow_limit_hint
 
@@ -91,17 +90,6 @@ def send_backtest_card(webhook_url: str, summary_path: str) -> bool:
         return _send_rich_card_with_retry(webhook_url, "📊 Backtest 回测报告", elements, template, "backtest")
     except Exception as exc:
         print(f"[feishu] backtest card error: {exc}")
-        return False
-
-
-def send_tail_buy_card(webhook_url: str, title: str, content: str) -> bool:
-    if not webhook_url or not webhook_url.strip():
-        return False
-    try:
-        elements = utils.feishu_tail_buy_card.build_tail_buy_card_elements(content)
-        return _send_rich_card_with_retry(webhook_url, title, elements, "blue", "tail_buy")
-    except Exception as exc:
-        print(f"[feishu] tail_buy rich card error: {exc}")
         return False
 
 

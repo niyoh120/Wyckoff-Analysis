@@ -174,8 +174,8 @@ def _add_signal_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--pending-mode",
         choices=["off", "only", "both"],
-        default="both",
-        help="信号确认模式: off=直接用L4信号, only=仅用确认后信号, both=两者合并",
+        default="off",
+        help="信号确认模式: off=直接用L4信号次日开盘价买入（验证最优，默认）, only=仅用确认后信号, both=两者合并",
     )
     parser.add_argument(
         "--execution-regime-gate",

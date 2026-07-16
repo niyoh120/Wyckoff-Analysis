@@ -3,14 +3,13 @@ from __future__ import annotations
 import json
 import logging
 
-from agents.tool_context import ToolContext, get_user_client, get_user_id
+from agents.tool_context import ToolContext, get_user_client
 from core.pattern_review.records import pattern_review_tool_records
 from core.strategy_policy_display import (
     format_policy_signal_label,
     policy_execution_display,
     policy_governor_display,
 )
-from core.tail_buy.decision_semantics import tail_buy_execution_semantics
 from utils.json_text import parse_json_object as _json_map
 
 logger = logging.getLogger(__name__)
@@ -19,8 +18,6 @@ logger = logging.getLogger(__name__)
 def query_history(
     source: str,
     status: str = "all",
-    run_date: str = "",
-    decision: str = "",
     limit: int = 20,
     query: str = "",
     archive_ref: str = "",
@@ -31,15 +28,11 @@ def query_history(
         return _query_recommendation(limit, tool_context)
     if source == "signal":
         return _query_signal(status, limit, tool_context)
-    if source == "tail_buy":
-        return _query_tail_buy(run_date, decision, limit, tool_context)
     if source == "archive":
         return _query_archive(query, archive_ref, limit, tool_context)
     if source == "attribution":
         return _query_attribution(limit, tool_context)
-    return {
-        "error": f"不支持的 source：{source}，请用 'recommendation'、'signal'、'tail_buy'、'attribution' 或 'archive'"
-    }
+    return {"error": f"不支持的 source：{source}，请用 'recommendation'、'signal'、'attribution' 或 'archive'"}
 
 
 def _query_recommendation(limit: int, tool_context: ToolContext | None = None) -> dict:
@@ -332,107 +325,6 @@ def _attribution_actions(raw: object) -> list[dict]:
             }
         )
     return rows[:12]
-
-
-def _query_tail_buy(
-    run_date: str,
-    decision: str,
-    limit: int,
-    tool_context: ToolContext | None = None,
-) -> dict:
-    try:
-        records = _load_tail_buy_records(run_date, decision, min(max(int(limit), 1), 200), tool_context)
-        if not records:
-            return {"message": "暂无尾盘策略记录", "records": []}
-        simplified = [_tail_buy_record(row) for row in records]
-        return {"total": len(simplified), "records": simplified}
-    except Exception as e:
-        logger.exception("query_history(tail_buy) error")
-        return {"error": str(e)}
-
-
-def _load_tail_buy_records(run_date: str, decision: str, limit: int, tool_context: ToolContext | None) -> list[dict]:
-    from integrations.local_db import load_tail_buy_history
-
-    date_filter = str(run_date or "").strip()
-    decision_filter = str(decision or "").strip()
-    records = load_tail_buy_history(run_date=date_filter, decision=decision_filter, limit=limit)
-    if records:
-        return records
-    rows = _load_remote_tail_buy_rows(limit, tool_context)
-    if rows:
-        _cache_tail_buy_rows(rows)
-        return load_tail_buy_history(run_date=date_filter, decision=decision_filter, limit=limit)
-    return []
-
-
-def _load_remote_tail_buy_rows(limit: int, tool_context: ToolContext | None) -> list[dict]:
-    from integrations.supabase_tail_buy import load_tail_buy_from_supabase
-
-    return (
-        load_tail_buy_from_supabase(
-            limit=limit, user_id=get_user_id(tool_context), client=get_user_client(tool_context)
-        )
-        or []
-    )
-
-
-def _cache_tail_buy_rows(rows: list[dict]) -> None:
-    from integrations.local_db import save_tail_buy_results
-
-    save_tail_buy_results(
-        [
-            {
-                "code": str(row.get("code", "")),
-                "name": row.get("name", ""),
-                "run_date": str(row.get("run_date", "")),
-                "signal_date": row.get("signal_date", ""),
-                "signal_type": row.get("signal_type", ""),
-                "status": "",
-                "final_decision": row.get("final_decision", "BUY"),
-                "rule_score": float(row.get("rule_score", 0)),
-                "priority_score": float(row.get("priority_score", 0)),
-                "rule_reasons": row.get("rule_reasons", ""),
-                "llm_decision": row.get("llm_decision", ""),
-                "llm_reason": row.get("llm_reason", ""),
-                "features_json": row.get("features_json", ""),
-            }
-            for row in rows
-        ]
-    )
-
-
-def _tail_buy_record(row: dict) -> dict:
-    decision = str(row.get("final_decision", ""))
-    signal_type = str(row.get("signal_type", ""))
-    features = _json_map(row.get("features_json"))
-    semantics = tail_buy_execution_semantics(
-        decision,
-        signal_type,
-        features=features,
-        market_regime=str(row.get("market_regime") or ""),
-    )
-    return {
-        "code": str(row.get("code", "")),
-        "name": str(row.get("name", "")),
-        "run_date": str(row.get("run_date", "")),
-        "signal_type": signal_type,
-        "final_decision": decision,
-        "decision_display": _decision_display(decision, semantics),
-        "execution_label": semantics["execution_label"],
-        "execution_status": semantics["execution_status"],
-        "orderable": semantics["orderable"],
-        "execution_next_step": semantics["execution_next_step"],
-        "rule_score": row.get("rule_score", 0),
-        "priority_score": row.get("priority_score", 0),
-        "llm_decision": str(row.get("llm_decision", "")),
-        "llm_reason": str(row.get("llm_reason", "")),
-    }
-
-
-def _decision_display(decision: str, semantics: dict) -> str:
-    label = str(semantics.get("execution_label") or "未知")
-    return f"{decision}（{label}）" if decision else label
 
 
 def _json_list(raw: object) -> list:

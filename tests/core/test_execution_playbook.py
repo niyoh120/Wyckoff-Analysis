@@ -1,13 +1,6 @@
 from datetime import date
 
-from core.execution_playbook import (
-    funnel_playbook_lines,
-    oms_playbook_lines,
-    step3_playbook_lines,
-    tail_buy_playbook_lines,
-)
-from core.tail_buy.models import DECISION_BUY, TailBuyCandidate
-from core.tail_buy.reporting import build_tail_buy_markdown
+from core.execution_playbook import funnel_playbook_lines, oms_playbook_lines, step3_playbook_lines
 from workflows.funnel_render import _top_summary_lines
 from workflows.step4_ticket import render_trade_ticket
 
@@ -40,21 +33,10 @@ def test_top_summary_includes_playbook() -> None:
     assert "今日结论" in joined
 
 
-def test_tail_guardrail_blocks_risk_on_new_buys() -> None:
-    from core.tail_buy.guardrails import tail_entry_veto_reasons
-
-    reasons = tail_entry_veto_reasons({"support_level": 10.0}, "mainline", "RISK_ON")
-    assert any("尾盘不买" in r for r in reasons)
-    launchpad = tail_entry_veto_reasons({"support_level": 10.0}, "launchpad", "RISK_ON")
-    assert any("尾盘不买" in r for r in launchpad)
-    holding = tail_entry_veto_reasons({"support_level": 10.0}, "holding", "RISK_ON")
-    assert not any("尾盘不买" in r for r in holding)
-
-
 def test_hold_trade_days_uses_trading_calendar_not_weekends() -> None:
     import pandas as pd
 
-    from workflows.tail_buy_holdings import _hold_trade_days
+    from workflows.holding_diagnosis_core import _hold_trade_days
 
     # 周五买入后跨周末到下周三：自然日约 5，交易日序列含买入日共 4 根。
     hist = pd.DataFrame(
@@ -91,33 +73,6 @@ def test_universe_rps_not_local_candidate_rank() -> None:
     assert _universe_rps_slow_map(tiny, cfg) == {}
 
 
-def test_tail_buy_markdown_includes_playbook() -> None:
-    item = TailBuyCandidate(
-        code="000001",
-        name="测试",
-        signal_date="2026-07-09",
-        status="confirmed",
-        signal_type="mainline",
-        signal_score=1.0,
-        rule_decision=DECISION_BUY,
-        rule_score=80.0,
-        rule_reasons=["缩量承接"],
-        final_decision=DECISION_BUY,
-        priority_score=80.0,
-    )
-    md = build_tail_buy_markdown(
-        now_text="2026-07-10 14:40",
-        target_signal_date="2026-07-09",
-        market_reminder="NEUTRAL",
-        candidates=[item],
-        llm_total=0,
-        llm_success=0,
-        elapsed_seconds=1.0,
-    )
-    assert "执行纪律" in md
-    assert "BUY=今日可执行" in md
-
-
 def test_oms_ticket_includes_playbook() -> None:
     report = render_trade_ticket("NEUTRAL 可执行", 100_000, 50_000, 50_000, [], atr_period=14)
     assert "执行纪律" in report
@@ -128,4 +83,3 @@ def test_oms_ticket_includes_playbook() -> None:
 def test_step3_and_oms_playbook_helpers() -> None:
     assert "起跳板" in "\n".join(step3_playbook_lines("NEUTRAL"))
     assert "PROBE/ATTACK" in "\n".join(oms_playbook_lines("view"))
-    assert "明日" in "\n".join(tail_buy_playbook_lines(report_mode="post_close_review"))

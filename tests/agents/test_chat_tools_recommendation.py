@@ -3,49 +3,6 @@ from __future__ import annotations
 from agents.history_tools import query_history
 
 
-def test_query_tail_buy_exposes_execution_semantics(monkeypatch):
-    from integrations import local_db
-
-    monkeypatch.setattr(
-        local_db,
-        "load_tail_buy_history",
-        lambda run_date="", decision="", limit=20: [
-            {
-                "code": "600378",
-                "name": "昊华科技",
-                "run_date": "2026-07-04",
-                "signal_type": "rec_momentum_continuation",
-                "final_decision": "BUY",
-                "rule_score": 96.0,
-                "priority_score": 100.0,
-                "llm_decision": "BUY",
-                "llm_reason": "尾盘动能延续",
-                "features_json": "",
-            },
-            {
-                "code": "603713",
-                "name": "密尔克卫",
-                "run_date": "2026-07-04",
-                "signal_type": "sos",
-                "final_decision": "BUY",
-                "rule_score": 92.0,
-                "priority_score": 100.0,
-                "llm_decision": "BUY",
-                "llm_reason": "尾盘确认",
-                "features_json": '{"execution_label":"可执行买入","orderable":true}',
-            },
-        ],
-    )
-
-    result = query_history(source="tail_buy", limit=2)
-
-    assert result["records"][0]["decision_display"] == "BUY（观察买入）"
-    assert result["records"][0]["orderable"] is False
-    assert result["records"][0]["execution_next_step"] == "高位动能默认不买；只保留人工复核。"
-    assert result["records"][1]["decision_display"] == "BUY（可执行买入）"
-    assert result["records"][1]["orderable"] is True
-
-
 def test_query_recommendation_exposes_non_ai_review_role(monkeypatch):
     from integrations import local_db
 
@@ -162,9 +119,8 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     assert result["latest_policy_display"]["next_action"] == "进入人工晋级评审（非正式生效）"
     assert result["latest_policy_display"]["promotion_status"] == "需人工复核"
     assert result["latest_policy"]["promotion_checklist"][0]["key"] == "shadow_sample"
-    assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
-    assert result["latest_execution_state"]["active_scope"] == "尾盘+漏斗shadow"
-    assert result["latest_execution_state"]["tail_buy_weights_active"] is True
+    assert result["latest_execution_state"]["scope"] == "funnel_shadow"
+    assert result["latest_execution_state"]["active_scope"] == "漏斗shadow"
     assert result["latest_execution_state"]["funnel_shadow_weights_active"] is True
     assert result["latest_execution_state"]["funnel_formal_weights_active"] is False
     assert result["latest_execution_state"]["promotion_status"] == "manual_review_required"
@@ -180,7 +136,7 @@ def test_query_history_attribution_surfaces_policy_governor(monkeypatch):
     assert result["latest_operations"]["action_summary"].startswith("本期 1 个 scoped 调权")
     assert result["latest_operator_summary"] == result["latest_operations"]["operator_summary"]
     assert "Shadow=2026-07-03 RISK_ON 新增2 移除1" in result["latest_operator_summary"]
-    assert "作用范围=尾盘+漏斗shadow" in result["latest_operator_summary"]
+    assert "作用范围=漏斗shadow" in result["latest_operator_summary"]
     assert "回测确认=待复核(need backtest)" in result["latest_operator_summary"]
     assert result["records"][0]["shadow"]["runs"] == 12
     assert result["records"][0]["policy_display"]["status"] == "可进入人工晋级评审"
@@ -256,7 +212,7 @@ def test_query_history_attribution_uses_workflow_default_when_env_missing(monkey
 
     state = result["latest_execution_state"]
     assert state["funnel_dynamic_policy"] == "shadow"
-    assert state["scope"] == "tail_buy_and_funnel_shadow"
+    assert state["scope"] == "funnel_shadow"
 
 
 def test_dynamic_policy_defaults_to_shadow_without_repository_workflow(monkeypatch, tmp_path):
@@ -319,7 +275,7 @@ def test_query_history_attribution_falls_back_to_local_report(monkeypatch, tmp_p
     assert result["latest_policy"]["promotion_status"] == "manual_review_required"
     assert result["latest_source"] == "local"
     assert "RLS denied" in result["remote_error"]
-    assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
+    assert result["latest_execution_state"]["scope"] == "funnel_shadow"
     assert result["latest_execution_state"]["promotion_checklist"][0]["key"] == "shadow_sample"
     assert result["records"][0]["shadow"]["runs"] == 24
 
@@ -447,9 +403,8 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
 
     assert result["latest_policy"]["status"] == "candidate"
     assert result["latest_source"] == "remote"
-    assert result["latest_execution_state"]["scope"] == "tail_buy_and_funnel_shadow"
-    assert result["latest_execution_state"]["active_scope"] == "尾盘+漏斗shadow"
-    assert result["latest_execution_state"]["tail_buy_weights_active"] is True
+    assert result["latest_execution_state"]["scope"] == "funnel_shadow"
+    assert result["latest_execution_state"]["active_scope"] == "漏斗shadow"
     assert result["latest_execution_state"]["funnel_shadow_weights_active"] is True
     assert result["latest_execution_state"]["funnel_formal_weights_active"] is False
     assert result["records"][0]["policy_governor"]["mode_recommendation"] == "review_promote_dynamic_policy"
@@ -459,7 +414,7 @@ def test_query_attribution_exposes_policy_governor(monkeypatch):
     assert result["records"][0]["signal_actions"][0]["target"] == "lps"
     assert result["records"][0]["execution_state"]["action_details"][0]["weight_multiplier"] == 0.5
     assert result["records"][0]["operations"]["action_count"] == 1
-    assert "未批准进入漏斗正式 dynamic" in result["records"][0]["execution_state"]["summary"]
+    assert "未批准进入正式 dynamic" in result["records"][0]["execution_state"]["summary"]
     assert result["records"][0]["shadow"]["runs"] == 24
 
 

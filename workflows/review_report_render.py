@@ -49,9 +49,7 @@ def build_report_lines(
     if stats:
         stats_line = (
             f"**漏斗全链路追踪**: 前一日候选 {stats['candidate']}/{stats['total']} | "
-            f"正式推荐 {stats['recommended']}/{stats['total']} | "
-            f"次日尾盘捕获 {stats['tail_captured']}/{stats['total']} | "
-            f"尾盘可下单 {stats['tradeable']}/{stats['total']}"
+            f"正式推荐 {stats['recommended']}/{stats['total']}"
         )
         lines.append(stats_line)
     lines.extend(

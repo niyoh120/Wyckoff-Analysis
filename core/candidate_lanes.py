@@ -103,7 +103,7 @@ def _candidate_entry(
         "metrics": {key: round(float(value), 4) for key, value in metrics.items()},
         "opportunity": _opportunity_text(lane, sector),
         "timing": _timing_text(lane, metrics),
-        "risk": " / ".join(risks) or "尾盘仍需二次确认",
+        "risk": " / ".join(risks) or "仍需 confirmed 确认",
         "state": "Lane",
         "lane": lane,
         "channel": channel,

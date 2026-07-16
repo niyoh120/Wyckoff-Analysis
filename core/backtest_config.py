@@ -153,7 +153,7 @@ def _normalized_modes(params: BacktestRunInput) -> tuple[str, str, str, str, str
         str(params.metrics_engine or "legacy").strip().lower(),
         str(params.entry_price_mode or "open").strip().lower(),
         str(params.entry_price_fallback or "close").strip().lower(),
-        str(params.pending_mode or "both").strip().lower(),
+        str(params.pending_mode or "off").strip().lower(),
         str(params.pending_merge_order or "funnel_first").strip().lower(),
     )
 

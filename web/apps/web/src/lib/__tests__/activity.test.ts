@@ -35,7 +35,7 @@ function createMockSupabase(results: Record<string, TableResult> = {}) {
 describe('featureForRoute', () => {
   it('maps app routes to compact feature keys', () => {
     expect(featureForRoute('/')).toBe('chat')
-    expect(featureForRoute('/tail-buy?x=1')).toBe('tail_buy')
+    expect(featureForRoute('/battle?x=1')).toBe('battle')
     expect(featureForRoute('/guide#capability-boundary')).toBe('guide')
   })
 })

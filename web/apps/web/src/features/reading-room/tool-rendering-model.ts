@@ -9,7 +9,6 @@ const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
   market_overview: 'tool.market_overview',
   market_history: 'tool.market_history',
   query_recommendations: 'tool.query_recommendations',
-  query_tail_buy: 'tool.query_tail_buy',
   query_attribution: 'tool.query_attribution',
   plan_portfolio_update: 'tool.plan_portfolio_update',
   execute_portfolio_update: 'tool.execute_portfolio_update',
@@ -154,8 +153,6 @@ export function toolProgressDescription(toolName: string, input: unknown): strin
       return `回看 ${marketIndexInputLabel(item)} 的量价结构和威科夫阶段。`
     case 'query_recommendations':
       return `读取最近 ${limitInputLabel(item)} 条形态复盘记录。`
-    case 'query_tail_buy':
-      return `读取最近 ${limitInputLabel(item)} 条尾盘买入记录。`
     case 'query_attribution':
       return `读取最近 ${limitInputLabel(item)} 条策略归因报告，检查运营摘要、执行态和 shadow 新增/移除样本。`
     case 'analyze_stock':
@@ -181,7 +178,6 @@ export function toolResultDigest(toolName: string, output: unknown): string {
   if (toolName === 'view_portfolio') return `持仓读取完成：${portfolioResultDigest(output)}`
   if (toolName === 'market_overview') return `市场水温读取完成：${summarizeToolOutput(output)}`
   if (toolName === 'query_recommendations') return `形态复盘记录读取完成：${recordCountDigest(output)}`
-  if (toolName === 'query_tail_buy') return `尾盘记录读取完成：${recordCountDigest(output)}`
   if (toolName === 'query_attribution') return `策略归因读取完成：${recordCountDigest(output)}`
   if (toolName === 'market_history') return `指数历史读取完成：${recordCountDigest(output)}`
   return summarizeToolOutput(output)

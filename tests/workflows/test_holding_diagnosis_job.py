@@ -16,7 +16,6 @@ def test_send_holding_report_uses_telegram(monkeypatch):
     ok = mod._send_holding_report(
         "# holding report",
         mod.HoldingDiagnosisRuntime(
-            tickflow_api_key="tf-key",
             tg_bot_token="tg-token",
             tg_chat_id="tg-chat",
             portfolio_id="USER_LIVE",

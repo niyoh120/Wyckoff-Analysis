@@ -189,7 +189,6 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;b
     <div class="nav-item active" data-page="overview" data-i18n="nav_overview"></div>
     <div class="nav-item" data-page="recommendations" data-i18n="nav_recommendations"></div>
     <div class="nav-item" data-page="signals" data-i18n="nav_signals"></div>
-    <div class="nav-item" data-page="tailbuy" data-i18n="nav_tailbuy"></div>
     <div class="nav-item" data-page="portfolio" data-i18n="nav_portfolio"></div>
     <div class="nav-item" data-page="memory" data-i18n="nav_memory"></div>
     <div class="nav-item" data-page="bgtasks" data-i18n="nav_bgtasks"></div>
@@ -222,12 +221,11 @@ const API=p=>fetch(p).then(r=>r.json());
 // ═══ i18n ═══
 const I18N={
 zh:{
-  nav_overview:'总览',nav_recommendations:'形态复盘',nav_signals:'信号池',nav_tailbuy:'尾盘记录',nav_portfolio:'持仓',
+  nav_overview:'总览',nav_recommendations:'形态复盘',nav_signals:'信号池',nav_portfolio:'持仓',
   nav_memory:'Agent 记忆',nav_config:'配置',nav_bgtasks:'后台任务',nav_chatlog:'对话日志',nav_sync:'同步状态',
   theme_dark:'深色',theme_light:'浅色',
-  overview:'总览',recommendations:'形态复盘',signals:'信号池',tailbuy:'尾盘记录',portfolio:'持仓',
+  overview:'总览',recommendations:'形态复盘',signals:'信号池',portfolio:'持仓',
   memory:'Agent 记忆',config:'配置',bgtasks:'后台任务',chatlog:'对话日志',sync:'同步状态',
-  no_tailbuy:'暂无尾盘买入记录',th_run_date:'执行日',th_signal_type:'信号',th_rule_score:'规则分',th_priority:'优先级',th_llm:'LLM',confirm_del_tailbuy:'确认删除尾盘记录：',
   card_recs:'威科夫形态复盘',card_signals:'信号确认池',card_portfolio:'持仓',card_memory:'Agent 记忆',card_sync:'同步状态',
   tracked:'只跟踪中',pending_confirm:'条待确认',positions:'持仓',cash:'可用资金',stored:'条记忆',synced:'表已同步',
   recent_recs:'最近复盘',no_data:'暂无数据',loading:'加载中...',
@@ -251,12 +249,11 @@ zh:{
   tab_content:'内容',tab_runtime:'调用链',no_runtime:'无调用链数据（需重新对话后可见）',
 },
 en:{
-  nav_overview:'Overview',nav_recommendations:'Recommendations',nav_signals:'Signals',nav_tailbuy:'Tail Buy',nav_portfolio:'Portfolio',
+  nav_overview:'Overview',nav_recommendations:'Recommendations',nav_signals:'Signals',nav_portfolio:'Portfolio',
   nav_memory:'Memory',nav_config:'Config',nav_bgtasks:'Background Tasks',nav_chatlog:'Chat Log',nav_sync:'Sync Status',
   theme_dark:'Dark',theme_light:'Light',
-  overview:'Overview',recommendations:'Recommendations',signals:'Signals',tailbuy:'Tail Buy',portfolio:'Portfolio',
+  overview:'Overview',recommendations:'Recommendations',signals:'Signals',portfolio:'Portfolio',
   memory:'Memory',config:'Config',bgtasks:'Background Tasks',chatlog:'Chat Log',sync:'Sync Status',
-  no_tailbuy:'No tail buy records',th_run_date:'Run Date',th_signal_type:'Signal',th_rule_score:'Rule Score',th_priority:'Priority',th_llm:'LLM',confirm_del_tailbuy:'Delete tail buy record: ',
   card_recs:'AI Recommendations',card_signals:'Signal Pool',card_portfolio:'Portfolio',card_memory:'Agent Memory',card_sync:'Sync Status',
   tracked:'tracked stocks',pending_confirm:'pending confirmation',positions:'positions',cash:'cash',stored:'stored memories',synced:'tables synced',
   recent_recs:'Recent Recommendations',no_data:'No data',loading:'Loading...',
@@ -315,7 +312,7 @@ async function loadPage(page){
   try{
     switch(page){
       case 'overview':return renderOverview(c);case 'recommendations':return renderRecommendations(c);
-      case 'signals':return renderSignals(c);case 'tailbuy':return renderTailBuy(c);case 'portfolio':return renderPortfolio(c);
+      case 'signals':return renderSignals(c);case 'portfolio':return renderPortfolio(c);
       case 'memory':return renderMemory(c);
       case 'bgtasks':return renderBgTasks(c);
       case 'chatlog':return renderChatLog(c);
@@ -401,16 +398,6 @@ async function renderSignals(c){
     const code=String(s.code||'').padStart(6,'0');
     return `<tr><td>${code}</td><td>${s.name||''}</td><td>${s.signal_type||''}</td><td>${statusPill(s.status||'')}</td><td>${localTime(s.signal_date)}</td><td>${(s.signal_score||0).toFixed(2)}</td><td>${s.days_elapsed||0}</td><td>${s.regime||''}</td><td>${s.industry||''}</td><td><button class="btn-del" onclick="delSig('${code}')">${t('del')}</button></td></tr>`}).join('')}</tbody></table></div>`}
 window.delSig=async function(code){if(!confirm(t('confirm_del_sig')+code+'?'))return;await fetch('/api/signals/'+code,{method:'DELETE'});loadPage('signals')};
-
-// ═══ Tail Buy ═══
-async function renderTailBuy(c){
-  const rows=await API('/api/tail-buy');
-  if(!Array.isArray(rows)||!rows.length){c.innerHTML=`<div class="empty">${t('no_tailbuy')}</div>`;return}
-  const llmPill=d=>{const m={BUY:'pill-red',WATCH:'pill-amber',SKIP:'pill-dim'};return d?`<span class="pill ${m[d]||'pill-dim'}">${d}</span>`:'<span class="pill pill-dim">-</span>'};
-  c.innerHTML=`<div class="tbl-wrap fade-in"><table class="tbl"><thead><tr><th>${t('th_code')}</th><th>${t('th_name')}</th><th>${t('th_run_date')}</th><th>${t('th_signal_type')}</th><th>${t('th_rule_score')}</th><th>${t('th_priority')}</th><th>${t('th_llm')}</th><th></th></tr></thead><tbody>${rows.map(r=>{
-    const code=String(r.code||'').padStart(6,'0');
-    return `<tr><td>${code}</td><td>${r.name||''}</td><td>${localTime(r.run_date)}</td><td>${r.signal_type||''}</td><td>${(r.rule_score||0).toFixed(1)}</td><td>${(r.priority_score||0).toFixed(1)}</td><td>${llmPill(r.llm_decision)}</td><td><button class="btn-del" onclick="delTailBuy('${code}','${r.run_date||''}')">${t('del')}</button></td></tr>`}).join('')}</tbody></table></div>`}
-window.delTailBuy=async function(code,rd){if(!confirm(t('confirm_del_tailbuy')+code+'?'))return;await fetch('/api/tail-buy/'+code+'/'+rd,{method:'DELETE'});loadPage('tailbuy')};
 
 // ═══ Portfolio ═══
 async function renderPortfolio(c){

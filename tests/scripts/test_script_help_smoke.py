@@ -28,7 +28,6 @@ HELP_SCRIPTS = [
     "scripts/recommendation_tracking_reprice_job.py",
     "scripts/single_symbol_funnel_diagnosis.py",
     "scripts/step4_from_supabase.py",
-    "scripts/tail_buy_intraday_job.py",
     "scripts/theme_radar_job.py",
     "scripts/update_backtest_market_report.py",
     "scripts/us_recommendation_performance_job.py",

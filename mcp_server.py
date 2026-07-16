@@ -105,16 +105,14 @@ from agents.research_tools import research_hypothesis as _research_hypothesis
 
 @mcp.tool()
 def query_history(
-    source: Literal["recommendation", "signal", "tail_buy", "attribution"],
+    source: Literal["recommendation", "signal", "attribution"],
     status: str = "all",
-    run_date: str = "",
-    decision: str = "",
     limit: int = 20,
 ) -> dict:
     """查询历史记录。
 
-    **调用时机**：用户问"最近推荐了什么"、"信号池有哪些"、"尾盘买入记录"、"策略归因/降权"时调用。
-    source 决定查哪张表：recommendation(形态复盘)、signal(信号确认池)、tail_buy(尾盘买入)、
+    **调用时机**：用户问"最近推荐了什么"、"信号池有哪些"、"策略归因/降权"时调用。
+    source 决定查哪张表：recommendation(形态复盘)、signal(信号确认池)、
     attribution(策略归因治理器，返回 latest_source/remote_error、latest_operator_summary、
     latest_policy_display/latest_execution_summary、promotion_checklist/latest_operations)。
     """
@@ -124,8 +122,6 @@ def query_history(
         {
             "source": source,
             "status": status,
-            "run_date": run_date,
-            "decision": decision,
             "limit": limit,
         },
     )

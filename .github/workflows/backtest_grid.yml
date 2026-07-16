@@ -24,14 +24,23 @@ on:
         required: false
         default: ""
       entry_price_mode:
-        description: "入场成交价：open=T+1开盘；close=T+1收盘；tail_1455=T+1 14:55分钟线价"
+        description: "入场成交价：open=T+1开盘（验证最优，默认）；close=T+1收盘；tail_1455=T+1 14:55分钟线价"
         required: true
         type: choice
         options:
           - "open"
           - "close"
           - "tail_1455"
-        default: "close"
+        default: "open"
+      pending_mode:
+        description: "信号确认口径：off=当日信号次日直接开盘价买入（验证最优，默认）；both=额外纳入二次确认延迟信号；only=仅二次确认信号"
+        required: true
+        type: choice
+        options:
+          - "off"
+          - "both"
+          - "only"
+        default: "off"
       execution_regime_gate:
         description: "新开仓水温闸门：live=实盘一致；off=研究对照；neutral_only=仅中性"
         required: true
@@ -60,7 +69,8 @@ env:
   BT_BOARD: "all"
   BT_SAMPLE_SIZE: "0"
   BT_TRADING_DAYS: "320"
-  BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'close' }}
+  BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'open' }}
+  BT_PENDING_MODE: ${{ inputs.pending_mode || 'off' }}
   BT_EXECUTION_REGIME_GATE: ${{ inputs.execution_regime_gate || 'live' }}
   BT_INITIAL_CASH: "100000"
   BT_MAX_POSITIONS: "4"
@@ -320,7 +330,7 @@ jobs:
             --stop-loss 0 \
             --take-profit 0 \
             --sltp-priority stop_first \
-            --pending-mode both \
+            --pending-mode "${BT_PENDING_MODE}" \
             --execution-regime-gate "${BT_EXECUTION_REGIME_GATE}" \
             --pending-merge-order confirmed_first \
             --trailing-stop 0 \
@@ -454,7 +464,7 @@ jobs:
             --stop-loss -8 \
             --take-profit 18 \
             --sltp-priority stop_first \
-            --pending-mode both \
+            --pending-mode "$BT_PENDING_MODE" \
             --execution-regime-gate "$BT_EXECUTION_REGIME_GATE" \
             --pending-merge-order confirmed_first \
             --trailing-stop 0 \
@@ -583,7 +593,7 @@ jobs:
         shell: bash
         env:
           BT_TOP_N: "1"
-          BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'close' }}
+          BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'open' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 -u - <<'PYEOF'

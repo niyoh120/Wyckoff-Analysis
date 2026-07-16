@@ -51,9 +51,9 @@ class AttributionPolicySnapshot:
     execution_summary: str = ""
 
     def as_dict(self) -> dict[str, Any]:
-        tail_active = bool(self.weights)
-        shadow_active = tail_active and self.execution_scope in {"tail_buy_and_funnel_shadow", "tail_buy_and_funnel"}
-        formal_active = tail_active and self.execution_scope == "tail_buy_and_funnel"
+        has_weights = bool(self.weights)
+        shadow_active = has_weights and self.execution_scope == "funnel_shadow"
+        formal_active = has_weights and self.execution_scope == "funnel_formal"
         return {
             "source": self.source,
             "report_date": self.report_date,
@@ -76,12 +76,7 @@ class AttributionPolicySnapshot:
             "selection_action_count": self.selection_action_count,
             "selection_action_summary": self.selection_action_summary,
             "execution_summary": self.execution_summary,
-            "active_scope": _active_scope_text(
-                tail_active=tail_active,
-                shadow_active=shadow_active,
-                formal_active=formal_active,
-            ),
-            "tail_buy_weights_active": tail_active,
+            "active_scope": _active_scope_text(shadow_active=shadow_active, formal_active=formal_active),
             "funnel_shadow_weights_active": shadow_active,
             "funnel_formal_weights_active": formal_active,
         }
@@ -158,7 +153,7 @@ def attribution_weights_for_funnel(
     if normalized_mode == "on" and snapshot.formal_dynamic_allowed:
         return weights
     reason = snapshot.formal_dynamic_block_reason or "governor_not_approved"
-    _log(log_fn, f"策略归因调权: formal dynamic 未启用归因权重({reason})，仅保留尾盘/漏斗shadow语义。")
+    _log(log_fn, f"策略归因调权: formal dynamic 未启用归因权重({reason})，仅保留漏斗shadow语义。")
     return {}
 
 
@@ -265,15 +260,12 @@ def _snapshot_log_text(snapshot: AttributionPolicySnapshot) -> str:
     return f"{format_policy_meta_text(snapshot.as_dict())}; {weights}"
 
 
-def _active_scope_text(*, tail_active: bool, shadow_active: bool, formal_active: bool) -> str:
-    parts = []
-    if tail_active:
-        parts.append("尾盘")
+def _active_scope_text(*, shadow_active: bool, formal_active: bool) -> str:
     if formal_active:
-        parts.append("正式漏斗")
-    elif shadow_active:
-        parts.append("漏斗shadow")
-    return "+".join(parts) or "无"
+        return "正式漏斗"
+    if shadow_active:
+        return "漏斗shadow"
+    return "无"
 
 
 def _policy_governor(row: dict[str, Any]) -> dict[str, Any]:
