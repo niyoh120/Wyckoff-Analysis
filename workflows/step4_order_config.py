@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES
 from utils.env import env_bool as _env_bool
 from utils.env import env_float as _env_float
 from workflows.step4_models import Step4OrderConfig
@@ -46,7 +47,7 @@ def _env_regime_set(name: str, default: str) -> frozenset[str]:
         for item in os.getenv(name, default).split(",")
         if item.strip() and item.strip().upper() != "COOLDOWN"
     }
-    return frozenset(values | {"UNKNOWN"})
+    return frozenset(values | set(EXECUTE_BLOCK_NEW_BUY_REGIMES))
 
 
 def _clamp01(value: float) -> float:

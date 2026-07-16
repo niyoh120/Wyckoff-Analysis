@@ -24,7 +24,7 @@ REGIME_LABELS = {
     "PANIC_REPAIR_CONFIRMED": "恐慌修复确认期",
     "RISK_OFF": "防守/风险偏好收缩期",
     "NEUTRAL": "震荡中性期",
-    "RISK_ON": "风险偏好扩张期",
+    "RISK_ON": "短线过热禁追期",
     "BEAR_REBOUND": "熊市反抽期",
 }
 
@@ -728,8 +728,9 @@ def _build_trading_playbook_lines(cells: list[GridCell], robust_best: RobustPara
         "| 市场状态 | 实盘动作 | 参考参数 | 数据依据 |",
         "|---|---|---|---|",
         "| RISK_ON | 禁止新仓 | 空仓或只管理旧仓 | 生产市场闸门固定禁止，不以近期样本收益解禁 |",
-        "| NEUTRAL / CAUTION | 二次确认后可执行 | "
-        + f"{_playbook_ref(neutral_ref or robust_ref)} | 只做二次确认，降低仓位，不追无确认信号 |",
+        "| NEUTRAL | 二次确认后可执行 | "
+        + f"{_playbook_ref(neutral_ref or robust_ref)} | 只做二次确认，不追无确认信号 |",
+        "| CAUTION | 小额试探 | 同上，仅作为参数参考 | 最多一只二次确认后的 PROBE，禁止 ATTACK |",
         "| PANIC_REPAIR / BEAR_REBOUND | 禁止新仓 | 影子复核 | 只允许复核候选，不自动写正式推荐 |",
         "| PANIC_REPAIR_CONFIRMED | 小额试探 | "
         + f"{_playbook_ref(robust_ref)} | 最多一只 PROBE，单票上限5%，禁止 ATTACK |",

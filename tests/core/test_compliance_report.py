@@ -72,7 +72,7 @@ def test_public_payload_includes_market_and_etf_metrics_without_codes():
 
     text = json.dumps(payload, ensure_ascii=False)
     assert payload["trade_date"] == "2026-06-29"
-    assert payload["market"]["regime_label"] == "风险偏好回升"
+    assert payload["market"]["regime_label"] == "短线过热禁追"
     assert payload["etf"]["l2_passed"] == 3
     assert payload["etf"]["strong_themes"] == ["半导体", "证券"]
     assert "512480" not in text

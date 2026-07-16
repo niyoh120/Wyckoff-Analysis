@@ -1,4 +1,5 @@
 import integrations.supabase_market_signal as market_signal_module
+from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES, PROBE_ONLY_REGIMES, stricter_market_regime
 from integrations.supabase_market_signal import (
     _merge_latest_market_signal_rows,
     compose_market_state,
@@ -7,21 +8,71 @@ from integrations.supabase_market_signal import (
 )
 
 
-def test_missing_benchmark_is_unknown_instead_of_risk_off():
+def test_missing_benchmark_is_unknown_and_fails_closed():
     state = compose_market_state({"benchmark_regime": None, "premarket_regime": "NORMAL"})
 
     assert state["benchmark_slot"] == "UNKNOWN"
-    assert state["market_posture_code"] != "DEFENSIVE"
+    assert state["market_posture_code"] == "DATA_HOLD"
+    assert "禁止新开仓" in state["action_phrase"]
+
+
+def test_risk_on_banner_matches_overheat_execution_gate():
+    state = compose_market_state({"benchmark_regime": "RISK_ON", "premarket_regime": "NORMAL"})
+
+    assert state["market_posture_code"] == "OVERHEAT_HOLD"
+    assert "禁止新开仓" in state["action_phrase"]
+
+
+def test_benchmark_caution_is_not_collapsed_to_risk_off():
+    state = compose_market_state({"benchmark_regime": "CAUTION", "premarket_regime": "NORMAL"})
+
+    assert state["benchmark_slot"] == "CAUTION"
+    assert state["market_posture_code"] == "PATIENT_OBSERVE"
+    assert "PROBE" in state["action_phrase"]
+    assert "禁止 ATTACK" in state["action_phrase"]
+
+
+def test_banner_action_never_exceeds_effective_market_permission():
+    for premarket in ("NORMAL", "CAUTION", "RISK_OFF", "BLACK_SWAN"):
+        for benchmark in ("RISK_ON", "NEUTRAL", "CAUTION", "RISK_OFF", "CRASH"):
+            state = compose_market_state({"benchmark_regime": benchmark, "premarket_regime": premarket})
+            effective = stricter_market_regime(benchmark, premarket)
+            action = state["action_phrase"]
+            if effective in EXECUTE_BLOCK_NEW_BUY_REGIMES:
+                assert "禁止新开仓" in action, f"{benchmark}+{premarket} 报告越过硬闸门"
+            elif effective in PROBE_ONLY_REGIMES:
+                assert "PROBE" in action and "禁止 ATTACK" in action
+
+
+def test_invalid_benchmark_display_fails_closed_as_unknown():
+    state = compose_market_state({"benchmark_regime": "typo", "premarket_regime": "NORMAL"})
+
+    assert state["benchmark_slot"] == "UNKNOWN"
+    assert state["market_posture_code"] == "DATA_HOLD"
 
 
 def test_market_signal_readiness_distinguishes_partial_and_stale():
     assert market_signal_readiness({"trade_date": "2026-07-10"}, "2026-07-10")["status"] == "partial"
     assert (
         market_signal_readiness(
+            {"trade_date": "2026-07-10", "benchmark_regime": "NEUTRAL"},
+            "2026-07-10",
+        )["reason"]
+        == "当日盘前风险尚未就绪"
+    )
+    assert (
+        market_signal_readiness(
             {"trade_date": "2026-07-09", "benchmark_regime": "NEUTRAL"},
             "2026-07-10",
         )["status"]
         == "stale"
+    )
+    assert (
+        market_signal_readiness(
+            {"trade_date": "2026-07-10", "benchmark_regime": "NEUTRAL", "premarket_regime": "UNKNOWN"},
+            "2026-07-10",
+        )["status"]
+        == "partial"
     )
 
 

@@ -1091,7 +1091,7 @@ def merge_rule_and_llm(
         item = _apply_unconfirmed_buy_gate(item, policy)
         out.append(item)
     out.sort(key=lambda x: (-x.priority_score, -x.rule_score, x.code))
-    return _cap_repair_tail_buys(out)
+    return _cap_probe_only_tail_buys(out)
 
 
 def _merge_tail_decision(rule_decision: str, llm_decision: str, policy: str) -> str:
@@ -1118,20 +1118,20 @@ def _annotate_blocked_ai_buy(candidate: TailBuyCandidate, config: TailBuyStrateg
     candidate.llm_reason = f"{candidate.llm_reason}；{suffix}" if candidate.llm_reason else suffix
 
 
-def _cap_repair_tail_buys(out: list[TailBuyCandidate]) -> list[TailBuyCandidate]:
-    from core.market_trade_mode import normalize_regime
+def _cap_probe_only_tail_buys(out: list[TailBuyCandidate]) -> list[TailBuyCandidate]:
+    from core.market_trade_mode import PROBE_ONLY_REGIMES, normalize_regime
 
     has_buy = False
     for item in out:
         regime = normalize_regime(item.market_regime)
-        if regime in {"PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY", "CRASH_LEFT_PROBE"}:
+        if regime in PROBE_ONLY_REGIMES:
             if item.final_decision == DECISION_BUY:
                 if not has_buy:
                     has_buy = True
                 else:
                     item.final_decision = DECISION_WATCH
                     item.priority_score = _priority_score(item.rule_score + 3.0)
-                    msg = "防守期多开仓风控：非Top1试探候选降级为WATCH观察"
+                    msg = "试探期多开仓风控：非Top1候选降级为WATCH观察"
                     if msg not in item.rule_reasons:
                         item.rule_reasons.append(msg)
                     if item.llm_decision == DECISION_BUY:

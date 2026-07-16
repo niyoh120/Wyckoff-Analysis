@@ -24,9 +24,7 @@ def step4_runtime_config_from_env() -> Step4RuntimeConfig:
         max_external_report_candidates=max(_env_int("STEP4_MAX_EXTERNAL_REPORT_CANDIDATES", 12), 0),
         ai_candidate_policy=_ai_candidate_policy(),
         new_buy_limits=NewBuyLimits(
-            risk_on=max(_env_int("STEP4_MAX_NEW_BUYS_RISK_ON", 0), 0),
-            caution=max(_env_int("STEP4_MAX_NEW_BUYS_CAUTION", 1), 0),
+            caution=min(max(_env_int("STEP4_MAX_NEW_BUYS_CAUTION", 1), 0), 1),
             neutral=max(_env_int("STEP4_MAX_NEW_BUYS_NEUTRAL", 1), 0),
-            risk_off=max(_env_int("STEP4_MAX_NEW_BUYS_RISK_OFF", 0), 0),
         ),
     )

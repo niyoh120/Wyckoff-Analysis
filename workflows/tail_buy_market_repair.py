@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.market_trade_mode import stricter_market_regime as more_defensive_regime
 from core.tail_buy.models import TailBuyCandidate, safe_float
 from core.tail_buy.strategy import compute_tail_features
 from integrations.tickflow_client import TickFlowClient
@@ -18,39 +19,8 @@ _WEAK_REGIME_TOKENS = ("CRASH", "RISK_OFF", "PANIC_REPAIR", "BEAR_REBOUND", "BLA
 #  数值越小＝越防守。核心不变量：任一 regime 属于 core.tail_buy.guardrails.
 #  HARD_BLOCK_REGIMES（全拦截）时，其数值必须严格小于所有非硬拦截 regime，
 #  否则 more_defensive_regime 合并会把硬拦截错误稀释成放行状态（fail-open）。
-#  同理，UNKNOWN（market_signal_daily 缺失/过期）必须排最防守档：fail-closed，
-#  宁可错拦，不可漏拦。
+#  同理，UNKNOWN（market_signal_daily 缺失/过期）必须留在硬拦截档：fail-closed。
 #
-#  第一档 HARD_BLOCK（0-5，全拦截，见 guardrails.HARD_BLOCK_REGIMES）：
-#    UNKNOWN / BLACK_SWAN / CRASH_INTRADAY / RISK_OFF / PANIC_REPAIR / BEAR_REBOUND
-#  第二档 分层放行/限额试探（6-10，非硬拦截，但比完全放行更严格）：
-#    CRASH_LEFT_PROBE（2%试探仓）< PANIC_REPAIR_INTRADAY/CONFIRMED（5%试探仓）
-#    < CRASH/RISK_ON（仅放行 guardrails.TIERED_ALLOW_SIGNALS 指定信号类型）
-#  第三档 完全放行（11-13）：CAUTION / NEUTRAL / NORMAL
-_REGIME_PRIORITY = {
-    "UNKNOWN": 0,
-    "BLACK_SWAN": 1,
-    "CRASH_INTRADAY": 2,
-    "RISK_OFF": 3,
-    "PANIC_REPAIR": 4,
-    "BEAR_REBOUND": 5,
-    "CRASH_LEFT_PROBE": 6,
-    "PANIC_REPAIR_INTRADAY": 7,
-    "PANIC_REPAIR_CONFIRMED": 8,
-    "CRASH": 9,
-    "RISK_ON": 10,
-    "CAUTION": 11,
-    "NEUTRAL": 12,
-    "NORMAL": 13,
-}
-
-
-def more_defensive_regime(a: str, b: str) -> str:
-    pa = _REGIME_PRIORITY.get(str(a or "").strip().upper(), 99)
-    pb = _REGIME_PRIORITY.get(str(b or "").strip().upper(), 99)
-    return a if pa <= pb else b
-
-
 def apply_base_market_regime(
     candidates: list[TailBuyCandidate],
     *,

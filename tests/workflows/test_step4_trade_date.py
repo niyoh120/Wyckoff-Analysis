@@ -2,6 +2,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import workflows.step4_results as step4_results
+from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES
 from workflows import step4_portfolio
 from workflows import step4_rebalancer as step4
 from workflows.step4_decision_parser import max_new_buy_names, trim_new_buy_decisions
@@ -234,7 +235,7 @@ def test_candidate_attribution_reaches_buy_ticket_and_persistence_row():
                 source_type="supabase_recommendation_tracking",
             )
         },
-        "RISK_ON",
+        "NEUTRAL",
         step4.Step4RuntimeConfig(),
     )
     engine = WyckoffOrderEngine(
@@ -243,11 +244,11 @@ def test_candidate_attribution_reaches_buy_ticket_and_persistence_row():
         position_map={},
         latest_price_map={"000390": 10.0},
         atr_map={"000390": 0.2},
-        market_regime="RISK_ON",
+        market_regime="NEUTRAL",
     )
 
     tickets, _cash = engine.process(decisions)
-    report = render_trade_ticket("RISK_ON", 100000, 50000, _cash, tickets, atr_period=14)
+    report = render_trade_ticket("NEUTRAL", 100000, 50000, _cash, tickets, atr_period=14)
     rows = step4_results.build_step4_ticket_rows(tickets)
 
     assert tickets[0].status == "APPROVED"
@@ -449,7 +450,7 @@ def test_step4_order_config_from_env_normalizes_values(monkeypatch):
     assert cfg.buy_stop_mode == "floor"
     assert cfg.probe_budget_limit == 0.0
     assert cfg.attack_budget_limit == 1.0
-    assert cfg.buy_block_regimes == frozenset({"UNKNOWN", "CRASH", "NEUTRAL"})
+    assert cfg.buy_block_regimes == EXECUTE_BLOCK_NEW_BUY_REGIMES | {"NEUTRAL"}
 
 
 def test_missing_market_regime_blocks_new_order() -> None:
@@ -486,16 +487,18 @@ def test_step4_order_config_default_blocks_weak_market_regimes(monkeypatch):
 
     cfg = step4_order_config_from_env()
 
-    assert {"BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF", "CRASH", "BLACK_SWAN"} <= cfg.buy_block_regimes
+    assert EXECUTE_BLOCK_NEW_BUY_REGIMES <= cfg.buy_block_regimes
 
 
 def test_max_new_buy_names_blocks_bear_rebound() -> None:
-    limits = NewBuyLimits(risk_on=2, caution=1, neutral=1, risk_off=0)
+    limits = NewBuyLimits(caution=3, neutral=1)
 
+    assert max_new_buy_names("RISK_ON", limits) == 0
     assert max_new_buy_names("BEAR_REBOUND", limits) == 0
     assert max_new_buy_names("PANIC_REPAIR", limits) == 0
     assert max_new_buy_names("PANIC_REPAIR_CONFIRMED", limits) == 1
     assert max_new_buy_names("CRASH_LEFT_PROBE", limits) == 1
+    assert max_new_buy_names("CAUTION", limits) == 1
 
 
 def test_confirmed_repair_allows_small_probe_but_blocks_attack() -> None:
@@ -513,6 +516,24 @@ def test_confirmed_repair_allows_small_probe_but_blocks_attack() -> None:
 
     assert probe_tickets[0].status == "APPROVED"
     assert probe_tickets[0].amount <= 5000
+    assert attack_tickets[0].status == "NO_TRADE"
+    assert "只允许小额 PROBE" in attack_tickets[0].reason
+
+
+def test_caution_allows_probe_but_blocks_attack() -> None:
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={"000001": 9.5},
+        atr_map={"000001": 0.2},
+        market_regime="CAUTION",
+    )
+
+    probe_tickets, _ = engine.process([_decision("PROBE")])
+    attack_tickets, _ = engine.process([_decision("ATTACK")])
+
+    assert probe_tickets[0].status == "APPROVED"
     assert attack_tickets[0].status == "NO_TRADE"
     assert "只允许小额 PROBE" in attack_tickets[0].reason
 
@@ -661,7 +682,6 @@ def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):
     monkeypatch.setenv("STEP4_MAX_OUTPUT_TOKENS", "bad")
     monkeypatch.setenv("STEP4_MAX_WORKERS", "-2")
     monkeypatch.setenv("STEP4_MAX_EXTERNAL_REPORT_CANDIDATES", "0")
-    monkeypatch.setenv("STEP4_MAX_NEW_BUYS_RISK_ON", "-1")
     monkeypatch.setenv("STEP4_MAX_NEW_BUYS_CAUTION", "3")
     monkeypatch.setenv("STEP4_ENFORCE_TARGET_TRADE_DATE", "yes")
     monkeypatch.setenv("STEP4_AI_CANDIDATE_POLICY", "invalid")
@@ -672,8 +692,7 @@ def test_step4_runtime_config_from_env_normalizes_values(monkeypatch):
     assert cfg.max_output_tokens == 8192
     assert cfg.max_workers == 1
     assert cfg.max_external_report_candidates == 0
-    assert cfg.new_buy_limits.risk_on == 0
-    assert cfg.new_buy_limits.caution == 3
+    assert cfg.new_buy_limits.caution == 1
     assert cfg.enforce_target_trade_date is True
     assert cfg.ai_candidate_policy == "veto_only"
 

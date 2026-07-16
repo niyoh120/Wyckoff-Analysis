@@ -54,6 +54,7 @@ def _fmt_pct(raw: Any) -> str:
 
 def _brief_tone(regime: str) -> str:
     return {
+        "UNKNOWN": "保守",
         "NORMAL": "谨慎",
         "CAUTION": "保守",
         "RISK_OFF": "保守",
@@ -103,6 +104,7 @@ def fallback_public_brief(payload: dict[str, Any]) -> dict[str, Any]:
     a50_pct = (payload.get("a50") or {}).get("pct_chg") or "待更新"
     vix_pct = (payload.get("vix") or {}).get("pct_chg") or "待更新"
     title = {
+        "UNKNOWN": "盘前关键数据待确认，暂停新增风险",
         "NORMAL": "盘前环境整体平稳，等待开盘确认",
         "CAUTION": "隔夜扰动出现，盘前先保持谨慎",
         "RISK_OFF": "隔夜风险偏好转冷，盘前以防守为先",

@@ -250,7 +250,8 @@ def test_replay_backtest_neutral_only_gate_blocks_caution(monkeypatch) -> None:
     assert replay_mod._execution_regime_allows("RISK_ON", "off") is True
 
 
-def test_live_gate_limits_confirmed_repair_to_one_candidate() -> None:
+@pytest.mark.parametrize("regime", ["CAUTION", "PANIC_REPAIR_CONFIRMED", "CRASH_LEFT_PROBE"])
+def test_live_gate_limits_probe_only_regime_to_one_candidate(regime: str) -> None:
     selected = replay_mod._RankedSelection(
         ["000001", "000002"],
         {"000001": 90.0, "000002": 80.0},
@@ -259,7 +260,7 @@ def test_live_gate_limits_confirmed_repair_to_one_candidate() -> None:
         frozenset({"000001", "000002"}),
     )
 
-    limited, blocked = replay_mod._limit_confirmed_repair_selection(selected, "PANIC_REPAIR_CONFIRMED", "live")
+    limited, blocked = replay_mod._limit_probe_only_selection(selected, regime, "live")
 
     assert limited.codes == ["000001"]
     assert limited.confirmed_codes == frozenset({"000001"})

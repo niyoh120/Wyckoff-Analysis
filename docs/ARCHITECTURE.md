@@ -625,7 +625,7 @@ TTL：SOS 2 天、Spring 3 天、LPS 3 天、EVR 2 天、Compression 3 天。
 
 `core/tail_buy/` + `workflows/tail_buy_config.py` + `scripts/tail_buy_intraday_job.py`
 
-策略设计用于尾盘执行，从已确认候选中筛选买入标的；GitHub Actions 在交易日 14:40 定时运行，同时保留 `workflow_dispatch`。pending 默认不可买，只有满足支撑收回、高收承接和左侧来源约束的 `CRASH_LEFT_PROBE` 可例外输出2%试探仓。benchmark 与 premarket 必须分别通过市场门控：任一硬拦截状态都禁止新开仓，分层允许信号取交集，缺失状态按 `UNKNOWN` fail-closed。
+策略设计用于尾盘执行，从已确认候选中筛选买入标的；GitHub Actions 在交易日 14:40 定时运行，同时保留 `workflow_dispatch`。pending 默认不可买，只有满足支撑收回、高收承接和左侧来源约束的 `CRASH_LEFT_PROBE` 可例外输出2%试探仓。benchmark 与 premarket 必须分别通过市场门控：任一硬拦截状态都禁止所有新开仓，不按局部信号历史胜率解禁；缺失状态按 `UNKNOWN` fail-closed。
 
 ### 两阶段评估
 

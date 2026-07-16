@@ -19,6 +19,61 @@ TZ = ZoneInfo("Asia/Shanghai")
 US_TZ = ZoneInfo("America/New_York")
 
 
+def _nth_weekday(year: int, month: int, weekday: int, occurrence: int) -> date:
+    first = date(year, month, 1)
+    return first + timedelta(days=(weekday - first.weekday()) % 7 + 7 * (occurrence - 1))
+
+
+def _last_weekday(year: int, month: int, weekday: int) -> date:
+    next_month = date(year + (month == 12), month % 12 + 1, 1)
+    last = next_month - timedelta(days=1)
+    return last - timedelta(days=(last.weekday() - weekday) % 7)
+
+
+def _easter_sunday(year: int) -> date:
+    a = year % 19
+    b, c = divmod(year, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    weekday_adjust = (32 + 2 * e + 2 * i - h - k) % 7
+    month_adjust = (a + 11 * h + 22 * weekday_adjust) // 451
+    month = (h + weekday_adjust - 7 * month_adjust + 114) // 31
+    day = (h + weekday_adjust - 7 * month_adjust + 114) % 31 + 1
+    return date(year, month, day)
+
+
+def _observed_fixed_holiday(day: date, *, observe_saturday: bool = True) -> date:
+    if day.weekday() == 5 and observe_saturday:
+        return day - timedelta(days=1)
+    if day.weekday() == 6:
+        return day + timedelta(days=1)
+    return day
+
+
+def _us_equity_holidays(year: int) -> frozenset[date]:
+    holidays = {
+        _observed_fixed_holiday(date(year, 1, 1), observe_saturday=False),
+        _nth_weekday(year, 1, 0, 3),
+        _nth_weekday(year, 2, 0, 3),
+        _easter_sunday(year) - timedelta(days=2),
+        _last_weekday(year, 5, 0),
+        _observed_fixed_holiday(date(year, 7, 4)),
+        _nth_weekday(year, 9, 0, 1),
+        _nth_weekday(year, 11, 3, 4),
+        _observed_fixed_holiday(date(year, 12, 25)),
+    }
+    if year >= 2022:
+        holidays.add(_observed_fixed_holiday(date(year, 6, 19)))
+    return frozenset(holidays)
+
+
+def _is_us_equity_trade_day(day: date) -> bool:
+    return day.weekday() < 5 and day not in _us_equity_holidays(day.year)
+
+
 @dataclass(frozen=True)
 class PremarketRiskConfig:
     a50_crash_pct: float
@@ -45,48 +100,44 @@ def premarket_risk_config_from_env() -> PremarketRiskConfig:
 
 
 def build_action_matrix(regime: str) -> list[str]:
-    if regime == "BLACK_SWAN":
+    normalized = str(regime or "").strip().upper()
+    if normalized not in {"UNKNOWN", "NORMAL", "CAUTION", "RISK_OFF", "BLACK_SWAN"}:
+        normalized = "UNKNOWN"
+    if normalized in {"UNKNOWN", "BLACK_SWAN"}:
+        label = "UNKNOWN（数据待确认）" if normalized == "UNKNOWN" else "BLACK_SWAN（黑天鹅）"
         return [
-            "🔒 **盘前动作开关**（BLACK_SWAN）",
-            "- ✅ `EXIT`：允许（破位/止损优先执行）",
-            "- ✅ `TRIM`：允许（主动降风险）",
-            "- ⚠️ `HOLD`：允许（仅守防线，不主观乐观）",
-            "- ⛔ `LIGHT_ADD`：禁止",
-            "- ⛔ `PROBE`：禁止",
-            "- ⛔ `ATTACK`：禁止",
-            "- ⛔ `FULL_ATTACK`：禁止",
+            f"🔒 **盘前动作开关**（{label}）",
+            "- ✅ `EXIT（清仓离场）`：允许（破位/止损优先执行）",
+            "- ✅ `TRIM（减仓）`：允许（主动降风险）",
+            "- ⚠️ `HOLD（持有观察）`：允许（仅管理旧仓，不新开风险）",
+            "- ⛔ `PROBE（试探建仓）`：禁止",
+            "- ⛔ `ATTACK（进攻建仓/浮盈加仓）`：禁止",
         ]
-    if regime == "CAUTION":
+    if normalized == "CAUTION":
         return [
-            "🟠 **盘前动作开关**（CAUTION）",
-            "- ✅ `EXIT`：允许",
-            "- ✅ `TRIM`：允许",
-            "- ✅ `HOLD`：允许（保持防守纪律）",
-            "- ⚠️ `LIGHT_ADD`：仅允许对**已有强势浮盈仓位**小幅加仓",
-            "- ✅ `PROBE`：允许（仅小仓位试探，盘中需二次确认）",
-            "- ⛔ `ATTACK`：默认禁止",
-            "- ⛔ `FULL_ATTACK`：禁止",
+            "🟠 **盘前动作开关**（CAUTION（谨慎））",
+            "- ✅ `EXIT（清仓离场）`：允许",
+            "- ✅ `TRIM（减仓）`：允许",
+            "- ✅ `HOLD（持有观察）`：允许（保持防守纪律）",
+            "- ⚠️ `PROBE（试探建仓）`：条件允许（仅二次确认候选，最多一只小仓位）",
+            "- ⛔ `ATTACK（进攻建仓/浮盈加仓）`：禁止",
         ]
-    if regime == "RISK_OFF":
+    if normalized == "RISK_OFF":
         return [
-            "🔒 **盘前动作开关**（RISK_OFF）",
-            "- ✅ `EXIT`：允许",
-            "- ✅ `TRIM`：允许",
-            "- ✅ `HOLD`：允许（防守为主）",
-            "- ⚠️ `LIGHT_ADD`：仅允许对**已有浮盈仓位**小幅加仓（总权益 <= 5%）",
-            "- ⛔ `PROBE`：默认禁止",
-            "- ⛔ `ATTACK`：禁止",
-            "- ⛔ `FULL_ATTACK`：禁止",
+            "🔒 **盘前动作开关**（RISK_OFF（避险））",
+            "- ✅ `EXIT（清仓离场）`：允许",
+            "- ✅ `TRIM（减仓）`：允许",
+            "- ✅ `HOLD（持有观察）`：允许（防守为主）",
+            "- ⛔ `PROBE（试探建仓）`：禁止",
+            "- ⛔ `ATTACK（进攻建仓/浮盈加仓）`：禁止",
         ]
     return [
-        "🔓 **盘前动作开关**（NORMAL）",
-        "- ✅ `EXIT`：允许",
-        "- ✅ `TRIM`：允许",
-        "- ✅ `HOLD`：允许",
-        "- ⚠️ `LIGHT_ADD`：条件允许（仅确认强势且量价匹配）",
-        "- ⚠️ `PROBE`：条件允许（控制仓位）",
-        "- ⚠️ `ATTACK`：条件允许（需盘中二次确认）",
-        "- ⛔ `FULL_ATTACK`：默认禁止；仅在强一致 Risk-On 且盘中确认后考虑",
+        "🔓 **盘前动作开关**（NORMAL（常态））",
+        "- ✅ `EXIT（清仓离场）`：允许",
+        "- ✅ `TRIM（减仓）`：允许",
+        "- ✅ `HOLD（持有观察）`：允许",
+        "- ⚠️ `PROBE（试探建仓）`：条件允许（控制仓位，必须二次确认）",
+        "- ⚠️ `ATTACK（进攻建仓/浮盈加仓）`：条件允许（主线 confirmed；已有仓必须浮盈）",
     ]
 
 
@@ -153,6 +204,13 @@ def judge_regime(
     regime = _judge_crash_or_caution(regime, reasons, a50_pct, vix_close, vix_pct, cfg)
     if regime != "BLACK_SWAN":
         regime = _judge_risk_off(regime, reasons, a50_pct, vix_close, vix_pct, cfg)
+    missing_inputs = []
+    if a50_pct is None:
+        missing_inputs.append("A50")
+    if vix_close is None or vix_pct is None:
+        missing_inputs.append("VIX")
+    if regime in {"NORMAL", "CAUTION"} and missing_inputs:
+        return "UNKNOWN", [f"{'/'.join(missing_inputs)} 数据缺失，盘前风险无法完整确认"]
     if not reasons:
         reasons.append("A50/VIX 未触发风险阈值")
     return regime, reasons
@@ -161,10 +219,9 @@ def judge_regime(
 def latest_expected_us_trade_date(config: PremarketRiskConfig, now: datetime | None = None) -> date:
     dt_us = now.astimezone(US_TZ) if now else datetime.now(US_TZ)
     candidate = dt_us.date()
-    if dt_us.weekday() < 5 and dt_us.hour >= config.vix_ready_hour_et:
-        return candidate
-    candidate -= timedelta(days=1)
-    while candidate.weekday() >= 5:
+    if dt_us.hour < config.vix_ready_hour_et:
+        candidate -= timedelta(days=1)
+    while not _is_us_equity_trade_day(candidate):
         candidate -= timedelta(days=1)
     return candidate
 

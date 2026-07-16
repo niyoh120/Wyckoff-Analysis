@@ -6,7 +6,7 @@ import json
 import logging
 import re
 
-from core.market_trade_mode import normalize_regime
+from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES, PROBE_ONLY_REGIMES, normalize_regime
 from utils.json_text import extract_json_block
 from workflows.step4_models import DecisionItem, NewBuyLimits
 from workflows.step4_text import clean_text
@@ -45,17 +45,11 @@ def parse_decisions(
 
 def max_new_buy_names(market_regime: str, limits: NewBuyLimits) -> int:
     regime = normalize_regime(clean_text(market_regime))
-    if regime == "RISK_ON":
-        return limits.risk_on
-    if regime == "CAUTION":
-        return limits.caution
-    if regime in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY", "CRASH_LEFT_PROBE"}:
-        return min(limits.caution, 1)
-    if regime in {"BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF"}:
-        return limits.risk_off
-    if regime in {"UNKNOWN", "CRASH", "BLACK_SWAN"}:
+    if regime in EXECUTE_BLOCK_NEW_BUY_REGIMES:
         return 0
-    return limits.neutral
+    if regime in PROBE_ONLY_REGIMES:
+        return max(min(limits.caution, 1), 0)
+    return max(limits.neutral, 0)
 
 
 def trim_new_buy_decisions(
@@ -65,9 +59,6 @@ def trim_new_buy_decisions(
     limits: NewBuyLimits,
 ) -> tuple[list[DecisionItem], list[str], int]:
     max_new_names = max_new_buy_names(market_regime, limits)
-    if max_new_names < 0:
-        return decisions, [], max_new_names
-
     new_buys = [
         dec
         for dec in decisions

@@ -313,10 +313,12 @@ flowchart TD
     RISK -->|UNKNOWN / RISK_ON / BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["默认冻结新开仓<br/>STEP4_BUY_BLOCK_REGIMES"]
     RISK -->|CRASH_LEFT_PROBE| LEFT_PROBE["Top1 左侧 PROBE<br/>单票上限2%，禁止 ATTACK"]
     RISK -->|PANIC_REPAIR_CONFIRMED| REPAIR_PROBE["最多1只小额 PROBE<br/>禁止 ATTACK"]
-    RISK -->|NEUTRAL / CAUTION| ALLOW["按交易模式限额执行"]
+    RISK -->|CAUTION| CAUTION_PROBE["最多1只小额 PROBE<br/>禁止 ATTACK"]
+    RISK -->|NEUTRAL| ALLOW["按交易模式限额执行"]
 
     ALLOW --> OMS["灾难止损地板 -12%<br/>PROBE≤10% / ATTACK≤20%<br/>ATR/结构/时间管理优先"]
     REPAIR_PROBE --> OMS
+    CAUTION_PROBE --> OMS
     OMS --> TG["推送工单（含执行纪律）"]
     OMS --> DB["trade_orders 写库"]
 ```
@@ -341,7 +343,7 @@ flowchart TD
 | 排序 | confirmed → 主线/趋势 → 信号分 |
 | 主线语义 | `candidate_theme / candidate_phase / candidate_role` 从推荐、信号贯穿到尾盘记录；LLM 只解释不重判 |
 | 禁新开 | `RISK_ON` 与弱市/修复期与 Step4 对齐，新票不买 |
-| 双水温门控 | benchmark 与 premarket 分别判断；任一硬拦截即禁新开，分层允许信号取交集，`UNKNOWN` fail-closed |
+| 双水温门控 | benchmark 与 premarket 分别判断；任一硬拦截即禁止所有新开仓，`UNKNOWN` fail-closed；`CAUTION` 只开放 PROBE |
 | 持仓 | 硬止损约 12%；非主线满 5 日建议时间止盈 |
 | 读法 | 只执行 **BUY（可执行）**；WATCH/SKIP 不下手 |
 

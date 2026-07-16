@@ -45,7 +45,7 @@ def _intraday_semantics(
     features: dict[str, Any] | None = None,
     market_regime: str | None = None,
 ) -> dict[str, Any]:
-    from core.market_trade_mode import normalize_regime
+    from core.market_trade_mode import PROBE_ONLY_REGIMES, normalize_regime
 
     regime = normalize_regime(market_regime)
     if decision == DECISION_BUY and is_limit_up_candidate(features):
@@ -62,6 +62,10 @@ def _intraday_semantics(
     if decision == DECISION_BUY and regime in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"}:
         return _semantics(
             "小额试探准备 (PROBE_READY)", "probe_ready", True, "修复成立阶段只允许小额试探开仓（仓位5%限额）。"
+        )
+    if decision == DECISION_BUY and regime in PROBE_ONLY_REGIMES:
+        return _semantics(
+            "小额试探准备 (PROBE_READY)", "probe_ready", True, "谨慎阶段只允许 Top1 二次确认候选小额 PROBE。"
         )
     if decision == DECISION_BUY:
         return _semantics("可执行买入", "executable_buy", True, "仍需人工按支撑、回落与仓位纪律复核。")

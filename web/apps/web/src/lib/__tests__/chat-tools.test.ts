@@ -186,7 +186,8 @@ describe('execMarketOverview', () => {
       ],
     })
     const result = await execMarketOverview(deps)
-    expect(result).toContain('偏强')
+    expect(result).toContain('过热禁追')
+    expect(result).toContain('禁止新开仓')
     expect(result).toContain('3200')
   })
 })

@@ -9,7 +9,11 @@ from typing import Any
 from core.tail_buy.decision_semantics import tail_buy_execution_semantics
 from core.tail_buy.reporting import build_tail_buy_markdown
 from core.tail_buy.strategy import TailBuyCandidate
-from integrations.supabase_market_signal import load_latest_market_signal_daily, load_market_signal_daily
+from integrations.supabase_market_signal import (
+    compose_market_banner,
+    load_latest_market_signal_daily,
+    load_market_signal_daily,
+)
 from utils.feishu import send_feishu_notification, send_tail_buy_card
 from utils.telegram import send_to_telegram
 from workflows.tail_buy_runtime import TailBuyCandidateRun, TailBuyRuntimeConfig, env_flag
@@ -24,6 +28,7 @@ def resolve_market_reminder(today_trade_date: str) -> str:
 def resolve_market_regime_info(today_trade_date: str) -> dict[str, Any]:
     """返回市场风控信息，包含 blocked 硬拦截标志。"""
     from core.tail_buy.guardrails import HARD_BLOCK_REGIMES
+    from workflows.step4_market import normalize_benchmark_regime, normalize_premarket_regime
 
     row = load_market_signal_daily(today_trade_date)
     stale = False
@@ -36,15 +41,22 @@ def resolve_market_regime_info(today_trade_date: str) -> dict[str, Any]:
             "benchmark": "UNKNOWN",
             "premarket": "UNKNOWN",
             "blocked": True,
+            "probe_only": False,
             "stale": True,
         }
-    benchmark = str(row.get("benchmark_regime", "UNKNOWN") or "UNKNOWN").strip().upper()
+    benchmark = normalize_benchmark_regime(row.get("benchmark_regime"))
     if stale:
         benchmark = "UNKNOWN"
-    premarket = str(row.get("premarket_regime", "UNKNOWN") or "UNKNOWN").strip().upper()
-    message = str(row.get("banner_message", "") or "").strip()
+    premarket = normalize_premarket_regime(row.get("premarket_regime"))
+    message = str(compose_market_banner(row).get("banner_message") or "").strip()
     blocked = benchmark in HARD_BLOCK_REGIMES or premarket in HARD_BLOCK_REGIMES
-    gate = "禁止新开仓（尾盘不买新票）" if blocked else "允许新开仓（仍需 confirmed + BUY）"
+    probe_only = not blocked and "CAUTION" in {benchmark, premarket}
+    if blocked:
+        gate = "禁止新开仓（尾盘不买新票）"
+    elif probe_only:
+        gate = "仅允许 Top1 confirmed PROBE（禁止 ATTACK）"
+    else:
+        gate = "允许新开仓（仍需 confirmed + BUY）"
     stale_text = f" | STALE: 仅找到 {row.get('trade_date') or '-'} 市场信号" if stale else ""
     if message:
         reminder = f"{benchmark}/{premarket} | {gate}{stale_text} | {message.replace(chr(10), ' ')}"
@@ -55,6 +67,7 @@ def resolve_market_regime_info(today_trade_date: str) -> dict[str, Any]:
         "benchmark": benchmark,
         "premarket": premarket,
         "blocked": blocked,
+        "probe_only": probe_only,
         "stale": stale,
     }
 

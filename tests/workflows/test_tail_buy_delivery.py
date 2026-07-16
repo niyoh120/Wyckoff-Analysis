@@ -31,14 +31,40 @@ def test_resolve_market_reminder_prefers_trade_date_row(monkeypatch) -> None:
     monkeypatch.setattr(
         delivery,
         "load_market_signal_daily",
-        lambda _date: {"benchmark_regime": "risk_on", "premarket_regime": "neutral", "banner_message": "强势\n震荡"},
+        lambda _date: {"benchmark_regime": "risk_on", "premarket_regime": "normal", "banner_message": "强势\n震荡"},
     )
     monkeypatch.setattr(delivery, "load_latest_market_signal_daily", lambda: None)
 
-    assert (
-        delivery.resolve_market_reminder("2026-06-22")
-        == "RISK_ON/NEUTRAL | 允许新开仓（仍需 confirmed + BUY） | 强势 震荡"
+    reminder = delivery.resolve_market_reminder("2026-06-22")
+
+    assert reminder.startswith("RISK_ON/NORMAL | 禁止新开仓（尾盘不买新票）")
+    assert "禁止新开仓" in reminder
+
+
+def test_resolve_market_reminder_invalid_premarket_fails_closed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        delivery,
+        "load_market_signal_daily",
+        lambda _date: {"benchmark_regime": "NEUTRAL", "premarket_regime": "typo"},
     )
+    monkeypatch.setattr(delivery, "load_latest_market_signal_daily", lambda: None)
+
+    assert delivery.resolve_market_regime_info("2026-06-22")["blocked"] is True
+
+
+def test_resolve_market_reminder_caution_is_probe_only(monkeypatch) -> None:
+    monkeypatch.setattr(
+        delivery,
+        "load_market_signal_daily",
+        lambda _date: {"benchmark_regime": "NEUTRAL", "premarket_regime": "CAUTION"},
+    )
+    monkeypatch.setattr(delivery, "load_latest_market_signal_daily", lambda: None)
+
+    regime_info = delivery.resolve_market_regime_info("2026-06-22")
+
+    assert regime_info["blocked"] is False
+    assert regime_info["probe_only"] is True
+    assert "Top1 confirmed PROBE" in regime_info["reminder"]
 
 
 def test_tail_buy_persist_row_serializes_reasons_and_features() -> None:
@@ -82,6 +108,18 @@ def test_tail_buy_persist_row_downgrades_limit_up_candidate_to_watch_only() -> N
     assert features["execution_label"] == "观察买入"
     assert features["execution_status"] == "watch_buy"
     assert features["orderable"] is False
+
+
+def test_tail_buy_persist_row_marks_caution_buy_as_probe_only() -> None:
+    started_at = datetime(2026, 7, 8, 14, 44, tzinfo=TZ)
+    candidate = _candidate()
+    candidate.market_regime = "CAUTION"
+
+    row = delivery.tail_buy_persist_row(candidate, started_at)
+
+    features = json.loads(row["features_json"])
+    assert features["execution_status"] == "probe_ready"
+    assert "PROBE_READY" in features["execution_label"]
 
 
 def test_send_tail_buy_notifications_falls_back_from_rich_card(monkeypatch) -> None:

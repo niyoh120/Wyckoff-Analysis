@@ -15,6 +15,12 @@ from typing import Any
 from supabase import Client
 
 from core.constants import TABLE_MARKET_SIGNAL_DAILY
+from core.market_trade_mode import (
+    EXECUTE_BLOCK_NEW_BUY_REGIMES,
+    KNOWN_MARKET_REGIMES,
+    PROBE_ONLY_REGIMES,
+    stricter_market_regime,
+)
 from integrations.supabase_base import create_admin_client as _get_supabase_admin_client
 from integrations.supabase_base import create_read_client as _get_supabase_read_client
 from integrations.supabase_base import is_admin_configured as is_supabase_admin_configured
@@ -43,7 +49,14 @@ def market_signal_readiness(row: dict[str, Any] | None, expected_trade_date: dat
     benchmark = str(row.get("benchmark_regime") or "").strip().upper()
     if not benchmark:
         return {"status": "partial", "reason": "当日盘后 benchmark 尚未就绪"}
-    return {"status": "ready", "reason": "当日盘后 benchmark 已就绪"}
+    if benchmark not in KNOWN_MARKET_REGIMES:
+        return {"status": "partial", "reason": f"当日 benchmark 状态无效: {benchmark}"}
+    premarket = str(row.get("premarket_regime") or "").strip().upper()
+    if not premarket:
+        return {"status": "partial", "reason": "当日盘前风险尚未就绪"}
+    if premarket not in {"NORMAL", "CAUTION", "RISK_OFF", "BLACK_SWAN"}:
+        return {"status": "partial", "reason": f"当日盘前风险状态无效: {premarket}"}
+    return {"status": "ready", "reason": "当日 benchmark 与盘前风险均已就绪"}
 
 
 def _format_signed_pct(raw: Any) -> str:
@@ -62,8 +75,9 @@ def _format_plain(raw: Any, digits: int = 2) -> str:
 
 def _benchmark_regime_desc(regime: str) -> str:
     mapping = {
-        "RISK_ON": "偏强",
+        "RISK_ON": "过热禁追",
         "NEUTRAL": "中性",
+        "CAUTION": "谨慎确认",
         "RISK_OFF": "偏弱",
         "CRASH": "极弱",
         "PANIC_REPAIR": "修复候选",
@@ -76,6 +90,7 @@ def _benchmark_regime_desc(regime: str) -> str:
 
 def _premarket_regime_desc(regime: str) -> str:
     mapping = {
+        "UNKNOWN": "待确认",
         "NORMAL": "平稳",
         "CAUTION": "情绪冲击",
         "RISK_OFF": "转冷",
@@ -92,22 +107,29 @@ def _normalize_benchmark_slot(regime: str) -> str:
         return "RISK_ON"
     if normalized == "NEUTRAL":
         return "NEUTRAL"
+    if normalized == "CAUTION":
+        return "CAUTION"
+    if normalized in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY", "CRASH_LEFT_PROBE"}:
+        return "CAUTION"
     if normalized in {"CRASH", "BLACK_SWAN"}:
         return "CRASH"
-    return "RISK_OFF"
+    if normalized in {"RISK_OFF", "BEAR_REBOUND", "PANIC_REPAIR"}:
+        return "RISK_OFF"
+    return "UNKNOWN"
 
 
 def _normalize_premarket_slot(regime: str) -> str:
     normalized = str(regime or "").strip().upper()
-    if normalized in {"BLACK_SWAN", "RISK_OFF", "CAUTION", "NORMAL"}:
+    if normalized in {"UNKNOWN", "BLACK_SWAN", "RISK_OFF", "CAUTION", "NORMAL"}:
         return normalized
-    return "NORMAL"
+    return "UNKNOWN"
 
 
 def _benchmark_state_sentence(regime: str) -> str:
     mapping = {
-        "RISK_ON": "盘后主线仍偏强",
+        "RISK_ON": "盘后市场处于过热禁追区",
         "NEUTRAL": "盘后市场仍在震荡观察",
+        "CAUTION": "盘后广度转弱，需要谨慎确认",
         "RISK_OFF": "盘后市场已偏弱",
         "CRASH": "盘后市场已处在明显防守区",
         "PANIC_REPAIR": "盘后市场出现修复候选，仍需次日确认",
@@ -120,6 +142,7 @@ def _benchmark_state_sentence(regime: str) -> str:
 
 def _premarket_state_sentence(regime: str) -> str:
     mapping = {
+        "UNKNOWN": "隔夜外部数据仍待确认",
         "NORMAL": "隔夜外部冲击相对平稳",
         "CAUTION": "隔夜情绪扰动已经出现",
         "RISK_OFF": "隔夜风险偏好明显转冷",
@@ -155,6 +178,16 @@ PREMARKET_MERGE_FIELDS = ("premarket_regime", "premarket_reasons")
 A50_MERGE_FIELDS = ("a50_value_date", "a50_source", "a50_close", "a50_pct_chg")
 VIX_MERGE_FIELDS = ("vix_value_date", "vix_source", "vix_close", "vix_pct_chg")
 
+UNKNOWN_MARKET_STRATEGY = {
+    "posture_code": "DATA_HOLD",
+    "posture_name": "数据待确认",
+    "tone": "保守",
+    "title": "亲爱的投资者，关键市场数据尚未完整就绪，当前先暂停新开仓。",
+    "wind": "市场风向仍待数据确认",
+    "water": "资金状态暂不作乐观推断",
+    "action": "只管理已有仓位，禁止新开仓，等待关键数据恢复",
+}
+
 
 MARKET_BANNER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
     "BLACK_SWAN": {
@@ -165,7 +198,7 @@ MARKET_BANNER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
             "title": "亲爱的投资者，最新交易日大盘偏强，但隔夜恐慌冲击已显著抬升。",
             "wind": "盘面风向正在由进攻转向防守",
             "water": "避险资金正在快速回流",
-            "action": "先收缩防线，暂停激进追价，只保留最确定的观察与应对",
+            "action": "暂停新开仓，只管理已有仓位并等待过热与隔夜冲击同时缓解",
         },
         "NEUTRAL": {
             "posture_code": "HARD_DEFENSE",
@@ -203,7 +236,7 @@ MARKET_BANNER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
             "title": "亲爱的投资者，最新交易日大盘偏强，但隔夜风险偏好已经转冷。",
             "wind": "盘面风向仍在上方，但阻力开始变大",
             "water": "资金从全面进攻转向去弱留强",
-            "action": "控制节奏和仓位，只跟随最强、最清晰的主线机会",
+            "action": "停止新开仓，只做已有仓位的持有、减仓或退出管理",
         },
         "NEUTRAL": {
             "posture_code": "DEFENSIVE",
@@ -235,13 +268,13 @@ MARKET_BANNER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
     },
     "CAUTION": {
         "RISK_ON": {
-            "posture_code": "CONTROLLED_ATTACK",
-            "posture_name": "控制试探",
-            "tone": "谨慎乐观",
-            "title": "亲爱的投资者，最新交易日大盘仍偏强，但隔夜情绪出现扰动。",
-            "wind": "做多风向还在，但节奏开始放缓",
-            "water": "资金仍会流向强者，只是不再全面扩散",
-            "action": "可以继续顺势跟随，但要用更轻的仓位去做更高胜率的确认机会",
+            "posture_code": "OVERHEAT_HOLD",
+            "posture_name": "过热不追",
+            "tone": "保守",
+            "title": "亲爱的投资者，盘后市场过热且隔夜情绪出现扰动，当前不要追新。",
+            "wind": "短线过热尚未消化，隔夜扰动进一步降低容错",
+            "water": "资金集中度较高，但追涨反转风险仍在",
+            "action": "暂停新开仓，只管理已有仓位并等待重新回到可执行区",
         },
         "NEUTRAL": {
             "posture_code": "PATIENT_OBSERVE",
@@ -273,13 +306,13 @@ MARKET_BANNER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
     },
     "NORMAL": {
         "RISK_ON": {
-            "posture_code": "FULL_ATTACK",
-            "posture_name": "顺势进攻",
-            "tone": "乐观",
-            "title": "亲爱的投资者，最新交易日内外部信号共振偏强。",
-            "wind": "做多风向仍在发酵",
-            "water": "资金仍在向强势主线集中",
-            "action": "顺势跟随，但只参与有确认、有纪律的高胜率机会",
+            "posture_code": "OVERHEAT_HOLD",
+            "posture_name": "过热不追",
+            "tone": "保守",
+            "title": "亲爱的投资者，隔夜环境平稳，但盘后市场仍处于过热禁追区。",
+            "wind": "强势风向已进入容易反转的过热阶段",
+            "water": "资金仍集中于强势方向，但新增追价的赔率不足",
+            "action": "暂停新开仓，只管理已有仓位并等待过热降温",
         },
         "NEUTRAL": {
             "posture_code": "PATIENT_OBSERVE",
@@ -312,16 +345,28 @@ MARKET_BANNER_MATRIX: dict[str, dict[str, dict[str, str]]] = {
 }
 
 
+def _select_market_strategy(premarket_slot: str, benchmark_slot: str) -> dict[str, str]:
+    if "UNKNOWN" in {premarket_slot, benchmark_slot}:
+        return UNKNOWN_MARKET_STRATEGY
+    benchmark_key = "NEUTRAL" if benchmark_slot == "CAUTION" else benchmark_slot
+    strategy = MARKET_BANNER_MATRIX.get(premarket_slot, {}).get(benchmark_key)
+    if not strategy:
+        return UNKNOWN_MARKET_STRATEGY
+    effective_regime = stricter_market_regime(premarket_slot, benchmark_slot)
+    if effective_regime in EXECUTE_BLOCK_NEW_BUY_REGIMES:
+        return {**strategy, "action": "只管理已有仓位，禁止新开仓"}
+    if effective_regime in PROBE_ONLY_REGIMES:
+        return {**strategy, "action": "最多一只二次确认候选执行小额 PROBE，禁止 ATTACK"}
+    return strategy
+
+
 def compose_market_state(row: dict[str, Any] | None) -> dict[str, str]:
     data = dict(row or {})
     benchmark_regime = str(data.get("benchmark_regime", "") or "").strip().upper()
     premarket_regime = str(data.get("premarket_regime", "") or "").strip().upper()
     benchmark_slot = _normalize_benchmark_slot(benchmark_regime)
     premarket_slot = _normalize_premarket_slot(premarket_regime)
-    strategy_key = "NEUTRAL" if benchmark_slot == "UNKNOWN" else benchmark_slot
-    strategy = (
-        MARKET_BANNER_MATRIX.get(premarket_slot, {}).get(strategy_key) or MARKET_BANNER_MATRIX["CAUTION"]["NEUTRAL"]
-    )
+    strategy = _select_market_strategy(premarket_slot, benchmark_slot)
 
     return {
         "benchmark_slot": benchmark_slot,
@@ -340,10 +385,7 @@ def compose_market_banner(row: dict[str, Any] | None) -> dict[str, str]:
     benchmark_regime = str(data.get("benchmark_regime", "") or "").strip().upper()
     premarket_regime = str(data.get("premarket_regime", "") or "").strip().upper()
     state = compose_market_state(data)
-    title = (
-        MARKET_BANNER_MATRIX.get(state["premarket_slot"], {}).get(state["benchmark_slot"], {}).get("title")
-        or "亲爱的投资者，最新交易日请顺势而为，保持节奏。"
-    )
+    title = _select_market_strategy(state["premarket_slot"], state["benchmark_slot"])["title"]
     body = (
         "以上指标按各自最新可用时间更新。"
         f"{_benchmark_state_sentence(benchmark_regime)}，{_premarket_state_sentence(premarket_regime)}。"

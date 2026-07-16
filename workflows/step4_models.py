@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES
 from integrations.fetch_a_share_csv import TradingWindow
 
 
@@ -89,10 +90,8 @@ class OrderContext:
 
 @dataclass(frozen=True)
 class NewBuyLimits:
-    risk_on: int = 2
     caution: int = 1
     neutral: int = 1
-    risk_off: int = 0
 
 
 @dataclass(frozen=True)
@@ -106,9 +105,7 @@ class Step4OrderConfig:
     repair_probe_budget_limit: float = 0.05
     left_probe_budget_limit: float = 0.02
     attack_budget_limit: float = 0.20
-    buy_block_regimes: frozenset[str] = frozenset(
-        {"UNKNOWN", "BEAR_REBOUND", "PANIC_REPAIR", "RISK_OFF", "CRASH", "BLACK_SWAN"}
-    )
+    buy_block_regimes: frozenset[str] = EXECUTE_BLOCK_NEW_BUY_REGIMES
     chase_gap_pct_min: float = 1.2
     chase_gap_pct_max: float = 5.5
     chase_atr_mult_min: float = 0.8

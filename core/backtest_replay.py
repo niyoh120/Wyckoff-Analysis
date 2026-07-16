@@ -30,7 +30,7 @@ from core.candidate_policy import CandidatePolicyConfig, candidate_score_value
 from core.candidate_tracks import candidate_entry_track
 from core.mainline_engine import MainlineEngineConfig
 from core.market_breadth import calc_market_breadth
-from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES, normalize_regime
+from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES, PROBE_ONLY_REGIMES, normalize_regime
 from core.signal_confirmation import PendingPool, score_springboard_abc
 from core.wyckoff_engine import FunnelConfig, FunnelResult, run_funnel
 
@@ -280,7 +280,7 @@ def _apply_execution_gates(
         return _ExecutionGateResult(None, True), len(selected.codes)
     if selected is None:
         return _ExecutionGateResult(None, False), 0
-    limited_selection, limited = _limit_confirmed_repair_selection(selected, ctx.regime, config.execution_regime_gate)
+    limited_selection, limited = _limit_probe_only_selection(selected, ctx.regime, config.execution_regime_gate)
     return _ExecutionGateResult(limited_selection, False), limited
 
 
@@ -355,16 +355,12 @@ def _execution_regime_allows(regime: str, mode: str) -> bool:
     return normalized not in EXECUTE_BLOCK_NEW_BUY_REGIMES
 
 
-def _limit_confirmed_repair_selection(
+def _limit_probe_only_selection(
     selected: _RankedSelection,
     regime: str,
     mode: str,
 ) -> tuple[_RankedSelection, int]:
-    if (
-        mode != "live"
-        or normalize_regime(regime) not in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY", "CRASH_LEFT_PROBE"}
-        or len(selected.codes) <= 1
-    ):
+    if mode != "live" or normalize_regime(regime) not in PROBE_ONLY_REGIMES or len(selected.codes) <= 1:
         return selected, 0
     kept = selected.codes[:1]
     return (

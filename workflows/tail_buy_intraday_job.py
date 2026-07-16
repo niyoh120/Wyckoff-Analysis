@@ -256,51 +256,37 @@ def _apply_market_block(
     regime_info: dict,
     config: TailBuyRuntimeConfig,
 ) -> None:
-    """市场风控分层拦截：硬防守 regime 全拦，分层 regime 按信号类型放行。
+    """市场风控拦截：任一来源禁止新开仓时，所有非持仓候选都跳过。
 
-    bm/pm 必须分别判断 hard_block/allowed 后再取更严格的一方；不能先用
+    bm/pm 必须分别判断 hard_block 后再取更严格的一方；不能先用
     more_defensive_regime 合并成单一 regime 再判断——历史上曾出现
     bm=UNKNOWN(硬拦截)+pm=NORMAL 合并成 NORMAL、从而放行新开仓的 fail-open
     回归，与 resolve_market_regime_info 里"任一触发即 blocked"的 fail-closed
     语义不一致。
     """
-    from core.tail_buy.guardrails import HARD_BLOCK_REGIMES, TIERED_ALLOW_SIGNALS
+    from core.tail_buy.guardrails import HARD_BLOCK_REGIMES
+    from workflows.step4_market import normalize_benchmark_regime, normalize_premarket_regime
     from workflows.tail_buy_market_repair import more_defensive_regime
 
-    bm = regime_info.get("benchmark", "UNKNOWN")
-    pm = regime_info.get("premarket", "UNKNOWN")
+    bm = normalize_benchmark_regime(regime_info.get("benchmark"))
+    pm = normalize_premarket_regime(regime_info.get("premarket"))
     hard_block = bm in HARD_BLOCK_REGIMES or pm in HARD_BLOCK_REGIMES
-    allowed = _intersect_tiered_allow(TIERED_ALLOW_SIGNALS.get(bm), TIERED_ALLOW_SIGNALS.get(pm))
     regime = more_defensive_regime(bm, pm) if bm and pm else (bm or pm or "UNKNOWN")
     blocked_count = 0
     for item in candidates:
         if str(item.signal_type or "").strip().lower() == "holding":
             continue
-        if hard_block or (allowed is not None and str(item.signal_type or "").strip().lower() not in allowed):
+        if hard_block:
             item.final_decision = DECISION_SKIP
             item.rule_decision = DECISION_SKIP
-            if hard_block:
-                item.rule_reasons = [f"市场风控硬拦截({regime})，禁止新开仓"]
-            else:
-                item.rule_reasons = [f"{regime}仅放行{','.join(sorted(allowed))}，{item.signal_type}不买"]
+            item.rule_reasons = [f"市场风控硬拦截({regime})，禁止新开仓"]
             item.fetch_error = "market_blocked"
             blocked_count += 1
     if blocked_count:
         log_line(
-            f"市场风控分层拦截: regime={regime}, hard_block={hard_block}, "
-            f"allowed={sorted(allowed) if allowed else 'all'}, 跳过 {blocked_count} 个候选",
+            f"市场风控硬拦截: regime={regime}, 跳过 {blocked_count} 个候选",
             config.logs_path,
         )
-
-
-def _intersect_tiered_allow(a: frozenset[str] | None, b: frozenset[str] | None) -> frozenset[str] | None:
-    """取 bm/pm 分层放行信号集合的交集：任一方未分层（allow-all）则以另一方为准；
-    两者都分层时取交集（更严格）；两者都未分层则返回 None（allow-all）。"""
-    if a is None:
-        return b
-    if b is None:
-        return a
-    return a & b
 
 
 def _prefilter_unconfirmed(

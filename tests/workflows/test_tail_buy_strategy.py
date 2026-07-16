@@ -665,7 +665,6 @@ def test_crash_candidate_without_support_reclaim_stays_blocked():
     assert out.features.get("left_probe_ready") is None
     assert out.rule_decision == DECISION_SKIP
     assert "CRASH" in "；".join(out.rule_reasons)
-    assert "lps" in "；".join(out.rule_reasons)
 
 
 def test_same_day_sos_reclaim_is_not_treated_as_breaking_established_support():
@@ -1128,7 +1127,31 @@ def test_crash_left_probe_only_keeps_top_ranked_buy():
     merged = merge_rule_and_llm(candidates)
 
     assert [item.final_decision for item in merged] == [DECISION_BUY, DECISION_WATCH]
-    assert "非Top1试探候选" in "；".join(merged[1].rule_reasons)
+    assert "非Top1候选" in "；".join(merged[1].rule_reasons)
+
+
+def test_caution_only_keeps_top_ranked_probe():
+    candidates = [
+        TailBuyCandidate(
+            code=code,
+            name=code,
+            signal_date="2026-04-20",
+            status="confirmed",
+            signal_type="lps",
+            signal_score=8.0,
+            market_regime="CAUTION",
+            rule_score=score,
+            rule_decision=DECISION_BUY,
+            final_decision=DECISION_BUY,
+            features={"support_level": 10.0},
+        )
+        for code, score in (("000001", 82.0), ("000002", 78.0))
+    ]
+
+    merged = merge_rule_and_llm(candidates)
+
+    assert [item.final_decision for item in merged] == [DECISION_BUY, DECISION_WATCH]
+    assert "非Top1候选" in "；".join(merged[1].rule_reasons)
 
 
 def test_merge_rule_and_llm_cannot_override_tail_hard_veto():

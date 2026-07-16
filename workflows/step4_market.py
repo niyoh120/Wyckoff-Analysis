@@ -4,38 +4,17 @@ from __future__ import annotations
 
 import logging
 
-from core.market_trade_mode import normalize_regime
+from core.market_trade_mode import (
+    EXECUTE_BLOCK_NEW_BUY_REGIMES,
+    normalize_regime,
+    stricter_market_regime,
+)
 from integrations.supabase_market_signal import compose_market_banner, load_market_signal_daily, market_signal_readiness
 from workflows.step4_text import clean_text
 
 logger = logging.getLogger(__name__)
 
-BENCHMARK_REGIME_SEVERITY = {
-    "UNKNOWN": 3,
-    "RISK_ON": 0,
-    "NEUTRAL": 1,
-    "BEAR_REBOUND": 2,
-    "PANIC_REPAIR": 2,
-    "PANIC_REPAIR_CONFIRMED": 2,
-    "RISK_OFF": 3,
-    "CRASH": 4,
-    "BLACK_SWAN": 5,
-}
-PREMARKET_REGIME_SEVERITY = {
-    "UNKNOWN": 3,
-    "NORMAL": 0,
-    "CAUTION": 2,
-    "RISK_OFF": 3,
-    "BLACK_SWAN": 5,
-}
-EFFECTIVE_REGIME_BY_SEVERITY = {
-    0: "RISK_ON",
-    1: "NEUTRAL",
-    2: "CAUTION",
-    3: "RISK_OFF",
-    4: "CRASH",
-    5: "BLACK_SWAN",
-}
+PREMARKET_REGIMES = frozenset({"UNKNOWN", "NORMAL", "CAUTION", "RISK_OFF", "BLACK_SWAN"})
 
 
 def normalize_benchmark_regime(raw: object) -> str:
@@ -44,7 +23,7 @@ def normalize_benchmark_regime(raw: object) -> str:
 
 def normalize_premarket_regime(raw: object) -> str:
     regime = clean_text(raw).upper()
-    if regime in PREMARKET_REGIME_SEVERITY:
+    if regime in PREMARKET_REGIMES:
         return regime
     return "UNKNOWN"
 
@@ -52,15 +31,7 @@ def normalize_premarket_regime(raw: object) -> str:
 def resolve_effective_market_regime(benchmark_regime: object, premarket_regime: object) -> str:
     benchmark_norm = normalize_benchmark_regime(benchmark_regime)
     premarket_norm = normalize_premarket_regime(premarket_regime)
-    if benchmark_norm == "UNKNOWN" and premarket_norm == "NORMAL":
-        return "UNKNOWN"
-    if premarket_norm in {"NORMAL", "CAUTION"} and benchmark_norm in {"PANIC_REPAIR", "PANIC_REPAIR_CONFIRMED"}:
-        return benchmark_norm
-    severity = max(
-        BENCHMARK_REGIME_SEVERITY.get(benchmark_norm, 1),
-        PREMARKET_REGIME_SEVERITY.get(premarket_norm, 0),
-    )
-    return EFFECTIVE_REGIME_BY_SEVERITY.get(severity, benchmark_norm)
+    return stricter_market_regime(benchmark_norm, premarket_norm)
 
 
 def load_market_signal_for_trade_date(trade_date: str) -> dict[str, object] | None:
@@ -77,7 +48,7 @@ def _benchmark_regime_and_readiness(
     readiness = market_signal_readiness(row, trade_date)
     context_regime = (benchmark_context or {}).get("regime")
     regime = normalize_benchmark_regime(context_regime or row.get("benchmark_regime"))
-    if not context_regime and readiness["status"] != "ready":
+    if not context_regime and readiness["status"] in {"missing", "stale"}:
         regime = "UNKNOWN"
     return regime, readiness
 
@@ -127,7 +98,8 @@ def build_market_guardrail(
             f"ma200={benchmark_context.get('ma200')}, recent3={benchmark_context.get('recent3_pct')}, "
             f"cum3={benchmark_context.get('recent3_cum_pct')}, smallcap_today={benchmark_context.get('smallcap_today_pct')}"
         )
-    if effective_regime in buy_block_regimes:
+    enforced_blocks = set(buy_block_regimes) | set(EXECUTE_BLOCK_NEW_BUY_REGIMES)
+    if effective_regime in enforced_blocks:
         lines.append("⚠️ 全局风控一票否决：OMS 将强制拦截全部买入动作（仅允许 HOLD/TRIM/EXIT）。")
     elif premarket_regime == "CAUTION":
         lines.append("⚠️ 盘前情绪扰动已触发：OMS 会自动收紧追价阈值并优先防守。")

@@ -188,6 +188,9 @@ def test_market_report_prefers_cross_period_robust_params(tmp_path):
 
     assert "交易手册（按市场状态）" in report
     assert "| RISK_ON | 禁止新仓 |" in report
+    assert "| NEUTRAL | 二次确认后可执行 |" in report
+    assert "| CAUTION | 小额试探 |" in report
+    assert "NEUTRAL / CAUTION" not in report
     assert "RISK_ON / 强主线修复" not in report
     assert "稳健参数（跨周期全正）: **等额四仓 / 15天 / SL-8% / 无TP / 无Trail**" in report
     assert "跨周期参数稳健性" in report

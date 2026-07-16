@@ -7,7 +7,7 @@ import re
 _TERM_GLOSSARY_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bBLACK_SWAN\b(?!\s*[（(])"), "BLACK_SWAN（黑天鹅高风险）"),
     (re.compile(r"\bRISK_OFF\b(?!\s*[（(])"), "RISK_OFF（风险收缩）"),
-    (re.compile(r"\bRISK_ON\b(?!\s*[（(])"), "RISK_ON（风险偏好）"),
+    (re.compile(r"\bRISK_ON\b(?!\s*[（(])"), "RISK_ON（短线过热禁追）"),
     (re.compile(r"\bNORMAL\b(?!\s*[（(])"), "NORMAL（常态）"),
     (re.compile(r"\bPANIC_REPAIR_CONFIRMED\b(?!\s*[（(])"), "PANIC_REPAIR_CONFIRMED（修复成立）"),
     (re.compile(r"\bPANIC_REPAIR\b(?![_\s]*CONFIRMED)(?!\s*[（(])"), "PANIC_REPAIR（修复候选）"),
@@ -16,8 +16,6 @@ _TERM_GLOSSARY_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bATR\b(?!\s*[（(])"), "ATR（真实波动幅度）"),
     (re.compile(r"\bRPS\b(?!\s*[（(])"), "RPS（相对强弱百分位）"),
     (re.compile(r"\bQPS\b(?!\s*[（(])"), "QPS（每秒请求量）"),
-    (re.compile(r"\bFULL_ATTACK\b(?!\s*[（(])"), "FULL_ATTACK（全仓进攻）"),
-    (re.compile(r"\bLIGHT_ADD\b(?!\s*[（(])"), "LIGHT_ADD（轻量加仓）"),
     (re.compile(r"\bATTACK\b(?!\s*[（(])"), "ATTACK（进攻建仓）"),
     (re.compile(r"\bPROBE\b(?!\s*[（(])"), "PROBE（试探建仓）"),
     (re.compile(r"\bTRIM\b(?!\s*[（(])"), "TRIM（减仓）"),

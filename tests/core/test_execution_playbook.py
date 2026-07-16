@@ -46,7 +46,7 @@ def test_tail_guardrail_blocks_risk_on_new_buys() -> None:
     reasons = tail_entry_veto_reasons({"support_level": 10.0}, "mainline", "RISK_ON")
     assert any("尾盘不买" in r for r in reasons)
     launchpad = tail_entry_veto_reasons({"support_level": 10.0}, "launchpad", "RISK_ON")
-    assert not any("尾盘不买" in r for r in launchpad)
+    assert any("尾盘不买" in r for r in launchpad)
     holding = tail_entry_veto_reasons({"support_level": 10.0}, "holding", "RISK_ON")
     assert not any("尾盘不买" in r for r in holding)
 

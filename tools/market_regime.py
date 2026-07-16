@@ -17,7 +17,7 @@ from tools.market_liquidity import calc_amount_distribution_health, calc_market_
 from utils.safe import finite_float as _safe_float
 
 _PV_OUTLOOK_FALLBACK: dict[str, str] = {
-    "RISK_ON": "次日推演：若量能维持在20日均量0.95x上方且不破MA50，偏强震荡延续；若放量跌破MA50，需转入防守。",
+    "RISK_ON": "次日推演：短线处于过热禁追区，继续管理旧仓；等待过热降温并重新确认后再评估新仓。",
     "BEAR_REBOUND": "次日推演：熊市反抽只做强确认，若不能放量站稳MA200，控制仓位并回避追高。",
     "PANIC_REPAIR": "次日推演：当前仅为修复候选，继续观察；次日广度与价格未同时确认前禁止新仓。",
     "PANIC_REPAIR_CONFIRMED": "次日推演：修复已获广度与价格确认，只允许小额试探；若确认位失守立即退回观察。",

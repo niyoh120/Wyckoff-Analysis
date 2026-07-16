@@ -458,7 +458,7 @@ export async function execMarketOverview(deps: ToolDeps): Promise<string> {
 
   const merged: Record<string, unknown> = { ...data[0] }
   for (const row of data) {
-    for (const key of ['benchmark_regime', 'main_index_close', 'main_index_today_pct']) {
+    for (const key of ['benchmark_regime', 'premarket_regime', 'main_index_close', 'main_index_today_pct']) {
       if (!merged[key] && row[key]) merged[key] = row[key]
     }
     for (const key of ['a50_close', 'a50_pct_chg']) {
@@ -471,9 +471,18 @@ export async function execMarketOverview(deps: ToolDeps): Promise<string> {
 
   const tradeDate = String(data[0]!.trade_date || '')
   const regimeMap: Record<string, string> = {
-    RISK_ON: '偏强', BEAR_REBOUND: '反抽', NEUTRAL: '中性', RISK_OFF: '偏弱', CRASH: '极弱', BLACK_SWAN: '恶劣',
+    RISK_ON: '过热禁追', BEAR_REBOUND: '反抽观察', NEUTRAL: '中性', NORMAL: '常态', CAUTION: '谨慎确认', RISK_OFF: '偏弱', CRASH: '极弱', BLACK_SWAN: '恶劣', UNKNOWN: '待确认',
   }
-  const regime = String(merged.benchmark_regime || 'NEUTRAL')
+  const regime = String(merged.benchmark_regime || 'UNKNOWN').toUpperCase()
+  const premarket = String(merged.premarket_regime || 'UNKNOWN').toUpperCase()
+  const blockedRegimes = new Set(['UNKNOWN', 'RISK_ON', 'BEAR_REBOUND', 'PANIC_REPAIR', 'RISK_OFF', 'CRASH', 'BLACK_SWAN'])
+  const hardPremarket = new Set(['UNKNOWN', 'RISK_OFF', 'BLACK_SWAN'])
+  const blocked = blockedRegimes.has(regime) || hardPremarket.has(premarket)
+  const executionGate = blocked
+    ? '执行闸门：禁止新开仓，只管理已有仓位'
+    : premarket === 'CAUTION' || regime === 'CAUTION'
+      ? '执行闸门：仅允许二次确认后的 PROBE，禁止 ATTACK'
+      : '执行闸门：允许 confirmed 候选进入 OMS 复核'
   const close = Number(merged.main_index_close || 0)
   const pct = Number(merged.main_index_today_pct || 0)
   const a50Close = Number(merged.a50_close || 0)
@@ -486,6 +495,8 @@ export async function execMarketOverview(deps: ToolDeps): Promise<string> {
   return [
     tradeDate ? `数据日期：${tradeDate}` : '',
     `大盘状态：${regimeMap[regime] || regime}`,
+    `盘前状态：${regimeMap[premarket] || premarket}`,
+    executionGate,
     close ? `上证指数：${close.toFixed(0)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)` : '',
     a50Close ? `A50：${a50Close.toFixed(0)} (${a50Pct >= 0 ? '+' : ''}${a50Pct.toFixed(2)}%)` : '',
     vixClose ? `VIX：${vixClose.toFixed(1)}` : '',

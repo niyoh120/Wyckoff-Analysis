@@ -12,6 +12,7 @@ REPAIR_REVIEW_REGIMES = frozenset({"BEAR_REBOUND", "PANIC_REPAIR"})
 REPAIR_PROBE_REGIMES = frozenset({"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"})
 LEFT_PROBE_REGIMES = frozenset({"CRASH_LEFT_PROBE"})
 CAUTION_ONLY_REGIMES = frozenset({"CAUTION"})
+PROBE_ONLY_REGIMES = frozenset(REPAIR_PROBE_REGIMES | LEFT_PROBE_REGIMES | CAUTION_ONLY_REGIMES)
 # 尾盘/OMS 禁止新开仓的水温并集。
 EXECUTE_BLOCK_NEW_BUY_REGIMES = frozenset(NO_NEW_BUY_REGIMES | OVERHEAT_SHADOW_REGIMES | REPAIR_REVIEW_REGIMES)
 KNOWN_MARKET_REGIMES = frozenset(
@@ -29,6 +30,23 @@ KNOWN_MARKET_REGIMES = frozenset(
         "BLACK_SWAN",
     }
 )
+# 数值越小，执行权限越严格；这里按交易权限排序，不按行情涨跌强弱排序。
+MARKET_EXECUTION_PRIORITY = {
+    "BLACK_SWAN": 0,
+    "CRASH_INTRADAY": 1,
+    "CRASH": 2,
+    "RISK_OFF": 3,
+    "UNKNOWN": 4,
+    "PANIC_REPAIR": 5,
+    "BEAR_REBOUND": 6,
+    "RISK_ON": 7,
+    "CRASH_LEFT_PROBE": 8,
+    "PANIC_REPAIR_INTRADAY": 9,
+    "PANIC_REPAIR_CONFIRMED": 9,
+    "CAUTION": 10,
+    "NEUTRAL": 11,
+    "NORMAL": 12,
+}
 
 
 @dataclass(frozen=True)
@@ -48,6 +66,14 @@ class MarketTradeMode:
 def normalize_regime(regime: str | None) -> str:
     normalized = str(regime or "").strip().upper()
     return normalized if normalized in KNOWN_MARKET_REGIMES else "UNKNOWN"
+
+
+def stricter_market_regime(first: object, second: object) -> str:
+    first_norm = str(first or "").strip().upper()
+    second_norm = str(second or "").strip().upper()
+    first_norm = first_norm if first_norm in MARKET_EXECUTION_PRIORITY else "UNKNOWN"
+    second_norm = second_norm if second_norm in MARKET_EXECUTION_PRIORITY else "UNKNOWN"
+    return min((first_norm, second_norm), key=lambda regime: MARKET_EXECUTION_PRIORITY[regime])
 
 
 def _confirmed_repair_trade_mode(regime: str) -> MarketTradeMode:
@@ -130,8 +156,8 @@ def resolve_market_trade_mode(regime: str | None) -> MarketTradeMode:
             regime=regime_norm,
             mode="confirmation_only",
             label="观察买入",
-            action="观察买入：只允许二次确认候选，关闭形态旁路和战略主题送审",
-            reason="情绪扰动期优先控制误触发，候选必须经过确认支撑",
+            action="谨慎试探：最多一只二次确认后的 PROBE，禁止 ATTACK",
+            reason="情绪扰动期只开放小额试探，候选必须经过确认支撑",
             allow_ai_review=True,
             allow_recommendation_write=True,
             allow_full_l4=False,

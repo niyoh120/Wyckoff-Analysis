@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+from core.market_trade_mode import MARKET_EXECUTION_PRIORITY
 from core.tail_buy.guardrails import HARD_BLOCK_REGIMES
 from core.tail_buy.models import TailBuyCandidate
 from workflows import tail_buy_intraday_job as job
 from workflows.strategy_attribution_policy import AttributionPolicySnapshot
 from workflows.tail_buy_market_repair import (
-    _REGIME_PRIORITY,
     apply_base_market_regime,
     apply_intraday_market_mode,
     more_defensive_regime,
@@ -233,8 +233,8 @@ def test_more_defensive_regime_never_dilutes_hard_block() -> None:
 
     回归场景：UNKNOWN+NORMAL 曾被错误合并为 NORMAL，导致 fail-open。
     """
-    for a in _REGIME_PRIORITY:
-        for b in _REGIME_PRIORITY:
+    for a in MARKET_EXECUTION_PRIORITY:
+        for b in MARKET_EXECUTION_PRIORITY:
             if a in HARD_BLOCK_REGIMES or b in HARD_BLOCK_REGIMES:
                 assert more_defensive_regime(a, b) in HARD_BLOCK_REGIMES, f"{a}+{b} 合并后逃逸了硬拦截"
 
@@ -255,8 +255,8 @@ def test_more_defensive_regime_panic_repair_beats_confirmed() -> None:
     assert more_defensive_regime("PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR") == "PANIC_REPAIR"
 
 
-class TestApplyMarketBlockTiered:
-    """_apply_market_block 分层拦截：硬防守全拦，CRASH/RISK_ON 按信号类型放行。"""
+class TestApplyMarketBlock:
+    """_apply_market_block 与主线统一：硬防守状态不按局部信号胜率解禁。"""
 
     def _config(self):
         return SimpleNamespace(logs_path="")
@@ -282,15 +282,15 @@ class TestApplyMarketBlockTiered:
         job._apply_market_block(candidates, regime_info, self._config())
         assert all(c.final_decision == "SKIP" for c in candidates)
 
-    def test_crash_allows_evr_blocks_sos(self, monkeypatch):
+    def test_crash_blocks_evr_and_sos(self, monkeypatch):
         monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
         evr = self._candidate("000001", "evr")
         sos = self._candidate("000002", "sos")
         regime_info = {"benchmark": "CRASH", "premarket": "NORMAL"}
         job._apply_market_block([evr, sos], regime_info, self._config())
-        assert evr.final_decision != "SKIP"
+        assert evr.final_decision == "SKIP"
         assert sos.final_decision == "SKIP"
-        assert "CRASH" in sos.rule_reasons[0]
+        assert "CRASH" in evr.rule_reasons[0]
 
     def test_neutral_allows_all(self, monkeypatch):
         monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
@@ -309,14 +309,14 @@ class TestApplyMarketBlockTiered:
         job._apply_market_block([holding], regime_info, self._config())
         assert holding.final_decision != "SKIP"
 
-    def test_conflict_bm_tiered_pm_hard_block_uses_more_defensive(self, monkeypatch):
-        """benchmark=RISK_ON(分层) + premarket=PANIC_REPAIR(硬阻塞) → 应取 PANIC_REPAIR 硬拦截。"""
+    def test_conflict_benchmark_and_premarket_uses_stricter_source(self, monkeypatch):
+        """benchmark=RISK_ON + premarket=RISK_OFF → 保留更严格的盘前硬拦截。"""
         monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
         launchpad = self._candidate("000001", "launchpad")
-        regime_info = {"benchmark": "RISK_ON", "premarket": "PANIC_REPAIR"}
+        regime_info = {"benchmark": "RISK_ON", "premarket": "RISK_OFF"}
         job._apply_market_block([launchpad], regime_info, self._config())
         assert launchpad.final_decision == "SKIP"
-        assert "PANIC_REPAIR" in launchpad.rule_reasons[0]
+        assert "RISK_OFF" in launchpad.rule_reasons[0]
 
     def test_benchmark_unknown_with_normal_premarket_still_blocks(self, monkeypatch):
         """回归：benchmark=UNKNOWN(信号缺失,硬拦截) + premarket=NORMAL 不能放行新开仓。"""
@@ -326,15 +326,13 @@ class TestApplyMarketBlockTiered:
         job._apply_market_block(candidates, regime_info, self._config())
         assert all(c.final_decision == "SKIP" for c in candidates)
 
-    def test_both_tiered_regimes_intersect_allowed_signals(self, monkeypatch):
-        """benchmark=CRASH({evr,launchpad}) + premarket=RISK_ON({launchpad,trend_lane_pullback})
-        → 只放行两者交集 {launchpad}。"""
+    def test_crash_and_risk_on_block_every_new_signal(self, monkeypatch):
         monkeypatch.setattr(job, "log_line", lambda *_a, **_kw: None)
         launchpad = self._candidate("000001", "launchpad")
         evr = self._candidate("000002", "evr")
         regime_info = {"benchmark": "CRASH", "premarket": "RISK_ON"}
         job._apply_market_block([launchpad, evr], regime_info, self._config())
-        assert launchpad.final_decision != "SKIP"
+        assert launchpad.final_decision == "SKIP"
         assert evr.final_decision == "SKIP"
 
 
