@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import time
-from contextlib import suppress
 from datetime import date, timedelta
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Any
 
 import pandas as pd
 
 from core.concept_filters import is_actionable_theme_name
+from utils.atomic_io import atomic_write_json
 from utils.env import env_flag
 
 logger = logging.getLogger(__name__)
@@ -220,30 +218,6 @@ def write_json_cache(path: Path, payload: object, debug_label: str) -> None:
         atomic_write_json(path, payload)
     except Exception as exc:
         debug_metadata_fail(debug_label, exc)
-
-
-def atomic_write_json(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_name: str | None = None
-    try:
-        with NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=str(path.parent),
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as tmp:
-            json.dump(payload, tmp, ensure_ascii=False)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-            tmp_name = tmp.name
-        os.replace(tmp_name, path)
-        tmp_name = None
-    finally:
-        if tmp_name and os.path.exists(tmp_name):
-            with suppress(Exception):
-                os.remove(tmp_name)
 
 
 def debug_metadata_fail(source: str, err: Exception) -> None:

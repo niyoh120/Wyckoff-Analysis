@@ -1,4 +1,7 @@
 import { BellPlus, Pin, Trash2 } from 'lucide-react'
+
+import { formatSignedPercent } from '@/lib/format'
+
 import type { WatchItem } from './types'
 
 export function WatchlistPanelView({
@@ -128,7 +131,7 @@ function WatchItemBadges({ item }: { item: WatchItem }) {
       {item.score != null && <span className="rounded-full bg-muted px-2 py-0.5">分数 {item.score.toFixed(2)}</span>}
       {item.changePct != null && (
         <span className={`rounded-full px-2 py-0.5 ${item.changePct >= 0 ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}>
-          {formatSignedPct(item.changePct)}
+          {formatSignedPercent(item.changePct)}
         </span>
       )}
       <span className="rounded-full bg-muted px-2 py-0.5">{formatWatchDate(item.updatedAt)}</span>
@@ -167,8 +170,4 @@ function formatWatchDate(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '刚刚更新'
   return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-}
-
-function formatSignedPct(value: number): string {
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
 }

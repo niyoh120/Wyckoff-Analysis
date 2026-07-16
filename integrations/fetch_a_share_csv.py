@@ -8,12 +8,12 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 import akshare as ak
 import pandas as pd
 
 from core.cn_boards import cn_board, is_supported_cn_board
+from utils.atomic_io import atomic_write_json as _atomic_json_dump
 
 logger = logging.getLogger(__name__)
 
@@ -27,33 +27,6 @@ _TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 class TradingWindow:
     start_trade_date: date
     end_trade_date: date
-
-
-def _atomic_json_dump(path: Path, payload: object) -> None:
-    """原子写 JSON，避免并发写导致文件损坏。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_name: str | None = None
-    try:
-        with NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=str(path.parent),
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as tmp:
-            json.dump(payload, tmp, ensure_ascii=False)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-            tmp_name = tmp.name
-        os.replace(tmp_name, path)
-        tmp_name = None
-    finally:
-        if tmp_name and os.path.exists(tmp_name):
-            try:
-                os.remove(tmp_name)
-            except Exception:
-                logger.debug("failed to remove temp file %s", tmp_name, exc_info=True)
 
 
 def _cache_path(filename: str) -> Path:

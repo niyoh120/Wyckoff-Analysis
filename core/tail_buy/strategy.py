@@ -38,7 +38,7 @@ from core.tail_buy.models import (
     TailBuyCandidate,
     is_left_probe_source,
     normalize_cn_code,
-    normalize_regime,
+    normalize_regime_raw,
     normalize_status,
     safe_float,
 )
@@ -165,7 +165,7 @@ def pick_tail_candidates(
             status=status,
             signal_type=sig_type or "unknown",
             signal_score=safe_float(row.get("signal_score"), 0.0),
-            market_regime=normalize_regime(row.get("regime") or row.get("market_regime")),
+            market_regime=normalize_regime_raw(row.get("regime") or row.get("market_regime")),
             candidate_lane=str(row.get("candidate_lane", "") or "").strip(),
             entry_type=str(row.get("entry_type", "") or "").strip(),
             signal_key=str(row.get("signal_key", "") or "").strip(),

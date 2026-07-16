@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { useWhitelistGate } from '@/lib/whitelist-gate'
+import { useWhitelistGate, whitelistGateView } from '@/lib/whitelist-gate'
 import { WyckoffLoading } from '@/components/loading'
 import { SortableHeader, type SortOrder } from '@/components/sortable-header'
 import { usePreferences } from '@/lib/preferences'
@@ -187,8 +187,8 @@ export function TailBuyPage() {
     enabled: whitelist.data === true,
   })
 
-  if (whitelist.isLoading) return <WyckoffLoading />
-  if (whitelist.data !== true) return <TailBuyLockedView />
+  const gateView = whitelistGateView(whitelist, <WyckoffLoading />, <TailBuyLockedView />)
+  if (gateView) return gateView
   if (tailBuy.isLoading) return <WyckoffLoading />
 
   return <TailBuyReadyContent data={tailBuy.data || []} />

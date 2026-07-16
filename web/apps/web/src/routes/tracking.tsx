@@ -4,12 +4,13 @@ import { ArrowRight, CheckCircle2, ExternalLink, ShieldCheck } from 'lucide-reac
 import { createChart, HistogramSeries, type Time } from 'lightweight-charts'
 import { supabase } from '@/lib/supabase'
 import { watchChartResize } from '@/lib/chart-resize'
-import { useWhitelistGate } from '@/lib/whitelist-gate'
+import { useWhitelistGate, whitelistGateView } from '@/lib/whitelist-gate'
 import { SortableHeader, type SortOrder } from '@/components/sortable-header'
 import { labelCandidateTerm, normalizeCode } from '@wyckoff/shared'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
 import { financialValueClass } from '@/lib/financial-colors'
+import { formatSignedPercent, isFiniteNumber } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth'
 
 type MarketTab = 'cn' | 'us' | 'hk'
@@ -272,8 +273,8 @@ export function TrackingPage() {
   const latestDate = latestDates[0] ?? null
   const oldestDate = latestDates.at(-1) ?? null
   const activeOldestDate = activeDates.at(-1) ?? null
-  if (whitelist.isLoading) return <WyckoffLoading />
-  if (!isWhitelisted) return <TrackingLockedView />
+  const gateView = whitelistGateView(whitelist, <WyckoffLoading />, <TrackingLockedView />)
+  if (gateView) return gateView
 
   return (
     <div className="h-full overflow-auto p-6">
@@ -508,9 +509,9 @@ function SummaryCards({ selectedWindow, stats }: { selectedWindow: Recommendatio
   return (
     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
       <StatCard label={t('tracking.coveredStocks')} value={`${stats.count} ${t('common.stocks')}`} />
-      <StatCard label={t('tracking.avgChange', { size: selectedWindow })} value={formatPct(stats.avg)} color={pctColor(stats.avg)} />
-      <StatCard label={t('tracking.bestChange')} value={formatPct(stats.best)} color={pctColor(stats.best)} />
-      <StatCard label={t('tracking.worstChange')} value={formatPct(stats.worst)} color={pctColor(stats.worst)} />
+      <StatCard label={t('tracking.avgChange', { size: selectedWindow })} value={formatPct(stats.avg)} color={financialValueClass(stats.avg)} />
+      <StatCard label={t('tracking.bestChange')} value={formatPct(stats.best)} color={financialValueClass(stats.best)} />
+      <StatCard label={t('tracking.worstChange')} value={formatPct(stats.worst)} color={financialValueClass(stats.worst)} />
       <StatCard label={t('tracking.totalRecommendations')} value={`${stats.totalRecommendations} ${t('tracking.times')}`} />
     </div>
   )
@@ -717,7 +718,7 @@ function TrackingRow({ row, market = 'cn' }: { row: Recommendation; market?: Mar
       <td className="px-3 py-2 text-right font-medium">{recommendationCount(row.recommend_count)}</td>
       <td className="px-3 py-2 text-right">{row.initial_price?.toFixed(2) || '-'}</td>
       <td className="px-3 py-2 text-right">{row.current_price?.toFixed(2) || '-'}</td>
-      <td className={`px-3 py-2 text-right font-medium ${pctColor(row.change_pct)}`}>{formatPct(row.change_pct)}</td>
+      <td className={`px-3 py-2 text-right font-medium ${financialValueClass(row.change_pct)}`}>{formatPct(row.change_pct)}</td>
       <td className="px-3 py-2 text-right">
         <div className="flex flex-col items-end gap-0.5">
           <span>{formatScore(row.funnel_score)}</span>
@@ -903,10 +904,10 @@ function trackingScoreKind(row: Recommendation): 'priority' | 'raw' | null {
 function UsPerformanceCells({ row }: { row: Recommendation }) {
   return (
     <>
-      <td className={`px-3 py-2 text-right font-medium ${pctColor(row.mfe_pct ?? null)}`}>
+      <td className={`px-3 py-2 text-right font-medium ${financialValueClass(row.mfe_pct ?? null)}`}>
         {formatPct(row.mfe_pct ?? null)}
       </td>
-      <td className={`px-3 py-2 text-right font-medium ${pctColor(row.mae_pct ?? null)}`}>
+      <td className={`px-3 py-2 text-right font-medium ${financialValueClass(row.mae_pct ?? null)}`}>
         {formatPct(row.mae_pct ?? null)}
       </td>
       <td className="px-3 py-2 text-right text-muted-foreground">{formatPct(row.range_amp_pct ?? null)}</td>
@@ -1068,10 +1069,6 @@ function recommendationCount(value: number | null | undefined): number {
   return isFiniteNumber(value) && value > 0 ? Math.trunc(value) : 1
 }
 
-function isFiniteNumber(value: number | null | undefined): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
 function nullableNumber(value: number | null | undefined): number | null {
   return isFiniteNumber(value) ? value : null
 }
@@ -1101,17 +1098,12 @@ function nullableNumberCompare(a: number | null | undefined, b: number | null | 
 }
 
 function formatPct(value: number | null): string {
-  if (!isFiniteNumber(value)) return '-'
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
+  return formatSignedPercent(value, 2, '-')
 }
 
 function formatScore(value: number | null): string {
   if (!isFiniteNumber(value)) return '-'
   return value >= 10 ? value.toFixed(1) : value.toFixed(2)
-}
-
-function pctColor(value: number | null): string {
-  return financialValueClass(value)
 }
 
 function formatDate(d: number): string {

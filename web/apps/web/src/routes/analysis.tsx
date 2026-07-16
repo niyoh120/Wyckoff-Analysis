@@ -12,7 +12,8 @@ import { AIDisclaimer } from '@/components/ai-disclaimer'
 import { detectWyckoffAnnotations } from '@/lib/wyckoff-detect'
 import { TICKFLOW_PURCHASE, buildStockAnalysisContextPack, fetchValueSnapshotWithFetch, formatAnalysisContextPack, isCnSymbol, isSupportedKlineCode } from '@wyckoff/shared'
 import type { AnalysisContextPack, KlineDataQuality, KlineRow, ValueSnapshot } from '@wyckoff/shared'
-import { fetchKlineWithQuality, getUserDataKeys, checkWhitelist } from '@/lib/kline'
+import { fetchKlineWithQuality, getUserDataKeys } from '@/lib/kline'
+import { useWhitelistGate } from '@/lib/whitelist-gate'
 import { avg } from '@/lib/math'
 import { marketLabel, resolveStockQuery, searchStocks, type StockSearchResult } from '@/lib/market-search'
 import { buildValuePrompt, sourceLabel, valueTraceMeta } from '@wyckoff/shared'
@@ -174,22 +175,28 @@ interface Prerequisites {
 }
 
 function usePrerequisites(userId: string | undefined): Prerequisites {
+  const whitelist = useWhitelistGate(userId)
   const [checkingConfig, setCheckingConfig] = useState(true)
   const [hasModelConfig, setHasModelConfig] = useState(false)
-  const [hasDataSource, setHasDataSource] = useState(false)
+  const [hasDataKeys, setHasDataKeys] = useState(false)
 
   useEffect(() => {
     if (!userId) return
     setCheckingConfig(true)
-    void Promise.all([loadLLMConfig(userId), getUserDataKeys(userId), checkWhitelist(userId)])
-      .then(([config, dataKeys, wl]) => {
+    void Promise.all([loadLLMConfig(userId), getUserDataKeys(userId)])
+      .then(([config, dataKeys]) => {
         setHasModelConfig(Boolean(config?.api_key && config.model))
-        setHasDataSource(Boolean(dataKeys.tickflow || dataKeys.tushare || wl))
+        setHasDataKeys(Boolean(dataKeys.tickflow || dataKeys.tushare))
       })
       .finally(() => setCheckingConfig(false))
   }, [userId])
 
-  return { checkingConfig, hasModelConfig, hasDataSource, setHasModelConfig }
+  return {
+    checkingConfig: checkingConfig || whitelist.isLoading,
+    hasModelConfig,
+    hasDataSource: hasDataKeys || whitelist.data === true,
+    setHasModelConfig,
+  }
 }
 
 type AnalysisStep = 'resolve' | 'kline' | 'llm'

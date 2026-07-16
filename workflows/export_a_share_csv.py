@@ -16,7 +16,7 @@ from integrations.fetch_a_share_csv import (
     normalize_symbols,
     resolve_trading_window,
 )
-from utils import extract_symbols_from_text, safe_filename_part, stock_sector_em
+from utils.helpers import extract_symbols_from_text, safe_filename_part, stock_sector_em
 
 logger = logging.getLogger(__name__)
 

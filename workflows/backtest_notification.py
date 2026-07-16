@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 from collections import defaultdict
 from dataclasses import dataclass
@@ -11,6 +10,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 import requests
+
+from utils.safe import finite_float as _as_float
 
 Market = Literal["hk", "us"]
 
@@ -70,16 +71,6 @@ def send_feishu(webhook: str, payload: dict[str, Any]) -> None:
     response = requests.post(webhook, json=payload, timeout=15)
     print(f"飞书通知: status={response.status_code}, body={response.text[:200]}")
     response.raise_for_status()
-
-
-def _as_float(value: Any) -> float | None:
-    if value in {None, ""}:
-        return None
-    try:
-        val = float(value)
-    except (TypeError, ValueError):
-        return None
-    return None if math.isnan(val) or math.isinf(val) else val
 
 
 def _as_int(value: Any) -> int:

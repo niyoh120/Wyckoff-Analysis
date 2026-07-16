@@ -11,6 +11,7 @@ import { UpgradeNotice } from '@/components/upgrade-notice'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
 import { TICKFLOW_PURCHASE, fetchValueSnapshotWithFetch, isSupportedKlineCode } from '@wyckoff/shared'
 import type { KlineRow, ValueSnapshot } from '@wyckoff/shared'
+import { formatSignedPercent } from '@/lib/format'
 import { fetchKlineViaTickFlow, getUserDataKeys } from '@/lib/kline'
 import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
@@ -448,10 +449,10 @@ function StrengthRow({ stock, rank }: { stock: BattleStock; rank: number }) {
       <td className="px-3 py-2 font-mono">{stock.code} <span className="font-sans text-muted-foreground">{stock.name}</span></td>
       <td className="px-3 py-2 font-medium">{stock.stats.score.toFixed(1)}</td>
       <td className="px-3 py-2"><ValueBadge value={buildValueScore(stock.valueSnapshot.metrics, t)} /></td>
-      <td className="px-3 py-2">{fmtPct(stock.stats.ret20)}</td>
-      <td className="px-3 py-2">{fmtPct(stock.stats.ret60)}</td>
-      <td className="px-3 py-2">{fmtPct(stock.stats.ret120)}</td>
-      <td className="px-3 py-2">{fmtPct(stock.stats.drawdown60)}</td>
+      <td className="px-3 py-2">{formatSignedPercent(stock.stats.ret20)}</td>
+      <td className="px-3 py-2">{formatSignedPercent(stock.stats.ret60)}</td>
+      <td className="px-3 py-2">{formatSignedPercent(stock.stats.ret120)}</td>
+      <td className="px-3 py-2">{formatSignedPercent(stock.stats.drawdown60)}</td>
     </tr>
   )
 }
@@ -595,9 +596,4 @@ function upgradeMessage(): string {
 
 function toComparisonSeries(stock: BattleStock): ComparisonSeries {
   return { code: stock.code, name: stock.name, data: stock.data }
-}
-
-function fmtPct(value: number): string {
-  if (!Number.isFinite(value)) return '--'
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
 }

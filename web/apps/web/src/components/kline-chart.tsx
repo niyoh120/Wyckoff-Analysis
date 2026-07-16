@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { watchChartResize } from '@/lib/chart-resize'
+import { formatSignedPercent } from '@/lib/format'
 import { avg, rsi as calcRSI, macd as calcMACD, bollinger as calcBollinger } from '@/lib/math'
 import type { KlineRow } from '@wyckoff/shared'
 import {
@@ -189,7 +190,7 @@ function useBollingerOverlay(chartRefs: React.MutableRefObject<ChartRefs | null>
 function StructureMetrics({ structure }: { structure: StructureSnapshot }) {
   return (
     <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
-      <Metric label="最新收盘" value={`${formatPrice(structure.latestClose)} (${formatPct(structure.changePct)})`} tone={structure.tone} />
+      <Metric label="最新收盘" value={`${formatPrice(structure.latestClose)} (${formatSignedPercent(structure.changePct)})`} tone={structure.tone} />
       <Metric label="结构状态" value={structure.phase} tone={structure.tone} />
       <Metric label="支撑 / 压力" value={`${formatPrice(structure.support)} / ${formatPrice(structure.resistance)}`} />
       <Metric label="量能 / 均线" value={`${structure.volumeRatio.toFixed(1)}x · MA20 ${formatPrice(structure.ma20)} · MA50 ${formatPrice(structure.ma50)}`} />
@@ -462,9 +463,4 @@ function buildPriceLevels(data: KlineRow[]) {
 
 function formatPrice(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : '--'
-}
-
-function formatPct(value: number): string {
-  if (!Number.isFinite(value)) return '--'
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.market_trade_mode import EXECUTE_BLOCK_NEW_BUY_REGIMES
-from core.tail_buy.models import TailBuyCandidate, normalize_regime, safe_float
+from core.tail_buy.models import TailBuyCandidate, normalize_regime_raw, safe_float
 
 HARD_BLOCK_REGIMES = frozenset(EXECUTE_BLOCK_NEW_BUY_REGIMES | {"CRASH_INTRADAY"})
 
@@ -35,7 +35,7 @@ def tail_entry_veto_reasons(features: dict[str, Any], signal_type: str, market_r
     reasons: list[str] = []
     st_lower = str(signal_type or "").strip().lower()
     support = safe_float(features.get("support_level"), 0.0)
-    regime = normalize_regime(market_regime or features.get("market_regime"))
+    regime = normalize_regime_raw(market_regime or features.get("market_regime"))
     if st_lower != "holding" and regime in HARD_BLOCK_REGIMES:
         reasons.append(f"{regime}禁止新开仓，尾盘不买")
     if st_lower != "holding" and support <= 0:

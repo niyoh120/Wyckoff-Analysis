@@ -13,7 +13,7 @@ import {
   policyExecutionModeLabel,
 } from '@wyckoff/shared'
 import { supabase } from '@/lib/supabase'
-import { useWhitelistGate } from '@/lib/whitelist-gate'
+import { useWhitelistGate, whitelistGateView } from '@/lib/whitelist-gate'
 import { WyckoffLoading } from '@/components/loading'
 import { financialValueClass } from '@/lib/financial-colors'
 import { useAuthStore } from '@/stores/auth'
@@ -183,8 +183,8 @@ export function AttributionPage() {
     enabled: whitelist.data === true,
   })
 
-  if (whitelist.isLoading) return <WyckoffLoading />
-  if (whitelist.data !== true) return <LockedView />
+  const gateView = whitelistGateView(whitelist, <WyckoffLoading />, <LockedView />)
+  if (gateView) return gateView
   if (report.isLoading) return <WyckoffLoading />
 
   return (
@@ -303,8 +303,8 @@ function OperationsBrief({
       </div>
       <div className="grid gap-3 md:grid-cols-6">
         <MetricCard label="最新 Shadow" value={`${String(latest?.trade_date || '-')} · ${String(latest?.regime || '-')}`} />
-        <MetricCard label="Base → Shadow" value={`${fmtCountNumber(selection?.base_count)} → ${fmtCountNumber(selection?.shadow_count)}`} />
-        <MetricCard label="新增 / 移除" value={`${fmtCountNumber(selection?.diff_added_count)} / ${fmtCountNumber(selection?.diff_removed_count)}`} />
+        <MetricCard label="Base → Shadow" value={`${fmtCount(selection?.base_count)} → ${fmtCount(selection?.shadow_count)}`} />
+        <MetricCard label="新增 / 移除" value={`${fmtCount(selection?.diff_added_count)} / ${fmtCount(selection?.diff_removed_count)}`} />
         <MetricCard label="Jaccard" value={fmtScoreNumber(selection?.jaccard)} />
         <MetricCard label="回测确认" value={operations?.backtest_confirmation_text || '-'} />
         <MetricCard label="晋级清单" value={operations?.promotion_checklist_summary || '-'} />
@@ -520,8 +520,8 @@ function ShadowGateLine({ gate }: { gate?: JsonMap }) {
   if (!gate) return null
   return (
     <div className="mt-3 text-xs text-muted-foreground">
-      Shadow 证据：run {fmtCountNumber(gate.run_count)} · 新增匹配 {fmtCountNumber(gate.added_matched)} · 移除匹配 {fmtCountNumber(gate.removed_matched)}
-      {' '}· 收益差 {fmtPctNumber(gate.return_lift_pct)} · 胜率差 {fmtPctNumber(gate.win_rate_lift_pct)} · 回撤差 {fmtPctNumber(gate.drawdown_lift_pct)}
+      Shadow 证据：run {fmtCount(gate.run_count)} · 新增匹配 {fmtCount(gate.added_matched)} · 移除匹配 {fmtCount(gate.removed_matched)}
+      {' '}· 收益差 {fmtPct(gate.return_lift_pct)} · 胜率差 {fmtPct(gate.win_rate_lift_pct)} · 回撤差 {fmtPct(gate.drawdown_lift_pct)}
     </div>
   )
 }
@@ -553,12 +553,12 @@ function CandidateShadowStats({ rows }: { rows: Array<{ horizon: string; grade: 
                 <td className="py-2">{horizon}</td>
                 <td className="font-medium">{formatGrade(grade)}</td>
                 <td>{stats.count ?? 0}</td>
-                <td className={tone(stats.avg_return_pct)}>{fmtPct(stats.avg_return_pct)}</td>
-                <td className={tone(stats.median_return_pct)}>{fmtPct(stats.median_return_pct)}</td>
+                <td className={financialValueClass(stats.avg_return_pct, '')}>{fmtPct(stats.avg_return_pct)}</td>
+                <td className={financialValueClass(stats.median_return_pct, '')}>{fmtPct(stats.median_return_pct)}</td>
                 <td>{fmtPct(stats.win_rate_pct)}</td>
                 <td>{fmtPct(stats.big_win_rate_pct)}</td>
                 <td>{fmtPct(stats.big_loss_rate_pct)}</td>
-                <td className={tone(stats.avg_drawdown_pct)}>{fmtPct(stats.avg_drawdown_pct)}</td>
+                <td className={financialValueClass(stats.avg_drawdown_pct, '')}>{fmtPct(stats.avg_drawdown_pct)}</td>
               </tr>
             ))}
           </tbody>
@@ -595,12 +595,12 @@ function EntryQualityStats({ rows }: { rows: Array<{ horizon: string; grade: str
                 <td className="py-2">{horizon}</td>
                 <td className="font-medium">{formatGrade(grade)}</td>
                 <td>{stats.count ?? 0}</td>
-                <td className={tone(stats.avg_return_pct)}>{fmtPct(stats.avg_return_pct)}</td>
-                <td className={tone(stats.median_return_pct)}>{fmtPct(stats.median_return_pct)}</td>
+                <td className={financialValueClass(stats.avg_return_pct, '')}>{fmtPct(stats.avg_return_pct)}</td>
+                <td className={financialValueClass(stats.median_return_pct, '')}>{fmtPct(stats.median_return_pct)}</td>
                 <td>{fmtPct(stats.win_rate_pct)}</td>
                 <td>{fmtPct(stats.big_win_rate_pct)}</td>
                 <td>{fmtPct(stats.big_loss_rate_pct)}</td>
-                <td className={tone(stats.avg_drawdown_pct)}>{fmtPct(stats.avg_drawdown_pct)}</td>
+                <td className={financialValueClass(stats.avg_drawdown_pct, '')}>{fmtPct(stats.avg_drawdown_pct)}</td>
               </tr>
             ))}
           </tbody>
@@ -684,11 +684,11 @@ function DataLineageRow({ horizon, label, stats }: { horizon: string; label: str
       <td className="py-2">{horizon}</td>
       <td className="font-medium">{label}</td>
       <td>{stats.count ?? 0}</td>
-      <td className={tone(stats.avg_return_pct)}>{fmtPct(stats.avg_return_pct)}</td>
+      <td className={financialValueClass(stats.avg_return_pct, '')}>{fmtPct(stats.avg_return_pct)}</td>
       <td>{fmtPct(stats.win_rate_pct)}</td>
       <td>{fmtPct(stats.big_win_rate_pct)}</td>
       <td>{fmtPct(stats.big_loss_rate_pct)}</td>
-      <td className={tone(stats.avg_drawdown_pct)}>{fmtPct(stats.avg_drawdown_pct)}</td>
+      <td className={financialValueClass(stats.avg_drawdown_pct, '')}>{fmtPct(stats.avg_drawdown_pct)}</td>
     </tr>
   )
 }
@@ -716,8 +716,8 @@ function SignalStats({ rows }: { rows: Array<{ horizon: string; signal: string; 
                 <td className="py-2">{horizon}</td>
                 <td className="font-medium">{signal}</td>
                 <td>{stats.count ?? 0}</td>
-                <td className={tone(stats.avg_return_pct)}>{fmtPct(stats.avg_return_pct)}</td>
-                <td className={tone(stats.median_return_pct)}>{fmtPct(stats.median_return_pct)}</td>
+                <td className={financialValueClass(stats.avg_return_pct, '')}>{fmtPct(stats.avg_return_pct)}</td>
+                <td className={financialValueClass(stats.median_return_pct, '')}>{fmtPct(stats.median_return_pct)}</td>
                 <td>{fmtPct(stats.win_rate_pct)}</td>
                 <td>{fmtPct(stats.big_win_rate_pct)}</td>
                 <td>{fmtPct(stats.big_loss_rate_pct)}</td>
@@ -762,7 +762,7 @@ function OutcomeTable({ title, rows }: { title: string; rows: StockOutcome[] }) 
                 {formatCoverageValue(row.selection_mode || row.strategy_version || row.candidate_lane || row.entry_type || '-')}
               </div>
             </div>
-            <div className={`text-right text-sm font-semibold ${tone(row.return_pct)}`}>{fmtPct(row.return_pct)}</div>
+            <div className={`text-right text-sm font-semibold ${financialValueClass(row.return_pct, '')}`}>{fmtPct(row.return_pct)}</div>
           </div>
         ))}
       </div>
@@ -782,8 +782,8 @@ function ShadowBox({ data }: { data: JsonMap }) {
       </div>
       {latest ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          最新 {String(latest.trade_date || '-')}：新增 {fmtCountNumber(selection?.diff_added_count)}，移除{' '}
-          {fmtCountNumber(selection?.diff_removed_count)}，新增样本 {formatCodeSample(latest.diff_added_sample)}。
+          最新 {String(latest.trade_date || '-')}：新增 {fmtCount(selection?.diff_added_count)}，移除{' '}
+          {fmtCount(selection?.diff_removed_count)}，新增样本 {formatCodeSample(latest.diff_added_sample)}。
         </p>
       ) : null}
     </Panel>
@@ -1018,7 +1018,7 @@ function flattenDataLineageStats(data: JsonMap | undefined) {
   return { coverage, evidence }
 }
 
-function fmtPct(raw: number | null | undefined) {
+function fmtPct(raw: unknown) {
   return typeof raw === 'number' && Number.isFinite(raw) ? `${raw.toFixed(1)}%` : '-'
 }
 
@@ -1030,16 +1030,8 @@ function fmtScoreNumber(raw: unknown) {
   return typeof raw === 'number' && Number.isFinite(raw) ? raw.toFixed(2) : '-'
 }
 
-function fmtCount(raw: number | null | undefined) {
+function fmtCount(raw: unknown) {
   return typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : '0'
-}
-
-function fmtCountNumber(raw: unknown) {
-  return typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : '0'
-}
-
-function fmtPctNumber(raw: unknown) {
-  return typeof raw === 'number' && Number.isFinite(raw) ? `${raw.toFixed(1)}%` : '-'
 }
 
 function fmtWeight(raw: number | undefined) {
@@ -1158,10 +1150,6 @@ function formatCoverageValue(raw: string) {
     unknown: '未知/旧字段缺失',
   }
   return labels[raw] || raw
-}
-
-function tone(raw: number | null | undefined) {
-  return financialValueClass(raw, '')
 }
 
 function formatDateTime(raw: string) {

@@ -13,6 +13,7 @@ import { AIDisclaimer } from '@/components/ai-disclaimer'
 import { TICKFLOW_PURCHASE, fetchValueSnapshotWithFetch, normalizeCode } from '@wyckoff/shared'
 import type { KlineRow, ValueSnapshot } from '@wyckoff/shared'
 import { fetchKlineViaTickFlow, getUserDataKeys } from '@/lib/kline'
+import { formatSignedPercent } from '@/lib/format'
 import { useWhitelistGate } from '@/lib/whitelist-gate'
 import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
@@ -259,7 +260,7 @@ function usePortfolioHistory(userId: string | undefined, result: FullDiagnosisRe
       kind: 'portfolio-diagnosis',
       userId,
       title: `${result.summaryStats.count}只持仓诊断`,
-      subtitle: `${source === 'database' ? '数据库持仓' : '手动持仓'} · ${formatSignedPct(result.summaryStats.pnlPct)}`,
+      subtitle: `${source === 'database' ? '数据库持仓' : '手动持仓'} · ${formatSignedPercent(result.summaryStats.pnlPct)}`,
       symbols: result.positions.map((position) => position.code),
       payload,
     }).catch(() => undefined)
@@ -268,10 +269,6 @@ function usePortfolioHistory(userId: string | undefined, result: FullDiagnosisRe
 
 function portfolioHistoryKey(payload: PortfolioHistoryPayload): string {
   return `${payload.source}:${payload.result.positions.map((position) => position.code).join(',')}:${payload.report.length}`
-}
-
-function formatSignedPct(value: number): string {
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
 }
 
 function startDiagnosisRun(
@@ -616,14 +613,14 @@ function PnLTable({ positions, stats }: { positions: PositionPnL[]; stats: FullD
               <td className="px-3 py-2 text-right">¥{p.cost.toFixed(2)}</td>
               <td className="px-3 py-2 text-right">¥{p.latest.toFixed(2)}</td>
               <td className="px-3 py-2 text-right">¥{p.mktVal.toLocaleString()}</td>
-              <td className={`px-3 py-2 text-right font-medium ${p.pnlPct >= 0 ? 'text-up' : 'text-down'}`}>{p.pnlPct >= 0 ? '+' : ''}{p.pnlPct.toFixed(2)}%</td>
+              <td className={`px-3 py-2 text-right font-medium ${p.pnlPct >= 0 ? 'text-up' : 'text-down'}`}>{formatSignedPercent(p.pnlPct)}</td>
               <td className="px-3 py-2 text-right">{p.weight.toFixed(1)}%</td>
             </tr>
           ))}
           <tr className="border-t-2 border-border bg-muted/20 font-medium">
             <td className="px-3 py-2" colSpan={5}>合计</td>
             <td className="px-3 py-2 text-right">¥{stats.totalMarket.toLocaleString()}</td>
-            <td className={`px-3 py-2 text-right ${stats.pnlPct >= 0 ? 'text-up' : 'text-down'}`}>{stats.pnlPct >= 0 ? '+' : ''}{stats.pnlPct.toFixed(2)}%</td>
+            <td className={`px-3 py-2 text-right ${stats.pnlPct >= 0 ? 'text-up' : 'text-down'}`}>{formatSignedPercent(stats.pnlPct)}</td>
             <td className="px-3 py-2 text-right">100%</td>
           </tr>
           <tr className="border-t border-border text-muted-foreground">
@@ -670,7 +667,7 @@ function buildFullPortfolioPrompt(entries: PositionEntry[], freeCash: number): s
 
   const header = [
     `# 账户概况`,
-    `现金 ¥${freeCash.toLocaleString()}（${cashPct.toFixed(1)}%）| 持仓 ${entries.length} 只 | 总成本 ¥${totalCost.toLocaleString()} | 总市值 ¥${totalMarket.toLocaleString()} | 整体盈亏 ${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}%`,
+    `现金 ¥${freeCash.toLocaleString()}（${cashPct.toFixed(1)}%）| 持仓 ${entries.length} 只 | 总成本 ¥${totalCost.toLocaleString()} | 总市值 ¥${totalMarket.toLocaleString()} | 整体盈亏 ${formatSignedPercent(totalPnl)}`,
   ].join('\n')
 
   return [header, '', ...sections].join('\n\n')

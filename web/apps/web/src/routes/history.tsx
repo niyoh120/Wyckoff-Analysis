@@ -4,6 +4,7 @@ import { MarkdownContent } from '@/components/markdown'
 import { KlineChart } from '@/components/kline-chart'
 import { MultiStockChart, type ComparisonSeries } from '@/components/multi-stock-chart'
 import { clearAllAnalysisHistory, clearAnalysisHistory, deleteAnalysisHistory, listAllAnalysisHistory, type AnalysisHistoryKind, type AnalysisHistoryRecord } from '@/lib/local-history'
+import { formatSignedPercent } from '@/lib/format'
 import { formatValuePercent } from '@/lib/value-analysis'
 import { usePreferences, type Locale } from '@/lib/preferences'
 import { useAuthStore } from '@/stores/auth'
@@ -431,7 +432,7 @@ function BattleDetail({ copy, payload }: { copy: HistoryCopy; payload: BattlePay
 function PortfolioDetail({ copy, payload }: { copy: HistoryCopy; payload: PortfolioPayload | null }) {
   if (!payload) return <ExpiredRecord copy={copy} />
   const result = payload.result
-  const metrics = [{ label: '持仓', value: `${result.summaryStats.count}` }, { label: '总市值', value: formatMoney(result.summaryStats.totalMarket) }, { label: '现金', value: formatMoney(result.summaryStats.freeCash) }, { label: '盈亏', value: formatPercent(result.summaryStats.pnlPct), tone: pnlTone(result.summaryStats.pnlPct) }]
+  const metrics = [{ label: '持仓', value: `${result.summaryStats.count}` }, { label: '总市值', value: formatMoney(result.summaryStats.totalMarket) }, { label: '现金', value: formatMoney(result.summaryStats.freeCash) }, { label: '盈亏', value: formatSignedPercent(result.summaryStats.pnlPct), tone: pnlTone(result.summaryStats.pnlPct) }]
   return (
     <div className="space-y-5">
       <SummaryGrid items={metrics} />
@@ -563,7 +564,7 @@ function BattleStockTable({ copy, stocks }: { copy: HistoryCopy; stocks: BattleS
       <div className="overflow-auto">
         <table className="w-full text-sm">
           <thead className="text-xs text-muted-foreground"><tr>{['代码', '名称', '强度', '20D', '60D', '120D', '回撤'].map((head) => <th key={head} className="px-2 py-2 text-left font-medium">{head}</th>)}</tr></thead>
-          <tbody>{rows.map((stock) => <tr key={stock.code} className="border-t border-border"><td className="px-2 py-2 font-mono">{stock.code}</td><td className="px-2 py-2">{stock.name}</td><td className="px-2 py-2 font-semibold">{stock.stats.score.toFixed(1)}</td><td className="px-2 py-2">{formatPercent(stock.stats.ret20)}</td><td className="px-2 py-2">{formatPercent(stock.stats.ret60)}</td><td className="px-2 py-2">{formatPercent(stock.stats.ret120)}</td><td className="px-2 py-2">{formatPercent(stock.stats.drawdown60)}</td></tr>)}</tbody>
+          <tbody>{rows.map((stock) => <tr key={stock.code} className="border-t border-border"><td className="px-2 py-2 font-mono">{stock.code}</td><td className="px-2 py-2">{stock.name}</td><td className="px-2 py-2 font-semibold">{stock.stats.score.toFixed(1)}</td><td className="px-2 py-2">{formatSignedPercent(stock.stats.ret20)}</td><td className="px-2 py-2">{formatSignedPercent(stock.stats.ret60)}</td><td className="px-2 py-2">{formatSignedPercent(stock.stats.ret120)}</td><td className="px-2 py-2">{formatSignedPercent(stock.stats.drawdown60)}</td></tr>)}</tbody>
         </table>
       </div>
     </Section>
@@ -576,7 +577,7 @@ function PortfolioPositionTable({ copy, positions }: { copy: HistoryCopy; positi
       <div className="overflow-auto">
         <table className="w-full text-sm">
           <thead className="text-xs text-muted-foreground"><tr>{['代码', '名称', '股数', '成本', '现价', '市值', '盈亏', '仓位'].map((head) => <th key={head} className="px-2 py-2 text-left font-medium">{head}</th>)}</tr></thead>
-          <tbody>{positions.map((row) => <tr key={row.code} className="border-t border-border"><td className="px-2 py-2 font-mono">{row.code}</td><td className="px-2 py-2">{row.name}</td><td className="px-2 py-2">{row.shares.toLocaleString()}</td><td className="px-2 py-2">{formatNumber(row.cost)}</td><td className="px-2 py-2">{formatNumber(row.latest)}</td><td className="px-2 py-2">{formatMoney(row.mktVal)}</td><td className={`px-2 py-2 font-semibold ${metricClass(pnlTone(row.pnlPct))}`}>{formatPercent(row.pnlPct)}</td><td className="px-2 py-2">{formatUnsignedPercent(row.weight)}</td></tr>)}</tbody>
+          <tbody>{positions.map((row) => <tr key={row.code} className="border-t border-border"><td className="px-2 py-2 font-mono">{row.code}</td><td className="px-2 py-2">{row.name}</td><td className="px-2 py-2">{row.shares.toLocaleString()}</td><td className="px-2 py-2">{formatNumber(row.cost)}</td><td className="px-2 py-2">{formatNumber(row.latest)}</td><td className="px-2 py-2">{formatMoney(row.mktVal)}</td><td className={`px-2 py-2 font-semibold ${metricClass(pnlTone(row.pnlPct))}`}>{formatSignedPercent(row.pnlPct)}</td><td className="px-2 py-2">{formatUnsignedPercent(row.weight)}</td></tr>)}</tbody>
         </table>
       </div>
     </Section>
@@ -654,7 +655,7 @@ function battleMetrics(payload: BattlePayload): MetricItem[] {
 
 function portfolioMetrics(payload: PortfolioPayload): MetricItem[] {
   const stats = payload.result.summaryStats
-  return [{ label: '持仓', value: `${stats.count}` }, { label: '盈亏', value: formatPercent(stats.pnlPct), tone: pnlTone(stats.pnlPct) }, { label: '市值', value: formatCompactMoney(stats.totalMarket) }]
+  return [{ label: '持仓', value: `${stats.count}` }, { label: '盈亏', value: formatSignedPercent(stats.pnlPct), tone: pnlTone(stats.pnlPct) }, { label: '市值', value: formatCompactMoney(stats.totalMarket) }]
 }
 
 function countByKind(records: HistoryRecord[]): Record<AnalysisHistoryKind, number> {
@@ -811,10 +812,6 @@ function formatFullTime(value: string): string {
 
 function formatNumber(value: number | undefined): string {
   return Number.isFinite(value) ? (value as number).toFixed(2) : '--'
-}
-
-function formatPercent(value: number | undefined): string {
-  return Number.isFinite(value) ? `${(value as number) >= 0 ? '+' : ''}${(value as number).toFixed(2)}%` : '--'
 }
 
 function formatUnsignedPercent(value: number | undefined): string {

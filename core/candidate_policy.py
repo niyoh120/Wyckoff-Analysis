@@ -63,10 +63,6 @@ class CandidatePolicyConfig:
 DEFAULT_CANDIDATE_POLICY_CONFIG = CandidatePolicyConfig()
 
 
-def _policy_config(config: CandidatePolicyConfig | None) -> CandidatePolicyConfig:
-    return config or DEFAULT_CANDIDATE_POLICY_CONFIG
-
-
 def trigger_sets_by_code(triggers: dict[str, list[tuple[str, float]]]) -> dict[str, set[str]]:
     out: dict[str, set[str]] = {}
     for trigger, pairs in (triggers or {}).items():
@@ -232,7 +228,7 @@ def loss_guard_reason(
     config: CandidatePolicyConfig | None = None,
     mainline_codes: set[str] | None = None,
 ) -> str:
-    policy = _policy_config(config)
+    policy = config or DEFAULT_CANDIDATE_POLICY_CONFIG
     if not policy.loss_guard_enabled:
         return ""
     keys = _normalize_keys(trigger_keys)

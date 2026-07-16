@@ -1,3 +1,5 @@
+import { formatTimestampDate } from './format'
+
 export type ExportCell = string | number
 export type ExportRow = Record<string, ExportCell>
 
@@ -182,17 +184,6 @@ function formatCompactDate(d: Date): string {
 
 function toMs(date: string): number {
   return new Date(date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')).getTime()
-}
-
-function formatTimestampDate(value: unknown): string {
-  const raw = String(value || '').trim()
-  if (/^\d{8}$/.test(raw)) return raw.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')
-  const numeric = Number(raw)
-  if (Number.isFinite(numeric) && numeric > 0) {
-    const milliseconds = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
-    return new Date(milliseconds + 8 * 3600_000).toISOString().slice(0, 10)
-  }
-  return raw.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3').slice(0, 10)
 }
 
 function buildCrcTable(): Uint32Array {

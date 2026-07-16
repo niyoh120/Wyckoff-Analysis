@@ -19,6 +19,7 @@ from integrations.recommendation_payload import (
 from integrations.supabase_market_signal import upsert_market_signal_daily
 from utils.safe import safe_float as _safe_float
 from workflows.step4_pipeline import TZ, is_confirmed_step4_candidate
+from workflows.step4_text import clean_text as _clean_text
 
 RECOMMENDATION_MAINLINE_STATUSES = TRADEABLE_MAINLINE_STATUSES
 RECOMMENDATION_STRATEGIC_MIN_THEME_SCORE = 0.45
@@ -335,10 +336,6 @@ def _tracking_rank(row: dict) -> tuple[int, float]:
     source = _clean_text(row.get("selection_source"))
     selected_bonus = 0 if source.startswith("l4_springboard") else 10
     return selected_bonus + met, score
-
-
-def _clean_text(value: object) -> str:
-    return str(value or "").strip()
 
 
 def write_recommendation_backup(

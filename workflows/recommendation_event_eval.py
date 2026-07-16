@@ -30,6 +30,7 @@ from integrations.recommendation_performance import (
 from integrations.recommendation_tracking_common import chunked, ohlc_map_from_tickflow_hist, recommend_date_to_yyyymmdd
 from integrations.supabase_base import create_admin_client, is_admin_configured
 from utils.json_text import parse_json_object as _json_map
+from workflows.step4_text import clean_text as _clean_text
 
 _RANKING_STRATEGIES = (
     "score_only",
@@ -551,10 +552,6 @@ def _policy_pick_next_step(policy_status: str) -> str:
     if policy_status == "candidate":
         return "生成 AI 研报并结合持仓形成攻防决策"
     return "先作为观察候选复核，等待更多样本或研报证据后再升级"
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
 
 
 def _top_k_summary(events: list[dict[str, Any]], k: int, strategy: str = "score_only") -> dict[str, Any]:

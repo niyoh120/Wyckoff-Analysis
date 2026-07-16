@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { BellPlus, ChevronRight } from 'lucide-react'
 import { formatStrategyPolicyText, type ScreenResult, type ScreenStockItem } from '@wyckoff/shared'
 import { financialValueClass } from '@/lib/financial-colors'
+import { formatSignedPercent } from '@/lib/format'
 
 type ScreenStrategyPolicy = NonNullable<ScreenResult['strategy_policy']>
 
@@ -15,7 +16,7 @@ function StockRow({ s, onPinStock }: { s: ScreenStockItem; onPinStock?: (stock: 
         <span className="flex-1 truncate">{s.name}</span>
         <span className="w-10 text-right text-muted-foreground">{s.funnel_score?.toFixed(2) ?? '--'}</span>
         <span className={`w-16 text-right ${chgColor}`}>
-          {s.change_pct != null ? `${s.change_pct >= 0 ? '+' : ''}${s.change_pct.toFixed(2)}%` : '--'}
+          {formatSignedPercent(s.change_pct)}
         </span>
       </Link>
       {onPinStock && (

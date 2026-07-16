@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { formatSignedPercent } from '@/lib/format'
 import { supabase } from '@/lib/supabase'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
 
@@ -105,7 +106,6 @@ export function MarketBar() {
   const regime = REGIME_COLORS[signal.benchmark_regime] || REGIME_COLORS.NEUTRAL!
   const tone = TONE_META[signal.banner_tone] || TONE_META['谨慎']!
 
-  const fmtPct = (v: number) => v ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '--'
   const fmtDate = (d: string) => d ? d.slice(5).replace('-', '/') : ''
 
   return (
@@ -124,7 +124,7 @@ export function MarketBar() {
             <span className="text-xs text-muted-foreground">{t('market.mainIndex')}</span>
             <span className="text-sm font-medium">{signal.main_index_close.toFixed(0)}</span>
             <span className={`text-xs font-medium ${signal.main_index_today_pct >= 0 ? 'text-up' : 'text-down'}`}>
-              {fmtPct(signal.main_index_today_pct)}
+              {formatSignedPercent(signal.main_index_today_pct)}
             </span>
             {signal.main_index_date && <span className="text-[10px] text-muted-foreground">{fmtDate(signal.main_index_date)}</span>}
           </div>
@@ -135,7 +135,7 @@ export function MarketBar() {
             <span className="text-xs text-muted-foreground">A50</span>
             <span className="text-xs font-medium">{signal.a50_close.toFixed(0)}</span>
             <span className={`text-xs font-medium ${signal.a50_pct_chg >= 0 ? 'text-up' : 'text-down'}`}>
-              {fmtPct(signal.a50_pct_chg)}
+              {formatSignedPercent(signal.a50_pct_chg)}
             </span>
             {signal.a50_date && <span className="text-[10px] text-muted-foreground">{fmtDate(signal.a50_date)}</span>}
           </div>
@@ -146,7 +146,7 @@ export function MarketBar() {
             <span className="text-xs text-muted-foreground">VIX</span>
             <span className="text-xs font-medium">{signal.vix_close.toFixed(1)}</span>
             <span className={`text-xs font-medium ${signal.vix_pct_chg <= 0 ? 'text-up' : 'text-down'}`}>
-              {fmtPct(signal.vix_pct_chg)}
+              {formatSignedPercent(signal.vix_pct_chg)}
             </span>
             {signal.vix_date && <span className="text-[10px] text-muted-foreground">{fmtDate(signal.vix_date)}</span>}
           </div>

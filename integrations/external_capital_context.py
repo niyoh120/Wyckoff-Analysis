@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from core.candidate_metadata import code6 as _code
+from utils.safe import drop_empty as _clean
 from utils.safe import parse_cn_num as _num
 
 CAPITAL_CONTEXT_VERSION = "external_capital_context_v1"
@@ -17,14 +19,6 @@ def _akshare_module(ak_module: Any | None) -> Any:
     import akshare as ak
 
     return ak
-
-
-def _code(raw: Any) -> str:
-    text = str(raw or "").strip()
-    digits = "".join(ch for ch in text if ch.isdigit())
-    if len(digits) >= 6:
-        return digits[-6:]
-    return digits.zfill(6) if digits else ""
 
 
 def _unique_codes(codes: list[str]) -> list[str]:
@@ -54,10 +48,6 @@ def _first(row: dict[str, Any], *names: str) -> Any:
         if name in row:
             return row.get(name)
     return None
-
-
-def _clean(values: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in values.items() if value not in (None, "", [], {})}
 
 
 def _status(contexts: dict[str, dict[str, Any]], source: str, value: str) -> None:
