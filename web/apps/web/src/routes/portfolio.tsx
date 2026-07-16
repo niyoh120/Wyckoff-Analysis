@@ -16,24 +16,10 @@ import { fetchKlineViaTickFlow, getUserDataKeys } from '@/lib/kline'
 import { formatSignedPercent } from '@/lib/format'
 import { useWhitelistGate } from '@/lib/whitelist-gate'
 import { avg } from '@/lib/math'
+import { EMPTY_PORTFOLIO, requestPortfolio, type Portfolio, type Position } from '@/lib/portfolio-api'
 import { saveAnalysisHistory } from '@/lib/local-history'
 import { sourceLabel, VALUE_RULESET_VERSION, valueTraceMeta, type ValueScore, type ValueTone } from '@wyckoff/shared'
 import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueDataQualityText, valueDataQualityTitle, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
-
-interface Position {
-  code: string | number
-  name: string | null
-  shares: number
-  cost_price: number
-  buy_dt: string | null
-}
-
-interface Portfolio {
-  free_cash: number
-  positions: Position[]
-}
-
-const EMPTY_PORTFOLIO: Portfolio = { free_cash: 0, positions: [] }
 
 interface PositionPnL {
   code: string
@@ -82,17 +68,7 @@ interface PortfolioHistoryPayload {
 async function portfolioApi(method: 'GET' | 'PUT', portfolio?: Portfolio): Promise<Portfolio> {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) throw new Error('登录已失效，请重新登录')
-  const response = await fetch('/api/portfolio', {
-    method,
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      ...(portfolio ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(portfolio ? { body: JSON.stringify(portfolio) } : {}),
-  })
-  const payload = await response.json().catch(() => ({})) as Portfolio & { error?: string }
-  if (!response.ok) throw new Error(payload.error || '持仓保存失败')
-  return payload
+  return requestPortfolio(method, session.access_token, portfolio)
 }
 
 export function PortfolioPage() {
@@ -118,6 +94,7 @@ function PortfolioPageContent() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6">
       <PageHeader />
+      {portfolioData.loadError && <UpgradeNotice message={portfolioData.loadError} />}
       {fullDiag.error && <UpgradeNotice message={fullDiag.error} />}
       {portfolioData.isWhitelisted ? (
         <ManualInput
@@ -156,6 +133,7 @@ function usePortfolioData(userId: string | undefined) {
     isWhitelisted,
     isLoading: whitelist.isLoading || (isWhitelisted && portfolio.isLoading),
     portfolio: portfolio.data || EMPTY_PORTFOLIO,
+    loadError: portfolio.error instanceof Error ? portfolio.error.message : '',
     save: (draft: Portfolio) => saveMutation.mutateAsync(draft),
     isSaving: saveMutation.isPending,
     saveError: saveMutation.error instanceof Error ? saveMutation.error.message : '',

@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router'
 import { useCallback, useEffect, useState } from 'react'
-import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Home, Github, Sun, Languages, Swords, Map, History, Microscope, PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react'
+import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Home, Github, Sun, Languages, Swords, History, Microscope, PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { MarketBar } from '@/components/market-bar'
@@ -36,7 +36,6 @@ const navGroups = [
     titleKey: 'nav.group.system',
     items: [
       { to: '/guide', icon: BookOpen, labelKey: 'nav.guide' },
-      { to: '/guide#capability-boundary', icon: Map, labelKey: 'nav.capabilities' },
       { to: '/settings', icon: Settings, labelKey: 'nav.settings' },
     ]
   }
