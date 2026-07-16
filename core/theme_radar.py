@@ -86,6 +86,10 @@ class ThemeRadarConfig:
     max_candidates_per_theme: int = 8
     min_theme_score: float = 0.45
     min_stock_score: float = 0.45
+    max_rotation_themes: int = 5
+    min_rotation_members: int = 3
+    min_rotation_score: float = 0.65
+    min_rotation_breadth: float = 0.55
 
 
 @dataclass(frozen=True)
@@ -102,6 +106,11 @@ class ThemeScore:
     crowding_score: float
     member_count: int
     leader_count: int
+    rotation_score: float
+    rotation_state: str
+    ret5: float
+    ret20: float
+    advancing_ratio_5d: float
     evidence: list[str]
 
 
@@ -138,20 +147,46 @@ def _normalize_default_theme(text: str) -> str:
 
 
 def _normalize_theme(text: str, aliases: dict[str, tuple[str, ...]]) -> str:
-    lower_text = text.lower()
-    for theme, keys in aliases.items():
-        if theme in text or any(key and key.lower() in lower_text for key in keys):
-            return theme
-    return text
+    matches: list[tuple[int, int, int, str]] = []
+    for order, (theme, keys) in enumerate(aliases.items()):
+        if _alias_in_text(text, theme):
+            matches.append((1, len(theme), -order, theme))
+        for key in keys:
+            if key and _alias_in_text(text, key):
+                matches.append((0, len(key), -order, theme))
+    return max(matches)[3] if matches else text
+
+
+def _alias_in_text(text: str, alias: str) -> bool:
+    folded_text = text.casefold()
+    folded_alias = alias.casefold()
+    start = 0
+    while (index := folded_text.find(folded_alias, start)) >= 0:
+        end = index + len(folded_alias)
+        left_ok = not _needs_ascii_boundary(folded_alias[:1]) or index == 0 or not _ascii_word(folded_text[index - 1])
+        right_ok = (
+            not _needs_ascii_boundary(folded_alias[-1:]) or end == len(folded_text) or not _ascii_word(folded_text[end])
+        )
+        if left_ok and right_ok:
+            return True
+        start = index + 1
+    return False
+
+
+def _needs_ascii_boundary(char: str) -> bool:
+    return bool(char) and _ascii_word(char)
+
+
+def _ascii_word(char: str) -> bool:
+    return char.isascii() and (char.isalnum() or char == "_")
 
 
 def infer_event_themes(event: dict[str, Any], aliases: dict[str, tuple[str, ...]] | None = None) -> list[str]:
     text = " ".join(str(event.get(k, "") or "") for k in ("title", "summary", "content", "tags"))
-    lower_text = text.lower()
     themes = [
         theme
         for theme, keys in (aliases or THEME_ALIASES).items()
-        if theme in text or any(key and key.lower() in lower_text for key in keys)
+        if _alias_in_text(text, theme) or any(key and _alias_in_text(text, key) for key in keys)
     ]
     return sorted(set(themes))
 
@@ -175,12 +210,19 @@ def build_theme_radar_snapshot(
     event_map = _events_by_theme(events or [])
     member_index = _theme_member_index(concept_map, sector_map)
     themes = _theme_universe(heat, history, event_map, member_index)
-    scores = [_score_theme(theme, heat, history, event_map, member_index, features) for theme in themes]
+    markets = {theme: _theme_market_metrics(member_index.get(theme, []), features) for theme in themes}
+    rotation_scores = _rotation_scores(markets, heat)
+    scores = [
+        _score_theme(theme, heat, history, event_map, markets[theme], rotation_scores.get(theme, 0.0))
+        for theme in themes
+    ]
     ranked = sorted(scores, key=lambda item: item.score, reverse=True)[: cfg.top_themes]
+    rotation_watch = _rotation_watch(scores, cfg)
     candidates = _build_candidates(ranked, member_index, features, name_map or {}, cfg)
     return {
         "trade_date": trade_date,
         "themes": [asdict(item) for item in ranked if item.score >= cfg.min_theme_score],
+        "rotation_watch": [asdict(item) for item in rotation_watch],
         "strategic_candidates": [asdict(item) for item in candidates],
     }
 
@@ -190,6 +232,17 @@ def summarize_theme_radar(snapshot: dict[str, Any], limit: int = 5) -> str:
     if not themes:
         return "无明确中长线主线"
     return "；".join(f"{x['theme']} {x['score']:.2f}/{x['state']}" for x in themes)
+
+
+def summarize_theme_rotation(snapshot: dict[str, Any], limit: int = 3) -> str:
+    themes = list(snapshot.get("rotation_watch") or [])[:limit]
+    if not themes:
+        return "暂无显著短周期轮动"
+    return "；".join(
+        f"{item['theme']} {item['rotation_score']:.2f}/{item['rotation_state']}"
+        f"（5日{item['ret5']:+.1f}%，上涨占比{item['advancing_ratio_5d']:.0%}）"
+        for item in themes
+    )
 
 
 def _stock_features(df_map: dict[str, pd.DataFrame]) -> dict[str, dict[str, Any]]:
@@ -211,6 +264,8 @@ def _raw_stock_metrics(df: pd.DataFrame) -> dict[str, Any]:
     close_raw = ordered["close"] if "close" in ordered.columns else pd.Series(dtype=float)
     close = pd.to_numeric(close_raw, errors="coerce").dropna()
     return {
+        "ret5": _ret_pct(close, 5),
+        "ret10": _ret_pct(close, 10),
         "ret20": _ret_pct(close, 20),
         "ret60": _ret_pct(close, 60),
         "ret120": _ret_pct(close, 120),
@@ -329,10 +384,9 @@ def _score_theme(
     heat: dict[str, dict[str, Any]],
     history: dict[str, dict[str, Any]],
     events: dict[str, list[dict[str, Any]]],
-    member_index: dict[str, list[str]],
-    features: dict[str, dict[str, Any]],
+    market: dict[str, float],
+    rotation_score: float,
 ) -> ThemeScore:
-    market = _theme_market_metrics(member_index.get(theme, []), features)
     heat_score = float((heat.get(theme) or {}).get("score") or 0.0)
     persistence = float((history.get(theme) or {}).get("score") or 0.0)
     catalyst = _catalyst_score(events.get(theme, []))
@@ -359,8 +413,50 @@ def _score_theme(
         crowding_score=round(crowding, 4),
         member_count=int(market["member_count"]),
         leader_count=int(market["leader_count"]),
+        rotation_score=round(rotation_score, 4),
+        rotation_state=_rotation_state(rotation_score),
+        ret5=round(float(market["ret5"]), 4),
+        ret20=round(float(market["ret20"]), 4),
+        advancing_ratio_5d=round(float(market["advancing_ratio_5d"]), 4),
         evidence=_theme_evidence(theme, heat, history, events),
     )
+
+
+def _rotation_scores(markets: dict[str, dict[str, float]], heat: dict[str, dict[str, Any]]) -> dict[str, float]:
+    eligible = {theme: row for theme, row in markets.items() if row.get("member_count", 0.0) > 0}
+    ranks = {field: _rank_metric(eligible, field) for field in ("ret5", "ret10", "ret20", "advancing_ratio_5d")}
+    heat_rows = {theme: {"score": float((heat.get(theme) or {}).get("score") or 0.0)} for theme in eligible}
+    heat_rank = _rank_metric(heat_rows, "score")
+    return {
+        theme: _clamp(
+            0.30 * ranks["ret5"].get(theme, 0.0)
+            + 0.25 * ranks["ret10"].get(theme, 0.0)
+            + 0.15 * ranks["ret20"].get(theme, 0.0)
+            + 0.20 * ranks["advancing_ratio_5d"].get(theme, 0.0)
+            + 0.10 * heat_rank.get(theme, 0.0)
+        )
+        for theme in eligible
+    }
+
+
+def _rotation_watch(scores: list[ThemeScore], cfg: ThemeRadarConfig) -> list[ThemeScore]:
+    eligible = [
+        item
+        for item in scores
+        if item.member_count >= cfg.min_rotation_members
+        and item.rotation_score >= cfg.min_rotation_score
+        and item.ret5 > 0
+        and item.advancing_ratio_5d >= cfg.min_rotation_breadth
+    ]
+    return sorted(eligible, key=lambda item: (item.rotation_score, item.ret5), reverse=True)[: cfg.max_rotation_themes]
+
+
+def _rotation_state(score: float) -> str:
+    if score >= 0.80:
+        return "surging"
+    if score >= 0.65:
+        return "rising"
+    return "quiet"
 
 
 def _theme_members(theme: str, concept_map: dict[str, list[str]], sector_map: dict[str, str]) -> list[str]:
@@ -390,11 +486,16 @@ def _theme_market_metrics(members: list[str], features: dict[str, dict[str, Any]
             "leader_score": 0.0,
             "structure_score": 0.0,
             "breadth_score": 0.0,
+            "ret5": 0.0,
+            "ret10": 0.0,
             "ret20": 0.0,
+            "advancing_ratio_5d": 0.0,
         }
     structures = sorted((float(row["structure_score"]) for row in rows), reverse=True)[:20]
     leaders = sorted((float(row["leader_score"]) for row in rows), reverse=True)[:20]
     breadth = [_breadth_unit(row) for row in rows]
+    ret5_values = [_as_float(row.get("ret5")) or 0.0 for row in rows]
+    ret10_values = [_as_float(row.get("ret10")) or 0.0 for row in rows]
     ret20_values = [_as_float(row.get("ret20")) or 0.0 for row in rows]
     return {
         "member_count": float(len(rows)),
@@ -402,7 +503,10 @@ def _theme_market_metrics(members: list[str], features: dict[str, dict[str, Any]
         "leader_score": float(median(leaders)),
         "structure_score": float(median(structures)),
         "breadth_score": float(sum(breadth) / len(breadth)),
+        "ret5": float(median(ret5_values)),
+        "ret10": float(median(ret10_values)),
         "ret20": float(median(ret20_values)),
+        "advancing_ratio_5d": float(sum(value > 0 for value in ret5_values) / len(ret5_values)),
     }
 
 

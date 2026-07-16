@@ -82,6 +82,9 @@ def test_market_report_includes_cash_account_metrics(tmp_path):
 
     report = build_report(cells)
 
+    assert "## 🚦 先看结论" in report
+    assert "GitHub Actions 显示“成功”只代表任务和产物生成完成" in report
+    assert "策略证据" in report
     assert "代表现金账户: 初始 **100000.00**；最终 **53785.51**；盈亏 **-46214.49**" in report
     assert (
         "- 策略治理调权: lps[regime=RISK_ON]×0.50↓（远端, 报告=2026-07-04, 周期=h5, 策略=正式调权(on), 范围=尾盘+正式漏斗）"

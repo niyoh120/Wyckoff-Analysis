@@ -114,6 +114,40 @@ def test_execution_decision_line_blocks_risk_on_new_buys() -> None:
     assert "禁止新仓" in line
 
 
+def test_top_summary_separates_rotation_detection_from_trade_permission() -> None:
+    from workflows.funnel_render import _top_summary_lines
+
+    ctx = SimpleNamespace(
+        regime="PANIC_REPAIR",
+        benchmark_context={},
+        metrics={
+            "theme_radar": {
+                "themes": [{"theme": "创新药医药", "score": 0.64, "state": "observe"}],
+                "rotation_watch": [
+                    {
+                        "theme": "创新药医药",
+                        "rotation_score": 0.91,
+                        "rotation_state": "surging",
+                        "ret5": 8.6,
+                        "advancing_ratio_5d": 0.72,
+                    }
+                ],
+            }
+        },
+        theme_radar_source="current",
+        mainline_tradeable=[],
+        theme_candidate_map={},
+        unique_hit_count=3,
+    )
+
+    lines = _top_summary_lines(ctx, 0, "资金修复")
+
+    assert lines[0] == "**【🚦 一眼结论】**"
+    assert "创新药医药 0.91/surging" in "\n".join(lines)
+    assert "已发现短周期轮动，但市场闸门关闭" in "\n".join(lines)
+    assert "不写正式推荐" in "\n".join(lines)
+
+
 def test_policy_governance_line_surfaces_attribution_and_merged_weights() -> None:
     from workflows.funnel_render import _policy_governance_line
 

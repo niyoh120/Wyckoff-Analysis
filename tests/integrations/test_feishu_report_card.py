@@ -27,6 +27,20 @@ def test_generic_report_card_selects_semantic_header_color():
     assert report_card_template("定时任务", "正常运行") == "blue"
 
 
+def test_generic_report_card_prioritizes_explicit_today_conclusion():
+    content = (
+        "**【🚦 一眼结论】**\n"
+        "**今日结论**: 市场闸门开放，候选待审 | 可执行买入\n\n"
+        "**【🧭 今日执行纪律】**\n"
+        "禁止新仓日不要从旧观察名单下单。"
+    )
+
+    assert report_card_template("Wyckoff Funnel", content) == "orange"
+    elements = build_report_card_elements(content)
+    heading = next(item for item in elements if item.get("tag") == "div")
+    assert heading["text"]["content"] == "🚦 **【🚦 一眼结论】**"
+
+
 def test_post_card_uses_wide_semantic_rich_layout(monkeypatch):
     from utils import feishu
 

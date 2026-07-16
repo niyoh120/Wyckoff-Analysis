@@ -11,19 +11,29 @@ STATE_LABELS = {
     "overheated": "过热拥挤",
     "decay": "噪音/衰退",
 }
+ROTATION_STATE_LABELS = {"surging": "加速", "rising": "升温", "quiet": "平静"}
 
 
 def render_theme_radar_report(snapshot: dict) -> str:
     themes = snapshot.get("themes", []) or []
+    rotation = snapshot.get("rotation_watch", []) or []
     grouped = _candidates_by_theme(snapshot.get("strategic_candidates", []) or [])
     lines = [
         "# Theme Radar",
         "",
         f"**交易日**: {snapshot.get('trade_date', '')}",
         "",
-        "## 主线总览",
+        "## 🚦 一眼结论",
+        "",
+        _radar_verdict(themes, rotation),
+        "",
+        "> 短周期轮动只做 Shadow 发现，不代表允许买入；正式操作仍需长期主题、买点、市场总闸和 OMS 共同通过。",
+        "",
+        "## 🔥 短周期轮动（Shadow）",
         "",
     ]
+    lines.extend(_rotation_table(rotation))
+    lines.extend(["", "## 🧭 中长线主线", ""])
     lines.extend(_theme_table(themes))
     lines.extend(["", "## 按主题展开", ""])
     lines.extend(_theme_sections(themes, grouped))
@@ -34,12 +44,36 @@ def render_theme_radar_report(snapshot: dict) -> str:
 
 def render_theme_radar_html(snapshot: dict) -> str:
     themes = snapshot.get("themes", []) or []
+    rotation = snapshot.get("rotation_watch", []) or []
     grouped = _candidates_by_theme(snapshot.get("strategic_candidates", []) or [])
     theme_cards = "\n".join(_theme_card_html(item, grouped.get(str(item.get("theme", "")), [])) for item in themes)
     orphan_cards = "\n".join(
         _orphan_card_html(theme, rows) for theme, rows in grouped.items() if theme not in _theme_names(themes)
     )
-    return _html_shell(snapshot, theme_cards + orphan_cards)
+    return _html_shell(snapshot, _rotation_board_html(themes, rotation) + theme_cards + orphan_cards)
+
+
+def _radar_verdict(themes: list[dict], rotation: list[dict]) -> str:
+    fast = str(rotation[0].get("theme") or "") if rotation else "暂无显著轮动"
+    long = str(themes[0].get("theme") or "") if themes else "暂无确认主线"
+    return f"**当前最快轮动：{fast}；中长线首位：{long}。**"
+
+
+def _rotation_table(rotation: list[dict]) -> list[str]:
+    if not rotation:
+        return ["暂无达到动量与宽度阈值的短周期轮动。"]
+    lines = [
+        "| 主题 | 状态 | 轮动分 | 5日涨幅 | 20日涨幅 | 5日上涨宽度 |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for item in rotation:
+        state = ROTATION_STATE_LABELS.get(str(item.get("rotation_state")), str(item.get("rotation_state") or "-"))
+        lines.append(
+            f"| **{item.get('theme', '')}** | {state} | {_fmt_num(item.get('rotation_score'))} | "
+            f"{_fmt_pct_1(item.get('ret5'))} | {_fmt_pct_1(item.get('ret20'))} | "
+            f"{_fmt_ratio(item.get('advancing_ratio_5d'))} |"
+        )
+    return lines
 
 
 def _theme_table(themes: list[dict]) -> list[str]:
@@ -126,6 +160,43 @@ def _candidates_by_theme(candidates: list[dict]) -> dict[str, list[dict]]:
     return grouped
 
 
+def _rotation_board_html(themes: list[dict], rotation: list[dict]) -> str:
+    fast = str(rotation[0].get("theme") or "") if rotation else "暂无显著轮动"
+    long = str(themes[0].get("theme") or "") if themes else "暂无确认主线"
+    cards = "".join(_rotation_card_html(item) for item in rotation)
+    if not cards:
+        cards = '<p class="empty">暂无达到动量与宽度阈值的短周期轮动。</p>'
+    return f"""
+    <section class="radar-verdict">
+      <p class="kicker">FIRST READ</p>
+      <h2>最快轮动：{_h(fast)}</h2>
+      <p><strong>中长线首位：{_h(long)}</strong></p>
+      <p class="gate-note">Shadow 只负责发现行情，不代表允许买入；正式操作仍需长期主题、买点、市场总闸和 OMS 共同通过。</p>
+    </section>
+    <section class="rotation-board">
+      <div class="section-title"><p class="kicker">FAST ROTATION · SHADOW</p><h2>短周期轮动</h2></div>
+      <div class="rotation-grid">{cards}</div>
+    </section>
+    <div class="section-title long-title"><p class="kicker">LONG HORIZON</p><h2>中长线主线</h2></div>
+    """
+
+
+def _rotation_card_html(item: dict) -> str:
+    state = ROTATION_STATE_LABELS.get(str(item.get("rotation_state")), str(item.get("rotation_state") or "-"))
+    return f"""
+    <article class="rotation-card">
+      <span class="rotation-state">{_h(state)}</span>
+      <h3>{_h(item.get("theme"))}</h3>
+      <strong class="rotation-score">{_fmt_num(item.get("rotation_score"))}</strong>
+      <div class="rotation-facts">
+        <span>5日 <b>{_fmt_pct_1(item.get("ret5"))}</b></span>
+        <span>20日 <b>{_fmt_pct_1(item.get("ret20"))}</b></span>
+        <span>上涨宽度 <b>{_fmt_ratio(item.get("advancing_ratio_5d"))}</b></span>
+      </div>
+    </article>
+    """
+
+
 def _theme_card_html(item: dict, candidates: list[dict]) -> str:
     theme = _h(item.get("theme"))
     evidence = "".join(f"<li>{_h(e)}</li>" for e in (item.get("evidence") or ["暂无"]))
@@ -196,6 +267,20 @@ def _fmt_pct(value: object) -> str:
         return "-"
 
 
+def _fmt_pct_1(value: object) -> str:
+    try:
+        return f"{float(value):+.1f}%"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _fmt_ratio(value: object) -> str:
+    try:
+        return f"{float(value):.0%}"
+    except (TypeError, ValueError):
+        return "-"
+
+
 def _h(value: object) -> str:
     return escape(str(value or ""), quote=True)
 
@@ -214,8 +299,8 @@ def _html_shell(snapshot: dict, body: str) -> str:
   <main>
     <header class="hero">
       <p class="kicker">WYCKOFF THEME RADAR</p>
-      <h1>中长线主线雷达</h1>
-      <p class="subtitle">按主题拆解市场已经投票的长期方向，日报漏斗只消费标签和旁路，不把买点和主线混成一张表。</p>
+      <h1>主题与轮动雷达</h1>
+      <p class="subtitle">先看短周期正在加速的方向，再看中长线确认；发现、买点和交易权限保持三层隔离。</p>
       <div class="date-chip">交易日 {date_text}</div>
     </header>
     <section class="layout">{body or '<p class="empty">暂无主线数据</p>'}</section>
@@ -256,6 +341,22 @@ h2 { font-size: 32px; }
 .subtitle { max-width: 720px; color: var(--muted); font-size: 16px; line-height: 1.8; margin: 18px 0 0; }
 .date-chip { position: absolute; right: 0; bottom: 26px; border: 1px solid var(--ink); padding: 10px 14px; font-weight: 700; }
 .layout { display: grid; gap: 22px; margin-top: 28px; }
+.radar-verdict { background: var(--ink); color: var(--paper); border-left: 8px solid var(--amber); padding: 24px 26px; }
+.radar-verdict h2 { color: #fff; font-size: clamp(30px, 4vw, 48px); }
+.radar-verdict > p:not(.kicker) { margin: 10px 0 0; }
+.radar-verdict .kicker { color: #f3bd61; }
+.gate-note { color: #d9ddd8; font-size: 14px; line-height: 1.7; }
+.rotation-board { background: rgba(184,121,24,.10); border: 1px solid rgba(184,121,24,.42); padding: 22px; }
+.section-title { margin-bottom: 16px; }
+.section-title h2 { font-size: 34px; }
+.long-title { border-top: 2px solid var(--ink); margin: 12px 0 -6px; padding-top: 22px; }
+.rotation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.rotation-card { background: #fffaf0; border-top: 5px solid var(--amber); padding: 16px; position: relative; }
+.rotation-card h3 { font-family: Georgia, "Songti SC", serif; font-size: 25px; margin: 8px 0 2px; }
+.rotation-state { color: var(--amber); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+.rotation-score { color: var(--red); font-size: 34px; line-height: 1; }
+.rotation-facts { display: grid; gap: 4px; color: var(--muted); font-size: 13px; margin-top: 12px; }
+.rotation-facts b { color: var(--ink); float: right; }
 .theme-card { background: var(--panel); border: 1px solid var(--line); box-shadow: 8px 8px 0 rgba(23,32,27,.10); padding: 22px; }
 .theme-card.muted { opacity: .86; }
 .theme-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; border-bottom: 1px solid var(--line); padding-bottom: 16px; }

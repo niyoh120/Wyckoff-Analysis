@@ -26,6 +26,10 @@ def test_render_theme_radar_report_groups_candidates_by_theme() -> None:
 
     report = render_theme_radar_report(_snapshot())
 
+    assert "## 🚦 一眼结论" in report
+    assert "## 🔥 短周期轮动（Shadow）" in report
+    assert "**创新药医药**" in report
+    assert "不代表允许买入" in report
     assert "## 按主题展开" in report
     assert "### 光模块 · 主线确认" in report
     assert "### 芯片半导体 · 萌芽观察" in report
@@ -41,7 +45,10 @@ def test_render_theme_radar_html_outputs_grouped_cards() -> None:
 
     assert "<html" in html
     assert "theme-card" in html
-    assert "中长线主线雷达" in html
+    assert "主题与轮动雷达" in html
+    assert "radar-verdict" in html
+    assert "rotation-card" in html
+    assert "font-size: clamp(30px, 4vw, 48px)" in html
     assert "000001" in html
     assert "光模块龙头" in html
 
@@ -74,6 +81,16 @@ def _snapshot() -> dict:
         "themes": [
             _theme("光模块", "confirmed", 0.72),
             _theme("芯片半导体", "observe", 0.58),
+        ],
+        "rotation_watch": [
+            {
+                "theme": "创新药医药",
+                "rotation_score": 0.86,
+                "rotation_state": "surging",
+                "ret5": 8.2,
+                "ret20": 13.7,
+                "advancing_ratio_5d": 0.95,
+            }
         ],
         "strategic_candidates": [
             _candidate("000001", "光模块龙头", "光模块", 1, 0.82),

@@ -15,6 +15,8 @@ from core.backtest_grid_ranking import (
     weak_period_guardrails,
 )
 from workflows.backtest_market_report_artifacts import GridCell, read_trades
+from workflows.backtest_parameter_stability import build_parameter_stability
+from workflows.backtest_walk_forward import build_walk_forward_validation
 
 REGIME_LABELS = {
     "CRASH": "下跌/踩踏期",
@@ -445,11 +447,14 @@ def _build_execution_context_lines(
     pos_sharpe: int,
     neg_sharpe: int,
     run_url: str,
+    verdict_lines: list[str],
 ) -> list[str]:
     return [
         "# 当前市场回测报告",
         "",
         f"> 自动生成于 {generated}。本文件由 `scripts/update_backtest_market_report.py` 从 Backtest Grid artifacts 更新。",
+        "",
+        *verdict_lines,
         "",
         "## 执行上下文",
         "",
@@ -464,6 +469,38 @@ def _build_execution_context_lines(
         f"- 策略治理调权: {_strategy_policy_context(cells)}",
         f"- 参数/风格单元: {len(cells)} 组；正夏普 {pos_sharpe} 组，非正夏普 {neg_sharpe} 组",
         f"- GitHub Actions: {run_url or '-'}",
+    ]
+
+
+def _build_verdict_lines(
+    confirmation: dict[str, object],
+    stability: dict[str, object],
+    walk_forward: dict[str, object],
+) -> list[str]:
+    statuses = [str(item.get("status") or "review") for item in (confirmation, stability, walk_forward)]
+    overall = "fail" if "fail" in statuses else ("pass" if all(status == "pass" for status in statuses) else "review")
+    badge = {"pass": "✅", "fail": "❌", "review": "🟡"}[overall]
+    headline = {
+        "pass": "策略证据通过，可以进入人工晋级评审",
+        "fail": "策略证据未通过，禁止晋级生产",
+        "review": "策略证据不完整，继续保持 Shadow",
+    }[overall]
+    decision = (
+        "保持当前生产参数和交易闸门不变；先修复信号质量，再重新运行跨周期与样本外验证。"
+        if overall == "fail"
+        else "仍需人工审核风险与执行口径，不因单次工作流成功自动切换生产策略。"
+    )
+    return [
+        "## 🚦 先看结论",
+        "",
+        f"> **{badge} {headline}**",
+        ">",
+        "> GitHub Actions 显示“成功”只代表任务和产物生成完成，不代表策略已经证明可赚钱。",
+        "",
+        f"- **跨周期确认 `{statuses[0]}`**: {confirmation.get('summary') or '-'}",
+        f"- **参数稳定性 `{statuses[1]}`**: {stability.get('summary') or '-'}",
+        f"- **Walk-forward `{statuses[2]}`**: {walk_forward.get('summary') or '-'}",
+        f"- **当前决策**: {decision}",
     ]
 
 
@@ -844,6 +881,10 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
     current_cycle, cycle_detail = _latest_cycle(best_rows)
 
     generated = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    confirmation = build_confirmation(cells, run_url=run_url, generated_at=generated)
+    stability = build_parameter_stability(cells, run_url=run_url, generated_at=generated)
+    walk_forward = build_walk_forward_validation(cells, run_url=run_url, generated_at=generated)
+    verdict_lines = _build_verdict_lines(confirmation, stability, walk_forward)
     pos_sharpe = sum(1 for c in cells if (c.sharpe or 0) > 0)
     neg_sharpe = len(cells) - pos_sharpe
     period_best_table = _build_period_best_table(cells)
@@ -860,6 +901,7 @@ def build_report(cells: list[GridCell], run_url: str = "", generated_at: str = "
         pos_sharpe=pos_sharpe,
         neg_sharpe=neg_sharpe,
         run_url=run_url,
+        verdict_lines=verdict_lines,
     )
     lines.extend(_build_trading_playbook_lines(cells, robust_best))
     lines.extend(_build_conclusion_lines(cells=cells, best=best, robust_best=robust_best, diagnostics=diagnostics))

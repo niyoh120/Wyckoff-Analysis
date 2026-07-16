@@ -16,7 +16,7 @@ from core.funnel_sections import append_formal_l4_sections, score_star
 from core.market_trade_mode import resolve_market_trade_mode
 from core.signal_confirmation import score_springboard_abc
 from core.strategy_policy_display import format_policy_meta_text, format_policy_weight_text
-from core.theme_radar import summarize_theme_radar
+from core.theme_radar import summarize_theme_radar, summarize_theme_rotation
 from workflows.funnel_ai_selection import FunnelAiSelection
 from workflows.funnel_report_payload import (
     display_score,
@@ -411,17 +411,36 @@ def _policy_weight_text(weights: dict) -> str:
 
 
 def _top_summary_lines(ctx: Any, selected_count: int, money_line: str) -> list[str]:
-    lines = funnel_playbook_lines(ctx.regime, selected_count)
-    lines.extend(
-        [
-            _today_conclusion_line(ctx, selected_count),
-            _trigger_reason_line(ctx, money_line),
-            _tomorrow_action_line(ctx, selected_count),
-            _candidate_brief_line(ctx, selected_count),
-            "",
-        ]
-    )
+    snapshot = (getattr(ctx, "metrics", {}) or {}).get("theme_radar") or {}
+    mainline_tradeable = getattr(ctx, "mainline_tradeable", []) or []
+    theme_candidate_map = getattr(ctx, "theme_candidate_map", {}) or {}
+    lines = [
+        "**【🚦 一眼结论】**",
+        _today_conclusion_line(ctx, selected_count),
+        _tomorrow_action_line(ctx, selected_count),
+        _trigger_reason_line(ctx, money_line),
+        _candidate_brief_line(ctx, selected_count),
+        "",
+        "**【🔥 主线与轮动】**",
+        f"- **中长线主线**: {summarize_theme_radar(snapshot)} ({getattr(ctx, 'theme_radar_source', 'unknown')})",
+        f"- **短周期轮动（Shadow）**: {summarize_theme_rotation(snapshot)}",
+        f"- **主线买点**: 可交易候选 {len(mainline_tradeable)} 只；观察池 {len(theme_candidate_map)} 只",
+    ]
+    rotation_gate = _rotation_gate_line(ctx, snapshot)
+    if rotation_gate:
+        lines.append(rotation_gate)
+    lines.append("")
+    lines.extend(funnel_playbook_lines(ctx.regime, selected_count))
     return lines
+
+
+def _rotation_gate_line(ctx: Any, snapshot: dict[str, Any]) -> str:
+    if not snapshot.get("rotation_watch"):
+        return ""
+    mode = resolve_market_trade_mode(ctx.regime)
+    if not mode.allow_recommendation_write:
+        return "⚠️ 已发现短周期轮动，但市场闸门关闭；保留观察提示，不写正式推荐、不自动下单。"
+    return "⚠️ 短周期轮动仅是研究提示，不改变正式候选、市场闸门或 OMS 执行条件。"
 
 
 def _candidate_list_note(mode, *, data_quality_observe_only: bool = False) -> str:
@@ -640,6 +659,7 @@ def _build_legacy_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
     lines = _top_summary_lines(ctx, len(selected_for_ai), money_line)
     lines.extend(_top_candidate_list_lines(ctx, selection))
     lines += [
+        "**【📊 详细市场证据】**",
         _pool_summary_line(ctx.metrics),
         f"**筛选概览**: {ctx.metrics['total_symbols']}只 → 基础准入:{ctx.metrics['layer1']} "
         f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → L4量价触发事件:{ctx.metrics['total_hits']}",
@@ -726,7 +746,8 @@ def _print_modern_selection_summary(ctx: Any, selection: FunnelAiSelection, coun
 def _modern_header_lines(ctx: Any, selection: FunnelAiSelection, counts: dict[str, int]) -> list[str]:
     bench_line, money_line, amount_line, pv_line, pv_shadow_line = _market_report_lines(ctx.benchmark_context)
     policy = selection.ai_policy
-    lines = _top_summary_lines(ctx, len(selection.selected_for_ai), money_line) + [
+    lines = [
+        "**【📊 详细市场证据】**",
         _pool_summary_line(ctx.metrics),
         f"**筛选概览**: {ctx.metrics['total_symbols']}只 → 基础准入:{ctx.metrics['layer1']} "
         f"→ 结构强度:{ctx.metrics['layer2']} → 题材共振:{ctx.metrics['layer3']} → L4量价触发:{ctx.unique_hit_count}",
@@ -829,7 +850,8 @@ def _append_modern_strategic_bypass_section(lines: list[str], ctx: Any, selected
 def _build_modern_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str]:
     counts = _modern_selection_counts(ctx, selection)
     _print_modern_selection_summary(ctx, selection, counts)
-    lines = _modern_header_lines(ctx, selection, counts)
+    _bench_line, money_line, _amount_line, _pv_line, _pv_shadow_line = _market_report_lines(ctx.benchmark_context)
+    lines = _top_summary_lines(ctx, len(selection.selected_for_ai), money_line)
     if ctx.regime == "CRASH":
         resilient_hits = ctx.formal_triggers.get("crash_resilience_watch", [])
         if resilient_hits:
@@ -861,6 +883,7 @@ def _build_modern_card_lines(ctx: Any, selection: FunnelAiSelection) -> list[str
                     )
             lines.append("")
     lines.extend(_top_candidate_list_lines(ctx, selection))
+    lines.extend(_modern_header_lines(ctx, selection, counts))
     append_etf_section(lines, ctx.etf_metrics, ctx.etf_candidates, display_limit=FUNNEL_ETF_DISPLAY_LIMIT)
     if ctx.etf_metrics or ctx.etf_candidates:
         lines.append("")

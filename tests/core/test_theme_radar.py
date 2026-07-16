@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pandas as pd
 
-from core.theme_radar import ThemeRadarConfig, build_theme_radar_snapshot, normalize_theme_name, summarize_theme_radar
+from core.theme_radar import (
+    ThemeRadarConfig,
+    build_theme_radar_snapshot,
+    normalize_theme_name,
+    summarize_theme_radar,
+    summarize_theme_rotation,
+)
 
 
 def _trend_frame(start: float, step: float, days: int = 280) -> pd.DataFrame:
@@ -127,6 +133,46 @@ def test_theme_radar_normalizes_mainline_aliases() -> None:
     assert normalize_theme_name("国产CPU替代") == "国产CPU"
     assert normalize_theme_name("创新药进入商保目录") == "创新药医药"
     assert normalize_theme_name("可控核聚变人造太阳") == "核聚变核电"
+
+
+def test_theme_radar_does_not_match_latin_alias_inside_another_word() -> None:
+    assert normalize_theme_name("MicroLED概念") == "MicroLED概念"
+    assert normalize_theme_name("CRO概念") == "创新药医药"
+
+
+def test_theme_radar_prefers_the_most_specific_alias() -> None:
+    assert normalize_theme_name("医药商业") == "消费防御"
+
+
+def test_theme_radar_surfaces_fast_rotation_as_shadow_only() -> None:
+    drug_codes = ["000001", "000002", "000003"]
+    chip_codes = ["000004", "000005", "000006"]
+    snapshot = build_theme_radar_snapshot(
+        trade_date="2026-07-15",
+        concept_heat=[
+            {"name": "创新药", "pct": 5.2, "net_inflow": 900_000_000},
+            {"name": "半导体", "pct": -1.0, "net_inflow": -100_000_000},
+        ],
+        concept_history={"2026-07-15": {"创新药": {"pct": 5.2, "inflow": 900_000_000}}},
+        concept_map={
+            **{code: ["创新药"] for code in drug_codes},
+            **{code: ["半导体"] for code in chip_codes},
+        },
+        sector_map={},
+        df_map={
+            **{code: _trend_frame(10, 0.08) for code in drug_codes},
+            **{code: _trend_frame(20, -0.02) for code in chip_codes},
+        },
+        config=ThemeRadarConfig(min_theme_score=0.0, min_stock_score=0.0),
+    )
+
+    rotation = snapshot["rotation_watch"]
+
+    assert rotation[0]["theme"] == "创新药医药"
+    assert rotation[0]["rotation_state"] == "surging"
+    assert rotation[0]["advancing_ratio_5d"] == 1.0
+    assert "创新药医药" in summarize_theme_rotation(snapshot)
+    assert "Shadow" not in summarize_theme_rotation(snapshot)
 
 
 def test_theme_radar_snapshot_round_trip_local_db(tmp_path, monkeypatch) -> None:

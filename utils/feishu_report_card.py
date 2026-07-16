@@ -7,11 +7,21 @@ import re
 from utils.feishu_text import lark_md_div, lark_note
 
 _BOLD_HEADING = re.compile(r"^\*\*(.+)\*\*$")
+_TODAY_CONCLUSION = re.compile(r"今日结论\*{0,2}\s*[:：]\s*([^|\n]+)")
 _WARNING_PREFIXES = ("⚠️", "风险提醒", "风险：", "注意：")
 
 
 def report_card_template(title: str, content: str) -> str:
     text = f"{title}\n{content}".upper()
+    conclusion = _TODAY_CONCLUSION.search(str(content or ""))
+    if conclusion:
+        decision = conclusion.group(1).upper()
+        if any(word in decision for word in ("禁止", "失败", "异常")):
+            return "red"
+        if any(word in decision for word in ("观察", "复核", "待审")):
+            return "orange"
+        if any(word in decision for word in ("开放", "可执行", "通过")):
+            return "green"
     if any(word in text for word in ("失败", "异常", "禁止", "BLACK_SWAN", "CRASH", "RISK_OFF")):
         return "red"
     if any(word in text for word in ("警告", "跳过", "WATCH", "复核", "PANIC_REPAIR")):
@@ -90,6 +100,8 @@ def _intro_panel(text: str) -> dict:
 
 
 def _section_icon(text: str) -> str:
+    if "一眼结论" in text:
+        return "🚦"
     if any(word in text for word in ("风险", "失效", "逻辑破产", "SKIP", "禁止")):
         return "🔴"
     if any(word in text for word in ("BUY", "机会", "起跳板", "执行")):

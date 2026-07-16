@@ -78,7 +78,7 @@ flowchart TD
     CHECK2 -->|是| STEP2
 
     STEP2["Step2: run_funnel()<br/>wyckoff_funnel.py"] --> P1["写 market_signal_daily<br/>大盘水温 regime"]
-    STEP2 --> P2["写 theme_radar_snapshot<br/>主题雷达"]
+    STEP2 --> P2["写 theme_radar_snapshot<br/>长期 themes + 短周期 rotation_watch Shadow"]
     STEP2 --> S25
 
     S25["Step2.5: run_step2_5()<br/>signal_pending 确认"] --> S26
@@ -227,6 +227,8 @@ flowchart TD
 - OHLCV 和市值覆盖率均不得低于 95%。每日量价漏斗不请求全市场财务指标，财务覆盖率显示为“未纳入量价漏斗”；仅显式启用质量/基本面筛选时，财务覆盖率不得低于 90%。Step3 仍为最终少量候选补充财务快照。
 - 任一必需覆盖率不足，运行状态标记为 `degraded`，交易就绪度强制为 `observe_only`。候选仍可进入 AI/shadow 对照，但报告、结构化详情和候选行都会禁止正式推荐、写入执行清单或新开仓。
 - 报告展示三个覆盖率、OHLCV 数据源数量与占比、RPS universe 数量，以及 L1 到 L4 的输入、通过、淘汰数量和该层筛选原因。
+- 主题诊断把中长线 `themes` 与短周期 `rotation_watch` 分开：后者按 5/10/20 日相对动量、5 日上涨宽度和热度识别升温主题，只在报告中作为 Shadow 提示，不能改变 `selected_for_ai`、正式推荐、市场总闸或 OMS。
+- 报告按“一眼结论 → 主线与轮动 → 候选 → 详细市场证据”排序，并把轮动发现与交易许可分行展示；视觉层级不参与策略计算。
 - L2 保留多标签；没有通道命中时返回空标签，不再兜底伪装成“点火破局”。概念聚合按股票稳定去重，同一股票不会对同一概念重复计数。
 - CLI/MCP 的 `get_market_overview` 支持 `trade_date` 历史截面；设置 `include_breadth=true` 后，同时返回该交易日全市上涨、下跌、平盘家数、涨跌占比和均值/中位数。指数涨跌与个股宽度必须使用同一交易日截面解释，不得用指数方向代替涨跌家数。
 - 大盘先独立输出结构周期 BULL / TRANSITION / BEAR，再叠加中期宽度（站上 MA20 的股票占比）和当日宽度（上涨家数占比及涨跌幅中位数）。结构 BEAR 不再要求近 3 日继续大跌才判 RISK_OFF；短反弹仍禁止普通新仓，全市场广度达到风险偏好阈值时只进入 `BEAR_REBOUND` 观察。恐慌修复按三日状态机处理：恐慌日为 `CRASH`；恐慌次日只有在指数反弹且上涨家数占比不低于 60%、涨跌幅中位数为正时才进入 `PANIC_REPAIR` 修复候选，此时只复核、禁止新仓；再下一交易日指数收益不低于 0%、上涨家数占比不低于 50%且涨跌幅中位数不为负，才进入 `PANIC_REPAIR_CONFIRMED`。
