@@ -11,7 +11,10 @@ const POSITION_SCHEMA = z.object({
   name: z.string().trim().max(80).nullable(),
   shares: z.number().int().positive().finite(),
   cost_price: z.number().positive().finite(),
-  buy_dt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  buy_dt: z.preprocess(
+    (value) => value === '' ? null : value,
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  ),
 })
 
 const PORTFOLIO_SCHEMA = z.object({

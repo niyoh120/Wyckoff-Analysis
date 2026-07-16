@@ -11,6 +11,20 @@ describe('portfolio API input', () => {
     expect('data' in result).toBe(true)
   })
 
+  it('normalizes an empty buy date from legacy rows', () => {
+    const result = parsePortfolioInput({
+      free_cash: 0,
+      positions: [{ code: '600611', name: '大众交通', shares: 1400, cost_price: 3.854, buy_dt: '' }],
+    })
+
+    expect(result).toEqual({
+      data: {
+        free_cash: 0,
+        positions: [{ code: '600611', name: '大众交通', shares: 1400, cost_price: 3.854, buy_dt: null }],
+      },
+    })
+  })
+
   it('rejects duplicate symbols and invalid quantities', () => {
     const duplicate = parsePortfolioInput({
       free_cash: 0,

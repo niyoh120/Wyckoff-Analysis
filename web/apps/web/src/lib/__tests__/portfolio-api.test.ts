@@ -19,6 +19,18 @@ describe('requestPortfolio', () => {
     }))
   })
 
+  it('normalizes an empty buy date from stored positions', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response({
+      free_cash: 0,
+      positions: [{ code: '600611', name: '大众交通', shares: 1400, cost_price: 3.854, buy_dt: '' }],
+    }))
+
+    await expect(requestPortfolio('GET', 'token', undefined, fetcher)).resolves.toEqual({
+      free_cash: 0,
+      positions: [{ code: '600611', name: '大众交通', shares: 1400, cost_price: 3.854, buy_dt: null }],
+    })
+  })
+
   it('rejects the Pages SPA fallback instead of returning an empty object', async () => {
     const fetcher = vi.fn().mockResolvedValue(response('<!doctype html><html></html>', {
       headers: { 'content-type': 'text/html' },

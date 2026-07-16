@@ -5,7 +5,10 @@ const positionSchema = z.object({
   name: z.string().nullable(),
   shares: z.number(),
   cost_price: z.number(),
-  buy_dt: z.string().nullable(),
+  buy_dt: z.preprocess(
+    (value) => value === '' ? null : value,
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  ),
 })
 
 const portfolioSchema = z.object({
