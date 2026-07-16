@@ -21,19 +21,11 @@
 
 ---
 
-## 0. 术语速查
+## 0. 阅读索引
 
-| 缩写 | 全称 | 含义 |
-|------|------|------|
-| RPS | Relative Price Strength | 涨幅百分位排名，90 = 跑赢 90% 的股票 |
-| RS | Relative Strength | 个股涨幅 - 大盘涨幅 |
-| ATR | Average True Range | 平均每日真实波动幅度，用于动态止损 |
-| SOS | Sign of Strength | 放量突破，吸筹结束的信号 |
-| LPS | Last Point of Support | 缩量回踩，最后支撑点 |
-| EVR | Effort vs Result | 放量不跌，量价背离 |
-| Spring | 终极震仓 | 跌破支撑后迅速收回 |
-| Compression | 压缩蓄势 | 连续窄幅缩量，爆发前的能量压缩状态 |
-| SLTP | Stop Loss & Take Profit | 止损止盈退出机制 |
+术语只在 [GLOSSARY.md](GLOSSARY.md) 维护。本手册只解释策略语义；技术阶段顺序见
+[docs/A_SHARE_FUNNEL_FLOW.md](docs/A_SHARE_FUNNEL_FLOW.md)，反馈与动态策略实现见
+[docs/SIGNAL_FEEDBACK_LOOP.md](docs/SIGNAL_FEEDBACK_LOOP.md)。
 
 ---
 
@@ -53,64 +45,11 @@
 
 ### 信号反馈闭环
 
-A 股主漏斗和 feedback 是错峰运行的反馈系统，不是同一任务里的强同步步骤。漏斗先产出信号样本，feedback 盘后验收，下一轮漏斗再读取新的策略状态。
-
-```mermaid
-flowchart LR
-  A["17:17 漏斗<br/>发现 L4 信号"] --> B["AI 研报 + OMS<br/>形成推荐/观察"]
-  B --> C["写 signal_observations"]
-  C --> D["23:30 feedback<br/>计算 outcomes"]
-  D --> E["聚合 signal_health_daily"]
-  E --> F["更新 signal_registry"]
-  F --> G["下一轮漏斗<br/>动态配额 / shadow 对比"]
-```
-
-`FUNNEL_DYNAMIC_POLICY` 控制反馈结果如何介入：
-
-| 模式 | 策略行为 |
-|------|----------|
-| `off` | 使用静态 Trend / Accum 配额。 |
-| `shadow` | 真实输出仍走静态配额，同时用 signal health、registry 和策略归因调权模拟动态策略会新增/移除哪些候选。 |
-| `on` | 正式使用信号健康度权重和 registry 状态；策略归因调权还必须通过 `policy_governor.formal_dynamic_allowed`，回测与实盘使用同一判断。 |
-
-Shadow 结果落在 `signal_policy_shadow_runs`，用于观察动态策略是否真的比静态配额更聪明。
-策略归因报告使用最近 60 天样本生成；漏斗和尾盘读取归因调权时默认要求报告不超过 7 天，超过
-`STRATEGY_ATTRIBUTION_MAX_AGE_DAYS` 会自动跳过，避免陈旧市场风格继续影响当前候选。
-归因执行态同时暴露给 Agent：CLI 使用 `query_history(source="attribution")`，Web 读盘室使用
-`query_attribution`。回答前应先看归因数据来源：CLI/MCP 会暴露 `latest_source` 和 `remote_error`，
-并在远端表与本地 no-write 报告同时存在时按 `report_date` 取最新；Web 只读取远端
-`strategy_attribution_reports`。随后优先读取 `latest_operator_summary` /
-`latest_operations.operator_summary` 作为每日运营结论，再读取 `latest_policy_display` 和
-`latest_execution_summary` 判断当前调权影响尾盘、漏斗 shadow 还是正式漏斗，以及 dynamic 是否只进入
-人工晋级评审；`promotion_checklist` 和 `latest_operations` 用于追证据。raw `next_action` /
-`promotion_status` 只给程序和排查用，不应直接复述给用户。`run_backtest_confirmation`
-表示先补齐回测确认，`manual_review_dynamic_on` 和 `manual_review_required`
-只表示 shadow 数据已经过主要量化门槛；切换 `FUNNEL_DYNAMIC_POLICY=on`
-仍要人工确认多期报告和回测。正式生效以 `formal_dynamic_allowed=true` 为准；
-`formal_dynamic_block_reason=backtest_confirmation_required` 表示缺少结构化回测确认，
-`formal_dynamic_block_reason=manual_review_required` 才表示回测确认后仍在人工复核阶段。
-只读归因任务可通过 `--backtest-confirmation-json` 传入回测确认对象，作为 `promotion_checklist`
-里的结构化证据。
-Backtest Grid 会随 `backtest-market-report-*` artifact 生成 `backtest_confirmation.json`；Signal Feedback
-会自动尝试读取最近成功的 Backtest Grid 确认文件。确认口径偏保守：跨周期现金收益全正才 `pass`，
-存在弱周期全非正则 `fail`，其余保留 `review`。
-手动触发时可填写 `hypothesis_id`；workflow 会额外上传 `research_evidence.json`。本地运行报告脚本且
-对应假设存在于 `wyckoff.db` 时，证据会直接挂入台账；GitHub Actions 无法写入操作者本地 SQLite，
-因此以便携 evidence artifact 保留关联。
-研究台账通过 `evaluate` 生成晋级清单，并通过 `transition` 执行受控状态迁移；普通字段更新不能
-直接修改 status。`testing → validated` 要求最近的跨周期 `backtest` 和参数 `stability` 证据均为
-`pass`，且整个研究生命周期不会自动开启正式交易策略。
-Backtest Grid 同时生成 `parameter_stability.json` 和可移植的 `stability_evidence.json`：以跨周期
-稳健最优参数为锚，只把“同一组合风格、仅一个参数移动到相邻档位”的组合视为邻居；锚点必须完整覆盖
-`recent_6m`、`bull_2020`、`bear_2022` 且全正，至少覆盖 2 个邻居且至少 50% 邻居也满足三周期全正才记为 `pass`。周期或邻居覆盖不足为 `review`，锚点
-失败或稳定邻居不足为 `fail`，避免单点最优直接晋级。
-同一 workflow 还生成 `walk_forward_validation.json`：每个训练区间只选择当期最优持有/退出参数，随后在
-下一个时间区间原样测试，不允许用测试区间重新调参。当前 walk-forward 覆盖持有期与退出参数；SOS、Spring、
-LPS 等触发阈值尚未进入该网格，因此不能宣称这些阈值已完成样本外验证。
-
-回测新开仓默认使用 `--execution-regime-gate live`，与尾盘/OMS 共用市场禁买集合；报告同时记录各水温
-交易日数量、被闸门拦截的信号日和候选数。研究闸门贡献时可显式使用 `off` 作为无执行闸门对照，或用
-`neutral_only` 验证只在 NEUTRAL 主战场开仓；对照模式只用于研究，不改变实盘漏斗。
+A 股主漏斗先写观察样本，盘后 feedback 再计算 outcomes，下一轮漏斗才读取新的 health / registry。
+`off`、`shadow`、`on` 的计算、落库、归因展示、正式晋级和 freshness 规则统一由
+[docs/SIGNAL_FEEDBACK_LOOP.md](docs/SIGNAL_FEEDBACK_LOOP.md) 维护；研究假设与证据门槛统一由
+[docs/ITERATION_STRATEGY.md](docs/ITERATION_STRATEGY.md) 维护。这里仅保留策略边界：Shadow 不改变真实推荐，
+`on` 也不能绕过 `formal_dynamic_allowed`、跨周期回测和人工复核。
 
 ### 外部观察验证
 

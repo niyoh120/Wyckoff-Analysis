@@ -377,35 +377,16 @@ sequenceDiagram
     T2->>OBS: 新一轮观察样本
 ```
 
-### `FUNNEL_DYNAMIC_POLICY` 模式
-
-| 模式 | 行为 |
-|------|------|
-| `off` | 默认静态 Trend / Accum 配额，不读取反馈权重 |
-| `shadow` | 主流程保持静态配额，动态策略读取 health / registry / 归因调权后把差异写入 `signal_policy_shadow_runs` |
-| `on` | 正式使用 `signal_health_daily` 权重、`signal_registry` 启停状态和归因调权 |
-
-归因报告的晋级判断不只看一句 `review_promote_dynamic_policy`。Agent、Web 和 CLI 都应优先读取
-`latest_operator_summary` / `operator_summary`、`latest_policy_display` 与 `latest_execution_summary`：
-`operator_summary` 先给一行运营结论，display 字段给出下一步动作、正式 dynamic 状态和当前生效范围；
-raw `next_action` / `promotion_status` 只用于追证据；`promotion_checklist` 固定检查 shadow 样本、
-shadow 新增表现、scoped 信号调权和回测确认。
-只有这些证据持续通过，才考虑把 `FUNNEL_DYNAMIC_POLICY` 从 `shadow` 切到 `on`。
+本页只保留 feedback 在 A 股执行链中的先后关系。`FUNNEL_DYNAMIC_POLICY` 的三种模式、表字段、归因展示和
+正式晋级条件统一见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)，不在流程图文档重复维护。
 
 ---
 
-## 八、并行下游任务时间线
+## 八、上下游相对顺序
 
-| 时间（北京） | 工作流 | 与漏斗关系 |
-|-------------|--------|-----------|
-| **工作日 08:20** | Codex Automation → `premarket_risk.yml` `workflow_dispatch` | **上游门控**：A50 + VIX → Step4 次日买入权限；GitHub `schedule` 已停用，可手动补跑 |
-| **周日-周四 17:17** | `wyckoff_funnel.yml` | **主漏斗** daily_job Step2→3→4；周日正常为周一实盘准备候选，次日非 A 股交易日才跳过 |
-| **19:25** | `review_list_replay.yml` | 下游：强势股复盘；筛选当日收盘涨幅 > 7% 且前一交易日收盘涨幅 < 3% 的股票 |
-| **21:10 周五** | `theme_radar.yml` | 下游：主线雷达周报（新闻增强） |
-| **23:00 周一-周五** | `recommendation_tracking_reprice.yml` | 下游：复盘重定价 |
-| **次日 06:20 周二-周六** | `db_maintenance.yml` | 下游：清理过期数据 |
-| **23:30 周一-周五** | `signal_feedback.yml` | **下游反馈**：刷新 health / registry |
-| **交易日14:40尾盘** | `tail_buy_1440.yml` | **下游执行**：定时读取 `signal_pending`；pending 默认只观察，只有 `CRASH_LEFT_PROBE` 黄金坑硬条件可例外小仓试探 |
+盘前风险是 Step4 的上游门控；尾盘消费已确认候选；盘后漏斗产出下一交易日观察池；重定价与 feedback
+在漏斗之后更新复盘数据；maintenance 最后清理滑动窗口。具体北京时间、cron 和完整工作流清单只在
+[`ARCHITECTURE.md`](ARCHITECTURE.md#github-actions-主要工作流) 与 `.github/workflows/` 维护。
 
 ---
 

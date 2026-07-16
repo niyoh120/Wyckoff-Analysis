@@ -616,34 +616,10 @@ TTL：SOS 2 天、Spring 3 天、LPS 3 天、EVR 2 天、Compression 3 天。
 
 ## 信号反馈与动态策略闭环
 
-完整说明见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)。核心关系是：漏斗写观察样本，feedback 盘后验收，下一轮漏斗读取新的健康度和 registry。
-
-```mermaid
-flowchart LR
-  A["漏斗本轮运行<br/>Layer1-4 + AI + OMS"] --> B["signal_observations"]
-  B --> C["signal_feedback_job.py<br/>计算 outcomes"]
-  C --> D["signal_health_daily<br/>signal_registry"]
-  D --> E{"FUNNEL_DYNAMIC_POLICY"}
-  E -- "off" --> F["下一轮仍用静态配额"]
-  E -- "shadow" --> G["静态配额出结果<br/>动态配额写 shadow 差异"]
-  E -- "on" --> H["动态配额正式介入"]
-  F --> A
-  G --> A
-  H --> A
-```
-
-| 模式 | 行为 |
-|------|------|
-| `off` | 默认静态 Trend / Accum 配额（NEUTRAL 5/1；RISK_ON 5/1 仅研究，禁止正式执行），不读取反馈权重。 |
-| `shadow` | 主流程保持静态配额，同时把读取 health / registry / 归因调权后的动态策略候选差异写入 `signal_policy_shadow_runs`。 |
-| `on` | 正式使用 `signal_health_daily` 权重、`signal_registry` 启停状态和归因调权。 |
-
-策略归因治理器会同时输出 raw `next_action`、`promotion_status` 和 `promotion_checklist`，也输出
-`latest_policy_display` / `latest_execution_summary` 给 Agent 直接展示。CLI/MCP 的
-`latest_source` 和 `remote_error` 先说明读到的是远端表还是本地 no-write 报告；
-`latest_operator_summary` 给出一行运营结论；`latest_execution_summary` 说明归因调权当前影响尾盘、
-漏斗 shadow 还是正式漏斗；raw `next_action` / `promotion_status` 只用于追证据；
-`promotion_checklist` 则把样本量、shadow 新增表现、scoped 信号调权和回测确认拆成结构化证据。
+漏斗写 `signal_observations`，盘后 feedback 写 outcomes / health / registry，下一轮漏斗再读取新状态。
+架构层只保证这是错峰反馈而非同任务同步调用；`off / shadow / on` 的字段、归因展示、freshness 和晋级
+规则统一见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)，研究证据门槛见
+[`ITERATION_STRATEGY.md`](ITERATION_STRATEGY.md)。
 
 ## 尾盘策略
 
