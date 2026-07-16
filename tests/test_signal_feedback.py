@@ -1084,3 +1084,73 @@ def test_build_signal_registry_updates_includes_regime_rows():
     assert "RISK_ON" in regimes
     regime_row = next(r for r in updates if r["regime"] == "RISK_ON")
     assert regime_row["weight_multiplier"] == 1.0
+
+
+def test_fetch_history_returns_empty_on_delisted_stock(monkeypatch):
+    """退市/停牌股 fetch_stock_hist 抛出 RuntimeError 时，_fetch_history 应返回空 DataFrame 而非崩溃。"""
+    from integrations import data_source
+    from workflows import signal_feedback_job as job
+
+    def _boom(symbol, start, end, adjust="qfq"):
+        raise RuntimeError(f"数据拉取全线失败 [标:{symbol}]")
+
+    monkeypatch.setattr(data_source, "fetch_stock_hist", _boom)
+
+    obs = {"market": "cn", "code": "920367", "trade_date": "2024-01-15"}
+    result = job._fetch_history(obs, "2024-03-01", 10)
+
+    assert result.empty
+
+
+def test_refresh_outcomes_skips_delisted_without_crash(monkeypatch):
+    """refresh_outcomes 遇到退市股应跳过并正常结算剩余标的。"""
+    from integrations import data_source
+    from workflows import signal_feedback_job as job
+
+    good_hist = pd.DataFrame(
+        {
+            "date": pd.bdate_range("2024-01-01", periods=4).astype(str),
+            "close": [10, 11, 12, 13],
+            "low": [9, 10.5, 11.5, 12],
+        }
+    )
+    fetch_calls = 0
+
+    def _fetch_side_effect(symbol, start, end, adjust="qfq"):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        if symbol == "920367":
+            raise RuntimeError("数据拉取全线失败 [标:920367]")
+        return good_hist
+
+    good_obs = {
+        "id": 1,
+        "market": "cn",
+        "trade_date": "2024-01-02",
+        "code": "000001",
+        "signal_type": "sos",
+        "track": "Trend",
+        "regime": "NEUTRAL",
+        "entry_price": 11,
+    }
+    bad_obs = {
+        "id": 2,
+        "market": "cn",
+        "trade_date": "2024-01-02",
+        "code": "920367",
+        "signal_type": "spring",
+        "track": "Accum",
+        "regime": "NEUTRAL",
+        "entry_price": 5,
+    }
+
+    monkeypatch.setattr(data_source, "fetch_stock_hist", _fetch_side_effect)
+    monkeypatch.setattr(job, "load_recent_signal_observations", lambda *_a, **_k: [good_obs, bad_obs])
+    monkeypatch.setattr(job, "load_pending_outcome_observation_ids", lambda *_a, **_k: [])
+    monkeypatch.setattr(job, "upsert_signal_outcomes", lambda rows: len(rows))
+
+    log_lines: list[str] = []
+    written = job.refresh_outcomes(job.SignalFeedbackConfig(end_date="2024-03-01"), log_fn=log_lines.append)
+
+    assert written > 0
+    assert any("skipped=1" in line for line in log_lines)

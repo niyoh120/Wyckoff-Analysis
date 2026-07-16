@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -22,6 +23,8 @@ from integrations.supabase_signal_feedback import (
     upsert_signal_outcomes,
     upsert_signal_registry,
 )
+
+_logger = logging.getLogger(__name__)
 
 _COLUMN_MAP = {"日期": "date", "收盘": "close", "最低": "low"}
 LogFn = Callable[[str], None]
@@ -65,13 +68,18 @@ def refresh_outcomes(config: SignalFeedbackConfig, log_fn: LogFn = print) -> int
     observations = _observations_to_settle(config)
     cache: dict[tuple[str, str, str], pd.DataFrame] = {}
     rows: list[dict[str, Any]] = []
+    skipped = 0
     for obs in observations:
         cache_key = _observation_cache_key(obs, config.market)
         if cache_key not in cache:
             cache[cache_key] = _fetch_history(obs, config.end_date, config.pre_days)
+        if cache[cache_key].empty:
+            skipped += 1
         rows.extend(_outcome_rows(obs, cache[cache_key], config.horizons))
     written = upsert_signal_outcomes(rows)
-    log_fn(f"[signal_feedback] outcomes: observations={len(observations)}, rows={len(rows)}, written={written}")
+    log_fn(
+        f"[signal_feedback] outcomes: observations={len(observations)}, rows={len(rows)}, skipped={skipped}, written={written}"
+    )
     return written
 
 
@@ -130,8 +138,13 @@ def _fetch_history(obs: dict[str, Any], end_date: str, pre_days: int) -> pd.Data
         return pd.DataFrame()
     from integrations.data_source import fetch_stock_hist
 
+    code = str(obs.get("code") or "")
     start_date = _date_minus(obs.get("trade_date"), pre_days)
-    raw = fetch_stock_hist(str(obs.get("code") or ""), start_date, end_date, adjust="qfq")
+    try:
+        raw = fetch_stock_hist(code, start_date, end_date, adjust="qfq")
+    except RuntimeError:
+        _logger.info("skip delisted/suspended: code=%s, range=%s..%s", code, start_date, end_date)
+        return pd.DataFrame()
     return _normalize_history(raw)
 
 
