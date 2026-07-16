@@ -3,10 +3,27 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from workflows.backtest import BacktestWorkflowRequest, run_backtest_request
 from workflows.backtest_data import BacktestHistory, BacktestMetadata, BacktestUniverse
 from workflows.strategy_attribution_policy import AttributionPolicySnapshot
+
+
+def _base_request(**overrides) -> BacktestWorkflowRequest:
+    values = dict(
+        start_dt=date(2026, 1, 1),
+        end_dt=date(2026, 1, 31),
+        hold_days=5,
+        top_n=0,
+        board="all",
+        sample_size=0,
+        trading_days=320,
+        max_workers=1,
+        exit_mode="atr",
+    )
+    values.update(overrides)
+    return BacktestWorkflowRequest(**values)
 
 
 def test_run_backtest_workflow_builds_context_without_network(monkeypatch) -> None:
@@ -129,3 +146,23 @@ def test_backtest_signal_weight_map_matches_funnel_policy_gate(monkeypatch) -> N
     assert meta["report_date"] == "2026-07-04"
     assert meta["active_scope"] == "尾盘+正式漏斗"
     assert backtest._signal_weight_map_from_env() == {"sos": 1.15}
+
+
+def test_shared_request_key_ignores_atr_params_for_signal_reuse() -> None:
+    import workflows.backtest as backtest
+
+    baseline = _base_request(atr_multiplier=2.0, atr_hard_stop_pct=-12.0, atr_period=14)
+    grid_variant = _base_request(atr_multiplier=4.0, atr_hard_stop_pct=-18.0, atr_period=20)
+
+    assert backtest._shared_request_key(baseline) == backtest._shared_request_key(grid_variant)
+    backtest._validate_shared_signal_suite([baseline, grid_variant])
+
+
+def test_validate_shared_signal_suite_rejects_non_exit_param_changes() -> None:
+    import workflows.backtest as backtest
+
+    baseline = _base_request(board="all")
+    mismatched = _base_request(board="main")
+
+    with pytest.raises(ValueError, match="复用信号台账"):
+        backtest._validate_shared_signal_suite([baseline, mismatched])

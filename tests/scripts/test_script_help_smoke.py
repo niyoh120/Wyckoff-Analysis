@@ -53,8 +53,11 @@ def test_script_help_renders(script: str) -> None:
 
 
 def test_review_list_replay_entrypoint_imports() -> None:
+    # scripts/_bootstrap.py 会 load_dotenv(override=False)：单纯 pop 掉环境变量后，
+    # 子进程会从仓库 .env 兜底加载回真实值，无法触发"未配置"快速失败分支。
+    # 显式设为空字符串——变量"存在但为空"，load_dotenv 不会覆盖，还原测试意图。
     env = os.environ.copy()
-    env.pop("FEISHU_WEBHOOK_URL", None)
+    env["FEISHU_WEBHOOK_URL"] = ""
     proc = subprocess.run(
         [sys.executable, "scripts/review_list_replay.py"],
         cwd=ROOT,

@@ -179,6 +179,9 @@ def _shared_request_key(request: BacktestWorkflowRequest) -> tuple:
         "trailing_stop_pct",
         "trailing_activate_pct",
         "sltp_priority",
+        "atr_period",
+        "atr_multiplier",
+        "atr_hard_stop_pct",
     }
     return tuple((name, value) for name, value in vars(request).items() if name not in ignored)
 
