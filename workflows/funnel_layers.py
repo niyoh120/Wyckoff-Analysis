@@ -225,12 +225,14 @@ def _run_sector_layer(
     benchmark_context: dict | None = None,
 ) -> tuple[list[str], list[str], dict]:
     etf_codes = set(etf_sector_map)
+    layer3_sector_map = {**ref_data.sector_map, **etf_sector_map}
+    layer3_df_map = {**all_df_map, **etf_df_map}
     l3_raw, top_sectors = layer3_sector_resonance(
         l2_passed + etf_l2_passed,
-        ref_data.sector_map,
+        layer3_sector_map,
         cfg,
         base_symbols=l1_passed + list(etf_codes & set(etf_df_map)),
-        df_map=all_df_map,
+        df_map=layer3_df_map,
         concept_map=ref_data.concept_map,
         hot_concepts=list(dict.fromkeys([*ref_data.hot_concepts, *activity_hot_concepts])),
     )

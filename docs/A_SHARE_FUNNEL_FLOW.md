@@ -208,6 +208,10 @@ flowchart TD
     R16 -->|覆盖不足| R17 --> R13
 ```
 
+ETF 增强数据保持为独立旁路：ETF 只在 L3 行业/主题共振计算时临时并入局部输入，不写回 A 股
+`all_df_map` 或 `sector_map`。因此市场广度、RPS、资金流和股票候选排序始终只使用 A 股股票池，避免
+ETF 行情重复进入全市场统计；ETF 候选仍可通过 L3 共振进入后续专用展示。
+
 ### 正式候选来源
 
 | 来源 | 进入条件 | 是否可直接买 |
@@ -378,6 +382,10 @@ sequenceDiagram
     T2->>REG: 过滤失效信号类型
     T2->>OBS: 新一轮观察样本
 ```
+
+`signal_pending` 的幂等键按 `signal_date + code + signal_type` 判断。当天已有任意状态的同一信号时，重复执行
+漏斗不会再写 pending；历史交易日仍为 pending 的同类信号则不会吞掉当天的新观察，跨日确认链因此保留
+完整日期语义。
 
 本页只保留 feedback 在 A 股执行链中的先后关系。`FUNNEL_DYNAMIC_POLICY` 的三种模式、表字段、归因展示和
 正式晋级条件统一见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)，不在流程图文档重复维护。

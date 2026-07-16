@@ -8,8 +8,11 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from time import monotonic
 
+import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
+from core._price_math import DATE_SORTED_ATTR
 from core.ai_candidate_allocation import AiCandidateAllocationConfig
 from core.backtest_crash_probe import (
     CrashProbeObservation,
@@ -38,6 +41,7 @@ logger = logging.getLogger(__name__)
 ProgressReporter = Callable[[str, str, float], None]
 MarketBreadthCalculator = Callable[[dict[str, pd.DataFrame]], dict]
 MarketRegimeAnalyzer = Callable[..., dict]
+HistoryEndPositions = dict[str, NDArray[np.intp]]
 
 
 def analyze_benchmark_and_tune_cfg(
@@ -238,9 +242,19 @@ def build_signal_ledger(
     limit = max_idx if max_idx is not None else len(trade_dates) - 2
     started_at = monotonic()
     selected_total = 0
+    history_end_positions = _build_history_end_positions(all_df_map, trade_dates)
     for idx in range(limit):
         ctx = _build_day_context(
-            idx, all_df_map, bench_df, trade_dates, name_map, market_cap_map, sector_map, base_cfg, config
+            idx,
+            all_df_map,
+            bench_df,
+            trade_dates,
+            name_map,
+            market_cap_map,
+            sector_map,
+            base_cfg,
+            config,
+            history_end_positions,
         )
         if ctx is None:
             continue
@@ -385,10 +399,18 @@ def _build_day_context(
     sector_map: dict[str, str],
     base_cfg: FunnelConfig,
     config: BacktestReplayConfig,
+    history_end_positions: HistoryEndPositions,
 ) -> _DayContext | None:
     signal_date = trade_dates[idx]
-    day_df_map = _day_df_map(all_df_map, signal_date, config.trading_days, base_cfg.ma_long)
-    bench_slice = bench_df[bench_df["date"] <= signal_date].tail(config.trading_days)
+    day_df_map = _day_df_map(
+        all_df_map,
+        signal_date,
+        config.trading_days,
+        base_cfg.ma_long,
+        date_index=idx,
+        history_end_positions=history_end_positions,
+    )
+    bench_slice = _history_tail(bench_df, signal_date, config.trading_days)
     if not day_df_map or len(bench_slice) < base_cfg.ma_long:
         return None
     day_cfg = replace(base_cfg)
@@ -433,20 +455,42 @@ def _day_df_map(
     signal_date: date,
     trading_days: int,
     min_rows: int,
+    *,
+    date_index: int | None = None,
+    history_end_positions: HistoryEndPositions | None = None,
 ) -> dict[str, pd.DataFrame]:
     out: dict[str, pd.DataFrame] = {}
     for code, df in all_df_map.items():
-        tail = _history_tail(df, signal_date, trading_days)
+        positions = (history_end_positions or {}).get(code)
+        if positions is not None and date_index is not None:
+            tail = _history_tail_at(df, int(positions[date_index]), trading_days)
+        else:
+            tail = _history_tail(df, signal_date, trading_days)
         if len(tail) >= min_rows:
             out[code] = tail
     return out
+
+
+def _build_history_end_positions(all_df_map: dict[str, pd.DataFrame], trade_dates: list[date]) -> HistoryEndPositions:
+    positions: HistoryEndPositions = {}
+    for code, df in all_df_map.items():
+        if df is None or df.empty or "date" not in df.columns or not df["date"].is_monotonic_increasing:
+            continue
+        positions[code] = df["date"].searchsorted(trade_dates, side="right")
+    return positions
+
+
+def _history_tail_at(df: pd.DataFrame, end: int, trading_days: int) -> pd.DataFrame:
+    tail = df.iloc[max(0, end - trading_days) : end]
+    tail.attrs[DATE_SORTED_ATTR] = True
+    return tail
 
 
 def _history_tail(df: pd.DataFrame, signal_date: date, trading_days: int) -> pd.DataFrame:
     dates = df["date"]
     if dates.is_monotonic_increasing:
         end = int(dates.searchsorted(signal_date, side="right"))
-        return df.iloc[max(0, end - trading_days) : end]
+        return _history_tail_at(df, end, trading_days)
     return df[df["date"] <= signal_date].tail(trading_days)
 
 

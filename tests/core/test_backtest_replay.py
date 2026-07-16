@@ -135,6 +135,26 @@ def test_replay_progress_reports_elapsed_and_eta(monkeypatch, caplog) -> None:
     assert "elapsed=30m, eta=2h00m" in caplog.text
 
 
+def test_history_end_positions_match_direct_slices() -> None:
+    histories = {"000001": _hist(), "000002": _hist().copy()}
+    trade_dates = [date(2026, 1, day) for day in range(1, 6)]
+    positions = replay_mod._build_history_end_positions(histories, trade_dates)
+
+    for idx, signal_date in enumerate(trade_dates):
+        indexed = replay_mod._day_df_map(
+            histories,
+            signal_date,
+            3,
+            1,
+            date_index=idx,
+            history_end_positions=positions,
+        )
+        direct = replay_mod._day_df_map(histories, signal_date, 3, 1)
+        for code in histories:
+            pd.testing.assert_frame_equal(indexed[code], direct[code])
+            assert indexed[code].attrs["_wyckoff_date_sorted"] is True
+
+
 def test_shared_signal_ledger_matches_independent_replays(monkeypatch) -> None:
     monkeypatch.setattr("core.backtest_replay.calc_market_breadth", lambda _df_map: {})
     monkeypatch.setattr(

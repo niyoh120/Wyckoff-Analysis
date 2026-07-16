@@ -11,10 +11,13 @@ import logging
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+DATE_SORTED_ATTR = "_wyckoff_date_sorted"
 
 
 def sort_by_date_if_needed(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty or "date" not in df.columns:
+        return df
+    if df.attrs.get(DATE_SORTED_ATTR) is True:
         return df
     try:
         if df["date"].is_monotonic_increasing:

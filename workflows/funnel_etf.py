@@ -23,8 +23,6 @@ def run_etf_enhancement(
     base_cfg: FunnelConfig,
     window,
     bench_df: pd.DataFrame | None,
-    sector_map: dict[str, str],
-    all_df_map: dict[str, pd.DataFrame],
     *,
     direct_source: bool = False,
 ) -> tuple[list[str], dict[str, str], dict[str, pd.DataFrame], list[str], list[dict]]:
@@ -36,9 +34,6 @@ def run_etf_enhancement(
         runtime_config=fetch_runtime_config_from_env(),
     )
     etf_l2_passed, etf_candidates = rank_fetched_etfs(base_cfg, bench_df, etf_df_map, etf_sector_map)
-    if etf_df_map:
-        sector_map.update(etf_sector_map)
-        all_df_map.update(etf_df_map)
     _log_etf_summary(etf_df_map, etf_l2_passed)
     return etf_symbols, etf_sector_map, etf_df_map, etf_l2_passed, etf_candidates
 

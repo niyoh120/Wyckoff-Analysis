@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 
 from core._price_math import (
@@ -10,6 +12,7 @@ from core._price_math import (
     numeric_column,
     range_pos,
     ret_pct,
+    sort_by_date_if_needed,
     swing_values,
     to_numeric,
     upper_shadow_pct,
@@ -42,6 +45,16 @@ def test_range_pos_computes_relative_position():
 def test_range_pos_returns_midpoint_when_range_is_empty_or_inverted():
     assert range_pos(5.0, 10.0, 10.0) == 0.5
     assert range_pos(5.0, 20.0, 10.0) == 0.5
+
+
+def test_sort_by_date_honors_explicit_sorted_marker():
+    frame = pd.DataFrame({"date": [date(2026, 1, 2), date(2026, 1, 1)], "close": [2.0, 1.0]})
+
+    sorted_frame = sort_by_date_if_needed(frame)
+
+    assert sorted_frame["close"].tolist() == [1.0, 2.0]
+    frame.attrs["_wyckoff_date_sorted"] = True
+    assert sort_by_date_if_needed(frame) is frame
 
 
 def test_to_numeric_coerces_invalid_values_to_nan():

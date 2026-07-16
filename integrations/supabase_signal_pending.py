@@ -25,9 +25,19 @@ def insert_pending_signal_rows(rows: list[dict[str, Any]]) -> int:
 
     try:
         client = _admin()
-        existing = client.table(TABLE_SIGNAL_PENDING).select("code,signal_type").eq("status", "pending").execute()
-        existing_keys = {(int(r["code"]), r["signal_type"]) for r in (existing.data or [])}
-        to_insert = [row for row in rows if (int(row["code"]), row["signal_type"]) not in existing_keys]
+        signal_dates = sorted({str(row.get("signal_date") or "") for row in rows if row.get("signal_date")})
+        query = client.table(TABLE_SIGNAL_PENDING).select("code,signal_type,signal_date")
+        if signal_dates:
+            query = query.in_("signal_date", signal_dates)
+        existing = query.execute()
+        existing_keys = {
+            (int(r["code"]), r["signal_type"], str(r.get("signal_date") or "")) for r in (existing.data or [])
+        }
+        to_insert = [
+            row
+            for row in rows
+            if (int(row["code"]), row["signal_type"], str(row.get("signal_date") or "")) not in existing_keys
+        ]
         if not to_insert:
             logger.info("%s pending signals already exist; skipped", len(rows))
             return 0

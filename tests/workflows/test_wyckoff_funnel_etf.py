@@ -294,7 +294,7 @@ def test_fetch_etf_ohlcv_skips_without_data_source(monkeypatch):
     assert fetch_etf_ohlcv(["512480"], SimpleNamespace()) == {}
 
 
-def test_run_etf_enhancement_updates_maps(monkeypatch):
+def test_run_etf_enhancement_keeps_a_share_maps_isolated(monkeypatch):
     df_map = {"512480": _frame(1.0, 280.0)}
     sector_map: dict[str, str] = {}
     all_df_map: dict[str, pd.DataFrame] = {}
@@ -305,17 +305,15 @@ def test_run_etf_enhancement_updates_maps(monkeypatch):
         etf_workflow, "layer2_strength_detailed", lambda *_args, **_kwargs: (["512480"], {"512480": "主升通道"}, [])
     )
 
-    syms, sectors, fetched, l2_passed, candidates = run_etf_enhancement(
-        funnel.FunnelConfig(), SimpleNamespace(), None, sector_map, all_df_map
-    )
+    syms, sectors, fetched, l2_passed, candidates = run_etf_enhancement(funnel.FunnelConfig(), SimpleNamespace(), None)
 
     assert syms == ["512480"]
     assert sectors == {"512480": "半导体"}
     assert fetched == df_map
     assert l2_passed == ["512480"]
     assert candidates[0]["code"] == "512480"
-    assert sector_map == {"512480": "半导体"}
-    assert all_df_map == df_map
+    assert sector_map == {}
+    assert all_df_map == {}
 
 
 def test_append_formal_l4_sections_renders_all_hits_and_marks_ai():
