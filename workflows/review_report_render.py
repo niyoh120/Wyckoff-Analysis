@@ -98,7 +98,7 @@ def _candidate_hit_focus(rows: list[dict[str, str]]) -> list[str]:
     if not rows:
         return []
     return [
-        f"- **候选池已捕获**：{short_code_list(rows)}。这些票已进入前一日多路候选池，后续重点核对 AI 配额、尾盘确认和风控是否挡住。"
+        f"- **候选池已捕获**：{short_code_list(rows)}。这些票已进入前一日多路候选池，后续重点核对 AI 配额、跨日 confirmed 和 OMS 风控是否挡住。"
     ]
 
 

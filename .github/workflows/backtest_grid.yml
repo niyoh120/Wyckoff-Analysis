@@ -24,7 +24,7 @@ on:
         required: false
         default: ""
       entry_price_mode:
-        description: "入场成交价：open=T+1开盘（验证最优，默认）；close=T+1收盘；tail_1455=T+1 14:55分钟线价"
+        description: "入场成交价：open=T+1开盘（当前默认）；close=T+1收盘；tail_1455=T+1 14:55分钟线价"
         required: true
         type: choice
         options:

@@ -79,7 +79,7 @@ AI Agent 대화, 포트폴리오 관리, 퍼널 스크리닝, 추천 추적, 데
 | AI 3진영 리포트 | 논리 파산 / 비축 진영 / 도약대, LLM이 독립적으로 판단 |
 | 포트폴리오 진단 | 일괄 건강 검진: 이동평균 구조, 매집 단계, 트리거 시그널, 손절 상태 |
 | 개인 리밸런싱 | 보유 종목 + 후보를 종합하여 EXIT/TRIM/HOLD/PROBE/ATTACK 지시 출력, Telegram 푸시 |
-| 장 마감 매수 전략 | 거래일 14:40에 정기 실행하고 수동 보완도 지원, 규칙 점수 + LLM 재평가로 진입 대상 선별 |
+| 익일 시가 실행 | 거래일 간 확인 후 승인된 후보를 LLM과 OMS가 재검토하고 익일 시가 부근에서 실행; 독립된 장중 작업 없음 |
 | 시그널 확인 풀 | L4 트리거 시그널이 1-3일 가격 확인 후에만 실행 가능 |
 | 추천 추적 | 과거 추천 종목의 종가 자동 동기화, 누적 수익률 계산 |
 | 일봉 백테스트 | 퍼널 적중 후 N일 수익률 재생, 승률/Sharpe/최대 낙폭 출력 |
@@ -206,7 +206,7 @@ Web App: **[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
 | `screen_stocks` | 메인라인 퍼널 전체 시장 스크리닝 (⚡백그라운드) |
 | `generate_ai_report` | 3진영 AI 심층 리포트 (⚡백그라운드) |
 | `generate_strategy_decision` | 보유 종목 유지/매도 + 신규 매수 의사결정 (⚡백그라운드) |
-| `query_history` | 과거 추천 / 시그널 풀 / 장 마감 매수 이력 조회 |
+| `query_history` | 과거 추천 / 시그널 풀 / 귀속 및 컨텍스트 아카이브 조회 |
 | `run_backtest` | 퍼널 전략 과거 백테스트 (⚡백그라운드) |
 | `check_background_tasks` | 백그라운드 작업 진행 조회 |
 | `exec_command` | 로컬 셸 명령 실행 |
@@ -225,10 +225,10 @@ Web App: **[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
 | Mainline | 테마 엔진 | 컨셉 열기, 테마 레이더, 재무 품질, 타이밍 게이트로 메인라인 후보 식별 |
 | L3 | 섹터/컨셉 공명 | 약한 섹터를 걸러내고 강한 개별주와 확인된 테마는 고정 Top-N 제한을 우회 |
 | L4 | 미시 저격 | Spring / LPS / SOS / EVR / Compression / Trend Pullback |
-| L5 | AI + OMS 심판 | LLM 검토, 시그널 확인, 장 마감 확인, OMS 리스크 게이트를 통과해야 실행 |
+| L5 | AI + OMS 심판 | LLM 검토, 거래일 간 확인, OMS 리스크 게이트를 통과해야 실행 |
 
 
-**운용:** 일일 퍼널=후보+환경, 테일=confirmed 후 **BUY**만. NEUTRAL 주전장, RISK_ON 신규 금지. 상세 [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
+**운용:** 일일 퍼널=후보+환경, **confirmed** 신호만 익일 시가 부근의 매수 후보로 진행합니다. NEUTRAL 주전장, RISK_ON 신규 금지. 상세 [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
 
 ## 일일 자동화
 
@@ -237,7 +237,7 @@ GitHub Actions와 Codex Automation 기반 일일 자동화:
 | 작업 | 시간 (베이징) | 설명 |
 |------|--------------|------|
 | 퍼널 스크리닝 + AI 리포트 + 개인 결정 | 일-목 17:17 | 완전 자동, Feishu/Telegram 푸시 |
-| 장 마감 매수 전략 | 월-금 14:40 / 수동 보완 | 규칙 점수 + LLM 재평가 |
+| 확인 + 익일 시가 | `confirmed` 이후 일일 흐름 | LLM 재평가 + OMS 게이트; 독립 장중 작업 없음 |
 | 장전 리스크 관리 | 월-금 08:20 | Codex Automation이 GitHub workflow를 실행; A50 + VIX 경보 |
 | 강세주 복기 | 월-금 19:25 | 당일 종가 상승률 > 7%, 전 거래일 종가 상승률 < 3% 종목 복기 |
 | 추천 추적 가격 갱신 | 월-금 23:00 | 종가 동기화 |

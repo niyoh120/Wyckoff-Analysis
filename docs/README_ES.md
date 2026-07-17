@@ -79,7 +79,7 @@ SPA moderna con chat de AI Agent, gestion de cartera, screener de embudo, seguim
 | Reporte IA de 3 campamentos | Logica rota / Reserva / Plataforma de despegue — el LLM clasifica de forma independiente |
 | Diagnostico de cartera | Escaneo masivo: estructura de medias moviles, fase de acumulacion, senales de activacion, estado de stop-loss |
 | Rebalanceo privado | Combina posiciones + candidatas y emite ordenes EXIT / TRIM / HOLD / PROBE / ATTACK, con push a Telegram |
-| Estrategia de compra al cierre | Se ejecuta a las 14:40 en dias bursatiles y admite ejecucion manual; puntuacion por reglas + revision LLM |
+| Ejecucion en la apertura siguiente | Tras la confirmacion entre sesiones, las candidatas aprobadas pasan por revision LLM y OMS antes de operar cerca de la apertura siguiente; no hay una tarea intradia independiente |
 | Confirmacion de senales | Las senales L4 pasan por 1-3 dias de confirmacion de precio antes de ser accionables |
 | Seguimiento de recomendaciones | Sincroniza automaticamente el precio de cierre y calcula el rendimiento acumulado |
 | Backtesting | Simula rendimiento a N dias tras el filtrado del embudo: tasa de aciertos, Sharpe, drawdown maximo |
@@ -206,7 +206,7 @@ Arsenal del agente — 10 herramientas cuantitativas + 5 capacidades generales:
 | `screen_stocks` | Filtrado del mercado completo con embudo de linea principal (⚡segundo plano) |
 | `generate_ai_report` | Reporte IA profundo en 3 campamentos (⚡segundo plano) |
 | `generate_strategy_decision` | Decision de permanencia / entrada en posiciones (⚡segundo plano) |
-| `query_history` | Historial de recomendaciones / pool de senales / registros de compra al cierre |
+| `query_history` | Historial de recomendaciones / pool de senales / atribucion y archivos de contexto |
 | `run_backtest` | Backtest historico de la estrategia de embudo (⚡segundo plano) |
 | `check_background_tasks` | Consultar progreso de tareas en segundo plano |
 | `exec_command` | Ejecutar comandos de shell locales |
@@ -225,10 +225,10 @@ El orden y la frecuencia de las llamadas los decide el LLM en tiempo real, sin o
 | Mainline | Motor tematico | Calor de conceptos, radar tematico, calidad financiera y timing para detectar candidatas de linea principal |
 | L3 | Resonancia sectorial y conceptual | Filtra sectores debiles y permite excepciones para acciones fuertes y temas confirmados |
 | L4 | Micro-disparo | Spring / LPS / SOS / EVR / Compression / Retroceso de tendencia |
-| L5 | IA + OMS | Revision LLM, confirmacion de senales, confirmacion de cierre y compuertas de riesgo OMS |
+| L5 | IA + OMS | Revision LLM, confirmacion entre sesiones y compuertas de riesgo OMS |
 
 
-**Cómo operar:** embudo diario = candidatos + régimen; cola = solo **BUY** tras confirmed. NEUTRAL principal; **RISK_ON bloquea entradas nuevas**. Ver [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
+**Cómo operar:** embudo diario = candidatos + régimen; solo las senales **confirmed** pueden pasar a compra cerca de la apertura siguiente. NEUTRAL principal; **RISK_ON bloquea entradas nuevas**. Ver [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
 
 ## Automatizacion diaria
 
@@ -237,7 +237,7 @@ Automatizaciones diarias con GitHub Actions y Codex Automation:
 | Tarea | Hora (Beijing) | Descripcion |
 |-------|---------------|-------------|
 | Embudo + Reporte IA + Rebalanceo | Dom-Jue 17:17 | Totalmente automatico; resultados enviados a Feishu / Telegram |
-| Estrategia de compra al cierre | Lun-Vie 14:40 / ejecucion manual alternativa | Puntuacion por reglas + revision LLM |
+| Confirmacion y apertura siguiente | Flujo diario, despues de `confirmed` | Revision LLM + compuertas OMS; sin tarea intradia independiente |
 | Riesgo pre-mercado | Lun-Vie 08:20 | Codex Automation activa el workflow de GitHub; alerta A50 + VIX |
 | Revision de movimientos fuertes | Lun-Vie 19:25 | Cierre de hoy > 7 % y cierre de la sesion anterior < 3 % |
 | Repricing de recomendaciones | Lun-Vie 23:00 | Sincroniza precios de cierre |

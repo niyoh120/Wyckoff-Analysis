@@ -282,6 +282,6 @@
 ## 口径说明
 
 - 胜率是单笔交易 `ret_pct > 0` 的比例，不是组合每日正收益比例。
-- 入场口径以各参数单元 summary 为准；当前 workflow 默认 T+1 收盘价近似尾盘执行，`tail_1455` 模式缺分钟线时按 `BACKTEST_ENTRY_PRICE_FALLBACK` 处理。
+- 入场和确认口径以各参数单元 summary 为准；本报告不能证明某种 `entry_price_mode` 在 `pending_mode=only` 下最优，`tail_1455` 缺分钟线时按 `BACKTEST_ENTRY_PRICE_FALLBACK` 处理。
 - `可完整验证信号期` 会早于回测结束日，因为持有窗口需要足够后续交易日完成离场验证。
 - 本结果仍包含当前股票池幸存者偏差；正式回测默认关闭当前截面元数据，只有显式启用 `--use-current-meta` 的探索运行才会引入相应前视偏差。

@@ -340,7 +340,7 @@ flowchart TD
 
 ## 六、次日开盘执行与持仓诊断（与日漏斗串联）
 
-回测数据证实次日开盘价入场优于分时尾盘择时，`entry_price_mode=open` 已是生产默认口径；信号确认口径 `pending_mode=only`（仅用跨日 confirmed 信号）与实盘 Step4 `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` 严格对齐——`off`/`both` 仅作为跳过或放宽确认门槛的研究对照，不代表实盘可执行表现。漏斗候选行直接展示现价、参考止损位（`core/signal_confirmation.compute_support_level`）和“按次日开盘价附近买入”提示，不再需要独立的盘中择时任务。
+`entry_price_mode=open` 是当前生产候选默认口径；信号确认口径 `pending_mode=only`（仅用跨日 confirmed 信号）与实盘 Step4 `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` 严格对齐。`off`/`both` 仅作为跳过或放宽确认门槛的研究对照，不代表实盘可执行表现；`open`、`close` 和 `tail_1455` 也必须在相同 confirmed-only 门槛下完成对照后，才能宣称某种入场口径更优。漏斗候选行直接展示现价、参考止损位（`core/signal_confirmation.compute_support_level`）和“按次日开盘价附近买入”提示，不再需要独立的盘中择时任务。
 
 | 项 | 说明 |
 |----|------|
