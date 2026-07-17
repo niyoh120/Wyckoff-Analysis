@@ -394,7 +394,7 @@ TUI 启动时自动执行 `prune_memories()`，按类型清理旧记忆：L1 `de
 - 不要推荐 ST 股
 
 # 交易剧本
-- #18 [2026-05-15] 尾盘二次确认买入：适用已确认候选；动作是 14:45 后检查 VWAP、确认支撑和收位；硬性禁忌是跌破确认支撑或极端放量冲高回落。同日 SOS/JAC 突破不把突破前仍在原阻力下方的低点误判为跌破支撑。
+- #18 [2026-05-15] 跨日确认买入：适用已 confirmed 候选；动作是次日开盘价附近买入前复核支撑和收位；硬性禁忌是跌破确认支撑或极端放量冲高回落。同日 SOS/JAC 突破不把突破前仍在原阻力下方的低点误判为跌破支撑。
 
 # 历史记忆
 - #12 [2026-05-15] 用户不希望消息面短线噪声替代可持续主线判断 | 源:chat_log:abc123
@@ -553,7 +553,6 @@ CREATE TABLE chat_log (
 | `agent_memory` | 跨会话 Agent 记忆 |
 | `sync_meta` | 同步元数据（每表最后同步时间） |
 | `chat_log` | 对话日志（用户输入 + LLM 输出 + token + metadata） |
-| `tail_buy_history` | （历史保留）尾盘策略执行历史；该模块已下线，表仅作历史查询 |
 | `background_task_result` | 后台任务结果缓存 |
 | `research_hypothesis` | 策略研究假设、失效条件与生命周期状态 |
 | `research_evidence` | 假设关联的回测、归因、shadow、报告和观察证据 |
@@ -607,7 +606,7 @@ shadow 输出进入漏斗 metrics 供归因使用，但不写入正式 `triggers
 `core/signal_confirmation.py`，L4 信号经 1-3 天价格确认：
 
 ```
-pending ──(价格确认)──→ confirmed（研究确认，仍需尾盘 BUY 与市场闸门）
+pending ──(价格确认)──→ confirmed（研究确认，仍需次日开盘价买入与市场闸门）
    └──(超时)──→ expired（失效）
 ```
 
@@ -632,7 +631,7 @@ TTL：SOS 2 天、Spring 3 天、LPS 3 天、EVR 2 天、Compression 3 天。
 
 ### 飞书报告卡片
 
-所有调用 `send_feishu_notification()` 的 Markdown 报告统一经过 `utils/feishu_report_card.py`：自动选择语义标题色、提取摘要区、按标题拆分段落、突出风险提示，并使用宽屏卡片。尾盘与回测继续使用各自的专用指标卡片；新版通用布局若被飞书拒绝，会自动回退到原单块 Markdown 卡片，避免样式升级影响定时通知可靠性。
+所有调用 `send_feishu_notification()` 的 Markdown 报告统一经过 `utils/feishu_report_card.py`：自动选择语义标题色、提取摘要区、按标题拆分段落、突出风险提示，并使用宽屏卡片。回测继续使用 `utils/feishu_backtest_card.py` 专用指标卡片；新版通用布局若被飞书拒绝，会自动回退到原单块 Markdown 卡片，避免样式升级影响定时通知可靠性。
 
 ### GitHub Actions 主要工作流
 
@@ -677,7 +676,7 @@ tickflow(★) → tushare → akshare → baostock → efinance   （A 股日线
 tickflow                                        （港股 / 美股日线、实时行情、分钟 K 线）
 tushare → akshare + 本地 24h 缓存              （A 股股票列表，代码⇄名字映射）
 data/market_universes/*.json                    （A 股 / 港股 / 美股 / ETF universe 与名称检索）
-tickflow                                        （1 分钟盘中数据，尾盘策略专用）
+tickflow                                        （1 分钟盘中数据，供个股盘中分析使用）
 ```
 
 日线行情通过统一仓库层 `integrations/stock_hist_repository.py` 直接从数据源拉取（TickFlow 优先，降级 tushare/akshare/baostock）。
@@ -779,7 +778,7 @@ mcp_server.py    MCP Server 入口（FastMCP，18 个工具）
 agents/          CLI / MCP 复用的业务工具函数
 cli/             CLI 入口、TUI、AgentRuntime、Provider、Dashboard、Memory
   providers/     LLM Provider 实现（Gemini / Claude / OpenAI / Fallback）
-core/            漏斗引擎、诊断、策略、信号确认、尾盘策略、常量
+core/            漏斗引擎、诊断、策略、信号确认、常量
 integrations/    数据源集成、Supabase 模块、SQLite 本地层、同步引擎
 scripts/         定时任务脚本（GitHub Actions 调用）
 tools/           搜索、新闻否决等辅助工具

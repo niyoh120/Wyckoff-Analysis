@@ -7,6 +7,7 @@ health/exit signals, and maps it onto a simple ADD/TRIM/HOLD action for reportin
 
 from __future__ import annotations
 
+import math
 import os
 from collections import Counter
 from dataclasses import dataclass, field
@@ -15,13 +16,11 @@ from typing import Any
 
 import pandas as pd
 
-from core.constants import TABLE_PORTFOLIOS
 from core.holding_diagnostic import HoldingDiagnostic, diagnose_holdings
 from core.holding_time_policy import holding_time_action, is_mainline_track
 from core.wyckoff_engine import FunnelConfig, normalize_hist_from_fetch
 from integrations.fetch_a_share_csv import fetch_hist, resolve_trading_window
 from integrations.index_data_source import fetch_index_hist
-from integrations.supabase_base import create_admin_client
 from integrations.supabase_portfolio import load_portfolio_state
 
 HOLDING_ACTION_ADD = "ADD"
@@ -95,7 +94,13 @@ def _normalize_code6(raw: Any) -> str:
 
 
 def _empty_position_stats() -> dict[str, int]:
-    return {"raw": 0, "active": 0, "invalid_code": 0, "zero_shares": 0, "invalid_row": 0}
+    return {"raw": 0, "active": 0, "invalid_code": 0, "zero_shares": 0, "invalid_row": 0, "invalid_number": 0}
+
+
+def _finite_number(raw: Any) -> float | None:
+    """把 shares/cost 转成有限浮点数；None、非法字符串、NaN、Inf 一律返回 None。"""
+    value = float(pd.to_numeric(raw, errors="coerce"))
+    return value if math.isfinite(value) else None
 
 
 def _append_position(row: Any, positions: list[dict[str, Any]], stats: dict[str, int]) -> None:
@@ -107,7 +112,12 @@ def _append_position(row: Any, positions: list[dict[str, Any]], stats: dict[str,
     if len(code) != 6:
         stats["invalid_code"] += 1
         return
-    shares = int(pd.to_numeric(row.get("shares"), errors="coerce") or 0)
+    shares_value = _finite_number(row.get("shares"))
+    cost_value = _finite_number(row.get("cost"))
+    if shares_value is None or cost_value is None:
+        stats["invalid_number"] += 1
+        return
+    shares = int(shares_value)
     if shares <= 0:
         stats["zero_shares"] += 1
         return
@@ -117,7 +127,7 @@ def _append_position(row: Any, positions: list[dict[str, Any]], stats: dict[str,
             "code": code,
             "name": str(row.get("name", "") or code).strip() or code,
             "shares": shares,
-            "cost": float(pd.to_numeric(row.get("cost"), errors="coerce") or 0.0),
+            "cost": cost_value,
             "buy_dt": str(row.get("buy_dt") or row.get("buy_date") or "").strip(),
             "tag": str(row.get("tag") or row.get("wyckoff_tag") or "").strip(),
             "track": str(row.get("track") or row.get("wyckoff_track") or "").strip(),
@@ -133,73 +143,33 @@ def _normalize_effective_positions(raw_positions: list[dict[str, Any]]) -> tuple
     return positions, stats
 
 
-def _discover_user_live_portfolios(limit: int = 30) -> list[str]:
-    try:
-        client = create_admin_client()
-        rows = (
-            client.table(TABLE_PORTFOLIOS)
-            .select("portfolio_id,updated_at")
-            .like("portfolio_id", "USER_LIVE:%")
-            .order("updated_at", desc=True)
-            .limit(max(int(limit), 1))
-            .execute()
-            .data
-            or []
-        )
-        return [str(row.get("portfolio_id", "") or "").strip() for row in rows if isinstance(row, dict)]
-    except Exception:
-        return []
-
-
-def _fallback_holding_context(
-    base_context: HoldingPortfolioContext, candidate_id: str
-) -> HoldingPortfolioContext | None:
-    fallback_state = load_portfolio_state(candidate_id)
-    if not isinstance(fallback_state, dict):
-        return None
-    fallback_positions, fallback_stats = _normalize_effective_positions(list(fallback_state.get("positions") or []))
-    if not fallback_positions:
-        return None
-    return HoldingPortfolioContext(
-        requested_portfolio_id=base_context.requested_portfolio_id,
-        resolved_portfolio_id=candidate_id,
-        state=fallback_state,
-        positions=fallback_positions,
-        position_stats=fallback_stats,
-    )
-
-
 def resolve_holding_portfolio_context(portfolio_id: str) -> HoldingPortfolioContext:
+    """按显式 portfolio_id 加载持仓；缺少用户身份时 fail-closed，不跨用户兜底。
+
+    未配置 ``SUPABASE_USER_ID``（或显式传入的 portfolio_id）时只能得到不带具体用户的
+    `USER_LIVE` 占位符——绝不能因此去数据库里挑一个"最近更新且有仓位"的其它用户顶替，
+    否则会把该用户的持仓诊断发到当前配置的 Telegram，构成跨用户数据泄露。
+    """
     requested = str(portfolio_id or "").strip() or "USER_LIVE"
     state = load_portfolio_state(requested)
     positions: list[dict[str, Any]] = []
     stats = _empty_position_stats()
     if isinstance(state, dict):
         positions, stats = _normalize_effective_positions(list(state.get("positions") or []))
-    context = HoldingPortfolioContext(
+    return HoldingPortfolioContext(
         requested_portfolio_id=requested,
         resolved_portfolio_id=requested,
         state=state if isinstance(state, dict) else None,
         positions=positions,
         position_stats=stats,
     )
-    if requested != "USER_LIVE" or context.positions:
-        return context
-    for candidate_id in _discover_user_live_portfolios():
-        fallback = _fallback_holding_context(context, candidate_id)
-        if fallback is not None:
-            return fallback
-    return context
 
 
 def holding_portfolio_meta(context: HoldingPortfolioContext) -> str:
     stats = context.position_stats
-    meta = (
+    return (
         f"portfolio={context.resolved_portfolio_id}, raw_positions={stats['raw']}, active_positions={stats['active']}"
     )
-    if context.requested_portfolio_id != context.resolved_portfolio_id:
-        meta += f"（fallback from {context.requested_portfolio_id}）"
-    return meta
 
 
 def holding_no_position_meta(context: HoldingPortfolioContext) -> str:
@@ -207,7 +177,8 @@ def holding_no_position_meta(context: HoldingPortfolioContext) -> str:
     meta = (
         f"portfolio={context.resolved_portfolio_id}, "
         f"raw_positions={stats['raw']}, active_positions={stats['active']}, "
-        f"invalid_code={stats['invalid_code']}, zero_shares={stats['zero_shares']}"
+        f"invalid_code={stats['invalid_code']}, zero_shares={stats['zero_shares']}, "
+        f"invalid_number={stats['invalid_number']}"
     )
     if context.requested_portfolio_id == "USER_LIVE":
         meta += "（提示：USER_LIVE 无有效仓位；请检查是否应使用 USER_LIVE:<user_id>）"

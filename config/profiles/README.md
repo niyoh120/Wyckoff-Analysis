@@ -14,6 +14,6 @@ A-share **trading** defaults (quotas, hard stops, regime blocks) live mainly in:
 
 - `core/ai_candidate_allocation.py` / GitHub Actions env (`FUNNEL_AI_*`)
 - `core/market_trade_mode.py` (NEUTRAL mainline_active, RISK_ON observe_only)
-- `.github/workflows/wyckoff_funnel.yml` and `tail_buy_1440.yml`
+- `.github/workflows/wyckoff_funnel.yml` and `holding_diagnosis.yml`
 
 Operator guide: [`docs/OPERATOR_PLAYBOOK.md`](../../docs/OPERATOR_PLAYBOOK.md).

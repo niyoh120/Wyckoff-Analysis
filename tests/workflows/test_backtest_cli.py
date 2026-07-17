@@ -21,7 +21,7 @@ def test_backtest_parser_keeps_core_defaults() -> None:
     assert args.hold_days == DEFAULT_HOLD_DAYS
     assert args.board == "all"
     assert args.top_n == 0
-    assert args.pending_mode == "off"
+    assert args.pending_mode == "only"
     assert args.pending_merge_order == "confirmed_first"
     assert args.execution_regime_gate == "live"
     assert args.entry_price_mode == "open"

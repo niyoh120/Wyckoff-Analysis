@@ -273,7 +273,7 @@ chat-agent.ts (编排层 — 不直接测试)
                     ├── execViewPortfolio()    ← deps.supabase
                     ├── execMarketOverview()   ← deps.supabase
                     ├── execQueryRecommend..() ← deps.supabase
-                    ├── execQueryTailBuy()     ← deps.supabase
+                    ├── execQueryAttribution() ← deps.supabase
                     ├── execExecutePortf...()  ← deps.supabase
                     ├── execAnalyzeStock()     ← deps.* (全部)
                     ├── execScreenStocks()     ← deps.supabase

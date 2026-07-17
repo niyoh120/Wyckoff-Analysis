@@ -33,14 +33,14 @@ on:
           - "tail_1455"
         default: "open"
       pending_mode:
-        description: "信号确认口径：off=当日信号次日直接开盘价买入（验证最优，默认）；both=额外纳入二次确认延迟信号；only=仅二次确认信号"
+        description: "信号确认口径：only=仅跨日确认后信号，与实盘 Step4 confirmed 一致（默认）；both=额外纳入未确认延迟信号；off=跳过确认，当日信号次日直接开盘价买入（仅研究对照，不代表实盘表现）"
         required: true
         type: choice
         options:
-          - "off"
-          - "both"
           - "only"
-        default: "off"
+          - "both"
+          - "off"
+        default: "only"
       execution_regime_gate:
         description: "新开仓水温闸门：live=实盘一致；off=研究对照；neutral_only=仅中性"
         required: true
@@ -70,7 +70,7 @@ env:
   BT_SAMPLE_SIZE: "0"
   BT_TRADING_DAYS: "320"
   BT_ENTRY_PRICE_MODE: ${{ inputs.entry_price_mode || 'open' }}
-  BT_PENDING_MODE: ${{ inputs.pending_mode || 'off' }}
+  BT_PENDING_MODE: ${{ inputs.pending_mode || 'only' }}
   BT_EXECUTION_REGIME_GATE: ${{ inputs.execution_regime_gate || 'live' }}
   BT_INITIAL_CASH: "100000"
   BT_MAX_POSITIONS: "4"

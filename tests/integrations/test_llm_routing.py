@@ -28,12 +28,12 @@ def test_provider_route_chain_skips_openai_compatible_without_base(monkeypatch):
 
 def test_resolve_provider_name_uses_role_before_global(monkeypatch):
     monkeypatch.setenv("DEFAULT_LLM_PROVIDER", "gemini")
-    monkeypatch.setenv("TAIL_BUY_LLM_PROVIDER", "efficiency")
+    monkeypatch.setenv("STEP3_LLM_PROVIDER", "efficiency")
 
-    assert resolve_provider_name("TAIL_BUY_LLM_PROVIDER", "gemini") == "efficiency"
+    assert resolve_provider_name("STEP3_LLM_PROVIDER", "gemini") == "efficiency"
 
 
 def test_provider_fallbacks_empty_by_default(monkeypatch):
-    monkeypatch.delenv("TAIL_BUY_LLM_FALLBACK_PROVIDERS", raising=False)
+    monkeypatch.delenv("STEP3_LLM_FALLBACK_PROVIDERS", raising=False)
 
-    assert provider_fallbacks("TAIL_BUY_LLM_FALLBACK_PROVIDERS") == ()
+    assert provider_fallbacks("STEP3_LLM_FALLBACK_PROVIDERS") == ()

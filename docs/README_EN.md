@@ -31,7 +31,7 @@ Project homepage: **[youngcan-wang.github.io/wyckoff-homepage](https://youngcan-
 | Usage, deployment, configuration | This README |
 | Architecture, Actions, data tables, cache policy | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Funnel, AI reports, OMS, backtesting logic | [../README_STRATEGY.md](../README_STRATEGY.md) |
-| **Operator playbook (funnel × tail-buy)** | [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md) |
+| **Operator playbook (funnel × next-day open)** | [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md) |
 | A-share funnel execution flow | [A_SHARE_FUNNEL_FLOW.md](A_SHARE_FUNNEL_FLOW.md) |
 | Terms and concepts | [../GLOSSARY.md](../GLOSSARY.md) |
 | Research notes and operations | [../wiki_repo_new/Home.md](../wiki_repo_new/Home.md) |
@@ -80,8 +80,7 @@ Modern React SPA with AI Agent chat, portfolio management, funnel screening, rec
 | AI Three-Camp Report | Logic Bankrupt / Reserve Camp / Springboard — LLM renders an independent verdict |
 | Portfolio Diagnosis | Batch health check: MA structure, accumulation phase, trigger signals, stop-loss status |
 | Private Rebalance | EXIT / TRIM / HOLD / PROBE / ATTACK; ~5-day swing time management; ~-12% disaster floor |
-| Tail-Buy Strategy | Runs at 14:40 on trading weekdays with manual fallback; confirmed-only BUY, regime blocks, and holding time management |
-| Signal Confirmation Pool | L4 trigger signals must pass 1-3 day price confirmation before becoming actionable |
+| Signal Confirmation Pool | L4 trigger signals must pass 1-3 day price confirmation before becoming actionable; only `confirmed` signals are entered near next-day open |
 | Wyckoff Pattern Replay | Historical picks auto-sync closing prices and compute cumulative returns |
 | Daily-Bar Backtest | Replays post-funnel N-day returns; reports win rate / Sharpe / max drawdown |
 | Pre-Market Risk | A50 futures + VIX monitoring with four alert levels |
@@ -207,7 +206,7 @@ The agent's arsenal — 10 quant tools + 5 general capabilities:
 | `screen_stocks` | Mainline funnel full-market screening (⚡background) |
 | `generate_ai_report` | Three-camp AI deep research report (⚡background) |
 | `generate_strategy_decision` | Hold/exit existing positions + new buy decisions (⚡background) |
-| `query_history` | Historical recommendations / signal pool / tail-buy records |
+| `query_history` | Historical recommendations / signal pool / strategy attribution records |
 | `run_backtest` | Funnel strategy historical backtest (⚡background) |
 | `check_background_tasks` | Background task progress query |
 | `exec_command` | Execute local shell commands |
@@ -226,9 +225,9 @@ Tool call order and frequency are decided by the LLM at runtime — no pre-chore
 | Mainline | Theme Engine | Dynamic concept heat, theme radar, financial quality, and timing gates identify tradable mainline candidates |
 | L3 | Sector & Concept Resonance | Filter weak sectors while allowing strong individual stocks and verified themes to bypass fixed Top-N sector limits |
 | L4 | Micro Triggers | Spring / LPS / SOS / EVR / Compression / Trend Pullback |
-| L5 | AI + OMS Verdict | LLM review, signal confirmation, tail-buy confirmation, and OMS risk gates before action |
+| L5 | AI + OMS Verdict | LLM review, cross-day signal confirmation, and OMS risk gates before action |
 
-**How to trade:** Daily funnel = candidates + market gate; tail-buy = only **BUY (executable)** after `confirmed`.
+**How to trade:** Daily funnel = candidates + market gate; only **confirmed** candidates are bought near the next trading day's open.
 NEUTRAL is the main battleground (mainline-first quotas); **RISK_ON blocks new buys**. See [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
 
 ## Daily Automation
@@ -238,7 +237,7 @@ Daily automations (GitHub Actions plus Codex Automation):
 | Task | Schedule (Beijing Time) | Description |
 |---|---|---|
 | Funnel + AI Report + Rebalance | Sun–Thu 17:17 | Fully automated; results pushed to Feishu / Telegram |
-| Tail-Buy Strategy | Mon–Fri 14:40 / manual fallback | Confirmed-only BUY; RISK_ON/weak regimes block new entries; holding time management |
+| Holding Diagnosis | Manual trigger (`workflow_dispatch`) | Daily-bar based portfolio health check; RISK_ON/weak regimes block new entries; holding time management |
 | Pre-Market Risk | Mon–Fri 08:20 | Codex Automation dispatches the GitHub workflow; A50 + VIX alert |
 | Strong-Move Review | Mon–Fri 19:25 | Review stocks with today's close return > 7% and previous-session close return < 3% |
 | Recommendation Reprice | Mon–Fri 23:00 | Sync closing prices |

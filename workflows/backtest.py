@@ -97,7 +97,7 @@ class BacktestWorkflowRequest:
     regime_filter: bool = False
     execution_regime_gate: str = "live"
     strategy_variant: str = "live"
-    pending_mode: str = "off"
+    pending_mode: str = "only"
     pending_merge_order: str = "confirmed_first"
     atr_period: int = DEFAULT_ATR_PERIOD
     atr_multiplier: float = DEFAULT_ATR_MULTIPLIER

@@ -137,9 +137,9 @@ wyckoff dashboard
 <details>
 <summary><strong>展开更多 Dashboard 截图</strong></summary>
 
-| 形态复盘 | 信号池 | 尾盘记录 |
-|:---:|:---:|:---:|
-| <img src="attach/demo/dashboard-recommendations.png" width="300" /> | <img src="attach/demo/dashboard-signals.png" width="300" /> | <img src="attach/demo/dashboard-tail-buy.png" width="300" /> |
+| 形态复盘 | 信号池 |
+|:---:|:---:|
+| <img src="attach/demo/dashboard-recommendations.png" width="300" /> | <img src="attach/demo/dashboard-signals.png" width="300" /> |
 
 | 持仓 | Agent 记忆 | 后台任务 |
 |:---:|:---:|:---:|
@@ -172,7 +172,7 @@ wyckoff dashboard
 
 - **对话式 Agent** — 用自然语言触发诊断、筛选、研报；CLI、Web、MCP 各自按权限编排多工具
 - **主线漏斗筛选** — A 股全市场约 5000 股动态发现概念主线、八通道强度、候选车道和买点确认；NEUTRAL 主线优先，RISK_ON 禁新开
-- **日漏斗 × 尾盘串联** — 漏斗定候选与环境，尾盘 confirmed + BUY 才执行；报告顶部固定「执行纪律」
+- **日漏斗 × 次日开盘串联** — 漏斗定候选与环境，跨日 confirmed 后按次日开盘价附近买入才执行；报告顶部固定「执行纪律」
 - **跨市场** — A 股 / 港股 / 美股漏斗独立 workflow
 - **AI 三阵营研报** — 逻辑破产 / 储备营地 / 起跳板，LLM 独立审判
 - **信号反馈闭环** — 漏斗记录 observations，盘后 feedback 聚合 health / registry，支持 shadow 动态策略验证
@@ -220,7 +220,7 @@ wyckoff dashboard
 | 研究路线、证据门槛与晋级治理 | [docs/ITERATION_STRATEGY.md](docs/ITERATION_STRATEGY.md) |
 | 运营成本、规模化预算 | [docs/COST_MODEL.md](docs/COST_MODEL.md) |
 | 策略语义：漏斗、AI 研报、OMS、回测 | [README_STRATEGY.md](README_STRATEGY.md) |
-| **实盘操作（日漏斗×尾盘）** | [docs/OPERATOR_PLAYBOOK.md](docs/OPERATOR_PLAYBOOK.md) |
+| **实盘操作（日漏斗×次日开盘）** | [docs/OPERATOR_PLAYBOOK.md](docs/OPERATOR_PLAYBOOK.md) |
 | 术语速查 | [GLOSSARY.md](GLOSSARY.md) |
 | MCP Server 配置 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#mcp-server) |
 | 密钥、Actions Secrets 与本地配置 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#云端存储supabase) |

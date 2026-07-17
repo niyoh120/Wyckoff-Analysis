@@ -466,15 +466,20 @@ def _candidate_list_row(ctx: Any, selection: FunnelAiSelection, code: str) -> st
 
 
 def _entry_price_hint(ctx: Any, code: str) -> str:
-    """现价 + 参考止损位 + 次日开盘价买入提示，供候选行展示进场参考。"""
+    """现价 + 参考止损位 + 次日开盘价买入提示，供候选行展示进场参考。
+
+    此处的候选仍是当日新增的 pending 信号，尚未完成跨日确认；提示必须显式带上
+    "confirmed 后" 前提，避免让人误以为当前候选可以直接按次日开盘价下单。
+    """
+    suffix = "，仅在 confirmed 后按次日开盘价附近买入"
     close = (getattr(ctx, "latest_close_map", {}) or {}).get(code)
     support = _reference_support_level(ctx, code)
     if close is None:
-        return "现价: 数据缺失，按次日开盘价附近买入"
+        return f"现价: 数据缺失{suffix}"
     if support is None or support >= close:
-        return f"现价 {close:.2f}，按次日开盘价附近买入"
+        return f"现价 {close:.2f}{suffix}"
     stop_pct = (support - close) / close * 100
-    return f"现价 {close:.2f} | 参考止损 {support:.2f}（{stop_pct:.1f}%），按次日开盘价附近买入"
+    return f"现价 {close:.2f} | 参考止损 {support:.2f}（{stop_pct:.1f}%）{suffix}"
 
 
 def _reference_support_level(ctx: Any, code: str) -> float | None:
