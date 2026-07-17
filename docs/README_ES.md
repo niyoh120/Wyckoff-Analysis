@@ -79,7 +79,7 @@ SPA moderna con chat de AI Agent, gestion de cartera, screener de embudo, seguim
 | Reporte IA de 3 campamentos | Logica rota / Reserva / Plataforma de despegue — el LLM clasifica de forma independiente |
 | Diagnostico de cartera | Escaneo masivo: estructura de medias moviles, fase de acumulacion, senales de activacion, estado de stop-loss |
 | Rebalanceo privado | Combina posiciones + candidatas y emite ordenes EXIT / TRIM / HOLD / PROBE / ATTACK, con push a Telegram |
-| Ejecucion en la apertura siguiente | Tras la confirmacion entre sesiones, las candidatas aprobadas pasan por revision LLM y OMS antes de operar cerca de la apertura siguiente; no hay una tarea intradia independiente |
+| Ejecucion en la apertura siguiente | Tras la confirmacion entre sesiones, OMS genera un unico rango permitido; solo se opera si la apertura siguiente cae dentro del rango |
 | Confirmacion de senales | Las senales L4 pasan por 1-3 dias de confirmacion de precio antes de ser accionables |
 | Seguimiento de recomendaciones | Sincroniza automaticamente el precio de cierre y calcula el rendimiento acumulado |
 | Backtesting | Simula rendimiento a N dias tras el filtrado del embudo: tasa de aciertos, Sharpe, drawdown maximo |
@@ -228,7 +228,7 @@ El orden y la frecuencia de las llamadas los decide el LLM en tiempo real, sin o
 | L5 | IA + OMS | Revision LLM, confirmacion entre sesiones y compuertas de riesgo OMS |
 
 
-**Cómo operar:** embudo diario = candidatos + régimen; solo las senales **confirmed** pueden pasar a compra cerca de la apertura siguiente. NEUTRAL principal; **RISK_ON bloquea entradas nuevas**. Ver [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
+**Cómo operar:** embudo diario = candidatos + régimen; una senal **confirmed** solo se compra si la apertura siguiente cae dentro del unico rango permitido por OMS. NEUTRAL principal; **RISK_ON bloquea entradas nuevas**. Ver [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
 
 ## Automatizacion diaria
 

@@ -340,7 +340,7 @@ flowchart TD
 
 ## 六、次日开盘执行与持仓诊断（与日漏斗串联）
 
-`entry_price_mode=open` 是当前生产候选默认口径；信号确认口径 `pending_mode=only`（仅用跨日 confirmed 信号）与实盘 Step4 `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` 严格对齐。`off`/`both` 仅作为跳过或放宽确认门槛的研究对照，不代表实盘可执行表现；`open`、`close` 和 `tail_1455` 也必须在相同 confirmed-only 门槛下完成对照后，才能宣称某种入场口径更优。漏斗候选行直接展示现价、参考止损位（`core/signal_confirmation.compute_support_level`）和“按次日开盘价附近买入”提示，不再需要独立的盘中择时任务。
+`entry_price_mode=open` 是当前生产候选默认口径；信号确认口径 `pending_mode=only`（仅用跨日 confirmed 信号）与实盘 Step4 `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` 严格对齐。`off`/`both` 仅作为跳过或放宽确认门槛的研究对照，不代表实盘可执行表现；`open`、`close` 和 `tail_1455` 也必须在相同 confirmed-only 门槛下完成对照后，才能宣称某种入场口径更优。最终 OMS 将 AI 结构区间、涨幅和 ATR 防追高约束收敛成唯一允许买入区间；区间缺失或无交集直接拒单，次日开盘价不在区间内也不执行。
 
 | 项 | 说明 |
 |----|------|
@@ -350,9 +350,9 @@ flowchart TD
 | 主线语义 | `candidate_theme / candidate_phase / candidate_role` 从推荐、信号贯穿到执行记录；LLM 只解释不重判 |
 | 禁新开 | `RISK_ON` 与弱市/修复期与 Step4 对齐，新票不买 |
 | 持仓诊断 | `workflows/holding_diagnosis_core.py` + `core/holding_diagnostic.py`（日线为准），硬止损约 12%；非主线满 5 日建议时间止盈 |
-| 读法 | 次日开盘价附近买入 **confirmed** 候选；未确认候选只观察 |
+| 读法 | **confirmed** 候选只在次日开盘价位于 OMS 唯一区间时买入；未确认候选只观察 |
 
-**日漏斗 = 候选池；次日开盘 = 今天买不买。缺一不可。**
+**日漏斗 = 候选池；confirmed + OMS 唯一区间 = 今天买不买。缺一不可。**
 
 ---
 

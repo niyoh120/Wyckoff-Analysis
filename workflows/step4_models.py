@@ -69,7 +69,8 @@ class ExecutionTicket:
     effective_stop_loss: float | None
     slippage_bps: float
     audit: str
-    max_entry_price: float | None = None
+    entry_zone_min: float | None = None
+    entry_zone_max: float | None = None
     chase_profile: str = ""
     wyckoff_context: str = ""
 

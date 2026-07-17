@@ -78,8 +78,9 @@ def test_oms_ticket_includes_playbook() -> None:
     assert "执行纪律" in report
     assert "EXIT/TRIM" in report
     assert "5 日" in report
+    assert report.count("市场视图") == 1
 
 
 def test_step3_and_oms_playbook_helpers() -> None:
     assert "起跳板" in "\n".join(step3_playbook_lines("NEUTRAL"))
-    assert "PROBE/ATTACK" in "\n".join(oms_playbook_lines("view"))
+    assert "PROBE/ATTACK" in "\n".join(oms_playbook_lines())

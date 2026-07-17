@@ -79,7 +79,7 @@ AI Agent 대화, 포트폴리오 관리, 퍼널 스크리닝, 추천 추적, 데
 | AI 3진영 리포트 | 논리 파산 / 비축 진영 / 도약대, LLM이 독립적으로 판단 |
 | 포트폴리오 진단 | 일괄 건강 검진: 이동평균 구조, 매집 단계, 트리거 시그널, 손절 상태 |
 | 개인 리밸런싱 | 보유 종목 + 후보를 종합하여 EXIT/TRIM/HOLD/PROBE/ATTACK 지시 출력, Telegram 푸시 |
-| 익일 시가 실행 | 거래일 간 확인 후 승인된 후보를 LLM과 OMS가 재검토하고 익일 시가 부근에서 실행; 독립된 장중 작업 없음 |
+| 익일 시가 실행 | 거래일 간 확인 후 OMS가 하나의 허용 매수 구간을 만들고, 익일 시가가 구간 안에 있을 때만 실행 |
 | 시그널 확인 풀 | L4 트리거 시그널이 1-3일 가격 확인 후에만 실행 가능 |
 | 추천 추적 | 과거 추천 종목의 종가 자동 동기화, 누적 수익률 계산 |
 | 일봉 백테스트 | 퍼널 적중 후 N일 수익률 재생, 승률/Sharpe/최대 낙폭 출력 |
@@ -228,7 +228,7 @@ Web App: **[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
 | L5 | AI + OMS 심판 | LLM 검토, 거래일 간 확인, OMS 리스크 게이트를 통과해야 실행 |
 
 
-**운용:** 일일 퍼널=후보+환경, **confirmed** 신호만 익일 시가 부근의 매수 후보로 진행합니다. NEUTRAL 주전장, RISK_ON 신규 금지. 상세 [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
+**운용:** 일일 퍼널=후보+환경, **confirmed**이며 익일 시가가 OMS의 단일 허용 구간 안에 있는 후보만 매수합니다. NEUTRAL 주전장, RISK_ON 신규 금지. 상세 [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
 
 ## 일일 자동화
 

@@ -252,10 +252,106 @@ def test_candidate_attribution_reaches_buy_ticket_and_persistence_row():
     rows = step4_results.build_step4_ticket_rows(tickets)
 
     assert tickets[0].status == "APPROVED"
+    assert tickets[0].entry_zone_min == 9.8
+    assert tickets[0].entry_zone_max == 10.1
     assert "score=91.00" in tickets[0].wyckoff_context
     assert "资金迁移=+4.50" in report
+    assert "明日允许区间 9.80–10.10 元" in report
+    assert "参考价" not in report
+    assert "防追高限价" not in report
     assert "source=supabase_recommendation_tracking" in rows[0]["reason"]
     assert rows[0]["wyckoff_context"] == tickets[0].wyckoff_context
+
+
+def test_buy_ticket_uses_single_effective_entry_zone() -> None:
+    decision = _decision("PROBE")
+    decision.entry_zone_min = 9.8
+    decision.entry_zone_max = 10.5
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={"000001": 10.0},
+        market_regime="NEUTRAL",
+        config=step4.Step4OrderConfig(
+            chase_gap_pct_min=0.0,
+            chase_gap_pct_max=1.0,
+            max_gap_up_pct=1.0,
+        ),
+    )
+
+    tickets, cash = engine.process([decision])
+    report = render_trade_ticket("NEUTRAL", 100000, 50000, cash, tickets, atr_period=14)
+
+    assert tickets[0].status == "APPROVED"
+    assert tickets[0].entry_zone_min == 9.8
+    assert tickets[0].entry_zone_max == 10.1
+    assert report.count("明日允许区间 9.80–10.10 元") == 1
+    assert "参考价" not in report
+    assert "防追高限价" not in report
+
+
+def test_buy_is_rejected_when_entry_zone_exceeds_chase_limit() -> None:
+    decision = _decision("PROBE")
+    decision.entry_zone_min = 10.2
+    decision.entry_zone_max = 10.5
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={"000001": 10.0},
+        market_regime="NEUTRAL",
+        config=step4.Step4OrderConfig(
+            chase_gap_pct_min=0.0,
+            chase_gap_pct_max=1.0,
+            max_gap_up_pct=1.0,
+        ),
+    )
+
+    tickets, cash = engine.process([decision])
+
+    assert cash == 50000
+    assert tickets[0].status == "NO_TRADE"
+    assert tickets[0].reason.startswith("买入区间与防追高上限无交集")
+
+
+def test_buy_without_ai_zone_is_rejected() -> None:
+    decision = _decision("PROBE")
+    decision.entry_zone_min = None
+    decision.entry_zone_max = None
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={},
+        latest_price_map={"000001": 10.0},
+        market_regime="NEUTRAL",
+    )
+
+    tickets, cash = engine.process([decision])
+    assert cash == 50000
+    assert tickets[0].status == "NO_TRADE"
+    assert tickets[0].reason.startswith("缺少买入区间")
+
+
+def test_add_on_without_ai_zone_is_downgraded_to_hold() -> None:
+    decision = _decision("PROBE", is_add_on=True)
+    decision.entry_zone_min = None
+    decision.entry_zone_max = None
+    position = PositionItem(code="000001", name="平安银行", cost=9.0, buy_dt="20260701", shares=1000)
+    engine = WyckoffOrderEngine(
+        total_equity=100000,
+        free_cash=50000,
+        position_map={"000001": position},
+        latest_price_map={"000001": 10.0},
+        market_regime="NEUTRAL",
+    )
+
+    tickets, cash = engine.process([decision])
+
+    assert cash == 50000
+    assert tickets[0].action == "HOLD"
+    assert tickets[0].status == "APPROVED"
+    assert tickets[0].reason.startswith("缺少买入区间，降级为 HOLD")
 
 
 def test_veto_only_policy_downgrades_external_attack_to_probe():

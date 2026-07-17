@@ -80,7 +80,7 @@ Modern React SPA with AI Agent chat, portfolio management, funnel screening, rec
 | AI Three-Camp Report | Logic Bankrupt / Reserve Camp / Springboard — LLM renders an independent verdict |
 | Portfolio Diagnosis | Batch health check: MA structure, accumulation phase, trigger signals, stop-loss status |
 | Private Rebalance | EXIT / TRIM / HOLD / PROBE / ATTACK; ~5-day swing time management; ~-12% disaster floor |
-| Signal Confirmation Pool | L4 trigger signals must pass 1-3 day price confirmation before becoming actionable; only `confirmed` signals are entered near next-day open |
+| Signal Confirmation Pool | L4 trigger signals must pass 1-3 day price confirmation; only `confirmed` signals whose next-day open falls inside the single OMS entry range are actionable |
 | Wyckoff Pattern Replay | Historical picks auto-sync closing prices and compute cumulative returns |
 | Daily-Bar Backtest | Replays post-funnel N-day returns; reports win rate / Sharpe / max drawdown |
 | Pre-Market Risk | A50 futures + VIX monitoring with four alert levels |
@@ -227,7 +227,7 @@ Tool call order and frequency are decided by the LLM at runtime — no pre-chore
 | L4 | Micro Triggers | Spring / LPS / SOS / EVR / Compression / Trend Pullback |
 | L5 | AI + OMS Verdict | LLM review, cross-day signal confirmation, and OMS risk gates before action |
 
-**How to trade:** Daily funnel = candidates + market gate; only **confirmed** candidates are bought near the next trading day's open.
+**How to trade:** Daily funnel = candidates + market gate; only **confirmed** candidates whose next-day open falls inside the single OMS entry range may be bought.
 NEUTRAL is the main battleground (mainline-first quotas); **RISK_ON blocks new buys**. See [OPERATOR_PLAYBOOK.md](OPERATOR_PLAYBOOK.md).
 
 ## Daily Automation

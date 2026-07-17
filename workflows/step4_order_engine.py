@@ -389,11 +389,7 @@ class WyckoffOrderEngine:
             ctx.audit_parts.append("implicit_add_on_for_existing_position")
         return None
 
-    def _resolve_entry_limits(self, ctx: OrderContext) -> tuple[float | None, str, str]:
-        chase_profile = ""
-        wyckoff_context = _decision_wyckoff_context(ctx.dec)
-        if ctx.action not in {"PROBE", "ATTACK"}:
-            return None, chase_profile, wyckoff_context
+    def _resolve_entry_limits(self, ctx: OrderContext) -> tuple[float, str, str]:
         gap_pct_limit, atr_mult_limit, chase_profile, wyckoff_context = _resolve_chase_limits(
             ctx.dec,
             self.market_regime,
@@ -417,28 +413,33 @@ class WyckoffOrderEngine:
         )
         return max_entry_price, chase_profile, wyckoff_context
 
-    def _resolve_entry_price_for_calc(self, ctx: OrderContext) -> tuple[float, ExecutionTicket | None]:
+    def _invalid_entry_zone_ticket(self, ctx: OrderContext, reason: str, audit: str) -> ExecutionTicket:
+        if ctx.held_shares >= 100:
+            return self._hold_from_context(
+                ctx,
+                ctx.audit_parts + [f"{audit}->hold"],
+                reason=f"{reason}，降级为 HOLD；原建议: {ctx.dec.reason}",
+            )
+        return self._no_trade(ctx.dec, ctx.name, reason)
+
+    def _resolve_entry_price_for_calc(
+        self, ctx: OrderContext, max_entry_price: float
+    ) -> tuple[float, float | None, float, ExecutionTicket | None]:
         price_for_calc = ctx.current_price
         if ctx.dec.entry_zone_min is None or ctx.dec.entry_zone_max is None:
-            return price_for_calc, None
+            ticket = self._invalid_entry_zone_ticket(ctx, "缺少买入区间", "missing_entry_zone")
+            return price_for_calc, None, max_entry_price, ticket
         if ctx.dec.entry_zone_min <= 0 or ctx.dec.entry_zone_max <= 0:
-            if ctx.held_shares >= 100:
-                return price_for_calc, self._hold_from_context(
-                    ctx,
-                    ctx.audit_parts + ["entry_zone<=0->hold"],
-                    reason=f"非法指令: entry_zone<=0，降级为 HOLD；原建议: {ctx.dec.reason}",
-                )
-            return price_for_calc, self._no_trade(ctx.dec, ctx.name, "非法 entry_zone<=0")
+            ticket = self._invalid_entry_zone_ticket(ctx, "非法 entry_zone<=0", "entry_zone<=0")
+            return price_for_calc, None, max_entry_price, ticket
         if ctx.dec.entry_zone_min > ctx.dec.entry_zone_max:
-            if ctx.held_shares >= 100:
-                return price_for_calc, self._hold_from_context(
-                    ctx,
-                    ctx.audit_parts + ["entry_zone_invert->hold"],
-                    reason=f"非法指令: entry_zone_min>entry_zone_max，降级为 HOLD；原建议: {ctx.dec.reason}",
-                )
-            return price_for_calc, self._no_trade(ctx.dec, ctx.name, "非法 entry_zone_min>entry_zone_max")
-        price_for_calc = (ctx.dec.entry_zone_min + ctx.dec.entry_zone_max) / 2.0
-        return price_for_calc if price_for_calc > 0 else ctx.current_price, None
+            ticket = self._invalid_entry_zone_ticket(ctx, "非法 entry_zone_min>entry_zone_max", "entry_zone_invert")
+            return price_for_calc, None, max_entry_price, ticket
+        effective_max = min(ctx.dec.entry_zone_max, max_entry_price)
+        if effective_max < ctx.dec.entry_zone_min:
+            return price_for_calc, None, effective_max, self._no_trade(ctx.dec, ctx.name, "买入区间与防追高上限无交集")
+        price_for_calc = (ctx.dec.entry_zone_min + effective_max) / 2.0
+        return price_for_calc, ctx.dec.entry_zone_min, effective_max, None
 
     def _buy_risk_inputs(self, ctx: OrderContext) -> tuple[float, float, float, float, float, float]:
         base_slippage = ctx.current_price * self.SLIPPAGE_BPS
@@ -455,7 +456,8 @@ class WyckoffOrderEngine:
         self,
         ctx: OrderContext,
         price_for_calc: float,
-        max_entry_price: float | None,
+        entry_zone_min: float | None,
+        entry_zone_max: float,
         chase_profile: str,
         wyckoff_context: str,
     ) -> ExecutionTicket:
@@ -478,7 +480,8 @@ class WyckoffOrderEngine:
         return self._approved_buy_ticket(
             ctx,
             price_for_calc,
-            max_entry_price,
+            entry_zone_min,
+            entry_zone_max,
             chase_profile,
             wyckoff_context,
             slippage_abs,
@@ -499,7 +502,8 @@ class WyckoffOrderEngine:
         self,
         ctx: OrderContext,
         price_for_calc: float,
-        max_entry_price: float | None,
+        entry_zone_min: float | None,
+        entry_zone_max: float,
         chase_profile: str,
         wyckoff_context: str,
         slippage_abs: float,
@@ -545,7 +549,8 @@ class WyckoffOrderEngine:
             effective_stop_loss=ctx.effective_stop_loss,
             slippage_bps=slippage_abs / ctx.current_price if ctx.current_price > 0 else self.SLIPPAGE_BPS,
             audit="; ".join(audit),
-            max_entry_price=max_entry_price,
+            entry_zone_min=entry_zone_min,
+            entry_zone_max=entry_zone_max,
             chase_profile=chase_profile,
             wyckoff_context=wyckoff_context,
         )
@@ -560,10 +565,14 @@ class WyckoffOrderEngine:
             if ticket is not None:
                 return ticket
         max_entry_price, chase_profile, wyckoff_context = self._resolve_entry_limits(ctx)
-        price_for_calc, ticket = self._resolve_entry_price_for_calc(ctx)
+        price_for_calc, entry_zone_min, entry_zone_max, ticket = self._resolve_entry_price_for_calc(
+            ctx, max_entry_price
+        )
         if ticket is not None:
             return ticket
-        return self._build_buy_ticket(ctx, price_for_calc, max_entry_price, chase_profile, wyckoff_context)
+        return self._build_buy_ticket(
+            ctx, price_for_calc, entry_zone_min, entry_zone_max, chase_profile, wyckoff_context
+        )
 
     def _process_one(self, dec: DecisionItem) -> ExecutionTicket:
         if dec.system_reject_reason:

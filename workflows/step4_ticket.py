@@ -32,7 +32,7 @@ def render_trade_ticket(
     if market_view:
         lines.append(f"📌 市场视图：{market_view}")
     lines.append("")
-    lines.extend(oms_playbook_lines(market_view))
+    lines.extend(oms_playbook_lines())
     lines.extend(_render_sell_ticket_lines(sells, atr_period=atr_period))
     lines.extend(_render_hold_ticket_lines(holds, atr_period=atr_period))
     lines.extend(_render_buy_ticket_lines(approved_buy, atr_period=atr_period))
@@ -56,6 +56,12 @@ def _fmt_ticket_stop(value: float | None) -> str:
 def _append_ticket_context(lines: list[str], ticket: ExecutionTicket) -> None:
     if ticket.wyckoff_context:
         lines.append(f"  结构：{ticket.wyckoff_context}")
+
+
+def _buy_entry_line(ticket: ExecutionTicket) -> str:
+    if ticket.entry_zone_min is None or ticket.entry_zone_max is None:
+        return "  买入：区间缺失，禁止执行"
+    return f"  买入：明日允许区间 {ticket.entry_zone_min:.2f}–{ticket.entry_zone_max:.2f} 元；开盘价不在区间内则放弃"
 
 
 def _render_sell_ticket_lines(sells: list[ExecutionTicket], *, atr_period: int) -> list[str]:
@@ -101,14 +107,12 @@ def _render_buy_ticket_lines(approved_buy: list[ExecutionTicket], *, atr_period:
     if not approved_buy:
         return lines + ["- 无", ""]
     for ticket in approved_buy:
-        price_hint = "-" if ticket.price_hint is None else f"{ticket.price_hint:.2f}"
         lines.append(f"- 🟩 {ticket.action} | {ticket.code} {ticket.name}")
-        lines.append(f"  下单：{ticket.shares} 股 | 占用：{ticket.amount:.2f} 元 | 参考价：{price_hint}")
+        lines.append(f"  下单：{ticket.shares} 股 | 占用：{ticket.amount:.2f} 元")
+        lines.append(_buy_entry_line(ticket))
         if ticket.chase_profile:
             lines.append(f"  分层：{ticket.chase_profile}")
         _append_ticket_context(lines, ticket)
-        if ticket.max_entry_price is not None:
-            lines.append(f"  🛑 【防追高限价】明日开盘价若 > {ticket.max_entry_price:.2f} 元，请放弃买入！")
         lines.append(
             f"  风险：止损 {_fmt_ticket_stop(ticket.stop_loss)} | 最大回撤 {ticket.max_loss:.2f} 元 "
             f"({ticket.drawdown_ratio * 100:.2f}%) | 滑点={ticket.slippage_bps * 100:.2f}%"
