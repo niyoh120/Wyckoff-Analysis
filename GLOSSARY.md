@@ -47,6 +47,8 @@
 | **UTAD (Upthrust After Distribution)** | 派发末期，股价放量突破近期阻力后迅速收回并留下长上影。系统以 `upthrust_warning` 作为 L5 风险信号阻断新候选 |
 | **Creek/LPS confirmation** | 用前序 swing high 构造可外推的 Creek 阻力线；只有先越过 Creek、随后缩量回踩仍守在线上，才把 LPS 视为结构确认。当前仅在 D/E 消融组启用 |
 | **Strategy ablation A-E** | 同一数据与执行参数下的规则消融：A 基线，B=UTAD，C=regime 阈值，D=Creek/LPS+时序，E=全部组合；用于区分单项贡献和组合交互 |
+| **A股实证消融 A/F/G/H/I** | 默认 confirmed-only 入场实验：A 基线，F=剔除 EVR，G=剔除 EVR+SOS，H=NEUTRAL 广度确认，I=按历史命中先验校准跨触发器排序。只用于回测，不自动晋级生产 |
+| **confirmed 分数校准** | 不再把不同 Wyckoff 触发器的原始分数直接横比；研究组 I 用信号族历史先验与封顶后的形态强度合成可比分数，避免极高原始分主导 Top1 |
 | **Treatment exposure** | 消融组相对 A 组实际改变的 `(signal_date, code)` 交易集合；零暴露表示规则没有进入最终候选，不能据此评价收益贡献 |
 | **SOW (Sign of Weakness)** | 放量下跌，确认派发结束、下跌开始的信号 |
 
@@ -314,3 +316,4 @@ flowchart LR
 | **Hono Middleware** | Cloudflare Worker API 的请求处理链。公共链负责请求 ID、安全响应头、CORS 和请求体限制，路由链再执行 JWT 鉴权、限流和业务校验。 |
 | **Redis 共享限流** | 使用 Upstash Redis REST 保存可过期的用户请求额度，使不同 Worker 实例看到同一计数；Redis 不保存持仓、订单或交易信号。 |
 | **本地软限流** | 未配置 Redis 或 Redis 临时故障时，单个 Worker 实例内的保护计数。实例回收或扩容后不保证全局一致，响应头通过 `local` / `local-fallback` 明确标识。 |
+| **观察篮临时行情** | 读盘室按当前问题选取观察篮标的后拉取的 TickFlow 快照；浏览器缓存有效期为 45 秒，只作本轮模型上下文，不写入 Redis、持仓或信号表。 |
