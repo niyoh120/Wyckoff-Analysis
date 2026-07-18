@@ -34,7 +34,7 @@ import {
 import { consumeStream, convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, stepCountIs, streamText, tool, type UIMessage, type UIMessageChunk } from 'ai'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import type { Env } from '../index'
+import type { Env } from '../app'
 import { authMiddleware, type AuthContext } from '../middleware/auth'
 import { chatRateLimitMiddleware } from '../middleware/rate-limit'
 
@@ -87,6 +87,9 @@ type WatchlistRequestItem = { code: string; name: string }
 
 const ALLOWED_TARGET_ORIGINS: Set<string> = new Set(ALLOWED_PROXY_TARGET_ORIGINS)
 const ONE_ROUTE_ORIGINS = new Set(['https://api.1route.dev', 'https://www.1route.dev'])
+
+const CHAT_MAX_OUTPUT_TOKENS = 8192
+const CHAT_MAX_STEPS = 16
 
 const WYCKOFF_CHAT_SYSTEM_PROMPT = `# 角色设定
 
@@ -336,7 +339,8 @@ async function runChatAttempt(args: ChatResilienceArgs, config: ChatModelConfig,
       system: [WYCKOFF_CHAT_SYSTEM_PROMPT, marketWatchContext].filter(Boolean).join('\n\n'),
       messages: modelMessages,
       tools,
-      stopWhen: stepCountIs(10),
+      maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+      stopWhen: stepCountIs(CHAT_MAX_STEPS),
       abortSignal: args.signal,
       experimental_toolApprovalSecret: args.env.CHAT_TOOL_APPROVAL_SECRET || args.env.SUPABASE_SERVICE_ROLE_KEY,
       providerOptions: { openai: { parallelToolCalls: false } },
@@ -350,6 +354,10 @@ async function runChatAttempt(args: ChatResilienceArgs, config: ChatModelConfig,
         outputStarted = true
         flushChunks(args.writer, pending)
       }
+    }
+    const finishReason = await result.finishReason
+    if (finishReason === 'length') {
+      throw new Error(`模型输出达到 ${CHAT_MAX_OUTPUT_TOKENS} 个 token 上限，当前回答可能未完整结束。请点击“继续本轮”完成剩余分析。`)
     }
     flushChunks(args.writer, pending)
     succeeded = true
