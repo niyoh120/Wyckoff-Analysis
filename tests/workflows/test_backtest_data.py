@@ -30,6 +30,34 @@ def test_all_board_aliases_include_main_chinext_and_star() -> None:
     assert not board_match("830000", "main_chinext")
 
 
+def test_board_match_hk_accepts_hk_suffix_codes_only() -> None:
+    assert board_match("00700.HK", "hk")
+    assert board_match("00001.HK", "hk")
+    assert not board_match("600000", "hk")
+    assert not board_match("AAPL.US", "hk")
+
+
+def test_resolve_universe_from_snapshot_keeps_hk_suffix_codes(tmp_path) -> None:
+    (tmp_path / "name_map.json").write_text(
+        json.dumps(
+            {
+                "00700.HK": "腾讯控股",
+                "09988.HK": "阿里巴巴-SW",
+                "000001": "平安银行",
+                "AAPL.US": "苹果",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    universe = resolve_backtest_universe(board="hk", sample_size=0, snapshot_dir=tmp_path)
+
+    assert universe.source == "快照 name_map"
+    assert universe.symbols == ["00700.HK", "09988.HK"]
+    assert universe.name_map["00700.HK"] == "腾讯控股"
+
+
 def test_resolve_universe_from_snapshot_filters_st_and_board(tmp_path) -> None:
     (tmp_path / "name_map.json").write_text(
         json.dumps(

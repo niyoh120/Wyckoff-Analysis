@@ -13,12 +13,13 @@ from pathlib import Path
 import pandas as pd
 
 from core.cn_boards import cn_board, is_supported_cn_board
+from core.hk_boards import is_hk_main_board
 from core.wyckoff_engine import normalize_hist_from_fetch
 from integrations.data_source import fetch_stock_hist
 from integrations.fetch_a_share_csv import get_stocks_by_board, normalize_symbols
 from integrations.index_data_source import fetch_index_hist
 from integrations.market_metadata import fetch_concept_heat, fetch_concept_map, fetch_market_cap_map, fetch_sector_map
-from integrations.market_universe import load_us_symbols
+from integrations.market_universe import load_hk_symbols, load_us_symbols
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ def board_match(code: str, board: str) -> bool:
     if b == "us":
         return True
     c = str(code or "").strip()
+    if b == "hk":
+        return c.upper().endswith(".HK") and is_hk_main_board(c)
     if b in {"main", "chinext", "star", "bse"}:
         return cn_board(c) == b
     if b == "main_chinext_star":
@@ -79,6 +82,9 @@ def build_universe(board: str, sample_size: int) -> tuple[list[str], dict[str, s
     board_norm = normalize_backtest_board(board)
     if board_norm == "us":
         symbols, name_map = load_us_symbols()
+        return symbols[:sample_size] if sample_size > 0 else symbols, name_map
+    if board_norm == "hk":
+        symbols, name_map = load_hk_symbols()
         return symbols[:sample_size] if sample_size > 0 else symbols, name_map
 
     board_arg = board_norm if board_norm in {"main", "chinext", "star", "bse", "main_chinext_star"} else "all"
@@ -94,7 +100,8 @@ def resolve_backtest_universe(board: str, sample_size: int, snapshot_dir: Path |
     name_map = load_snapshot_name_map(snapshot_dir) if snapshot_dir is not None else None
     if name_map:
         board_norm = normalize_backtest_board(board)
-        symbols = list(name_map.keys()) if board_norm == "us" else normalize_symbols(list(name_map.keys()))
+        raw_symbols = list(name_map.keys())
+        symbols = raw_symbols if board_norm in {"us", "hk"} else normalize_symbols(raw_symbols)
         symbols = _filter_symbols(symbols, name_map, board_norm)
         if sample_size > 0:
             symbols = symbols[:sample_size]
