@@ -17,8 +17,11 @@ import math
 from dataclasses import dataclass
 
 PENNY_STOCK_PRICE_HKD = 1.0  # 港股仙股价格粗筛门槛（低于此价更容易被财技操纵）
-MIN_LIQUID_TURNOVER_HKD = 2_000_000.0  # 日均成交额低于此值视为流动性不足
-EXTREME_DAILY_MOVE_PCT = 50.0  # 单日涨跌幅超过此值，大概率是合股/拆股/财技跳空
+MIN_LIQUID_TURNOVER_HKD = 5_000_000.0  # 日均成交额低于此值视为流动性不足
+# 实盘复盘显示单日 -45% 级别的闪崩（如无预警题材股崩盘）会造成漏斗巨亏但未被
+# 原 50% 阈值拦截；TickFlow 港股 K 线没有独立的合股/拆股标记字段，只能靠单日
+# 波幅间接识别，收紧到 35% 以在拦截真实闪崩和误伤正常极端行情之间取折中。
+EXTREME_DAILY_MOVE_PCT = 35.0  # 单日涨跌幅超过此值，大概率是合股/拆股/财技跳空或流动性闪崩
 SPLITLIKE_PRICE_RATIO = 3.0  # 开盘或收盘相对前收的比值超过此倍数，判定为价格不连续
 
 

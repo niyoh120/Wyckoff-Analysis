@@ -109,11 +109,34 @@ def fetch_records_from_table(client, table: str, select_expr: str, page_size: in
         start += page
 
 
-def upsert_to_table(client, table: str, updates: list[dict[str, Any]], batch_size: int = 500) -> int:
+def _is_schema_miss(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "column" in text or "schema cache" in text or "could not find" in text
+
+
+def upsert_to_table(
+    client,
+    table: str,
+    updates: list[dict[str, Any]],
+    batch_size: int = 500,
+    optional_columns: tuple[str, ...] = (),
+) -> int:
+    """Upsert rows keyed by (code, recommend_date), dropping optional columns the table doesn't have yet.
+
+    There is no migration system for Supabase in this repo, so newly added optional fields
+    (e.g. stop_loss_sim_pct) may not exist on a given table until it's manually added. Falling
+    back to a compatible payload keeps the whole batch from failing on a schema mismatch.
+    """
     written = 0
     clean = [row for row in updates if row.get("code") and row.get("recommend_date")]
     for chunk in chunked(clean, max(min(int(batch_size), 1000), 1)):
-        client.table(table).upsert(chunk, on_conflict="code,recommend_date").execute()
+        try:
+            client.table(table).upsert(chunk, on_conflict="code,recommend_date").execute()
+        except Exception as exc:
+            if not optional_columns or not _is_schema_miss(exc):
+                raise
+            compatible = [{k: v for k, v in row.items() if k not in optional_columns} for row in chunk]
+            client.table(table).upsert(compatible, on_conflict="code,recommend_date").execute()
         written += len(chunk)
     return written
 

@@ -62,7 +62,7 @@ def refresh_tracking_performance(
     hist_by_code = {code: hist_map.get(symbol) for code, symbol in symbol_map.items()}
     now_iso = datetime.now(UTC).isoformat()
     updates, codes_no_data, latest_td = build_market_performance_updates(grouped, hist_by_code, now_iso, market_key)
-    written = upsert_to_table(client, table, updates)
+    written = upsert_to_table(client, table, updates, optional_columns=("stop_loss_sim_pct",))
     return performance_summary(records, grouped, written, codes_no_data, latest_td, updates)
 
 
@@ -201,6 +201,9 @@ def _build_performance_update(
     )
 
 
+STOP_LOSS_SIM_PCT = -9.0  # 与 Step4 港/美/A 股共用的硬止损口径（STEP4_BUY_HARD_STOP_PCT）对齐
+
+
 def _performance_row(
     row: dict[str, Any],
     code: int | str,
@@ -231,10 +234,26 @@ def _performance_row(
         "mae_price": round(mae_price, 4),
         "mfe_date": int(high_date),
         "mae_date": int(low_date),
+        "stop_loss_sim_pct": round(_simulate_stop_loss_pct(entry, window), 2),
         "performance_days": len(window),
         "performance_updated_at": now_iso,
         "updated_at": now_iso,
     }
+
+
+def _simulate_stop_loss_pct(entry: float, window: list[tuple[str, dict[str, float]]]) -> float:
+    """按固定百分比硬止损纪律回放收益，量化"没有止损"与"有止损"的实际差距。
+
+    一旦某日最低价触及止损线视为当日止损离场（按止损价成交，不考虑跳空更差成交价）；
+    否则持有到观察窗口最后一日按收盘价计算。用于复盘裸信号池的真实可交易性，不代表
+    实盘已执行止损（港股/美股漏斗目前没有 Step4 OMS 执行层）。
+    """
+    stop_price = entry * (1.0 + STOP_LOSS_SIM_PCT / 100.0)
+    for _day, ohlc in window:
+        if float(ohlc["low"]) <= stop_price:
+            return STOP_LOSS_SIM_PCT
+    final_close = float(window[-1][1]["close"])
+    return (final_close / entry - 1.0) * 100.0
 
 
 def _window_rows(

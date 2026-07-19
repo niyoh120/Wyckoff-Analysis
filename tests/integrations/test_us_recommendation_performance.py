@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pandas as pd
 
 from integrations.recommendation_performance import (
@@ -10,6 +12,7 @@ from integrations.recommendation_performance import (
     refresh_tracking_performance,
     refresh_us_tracking_performance,
 )
+from integrations.recommendation_tracking_common import upsert_to_table
 
 
 def test_build_us_performance_updates_uses_entry_trade_date_window():
@@ -42,6 +45,7 @@ def test_build_us_performance_updates_uses_entry_trade_date_window():
             "mae_price": 9.0,
             "mfe_date": 20260518,
             "mae_date": 20260518,
+            "stop_loss_sim_pct": -9.0,
             "performance_days": 2,
             "performance_updated_at": "now",
             "updated_at": "now",
@@ -90,7 +94,7 @@ def test_refresh_us_tracking_performance_fetches_forward_adjusted_hist(monkeypat
         "integrations.recommendation_performance.fetch_records_from_table",
         lambda *_args: [{"id": 1, "code": "SPLT.US", "recommend_date": 20260515, "initial_price": 100.0}],
     )
-    monkeypatch.setattr("integrations.recommendation_performance.upsert_to_table", lambda *_args: 1)
+    monkeypatch.setattr("integrations.recommendation_performance.upsert_to_table", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr("integrations.tickflow_client.TickFlowClient", FakeTickFlowClient)
 
     summary = refresh_us_tracking_performance(max_dates=1, kline_count=5)
@@ -141,7 +145,7 @@ def test_refresh_tracking_performance_normalizes_cn_symbols(monkeypatch):
         "integrations.recommendation_performance.fetch_records_from_table",
         lambda *_args: [{"id": 1, "code": 600519, "recommend_date": 20260515, "initial_price": 10.0}],
     )
-    monkeypatch.setattr("integrations.recommendation_performance.upsert_to_table", lambda *_args: 1)
+    monkeypatch.setattr("integrations.recommendation_performance.upsert_to_table", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr("integrations.tickflow_client.TickFlowClient", FakeTickFlowClient)
     monkeypatch.setattr("integrations.tickflow_client.normalize_cn_symbol", lambda code: f"{code}.SH")
 
@@ -154,6 +158,42 @@ def test_refresh_tracking_performance_normalizes_cn_symbols(monkeypatch):
 def test_group_records_by_market_code_handles_cn_padding_and_global_symbols():
     assert group_records_by_market_code([{"code": 1}], "cn") == {"000001": [{"code": 1}]}
     assert group_records_by_market_code([{"code": "AAPL.US"}], "us") == {"AAPL.US": [{"code": "AAPL.US"}]}
+
+
+class _FakeUpsertClient:
+    def __init__(self, *, fail_once: bool) -> None:
+        self.fail_once = fail_once
+        self.upserts: list[list[dict]] = []
+
+    def table(self, _name: str):
+        return _FakeUpsertQuery(self)
+
+
+class _FakeUpsertQuery:
+    def __init__(self, client: _FakeUpsertClient) -> None:
+        self.client = client
+        self.payload: list[dict] = []
+
+    def upsert(self, payload, **_kwargs):
+        self.payload = list(payload)
+        return self
+
+    def execute(self):
+        if self.client.fail_once and any("stop_loss_sim_pct" in row for row in self.payload):
+            self.client.fail_once = False
+            raise Exception("Could not find the 'stop_loss_sim_pct' column of 'recommendation_tracking_hk'")
+        self.client.upserts.append(self.payload)
+        return SimpleNamespace(data=self.payload)
+
+
+def test_upsert_to_table_drops_optional_column_on_schema_miss():
+    client = _FakeUpsertClient(fail_once=True)
+    rows = [{"code": "000001", "recommend_date": 20260601, "change_pct": 1.0, "stop_loss_sim_pct": -9.0}]
+
+    written = upsert_to_table(client, "recommendation_tracking_hk", rows, optional_columns=("stop_loss_sim_pct",))
+
+    assert written == 1
+    assert client.upserts == [[{"code": "000001", "recommend_date": 20260601, "change_pct": 1.0}]]
 
 
 def test_latest_market_records_keeps_latest_recommend_dates():
