@@ -173,12 +173,13 @@ def _apply_funnel_config_overrides(cfg: FunnelConfig, overrides: dict[str, objec
 
 
 def _apply_us_cfg(cfg: FunnelConfig) -> None:
+    # 与实盘 workflows/market_funnel_config.py::funnel_config_for_market("us") 保持一致，
+    # 否则回测评估的不是线上真实漏斗（此前误关闭了 RS 过滤，阈值也偏松）。
     cfg.require_cn_main_or_chinext = False
-    cfg.enable_rs_filter = False
-    cfg.enable_rs_divergence_channel = False
     cfg.require_bench_latest_alignment = False
-    cfg.sos_pct_min = 7.0
-    cfg.sos_vol_ratio = 3.0
+    # SOS 收紧至 10%/4.0x（与 workflows/market_funnel_config.py 同步）
+    cfg.sos_pct_min = 10.0
+    cfg.sos_vol_ratio = 4.0
     cfg.spring_vol_ratio = 1.3
     cfg.evr_max_rise = 3.0
 

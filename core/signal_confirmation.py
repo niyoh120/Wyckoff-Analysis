@@ -402,6 +402,13 @@ def _copy_candidate_fields(target: dict[str, Any], source: dict[str, Any]) -> No
             target[key] = source[key]
 
 
+def _pending_code_key(code: Any) -> str:
+    """还原 PendingPool.write 存储的 df_map key：A 股数字代码补零，港股/美股代码原样保留。"""
+    if isinstance(code, int):
+        return f"{code:06d}"
+    return str(code)
+
+
 def run_confirmation_cycle(
     pending_signals: list[dict],
     df_map: dict[str, pd.DataFrame],
@@ -416,7 +423,7 @@ def run_confirmation_cycle(
         if str(sig.get("signal_date", ""))[:10] == str(trade_date)[:10]:
             continue
 
-        code_str = f"{int(sig['code']):06d}"
+        code_str = _pending_code_key(sig["code"])
         df = df_map.get(code_str)
         if df is None or df.empty:
             continue

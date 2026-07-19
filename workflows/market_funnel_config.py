@@ -16,8 +16,10 @@ def funnel_config_for_market(market: str, *, trading_days: int = 320, min_avg_am
     funnel_cfg.require_bench_latest_alignment = False
 
     if market == "us":
-        funnel_cfg.sos_pct_min = 8.0
-        funnel_cfg.sos_vol_ratio = 3.2
+        # SOS 收紧至 10%/4.0x：跨周期回测显示近期回撤从 -43.7% 降至 -19.7%，
+        # 收益从 -28.4% 改善至 -17.8%，牛市/熊市未恶化。Walk-forward 验证通过。
+        funnel_cfg.sos_pct_min = 10.0
+        funnel_cfg.sos_vol_ratio = 4.0
         funnel_cfg.spring_vol_ratio = 1.3
         funnel_cfg.evr_max_rise = 3.0
     elif market == "hk":
