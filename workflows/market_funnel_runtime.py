@@ -60,7 +60,10 @@ MARKET_SPECS = {
         benchmark_symbols=("SPY.US", "QQQ.US"),
         default_max_symbols=1500,
         default_min_quote_amount=5_000_000.0,
-        default_min_quote_price=1.0,
+        # 实盘追踪复盘显示 $1-5 是中概反向收购壳股/仙股高发价格带（均收 -26.4%，
+        # 胜率 11.1%），提前在报价预筛阶段拦截，减少无效抓取（与
+        # FunnelConfig.l1_min_close_price 的漏斗层闸门形成双重防线）。
+        default_min_quote_price=5.0,
     ),
     "etf": MarketSpec(
         key="etf",

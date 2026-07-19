@@ -22,6 +22,11 @@ def funnel_config_for_market(market: str, *, trading_days: int = 320, min_avg_am
         funnel_cfg.sos_vol_ratio = 4.0
         funnel_cfg.spring_vol_ratio = 1.3
         funnel_cfg.evr_max_rise = 3.0
+        # 实盘追踪表复盘（1343 条真实推荐，30 个交易日）：初始价 $1-5 区间样本
+        # 均收 -26.4%、胜率仅 11.1%，贡献了 59% 的极端亏损(<=-30%)，是中概反向
+        # 收购壳股/仙股的高发价格带；默认值 2.0（人民币计价 A 股口径）对美元计价
+        # 的美股门槛过低，提高到 5.0 把这批结构性亏损源挡在漏斗最前端。
+        funnel_cfg.l1_min_close_price = 5.0
     elif market == "hk":
         apply_hk_funnel_cfg(funnel_cfg, min_avg_amount=min_avg_amount)
     elif market == "etf":

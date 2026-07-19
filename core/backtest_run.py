@@ -182,6 +182,8 @@ def _apply_us_cfg(cfg: FunnelConfig) -> None:
     cfg.sos_vol_ratio = 4.0
     cfg.spring_vol_ratio = 1.3
     cfg.evr_max_rise = 3.0
+    # 低价股风险闸门（与 workflows/market_funnel_config.py 同步）
+    cfg.l1_min_close_price = 5.0
 
 
 def _build_run_summary(
