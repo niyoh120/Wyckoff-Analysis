@@ -10,6 +10,7 @@ import {
   formatValuePercent,
   numberTone,
   reverseNumberTone,
+  sortByValueRisk,
   valueUnavailableText,
 } from '../value-analysis'
 
@@ -192,13 +193,52 @@ describe('value analysis helpers', () => {
     }
   })
 
+  it('flags distressed fundamentals as severe risk, mirroring the Python overlay veto', () => {
+    const distressed = buildValueScore({
+      roe: -5,
+      net_income_yoy: -45,
+      revenue_yoy: -25,
+      debt_to_asset_ratio: 88,
+      operating_cash_to_revenue: -3,
+    }, t)
+
+    expect(distressed.severe).toBe(true)
+    expect(distressed.tone).toBe('bad')
+    expect(distressed.label).toBe(t('analysis.valueScoreSevere'))
+  })
+
+  it('flags leveraged loss as severe even without three distress signals', () => {
+    const leveragedLoss = buildValueScore({
+      roe: -1,
+      net_income_yoy: 5,
+      revenue_yoy: 3,
+      gross_margin: 30,
+      debt_to_asset_ratio: 90,
+      operating_cash_to_revenue: 6,
+    }, t)
+
+    expect(leveragedLoss.severe).toBe(true)
+  })
+
+  it('sorts severe-risk items first regardless of score', () => {
+    type Row = { code: string; metrics: FundamentalMetric }
+    const rows: Row[] = [
+      { code: 'strong', metrics: { roe: 18, net_income_yoy: 12, revenue_yoy: 8, gross_margin: 35, debt_to_asset_ratio: 30, operating_cash_to_revenue: 10 } },
+      { code: 'severe', metrics: { roe: -5, net_income_yoy: -45, revenue_yoy: -25, debt_to_asset_ratio: 88, operating_cash_to_revenue: -3 } },
+    ]
+
+    const sorted = sortByValueRisk(rows, (row) => row.metrics)
+
+    expect(sorted[0]?.code).toBe('severe')
+  })
+
   it('calculates deterministic input snapshot hash', () => {
     const kline = [{ date: '2026-01-01', open: 1, high: 2, low: 1, close: 1.5, volume: 100 }]
     const snap = snapshot({ roe: 15, period_end: '2026-03-31' })
     const h1 = calculateInputSnapshotHash('600519.SH', kline, snap)
     const h2 = calculateInputSnapshotHash('600519.SH', kline, snap)
     const h3 = calculateInputSnapshotHash('000001.SZ', kline, snap)
-    const h4 = calculateInputSnapshotHash('600519.SH', kline, snap, 'value-rules-v2')
+    const h4 = calculateInputSnapshotHash('600519.SH', kline, snap, 'value-rules-v99')
 
     expect(h1).toBe(h2)
     expect(h1).not.toBe(h3)

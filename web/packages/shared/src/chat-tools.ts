@@ -458,12 +458,14 @@ export function buildValueAgentDigest(snapshot: ValueSnapshot): string {
   if (!snapshot.metrics) return base
   const strengths = score.strengths.map((item) => item.label).join('；') || '暂无明显质量加分项'
   const risks = score.risks.map((item) => item.label).join('；') || '暂无明显价值面风险项'
-  return [
+  const lines = [
     base,
     `价值面评级：${score.label}`,
     `质量信号：${strengths}`,
     `风险信号：${risks}`,
-  ].join('\n')
+  ]
+  if (score.severe) lines.push('严重风险：多项核心指标同时恶化或高杠杆叠加亏损，建议仅作观察/规避，不作为加仓依据。')
+  return lines.join('\n')
 }
 
 export async function fetchQuotes(

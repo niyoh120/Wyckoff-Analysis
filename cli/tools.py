@@ -41,15 +41,16 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "analyze_stock",
-        "description": "分析单只股票：A 股/ETF 支持 6 位代码；美股/港股使用 TickFlow 标准代码。支持 Wyckoff 健康诊断或近期行情查询。",
+        "description": "分析单只股票：A 股/ETF 支持 6 位代码；美股/港股使用 TickFlow 标准代码。支持 Wyckoff 健康诊断、近期行情或基本面质量查询。",
         "parameters": {
             "type": "object",
             "properties": {
                 "code": {"type": "string", "description": "股票代码，如 '000001'、'513100'、'AAPL.US'、'00700.HK'"},
                 "mode": {
                     "type": "string",
-                    "enum": ["diagnose", "price"],
-                    "description": "'diagnose' 做 Wyckoff 结构化诊断；'price' 仅返回近期 OHLCV 行情",
+                    "enum": ["diagnose", "price", "fundamental"],
+                    "description": "'diagnose' 做 Wyckoff 结构化诊断；'price' 仅返回近期 OHLCV 行情；"
+                    "'fundamental' 返回最新财报的基本面质量评级（研究性质，不改变正式漏斗或买卖信号）",
                 },
                 "cost": {"type": "number", "description": "持仓成本价（仅 diagnose 模式），默认 0"},
                 "days": {"type": "integer", "description": "获取天数（仅 price 模式），默认 30，最大 250"},

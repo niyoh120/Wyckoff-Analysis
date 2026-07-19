@@ -3,7 +3,8 @@ import type { FundamentalMetric, ValueSnapshot } from './agent-market'
 export type ValueTone = 'good' | 'bad' | 'neutral'
 export type ValueDataQualityLevel = 'ready' | 'limited' | 'stale' | 'unavailable'
 
-export const VALUE_RULESET_VERSION = 'value-rules-v1'
+export const VALUE_RULESET_VERSION = 'value-rules-v2'
+const STALE_REPORT_AGE_DAYS = 550
 
 const CORE_VALUE_FIELDS = [
   'roe',
@@ -27,6 +28,7 @@ export interface ValueScore {
   label: string
   tone: ValueTone
   score: number
+  severe: boolean
   strengths: ValueSignal[]
   risks: ValueSignal[]
 }
@@ -82,7 +84,7 @@ export function valueDataQuality(snapshot: ValueSnapshot, now = new Date()): Val
   const missingCoreFields = CORE_VALUE_FIELDS.filter(field => !defined(metrics[field]))
   const asOf = metrics.period_end || metrics.announce_date
   const ageDays = ageInDays(asOf, now)
-  const level: ValueDataQualityLevel = ageDays !== undefined && ageDays > 270
+  const level: ValueDataQualityLevel = ageDays !== undefined && ageDays > STALE_REPORT_AGE_DAYS
     ? 'stale'
     : missingCoreFields.length >= 3 || !asOf
       ? 'limited'
@@ -124,16 +126,30 @@ export function evaluateValueRules(metrics: FundamentalMetric | null): ValueSign
   }))
 }
 
+/** Mirrors core/fundamental_overlay.py::_severe_risk so both surfaces veto the same distress pattern. */
+export function isSevereRisk(metrics: FundamentalMetric): boolean {
+  const distress = [
+    defined(metrics.roe) && metrics.roe < 0,
+    defined(metrics.net_income_yoy) && metrics.net_income_yoy < -30,
+    defined(metrics.revenue_yoy) && metrics.revenue_yoy < -20,
+    defined(metrics.operating_cash_to_revenue) && metrics.operating_cash_to_revenue < 0,
+  ].filter(Boolean).length
+  const leveragedLoss = defined(metrics.debt_to_asset_ratio) && metrics.debt_to_asset_ratio >= 85
+    && defined(metrics.roe) && metrics.roe < 0
+  return distress >= 3 || leveragedLoss
+}
+
 export function buildValueScore(metrics: FundamentalMetric | null): ValueScore {
-  if (!metrics) return { label: '暂无', tone: 'neutral', score: -99, strengths: [], risks: [] }
+  if (!metrics) return { label: '暂无', tone: 'neutral', score: -99, severe: false, strengths: [], risks: [] }
   const matched = evaluateValueRules(metrics)
   const score = VALUE_RULES.filter(rule => rule.matches(metrics)).reduce((total, rule) => total + rule.points, 0)
   const strengths = matched.filter(signal => signal.tone === 'good')
   const risks = matched.filter(signal => signal.tone === 'bad')
+  const severe = isSevereRisk(metrics)
 
-  const tone: ValueTone = score >= 3 ? 'good' : score < 0 ? 'bad' : 'neutral'
-  const label = tone === 'good' ? '稳健' : tone === 'bad' ? '承压' : '中性'
-  return { label, tone, score, strengths, risks }
+  const tone: ValueTone = severe || score < 0 ? 'bad' : score >= 3 ? 'good' : 'neutral'
+  const label = severe ? '高危' : tone === 'good' ? '稳健' : tone === 'bad' ? '承压' : '中性'
+  return { label, tone, score, severe, strengths, risks }
 }
 
 export function valueTraceMeta(snapshot: ValueSnapshot): ValueTraceMeta {

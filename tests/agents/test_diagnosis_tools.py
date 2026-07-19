@@ -127,6 +127,73 @@ def test_analyze_stock_rejects_unknown_mode(monkeypatch) -> None:
     assert "mode 参数无效" in result["error"]
 
 
+def test_analyze_stock_fundamental_requires_tickflow_key(monkeypatch) -> None:
+    monkeypatch.setattr(diagnosis_tools, "get_credential", lambda *_args, **_kwargs: "")
+
+    result = diagnosis_tools.analyze_stock("000001", mode="fundamental")
+
+    assert "TickFlow" in result["error"]
+
+
+def test_analyze_stock_fundamental_scores_latest_metrics(monkeypatch) -> None:
+    class FakeTickFlowClient:
+        def __init__(self, api_key: str) -> None:
+            assert api_key == "key"
+
+        def get_financial_metrics(self, symbols, *, latest):
+            assert symbols == ["000001"]
+            assert latest is True
+            return {
+                "000001.SZ": [
+                    {
+                        "period_end": "20241231",
+                        "roe": 18,
+                        "net_income_yoy": 20,
+                        "revenue_yoy": 12,
+                        "gross_margin": 35,
+                        "debt_to_asset_ratio": 40,
+                        "operating_cash_to_revenue": 8,
+                    }
+                ]
+            }
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return date(2025, 4, 30)
+
+    monkeypatch.setattr(diagnosis_tools, "get_credential", lambda *_args, **_kwargs: "key")
+    monkeypatch.setattr(diagnosis_tools, "code_to_name", lambda _code: "平安银行")
+    monkeypatch.setattr(diagnosis_tools, "date", FixedDate)
+    monkeypatch.setattr("integrations.tickflow_client.TickFlowClient", FakeTickFlowClient)
+
+    result = diagnosis_tools.analyze_stock("000001", mode="fundamental")
+
+    assert result["code"] == "000001"
+    assert result["name"] == "平安银行"
+    assert result["data_status"] == "ok"
+    assert result["grade"] == "strong"
+    assert result["action"] == "boost"
+
+
+def test_analyze_stock_fundamental_handles_missing_records(monkeypatch) -> None:
+    class FakeTickFlowClient:
+        def __init__(self, api_key: str) -> None:
+            pass
+
+        def get_financial_metrics(self, symbols, *, latest):
+            return {}
+
+    monkeypatch.setattr(diagnosis_tools, "get_credential", lambda *_args, **_kwargs: "key")
+    monkeypatch.setattr(diagnosis_tools, "code_to_name", lambda _code: "平安银行")
+    monkeypatch.setattr("integrations.tickflow_client.TickFlowClient", FakeTickFlowClient)
+
+    result = diagnosis_tools.analyze_stock("000001", mode="fundamental")
+
+    assert result["data_status"] == "no_data"
+    assert result["grade"] == "unknown"
+
+
 def test_diagnostic_payload_marks_high_score_trend_as_priority_watch() -> None:
     result = diagnosis_tools._diagnostic_payload(
         _diagnostic(health_reasons=["多头排列", "L2通道:主升通道"]),

@@ -199,7 +199,7 @@ The agent's arsenal — 10 quant tools + 5 general capabilities:
 | Tool | Capability |
 |---|---|
 | `search_stock_by_name` | Fuzzy search by name, ticker, or pinyin |
-| `analyze_stock` | Wyckoff diagnosis / recent OHLCV quotes (mode switch) |
+| `analyze_stock` | Wyckoff diagnosis / recent OHLCV quotes / fundamental quality overlay (mode switch) |
 | `portfolio` | View holdings / batch portfolio health scan (mode switch) |
 | `update_portfolio` | Add / modify / delete holdings, set available cash, delete tracking records |
 | `get_market_overview` | Broad market temperature overview |

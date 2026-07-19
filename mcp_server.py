@@ -192,13 +192,14 @@ def search_stock_by_name(keyword: str) -> list[dict]:
 
 @mcp.tool()
 def analyze_stock(
-    code: str, mode: Literal["diagnose", "price"] = "diagnose", cost: float = 0.0, days: int = 30
+    code: str, mode: Literal["diagnose", "price", "fundamental"] = "diagnose", cost: float = 0.0, days: int = 30
 ) -> dict:
     """分析单只 A 股。
 
-    **调用时机**：用户问某只股票怎么样、做个诊断、查价格时调用。
+    **调用时机**：用户问某只股票怎么样、做个诊断、查价格或基本面时调用。
     - mode='diagnose'：Wyckoff 结构诊断（阶段、支撑压力、趋势强度、操作建议）
     - mode='price'：返回近 N 天 OHLCV 数据
+    - mode='fundamental'：最新财报的基本面质量评级（研究性质，不改变正式漏斗或买卖信号）
     **结果处理**：诊断结果较专业，请用通俗语言解释给用户。
     """
     return _execute_mcp_tool(

@@ -19,7 +19,7 @@ import { avg } from '@/lib/math'
 import { EMPTY_PORTFOLIO, requestPortfolio, type Portfolio, type Position } from '@/lib/portfolio-api'
 import { saveAnalysisHistory } from '@/lib/local-history'
 import { sourceLabel, VALUE_RULESET_VERSION, valueTraceMeta, type ValueScore, type ValueTone } from '@wyckoff/shared'
-import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueDataQualityText, valueDataQualityTitle, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
+import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sortByValueRisk, valueDataQualityText, valueDataQualityTitle, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
 
 interface PositionPnL {
   code: string
@@ -480,7 +480,7 @@ function PortfolioValuePanel({ values }: { values: PortfolioValueRow[] }) {
   const { t } = usePreferences()
   const [view, setView] = useState<ValueView>('quality')
   if (values.length === 0) return null
-  const rows = [...values].sort((a, b) => buildValueScore(b.snapshot.metrics).score - buildValueScore(a.snapshot.metrics).score)
+  const rows = sortByValueRisk(values, v => v.snapshot.metrics)
   return (
     <section className="rounded-lg border border-border p-4">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -566,7 +566,7 @@ function ValueMetricCell({ label, value, tone }: { label: string; value: string;
 }
 
 function ValueBadge({ value }: { value: ValueScore }) {
-  return <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(value.tone)}`}>{value.label}</span>
+  return <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(value.tone, value.severe)}`}>{value.label}</span>
 }
 
 function PnLTable({ positions, stats }: { positions: PositionPnL[]; stats: FullDiagnosisResult['summaryStats'] }) {

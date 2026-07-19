@@ -480,6 +480,7 @@ threshold = context_window - reserve
 4. 工具结果做智能摘要而非粗暴截断：
    - `analyze_stock` 诊断模式 → 保留 `code`、`phase`、`health`、`trigger_signals` 等关键字段
    - `analyze_stock` 行情模式 → 保留最近 5 条数据
+   - `analyze_stock` 基本面模式 → 保留 `data_status`、`grade`、`action`、`score` 等关键字段
    - `portfolio` 诊断模式 → 保留 `diagnostics`、`successful_count` 等
    - `portfolio` 查看模式 → 保留 `positions`、`free_cash` 等
    - 通用工具 → 保留 `error`、`message`、`status` 等顶层键

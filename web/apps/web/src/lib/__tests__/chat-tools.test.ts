@@ -118,7 +118,26 @@ describe('buildValueAgentDigest', () => {
     expect(digest).toContain('ROE=18.20%')
     expect(digest).toContain('价值面评级：稳健')
     expect(digest).toContain('质量信号：')
-    expect(digest).toContain('规则版本：value-rules-v1')
+    expect(digest).toContain('规则版本：value-rules-v2')
+    expect(digest).not.toContain('严重风险')
+  })
+
+  it('appends a severe-risk warning for distressed fundamentals', () => {
+    const digest = buildValueAgentDigest({
+      symbol: '000002.SZ',
+      source: 'tickflow',
+      metrics: {
+        period_end: '2024-12-31',
+        roe: -5,
+        net_income_yoy: -45,
+        revenue_yoy: -25,
+        debt_to_asset_ratio: 88,
+        operating_cash_to_revenue: -3,
+      },
+    })
+
+    expect(digest).toContain('价值面评级：高危')
+    expect(digest).toContain('严重风险：')
   })
 })
 

@@ -46,3 +46,21 @@ def test_stale_or_thin_record_stays_unknown() -> None:
 
     assert result["grade"] == "unknown"
     assert result["action"] == "observe"
+
+
+def test_profit_without_cash_conversion_flags_divergence() -> None:
+    result = evaluate_fundamental_overlay(
+        {
+            "period_end": "2024-12-31",
+            "roe": 12,
+            "net_income_yoy": 8,
+            "revenue_yoy": 5,
+            "gross_margin": 40,
+            "debt_to_asset_ratio": 40,
+            "operating_cash_to_revenue": -5,
+        },
+        signal_date="2025-04-30",
+    )
+
+    assert "PROFIT_CASH_FLOW_DIVERGENCE" in result["negative_rules"]
+    assert "WEAK_CASH_EARNINGS" in result["negative_rules"]

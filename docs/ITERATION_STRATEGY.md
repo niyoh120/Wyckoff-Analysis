@@ -19,7 +19,7 @@
 | 入场质量 | 相近上游优先级内的质量档位 | 仅允许窄 tie-breaker，继续验证 |
 | 短线事件 | 未来 5 日命中、MFE、MAE 与 Top-K lift | 只读评估，不回写生产推荐 |
 | 主题轮动 | `rotation_watch` 的短周期动量和宽度 | Shadow 提示，不改变主线确认或 OMS |
-| 基本面质量 Overlay | 公告日前可见财报的 point-in-time 历史回放 | 0/3 周期通过，保留研究脚本，不接入 Shadow/生产 |
+| 基本面质量 Overlay | 公告日前可见财报的 point-in-time 历史回放 | 0/3 周期通过，回测脚本已下线；仅作为读盘室按需查询工具（`analyze_stock mode=fundamental`），不接入 A股漏斗/Shadow/生产排序 |
 | A股实证入场 | confirmed 信号族、市场广度与跨触发器排序 | 默认回测 A/F/G/H/I，未验证前不改变生产漏斗 |
 
 ### 基本面质量 Overlay 本地结论（2026-07-18）
@@ -36,6 +36,15 @@
 
 结论为 `keep_research_only`：不改 confirmed、市场闸门、候选排序、Step3 或 OMS。回放仍有当前在市股票池的
 幸存者偏差，且供应商历史财务可能含修订回填；这些限制只会降低晋级可信度，不构成放宽门槛的理由。
+
+该回放脚本（`workflows/fundamental_overlay_backtest.py`）与其 CLI 入口已下线，结论存档于此。核心评分逻辑
+（`core/fundamental_overlay.py`）保留，仅通过 `analyze_stock(mode="fundamental")` 暴露为 CLI/MCP/Web
+Agent 读盘室的单股按需查询工具，不参与任何自动化排序或漏斗决策。
+
+Web 端单股分析、多股对抗、持仓诊断页面（`web/packages/shared/src/agent-value.ts`）维护一套独立但核心逻辑对齐
+的规则库：数据新鲜度阈值（550 天）、`veto` 级严重风险判定（多指标同时恶化或高杠杆叠加亏损）与背离信号
+（利润/ROE 为正但经营现金流为负）在两端保持一致；输出结构因消费场景不同而分别面向 UI 展示
+（`ValueScore`/`severe`）与 Agent 决策字段（`grade`/`action`/`position_cap`），不做强行统一。
 
 ## 研究对象与证据台账
 

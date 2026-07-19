@@ -199,7 +199,7 @@ Web App: **[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
 | 도구 | 기능 |
 |------|------|
 | `search_stock_by_name` | 종목명 / 코드 / 병음 퍼지 검색 |
-| `analyze_stock` | 와이코프 진단 / 최근 OHLCV 시세 (모드 전환) |
+| `analyze_stock` | 와이코프 진단 / 최근 OHLCV 시세 / 펀더멘탈 품질 오버레이 (모드 전환) |
 | `portfolio` | 보유 목록 조회 / 일괄 포트폴리오 진단 (모드 전환) |
 | `update_portfolio` | 보유 추가 / 수정 / 삭제, 가용 현금 설정, 추적 기록 삭제 |
 | `get_market_overview` | 시장 온도 개요 |

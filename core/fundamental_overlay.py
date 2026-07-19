@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any
 
-FUNDAMENTAL_OVERLAY_SCHEMA_VERSION = "fundamental-overlay-v1"
+FUNDAMENTAL_OVERLAY_SCHEMA_VERSION = "fundamental-overlay-v2"
 CORE_FIELDS = (
     "roe",
     "net_income_yoy",
@@ -89,7 +89,23 @@ def _score(values: dict[str, float | None]) -> tuple[int, list[str], list[str]]:
         codes=("CASH_FLOW_HEALTHY", "CASH_FLOW_NEGATIVE"),
         out=(positives, negatives),
     )
+    negatives.extend(_divergence_rules(values))
     return score, positives, negatives
+
+
+def _divergence_rules(values: dict[str, float | None]) -> list[str]:
+    """Zero-weight quality flags: earnings that do not convert into cash."""
+    codes = []
+    cash_negative = _below(values["operating_cash_to_revenue"], 0)
+    if cash_negative and _strictly_positive(values["net_income_yoy"]):
+        codes.append("PROFIT_CASH_FLOW_DIVERGENCE")
+    if cash_negative and _strictly_positive(values["roe"]):
+        codes.append("WEAK_CASH_EARNINGS")
+    return codes
+
+
+def _strictly_positive(value: float | None) -> bool:
+    return value is not None and value > 0
 
 
 def _rule(value, *, high, low, points, codes, out, strict: bool = False) -> int:

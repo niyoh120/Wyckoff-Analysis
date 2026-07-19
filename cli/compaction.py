@@ -130,6 +130,10 @@ def _summarize_tool_result(name: str, content: str, max_len: int = 400) -> str:
             "health",
             "positions",
             "message",
+            "data_status",
+            "grade",
+            "action",
+            "score",
         ):
             if key in data:
                 kept[key] = data[key]

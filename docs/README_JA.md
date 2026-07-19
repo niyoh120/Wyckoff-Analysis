@@ -199,7 +199,7 @@ Web App：**[wyckoff-analysis.pages.dev](https://wyckoff-analysis.pages.dev/)**
 | ツール | 機能 |
 |--------|------|
 | `search_stock_by_name` | 名前 / コード / ピンインによるあいまい検索 |
-| `analyze_stock` | ワイコフ診断 / 直近 OHLCV 相場データ（mode 切替） |
+| `analyze_stock` | ワイコフ診断 / 直近 OHLCV 相場データ / ファンダメンタルズ品質オーバーレイ（mode 切替） |
 | `portfolio` | 保有一覧表示 / 一括ポートフォリオ診断（mode 切替） |
 | `update_portfolio` | 保有の追加/変更/削除、余剰資金設定、追跡記録削除 |
 | `get_market_overview` | 市場全体の温度感 |

@@ -17,7 +17,7 @@ import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
 import { resolveStockQuery } from '@/lib/market-search'
 import { sourceLabel, VALUE_RULESET_VERSION, valueTraceMeta, type ValueScore, type ValueTone } from '@wyckoff/shared'
-import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, valueDataQualityText, valueDataQualityTitle, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
+import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sortByValueRisk, valueDataQualityText, valueDataQualityTitle, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
 
 interface BattleTarget {
   code: string
@@ -338,10 +338,7 @@ function SingleStockPanel({ stock }: { stock: BattleStock }) {
 function ValueBattlePanel({ stocks }: { stocks: BattleStock[] }) {
   const { t } = usePreferences()
   const [view, setView] = useState<ValueView>('quality')
-  const rows = useMemo(
-    () => [...stocks].sort((a, b) => buildValueScore(b.valueSnapshot.metrics).score - buildValueScore(a.valueSnapshot.metrics).score),
-    [stocks],
-  )
+  const rows = useMemo(() => sortByValueRisk(stocks, s => s.valueSnapshot.metrics), [stocks])
   return (
     <section className="rounded-lg border border-border p-4">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -425,7 +422,7 @@ function MetricCell({ label, value, tone }: { label: string; value: string; tone
 }
 
 function ValueBadge({ value }: { value: ValueScore }) {
-  return <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(value.tone)}`}>{value.label}</span>
+  return <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(value.tone, value.severe)}`}>{value.label}</span>
 }
 
 function StrengthTable({ stocks }: { stocks: BattleStock[] }) {

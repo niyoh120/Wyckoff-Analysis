@@ -12,7 +12,7 @@ from agents.stock_data_helpers import (
     hist_metadata,
     latest_hist_date,
 )
-from agents.tool_context import ToolContext, ensure_tushare_token
+from agents.tool_context import ToolContext, ensure_tushare_token, get_credential
 from utils.safe import drop_empty as _drop_empty
 from utils.safe import safe_float as _safe_float
 
@@ -22,12 +22,14 @@ logger = logging.getLogger(__name__)
 def analyze_stock(
     code: str, mode: str = "diagnose", cost: float = 0.0, days: int = 30, tool_context: ToolContext | None = None
 ) -> dict:
-    """分析单只 A 股股票：Wyckoff 健康诊断或近期行情查询。"""
+    """分析单只 A 股股票：Wyckoff 健康诊断、近期行情或基本面质量查询。"""
     try:
-        ensure_tushare_token(tool_context)
         mode = (mode or "diagnose").strip().lower()
-        if mode not in ("diagnose", "price"):
-            return {"error": f"mode 参数无效: '{mode}'，可选值: diagnose, price"}
+        if mode not in ("diagnose", "price", "fundamental"):
+            return {"error": f"mode 参数无效: '{mode}'，可选值: diagnose, price, fundamental"}
+        if mode == "fundamental":
+            return _fundamental_result(code, tool_context)
+        ensure_tushare_token(tool_context)
         end_date = date.today()
         if mode == "price":
             return _price_result(code, days, end_date)
@@ -37,6 +39,20 @@ def analyze_stock(
     except Exception as e:
         logger.exception("analyze_stock error")
         return {"error": str(e)}
+
+
+def _fundamental_result(code: str, tool_context: ToolContext | None) -> dict:
+    from core.fundamental_overlay import evaluate_fundamental_overlay
+    from integrations.tickflow_client import TickFlowClient
+
+    api_key = get_credential(tool_context, "tickflow_api_key", "TICKFLOW_API_KEY")
+    if not api_key:
+        return {"error": "基本面查询需要 TickFlow API Key，请先配置 TICKFLOW_API_KEY"}
+    records = TickFlowClient(api_key=api_key).get_financial_metrics([code], latest=True)
+    latest = next(iter(records.values()), []) if records else []
+    metrics = latest[0] if latest else None
+    overlay = evaluate_fundamental_overlay(metrics, signal_date=date.today())
+    return {"code": code, "name": code_to_name(code), "data_status": "ok" if metrics else "no_data", **overlay}
 
 
 def _price_result(code: str, days: int, end_date: date) -> dict:

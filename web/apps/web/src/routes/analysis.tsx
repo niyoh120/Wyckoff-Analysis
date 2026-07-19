@@ -553,7 +553,7 @@ function ValueSection({ snapshot, compact = false }: { snapshot: ValueSnapshot; 
           <p className="mt-1 text-xs text-muted-foreground">{t('analysis.valueSubtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(signals?.tone ?? 'neutral')}`}>{signals?.label}</span>
+          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(signals?.tone ?? 'neutral', signals?.severe ?? false)}`}>{signals?.label}</span>
           <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{sourceLabel(snapshot)}</span>
           <span title={valueDataQualityTitle(snapshot, t)} className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{valueDataQualityText(snapshot, t)}</span>
         </div>

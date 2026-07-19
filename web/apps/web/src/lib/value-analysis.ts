@@ -27,12 +27,13 @@ const VALUE_SIGNAL_TRANSLATION_KEYS: Record<string, TranslationKey> = {
 export function buildValueScore(metrics: FundamentalMetric | null, t?: Translate): ValueScore {
   const tr = (key: TranslationKey, fallback: string) => t ? t(key) : fallback
   const score = buildSharedValueScore(metrics)
-  const tone: ValueTone = score.tone
-  const label = tone === 'good'
-    ? tr('analysis.valueScoreStrong', '稳健')
-    : tone === 'bad'
-      ? tr('analysis.valueScoreWeak', '承压')
-      : tr('analysis.valueScoreNeutral', '中性')
+  const label = score.severe
+    ? tr('analysis.valueScoreSevere', '高危')
+    : score.tone === 'good'
+      ? tr('analysis.valueScoreStrong', '稳健')
+      : score.tone === 'bad'
+        ? tr('analysis.valueScoreWeak', '承压')
+        : tr('analysis.valueScoreNeutral', '中性')
   return {
     ...score,
     label: metrics ? label : tr('analysis.valueNoSource', '暂无'),
@@ -112,7 +113,8 @@ export function metricToneClass(tone: ValueTone): string {
   return 'text-foreground'
 }
 
-export function valueScoreClass(tone: ValueTone): string {
+export function valueScoreClass(tone: ValueTone, severe = false): string {
+  if (severe) return 'bg-up/20 text-up ring-1 ring-up/40'
   if (tone === 'good') return 'bg-down/10 text-down'
   if (tone === 'bad') return 'bg-up/10 text-up'
   return 'bg-muted text-muted-foreground'
@@ -122,6 +124,16 @@ export function signalClass(tone: ValueTone): string {
   if (tone === 'good') return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
   if (tone === 'bad') return 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200'
   return 'border-border text-muted-foreground'
+}
+
+/** Sorts descending by quality score, surfacing severe-risk items first regardless of score. */
+export function sortByValueRisk<T>(items: T[], metricsOf: (item: T) => FundamentalMetric | null): T[] {
+  return [...items].sort((a, b) => {
+    const scoreA = buildSharedValueScore(metricsOf(a))
+    const scoreB = buildSharedValueScore(metricsOf(b))
+    if (scoreA.severe !== scoreB.severe) return scoreA.severe ? -1 : 1
+    return scoreB.score - scoreA.score
+  })
 }
 
 export function buildValueDigest(snapshot: ValueSnapshot): string {

@@ -199,7 +199,7 @@ Arsenal del agente — 10 herramientas cuantitativas + 5 capacidades generales:
 | Herramienta | Capacidad |
 |-------------|-----------|
 | `search_stock_by_name` | Busqueda difusa por nombre, codigo o pinyin |
-| `analyze_stock` | Diagnostico Wyckoff / cotizaciones OHLCV recientes (cambio de modo) |
+| `analyze_stock` | Diagnostico Wyckoff / cotizaciones OHLCV recientes / overlay de calidad fundamental (cambio de modo) |
 | `portfolio` | Ver posiciones / escaneo masivo de cartera (cambio de modo) |
 | `update_portfolio` | Agregar / modificar / eliminar posiciones, establecer efectivo, eliminar registros de seguimiento |
 | `get_market_overview` | Panorama general del mercado |
