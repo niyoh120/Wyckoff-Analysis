@@ -177,13 +177,11 @@ def _apply_us_cfg(cfg: FunnelConfig) -> None:
     # 否则回测评估的不是线上真实漏斗（此前误关闭了 RS 过滤，阈值也偏松）。
     cfg.require_cn_main_or_chinext = False
     cfg.require_bench_latest_alignment = False
-    # SOS 收紧至 10%/4.0x（与 workflows/market_funnel_config.py 同步）
-    cfg.sos_pct_min = 10.0
-    cfg.sos_vol_ratio = 4.0
+    # 恢复收敛前参数：SOS 8%/3.2x，不设低价股闸门（与 workflows/market_funnel_config.py 同步）
+    cfg.sos_pct_min = 8.0
+    cfg.sos_vol_ratio = 3.2
     cfg.spring_vol_ratio = 1.3
     cfg.evr_max_rise = 3.0
-    # 低价股风险闸门（与 workflows/market_funnel_config.py 同步）
-    cfg.l1_min_close_price = 5.0
 
 
 def _build_run_summary(

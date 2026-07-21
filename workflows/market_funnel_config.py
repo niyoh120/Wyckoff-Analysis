@@ -16,17 +16,12 @@ def funnel_config_for_market(market: str, *, trading_days: int = 320, min_avg_am
     funnel_cfg.require_bench_latest_alignment = False
 
     if market == "us":
-        # SOS 收紧至 10%/4.0x：跨周期回测显示近期回撤从 -43.7% 降至 -19.7%，
-        # 收益从 -28.4% 改善至 -17.8%，牛市/熊市未恶化。Walk-forward 验证通过。
-        funnel_cfg.sos_pct_min = 10.0
-        funnel_cfg.sos_vol_ratio = 4.0
+        # 恢复收敛前参数：SOS 8%/3.2x，不设低价股闸门（min_avg_amount_wan/RS 过滤
+        # 已提供基础流动性把关），全市场含仙股/低价股均纳入候选池观察。
+        funnel_cfg.sos_pct_min = 8.0
+        funnel_cfg.sos_vol_ratio = 3.2
         funnel_cfg.spring_vol_ratio = 1.3
         funnel_cfg.evr_max_rise = 3.0
-        # 实盘追踪表复盘（1343 条真实推荐，30 个交易日）：初始价 $1-5 区间样本
-        # 均收 -26.4%、胜率仅 11.1%，贡献了 59% 的极端亏损(<=-30%)，是中概反向
-        # 收购壳股/仙股的高发价格带；默认值 2.0（人民币计价 A 股口径）对美元计价
-        # 的美股门槛过低，提高到 5.0 把这批结构性亏损源挡在漏斗最前端。
-        funnel_cfg.l1_min_close_price = 5.0
     elif market == "hk":
         apply_hk_funnel_cfg(funnel_cfg, min_avg_amount=min_avg_amount)
     elif market == "etf":
