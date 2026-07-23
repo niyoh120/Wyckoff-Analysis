@@ -104,7 +104,6 @@ class Step4OrderConfig:
     atr_slippage_factor: float = 0.25
     probe_budget_limit: float = 0.10
     repair_probe_budget_limit: float = 0.05
-    left_probe_budget_limit: float = 0.02
     attack_budget_limit: float = 0.20
     buy_block_regimes: frozenset[str] = EXECUTE_BLOCK_NEW_BUY_REGIMES
     chase_gap_pct_min: float = 1.2

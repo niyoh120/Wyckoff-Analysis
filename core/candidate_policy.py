@@ -22,7 +22,6 @@ TREND_CANDIDATE_TRIGGERS = {
     "sector_strength",
     "wyckoff_structure",
 }
-OBSERVATION_ONLY_TRIGGERS = {"crash_resilience_watch"}
 DEFENSIVE_REGIMES = {
     "RISK_OFF",
     "BEAR_REBOUND",
@@ -80,12 +79,9 @@ def is_tradeable_l4_trigger_combo(trigger_keys: Iterable[str]) -> bool:
     keys = _normalize_keys(trigger_keys)
     if not keys:
         return False
-    tradeable_keys = keys - OBSERVATION_ONLY_TRIGGERS
-    if not tradeable_keys:
-        return False
-    if tradeable_keys & STRUCTURAL_L4_TRIGGERS:
+    if keys & STRUCTURAL_L4_TRIGGERS:
         return True
-    return not tradeable_keys <= NAKED_RIGHT_SIDE_TRIGGERS
+    return not keys <= NAKED_RIGHT_SIDE_TRIGGERS
 
 
 def rerank_selected_codes(codes: list[str], score_map: dict[str, float]) -> list[str]:

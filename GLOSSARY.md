@@ -146,8 +146,7 @@
 | **盘中恐慌修复** | PANIC_REPAIR_INTRADAY | 盘中满足暴跌日后强烈反弹且成交量/广度快速回升 | **小额试探准备 (PROBE_READY)，仓位上限5%** |
 | **转弱** | RISK_OFF | 均线空头，下行确认 | **禁止新仓** |
 | **结构周期** | BULL / TRANSITION / BEAR | 由指数相对 MA50/MA200 与 MA50 斜率定义的中期方向，独立于近 3 日反弹；BEAR 默认映射为 RISK_OFF | **结构熊市禁止普通新仓** |
-| **崩盘** | CRASH | 暴跌/广度断崖 | **自动启用抗跌观察车道 (crash_resilience_watch)，只观察禁止新仓** |
-| **崩盘左侧试探** | CRASH_LEFT_PROBE | 左侧观察池候选盘中跌破支撑后收回，收位与承接达标 | **LEFT_PROBE_READY；Top1、单票2%，禁止 ATTACK** |
+| **崩盘** | CRASH | 暴跌/广度断崖 | **禁止新仓，只影子观察**（抗跌观察车道 crash_resilience_watch 已因大样本负期望下线） |
 
 ### 实测验证
 

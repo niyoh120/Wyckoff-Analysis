@@ -46,7 +46,7 @@ def test_worsening_premarket_never_increases_execution_permission() -> None:
     def permission(regime: str) -> int:
         if regime in EXECUTE_BLOCK_NEW_BUY_REGIMES:
             return 0
-        if regime in {"CAUTION", "CRASH_LEFT_PROBE", "PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"}:
+        if regime in {"CAUTION", "PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"}:
             return 1
         return 2
 

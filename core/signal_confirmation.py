@@ -20,7 +20,6 @@ SIGNAL_TTL_DAYS: dict[str, int] = {
     "sector_strength": 2,
     "wyckoff_structure": 2,
     "mainline": 2,
-    "crash_resilience_watch": 2,
 }
 TREND_CONFIRM_SIGNALS = {
     "trend_pullback",
@@ -142,25 +141,12 @@ def _confirm_trend_candidate(snap: dict, today: dict, days_elapsed: int) -> tupl
     return "pending", "等待主线/趋势买点确认"
 
 
-def _confirm_crash_resilience(snap: dict, today: dict, days_elapsed: int) -> tuple[str, str]:
-    snap_close = snap.get("snap_close", 0)
-    if today["low"] < snap_close * 0.97:
-        return "expired", f"跌破信号日收盘 -3% 支撑位 {snap_close * 0.97:.2f}"
-    ma20 = today.get("ma20", 0)
-    ma50 = today.get("ma50", 0)
-    holds_support = today["close"] >= max(ma20, ma50)
-    if today["close"] > snap_close and holds_support:
-        return "confirmed", f"确认修复：收盘 {today['close']:.2f} 站稳主支撑并高于信号日收盘"
-    return "pending", "等待修复上涨确认"
-
-
 _CONFIRM_DISPATCH = {
     "sos": _confirm_sos,
     "spring": _confirm_spring,
     "lps": _confirm_lps,
     "evr": _confirm_evr,
     "compression": _confirm_compression,
-    "crash_resilience_watch": _confirm_crash_resilience,
     **{signal: _confirm_trend_candidate for signal in TREND_CONFIRM_SIGNALS},
 }
 
@@ -330,7 +316,6 @@ def build_snap(
         "trend_lane_pullback",
         "mainline",
         "main_force_entry",
-        "crash_resilience_watch",
     }:
         snap["snap_support"] = ma20
     elif signal_type in {"trend_breakout", "sector_strength", "wyckoff_structure"}:

@@ -593,7 +593,6 @@ def test_max_new_buy_names_blocks_bear_rebound() -> None:
     assert max_new_buy_names("BEAR_REBOUND", limits) == 0
     assert max_new_buy_names("PANIC_REPAIR", limits) == 0
     assert max_new_buy_names("PANIC_REPAIR_CONFIRMED", limits) == 1
-    assert max_new_buy_names("CRASH_LEFT_PROBE", limits) == 1
     assert max_new_buy_names("CAUTION", limits) == 1
 
 
@@ -630,25 +629,6 @@ def test_caution_allows_probe_but_blocks_attack() -> None:
     attack_tickets, _ = engine.process([_decision("ATTACK")])
 
     assert probe_tickets[0].status == "APPROVED"
-    assert attack_tickets[0].status == "NO_TRADE"
-    assert "只允许小额 PROBE" in attack_tickets[0].reason
-
-
-def test_crash_left_probe_caps_position_at_two_percent_and_blocks_attack() -> None:
-    engine = WyckoffOrderEngine(
-        total_equity=100000,
-        free_cash=50000,
-        position_map={},
-        latest_price_map={"000001": 9.5},
-        atr_map={"000001": 0.2},
-        market_regime="CRASH_LEFT_PROBE",
-    )
-
-    probe_tickets, _ = engine.process([_decision("PROBE")])
-    attack_tickets, _ = engine.process([_decision("ATTACK")])
-
-    assert probe_tickets[0].status == "APPROVED"
-    assert probe_tickets[0].amount <= 2000
     assert attack_tickets[0].status == "NO_TRADE"
     assert "只允许小额 PROBE" in attack_tickets[0].reason
 

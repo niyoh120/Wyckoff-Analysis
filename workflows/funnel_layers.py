@@ -96,7 +96,6 @@ def run_base_funnel_layers(
     triggers = layer4_triggers(
         l3_passed, all_df_map, cfg, channel_map=l2_channel_map, market_cap_map=ref_data.market_cap_map
     )
-    _handle_crash_regime_resilience(benchmark_context, l1_passed, all_df_map, bench_df, cfg, triggers)
     structure_shadow = _structure_shadow(l3_passed, all_df_map, cfg, triggers)
     leader_rows = detect_leader_radar(l1_passed, all_df_map, ref_data.sector_map, l2_channel_map, cfg)
     theme_current, theme_radar, theme_source = _build_theme_context(window, ref_data, all_df_map)
@@ -406,23 +405,3 @@ def _build_mainline_candidates_helper(
         name_map=ref_data.name_map,
         config=mainline_cfg,
     )
-
-
-def _handle_crash_regime_resilience(
-    benchmark_context: dict,
-    l1_passed: list[str],
-    all_df_map: dict[str, pd.DataFrame],
-    bench_df: pd.DataFrame | None,
-    cfg: Any,
-    triggers: dict,
-) -> None:
-    if benchmark_context.get("regime") == "CRASH":
-        from workflows.funnel_render import select_crash_resilient_stocks
-
-        resilient_stocks = select_crash_resilient_stocks(
-            symbols=l1_passed,
-            df_map=all_df_map,
-            bench_df=bench_df,
-            cfg=cfg,
-        )
-        triggers["crash_resilience_watch"] = [(item["code"], item["score"]) for item in resilient_stocks]

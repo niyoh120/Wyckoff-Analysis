@@ -109,7 +109,7 @@ def _normalize_benchmark_slot(regime: str) -> str:
         return "NEUTRAL"
     if normalized == "CAUTION":
         return "CAUTION"
-    if normalized in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY", "CRASH_LEFT_PROBE"}:
+    if normalized in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"}:
         return "CAUTION"
     if normalized in {"CRASH", "BLACK_SWAN"}:
         return "CRASH"

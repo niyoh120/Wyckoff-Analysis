@@ -76,7 +76,6 @@ def test_execute_backtest_run_builds_summary_from_prepared_data(monkeypatch) -> 
             pending_confirmed_total=3,
             entry_price_missing_skipped=4,
             ohlc_lookup_cache={},
-            crash_probe_stats={"watch_candidates": 3, "confirmation_rate_pct": 50.0},
         )
 
     def fake_enrich(summary: dict, **kwargs):
@@ -119,8 +118,6 @@ def test_execute_backtest_run_builds_summary_from_prepared_data(monkeypatch) -> 
     assert summary["concept_map_loaded"] == 1
     assert summary["concept_heat_loaded"] == 1
     assert summary["financial_map_loaded"] == 1
-    assert summary["crash_probe_watch_candidates"] == 3
-    assert summary["crash_probe_confirmation_rate_pct"] == 50.0
     assert summary["metadata_source"] == "disabled"
     assert summary["pending_confirmed_total"] == 3
     assert summary["execution_regime_gate"] == "live"

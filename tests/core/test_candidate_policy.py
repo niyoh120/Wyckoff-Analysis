@@ -3,21 +3,18 @@ from __future__ import annotations
 from core.candidate_policy import cap_quality_candidates, is_tradeable_l4_trigger_combo
 
 
-def test_is_tradeable_l4_trigger_combo_with_crash_watch():
-    # 1. Pure crash_resilience_watch -> False
-    assert is_tradeable_l4_trigger_combo(["crash_resilience_watch"]) is False
-
-    # 2. crash_resilience_watch + spring -> True
-    assert is_tradeable_l4_trigger_combo(["crash_resilience_watch", "spring"]) is True
-
-    # 3. crash_resilience_watch + sos -> False
-    assert is_tradeable_l4_trigger_combo(["crash_resilience_watch", "sos"]) is False
-
-    # 4. Normal spring -> True
+def test_is_tradeable_l4_trigger_combo_structural_and_naked_right_side():
+    # 结构性触发（如 spring）单独出现即可交易
     assert is_tradeable_l4_trigger_combo(["spring"]) is True
 
-    # 5. Normal sos -> False
+    # 裸右侧信号（sos/evr）没有结构性触发时不可交易
     assert is_tradeable_l4_trigger_combo(["sos"]) is False
+
+    # 裸右侧信号叠加结构性触发后可交易
+    assert is_tradeable_l4_trigger_combo(["sos", "spring"]) is True
+
+    # 空触发集合不可交易
+    assert is_tradeable_l4_trigger_combo([]) is False
 
 
 def test_quality_cap_prefers_score_and_limits_sector_concentration():

@@ -20,11 +20,6 @@ from core.a_share_entry_research import (
     market_context_allows_entry,
 )
 from core.ai_candidate_allocation import AiCandidateAllocationConfig
-from core.backtest_crash_probe import (
-    CrashProbeObservation,
-    build_crash_probe_observations,
-    summarize_crash_probe_replay,
-)
 from core.backtest_execution import (
     ExitSimulationConfig,
     IntradayPriceFetcher,
@@ -109,13 +104,11 @@ class BacktestReplayResult:
     regime_day_counts: dict[str, int] = field(default_factory=dict)
     regime_blocked_signal_days: int = 0
     regime_blocked_candidates: int = 0
-    crash_probe_stats: dict[str, float | int | str | None] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class BacktestSignalLedger:
     days: list[_SignalDay]
-    crash_probe_observations: list[CrashProbeObservation] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -245,7 +238,6 @@ def build_signal_ledger(
     progress: ProgressReporter | None = None,
 ) -> BacktestSignalLedger:
     days: list[_SignalDay] = []
-    crash_probe_observations: list[CrashProbeObservation] = []
     pending_pool = PendingPool() if config.pending_mode != "off" else None
     limit = max_idx if max_idx is not None else len(trade_dates) - 2
     started_at = monotonic()
@@ -266,10 +258,6 @@ def build_signal_ledger(
         )
         if ctx is None:
             continue
-        if config.board not in {"us", "hk"}:
-            crash_probe_observations.extend(
-                build_crash_probe_observations(ctx.regime, ctx.signal_date, ctx.result.triggers, ctx.day_df_map)
-            )
         selected, confirmed_count = _select_ranked_codes(ctx, pending_pool, sector_map, config)
         blocked_day, blocked_count = _apply_execution_gates(ctx, selected, config)
         selected = blocked_day.selected
@@ -284,7 +272,7 @@ def build_signal_ledger(
         )
         selected_total += len(selected.codes) if selected else 0
         _report_progress(idx, limit, selected_total, progress, started_at)
-    return BacktestSignalLedger(days, crash_probe_observations)
+    return BacktestSignalLedger(days)
 
 
 @dataclass(frozen=True)
@@ -353,14 +341,6 @@ def replay_signal_ledger(
         regime_day_counts,
         blocked_signal_days,
         blocked_candidates,
-        summarize_crash_probe_replay(
-            ledger.crash_probe_observations,
-            all_df_map,
-            trade_dates,
-            hold_days=config.hold_days,
-            buy_friction_pct=config.buy_friction_pct,
-            sell_friction_pct=config.sell_friction_pct,
-        ),
     )
 
 

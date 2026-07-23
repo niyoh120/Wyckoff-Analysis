@@ -272,7 +272,6 @@ def _execution_summary(config: BacktestRunConfig, replay: BacktestReplayResult, 
         "entry_price_missing_skipped": replay.entry_price_missing_skipped,
         "entry_price_source_counts": _entry_price_source_counts(trades_df),
     }
-    summary.update({f"crash_probe_{key}": value for key, value in replay.crash_probe_stats.items()})
     return summary
 
 

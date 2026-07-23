@@ -271,7 +271,7 @@ def test_replay_backtest_neutral_only_gate_blocks_caution(monkeypatch) -> None:
     assert replay_mod._execution_regime_allows("RISK_ON", "off") is True
 
 
-@pytest.mark.parametrize("regime", ["CAUTION", "PANIC_REPAIR_CONFIRMED", "CRASH_LEFT_PROBE"])
+@pytest.mark.parametrize("regime", ["CAUTION", "PANIC_REPAIR_CONFIRMED"])
 def test_live_gate_limits_probe_only_regime_to_one_candidate(regime: str) -> None:
     selected = replay_mod._RankedSelection(
         ["000001", "000002"],

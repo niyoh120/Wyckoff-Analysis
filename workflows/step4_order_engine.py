@@ -152,8 +152,6 @@ class WyckoffOrderEngine:
         probe_limit = self.config.probe_budget_limit
         if self.market_regime in {"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"}:
             probe_limit = self.config.repair_probe_budget_limit
-        elif self.market_regime == "CRASH_LEFT_PROBE":
-            probe_limit = self.config.left_probe_budget_limit
         self.budget_limits = {
             "PROBE": probe_limit,
             "ATTACK": self.config.attack_budget_limit,

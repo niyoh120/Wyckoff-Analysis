@@ -314,9 +314,8 @@ flowchart TD
     IDEM -->|否| LLM["LLM 决策<br/>EXIT > TRIM > HOLD > PROBE/ATTACK"]
 
     LLM --> RISK{"风控门控"}
-    RISK -->|UNKNOWN / RISK_ON / BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["默认冻结新开仓<br/>STEP4_BUY_BLOCK_REGIMES"]
-    RISK -->|CRASH_LEFT_PROBE| LEFT_PROBE["Top1 左侧 PROBE<br/>单票上限2%，禁止 ATTACK"]
-    RISK -->|PANIC_REPAIR_CONFIRMED| REPAIR_PROBE["最多1只小额 PROBE<br/>禁止 ATTACK"]
+RISK -->|UNKNOWN / RISK_ON / BEAR_REBOUND / PANIC_REPAIR / RISK_OFF / CRASH / BLACK_SWAN| BLOCK_BUY["默认冻结新开仓<br/>STEP4_BUY_BLOCK_REGIMES"]
+RISK -->|PANIC_REPAIR_CONFIRMED| REPAIR_PROBE["最多1只小额 PROBE<br/>禁止 ATTACK"]
     RISK -->|CAUTION| CAUTION_PROBE["最多1只小额 PROBE<br/>禁止 ATTACK"]
     RISK -->|NEUTRAL| ALLOW["按交易模式限额执行"]
 
@@ -477,7 +476,6 @@ efinance
 | `FUNNEL_EXTERNAL_SEED_SYMBOLS` / `FUNNEL_EXTRA_SYMBOLS` | 空 | 临时追加外部观察名单；存在时自动启用 external seed shadow |
 | `STEP4_BUY_HARD_STOP_PCT` | `12.0` | 新开仓灾难止损地板；ATR/结构/时间管理优先 |
 | `STEP4_REPAIR_PROBE_BUDGET_LIMIT` | `0.05` | `PANIC_REPAIR_CONFIRMED` 单票试探仓上限；同时最多只开放一只 |
-| `STEP4_LEFT_PROBE_BUDGET_LIMIT` | `0.02` | `CRASH_LEFT_PROBE` 单票左侧试探仓上限；同时最多只开放一只 |
 | `STEP4_REQUIRE_CONFIRMED_BUY_CANDIDATE` | `1` | Step4 新开仓只允许显式跨日确认候选；否定/观察状态优先拦截，不做模糊字符串匹配 |
 | `STEP4_AI_CANDIDATE_POLICY` | `veto_only` | `veto_only` 只剔除逻辑破产；`shadow` 仅记录分类用于实验对照 |
 | `STEP4_BUY_BLOCK_REGIMES` | `UNKNOWN,RISK_ON,BEAR_REBOUND,PANIC_REPAIR,RISK_OFF,CRASH,BLACK_SWAN` | 市场数据未就绪、过热与弱市均冻结新开仓 |

@@ -10,9 +10,8 @@ NO_NEW_BUY_REGIMES = frozenset({"UNKNOWN", "RISK_OFF", "CRASH", "BLACK_SWAN"})
 OVERHEAT_SHADOW_REGIMES = frozenset({"RISK_ON"})
 REPAIR_REVIEW_REGIMES = frozenset({"BEAR_REBOUND", "PANIC_REPAIR"})
 REPAIR_PROBE_REGIMES = frozenset({"PANIC_REPAIR_CONFIRMED", "PANIC_REPAIR_INTRADAY"})
-LEFT_PROBE_REGIMES = frozenset({"CRASH_LEFT_PROBE"})
 CAUTION_ONLY_REGIMES = frozenset({"CAUTION"})
-PROBE_ONLY_REGIMES = frozenset(REPAIR_PROBE_REGIMES | LEFT_PROBE_REGIMES | CAUTION_ONLY_REGIMES)
+PROBE_ONLY_REGIMES = frozenset(REPAIR_PROBE_REGIMES | CAUTION_ONLY_REGIMES)
 # 尾盘/OMS 禁止新开仓的水温并集。
 EXECUTE_BLOCK_NEW_BUY_REGIMES = frozenset(NO_NEW_BUY_REGIMES | OVERHEAT_SHADOW_REGIMES | REPAIR_REVIEW_REGIMES)
 KNOWN_MARKET_REGIMES = frozenset(
@@ -24,7 +23,6 @@ KNOWN_MARKET_REGIMES = frozenset(
         "PANIC_REPAIR",
         "PANIC_REPAIR_CONFIRMED",
         "PANIC_REPAIR_INTRADAY",
-        "CRASH_LEFT_PROBE",
         "RISK_OFF",
         "CRASH",
         "BLACK_SWAN",
@@ -40,7 +38,6 @@ MARKET_EXECUTION_PRIORITY = {
     "PANIC_REPAIR": 5,
     "BEAR_REBOUND": 6,
     "RISK_ON": 7,
-    "CRASH_LEFT_PROBE": 8,
     "PANIC_REPAIR_INTRADAY": 9,
     "PANIC_REPAIR_CONFIRMED": 9,
     "CAUTION": 10,
@@ -91,25 +88,8 @@ def _confirmed_repair_trade_mode(regime: str) -> MarketTradeMode:
     )
 
 
-def _left_probe_trade_mode(regime: str) -> MarketTradeMode:
-    return MarketTradeMode(
-        regime=regime,
-        mode="left_probe",
-        label="左侧试探",
-        action="黄金坑左侧试探：只开放一只小额 PROBE，禁止 ATTACK、追价和自动扩仓",
-        reason="防守候选盘中跌破支撑后收回，并通过尾盘承接确认",
-        allow_ai_review=True,
-        allow_recommendation_write=True,
-        allow_full_l4=False,
-        allow_bypass_review=False,
-        allow_theme_promotion=False,
-    )
-
-
 def resolve_market_trade_mode(regime: str | None) -> MarketTradeMode:
     regime_norm = normalize_regime(regime)
-    if regime_norm in LEFT_PROBE_REGIMES:
-        return _left_probe_trade_mode(regime_norm)
     if regime_norm in NO_NEW_BUY_REGIMES:
         return MarketTradeMode(
             regime=regime_norm,

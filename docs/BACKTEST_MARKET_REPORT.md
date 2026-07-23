@@ -36,7 +36,7 @@
 | CAUTION | 小额试探 | 同上，仅作为参数参考 | 最多一只二次确认后的 PROBE，禁止 ATTACK |
 | PANIC_REPAIR / BEAR_REBOUND | 禁止新仓 | 影子复核 | 只允许复核候选，不自动写正式推荐 |
 | PANIC_REPAIR_CONFIRMED | 小额试探 | 观察仓补仓 / 10天 / SL-8% / TP18% / 无Trail（收益 +0.57%，回撤 -6.2%） | 最多一只 PROBE，单票上限5%，禁止 ATTACK |
-| RISK_OFF / CRASH / BLACK_SWAN | 禁止普通新仓 | 空仓或影子观察 | 熊市 2021-12~2022-10 最佳现金收益 -4.46%；CRASH_LEFT_PROBE 候选级例外仍限 Top1/2% |
+| RISK_OFF / CRASH / BLACK_SWAN | 禁止普通新仓 | 空仓或影子观察 | 熊市 2021-12~2022-10 最佳现金收益 -4.46% |
 
 ## 回测摘要
 
